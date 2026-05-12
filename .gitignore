@@ -61,6 +61,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Canonical mux store (local SQLite; schema + sync live under db/)
+/data/*.sqlite
+/data/*.sqlite-shm
+/data/*.sqlite-wal
+
 # Flask stuff:
 instance/
 .webassets-cache
