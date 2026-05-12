@@ -1,0 +1,4 @@
+{
+  "database_path": "data/interview_mux.sqlite",
+  "_comment": "Copy to config/app.defaults.json if you want a non-default layout; the repo ships config/app.defaults.json."
+}

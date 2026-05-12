@@ -35,4 +35,18 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO schema_migrations (version, name) VALUES (1, 'initial_mux_store')"
         )
+    _migrate_schema(conn)
     conn.commit()
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Apply additive / rename migrations after ``schema.sql``."""
+    cur = conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = 2")
+    if cur.fetchone()[0] != 0:
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(execution_run)").fetchall()}
+    if "environment_json" in cols:
+        conn.execute("ALTER TABLE execution_run RENAME COLUMN environment_json TO runtime_context_json")
+    conn.execute(
+        "INSERT INTO schema_migrations (version, name) VALUES (2, 'execution_run_runtime_context_json')"
+    )

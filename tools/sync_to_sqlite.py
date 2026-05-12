@@ -13,22 +13,23 @@ def main() -> int:
     py_path = repo / "db" / "python"
     sys.path.insert(0, str(py_path))
 
-    from mux_store import connect, init_db, sync_markdown_tree
+    from mux_store import connect, default_sqlite_path, init_db, sync_markdown_tree
 
     p = argparse.ArgumentParser(description="Apply schema and sync docs into interview_helper_mux SQLite.")
+    p.add_argument("--repo", default=str(repo), help="Repository root (default: parent of tools/)")
     p.add_argument(
         "--db",
-        default=str(repo / "data" / "interview_mux.sqlite"),
-        help="Path to SQLite file (default: data/interview_mux.sqlite under repo root)",
+        default=None,
+        help="Path to SQLite file (default: database_path from config/app.defaults.json)",
     )
-    p.add_argument("--repo", default=str(repo), help="Repository root (default: parent of tools/)")
     args = p.parse_args()
 
     repo_root = Path(args.repo).resolve()
-    conn = connect(args.db)
+    db_path = args.db if args.db else str(default_sqlite_path(repo_root))
+    conn = connect(db_path)
     init_db(conn)
     n = sync_markdown_tree(conn, repo_root)
-    print(f"Synced {n} markdown files into {args.db}")
+    print(f"Synced {n} markdown files into {db_path}")
     conn.close()
     return 0
 

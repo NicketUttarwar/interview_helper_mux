@@ -13,7 +13,9 @@ Binary media and large artifacts are **not** stored as BLOBs in SQLite; they liv
 - **Python 3.10+** (uses `from __future__ import annotations` and union types).
 - **SQLite 3** with [FTS5](https://www.sqlite.org/fts5.html) enabled (default in modern builds).
 
-No third-party packages are required.
+No third-party packages are required for `mux_store` alone.
+
+If orchestration code calls **AWS** (S3 asset URIs, Transcribe, etc.), use the same repo-wide secrets file as the other integrations: `config/secrets/secrets.env` parsed via `mux_secrets.load_repo_config()` (see repository `config/README.md` and `requirements-integrations.txt`).
 
 ## Layout
 
@@ -23,7 +25,8 @@ No third-party packages are required.
 | `db/seed_pipeline_stages.sql` | Backbone `pipeline_stage` inserts |
 | `db/python/mux_store/` | `connect`, `init_db`, `sync_markdown_tree`, runtime helpers |
 | `tools/sync_to_sqlite.py` | CLI: create DB + sync Markdown |
-| `data/interview_mux.sqlite` | Default DB path (gitignored); directory keeps `.gitkeep` |
+| `config/app.defaults.json` | Default `database_path` for tools (committed) |
+| `data/interview_mux.sqlite` | Typical DB location (gitignored); directory keeps `.gitkeep` |
 
 ## Quick start
 
@@ -45,10 +48,18 @@ Add `db/python` to `PYTHONPATH`, then:
 
 ```python
 from pathlib import Path
-from mux_store import connect, init_db, sync_markdown_tree, create_run, append_event, register_asset
+from mux_store import (
+    connect,
+    create_run,
+    append_event,
+    default_sqlite_path,
+    init_db,
+    register_asset,
+    sync_markdown_tree,
+)
 
 repo = Path("/path/to/interview_helper_mux")
-conn = connect(repo / "data" / "interview_mux.sqlite")
+conn = connect(default_sqlite_path(repo))
 init_db(conn)
 sync_markdown_tree(conn, repo)
 
@@ -62,7 +73,8 @@ register_asset(conn, kind="audio/wav", storage_uri="file:///tmp/normalized.wav",
 - **`doc_source` / `doc_dependency` / `doc_outbound_link` / `doc_search`** — documentation corpus and graph; FTS for full-text search.
 - **`pipeline_stage`** — ordered backbone stages (see `docs/execution/orchestration-component-map.md`).
 - **`registry_entity` / `registry_relation`** — optional catalog of named components, presets, gates (populate from your implementation).
-- **`execution_run` / `execution_step` / `run_event`** — durable run ledger for orchestrators.
+- **`execution_run` / `execution_step` / `run_event`** — durable run ledger for orchestrators (`execution_run.runtime_context_json` holds optional non-secret run context).
+- **`execution_kv`** — small JSON key/value scratch space for local execution (never store secrets here).
 - **`asset`** — pointers to waveforms, spectrograms, manifests, checkpoints, exports.
 - **`interview` / `transcript_revision` / `segment`** — domain objects for scoring, review, and mux.
 - **`edl_clip`** — ordered timeline references (segment id and/or explicit file + in/out).

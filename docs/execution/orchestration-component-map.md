@@ -146,6 +146,18 @@ Legend: **Min** = minimum library path; **Skip** = do not pay complexity tax; **
 | **Stress** | MT **hallucination** or **entity** corruption; **duration** mismatch vs original pacing; **legal** / consent on cloned voices; **code-switch** in source ([§ E](#e--bilingual--code-switch)) interacting with wrong target script |
 | **Library** | **Idea doc added**; implement MT/TTS as **versioned adapters** + manifest fields—avoid a `translation/` tree until multiple providers force a shared contract ([library governance](#library-governance-when-to-add-a-component)) |
 
+## Implemented Python hooks (integrations)
+
+Shared loader: **`ai/python/mux_secrets/`** — Parses **non-committed** `config/secrets/openai.env` (if present), then `config/secrets/secrets.env` (template: `config/templates/secrets.env.example`); duplicate keys use **`secrets.env`**. Values are **not** written to the process environment. See repository `config/README.md`.
+
+| Module | Role |
+|--------|------|
+| **`openai_mux`** | OpenAI client + `rank_segments_by_rubric` ([LLM-assisted ranking](../pipeline/scoring-and-selection/llm-assisted-ranking.md)). |
+| **`aws_mux`** | `boto3.Session` built from `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` plus `AWS_DEFAULT_REGION` (or `AWS_REGION`) in the same secrets file only. |
+| **`elevenlabs_mux`** | ElevenLabs SDK client for TTS / voice workflows ([speech-to-speech-and-trained-remix-models.md](speech-to-speech-and-trained-remix-models.md), [full-localized-dub-orchestration.md](full-localized-dub-orchestration.md)). |
+
+**Smoke tools:** `tools/openai_smoke.py`, `tools/aws_smoke.py`, `tools/elevenlabs_smoke.py`.
+
 ## Reassessment summary
 
 | Orchestration | Library action taken |

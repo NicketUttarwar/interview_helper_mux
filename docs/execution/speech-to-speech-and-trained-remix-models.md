@@ -25,6 +25,7 @@ Stretch goal: treat **audio segments as plastic**—not only cut and level, but 
 ## Practical sequencing
 
 - Always keep **immutable source** + **aligned transcript revision**; S2S outputs become **new artifacts** with new `segment_id` suffixes so you can A/B in the mux.
+- **ElevenLabs (and similar):** API keys live in `config/secrets/secrets.env` (see repository `config/README.md`); Python entrypoint `ai/python/elevenlabs_mux/` + `tools/elevenlabs_smoke.py`.
 
 ## Open decisions
 

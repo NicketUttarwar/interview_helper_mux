@@ -1,6 +1,6 @@
 # interview_helper_mux
 
-Design notes and specs for **one long interview recording → analyzable text, ranked segments, optional edits, and a muxed podcast-style master** (personal / single-operator use). Implementation can follow later; **`docs/` is the source of truth.**
+Design notes and specs for **one long interview recording → analyzable text, ranked segments, optional edits, and a muxed podcast-style master** (personal / single-operator use). **`docs/` is the source of truth** for product behavior and pipeline vocabulary; the repo also ships **early Python**: file-backed secrets (`mux_secrets`), OpenAI / AWS / ElevenLabs adapters, an SQLite **`mux_store`** (schema + doc sync + runtime helpers), and smoke CLI scripts under `tools/`.
 
 ---
 
@@ -19,10 +19,25 @@ Design notes and specs for **one long interview recording → analyzable text, r
 
 ```text
 interview_helper_mux/
-├── README.md              ← this file (keep short; edit as the repo grows)
-├── db/                    ← canonical SQLite schema + Python `mux_store` (see db/README.md)
-├── data/                  ← default local database file (gitignored); created by sync tool
-├── tools/                 ← e.g. sync Markdown + specs into SQLite
+├── README.md                      ← this file (keep short; edit as the repo grows)
+├── config/
+│   ├── app.defaults.json          ← committed defaults (e.g. default SQLite path)
+│   ├── templates/                 ← `secrets.env.example`, `app.defaults.json` (copy/edit locally)
+│   └── secrets/                   ← gitignored; create from templates (see config/README.md)
+├── ai/python/
+│   ├── mux_secrets/               ← merges `config/secrets/openai.env` (optional) + `secrets.env` in memory only
+│   ├── openai_mux/                ← OpenAI client, SDK major gate, prompts, `rank_segments_by_rubric`
+│   ├── aws_mux/                   ← boto3 session (region + credentials from secrets file)
+│   └── elevenlabs_mux/            ← ElevenLabs client (TTS / voice)
+├── requirements.txt               ← preferred pip entry (`-r requirements-integrations.txt` + layout notes)
+├── requirements-integrations.txt  ← pinned SDK majors: openai 2.x, boto3, elevenlabs
+├── requirements-ai.txt            ← same stack as integrations (`-r requirements-integrations.txt`)
+├── db/
+│   ├── schema.sql                 ← DDL + FTS5 doc search
+│   ├── seed_pipeline_stages.sql   ← backbone `pipeline_stage` rows
+│   └── python/mux_store/          ← connect, init, sync docs, runtime helpers (see db/README.md)
+├── data/                          ← default SQLite under `data/*.sqlite` (gitignored); `data/.gitkeep` tracked
+├── tools/                         ← sync_to_sqlite.py, openai_smoke.py, aws_smoke.py, elevenlabs_smoke.py
 └── docs/
     ├── INDEX.md           ← flat link hub
     ├── README.md          ← how to read the doc tree
@@ -33,7 +48,11 @@ interview_helper_mux/
     └── cross-cutting/     ← segment schema, evaluation metrics
 ```
 
-Heavy assets, secrets, and generated audio stay **out of git** (see [docs/README.md](docs/README.md)).
+Heavy assets, secrets, and generated audio stay **out of git** (see [docs/README.md](docs/README.md)). Put API keys under **`config/secrets/`** (entire tree gitignored): copy [config/templates/secrets.env.example](config/templates/secrets.env.example) to `config/secrets/secrets.env`. Optional legacy **`config/secrets/openai.env`** is merged first; duplicate keys are overridden by `secrets.env` — see [config/README.md](config/README.md).
+
+**Integrations:** `pip install -r requirements.txt` (or `requirements-integrations.txt` / `requirements-ai.txt`), fill secrets, then run `python tools/openai_smoke.py`, `python tools/aws_smoke.py`, or `python tools/elevenlabs_smoke.py` from the repo root (scripts prepend `ai/python` to `sys.path`). Shared loader: `mux_secrets.load_repo_config()`. OpenAI prompts live under `ai/python/openai_mux/prompts/` (index: `PROMPTS_EXECUTION.txt`). Default SQLite path: `config/app.defaults.json` (`database_path`, typically `data/interview_mux.sqlite`). LLM ranking API: `openai_mux.rank_segments_by_rubric` — [docs/pipeline/scoring-and-selection/llm-assisted-ranking.md](docs/pipeline/scoring-and-selection/llm-assisted-ranking.md).
+
+**Doc corpus in SQLite:** `python tools/sync_to_sqlite.py` creates or opens the DB, runs `mux_store.init_db` (applies `db/schema.sql` plus `db/seed_pipeline_stages.sql` when present), then syncs Markdown from `docs/` and the root `README.md` into `mux_store` — details in [db/README.md](db/README.md).
 
 ---
 

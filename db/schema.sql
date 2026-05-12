@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS execution_run (
   parent_run_id TEXT REFERENCES execution_run (id) ON DELETE SET NULL,
   git_revision TEXT,
   config_json TEXT NOT NULL,
-  environment_json TEXT,
+  runtime_context_json TEXT,
   notes TEXT
 );
 
@@ -152,6 +152,13 @@ CREATE TABLE IF NOT EXISTS run_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_run_event_run_ts ON run_event (run_id, ts);
+
+-- Ephemeral / scratch key-value state for local execution (never secrets).
+CREATE TABLE IF NOT EXISTS execution_kv (
+  k TEXT PRIMARY KEY,
+  v_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Binary or large files stay on disk/object store; DB holds pointers + hashes.
 CREATE TABLE IF NOT EXISTS asset (

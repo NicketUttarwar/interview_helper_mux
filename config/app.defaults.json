@@ -1,0 +1,4 @@
+{
+  "database_path": "data/interview_mux.sqlite",
+  "_comment": "database_path is relative to the repository root unless an absolute path is given."
+}

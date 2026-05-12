@@ -1,0 +1,26 @@
+# =============================================================================
+# interview_helper_mux — Python dependencies (root entrypoint)
+# =============================================================================
+# Install:
+#   python3 -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Execution stack (what this pulls in)
+#   Integrations live in requirements-integrations.txt (included below). That file
+#   pins major lines for vendor SDKs so upgrades are deliberate, not accidental.
+#
+#   Layout:
+#     ai/python/mux_secrets/   — parses config/secrets/*.env (values stay in memory only)
+#     ai/python/openai_mux/  — OpenAI Chat Completions + shared system prompts
+#     ai/python/aws_mux/     — boto3 session after secrets load
+#     ai/python/elevenlabs_mux/ — ElevenLabs client after secrets load
+#     tools/*.py             — prepend ai/python to sys.path then import *._mux
+#
+# Assumptions
+#   - Python 3.10+ recommended (OpenAI SDK 2.x supports 3.9+; we standardize on 3.10+).
+#   - Outbound HTTPS for OpenAI, AWS, ElevenLabs when smoke scripts or jobs run.
+#   - Audio tooling (ffmpeg, etc.) is out-of-band from pip; see docs/pipeline/.
+#   - No secrets in git: copy config/templates/secrets.env.example → config/secrets/secrets.env
+# =============================================================================
+
+-r requirements-integrations.txt

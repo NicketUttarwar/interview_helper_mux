@@ -19,7 +19,7 @@ def create_run(
     parent_run_id: str | None = None,
     git_revision: str | None = None,
     config: dict[str, Any] | None = None,
-    environment: dict[str, Any] | None = None,
+    runtime_context: dict[str, Any] | None = None,
     notes: str | None = None,
 ) -> str:
     run_id = str(uuid.uuid4())
@@ -27,7 +27,7 @@ def create_run(
         """
         INSERT INTO execution_run (
           id, status, orchestration_slug, parent_run_id, git_revision,
-          config_json, environment_json, notes, created_at, updated_at
+          config_json, runtime_context_json, notes, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -37,7 +37,7 @@ def create_run(
             parent_run_id,
             git_revision,
             json.dumps(config or {}, sort_keys=True),
-            json.dumps(environment, sort_keys=True) if environment else None,
+            json.dumps(runtime_context, sort_keys=True) if runtime_context else None,
             notes,
             _utc_iso(),
             _utc_iso(),
@@ -225,10 +225,34 @@ def upsert_segment(
             text,
             json.dumps(scores, sort_keys=True) if scores else None,
             json.dumps(flags, sort_keys=True) if flags else None,
-            mutex_group_id,
-            json.dumps(provenance, sort_keys=True) if provenance else None,
             _utc_iso(),
             _utc_iso(),
         ),
     )
+    conn.commit()
+
+
+def execution_kv_get(conn: sqlite3.Connection, key: str) -> Any | None:
+    """Return the JSON-decoded value for ``key``, or ``None`` if absent."""
+    cur = conn.execute("SELECT v_json FROM execution_kv WHERE k = ?", (key,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return json.loads(row[0])
+
+
+def execution_kv_set(conn: sqlite3.Connection, key: str, value: Any) -> None:
+    """Upsert a JSON-serializable value (scratch data only — never secrets)."""
+    conn.execute(
+        """
+        INSERT INTO execution_kv (k, v_json, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(k) DO UPDATE SET v_json = excluded.v_json, updated_at = excluded.updated_at
+        """,
+        (key, json.dumps(value, sort_keys=True), _utc_iso()),
+    )
+    conn.commit()
+
+
+def execution_kv_delete(conn: sqlite3.Connection, key: str) -> None:
+    conn.execute("DELETE FROM execution_kv WHERE k = ?", (key,))
     conn.commit()
