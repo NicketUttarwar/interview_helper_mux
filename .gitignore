@@ -225,3 +225,8 @@ __marimo__/
 # Local API keys and secrets — never commit anything under this tree.
 # Safe, committed examples live in config/templates/ only.
 /config/secrets/
+
+
+
+ASSETS/
+ASSETS/*
