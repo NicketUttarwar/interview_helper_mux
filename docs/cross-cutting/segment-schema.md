@@ -13,8 +13,8 @@ Shared conceptual schema for **segments** and **EDL references** used by snippet
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `segment_id` | string | Stable within `(interview_id, transcript_revision, boundary_set)` |
-| `interview_id` | string | One source recording |
+| `segment_id` | string | Stable within `(session_id, transcript_revision, boundary_set)` |
+| `session_id` | string | One pipeline execution / source recording (`run_001`, …) |
 | `t_start_ms` | int | Global timeline |
 | `t_end_ms` | int | Exclusive or inclusive—pick one convention repo-wide |
 | `text` | string | Segment transcript |

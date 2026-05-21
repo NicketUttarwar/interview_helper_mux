@@ -57,13 +57,13 @@ def segment_transcript(
     return out
 
 
-def persist_segments(conn: Any, interview_id: str, segments: list[dict[str, Any]]) -> int:
+def persist_segments(conn: Any, session_id: str, segments: list[dict[str, Any]]) -> int:
     from mux_store import upsert_segment
 
     for s in segments:
         upsert_segment(
             conn,
-            interview_id=interview_id,
+            interview_id=session_id,
             segment_id=s["segment_id"],
             t_start_ms=s["t_start_ms"],
             t_end_ms=s["t_end_ms"],

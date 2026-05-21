@@ -16,9 +16,9 @@ def _heuristic_scores(segments: list[dict[str, Any]]) -> list[tuple[str, float]]
     return scored
 
 
-def rank_segments_for_interview(
+def rank_segments_for_session(
     conn: Any,
-    interview_id: str,
+    session_id: str,
     *,
     use_llm: bool = True,
     top_n: int | None = None,
@@ -34,7 +34,7 @@ def rank_segments_for_interview(
         FROM segment WHERE interview_id = ?
         ORDER BY t_start_ms
         """,
-        (interview_id,),
+        (session_id,),
     )
     rows = cur.fetchall()
     segments = [
@@ -77,7 +77,7 @@ def rank_segments_for_interview(
         scores = {"llm_rank": float(len(ordered) - rank_map.get(s["segment_id"], len(ordered)))}
         upsert_segment(
             conn,
-            interview_id=interview_id,
+            interview_id=session_id,
             segment_id=s["segment_id"],
             t_start_ms=s["t_start_ms"],
             t_end_ms=s["t_end_ms"],

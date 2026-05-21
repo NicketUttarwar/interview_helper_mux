@@ -8,7 +8,7 @@ from pipeline.common import assets_root
 
 
 def build_snippet_manifest(
-    interview_id: str,
+    session_id: str,
     segments: list[dict[str, Any]],
     *,
     ordered_ids: list[str] | None = None,
@@ -17,7 +17,7 @@ def build_snippet_manifest(
     order = ordered_ids or [s["segment_id"] for s in segments]
     by_id = {s["segment_id"]: s for s in segments}
     return {
-        "interview_id": interview_id,
+        "session_id": session_id,
         "transcript_revision_id": transcript_revision_id,
         "ordered_segment_ids": order,
         "segments": [by_id[sid] for sid in order if sid in by_id],
@@ -26,7 +26,7 @@ def build_snippet_manifest(
 
 def write_snippet_manifest(manifest: dict[str, Any]) -> Path:
     root = assets_root()
-    iid = manifest["interview_id"]
+    iid = manifest["session_id"]
     out_dir = root / iid / "snippets"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "manifest.json"

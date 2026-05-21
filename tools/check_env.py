@@ -14,7 +14,6 @@ from mux_store import (
     default_sqlite_path,
     init_db,
     resolve_input_audio_path,
-    resolve_interview_id,
     sync_markdown_tree,
 )
 from pipeline.common import repo_root
@@ -48,13 +47,9 @@ def main() -> int:
     assets = default_assets_path(repo)
     assets.mkdir(parents=True, exist_ok=True)
     print(f"  OK   assets root ({assets})")
+    print("  OK   session ids auto-allocated per run (run_001, run_002, …)")
 
     load_repo_config(repo)
-    try:
-        iid = resolve_interview_id(repo)
-        print(f"  OK   interview_id={iid}")
-    except ValueError as e:
-        print(f"  WARN {e}")
     try:
         wav = resolve_input_audio_path(repo)
         print(f"  OK   input_audio_path={wav}")

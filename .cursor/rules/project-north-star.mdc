@@ -6,6 +6,8 @@ alwaysApply: true
 # Project north star
 
 - **`docs/`** defines product behavior, pipeline vocabulary, and presets A–K. Code must align with stage docs under `docs/pipeline/`.
-- Every shippable preset produces **one playable master** plus a **reproducible manifest** (run id, asset URIs, transcript revision, segment list, EDL).
+- Every shippable preset produces **one playable, polished master** plus a **reproducible manifest** (run id, asset URIs, transcript revision, segment list, EDL).
+- **DSP (room and breath polish) is mandatory** on every shippable output — not optional, not gated. Preset A always finishes with denoise + room polish on the final timeline; outputs must be complete and listen-ready.
 - Heavy media lives under **`ASSETS/`** (gitignored); SQLite stores **pointers** (`asset.storage_uri`), not BLOBs.
+- Each pipeline execution is **fresh**: no operator-supplied interview id. `run_ingest.py` allocates the next sequential session (`run_001`, `run_002`, …); downstream tools use the active session automatically.
 - After doc changes to preset letters or execution archetypes, run `python tools/sync_to_sqlite.py`.

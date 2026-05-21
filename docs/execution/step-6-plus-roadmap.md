@@ -14,6 +14,6 @@ Run only after [SETUP.md](../../SETUP.md) Steps 1–5 pass.
 | **6** | Real interview E2E (30–90 min) | `medium`/`small` Whisper, LLM rank, listen to master |
 | **7** | Human QA | Review manifest; ban segments; re-mux |
 | **8** | Delivery export | True-peak limiter; MP3/M4A; chapters (preset B) |
-| **9** | Preset E production | De-reverb, room-tone bridges; A/B before `--approve-dsp` |
+| **9** | Preset E production | De-reverb, room-tone bridges; baseline polish mandatory in preset A |
 | **10** | Presets B–D | Chapter metadata, budget solver, graph mux CLIs |
 | **11** | CI regression | Golden LUFS/duration bounds on fixture |

@@ -9,21 +9,15 @@ def apply_room_polish(
     output_wav: Path,
     *,
     conn: Any | None = None,
-    approve: bool = False,
     denoise: bool = True,
 ) -> Path:
     """
-    Preset E: light denoise (noisereduce) + optional pedalboard high-pass.
-    demucs/DeepFilterNet are optional heavy paths — gated separately.
+    Mandatory room polish: light denoise (noisereduce) + optional pedalboard high-pass.
+    Always runs on the final timeline; not optional and not gated.
     """
-    if conn is not None:
-        from pipeline.dsp.gates import require_dsp_gate
-
-        require_dsp_gate(conn, "noisereduce", approve=approve, run_id=None)
-        require_dsp_gate(conn, "pedalboard", approve=approve, run_id=None)
+    _ = conn  # reserved for future run_event logging
 
     try:
-        import numpy as np
         import soundfile as sf
     except ImportError as e:
         raise ImportError("Install deps: pip install -r requirements.txt") from e

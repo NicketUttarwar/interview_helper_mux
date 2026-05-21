@@ -9,6 +9,10 @@ depends_on: [execution-readme]
 
 **Policy:** the run stays **hands-off** until the orchestrator is about to call a **high-risk** capability that has **not** yet been approved for this **profile** (or this machine). Then it **stops and asks once**, with a clear summary of cost, side effects, and artifacts.
 
+## What is **not** gated
+
+- **Baseline room DSP** (noisereduce + pedalboard) on the final master — **mandatory** in preset A and always on. See [project north star](../../.cursor/rules/project-north-star.mdc).
+
 ## What counts as “new tool”
 
 Examples you might tag as high-risk (your list can differ):
@@ -22,7 +26,7 @@ Examples you might tag as high-risk (your list can differ):
 ## Gate payload (what the user sees)
 
 - **Tool id** + version hash.
-- **Inputs:** which `interview_id`, which `segment_id`s or time ranges.
+- **Inputs:** which `session_id`, which `segment_id`s or time ranges.
 - **Estimated cost** (API $, GPU minutes).
 - **Irreversible?** (e.g. destructive overwrite of golden master).
 - **Undo:** what snapshot or manifest rollback restores.

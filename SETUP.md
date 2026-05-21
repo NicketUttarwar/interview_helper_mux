@@ -33,7 +33,7 @@ No `PYTHONPATH` — run targets and paths come from `config/secrets/secrets.env`
 | STT | `tools/run_stt.py` | `--help`; pytest STT (`tiny`) |
 | Segment + rank | `tools/run_segment.py` | `--help` |
 | A — Highlight reel | `tools/run_preset_a.py` | pytest end-to-end (`--no-llm`) |
-| E — Room polish | `tools/run_preset_e.py` | `--help` (needs prior master + `--approve-dsp`) |
+| E — Room polish | `tools/run_preset_e.py` | `--help` (optional re-polish; DSP also runs in preset A) |
 | OpenAI rank | `openai_mux` | `tools/openai_smoke.py` |
 | AWS STT | `aws_mux` | `tools/aws_smoke.py` |
 | ElevenLabs | `elevenlabs_mux` | `tools/elevenlabs_smoke.py` |
@@ -166,7 +166,7 @@ python -c "import mux_secrets, mux_store, pipeline; from pipeline.common import 
 ```bash
 mkdir -p config/secrets ASSETS/input
 cp config/templates/secrets.env.example config/secrets/secrets.env
-# edit secrets.env: INTERVIEW_ID, INPUT_AUDIO_PATH, API keys, AWS_S3_* as needed
+# edit secrets.env: INPUT_AUDIO_PATH, API keys, AWS_S3_* as needed
 # place your raw WAV at INPUT_AUDIO_PATH (default ASSETS/input/interview.wav)
 python tools/check_env.py
 python tools/sync_to_sqlite.py
@@ -215,17 +215,17 @@ Speech fixture: [tests/fixtures/README.md](tests/fixtures/README.md).
 | `/opt/homebrew/bin/python3.12` missing | `brew install python@3.12` after `brew shellenv` |
 | Preset A re-runs STT | `run_stt.py` once, then `run_preset_a.py --skip-stt` |
 | Double loudnorm | `--skip-ingest-loudnorm` or `--skip-master-lufs` |
-| Preset E gate | `--approve-dsp` |
+| Skip DSP (debug only) | `run_preset_a.py --skip-dsp` |
 | Import errors | `source .venv/bin/activate` then `pip install -r requirements.txt` |
 | Ad-hoc `*.whl` in repo root | Do not `pip install` them — wrong arch breaks native extensions |
 
-**Production order:** `run_ingest` → `run_stt` → `run_preset_a --skip-stt` → `run_preset_e`
+**Production order:** `run_ingest` → `run_stt` → `run_preset_a --skip-stt` (DSP included in preset A)
 
 ---
 
 ## Step 6+ — Production pipeline
 
-1. Set `INTERVIEW_ID` and `INPUT_AUDIO_PATH` in `config/secrets/secrets.env` (or rely on `config/app.defaults.json`).
+1. Set `INPUT_AUDIO_PATH` in `config/secrets/secrets.env` (or rely on `config/app.defaults.json`).
 2. Copy your raw interview WAV to `INPUT_AUDIO_PATH` (default `ASSETS/input/interview.wav`).
 
 ```bash
@@ -235,11 +235,11 @@ python tools/sync_to_sqlite.py
 python tools/run_ingest.py
 python tools/run_stt.py --provider faster-whisper --model-size base
 python tools/run_preset_a.py --top-n 8 --skip-stt
-python tools/run_preset_e.py --approve-dsp
-python tools/verify_master.py ASSETS/iv1/master/highlight_master.wav
+# Note session_id printed by ingest; polished master is under ASSETS/run_NNN/processed/
+python tools/verify_master.py ASSETS/run_001/processed/room_polish_master.wav
 ```
 
-`verify_master` path follows your `INTERVIEW_ID` / `interview_id` (default `iv1`). CLI flags (`--interview-id`, `--input`, `--s3-uri`) override config for one-off runs.
+Each ingest allocates the next session (`run_001`, `run_002`, …). CLI flags (`--input`, `--s3-uri`) override config for one-off runs.
 
 **AWS STT:** set `AWS_S3_URI` or `AWS_S3_BUCKET` + `AWS_S3_INPUT_KEY` in `secrets.env`, then `python tools/run_stt.py --provider aws`.
 
@@ -250,13 +250,13 @@ Without OpenAI ranking: add `--no-llm` to `run_preset_a.py`.
 ## Outputs
 
 ```text
-ASSETS/<interview-id>/
+ASSETS/<session-id>/   # e.g. run_001, run_002 (auto-allocated)
   ingest/normalized.wav
   transcripts/<revision>.json
   snippets/manifest.json
   mux/highlight_reel.wav
   master/highlight_master.wav
-  processed/room_polish_master.wav
+  processed/room_polish_master.wav   # shippable polished master (mandatory DSP)
 data/interview_mux.sqlite
 ```
 
@@ -271,7 +271,7 @@ data/interview_mux.sqlite
 | `zsh: no such file or directory: /opt/homebrew/bin/python3.12` | Install Apple Silicon Homebrew + `brew install python@3.12` |
 | `python3.12` reports `x86_64` | Wrong binary on PATH — use full path `/opt/homebrew/bin/python3.12` |
 | `ffmpeg failed` | `brew install ffmpeg` |
-| `DSP gate` on preset E | `--approve-dsp` |
+| Re-run room polish only | `python tools/run_preset_e.py` |
 | pip / setuptools errors | `pip install 'setuptools>=68,<82'` then `pip install -r requirements.txt` |
 
 ---

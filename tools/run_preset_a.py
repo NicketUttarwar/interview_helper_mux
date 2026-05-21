@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4: Preset A highlight reel orchestrator."""
+"""Phase 4: Preset A highlight reel orchestrator (includes mandatory DSP polish)."""
 
 from __future__ import annotations
 
@@ -7,20 +7,15 @@ import argparse
 import json
 import sys
 
-from mux_store import connect, default_sqlite_path, init_db, resolve_interview_id
-from pipeline.common import assets_root, repo_root
+from mux_store import connect, default_sqlite_path, init_db, resolve_active_session_id, session_ingest_wav
+from pipeline.common import repo_root
 from pipeline.orchestrator.preset_a import run_preset_a
 
 
 def main() -> int:
     root = repo_root()
 
-    p = argparse.ArgumentParser(description="Preset A: STT → rank → crossfade → LUFS.")
-    p.add_argument(
-        "--interview-id",
-        default=None,
-        help="Interview id (default: INTERVIEW_ID / interview_id in config)",
-    )
+    p = argparse.ArgumentParser(description="Preset A: STT → rank → crossfade → LUFS → DSP polish.")
     p.add_argument("--top-n", type=int, default=8)
     p.add_argument("--no-llm", action="store_true", help="Heuristic ranking only")
     p.add_argument("--stt-provider", default="faster-whisper")
@@ -28,31 +23,36 @@ def main() -> int:
     p.add_argument(
         "--skip-stt",
         action="store_true",
-        help="Reuse latest ASSETS/<id>/transcripts/*.json (run run_stt.py first)",
+        help="Reuse latest ASSETS/<session>/transcripts/*.json (run run_stt.py first)",
     )
     p.add_argument(
         "--skip-master-lufs",
         action="store_true",
         help="Copy reel to master without pyloudnorm (if ingest already loudnorm'd)",
     )
+    p.add_argument(
+        "--skip-dsp",
+        action="store_true",
+        help="Skip mandatory room polish (debug only; shippable output expects DSP on)",
+    )
     p.add_argument("--db", default=None)
     args = p.parse_args()
 
+    conn = connect(args.db or str(default_sqlite_path(root)))
+    init_db(conn)
     try:
-        interview_id = resolve_interview_id(root, cli=args.interview_id)
+        session_id = resolve_active_session_id(root, conn)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
 
-    wav = assets_root(root) / interview_id / "ingest" / "normalized.wav"
+    wav = session_ingest_wav(root, session_id)
     if not wav.is_file():
         print(f"Missing normalized audio: {wav}. Run tools/run_ingest.py first.", file=sys.stderr)
         return 1
 
-    conn = connect(args.db or str(default_sqlite_path(root)))
-    init_db(conn)
     out = run_preset_a(
-        interview_id=interview_id,
+        session_id=session_id,
         normalized_wav=wav,
         conn=conn,
         repo_root=root,
@@ -62,13 +62,11 @@ def main() -> int:
         skip_stt=args.skip_stt,
         stt_model_size=args.stt_model_size,
         skip_master_lufs=args.skip_master_lufs,
+        skip_dsp=args.skip_dsp,
     )
     print(json.dumps(out, indent=2))
-    print(
-        f"COMPLETED Phase 4 preset A. Next: python tools/run_preset_e.py "
-        f"--interview-id {interview_id}"
-    )
-    )
+    print(f"COMPLETED Phase 4 preset A. session_id={session_id}")
+    print(f"Polished master: {out['polished_master_path']}")
     return 0
 
 

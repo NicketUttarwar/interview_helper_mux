@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class TranscriptWord(BaseModel):
@@ -24,7 +24,7 @@ class TranscriptSegment(BaseModel):
 class TranscriptDocument(BaseModel):
     """Canonical transcript JSON for preset A STT."""
 
-    interview_id: str
+    session_id: str = Field(validation_alias=AliasChoices("session_id", "interview_id"))
     revision_id: str
     provider: str
     model_id: str
@@ -33,4 +33,4 @@ class TranscriptDocument(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, Any]:
-        return self.model_dump(mode="json")
+        return self.model_dump(mode="json", by_alias=False)

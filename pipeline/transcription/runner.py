@@ -18,7 +18,7 @@ def persist_transcript(
     from mux_store import create_run, register_asset
 
     root = assets_root()
-    out_dir = root / doc.interview_id / "transcripts"
+    out_dir = root / doc.session_id / "transcripts"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{doc.revision_id}.json"
     out_path.write_text(json.dumps(doc.to_json_dict(), indent=2), encoding="utf-8")
@@ -31,7 +31,7 @@ def persist_transcript(
         """,
         (
             doc.revision_id,
-            doc.interview_id,
+            doc.session_id,
             doc.model_id,
             doc.provider,
             json.dumps({"language": doc.language, "duration_ms": doc.duration_ms}, sort_keys=True),
@@ -43,7 +43,7 @@ def persist_transcript(
         storage_uri=str(out_path),
         kind="transcript_json",
         run_id=rid,
-        interview_id=doc.interview_id,
+        interview_id=doc.session_id,
         mime_type="application/json",
         meta={"revision_id": doc.revision_id, "provider": doc.provider},
     )
@@ -53,7 +53,7 @@ def persist_transcript(
 def run_stt(
     audio_path: Path,
     *,
-    interview_id: str,
+    session_id: str,
     provider: str,
     conn: Any,
     repo_root: Path,
@@ -61,9 +61,9 @@ def run_stt(
     model_size: str = "base",
 ) -> TranscriptDocument:
     if provider == "faster-whisper":
-        doc = transcribe_faster_whisper(audio_path, interview_id=interview_id, model_size=model_size)
+        doc = transcribe_faster_whisper(audio_path, session_id=session_id, model_size=model_size)
     elif provider == "aws":
-        doc = transcribe_aws_cli(audio_path, interview_id=interview_id, repo_root=repo_root, s3_uri=s3_uri)
+        doc = transcribe_aws_cli(audio_path, session_id=session_id, repo_root=repo_root, s3_uri=s3_uri)
     else:
         raise ValueError(f"Unknown STT provider: {provider}")
     persist_transcript(conn, doc)

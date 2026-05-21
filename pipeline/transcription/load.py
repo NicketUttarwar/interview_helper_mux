@@ -8,13 +8,13 @@ from pipeline.transcription.schema import TranscriptDocument
 
 
 def load_latest_transcript(
-    interview_id: str,
+    session_id: str,
     *,
     repo_root: Path | None = None,
 ) -> TranscriptDocument:
-    """Load the newest transcript JSON for an interview from ASSETS."""
+    """Load the newest transcript JSON for a session from ASSETS."""
     root = assets_root(repo_root)
-    tdir = root / interview_id / "transcripts"
+    tdir = root / session_id / "transcripts"
     if not tdir.is_dir():
         raise FileNotFoundError(f"No transcripts directory: {tdir}")
     files = sorted(tdir.glob("*.json"), key=lambda p: p.stat().st_mtime)

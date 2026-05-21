@@ -9,7 +9,7 @@ from pipeline.transcription.schema import TranscriptDocument, TranscriptSegment,
 def transcribe_faster_whisper(
     audio_path: Path,
     *,
-    interview_id: str,
+    session_id: str,
     model_size: str = "base",
     language: str | None = None,
 ) -> TranscriptDocument:
@@ -22,7 +22,7 @@ def transcribe_faster_whisper(
     segments_iter, info = model.transcribe(str(audio_path), language=language, word_timestamps=True)
     revision_id = str(uuid.uuid4())
     doc = TranscriptDocument(
-        interview_id=interview_id,
+        session_id=session_id,
         revision_id=revision_id,
         provider="faster-whisper",
         model_id=model_size,

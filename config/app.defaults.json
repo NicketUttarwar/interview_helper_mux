@@ -1,7 +1,6 @@
 {
   "database_path": "data/interview_mux.sqlite",
   "assets_root": "ASSETS",
-  "interview_id": "iv1",
   "input_audio_path": "ASSETS/input/interview.wav",
-  "_comment": "Paths are relative to the repository root unless absolute. Override per machine in config/secrets/secrets.env (INTERVIEW_ID, INPUT_AUDIO_PATH) — secrets win over these keys."
+  "_comment": "Paths are relative to the repository root unless absolute. Override per machine in config/secrets/secrets.env (INPUT_AUDIO_PATH). Each pipeline run auto-allocates a sequential session id (run_001, run_002, …)."
 }

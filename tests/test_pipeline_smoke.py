@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -20,24 +19,24 @@ def test_pipeline_smoke_end_to_end(
     """Ingest → STT (tiny) → preset A (--no-llm, --skip-stt) without OpenAI."""
     from mux_store import connect, init_db
 
-    interview_id = "pytest_smoke"
+    session_id = "run_999"
     db_path = tmp_path / "test.sqlite"
     conn = connect(str(db_path))
     init_db(conn)
 
     ingest_audio(
         input_path=speech_wav,
-        interview_id=interview_id,
+        session_id=session_id,
         repo_root=repo_root,
         conn=conn,
         skip_loudnorm=True,
     )
-    normalized = tmp_assets / interview_id / "ingest" / "normalized.wav"
+    normalized = tmp_assets / session_id / "ingest" / "normalized.wav"
     assert normalized.is_file()
 
     run_stt(
         normalized,
-        interview_id=interview_id,
+        session_id=session_id,
         provider="faster-whisper",
         conn=conn,
         repo_root=repo_root,
@@ -45,7 +44,7 @@ def test_pipeline_smoke_end_to_end(
     )
 
     out = run_preset_a(
-        interview_id=interview_id,
+        session_id=session_id,
         normalized_wav=normalized,
         conn=conn,
         repo_root=repo_root,
@@ -55,9 +54,9 @@ def test_pipeline_smoke_end_to_end(
         skip_master_lufs=False,
     )
 
-    master = Path(out["master_path"])
-    assert master.is_file()
-    assert master.stat().st_size > 1000
+    polished = Path(out["polished_master_path"])
+    assert polished.is_file()
+    assert polished.stat().st_size > 1000
 
     row = conn.execute(
         "SELECT status FROM execution_run WHERE id = ?",

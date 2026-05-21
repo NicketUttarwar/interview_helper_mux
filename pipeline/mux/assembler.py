@@ -12,7 +12,7 @@ def assemble_highlight_reel(
     segments: list[dict[str, Any]],
     ordered_ids: list[str],
     *,
-    interview_id: str,
+    session_id: str,
     crossfade_ms: int = 300,
 ) -> Path:
     """pydub cuts + crossfades for preset A."""
@@ -39,14 +39,14 @@ def assemble_highlight_reel(
     if combined is None:
         raise ValueError("No segments to assemble")
 
-    out_dir = assets_root() / interview_id / "mux"
+    out_dir = assets_root() / session_id / "mux"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "highlight_reel.wav"
     combined.export(out_path, format="wav")
     return out_path
 
 
-def write_edl(conn: Any, run_id: str, interview_id: str, ordered_ids: list[str], segments: list[dict[str, Any]]) -> None:
+def write_edl(conn: Any, run_id: str, session_id: str, ordered_ids: list[str], segments: list[dict[str, Any]]) -> None:
     by_id = {s["segment_id"]: s for s in segments}
     for i, sid in enumerate(ordered_ids):
         seg = by_id.get(sid)
@@ -65,7 +65,7 @@ def write_edl(conn: Any, run_id: str, interview_id: str, ordered_ids: list[str],
                 run_id,
                 i,
                 sid,
-                interview_id,
+                session_id,
                 seg["t_start_ms"],
                 seg["t_end_ms"],
                 json.dumps({"preset": "A"}, sort_keys=True),

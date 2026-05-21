@@ -1,15 +1,15 @@
 ---
-description: Gate preset E heavy DSP on first use
+description: Gate optional heavy tools (not baseline DSP) on first use
 globs: docs/execution/high-risk*.md,pipeline/dsp/**
 alwaysApply: false
 ---
 
-# High-risk gating (preset E)
+# High-risk first-use gating
 
-Before first use of **pedalboard**, **demucs**, **DeepFilterNet**, or separation stacks:
+**Baseline room DSP (noisereduce + pedalboard) is mandatory and always on** — see `project-north-star.mdc`. Do not gate preset A/E polish behind operator approval.
 
-1. Require explicit operator approval stored in `execution_kv` (`dsp_gate.approved.<tool>`).
-2. Log `run_event` with `kind=gate` when blocked.
-3. See `docs/execution/high-risk-first-use-gating.md`.
+Gate only **optional heavy** tools when first introduced:
 
-S2S/TTS gates for **G–K** are documented but not enforced in the A–E path unless extended.
+1. Require explicit operator approval stored in `execution_kv` (`tool_gate.approved.<tool>`).
+2. Log blocked attempts on the active `execution_run`.
+3. Document the tool in `docs/versions/high-risk.md` before enabling by default.

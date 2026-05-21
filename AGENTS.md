@@ -2,21 +2,24 @@
 
 ## North star
 
-Turn one long interview recording into transcript, ranked segments, and a muxed podcast master. **`docs/` is authoritative**; sync into SQLite after doc edits:
+Turn one long interview recording into transcript, ranked segments, and a **polished** muxed podcast master. **`docs/` is authoritative**; sync into SQLite after doc edits:
 
 ```bash
 python tools/sync_to_sqlite.py
 ```
 
+- **DSP is mandatory** on every shippable output (room polish runs inside preset A; not optional).
+- **No interview id** in CLI or config — each `run_ingest.py` allocates the next session (`run_001`, `run_002`, …); downstream tools use the active session.
+
 ## Preset ladder (canonical letters)
 
 | # | Preset | Scope in this repo |
 |---|--------|-------------------|
-| A | Highlight reel | **Shipped path** — `tools/run_preset_a.py` |
+| A | Highlight reel | **Shipped path** — `tools/run_preset_a.py` (includes mandatory DSP) |
 | B | Chapter podcast | Metadata on A backbone |
 | C | Director's cut | Budgeted selection + diversity |
 | D | Nonlinear story | Graph EDL (`networkx`) |
-| E | **Room and breath polish** | `tools/run_preset_e.py` (gated DSP) |
+| E | **Room and breath polish** | `tools/run_preset_e.py` (re-polish; also in A) |
 | F | Bilingual / code-switch | **Docs only** — deferred |
 | G–K | S2S, ranker, YOLO, Wav2Vec, dub | **Docs only** |
 
@@ -38,7 +41,7 @@ Configured in `.cursor/mcp.json`:
 | `ai/python/openai_mux/` | LLM ranking |
 | `ai/python/aws_mux/` | **AWS CLI** subprocess only |
 | `db/python/mux_store/` | SQLite store + doc sync |
-| `pipeline/` | Ingest → STT → seg → score → mux → DSP |
+| `pipeline/` | Ingest → STT → seg → score → mux → **DSP (mandatory)** |
 
 ## Setup
 
@@ -57,14 +60,15 @@ No `PYTHONPATH`. Confirm `uname -m` is `arm64` before bootstrapping (Rosetta cau
 
 ## Pipeline CLIs
 
-Set `INTERVIEW_ID`, `INPUT_AUDIO_PATH` in `config/secrets/secrets.env` (see `config/README.md`), then:
+Set `INPUT_AUDIO_PATH` in `config/secrets/secrets.env` (see `config/README.md`), then:
 
 ```bash
 python tools/run_ingest.py
 python tools/run_stt.py --provider faster-whisper
 python tools/run_preset_a.py --top-n 8 --skip-stt
-python tools/run_preset_e.py --approve-dsp
 ```
+
+Preset A includes mandatory DSP; `run_preset_e.py` is only needed to re-polish an existing master.
 
 ## Rules
 

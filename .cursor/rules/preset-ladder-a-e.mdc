@@ -1,5 +1,5 @@
 ---
-description: Canonical preset order A–D narrative then E room DSP
+description: Canonical preset order A–D narrative then mandatory E room DSP
 alwaysApply: true
 ---
 
@@ -7,12 +7,12 @@ alwaysApply: true
 
 | Preset | Name |
 |--------|------|
-| **A** | Highlight reel — STT → top-N → crossfade → LUFS |
+| **A** | Highlight reel — STT → top-N → crossfade → LUFS → **mandatory DSP polish** |
 | **B** | Chapter podcast — A + chapter metadata |
 | **C** | Director's cut — timeboxed selection + diversity |
 | **D** | Nonlinear story — graph EDL, flashbacks |
-| **E** | **Room and breath polish** — denoise, de-reverb, room-tone bridges |
+| **E** | **Room and breath polish** — denoise, de-reverb, room-tone bridges (also runs inside A; standalone `run_preset_e.py` re-polishes) |
 
 **F–K** (Bilingual, S2S, custom ranker, YOLO, Wav2Vec, full dub) exist in docs but are **out of scope** for the A–E tooling plan unless explicitly requested.
 
-Implementation order: ship **A** on the linear backbone first; **B–D** add metadata/graph on the same path; **E** runs DSP on a **single timeline** after cuts are known.
+Implementation order: ship **A** on the linear backbone first (DSP included in the same run); **B–D** add metadata/graph on the same path; **E** can re-run polish on a **single timeline** after cuts are known.

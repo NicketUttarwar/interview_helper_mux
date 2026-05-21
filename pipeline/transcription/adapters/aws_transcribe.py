@@ -10,7 +10,7 @@ from urllib.request import urlopen
 from pipeline.transcription.schema import TranscriptDocument, TranscriptSegment, TranscriptWord
 
 
-def _parse_aws_transcript(payload: dict[str, Any], *, interview_id: str, job_name: str) -> TranscriptDocument:
+def _parse_aws_transcript(payload: dict[str, Any], *, session_id: str, job_name: str) -> TranscriptDocument:
     results = payload.get("results", {})
     items = results.get("items", [])
     revision_id = str(uuid.uuid4())
@@ -55,7 +55,7 @@ def _parse_aws_transcript(payload: dict[str, Any], *, interview_id: str, job_nam
     flush()
 
     return TranscriptDocument(
-        interview_id=interview_id,
+        session_id=session_id,
         revision_id=revision_id,
         provider="aws-transcribe",
         model_id=job_name,
@@ -67,7 +67,7 @@ def _parse_aws_transcript(payload: dict[str, Any], *, interview_id: str, job_nam
 def transcribe_aws_cli(
     audio_path: Path,
     *,
-    interview_id: str,
+    session_id: str,
     repo_root: Path,
     s3_uri: str | None = None,
     poll_sec: float = 5.0,
@@ -82,7 +82,7 @@ def transcribe_aws_cli(
     if not s3_uri:
         raise ValueError("aws transcribe requires s3_uri (upload with aws s3 cp first)")
 
-    job_name = f"mux-{interview_id}-{uuid.uuid4().hex[:8]}"
+    job_name = f"mux-{session_id}-{uuid.uuid4().hex[:8]}"
     media_format = audio_path.suffix.lstrip(".") or "wav"
     run_aws_cli(
         [
@@ -119,4 +119,4 @@ def transcribe_aws_cli(
 
     with urlopen(transcript_uri) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
-    return _parse_aws_transcript(payload, interview_id=interview_id, job_name=job_name)
+    return _parse_aws_transcript(payload, session_id=session_id, job_name=job_name)

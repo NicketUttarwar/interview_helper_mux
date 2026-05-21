@@ -23,7 +23,7 @@ def _ffmpeg_to_wav(input_path: Path, output_path: Path, *, apply_loudnorm: bool)
 def ingest_audio(
     *,
     input_path: Path,
-    interview_id: str,
+    session_id: str,
     repo_root: Path,
     conn: Any,
     run_id: str | None = None,
@@ -38,7 +38,7 @@ def ingest_audio(
 
     warn_if_likely_non_speech(input_path)
     root = assets_root(repo_root)
-    out_dir = root / interview_id / "ingest"
+    out_dir = root / session_id / "ingest"
     out_path = out_dir / "normalized.wav"
     _ffmpeg_to_wav(input_path.resolve(), out_path, apply_loudnorm=not skip_loudnorm)
     digest = sha256_file(out_path)
@@ -48,7 +48,7 @@ def ingest_audio(
         storage_uri=str(out_path),
         kind="audio_normalized",
         run_id=rid,
-        interview_id=interview_id,
+        interview_id=session_id,
         sha256=digest,
         byte_length=out_path.stat().st_size,
         mime_type="audio/wav",
@@ -57,11 +57,12 @@ def ingest_audio(
             "ffmpeg": "mono 48k" + (" + loudnorm" if not skip_loudnorm else ", no loudnorm"),
         },
     )
-    upsert_interview(conn, interview_id, title=interview_id)
+    upsert_interview(conn, session_id, title=session_id)
     return {
+        "session_id": session_id,
         "run_id": rid,
         "asset_id": asset_id,
         "storage_uri": str(out_path),
         "sha256": digest,
-        "manifest": json.dumps({"interview_id": interview_id, "normalized": str(out_path)}, indent=2),
+        "manifest": json.dumps({"session_id": session_id, "normalized": str(out_path)}, indent=2),
     }

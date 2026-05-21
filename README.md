@@ -10,7 +10,7 @@ Turn **one long interview recording** into analyzable text, ranked segments, opt
 
 | | |
 |--|--|
-| **North star** | Re-order, trim, bridge, process, and master using information already in the recording and its derivatives. |
+| **North star** | Re-order, trim, bridge, process, **mandatory DSP polish**, and master using information already in the recording and its derivatives. Each run auto-allocates a session id (`run_001`, …). |
 | **Doc corpus** | ~57 Markdown files under `docs/` (execution, pipeline, workflows, versions, cross-cutting), indexed in SQLite via `tools/sync_to_sqlite.py`. |
 | **Code today** | Config + secrets, OpenAI / AWS / ElevenLabs adapters, `mux_store`, `pipeline/` (ingest → STT → segment → rank → mux → DSP), `tools/run_*.py`. |
 | **Local media** | `ASSETS/` (gitignored) holds operator waveforms for experiments; pointers belong in `mux_store` `asset` rows, not BLOBs in SQLite. |
@@ -87,7 +87,7 @@ Seeded in `db/seed_pipeline_stages.sql`; stage docs under [docs/pipeline/](docs/
 
 | # | Preset | One-line idea |
 |---|--------|----------------|
-| A | Highlight reel | STT → top-N chunks → crossfade → loudness |
+| A | Highlight reel | STT → top-N chunks → crossfade → loudness → mandatory DSP polish |
 | B | Chapter podcast | Linear + auto chapter metadata |
 | C | Director’s cut | Timeboxed segment selection under diversity rules |
 | D | Nonlinear story | Graph EDL, flashbacks, edge-cost search |
