@@ -13,6 +13,11 @@ def read_json_config(repo_root: Path, rel_under_config: str) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _repo_relative_path(repo_root: Path, raw: str, *, field: str) -> Path:
+    p = Path(raw.strip())
+    return p if p.is_absolute() else (repo_root / p).resolve()
+
+
 def default_sqlite_path(repo_root: Path) -> Path:
     """SQLite path from ``config/app.defaults.json`` (``database_path``), relative to repo root."""
     data = read_json_config(repo_root, "app.defaults.json")
@@ -21,5 +26,15 @@ def default_sqlite_path(repo_root: Path) -> Path:
     raw = data.get("database_path")
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("app.defaults.json must set non-empty string database_path")
-    p = Path(raw.strip())
-    return p if p.is_absolute() else (repo_root / p).resolve()
+    return _repo_relative_path(repo_root, raw, field="database_path")
+
+
+def default_assets_path(repo_root: Path) -> Path:
+    """On-disk media root from ``config/app.defaults.json`` (``assets_root``), relative to repo root."""
+    data = read_json_config(repo_root, "app.defaults.json")
+    if not isinstance(data, dict):
+        raise ValueError("app.defaults.json must be a JSON object")
+    raw = data.get("assets_root", "ASSETS")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("app.defaults.json assets_root must be a non-empty string when set")
+    return _repo_relative_path(repo_root, raw, field="assets_root")

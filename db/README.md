@@ -10,12 +10,12 @@ Binary media and large artifacts are **not** stored as BLOBs in SQLite; they liv
 
 ## Requirements
 
-- **Python 3.10+** (uses `from __future__ import annotations` and union types).
+- **Python 3.12+** (same as repo `.venv`; see [SETUP.md](../SETUP.md)).
 - **SQLite 3** with [FTS5](https://www.sqlite.org/fts5.html) enabled (default in modern builds).
 
 No third-party packages are required for `mux_store` alone.
 
-If orchestration code calls **AWS** (S3 asset URIs, Transcribe, etc.), use the same repo-wide secrets file as the other integrations: `config/secrets/secrets.env` parsed via `mux_secrets.load_repo_config()` (see repository `config/README.md` and `requirements-integrations.txt`).
+If orchestration code calls **AWS** (S3 asset URIs, Transcribe, etc.), use the same repo-wide secrets file as the other integrations: `config/secrets/secrets.env` parsed via `mux_secrets.load_repo_config()` (see repository `config/README.md`).
 
 ## Layout
 
@@ -44,7 +44,7 @@ python3 tools/sync_to_sqlite.py --db /path/to/custom.sqlite --repo /path/to/inte
 
 ## Embedding in orchestration code
 
-Add `db/python` to `PYTHONPATH`, then:
+Install the repo in your venv (`pip install -r requirements.txt` from the repository root), then:
 
 ```python
 from pathlib import Path

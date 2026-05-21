@@ -12,7 +12,9 @@ def get_elevenlabs_client(*, repo_root: Path | None = None):
     try:
         from elevenlabs import ElevenLabs
     except ImportError as e:
-        raise ImportError("Install elevenlabs: pip install elevenlabs") from e
+        raise ImportError(
+            "Install ElevenLabs SDK in the active venv: pip install -r requirements.txt"
+        ) from e
 
     key = get_config_value("ELEVENLABS_API_KEY")
     if not key:

@@ -1,3 +1,0 @@
-# Same dependency set as ``requirements.txt`` / ``requirements-integrations.txt``.
-# Prefer: pip install -r requirements.txt
--r requirements-integrations.txt

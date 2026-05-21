@@ -1,0 +1,14 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: block-secrets
+        name: block secrets and sqlite
+        entry: secrets must not be committed
+        language: fail
+        files: ^(config/secrets/|.*\.sqlite$)

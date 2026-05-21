@@ -22,7 +22,7 @@ def _ensure_openai_sdk_major_line() -> None:
     if major != OPENAI_PYTHON_SDK_MAJOR:
         raise ImportError(
             f"openai_mux expects the openai package major version {OPENAI_PYTHON_SDK_MAJOR}.x "
-            f"(see requirements-integrations.txt). Installed: {openai_pkg.__version__}."
+            f"(see requirements.txt: openai>=2,<3). Installed: {openai_pkg.__version__}."
         )
 
 
@@ -32,8 +32,9 @@ def get_openai_client(*, repo_root: Path | None = None) -> OpenAI:
         from openai import OpenAI
     except ImportError as e:
         raise ImportError(
-            "Install the OpenAI SDK: pip install -r requirements.txt "
-            f"(openai {OPENAI_PYTHON_SDK_MAJOR}.x)"
+            "Install the OpenAI SDK in the active venv: "
+            "pip install -r requirements.txt "
+            f"(openai {OPENAI_PYTHON_SDK_MAJOR}.x; see pyproject.toml)"
         ) from e
 
     _ensure_openai_sdk_major_line()

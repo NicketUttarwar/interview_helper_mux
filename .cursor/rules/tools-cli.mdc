@@ -1,0 +1,12 @@
+---
+description: CLI tools pattern
+globs: tools/**
+alwaysApply: false
+---
+
+# tools/ CLI scripts
+
+- Assume **Python 3.12** repo `.venv` is active (`source .venv/bin/activate`; `pip install -r requirements.txt`). Imports `pipeline`, `mux_store`, `*_mux` without `PYTHONPATH`. On Apple Silicon use native arm64 (see SETUP.md Step 0).
+- Use `pipeline.common.repo_root()` for repo detection; optional `--repo` on smoke scripts.
+- Prefer `argparse` + exit codes; smoke scripts return `1` with actionable stderr on missing secrets.
+- Orchestrators: `tools/run_ingest.py`, `tools/run_stt.py`, `tools/run_preset_a.py`, `tools/run_preset_e.py`.

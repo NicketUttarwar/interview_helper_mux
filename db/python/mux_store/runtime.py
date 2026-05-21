@@ -225,6 +225,8 @@ def upsert_segment(
             text,
             json.dumps(scores, sort_keys=True) if scores else None,
             json.dumps(flags, sort_keys=True) if flags else None,
+            mutex_group_id,
+            json.dumps(provenance, sort_keys=True) if provenance else None,
             _utc_iso(),
             _utc_iso(),
         ),

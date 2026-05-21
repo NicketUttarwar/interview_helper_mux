@@ -1,0 +1,18 @@
+---
+description: Canonical preset order A–D narrative then E room DSP
+alwaysApply: true
+---
+
+# Preset ladder (A–E in scope)
+
+| Preset | Name |
+|--------|------|
+| **A** | Highlight reel — STT → top-N → crossfade → LUFS |
+| **B** | Chapter podcast — A + chapter metadata |
+| **C** | Director's cut — timeboxed selection + diversity |
+| **D** | Nonlinear story — graph EDL, flashbacks |
+| **E** | **Room and breath polish** — denoise, de-reverb, room-tone bridges |
+
+**F–K** (Bilingual, S2S, custom ranker, YOLO, Wav2Vec, full dub) exist in docs but are **out of scope** for the A–E tooling plan unless explicitly requested.
+
+Implementation order: ship **A** on the linear backbone first; **B–D** add metadata/graph on the same path; **E** runs DSP on a **single timeline** after cuts are known.

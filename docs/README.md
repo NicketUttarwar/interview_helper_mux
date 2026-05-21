@@ -16,4 +16,4 @@ Conventions for leaf files: optional YAML frontmatter (`id`, `tier`, `status`, `
 
 ## Repository code
 
-Implementation can land later under something like `src/` or `packages/` with names loosely aligned to `docs/pipeline/` stages. Heavy audio assets and secrets stay out of git.
+Python **3.12** pipeline and store code live at repo root (`pipeline/`, `db/python/mux_store/`, `ai/python/`). Install and gates: **[SETUP.md](../SETUP.md)**. Heavy audio assets and secrets stay out of git.

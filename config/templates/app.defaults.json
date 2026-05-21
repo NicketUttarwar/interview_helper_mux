@@ -1,4 +1,7 @@
 {
   "database_path": "data/interview_mux.sqlite",
-  "_comment": "Copy to config/app.defaults.json if you want a non-default layout; the repo ships config/app.defaults.json."
+  "assets_root": "ASSETS",
+  "interview_id": "iv1",
+  "input_audio_path": "ASSETS/input/interview.wav",
+  "_comment": "Copy to config/app.defaults.json if you want a non-default layout; the repo ships config/app.defaults.json. Per-machine overrides: config/secrets/secrets.env."
 }

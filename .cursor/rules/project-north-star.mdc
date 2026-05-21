@@ -1,0 +1,11 @@
+---
+description: Docs are source of truth; reproducible manifest per preset run
+alwaysApply: true
+---
+
+# Project north star
+
+- **`docs/`** defines product behavior, pipeline vocabulary, and presets A–K. Code must align with stage docs under `docs/pipeline/`.
+- Every shippable preset produces **one playable master** plus a **reproducible manifest** (run id, asset URIs, transcript revision, segment list, EDL).
+- Heavy media lives under **`ASSETS/`** (gitignored); SQLite stores **pointers** (`asset.storage_uri`), not BLOBs.
+- After doc changes to preset letters or execution archetypes, run `python tools/sync_to_sqlite.py`.

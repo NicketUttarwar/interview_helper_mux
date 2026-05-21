@@ -17,8 +17,8 @@ Each row is a **full vertical slice** you could ship as a preset: same raw inter
 | B | **Chapter podcast** | Linear story with auto chapter titles from headings in transcript. | High | Optional reorder in UI. |
 | C | **Director’s cut (timeboxed)** | Target length (e.g. 28 min): solver picks segments + bridges under diversity rules. | High | Approve budget + one pass on order. |
 | D | **Nonlinear story** | Flashbacks, “setup → payoff” reorder; needs graph EDL ([difficult-segment-combinations.md](difficult-segment-combinations.md)). | Medium–high | Approve graph once per template. |
-| E | **Bilingual / code-switch** | Detect spans; per-span STT locale; assemble with language-aware transitions. | Medium | Confirm language tags when low confidence. |
-| F | **Room and breath polish** | Denoise, de-reverb, gentle music bed, adaptive room-tone bridges. | Medium | Gate first use of heavy DSP stack ([high-risk-first-use-gating.md](high-risk-first-use-gating.md)). |
+| E | **Room and breath polish** | Denoise, de-reverb, gentle music bed, adaptive room-tone bridges. | Medium | Gate first use of heavy DSP stack ([high-risk-first-use-gating.md](high-risk-first-use-gating.md)). |
+| F | **Bilingual / code-switch** | Detect spans; per-span STT locale; assemble with language-aware transitions. | Medium | Confirm language tags when low confidence. |
 | G | **S2S “same words, cleaner performance”** | Keep transcript alignment; neural S2S re-renders selected spans for clarity. | Low–medium | Strong gate + spot-listen; see [speech-to-speech-and-trained-remix-models.md](speech-to-speech-and-trained-remix-models.md). |
 | H | **Custom ranker + custom acoustic** | Fine-tuned LLM or LoRA for *your* interview style scoring; optional per-speaker S2S or VC. | Low (ops heavy) | Approve training data + first deploy of each new model class. |
 | I | **Spectrogram hazard overlay (YOLO11)** | Mel/STFT “vision” finds overlap and non-speech hazards; **only** neighborhoods that stress mux get labeled—feeds edge costs and “do not cut here” masks. | Medium (GPU) | Confirm class taxonomy + first custom-weights deploy; spot-check false positives on new mics. |

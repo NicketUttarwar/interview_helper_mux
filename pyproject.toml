@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "interview-helper-mux"
+version = "0.1.0"
+description = "Interview recording → transcript → ranked segments → muxed podcast master"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+# Runtime deps are in requirements.txt — install with: pip install -r requirements.txt
+
+[tool.setuptools.packages.find]
+where = [".", "ai/python", "db/python"]
+include = [
+  "pipeline*",
+  "mux_store*",
+  "mux_secrets*",
+  "openai_mux*",
+  "aws_mux*",
+  "elevenlabs_mux*",
+]
+exclude = ["tests*", "tools*", "ASSETS*", "data*", "docs*", "config*", "scripts*"]
+
+[tool.setuptools.package-data]
+"openai_mux.prompts" = ["*.txt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: integration tests (STT, mux)"]

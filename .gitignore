@@ -214,6 +214,9 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Ad-hoc wheels in repo root (wrong CPU arch breaks pydantic_core, numba, etc.)
+/*.whl
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
@@ -230,3 +233,5 @@ __marimo__/
 
 ASSETS/
 ASSETS/*
+!ASSETS/.gitkeep
+ASSETS/_pytest/

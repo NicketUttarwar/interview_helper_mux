@@ -1,0 +1,11 @@
+---
+description: OpenAI JSON rubric ranking for segments
+globs: ai/python/openai_mux/**
+alwaysApply: false
+---
+
+# OpenAI ranking
+
+- Use `rank_segments_by_rubric(client, model=..., segments=[{segment_id, text}, ...])` for ordering.
+- Model must return a **permutation** of all input `segment_id` values (`ordered_segment_ids`).
+- Spec: `docs/pipeline/scoring-and-selection/llm-assisted-ranking.md`.

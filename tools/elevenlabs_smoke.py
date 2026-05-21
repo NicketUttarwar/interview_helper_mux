@@ -3,26 +3,31 @@
 
 from __future__ import annotations
 
+import importlib.util
 import argparse
 import json
-import sys
 from pathlib import Path
+
+_spec = importlib.util.spec_from_file_location(
+    "mux_tools_runtime", Path(__file__).resolve().parent / "_runtime.py"
+)
+_rt = importlib.util.module_from_spec(_spec)
+assert _spec.loader is not None
+_spec.loader.exec_module(_rt)
+_rt.bootstrap(tools_file=__file__)
+
+from elevenlabs_mux import get_elevenlabs_client
+from pipeline.common import repo_root
 
 
 def main() -> int:
-    repo = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo / "ai" / "python"))
-
     p = argparse.ArgumentParser(description="Call ElevenLabs user API to verify API key.")
-    p.add_argument("--repo", default=str(repo), help="Repository root")
+    p.add_argument("--repo", default=None, help="Repository root (default: auto-detect)")
     args = p.parse_args()
-    repo_root = Path(args.repo).resolve()
+    repo_root_path = Path(args.repo).resolve() if args.repo else repo_root()
 
-    from elevenlabs_mux import get_elevenlabs_client
-
-    client = get_elevenlabs_client(repo_root=repo_root)
+    client = get_elevenlabs_client(repo_root=repo_root_path)
     user = client.user.get()
-    # SDK returns a model object; dump common fields if present
     out: dict[str, object] = {}
     for attr in ("user_id", "subscription", "first_name", "is_new_user"):
         if hasattr(user, attr):

@@ -1,0 +1,12 @@
+---
+description: AWS via CLI subprocess only
+globs: ai/python/aws_mux/**,tools/aws_smoke.py
+alwaysApply: false
+---
+
+# AWS CLI only
+
+- Call **`aws`** via subprocess with `--output json`; parse with `json.loads`.
+- Credentials from `mux_secrets` → subprocess env in `aws_mux.cli._aws_env()` — not `os.environ` mutation at import time.
+- **Do not** add boto3 or aws-sdk-python. Transcribe: `aws transcribe start-transcription-job`, `get-transcription-job`; S3: `aws s3 cp`.
+- Smoke: `python tools/aws_smoke.py` → `sts get-caller-identity`.

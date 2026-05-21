@@ -83,7 +83,16 @@ Legend: **Min** = minimum library path; **Skip** = do not pay complexity tax; **
 | **Stress** | Listener confusion on **non-monotonic** time; **callback** without setup; contradiction pairs. |
 | **Library** | **Was partially gap** before `edge-cost-bridging-and-order-search.md`; with that leaf, **graph + edges** are covered. Narrative **contradiction detection** still lives in **scoring policy**—if you codify it, extend [llm-assisted-ranking.md](../pipeline/scoring-and-selection/llm-assisted-ranking.md) or heuristics with a “mutual exclusion” convention in [segment-schema](../cross-cutting/segment-schema.md), not a new top-level stage. |
 
-### E — Bilingual / code-switch
+### E — Room and breath polish
+
+| | |
+|--|--|
+| **Min** | [Crossfades / room tone](../pipeline/audio-editing/crossfades-room-tone.md) + [loudness working](../pipeline/audio-editing/loudness-targets-lufs.md) + optional separation/denoise adapters (treat as **high-risk** tools → [high-risk-first-use-gating.md](high-risk-first-use-gating.md)) |
+| **Skip** | Custom acoustic training until E is stable with stock DSP |
+| **Stress** | **Neighboring processed vs raw** timbre jump ([difficult combinations](difficult-segment-combinations.md)); music bed masks errors until mastering exposes them. |
+| **Library** | **Sufficient** at doc level; implementation is adapter sprawl—register each DSP/separation binary as **high-risk tool** entries, not new pipeline stages. |
+
+### F — Bilingual / code-switch
 
 | | |
 |--|--|
@@ -91,15 +100,6 @@ Legend: **Min** = minimum library path; **Skip** = do not pay complexity tax; **
 | **Skip** | S2S per locale until quality demands it ([speech-to-speech-and-trained-remix-models.md](speech-to-speech-and-trained-remix-models.md)) |
 | **Stress** | Wrong language id **corrupts** entire paragraph; code-switch **inside** one semantic segment. |
 | **Library** | **Sufficient** without a new “multilingual.md” if **transcription** + **ingest** docs hold locale strategy; add a leaf only when you document **three+ concrete provider behaviors**. |
-
-### F — Room and breath polish
-
-| | |
-|--|--|
-| **Min** | [Crossfades / room tone](../pipeline/audio-editing/crossfades-room-tone.md) + [loudness working](../pipeline/audio-editing/loudness-targets-lufs.md) + optional separation/denoise adapters (treat as **high-risk** tools → [high-risk-first-use-gating.md](high-risk-first-use-gating.md)) |
-| **Skip** | Custom acoustic training until F is stable with stock DSP |
-| **Stress** | **Neighboring processed vs raw** timbre jump ([difficult combinations](difficult-segment-combinations.md)); music bed masks errors until mastering exposes them. |
-| **Library** | **Sufficient** at doc level; implementation is adapter sprawl—register each DSP/separation binary as **high-risk tool** entries, not new pipeline stages. |
 
 ### G — S2S “same words, cleaner performance”
 
@@ -143,7 +143,7 @@ Legend: **Min** = minimum library path; **Skip** = do not pay complexity tax; **
 |--|--|
 | **Min** | [full-localized-dub-orchestration.md](full-localized-dub-orchestration.md): [ingest](../pipeline/ingest/README.md) → **source-language** [STT](../pipeline/transcription/README.md) + [word timestamps](../pipeline/transcription/word-level-timestamps.md) → [segmentation](../pipeline/segmentation/README.md) → [scoring / selection](../pipeline/scoring-and-selection/README.md) → **MT + checker + glossary** (orchestrated tools) → **TTS / voice clone** (high-risk, e.g. ElevenLabs) → [snippet store](../pipeline/snippet-store/README.md) + [provenance](../pipeline/snippet-store/provenance-retranscribe.md) → [audio editing](../pipeline/audio-editing/README.md) → [mux / EDL](../pipeline/assembly-and-mux/timeline-and-edl.md) → [mastering](../pipeline/mastering-and-export/README.md); [gating](high-risk-first-use-gating.md) on first synthetic profile and on publish |
 | **Skip** | Nothing “easy” if you claim a **full** dub; you may **skip** I–J unless mixing retained atmos |
-| **Stress** | MT **hallucination** or **entity** corruption; **duration** mismatch vs original pacing; **legal** / consent on cloned voices; **code-switch** in source ([§ E](#e--bilingual--code-switch)) interacting with wrong target script |
+| **Stress** | MT **hallucination** or **entity** corruption; **duration** mismatch vs original pacing; **legal** / consent on cloned voices; **code-switch** in source ([§ F](#f--bilingual--code-switch)) interacting with wrong target script |
 | **Library** | **Idea doc added**; implement MT/TTS as **versioned adapters** + manifest fields—avoid a `translation/` tree until multiple providers force a shared contract ([library governance](#library-governance-when-to-add-a-component)) |
 
 ## Implemented Python hooks (integrations)
@@ -153,7 +153,7 @@ Shared loader: **`ai/python/mux_secrets/`** — Parses **non-committed** `config
 | Module | Role |
 |--------|------|
 | **`openai_mux`** | OpenAI client + `rank_segments_by_rubric` ([LLM-assisted ranking](../pipeline/scoring-and-selection/llm-assisted-ranking.md)). |
-| **`aws_mux`** | `boto3.Session` built from `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` plus `AWS_DEFAULT_REGION` (or `AWS_REGION`) in the same secrets file only. |
+| **`aws_mux`** | **AWS CLI** subprocess (`run_aws_cli`, `sts_get_caller_identity`) using credentials from the same secrets file only — **no boto3**. |
 | **`elevenlabs_mux`** | ElevenLabs SDK client for TTS / voice workflows ([speech-to-speech-and-trained-remix-models.md](speech-to-speech-and-trained-remix-models.md), [full-localized-dub-orchestration.md](full-localized-dub-orchestration.md)). |
 
 **Smoke tools:** `tools/openai_smoke.py`, `tools/aws_smoke.py`, `tools/elevenlabs_smoke.py`.
@@ -166,8 +166,8 @@ Shared loader: **`ai/python/mux_secrets/`** — Parses **non-committed** `config
 | B | No new files; strengthen prompts + validation |
 | C | No new files yet; optional future **single** budget-solver doc if code lands |
 | D | **Added** [edge-cost-bridging-and-order-search.md](../pipeline/assembly-and-mux/edge-cost-bridging-and-order-search.md)—fills real mux gap |
-| E | Stay in transcription/ingest; split out only after multiple providers force it |
-| F | Treat heavy DSP as **gated tools**, not new stages |
+| E | Treat heavy DSP as **gated tools**, not new stages |
+| F | Stay in transcription/ingest; split out only after multiple providers force it |
 | G–H | Discipline + metrics, not more folders |
 | I–J | **Added** [spectrogram-yolo-wav2vec-orchestration.md](spectrogram-yolo-wav2vec-orchestration.md)—optional parallel enrichments; register as gated tools, not new backbone stages |
 | K | **Added** [full-localized-dub-orchestration.md](full-localized-dub-orchestration.md)—synthetic speech + translation stack; adapters + gates, not new backbone stages until provider sprawl forces it |

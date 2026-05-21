@@ -1,5 +1,5 @@
-"""AWS SDK entrypoints (region + credentials from env / ``config/secrets``)."""
+"""AWS integrations via AWS CLI subprocess (no boto3)."""
 
-from aws_mux.session import get_boto3_session
+from aws_mux.cli import run_aws_cli, sts_get_caller_identity
 
-__all__ = ["get_boto3_session"]
+__all__ = ["run_aws_cli", "sts_get_caller_identity"]

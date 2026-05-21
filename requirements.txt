@@ -1,26 +1,47 @@
-# =============================================================================
-# interview_helper_mux — Python dependencies (root entrypoint)
-# =============================================================================
-# Install:
-#   python3 -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-#   pip install -r requirements.txt
+# interview_helper_mux — full Python stack
 #
-# Execution stack (what this pulls in)
-#   Integrations live in requirements-integrations.txt (included below). That file
-#   pins major lines for vendor SDKs so upgrades are deliberate, not accidental.
+#   eval "$(/opt/homebrew/bin/brew shellenv)"    # Apple Silicon
+#   export PYTHON=/opt/homebrew/bin/python3.12  # recommended pin
+#   ./scripts/bootstrap_venv.sh
+#   source .venv/bin/activate
 #
-#   Layout:
-#     ai/python/mux_secrets/   — parses config/secrets/*.env (values stay in memory only)
-#     ai/python/openai_mux/  — OpenAI Chat Completions + shared system prompts
-#     ai/python/aws_mux/     — boto3 session after secrets load
-#     ai/python/elevenlabs_mux/ — ElevenLabs client after secrets load
-#     tools/*.py             — prepend ai/python to sys.path then import *._mux
-#
-# Assumptions
-#   - Python 3.10+ recommended (OpenAI SDK 2.x supports 3.9+; we standardize on 3.10+).
-#   - Outbound HTTPS for OpenAI, AWS, ElevenLabs when smoke scripts or jobs run.
-#   - Audio tooling (ffmpeg, etc.) is out-of-band from pip; see docs/pipeline/.
-#   - No secrets in git: copy config/templates/secrets.env.example → config/secrets/secrets.env
-# =============================================================================
+# Canonical: Python 3.12.x, native arch (arm64 on Apple Silicon).
+# Minimum (pyproject.toml): >=3.12,<3.14
+# Do NOT use macOS system python3 (often 3.9), Rosetta shells (uname -m x86_64),
+# or /usr/local python3.12 (often x86_64) on M1/M2/M3.
+# Host tools: ffmpeg, optional AWS CLI.
+# Secrets: config/secrets/secrets.env (see config/templates/secrets.env.example)
 
--r requirements-integrations.txt
+setuptools>=68,<82
+
+# Cloud integrations (AWS uses host CLI via aws_mux — no boto3)
+openai>=2,<3
+elevenlabs>=2.40,<3
+
+# Orchestration, schemas, CLI
+pydantic>=2,<3
+typer>=0.12,<1
+rich>=13,<14
+jsonschema>=4.20,<5
+numpy>=1.26,<3
+scipy>=1.11,<2
+scikit-learn>=1.4,<2
+pytest>=8,<9
+
+# Speech-to-text (default provider; no PyTorch — unlike openai-whisper)
+faster-whisper>=1.0,<2
+
+# Audio ingest, mux, mastering, preset E DSP
+ffmpeg-python>=0.2,<1
+pydub>=0.25,<1
+pyloudnorm>=0.1,<1
+soundfile>=0.12,<1
+mutagen>=1.47,<2
+networkx>=3.2,<4
+ortools>=9.9,<10
+pulp>=2.8,<3
+pedalboard>=0.9,<1
+noisereduce>=3,<4
+
+# Repo packages: pipeline, mux_store, mux_secrets, openai_mux, aws_mux, elevenlabs_mux
+-e .

@@ -1,47 +1,70 @@
 # Local configuration
 
-## `config/secrets/` — API keys and integration settings
+**Runtime:** Python **3.12** in repo `.venv` (see [SETUP.md](../SETUP.md)). Activate with `source .venv/bin/activate` before running tools.
 
-Put **only** machine-local values under `config/secrets/`. The entire `config/secrets/` tree is in `.gitignore`, so nothing there is committed.
+## Single source of truth
+
+| File | Purpose |
+|------|---------|
+| `config/app.defaults.json` | Committed defaults: SQLite path, `ASSETS/` root, default `interview_id`, `input_audio_path` |
+| `config/secrets/secrets.env` | **Your** API keys and per-machine overrides (gitignored) |
+
+**Resolution order** for pipeline tools: CLI flag → `secrets.env` → `app.defaults.json`.
 
 ### One file to copy and edit
 
-1. Create the directory and copy the example:
+```bash
+mkdir -p config/secrets ASSETS/input
+cp config/templates/secrets.env.example config/secrets/secrets.env
+# edit secrets.env — keys, INTERVIEW_ID, INPUT_AUDIO_PATH, AWS_S3_* as needed
+```
 
-   ```bash
-   mkdir -p config/secrets
-   cp config/templates/secrets.env.example config/secrets/secrets.env
-   ```
+Place your raw interview WAV at the path in `INPUT_AUDIO_PATH` (default `ASSETS/input/interview.wav`).
 
-2. Open `config/secrets/secrets.env` and fill in keys (OpenAI, AWS, ElevenLabs, and any optional keys listed in the template).
+**Loading:** `mux_secrets.load_repo_config()` reads optional `config/secrets/openai.env`, then `config/secrets/secrets.env` (duplicate keys: **`secrets.env` wins**). Values stay in memory only; `os.environ` is not modified.
 
-3. **Loading:** `mux_secrets.load_repo_config()` reads `config/secrets/openai.env` (if present), then `config/secrets/secrets.env`, so **duplicate keys are taken from `secrets.env`**. Values are kept **in memory only**; the process `os.environ` is **not** modified.
+## `config/app.defaults.json`
 
-## `config/app.defaults.json` — paths and non-secret defaults
+| Key | Meaning |
+|-----|---------|
+| `database_path` | SQLite file (relative to repo root unless absolute) |
+| `assets_root` | On-disk media tree (default `ASSETS`) |
+| `interview_id` | Default id for `tools/run_*.py` when CLI/`INTERVIEW_ID` omitted |
+| `input_audio_path` | Raw WAV for `tools/run_ingest.py` when CLI/`INPUT_AUDIO_PATH` omitted |
 
-The repository ships `config/app.defaults.json` (committed). It currently defines:
+## `config/secrets/secrets.env` — keys
 
-- **`database_path`** — default SQLite file path, relative to the repository root unless absolute.
+### Run targets (override app.defaults)
 
-`tools/sync_to_sqlite.py` uses this file when `--db` is omitted. Override by passing `--db` or editing `database_path`.
+| Key | Used by |
+|-----|---------|
+| `INTERVIEW_ID` | `run_ingest`, `run_stt`, `run_preset_a`, `run_preset_e` |
+| `INPUT_AUDIO_PATH` | `run_ingest` |
 
-## What reads these files
+### Integrations
 
-All integration packages under `ai/python/` call `mux_secrets.load_repo_config()` before reading credentials from the in-memory map (`get_config_value`, …):
+| Package | Keys |
+|---------|------|
+| `openai_mux` | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_SPEECH_MODEL` |
+| `aws_mux` | `AWS_PROFILE` and/or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` / `AWS_REGION` |
+| `elevenlabs_mux` | `ELEVENLABS_API_KEY` |
 
-| Package | Purpose | Keys in `secrets.env` |
-|---------|---------|------------------------|
-| `mux_secrets` | Parses `openai.env` then `secrets.env` | — |
-| `openai_mux` | OpenAI chat / ranking | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_SPEECH_MODEL` |
-| `aws_mux` | `boto3` sessions | `AWS_PROFILE` **or** `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`, plus `AWS_DEFAULT_REGION` / `AWS_REGION` |
-| `elevenlabs_mux` | ElevenLabs TTS / voice | `ELEVENLABS_API_KEY` |
+### AWS Transcribe (`run_stt.py --provider aws`)
 
-Smoke scripts: `tools/openai_smoke.py`, `tools/aws_smoke.py`, `tools/elevenlabs_smoke.py`.
+Assume **AWS CLI v2 is already authenticated** (`~/.aws` or keys in `secrets.env`). Set **one** of:
 
-### AWS region
+- `AWS_S3_URI=s3://bucket/key.wav`
+- `AWS_S3_BUCKET` + `AWS_S3_INPUT_KEY`
 
-Set **`AWS_DEFAULT_REGION`** (and optionally **`AWS_REGION`** to the same value) in `secrets.env`. `aws_mux` passes the region into `boto3.Session` from that file only.
+Smoke: `tools/aws_smoke.py` (no extra setup commands in SETUP.md).
 
 ### Legacy `openai.env`
 
-If you already use `config/secrets/openai.env`, it is merged first; **`secrets.env` overwrites the same key**. Prefer consolidating into `secrets.env` when convenient.
+Merged before `secrets.env`; prefer consolidating into `secrets.env`.
+
+## What reads these files
+
+- **Paths / interview id:** `mux_store.run_config` (`resolve_interview_id`, `resolve_input_audio_path`, `resolve_s3_uri`)
+- **Secrets:** all packages under `ai/python/*` via `mux_secrets.get_config_value`
+
+Pipeline CLIs accept optional `--interview-id`, `--input`, `--s3-uri` to override config for one-off runs.

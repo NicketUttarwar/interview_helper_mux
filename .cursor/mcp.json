@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "mux-sqlite": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "--db-path",
+        "data/interview_mux.sqlite"
+      ]
+    },
+    "mux-filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "ASSETS"
+      ]
+    },
+    "mux-transcription": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"]
+    }
+  }
+}

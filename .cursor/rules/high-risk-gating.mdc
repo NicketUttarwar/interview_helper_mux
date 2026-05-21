@@ -1,0 +1,15 @@
+---
+description: Gate preset E heavy DSP on first use
+globs: docs/execution/high-risk*.md,pipeline/dsp/**
+alwaysApply: false
+---
+
+# High-risk gating (preset E)
+
+Before first use of **pedalboard**, **demucs**, **DeepFilterNet**, or separation stacks:
+
+1. Require explicit operator approval stored in `execution_kv` (`dsp_gate.approved.<tool>`).
+2. Log `run_event` with `kind=gate` when blocked.
+3. See `docs/execution/high-risk-first-use-gating.md`.
+
+S2S/TTS gates for **G–K** are documented but not enforced in the A–E path unless extended.
