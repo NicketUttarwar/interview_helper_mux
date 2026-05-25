@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GapEvaluationsArtifact",
+  "type": "object",
+  "required": ["evaluations"],
+  "properties": {
+    "evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "self_explanatory"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "self_explanatory": { "type": "boolean" },
+          "gap_type": { "type": ["string", "null"] },
+          "secondary_gap_type": { "type": ["string", "null"] },
+          "listener_confusion": { "type": "string" },
+          "severity": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    }
+  }
+}

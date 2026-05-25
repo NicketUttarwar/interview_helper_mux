@@ -1,0 +1,37 @@
+Propose segment boundaries on the transcript with word-level timestamps (see task in volley).
+
+A segment is a contiguous time range with one communicative intent (one question, one answer block, one setup, etc.).
+
+Rules:
+- Prefer splits at pauses ≥ pipeline `pause_split_ms` and at topic shifts.
+- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings).
+- Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
+- Include `speaker_id` on each boundary when diarization is in input.
+- Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in one segment when intent is one Q+A pair.
+- Long or multi-part questions: split question and answer.
+
+Do not:
+- Create hundreds of micro-segments for every backchannel.
+- Overlap time ranges or leave gaps without noting in `warnings`.
+
+Memory sync:
+- `segment_summary_patch`: `{ "boundary_count": N, "warnings": [...] }`
+
+Investigations:
+- `segment_ambiguity` when two boundaries claim the same time range or intent is unclear.
+- `theme_unmapped` only if content brief topic has no plausible time range (prefer classification stage).
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/boundaries_artifact.schema.json`
+
+{
+  "boundaries": [
+    {
+      "segment_id": "seg_001",
+      "start_ms": 0,
+      "end_ms": 15200,
+      "speaker_id": "spk_00",
+      "proposed_split_reason": "pause|topic_shift|speaker_change|question_answer_pair"
+    }
+  ],
+  "warnings": ["optional issues: crosstalk, missing timestamps, etc."]
+}

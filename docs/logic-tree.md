@@ -1,0 +1,317 @@
+# Logic tree — content understanding and interviewer gaps
+
+Decision logic the pipeline uses **before and during** assembly. Primary job: understand **what was said**, **who said it**, **how it segments**, and **what additional interviewer audio or text** is required so the final master tells a complete, compelling story.
+
+This tree is the spec for automated decisions; prompts in [prompts/](./prompts/) implement each node.
+
+**Per-interview memory:** Rolling state in `understanding/analysis_state.json` is padded into every LLM stage and updated via the [analysis envelope](./cross-cutting/json-schemas/analysis_envelope.schema.json). Operators edit themes, major questions, and style in the GUI or JSON — see [analysis-memory.md](./cross-cutting/analysis-memory.md) and [analysis-orchestration-loop.md](./workflows/analysis-orchestration-loop.md).
+
+---
+
+## Top-level decision flow
+
+```mermaid
+flowchart TD
+    START([Raw audio captured]) --> PC{Pre-clean enabled?}
+    PC -->|yes| PC1[ElevenLabs audio isolation]
+    PC1 --> ING[Ingest normalized WAV]
+    PC -->|no| ING
+    ING --> T1{Transcript usable?}
+    T1 -->|no| T1a[Re-run STT / flag manual review]
+    T1 -->|yes| T1b{G0 Transcript review done?}
+    T1b -->|no| T1c[Operator corrects ranked STT clips in GUI]
+    T1c --> T1b
+    T1b -->|yes| T2[Identify speakers + roles]
+
+    T2 --> T3[Extract content context]
+    T3 --> T4[Segment timeline]
+    T4 --> T5{Each segment self-explanatory?}
+
+    T5 -->|yes| T6[Mark segment ready]
+    T5 -->|no| T7[Classify gap type]
+    T7 --> T8[Propose interviewer fix]
+    T8 --> T6
+
+    T6 --> T9{All segments processed?}
+    T9 -->|no| T4
+    T9 -->|yes| T10[Build gap report + VO script]
+
+    T10 --> G1{G1: delivery record lines satisfied?}
+    G1 -->|no| G1a[Operator records vo_pickup]
+    G1a --> G1b{Offer clean pickup audio?}
+    G1b -->|yes| G1c[Pre-clean vo_pickup scope]
+    G1b -->|no| G1
+    G1c --> G1
+    G1 -->|yes| G2{G2: Operator picks flow}
+    G2 -->|flow1| OUT1[Flow 1 extended analysis + master]
+    G2 -->|flow2| OUT2[Flow 2 highlights]
+```
+
+See [workflows/operator-gates.md](./workflows/operator-gates.md) for G1 and G2.
+
+---
+
+## Node reference
+
+### 0. Audio pre-clean (optional quality offer)
+
+Not a blocking gate. The operator may be **offered** background noise removal at several points — not only before ingest.
+
+| Moment | Scope | Action |
+|--------|-------|--------|
+| Before ingest | `full_source` | `preclean/isolated.wav` → ingest |
+| After G0 if STT struggled | `full_source` | Re-run from `audio_preclean` |
+| After G1 pickup recordings | `vo_pickup` only | Clean new interviewer lines; original interview unchanged |
+| Before final mix | `full_source` or `normalized_rebuild` | Re-ingest or rebuild normalized from cleaner source |
+
+| Check | Action |
+|-------|--------|
+| Operator accepts offer with `enabled: true` | Run isolation per `scope` in `run_meta.json` |
+| Operator dismisses | Continue with current audio lineage |
+
+See [audio_preclean/README.md](./pipeline/audio_preclean/README.md) and [operator-gates.md](./workflows/operator-gates.md#quality-improvement-offers-not-gates).
+
+---
+
+### 1. Transcript usable?
+
+| Check | Pass | Fail action |
+|-------|------|-------------|
+| Word error rate heuristic acceptable | Continue | Re-transcribe or human QC |
+| Speaker labels present | Continue | Run diarization |
+| Timestamps monotonic | Continue | Fix alignment |
+| G0 transcript review signed off | Continue | GUI: ranked low-confidence clips |
+
+AWS per-word `confidence` drives review queue ordering; see [transcript-review.md](./pipeline/transcription/transcript-review.md).
+
+---
+
+### 2. Identify speakers and roles
+
+Map diarization labels to **roles**, not just `SPEAKER_00`.
+
+| Signal | Inference |
+|--------|-----------|
+| More questions, shorter turns | Likely **interviewer** |
+| Longer explanatory answers | Likely **interviewee** |
+| Intro/outro patterns (“thanks for joining”) | Interviewer |
+| First-person product/company story | Interviewee |
+
+**Output:** `speakers.json` — `{ id, role: interviewer|interviewee|unknown, display_name? }`
+
+**Decision:** If roles ambiguous → prompt [speaker-roles](./prompts/understanding/speaker-roles.system.txt) on transcript sample; prefer interviewer = question-asker.
+
+---
+
+### 3. Extract content context
+
+Build a **content brief** the rest of the tree consumes.
+
+| Field | Description |
+|-------|-------------|
+| `thesis` | One-sentence takeaway of the interview |
+| `topics` | Ordered list of themes discussed |
+| `key_claims` | Factual or opinion claims worth preserving |
+| `emotional_beats` | Tension, humor, vulnerability, triumph |
+| `audience` | Who should care (investors, customers, general) |
+| `jargon_glossary` | Terms that may need interviewer setup |
+
+**Prompt:** [content-context](./prompts/understanding/content-context.system.txt)
+
+---
+
+### 4. Segment timeline
+
+Split the transcript into **segments** — contiguous time ranges with a single communicative intent.
+
+| Segment type | Typical speaker | Notes |
+|--------------|-----------------|-------|
+| `interviewer_question` | Interviewer | Explicit or implied question |
+| `interviewee_answer` | Interviewee | Main response block |
+| `interviewer_reaction` | Interviewer | Short backchannel (“right”, “interesting”) |
+| `aside` | Either | Off-topic; often trimmed in Flow 1, rarely in Flow 2 |
+| `setup` | Interviewer | Context before a topic |
+| `coda` | Either | Wrap-up |
+
+**Rules:**
+
+- Prefer splits at **pauses ≥ ~700ms** and **topic shifts**.
+- Do not split mid-sentence unless STT error recovery.
+- Each segment gets: `start_ms`, `end_ms`, `type`, `speaker_id`, `text`, `topic_tags[]`.
+
+**Prompt:** [boundary-detection](./prompts/segmentation/boundary-detection.system.txt), [segment-classification](./prompts/segmentation/segment-classification.system.txt)
+
+---
+
+### 5. Is each segment self-explanatory?
+
+For every segment (especially `interviewee_answer`), ask: **Would a listener who only hears this clip understand it in context of the episode?**
+
+| Question | If NO → gap |
+|----------|-------------|
+| Is the question that prompted this answer present? | Missing question |
+| Are key entities (names, products) introduced? | Missing setup |
+| Does the answer reference “what I said earlier” without that earlier part? | Missing callback bridge |
+| Does jargon need a one-line definition? | Missing definitional frame |
+| Does the segment end abruptly before the payoff? | Missing follow-up question |
+
+**Prompt:** [missing-framing](./prompts/interviewer-gap/missing-framing.system.txt)
+
+---
+
+### 6. Classify gap type
+
+When a segment fails self-explanatory check, assign one primary gap type:
+
+```mermaid
+flowchart LR
+    G[Gap detected] --> Q{Question missing?}
+    Q -->|yes| GQ[missing_question]
+    Q -->|no| S{Setup missing?}
+    S -->|yes| GS[missing_setup]
+    S -->|no| C{Callback missing?}
+    C -->|yes| GC[missing_callback]
+    C -->|no| J{Jargon unexplained?}
+    J -->|yes| GJ[missing_definition]
+    J -->|no| F{Payoff incomplete?}
+    F -->|yes| GF[missing_followup]
+    F -->|no| GO[ok_with_light_bridge]
+```
+
+| Gap type | Meaning | Typical fix |
+|----------|---------|-------------|
+| `missing_question` | Answer hangs without prompt | Record/synthesize optimal question before clip |
+| `missing_setup` | Entities or stakes unclear | Short interviewer context line |
+| `missing_callback` | References unavailable prior content | Bridge line or include prior segment |
+| `missing_definition` | Term blocks comprehension | One-sentence definitional question |
+| `missing_followup` | Thread abandoned | Follow-up that draws out the payoff |
+| `ok_with_light_bridge` | Minor jump | 3–8 word transition only |
+
+---
+
+### 7. Propose interviewer fix (optimal questions)
+
+Interviewer lines must **serve the interviewee’s message**, not steal focus.
+
+**Principles:**
+
+1. **Short** — Questions often ≤ 15 words; setups ≤ 20 words.
+2. **Open when drawing story** — “What happened when…?” not yes/no.
+3. **Neutral tone** — No leading unless correcting a factual setup gap.
+4. **Faithful** — Do not put words in the interviewee’s mouth; frame what they already said.
+5. **Optimal for message** — The question should be the one an ideal interviewer would have asked to elicit *this* answer.
+
+**Decision table:**
+
+| Gap type | Interviewer artifact | Placement |
+|----------|---------------------|-----------|
+| `missing_question` | Full question VO | Immediately before answer segment |
+| `missing_setup` | Context + question | Before topic block |
+| `missing_callback` | “You mentioned X earlier…” bridge | Before dependent answer |
+| `missing_definition` | “For listeners, what is X?” | Before first use of term |
+| `missing_followup` | Targeted follow-up | After truncated answer |
+| `ok_with_light_bridge` | Transition phrase | Between adjacent segments |
+
+**Prompt:** [optimal-questions](./prompts/interviewer-gap/optimal-questions.system.txt)
+
+**Output fields per proposed line:**
+
+```json
+{
+  "gap_type": "missing_question",
+  "text": "What made you decide to pivot the product in 2024?",
+  "targets_segment_id": "seg_042",
+  "placement": "before|after",
+  "delivery": "record|synthesize",
+  "rationale": "Answer discusses pivot but no question exists in source."
+}
+```
+
+---
+
+### 8. Build gap report + VO script
+
+Aggregate all fixes into:
+
+- **`gap_report.json`** — Machine-readable decisions and segment readiness flags.
+- **`interviewer_script.txt`** — Human-readable script for recording pickup VO.
+
+**Readiness rule:** Flow 1 assembly may proceed when every **included** segment is `ready` or has a scheduled interviewer fix. Flow 2 may ignore gaps inside individual highlight clips if each clip is self-contained (re-run checks per clip).
+
+---
+
+## Flow-specific branches
+
+### After gap analysis → Flow 1 (full master)
+
+```mermaid
+flowchart TD
+    A[Gap report complete] --> B[Include all non-aside segments?]
+    B --> C[Order by narrative arc]
+    C --> D[Insert interviewer fixes from gap report]
+    D --> E{Still holes in story?}
+    E -->|yes| F[Add chapter bridges]
+    E -->|no| G[Proceed to full mux]
+    F --> G
+```
+
+- Prefer **including** weak sections with interviewer bridges over silent deletion.
+- Asides: trim unless they humanize the interviewee.
+
+### After gap analysis → Flow 2 (highlights)
+
+```mermaid
+flowchart TD
+    A[Gap report complete] --> B[Score segments for salience]
+    B --> C[Filter: self-contained clips only]
+    C --> D{≥1 clip passes?}
+    D -->|no| E[Relax criteria or add micro-setup VO]
+    D -->|yes| F[Pick ≤5 diverse clips]
+    F --> G[Per-clip: optional 1-line interviewer tag]
+    G --> H[SFX brief + short assembly]
+```
+
+- A highlight clip **must pass** self-explanatory check **or** accept a **single** interviewer setup line ≤ 8 seconds.
+- Do not select five clips from the same 30-second window.
+
+---
+
+## Operator gates (v1)
+
+| Gate | Condition | Action |
+|------|-----------|--------|
+| **G0** | `review_queue.json` present, transcript review not signed off | GUI: correct ranked STT clips, complete review |
+| **G1** | `delivery: record` in gap report without `vo_pickup/*.wav` | Stop; operator records from `interviewer_script.txt` |
+| **G2** | Analysis complete, G1 clear | Operator selects `flow1` or `flow2` in `run_meta.json` |
+
+`synthesize` delivery is **deferred** in v1 — only `record` triggers G1.
+
+## Human override hooks (future)
+
+| Override | Effect |
+|----------|--------|
+| Force-include segment | Segment in Flow 1 regardless of score |
+| Force-exclude segment | Removed from both flows |
+| Replace proposed question | Use operator text in VO script |
+| Lock clip for Flow 2 | Segment id pinned in `selection.json` |
+
+---
+
+## Assembly and export (target)
+
+Flow 1 export must include gap VO, transitions, and sound design per [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md). v1 concat-only behavior is documented in [assembly_and_mux](./pipeline/assembly_and_mux/README.md).
+
+---
+
+## Related prompts
+
+| Stage | Prompt file |
+|-------|-------------|
+| Content brief | [content-context.system.txt](./prompts/understanding/content-context.system.txt) |
+| Speaker roles | [speaker-roles.system.txt](./prompts/understanding/speaker-roles.system.txt) |
+| Segment boundaries | [boundary-detection.system.txt](./prompts/segmentation/boundary-detection.system.txt) |
+| Segment types | [segment-classification.system.txt](./prompts/segmentation/segment-classification.system.txt) |
+| Gap detection | [missing-framing.system.txt](./prompts/interviewer-gap/missing-framing.system.txt) |
+| Interviewer lines | [optimal-questions.system.txt](./prompts/interviewer-gap/optimal-questions.system.txt) |
+| Flow 1 ordering | [full-master-ranking.system.txt](./prompts/selection/full-master-ranking.system.txt) |
+| Flow 2 picks | [highlight-selection.system.txt](./prompts/selection/highlight-selection.system.txt) |

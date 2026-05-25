@@ -1,30 +1,27 @@
----
-id: pipeline-capture
-tier: both
-status: spec
-depends_on: []
----
-
 # Capture
 
-Everything before software runs: **how** the phone (or recorder) produces **one continuous file per interview** and what you assume about quality.
+Operator provides raw interview audio before any automated stage.
 
-## In this folder
+## Input
 
-| Topic | File |
-|-------|------|
-| Format, length, mono/stereo | [phone-recording-assumptions.md](phone-recording-assumptions.md) |
-| Integrity and duplicate handling | [backup-and-integrity.md](backup-and-integrity.md) |
-| Levels and clipping | [clipping-and-headroom.md](clipping-and-headroom.md) |
+- File under `ASSETS/input/` (default `interview.wav`)
+- Phone or Zoom recordings acceptable; avoid clipped peaks
 
-## Next stage
+## Output
 
-[../ingest/README.md](../ingest/README.md)
+- None (capture is manual)
 
-## Open decisions
+## Assumptions
 
-- Default target: mono voice-optimized vs stereo.
+- Single continuous take preferred
+- Stereo or mono; ingest normalizes to project standard
 
-## Links
+## Quality offer (optional)
 
-- [../ingest/normalization-and-format.md](../ingest/normalization-and-format.md)
+If the recording has noticeable background noise, the app should **offer** [audio pre-clean](../audio_preclean/README.md) before ingest. The operator can also skip now and accept the same offer later (after transcript review, after pickup VO at G1, or before final mix).
+
+Default path: straight to [ingest](../ingest/README.md) with no API call.
+
+## Next stage (default)
+
+[ingest](../ingest/README.md)

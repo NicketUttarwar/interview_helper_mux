@@ -1,19 +1,28 @@
-# Interview helper (documentation)
+# Documentation
 
-**Scope:** Personal, individual use—one operator, local design and tooling for turning long interview recordings into analyzable text, ranked segments, optional cuts, and a composable podcast-style master.
+Authoritative specs for **interview_helper_mux** — raw interview audio to two deliverables.
 
-This folder is the **source of truth** for components and ideas. Each markdown file should stay **one concern**; use [INDEX.md](INDEX.md) to navigate.
+## Contents
 
-## How to read the tree
+| Document | Purpose |
+|----------|---------|
+| [INDEX.md](./INDEX.md) | Flat hub |
+| [pipeline.md](./pipeline.md) | Pipeline, operator gates, two flows |
+| [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
+| [prompts/](./prompts/) | LLM system prompts |
+| [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
+| [build-out/](./build-out/) | Agent implementation tickets |
+| [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
+| [workflows/](./workflows/) | Gates, idempotency, smoke test |
 
-1. **[execution/](execution/)** — End-to-end presets: start with [orchestration-component-map.md](execution/orchestration-component-map.md) (**library review** for A–K), then ladder, difficult joins, automation, **first-use gating** for high-risk tools, S2S / training notes, optional spectrogram / Wav2Vec overlays, [full localized dub](execution/full-localized-dub-orchestration.md) (translate + voice clone → new-language master).
-2. **[versions/](versions/)** — Two product tiers: **low-risk** (simple, managed APIs) and **high-risk** (ensembles, custom models, speech-to-speech, many providers).
-3. **[pipeline/](pipeline/)** — Ordered stages from capture through export; each stage has a `README.md` and leaf topics.
-4. **[workflows/](workflows/)** — Non-waterfall patterns: loops, idempotency, parallel candidates, human overrides.
-5. **[cross-cutting/](cross-cutting/)** — Shared data shapes and how you measure quality.
+## Inputs and outputs
 
-Conventions for leaf files: optional YAML frontmatter (`id`, `tier`, `status`, `depends_on`); end with **Open decisions** and **Links** where helpful.
+- **Input:** Raw interview audio under `./ASSETS/`
+- **Quality (optional, offered throughout):** [Background noise removal](./pipeline/audio_preclean/README.md) — before ingest, after transcript review, **after recording pickup questions at G1**, and before final mix
+- **Outputs (per run, operator chooses one flow after analysis):**
+  1. **Full master podcast** — full coverage, optimal order, VO bridges, podcast SFX, mastered WAV
+  2. **Highlight reel** — ≤5 clips, montage SFX, mastered WAV
 
-## Repository code
+Shared stages run first via `tools/run_analysis.py`. Flow work runs via `tools/run_flow.py`.
 
-Python **3.12** pipeline and store code live at repo root (`pipeline/`, `db/python/mux_store/`, `ai/python/`). Install and gates: **[SETUP.md](../SETUP.md)**. Heavy audio assets and secrets stay out of git.
+**Implementation status:** Analysis and selection are largely implemented; full podcast mix (VO + SFX + beds in `master.wav`) is specified in [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) and [build-out/README.md](./build-out/README.md). v1 Flow 1 export is reordered speech until Wave 5 / assembly wiring ships.

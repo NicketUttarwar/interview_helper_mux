@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TransitionsArtifact",
+  "type": "object",
+  "required": ["transitions"],
+  "properties": {
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["after_segment_id", "before_segment_id", "text", "type"],
+        "properties": {
+          "after_segment_id": { "type": "string" },
+          "before_segment_id": { "type": "string" },
+          "text": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      }
+    }
+  }
+}

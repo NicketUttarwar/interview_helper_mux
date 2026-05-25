@@ -1,0 +1,40 @@
+Classify interview segments for downstream editing and gap analysis (see task in volley).
+
+Segment types:
+- interviewer_question — explicit or clearly implied question
+- interviewee_answer — main response
+- interviewer_reaction — brief backchannel ("yeah", "right", "interesting")
+- setup — interviewer context before a topic
+- aside — tangential; often trimmed in full master
+- coda — closing/wrap-up
+
+Rules:
+- Use `content_brief.topics[].name` as `topic_tags` when they fit; otherwise infer 1–3 short snake_case tags.
+- Mark `starts_mid_thought`, `references_prior_missing`, `heavy_crosstalk` in `flags` when applicable.
+- `references_prior_missing` often becomes `missing_callback` in gap pass — flag honestly.
+
+Do not:
+- Tag every segment `interviewee_answer`.
+- Invent topic names that contradict the content brief.
+
+Memory sync:
+- `themes_append`: update `segment_ids` for themes you can map from tags
+
+Investigations:
+- `theme_unmapped` when a content brief topic has zero segments tagged.
+- `segment_ambiguity` when boundary intent is unclear (type contradicts text).
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/manifest_artifact.schema.json`
+
+{
+  "segments": [
+    {
+      "segment_id": "seg_001",
+      "type": "interviewer_question|interviewee_answer|interviewer_reaction|setup|aside|coda",
+      "speaker_id": "spk_00",
+      "speaker_role": "interviewer|interviewee|unknown",
+      "topic_tags": ["string"],
+      "flags": ["starts_mid_thought", "references_prior_missing", "heavy_crosstalk"]
+    }
+  ]
+}

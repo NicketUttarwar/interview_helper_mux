@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContentBriefArtifact",
+  "type": "object",
+  "required": ["thesis", "topics"],
+  "properties": {
+    "thesis": { "type": "string", "minLength": 1 },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "summary"],
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "approx_time_range": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number" }
+        }
+      }
+    },
+    "key_claims": { "type": "array" },
+    "emotional_beats": { "type": "array" },
+    "audience": { "type": "string" },
+    "jargon_glossary": { "type": "array" }
+  }
+}

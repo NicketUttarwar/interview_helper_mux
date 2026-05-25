@@ -1,0 +1,459 @@
+"""Rolling analysis memory, investigation queue, and context padding for LLM stages."""
+
+from __future__ import annotations
+
+import copy
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from interview_mux.config import merged_config
+from interview_mux.run_context import RunContext
+
+SCHEMA_VERSION = 1
+
+ANALYSIS_STATE_PATH = "understanding/analysis_state.json"
+INVESTIGATION_QUEUE_PATH = "understanding/investigation_queue.json"
+CONTEXT_INDEX_PATH = "understanding/context_index.json"
+ORCHESTRATION_PATH = "understanding/analysis_orchestration.json"
+
+EDITABLE_PROFILE_PATHS = (
+    ANALYSIS_STATE_PATH,
+    INVESTIGATION_QUEUE_PATH,
+    "understanding/content_brief.json",
+    "understanding/speakers.json",
+    "segments/manifest.json",
+)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _analysis_cfg() -> dict[str, Any]:
+    return merged_config().get("analysis") or {}
+
+
+def default_analysis_state(run_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "meta": {
+            "created_at": _now(),
+            "last_updated_at": _now(),
+            "last_updated_stage": None,
+            "analysis_pass": 1,
+            "operator_verified": False,
+        },
+        "interview_identity": {
+            "title": "",
+            "one_line_summary": "",
+            "source_audio_note": "",
+        },
+        "themes": [],
+        "major_questions": [],
+        "style": {
+            "tone": "",
+            "pacing": "",
+            "format_notes": "",
+            "interviewer_style": "",
+            "interviewee_style": "",
+        },
+        "narrative": {
+            "thesis": "",
+            "audience": "",
+            "emotional_beats": [],
+            "key_claims": [],
+        },
+        "entities": [],
+        "speakers": [],
+        "segment_summary": {},
+        "gaps_summary": {},
+        "hypotheses": [],
+        "open_questions": [],
+        "confidence": {
+            "overall": 0.0,
+            "roles": 0.0,
+            "segmentation": 0.0,
+            "content": 0.0,
+            "gaps": 0.0,
+        },
+        "completion": {
+            "analysis_ready": False,
+            "blockers": [],
+        },
+        "operator_notes": "",
+    }
+
+
+def default_investigation_queue() -> dict[str, Any]:
+    return {"schema_version": SCHEMA_VERSION, "items": []}
+
+
+def default_context_index(run_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "artifacts": {},
+        "padding_rules": {
+            "always_include": ["analysis_state_summary", "open_investigations"],
+            "max_user_json_chars": 48000,
+        },
+    }
+
+
+def default_orchestration() -> dict[str, Any]:
+    cfg = _analysis_cfg()
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "max_iterations_per_stage": int(cfg.get("max_iterations_per_stage", 3)),
+        "max_queue_drains_per_stage": int(cfg.get("max_queue_drains_per_stage", 5)),
+        "stage_attempts": {},
+        "last_completion_check": None,
+    }
+
+
+def ensure_analysis_workspace(ctx: RunContext) -> None:
+    """Create memory files if missing (call before first LLM analysis stage)."""
+    if not ctx.artifact_exists(ANALYSIS_STATE_PATH):
+        ctx.write_json(ANALYSIS_STATE_PATH, default_analysis_state(ctx.run_id))
+    if not ctx.artifact_exists(INVESTIGATION_QUEUE_PATH):
+        ctx.write_json(INVESTIGATION_QUEUE_PATH, default_investigation_queue())
+    if not ctx.artifact_exists(CONTEXT_INDEX_PATH):
+        ctx.write_json(CONTEXT_INDEX_PATH, default_context_index(ctx.run_id))
+    if not ctx.artifact_exists(ORCHESTRATION_PATH):
+        ctx.write_json(ORCHESTRATION_PATH, default_orchestration())
+    (ctx.path("understanding", "stage_runs")).mkdir(parents=True, exist_ok=True)
+
+
+def load_analysis_state(ctx: RunContext) -> dict[str, Any]:
+    ensure_analysis_workspace(ctx)
+    return ctx.read_json(ANALYSIS_STATE_PATH)
+
+
+def save_analysis_state(ctx: RunContext, state: dict[str, Any], *, stage: str | None = None) -> None:
+    state.setdefault("meta", {})
+    state["meta"]["last_updated_at"] = _now()
+    if stage:
+        state["meta"]["last_updated_stage"] = stage
+    ctx.write_json(ANALYSIS_STATE_PATH, state)
+
+
+def load_queue(ctx: RunContext) -> dict[str, Any]:
+    ensure_analysis_workspace(ctx)
+    return ctx.read_json(INVESTIGATION_QUEUE_PATH)
+
+
+def save_queue(ctx: RunContext, queue: dict[str, Any]) -> None:
+    ctx.write_json(INVESTIGATION_QUEUE_PATH, queue)
+
+
+def _next_inv_id(queue: dict[str, Any]) -> str:
+    items = queue.get("items") or []
+    nums = []
+    for it in items:
+        iid = str(it.get("id", ""))
+        if iid.startswith("inv_"):
+            try:
+                nums.append(int(iid.split("_", 1)[1]))
+            except ValueError:
+                pass
+    n = (max(nums) + 1) if nums else 1
+    return f"inv_{n:03d}"
+
+
+def merge_memory_updates(state: dict[str, Any], updates: dict[str, Any] | None) -> dict[str, Any]:
+    if not updates:
+        return state
+    out = copy.deepcopy(state)
+
+    def _append_unique(lst: list, item: Any, id_key: str = "id") -> None:
+        if not item:
+            return
+        if isinstance(item, dict) and id_key in item:
+            if any(isinstance(x, dict) and x.get(id_key) == item.get(id_key) for x in lst):
+                for i, x in enumerate(lst):
+                    if isinstance(x, dict) and x.get(id_key) == item.get(id_key):
+                        lst[i] = {**x, **item}
+                        return
+        elif item in lst:
+            return
+        lst.append(item)
+
+    for key in ("themes_append", "major_questions_append", "entities_append", "hypotheses_append"):
+        if key in updates:
+            target = key.replace("_append", "")
+            out.setdefault(target, [])
+            id_key = "id" if target != "major_questions" else "question"
+            for item in updates[key] or []:
+                _append_unique(out[target], item, id_key=id_key)
+
+    for key in ("themes", "major_questions", "entities", "hypotheses", "speakers", "open_questions"):
+        if key in updates and isinstance(updates[key], list):
+            if updates.get(f"{key}_replace"):
+                out[key] = updates[key]
+            else:
+                out.setdefault(key, [])
+                for item in updates[key]:
+                    if item not in out[key]:
+                        out[key].append(item)
+
+    if "narrative_patch" in updates and isinstance(updates["narrative_patch"], dict):
+        out.setdefault("narrative", {})
+        for k, v in updates["narrative_patch"].items():
+            if v is not None and v != "":
+                out["narrative"][k] = v
+
+    if "style_patch" in updates and isinstance(updates["style_patch"], dict):
+        out.setdefault("style", {})
+        for k, v in updates["style_patch"].items():
+            if v is not None:
+                out["style"][k] = v
+
+    if "interview_identity_patch" in updates:
+        out.setdefault("interview_identity", {})
+        out["interview_identity"].update(updates["interview_identity_patch"])
+
+    if "confidence_patch" in updates:
+        out.setdefault("confidence", {})
+        out["confidence"].update(updates["confidence_patch"])
+
+    if "completion_patch" in updates:
+        out.setdefault("completion", {})
+        out["completion"].update(updates["completion_patch"])
+
+    if "segment_summary_patch" in updates:
+        out.setdefault("segment_summary", {})
+        out["segment_summary"].update(updates["segment_summary_patch"])
+
+    if "gaps_summary_patch" in updates:
+        out.setdefault("gaps_summary", {})
+        out["gaps_summary"].update(updates["gaps_summary_patch"])
+
+    return out
+
+
+def enqueue_investigations(
+    ctx: RunContext,
+    items: list[dict[str, Any]],
+    *,
+    created_by_stage: str,
+) -> None:
+    if not items:
+        return
+    queue = load_queue(ctx)
+    existing_ids = {it.get("id") for it in queue.get("items") or []}
+    for raw in items:
+        if not raw:
+            continue
+        iid = raw.get("id") or _next_inv_id(queue)
+        while iid in existing_ids:
+            iid = _next_inv_id(queue)
+        entry = {
+            "id": iid,
+            "priority": raw.get("priority", "medium"),
+            "kind": raw.get("kind", "unknown"),
+            "target": raw.get("target") or {},
+            "question": raw.get("question", ""),
+            "suggested_action": raw.get("suggested_action")
+            or {"type": "rerun_stage", "stage": created_by_stage},
+            "status": "open",
+            "blocking": bool(raw.get("blocking", False)),
+            "created_by_stage": created_by_stage,
+            "created_at": _now(),
+        }
+        queue.setdefault("items", []).append(entry)
+        existing_ids.add(iid)
+    save_queue(ctx, queue)
+
+
+def drain_open_investigations(ctx: RunContext, limit: int | None = None) -> list[dict[str, Any]]:
+    queue = load_queue(ctx)
+    open_items = [it for it in queue.get("items") or [] if it.get("status") == "open"]
+    open_items.sort(key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x.get("priority", "medium"), 1))
+    if limit:
+        open_items = open_items[:limit]
+    return open_items
+
+
+def mark_investigation_done(ctx: RunContext, inv_id: str) -> None:
+    queue = load_queue(ctx)
+    for it in queue.get("items") or []:
+        if it.get("id") == inv_id:
+            it["status"] = "done"
+            it["resolved_at"] = _now()
+    save_queue(ctx, queue)
+
+
+def state_summary_for_padding(state: dict[str, Any]) -> dict[str, Any]:
+    """Compact view for LLM context — avoids sending full segment lists."""
+    return {
+        "interview_identity": state.get("interview_identity"),
+        "themes": state.get("themes", [])[:20],
+        "major_questions": state.get("major_questions", [])[:15],
+        "style": state.get("style"),
+        "narrative": {
+            "thesis": (state.get("narrative") or {}).get("thesis"),
+            "audience": (state.get("narrative") or {}).get("audience"),
+            "key_claims": ((state.get("narrative") or {}).get("key_claims") or [])[:12],
+        },
+        "entities": state.get("entities", [])[:25],
+        "speakers": state.get("speakers", []),
+        "hypotheses": [h for h in state.get("hypotheses", []) if h.get("status") != "rejected"][:10],
+        "open_questions": state.get("open_questions", [])[:10],
+        "confidence": state.get("confidence"),
+        "operator_notes": state.get("operator_notes"),
+        "operator_verified": (state.get("meta") or {}).get("operator_verified"),
+    }
+
+
+def build_analysis_context_payload(
+    ctx: RunContext,
+    stage_key: str,
+    stage_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Deprecated: use context_volley.build_message_volley for API calls."""
+    from interview_mux.context_volley import build_message_volley
+
+    volley = build_message_volley(ctx, stage_key, stage_data)
+    return {"stage": stage_key, "message_volley": volley}
+
+
+def apply_envelope_to_memory(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+) -> dict[str, Any]:
+    state = load_analysis_state(ctx)
+    state = merge_memory_updates(state, envelope.get("memory_updates"))
+    if envelope.get("reasoning_summary"):
+        state.setdefault("meta", {})
+        passes = state["meta"].get("stage_summaries") or {}
+        passes[stage_key] = envelope["reasoning_summary"]
+        state["meta"]["stage_summaries"] = passes
+
+    follow = envelope.get("follow_up_investigations") or []
+    enqueue_investigations(ctx, follow, created_by_stage=stage_key)
+
+    conf = envelope.get("confidence")
+    if isinstance(conf, (int, float)):
+        state.setdefault("confidence", {})
+        state["confidence"]["overall"] = float(conf)
+
+    save_analysis_state(ctx, state, stage=stage_key)
+    return state
+
+
+def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
+    state = load_analysis_state(ctx)
+    state.setdefault("narrative", {})
+    if brief.get("thesis"):
+        state["narrative"]["thesis"] = brief["thesis"]
+    if brief.get("audience"):
+        state["narrative"]["audience"] = brief["audience"]
+    if brief.get("key_claims"):
+        state["narrative"]["key_claims"] = brief["key_claims"]
+    if brief.get("emotional_beats"):
+        state["narrative"]["emotional_beats"] = brief["emotional_beats"]
+    for topic in brief.get("topics") or []:
+        if isinstance(topic, dict):
+            state.setdefault("themes", [])
+            entry = {
+                "id": topic.get("name", "").lower().replace(" ", "_")[:32] or f"theme_{len(state['themes'])}",
+                "label": topic.get("name", ""),
+                "summary": topic.get("summary", ""),
+                "segment_ids": [],
+                "confidence": 0.8,
+                "sources": ["content_context"],
+            }
+            if entry not in state["themes"]:
+                state["themes"].append(entry)
+    for term in brief.get("jargon_glossary") or []:
+        if isinstance(term, dict):
+            state.setdefault("entities", [])
+            state["entities"].append(
+                {
+                    "name": term.get("term", ""),
+                    "plain_definition": term.get("plain_definition", ""),
+                    "segment_ids": [term.get("first_segment_id")] if term.get("first_segment_id") else [],
+                }
+            )
+    save_analysis_state(ctx, state, stage="content_context")
+
+
+def sync_speakers_to_state(ctx: RunContext, speakers_doc: dict[str, Any]) -> None:
+    state = load_analysis_state(ctx)
+    state["speakers"] = speakers_doc.get("speakers") or []
+    save_analysis_state(ctx, state, stage="speaker_roles")
+
+
+def sync_gaps_to_state(ctx: RunContext, evaluations: dict[str, Any]) -> None:
+    state = load_analysis_state(ctx)
+    evals = evaluations.get("evaluations") or []
+    by_type: dict[str, int] = {}
+    for ev in evals:
+        gt = ev.get("gap_type") or "none"
+        by_type[gt] = by_type.get(gt, 0) + 1
+    state["gaps_summary"] = {
+        "total_evaluated": len(evals),
+        "not_self_explanatory": sum(1 for e in evals if not e.get("self_explanatory")),
+        "by_gap_type": by_type,
+        "updated_at": _now(),
+    }
+    save_analysis_state(ctx, state, stage="missing_framing")
+
+
+def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
+    state = load_analysis_state(ctx)
+    queue = load_queue(ctx)
+    blockers: list[str] = []
+    open_blocking = [it for it in queue.get("items") or [] if it.get("status") == "open" and it.get("blocking")]
+    if open_blocking:
+        blockers.append(f"{len(open_blocking)} open blocking investigation(s)")
+    if not state.get("themes"):
+        blockers.append("No themes in analysis_state — run content_context or add manually")
+    ready = len(blockers) == 0 and ctx.is_done("optimal_questions")
+    state.setdefault("completion", {})
+    state["completion"]["analysis_ready"] = ready
+    state["completion"]["blockers"] = blockers
+    save_analysis_state(ctx, state)
+    return state["completion"]
+
+
+def record_stage_attempt(
+    ctx: RunContext,
+    stage_key: str,
+    attempt: int,
+    envelope: dict[str, Any],
+    *,
+    context_volley: list[dict[str, str]] | None = None,
+) -> None:
+    base = ctx.path("understanding", "stage_runs", stage_key)
+    base.mkdir(parents=True, exist_ok=True)
+    path = base / f"attempt_{attempt:03d}.json"
+    from interview_mux.file_store import write_json
+    from interview_mux.context_volley import volley_char_estimate
+
+    write_json(
+        path,
+        {
+            "stage": stage_key,
+            "attempt": attempt,
+            "recorded_at": _now(),
+            "context_volley": context_volley,
+            "context_chars": volley_char_estimate(context_volley) if context_volley else 0,
+            "envelope": envelope,
+        },
+    )
+    orch = ctx.read_json(ORCHESTRATION_PATH) if ctx.artifact_exists(ORCHESTRATION_PATH) else default_orchestration()
+    orch.setdefault("stage_attempts", {})
+    orch["stage_attempts"][stage_key] = attempt
+    ctx.write_json(ORCHESTRATION_PATH, orch)
+
+
+def mark_operator_verified(ctx: RunContext, verified: bool = True) -> None:
+    state = load_analysis_state(ctx)
+    state.setdefault("meta", {})
+    state["meta"]["operator_verified"] = verified
+    state["meta"]["operator_verified_at"] = _now() if verified else None
+    save_analysis_state(ctx, state, stage="operator")

@@ -1,0 +1,37 @@
+Audit whether every theme and claim from the content brief is represented in the segment manifest (see task in volley).
+
+Goals:
+- Map each `content_brief` topic and `key_claim` to at least one `segment_id`.
+- Flag topics with zero coverage in `missing_coverage`.
+- Flag segments that cover no brief topic in `orphan_segment_ids`.
+- Prefer including all non-aside interview material in the eventual full master.
+
+Coverage score (required):
+- `coverage_score` = (topics covered + claims covered) / (total topics + total claims), clamped 0–1.
+- Count a topic/claim covered if `covered: true` and `segment_ids` non-empty.
+
+Do not:
+- Mark covered without a real `segment_id`.
+- Ignore claims from the brief.
+
+Memory sync:
+- `confidence_patch`: `{ "coverage": coverage_score }`
+
+Investigations / needs:
+- For each `missing_coverage` item, add `follow_up_investigations` kind `theme_unmapped` → `segment_classification`, or `needs` `rerun_stage` if blocking.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/coverage_audit_artifact.schema.json`
+
+{
+  "topic_mappings": [
+    { "topic": "string", "segment_ids": ["seg_001"], "covered": true }
+  ],
+  "claim_mappings": [
+    { "claim": "string", "segment_ids": ["seg_002"], "covered": true }
+  ],
+  "missing_coverage": [
+    { "item": "string", "suggestion": "which segment type might cover this" }
+  ],
+  "orphan_segment_ids": ["seg_099"],
+  "coverage_score": 0.0
+}

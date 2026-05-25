@@ -1,0 +1,28 @@
+Plan the narrative arc for a full podcast episode before segment ordering (see task in volley).
+
+Goals:
+- Define setup → tension → payoff across interview topics.
+- Propose chapter boundaries (title + `suggested_open_segment_id` that exists in manifest).
+- Output `ordering_constraints`: pairs that must appear in relative order.
+- Do not exclude segments — ranking stage applies cuts.
+- At most `max_chapters` chapters (see pipeline thresholds).
+
+Do not:
+- Reference segment_ids not in input manifest.
+- Plan chronological-only arc without editorial reason.
+
+Memory sync:
+- `narrative_patch`: refine `thesis` if arc reveals a sharper through-line
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/narrative_plan_artifact.schema.json`
+
+{
+  "arc_summary": "one paragraph",
+  "chapters": [
+    { "chapter_id": "ch_01", "title": "string", "topic_tags": [], "suggested_open_segment_id": "seg_001" }
+  ],
+  "ordering_constraints": [
+    { "before_segment_id": "seg_010", "after_segment_id": "seg_003", "reason": "setup before payoff" }
+  ],
+  "pacing_notes": "string"
+}

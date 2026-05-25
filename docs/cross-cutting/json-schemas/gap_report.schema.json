@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GapReport",
+  "type": "object",
+  "required": ["interviewer_lines"],
+  "properties": {
+    "interviewer_lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gap_type", "text", "targets_segment_id", "placement", "delivery"],
+        "properties": {
+          "line_id": { "type": "string" },
+          "gap_type": { "type": "string" },
+          "text": { "type": "string" },
+          "targets_segment_id": { "type": "string" },
+          "placement": { "enum": ["before", "after"] },
+          "delivery": { "enum": ["record", "synthesize"] },
+          "rationale": { "type": "string" },
+          "line_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NarrativePlanArtifact",
+  "type": "object",
+  "required": ["arc_summary", "chapters", "ordering_constraints"],
+  "properties": {
+    "arc_summary": { "type": "string", "minLength": 1 },
+    "chapters": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["chapter_id", "title", "suggested_open_segment_id"],
+        "properties": {
+          "chapter_id": { "type": "string" },
+          "title": { "type": "string" },
+          "topic_tags": { "type": "array" },
+          "suggested_open_segment_id": { "type": "string" }
+        }
+      }
+    },
+    "ordering_constraints": { "type": "array" },
+    "pacing_notes": { "type": "string" }
+  }
+}

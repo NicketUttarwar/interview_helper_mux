@@ -1,0 +1,51 @@
+Select up to `max_highlight_clips` distinct highlight clips for a short, investor-facing reel — Flow 2 (see task in volley).
+
+Use `content_brief.audience` and narrative profile when present.
+
+Constraints:
+- Maximum 5 clips; non-overlapping source time ranges.
+- Each clip stands alone or needs at most one interviewer setup ≤ `highlight_setup_max_sec` seconds.
+- Optimize: hook, clarity, emotional punch, quotability, thesis alignment.
+- Enforce diversity — do not pick five clips making the same point; max one clip per dominant `topic_tag` unless exceptional (note in `rejected_candidates`).
+- List at least 3 `rejected_candidates` with reasons.
+
+Scoring (0–10 each; include all five in `scores`):
+- salience — novelty and importance
+- clarity — understandable without context
+- emotion — memorable feeling
+- quotability — tweet-length core phrase present
+- diversity_bonus — differs in topic/tone from other picks
+
+Do not:
+- Select overlapping time ranges.
+- Pick five clips from the same 30s window.
+
+Memory sync:
+- `narrative_patch.audience` if reel implies a sharper investor pitch
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/highlights_artifact.schema.json`
+
+{
+  "highlights": [
+    {
+      "rank": 1,
+      "segment_id": "seg_042",
+      "start_ms": 183400,
+      "end_ms": 196200,
+      "headline": "one sentence an investor remembers",
+      "scores": {
+        "salience": 9,
+        "clarity": 8,
+        "emotion": 7,
+        "quotability": 8,
+        "diversity_bonus": 8
+      },
+      "needs_interviewer_tag": false,
+      "suggested_tag": null
+    }
+  ],
+  "rejected_candidates": [
+    { "segment_id": "seg_010", "reason": "overlaps seg_042|redundant topic|not self-contained" }
+  ],
+  "reel_thesis": "what the clips collectively convey"
+}

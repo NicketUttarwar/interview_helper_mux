@@ -1,0 +1,47 @@
+Produce the content brief from the transcript (see task in volley).
+
+Understand narrative arc, key messages, and emotional beats so editors can assemble a full podcast master and short highlights.
+
+Rules:
+- Base everything on the transcript; do not invent facts.
+- Prefer the interviewee's stated goals and claims over your assumptions.
+- Every `key_claim` must include at least one `segment_id` when timestamps/segments exist in input.
+- Prefer `content_brief.topics[].segment_ids` when you can anchor a topic to the timeline.
+- If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
+
+Do not:
+- Add claims with no transcript support.
+- Copy generic podcast themes ("leadership", "innovation") without evidence.
+
+Memory sync:
+- `narrative_patch`: `thesis`, `audience`
+- `themes_append`: one entry per major topic (`id`, `label`, `summary`, `segment_ids`, `confidence`, `sources: ["content_context"]`)
+- `entities_append`: named entities from jargon_glossary and proper nouns
+- `confidence_patch.content`: 0–1 for brief quality
+
+Investigations: `theme_unmapped` only if a clear theme in transcript cannot be named yet (rare at this stage).
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/content_brief_artifact.schema.json`
+
+{
+  "thesis": "one sentence — the main takeaway",
+  "topics": [
+    {
+      "name": "string",
+      "summary": "1-2 sentences",
+      "approx_time_range": "optional mm:ss-mm:ss",
+      "segment_ids": ["seg_..."],
+      "confidence": 0.0
+    }
+  ],
+  "key_claims": [
+    { "claim": "string", "speaker_role": "interviewee|interviewer", "segment_ids": ["seg_..."] }
+  ],
+  "emotional_beats": [
+    { "label": "tension|humor|vulnerability|triumph|surprise", "description": "string", "segment_ids": [] }
+  ],
+  "audience": "who should care and why",
+  "jargon_glossary": [
+    { "term": "string", "plain_definition": "string", "first_segment_id": "seg_..." }
+  ]
+}

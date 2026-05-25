@@ -1,0 +1,143 @@
+# Operator gates
+
+Mandatory human checkpoints. Agents **must stop** at these gates — do not auto-continue.
+
+**Quality offers** (optional, non-blocking) are separate from gates — see [Quality improvement offers](#quality-improvement-offers-not-gates) and [audio pre-clean](../pipeline/audio_preclean/README.md).
+
+---
+
+## G0 — Transcript review (STT corrections)
+
+**After:** `transcript_review_build` (runs immediately after `transcribe`)
+
+**Trigger:** `transcript/review_queue.json` exists and `.stage_done/transcript_review` is missing.
+
+**Prompt operator:**
+
+1. Open the GUI stage **Transcript review**
+2. Play each ranked clip (lowest AWS confidence first); edit transcript text; save
+3. Click **Complete transcript review** (applies corrections to `transcript/full.json`)
+
+**Skip when:** Operator has completed review (marker file present).
+
+**CLI sign-off:** `python -m interview_mux run-stage --run-id … --stage transcript_review`
+
+See [transcript-review.md](../pipeline/transcription/transcript-review.md).
+
+**Quality offer after G0:** If many clips were low-confidence, offer [background noise removal](../pipeline/audio_preclean/README.md) on the full source and re-run from `audio_preclean` → ingest (operator choice).
+
+---
+
+## Interview profile review (recommended; blocking before Flow 1 extended — planned)
+
+**When:** After `content_context` or when `analysis_complete.json` exists.
+
+**Artifacts:** `understanding/analysis_state.json`, `understanding/investigation_queue.json`
+
+**Prompt operator:**
+
+1. Open GUI **Interview profile** (or edit JSON on disk)
+2. Adjust **themes**, **major_questions**, **style** (tone, pacing, interviewer/interviewee style)
+3. Click **Mark profile verified** (`meta.operator_verified: true`)
+4. If downstream stages already ran, **Redo from selected stage** (e.g. `segment_classification`)
+
+LLM stages respect verified profile fields unless transcript evidence contradicts — then check `investigation_queue.json` or log `needs`.
+
+**Target behavior:** Block or strongly warn before `topic_coverage_audit` (Flow 1) if profile is not verified — see [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
+
+See [analysis-memory.md](../cross-cutting/analysis-memory.md).
+
+---
+
+## G1 — Human VO pickup
+
+**After:** `tools/run_analysis.py` completes (BUILD-028)
+
+**Trigger:** Any `interviewer_lines[]` entry in `gap_report.json` with `delivery: record` and no matching file in `vo_pickup/`.
+
+**Prompt operator:**
+
+1. Open `understanding/interviewer_script.txt` (GUI **G1 VO pickup**)
+2. Record each proposed **additional interviewer question** / setup line
+3. Save as `vo_pickup/{line_id}.wav` (or `{targets_segment_id}.wav`)
+4. Re-run: `python tools/run_analysis.py --from-stage vo_ingest` (or full re-check)
+
+**Skip when:** No `delivery: record` lines, or all pickup files present.
+
+### Quality offer at G1 (required product behavior)
+
+After pickup recordings are saved, **offer background noise removal on the new VO files only**:
+
+- Copy: e.g. *“Remove background noise from your pickup recordings?”*
+- Scope: `vo_pickup` — does **not** require re-cleaning the original interview
+- If accepted: clean pickup WAVs, then continue to `vo_ingest` / G2
+
+If the operator dismisses, continue without cleaning. They can accept a full-source pre-clean offer later before mix.
+
+See [audio pre-clean — G1 pickup](../pipeline/audio_preclean/README.md#g1-pickup-cleanup-explicit-product-behavior).
+
+---
+
+## G2 — Flow selection
+
+**After:** G1 cleared
+
+**Prompt operator:** Choose output:
+
+- `flow1` — full master podcast (extended analysis + optimal order + podcast SFX)
+- `flow2` — highlight reel (≤5 clips + montage SFX)
+
+**Persist:**
+
+```json
+{ "selected_flow": "flow1", "selected_at": "ISO8601" }
+```
+
+in `run_meta.json` (under `ASSETS/executions/…` or legacy `data/run_NNN/`).
+
+**CLI:**
+
+```bash
+python tools/run_flow.py --flow flow1
+python tools/run_flow.py --flow flow2
+```
+
+---
+
+## G1.5 — Sound design approval (optional, planned)
+
+**When:** After Flow 1/2 sound plan exists, **before** ElevenLabs generation spend.
+
+**Trigger:** `sound_design_plan.json` has cues and `require_operator_prompt_approval: true` in config (default false).
+
+**Action:** Operator reviews cue list and crafted prompts; approve or edit plan JSON.
+
+See [sound-design.md](../cross-cutting/sound-design.md).
+
+---
+
+## Quality improvement offers (not gates)
+
+These **do not** block the pipeline unless the operator accepts and a re-run is required.
+
+| Offer | Typical moment | Scope |
+|-------|----------------|-------|
+| Pre-clean source | Before ingest / new run | `full_source` |
+| Pre-clean after STT pain | After G0 | `full_source` |
+| Pre-clean pickup VO | **After G1 recordings** | `vo_pickup` only |
+| Pre-clean before mix | Before `mux_flow*` | `full_source` or `normalized_rebuild` |
+| Assembly preview listen | After ranking, before SFX | N/A (listen only) |
+| Re-verify master | After `master.wav` | QA + optional re-mux |
+
+Log accept/dismiss in `run_meta.json` → `audio_preclean.offered_at` and GUI log.
+
+Default for all offers: **off** — operator opts in.
+
+---
+
+## What we do not ask
+
+- Flow choice before analysis completes
+- VO recording for `delivery: synthesize` (deferred in v1)
+- Mandatory pre-clean at any step
+- Re-confirming gates on idempotent re-runs when artifacts already satisfy checks

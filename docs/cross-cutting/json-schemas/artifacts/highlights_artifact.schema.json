@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HighlightsArtifact",
+  "type": "object",
+  "required": ["highlights", "reel_thesis"],
+  "properties": {
+    "highlights": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["rank", "segment_id", "start_ms", "end_ms", "headline", "scores"],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "segment_id": { "type": "string" },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "headline": { "type": "string" },
+          "scores": {
+            "type": "object",
+            "required": ["salience", "clarity", "emotion", "quotability", "diversity_bonus"],
+            "properties": {
+              "salience": { "type": "number" },
+              "clarity": { "type": "number" },
+              "emotion": { "type": "number" },
+              "quotability": { "type": "number" },
+              "diversity_bonus": { "type": "number" }
+            }
+          },
+          "needs_interviewer_tag": { "type": "boolean" },
+          "suggested_tag": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "rejected_candidates": { "type": "array" },
+    "reel_thesis": { "type": "string" }
+  }
+}

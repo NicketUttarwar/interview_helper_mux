@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalysisState",
+  "type": "object",
+  "required": ["schema_version", "themes", "major_questions", "style", "narrative"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "run_id": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "operator_verified": { "type": "boolean" },
+        "last_updated_stage": { "type": "string" },
+        "analysis_pass": { "type": "integer" }
+      }
+    },
+    "interview_identity": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "one_line_summary": { "type": "string" },
+        "source_audio_note": { "type": "string" }
+      }
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "summary": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number" },
+          "sources": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "major_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": { "type": "string" },
+          "segment_ids": { "type": "array" },
+          "priority": { "enum": ["high", "medium", "low"] }
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "tone": { "type": "string" },
+        "pacing": { "type": "string" },
+        "format_notes": { "type": "string" },
+        "interviewer_style": { "type": "string" },
+        "interviewee_style": { "type": "string" }
+      }
+    },
+    "narrative": { "type": "object" },
+    "entities": { "type": "array" },
+    "speakers": { "type": "array" },
+    "hypotheses": { "type": "array" },
+    "open_questions": { "type": "array" },
+    "operator_notes": { "type": "string" },
+    "completion": {
+      "type": "object",
+      "properties": {
+        "analysis_ready": { "type": "boolean" },
+        "blockers": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

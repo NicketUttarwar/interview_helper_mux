@@ -1,37 +1,35 @@
----
-id: workflow-idempotent
-tier: both
-status: spec
-depends_on: []
----
-
 # Idempotent runs
 
-Same **inputs** + same **config revision** should yield the same **segment_ids** and scores so manifests stay stable across retries.
+Each stage marks completion:
 
-## Rules of thumb
-
-- Hash **normalized audio** + `ingest_config` + `stt_model_id` → `transcript_revision`.
-- Segmenter emits ids as `hash(session_id, t_start_ms, t_end_ms, transcript_revision)` or explicit UUIDs stored on first successful run.
-
-## Graph: stable vs branching work
-
-```mermaid
-flowchart TB
-  cfg[config_revision]
-  audio[normalized_audio_hash]
-  transcript[transcript_revision]
-  segments[segment_set_id]
-  cfg --> transcript
-  audio --> transcript
-  transcript --> segments
+```
+data/run_NNN/.stage_done/<stage_name>
 ```
 
-## Open decisions
+## Re-run from a stage
 
-- Whether to forbid reuse of ids across incompatible `transcript_revision` (recommended: new id set).
+```bash
+python tools/run_analysis.py --run-id run_001 --from-stage segmentation
+python tools/run_flow.py --run-id run_001 --flow flow1 --from-stage full_master_ranking
+```
 
-## Links
+`--from-stage` deletes that stage's marker and downstream markers, then re-executes.
 
-- [../pipeline/ingest/checksums-and-lineage.md](../pipeline/ingest/checksums-and-lineage.md)
-- [human-overrides-and-rescore.md](human-overrides-and-rescore.md)
+## Run allocation
+
+New runs auto-increment: `run_001`, `run_002`, … under `data/`.
+
+Override with `--run-id run_001` to continue an existing workspace.
+
+## Safe partial runs
+
+| Scenario | Action |
+|----------|--------|
+| Re-run optional pre-clean (full source) | `--from-stage audio_preclean` (then ingest + downstream) |
+| Re-run pickup-only pre-clean | `audio_preclean` with `scope: vo_pickup` (then `vo_ingest`; does not invalidate transcript) |
+| Operator dismissed pre-clean offer | No marker change; continue current lineage |
+| Transcribe failed | `--from-stage transcribe` |
+| STT corrections changed | `--from-stage transcript_review` (re-sign-off) or `transcript_review_build` to rebuild clips |
+| Changed prompts only | `--from-stage <llm_stage>` |
+| New VO files added | `--from-stage vo_ingest` |
+| Switched flow | New `run_meta.json`; do not mix flow_1 and flow_2 artifacts in one run without clearing |

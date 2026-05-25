@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SfxMontageArtifact",
+  "type": "object",
+  "required": ["transitions"],
+  "properties": {
+    "cold_open": { "type": "object" },
+    "transitions": { "type": "array", "minItems": 0 },
+    "outro": { "type": "object" }
+  }
+}

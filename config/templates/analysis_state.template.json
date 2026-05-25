@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "interview_identity": {
+    "title": "",
+    "one_line_summary": "",
+    "source_audio_note": ""
+  },
+  "themes": [
+    {
+      "id": "theme_example",
+      "label": "Example theme",
+      "summary": "One or two sentences — replace after analysis or edit in GUI",
+      "segment_ids": [],
+      "confidence": 0.5,
+      "sources": ["operator"]
+    }
+  ],
+  "major_questions": [
+    {
+      "question": "What is the central story of this interview?",
+      "segment_ids": [],
+      "priority": "high"
+    }
+  ],
+  "style": {
+    "tone": "",
+    "pacing": "",
+    "format_notes": "",
+    "interviewer_style": "",
+    "interviewee_style": ""
+  },
+  "narrative": {
+    "thesis": "",
+    "audience": "",
+    "emotional_beats": [],
+    "key_claims": []
+  },
+  "operator_notes": "Edit this file or use the Interview profile panel in the web GUI. Set meta.operator_verified to true when satisfied.",
+  "meta": {
+    "operator_verified": false
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PodcastSfxArtifact",
+  "type": "object",
+  "required": ["profile"],
+  "properties": {
+    "profile": { "const": "podcast" },
+    "chapter_stingers": { "type": "array" },
+    "beds": { "type": "array" },
+    "bridges": { "type": "array" }
+  }
+}

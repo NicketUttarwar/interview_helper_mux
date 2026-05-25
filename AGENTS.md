@@ -1,75 +1,56 @@
-# Agent guide — interview_helper_mux (presets A–E)
+# Agent guide — interview_helper_mux
 
-## North star
+Rules for autonomous agents implementing or running this pipeline.
 
-Turn one long interview recording into transcript, ranked segments, and a **polished** muxed podcast master. **`docs/` is authoritative**; sync into SQLite after doc edits:
+## Read order
 
-```bash
-python tools/sync_to_sqlite.py
-```
+1. [docs/build-out/README.md](docs/build-out/README.md) — ticket sequence and dependencies
+2. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
+3. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
+4. [docs/pipeline.md](docs/pipeline.md) — two flows, stage overview
+5. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
 
-- **DSP is mandatory** on every shippable output (room polish runs inside preset A; not optional).
-- **No interview id** in CLI or config — each `run_ingest.py` allocates the next session (`run_001`, `run_002`, …); downstream tools use the active session.
+## Hard constraints
 
-## Preset ladder (canonical letters)
+- **Python 3.12** in `.venv` at repo root; bootstrap via `scripts/bootstrap_venv.sh`
+- **AWS**: use `aws` CLI subprocess only — **no boto3**
+- **Secrets**: load from `config/secrets/secrets.env` — never commit, never hardcode
+- **Media**: default input `./ASSETS/`; ask for full path if missing
+- **Docs/prompts** are authoritative for LLM behavior — do not drift copy without updating specs
 
-| # | Preset | Scope in this repo |
-|---|--------|-------------------|
-| A | Highlight reel | **Shipped path** — `tools/run_preset_a.py` (includes mandatory DSP) |
-| B | Chapter podcast | Metadata on A backbone |
-| C | Director's cut | Budgeted selection + diversity |
-| D | Nonlinear story | Graph EDL (`networkx`) |
-| E | **Room and breath polish** | `tools/run_preset_e.py` (re-polish; also in A) |
-| F | Bilingual / code-switch | **Docs only** — deferred |
-| G–K | S2S, ranker, YOLO, Wav2Vec, dub | **Docs only** |
+## Operator gates (mandatory)
 
-**E = Room polish, F = Bilingual** (swapped from legacy docs in Phase 0).
+| Gate | When | Action |
+|------|------|--------|
+| **G0** | After `transcript_review_build` | Operator corrects STT in GUI (confidence-ranked clips); sign off before `speaker_roles` |
+| **G1** | After `run_analysis.py` | If `delivery: record` lines lack `vo_pickup/*.wav`, stop until operator records |
+| **G2** | After G1 cleared | Ask: `flow1` (full podcast) or `flow2` (highlight reel) |
 
-## MCP (approved trio)
+**Quality offers (optional, not gates):** Offer background noise removal at documented checkpoints — before ingest, after G0, **after G1 pickup recordings** (`vo_pickup` scope), before mix. Never auto-enable. See [docs/pipeline/audio_preclean/README.md](docs/pipeline/audio_preclean/README.md).
 
-Configured in `.cursor/mcp.json`:
+Do not run Flow 1 extended analysis (BUILD-029+) unless `run_meta.json` has `selected_flow: flow1`.
 
-1. **SQLite** — `data/interview_mux.sqlite` (runs, segments, doc_search)
-2. **Filesystem** — `ASSETS/` waveforms and processed stems
-3. **Transcription** — placeholder; point at your STT MCP for preset A iteration
+**v1 assembly:** Flow 1 mux is speech-only; do not claim VO/SFX are in `master.wav` until BUILD-065/067 ship.
 
-## Python layout
+## Idempotency
 
-| Path | Role |
-|------|------|
-| `ai/python/mux_secrets/` | In-memory secrets (no `os.environ` mutation) |
-| `ai/python/openai_mux/` | LLM ranking |
-| `ai/python/aws_mux/` | **AWS CLI** subprocess only |
-| `db/python/mux_store/` | SQLite store + doc sync |
-| `pipeline/` | Ingest → STT → seg → score → mux → **DSP (mandatory)** |
+- Each stage writes `data/run_NNN/.stage_done/<stage_name>`
+- Re-run a stage only if upstream artifacts exist and operator requests it
+- See [docs/workflows/idempotent-runs.md](docs/workflows/idempotent-runs.md)
 
-## Setup
+## What not to build in v1
 
-See **[SETUP.md](SETUP.md)** — **Python 3.12**, native **arm64** on Apple Silicon, repo `.venv`:
+- SQLite / mux_store
+- boto3, preset ladder A–E from old repo
 
-```bash
-eval "$(/opt/homebrew/bin/brew shellenv)"
-export PYTHON=/opt/homebrew/bin/python3.12   # optional pin
-./scripts/bootstrap_venv.sh                  # or install_venv_deps.sh if venv already arm64/3.12
-source .venv/bin/activate
-```
+## Web GUI
 
-No `PYTHONPATH`. Confirm `uname -m` is `arm64` before bootstrapping (Rosetta causes native-wheel import failures).
+Launch with `./scripts/run.sh` (default) or `python -m interview_mux serve`. The GUI reads/writes all state from `data/run_NNN/` JSON files on disk.
 
-**AWS:** AWS CLI v2 assumed authenticated; S3/region/profile in `config/secrets/secrets.env` (not boto3).
-
-## Pipeline CLIs
-
-Set `INPUT_AUDIO_PATH` in `config/secrets/secrets.env` (see `config/README.md`), then:
+## Testing changes
 
 ```bash
-python tools/run_ingest.py
-python tools/run_stt.py --provider faster-whisper
-python tools/run_preset_a.py --top-n 8 --skip-stt
+./tools/check_prerequisites.sh
+python tools/run_analysis.py --run-id run_001
+python tools/verify_master.py data/run_001/flow_1_master/master.wav
 ```
-
-Preset A includes mandatory DSP; `run_preset_e.py` is only needed to re-polish an existing master.
-
-## Rules
-
-See `.cursor/rules/*.mdc` — especially `preset-ladder-a-e.mdc` and `aws-cli-only.mdc`.

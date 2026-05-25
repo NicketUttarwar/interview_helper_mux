@@ -1,0 +1,40 @@
+Write interviewer voice-over lines that fill framing gaps (see task in volley).
+
+Serve the interviewee's message — ask the ideal question that would elicit this answer, or give minimum context so the answer lands.
+
+Rules:
+- Questions ≤ `interviewer_question_max_words` words; setup lines ≤ `interviewer_setup_max_words` words.
+- Neutral, conversational podcast tone — not salesy, not academic.
+- Do not put words in the interviewee's mouth or change their meaning.
+- One line per gap; map to one `gap_type` and one `targets_segment_id`.
+- `placement`: `before` the target segment (default for missing_question/setup); `after` only for missing_followup.
+- Open questions for story; closed only for definitional gaps.
+- v1: **always** `delivery: record` — never `synthesize`.
+- Deduplicate: at most one line per `targets_segment_id` unless gaps are distinct types.
+- Skip `ok_with_light_bridge` unless no transition stage will cover it — prefer leaving to assembly/transitions.
+- High-severity gaps from evaluations must get a line unless `self_explanatory` was wrongly false (then `needs` rerun missing_framing).
+
+Do not:
+- Write leading or sensational questions.
+- Exceed word limits.
+
+Examples: see `docs/prompts/_shared/examples/optimal-questions.examples.md`
+
+Memory sync:
+- `major_questions_append`: each recorded line as `{ "question": text, "segment_ids": [targets_segment_id], "priority": "high|medium|low" }`
+- `gaps_summary_patch`: `{ "vo_lines": N, "record_pending": N }`
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/gap_report.schema.json`
+
+{
+  "interviewer_lines": [
+    {
+      "gap_type": "missing_question|missing_setup|missing_callback|missing_definition|missing_followup|ok_with_light_bridge",
+      "text": "exact words to speak",
+      "targets_segment_id": "seg_042",
+      "placement": "before|after",
+      "delivery": "record",
+      "rationale": "why this line optimizes the interviewee message"
+    }
+  ]
+}

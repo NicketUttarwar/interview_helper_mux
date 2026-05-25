@@ -1,30 +1,41 @@
----
-id: pipeline-ingest
-tier: both
-status: spec
-depends_on: [pipeline-capture]
----
-
 # Ingest
 
-Move from **raw capture** to **normalized assets** ready for transcription: checksums, loudness/format normalization, and strategies for **very long** files.
+Normalize source audio and allocate run workspace.
 
-## In this folder
+## Ticket
 
-| Topic | File |
-|-------|------|
-| Sample rate, channels, loudness prep | [normalization-and-format.md](normalization-and-format.md) |
-| Hashes and lineage | [checksums-and-lineage.md](checksums-and-lineage.md) |
-| Splitting for STT limits | [chunking-long-interviews.md](chunking-long-interviews.md) |
+BUILD-020
 
-## Next stage
+## Tools
 
-[../transcription/README.md](../transcription/README.md)
+ffmpeg
 
-## Open decisions
+## Inputs
 
-- Whether normalization is **lossy** (re-encode) or **lossless** trim only.
+| Path | Description |
+|------|-------------|
+| `ASSETS/input/interview.wav` | Raw source (configurable) |
+| `preclean/isolated.wav` | When [audio pre-clean](../audio_preclean/README.md) ran — ingest uses this instead of raw capture |
 
-## Links
+## Outputs
 
-- [../capture/backup-and-integrity.md](../capture/backup-and-integrity.md)
+| Path | Description |
+|------|-------------|
+| `data/run_NNN/ingest/normalized.wav` | 48 kHz PCM WAV, peak-safe |
+| `data/run_NNN/ingest/checksums.json` | SHA-256 of source + normalized |
+
+## Re-run after pre-clean
+
+If the operator accepts a **full-source** pre-clean offer at any checkpoint, invalidate from `audio_preclean` (or `ingest`) and re-run ingest → transcribe → downstream. See [idempotent-runs.md](../../workflows/idempotent-runs.md).
+
+**Pickup-only** pre-clean at G1 does not require re-ingest of the interview — only `vo_ingest` and assembly stages that use `vo_pickup/`.
+
+## Success criteria
+
+- `normalized.wav` exists, duration > 0
+- `ffprobe` reports 48000 Hz (or configured rate)
+- When pre-clean ran: `checksums.json` includes `preclean_sha256`
+
+## Module
+
+`src/interview_mux/stages/ingest.py` (pre-clean: BUILD-019, planned)

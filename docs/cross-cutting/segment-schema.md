@@ -1,38 +1,48 @@
----
-id: cross-segment-schema
-tier: both
-status: spec
-depends_on: []
----
+# Segment schema
 
-# Segment schema (cross-cutting)
+Canonical segment object passed between LLM stages and audio editing.
 
-Shared conceptual schema for **segments** and **EDL references** used by snippet store, review UI, and mux.
+## Segment
 
-## Segment record (minimal)
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `segment_id` | string | yes | Stable id, e.g. `seg_001` |
+| `start_ms` | integer | yes | Start time in source audio |
+| `end_ms` | integer | yes | End time (`end_ms` > `start_ms`) |
+| `speaker_id` | string | yes | Diarization label |
+| `speaker_role` | enum | yes | `interviewer`, `interviewee`, `unknown` |
+| `type` | enum | yes | See types below |
+| `text` | string | yes | Transcript text for range |
+| `topic_tags` | string[] | no | Theme labels |
+| `ready` | boolean | no | Gap analysis: safe to include without fix |
+| `self_explanatory` | boolean | no | From missing-framing stage |
 
-| Field | Type | Notes |
-|-------|------|--------|
-| `segment_id` | string | Stable within `(session_id, transcript_revision, boundary_set)` |
-| `session_id` | string | One pipeline execution / source recording (`run_001`, …) |
-| `t_start_ms` | int | Global timeline |
-| `t_end_ms` | int | Exclusive or inclusive—pick one convention repo-wide |
-| `text` | string | Segment transcript |
-| `scores` | object | Named floats, e.g. `salience`, `llm_rank` |
-| `flags` | object | `force_include`, `force_exclude`, `human_rejected` |
-| `mutex_group_id` | string or null | Optional: segments sharing an id are **mutually exclusive** in final pick (narrative contradiction sets)—see [../../execution/orchestration-component-map.md](../../execution/orchestration-component-map.md) archetype D |
-| `provenance` | object | `transcript_revision`, `segmenter_id`, `stt_model_id` |
+## Segment types
 
-## EDL reference
+| Type | Typical speaker |
+|------|-----------------|
+| `interviewer_question` | interviewer |
+| `interviewee_answer` | interviewee |
+| `interviewer_reaction` | interviewer |
+| `setup` | interviewer |
+| `aside` | either |
+| `coda` | either |
 
-- `segment_id` **or** explicit `file_uri` + `in_ms`/`out_ms` for rendered clips.
+## Speaker
 
-## Open decisions
+```json
+{
+  "id": "spk_0",
+  "role": "interviewer",
+  "display_name": null,
+  "confidence": 0.92,
+  "evidence": "short turns, question density"
+}
+```
 
-- JSON Schema vs SQL migrations as source of truth.
+## Collections
 
-## Links
+- `segments/manifest.json` — `{ "segments": [ ... ] }`
+- `segments/boundaries.json` — raw boundary proposals before classification
 
-- [../pipeline/snippet-store/segment-manifest-and-storage.md](../pipeline/snippet-store/segment-manifest-and-storage.md)
-- [../pipeline/assembly-and-mux/timeline-and-edl.md](../pipeline/assembly-and-mux/timeline-and-edl.md)
-- [../execution/orchestration-component-map.md](../execution/orchestration-component-map.md)
+See [json-schemas/segment.schema.json](./json-schemas/segment.schema.json).

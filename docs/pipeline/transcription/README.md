@@ -1,30 +1,43 @@
----
-id: pipeline-transcription
-tier: both
-status: spec
-depends_on: [pipeline-ingest]
----
-
 # Transcription
 
-Speech-to-text: provider choice, **timestamps**, optional **diarization**, and adapter pattern for swapping implementations.
+AWS Transcribe via CLI with speaker diarization.
 
-## In this folder
+## Ticket
 
-| Topic | File |
-|-------|------|
-| Word-level alignment | [word-level-timestamps.md](word-level-timestamps.md) |
-| Provider abstraction | [stt-provider-adapters.md](stt-provider-adapters.md) |
-| Who spoke when | [diarization.md](diarization.md) |
+BUILD-021
 
-## Next stage
+## Tools
 
-[../segmentation/README.md](../segmentation/README.md)
+`aws s3 cp`, `aws transcribe start-transcription-job`, poll `get-transcription-job`
 
-## Open decisions
+## Inputs
 
-- Default language auto-detect vs fixed locale.
+| Path | Description |
+|------|-------------|
+| `ingest/normalized.wav` | Uploaded to S3 (from [pre-clean](../audio_preclean/README.md) lineage when operator enabled full-source clean) |
 
-## Links
+## Outputs
 
-- [../../versions/capability-matrix.md](../../versions/capability-matrix.md)
+| Path | Description |
+|------|-------------|
+| `transcript/full.json` | Words (with AWS `confidence`), segments, timestamps |
+| `transcript/speakers.json` | Speaker label summary |
+| `transcript/review_queue.json` | Ranked STT review chunks (after prep) |
+| `transcript/review_clips/*.wav` | Pre-cut audio per review chunk |
+| `transcript/corrections.json` | Operator text fixes |
+
+## Transcript review (G0)
+
+After transcription, operators correct STT in the GUI before analysis continues. See [transcript-review.md](./transcript-review.md).
+
+## Config
+
+`AWS_S3_BUCKET`, `AWS_S3_INPUT_KEY`, `AWS_DEFAULT_REGION` in secrets
+
+## Module
+
+`src/interview_mux/stages/transcribe_aws.py`
+
+## Prompts
+
+None — see [docs/prompts/transcription/README.md](../../prompts/transcription/README.md)

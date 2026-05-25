@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalysisEnvelope",
+  "type": "object",
+  "required": ["status", "artifacts"],
+  "properties": {
+    "status": {
+      "enum": ["complete", "partial", "needs_input", "blocked"]
+    },
+    "artifacts": { "type": "object" },
+    "memory_updates": { "type": "object" },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "reason"],
+        "properties": {
+          "type": {
+            "enum": ["rerun_stage", "operator", "transcript_excerpt", "human_fact"]
+          },
+          "stage": { "type": "string" },
+          "reason": { "type": "string" },
+          "blocking": { "type": "boolean" },
+          "params": { "type": "object" }
+        }
+      }
+    },
+    "follow_up_investigations": { "type": "array" },
+    "confidence": { "type": "number" },
+    "reasoning_summary": { "type": "string" }
+  }
+}

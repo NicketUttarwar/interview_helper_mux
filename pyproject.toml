@@ -3,36 +3,38 @@ requires = ["setuptools>=68,<82"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "interview-helper-mux"
+name = "interview-mux"
 version = "0.1.0"
-description = "Interview recording → transcript → ranked segments → muxed podcast master"
+description = "Interview audio to full master podcast or highlight reel"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-# Runtime deps are in requirements.txt — install with: pip install -r requirements.txt
+dependencies = [
+  "openai>=2,<3",
+  "elevenlabs>=2.40,<3",
+  "pydantic>=2,<3",
+  "typer>=0.12,<1",
+  "rich>=13,<14",
+  "jsonschema>=4.20,<5",
+  "numpy>=1.26,<3",
+  "ffmpeg-python>=0.2,<1",
+  "pydub>=0.25,<1",
+  "pyloudnorm>=0.1,<1",
+  "soundfile>=0.12,<1",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.32,<1",
+  "python-multipart>=0.0.12,<1",
+  "filelock>=3.16,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+interview-mux-analysis = "interview_mux.cli:analysis_main"
+interview-mux-flow = "interview_mux.cli:flow_main"
 
 [tool.setuptools.packages.find]
-where = [".", "ai/python", "db/python"]
-include = [
-  "pipeline*",
-  "mux_store*",
-  "mux_secrets*",
-  "openai_mux*",
-  "aws_mux*",
-  "elevenlabs_mux*",
-]
-exclude = ["tests*", "tools*", "ASSETS*", "data*", "docs*", "config*", "scripts*"]
+where = ["src"]
 
 [tool.setuptools.package-data]
-"openai_mux.prompts" = ["*.txt"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py312"
-
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-markers = ["slow: integration tests (STT, mux)"]
+"interview_mux.web" = ["static/**/*"]

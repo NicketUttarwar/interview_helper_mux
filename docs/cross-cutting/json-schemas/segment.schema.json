@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Segment",
+  "type": "object",
+  "required": ["segment_id", "start_ms", "end_ms", "speaker_id", "speaker_role", "type", "text"],
+  "properties": {
+    "segment_id": { "type": "string" },
+    "start_ms": { "type": "integer", "minimum": 0 },
+    "end_ms": { "type": "integer", "minimum": 0 },
+    "speaker_id": { "type": "string" },
+    "speaker_role": { "enum": ["interviewer", "interviewee", "unknown"] },
+    "type": {
+      "enum": [
+        "interviewer_question",
+        "interviewee_answer",
+        "interviewer_reaction",
+        "setup",
+        "aside",
+        "coda"
+      ]
+    },
+    "text": { "type": "string" },
+    "topic_tags": { "type": "array", "items": { "type": "string" } },
+    "ready": { "type": "boolean" },
+    "self_explanatory": { "type": "boolean" }
+  }
+}

@@ -1,29 +1,40 @@
----
-id: pipeline-segmentation
-tier: both
-status: spec
-depends_on: [pipeline-transcription]
----
-
 # Segmentation
 
-Turn the **continuous transcript + audio** into **candidate segments** for scoring and selection.
+Boundary detection and segment classification.
 
-## In this folder
+## Tickets
 
-| Topic | File |
-|-------|------|
-| Pause/silence splits | [silence-and-pause-splits.md](silence-and-pause-splits.md) |
-| Topic / embedding boundaries | [topic-embedding-boundaries.md](topic-embedding-boundaries.md) |
+BUILD-024, BUILD-025
 
-## Next stage
+## Tools
 
-[../scoring-and-selection/README.md](../scoring-and-selection/README.md)
+OpenAI Chat Completions
 
-## Open decisions
+## Inputs
 
-- Minimum and maximum segment duration caps.
+| Path | Description |
+|------|-------------|
+| `transcript/full.json` | Word-level text |
+| `understanding/speakers.json` | Roles |
+| `understanding/content_brief.json` | Topics |
 
-## Links
+## Outputs
 
-- [../../workflows/parallel-segmentation-candidates.md](../../workflows/parallel-segmentation-candidates.md)
+| Path | Description |
+|------|-------------|
+| `segments/boundaries.json` | Proposed splits |
+| `segments/manifest.json` | Classified segments |
+
+## Rules
+
+- Prefer splits at pauses ≥ ~700 ms and topic shifts
+- Do not split mid-sentence unless STT recovery
+
+## Prompts
+
+- [boundary-detection.system.txt](../../prompts/segmentation/boundary-detection.system.txt)
+- [segment-classification.system.txt](../../prompts/segmentation/segment-classification.system.txt)
+
+## Module
+
+`src/interview_mux/stages/segmentation.py`

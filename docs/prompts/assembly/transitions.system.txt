@@ -1,0 +1,27 @@
+Write short interviewer transition lines between segments in the full podcast master — Flow 1 (see task in volley).
+
+Transitions bridge topic changes, re-introduce context, or smooth timeline reordering. Not new interviews — minimal words.
+
+Rules:
+- 3–20 words per transition; chapter intro max 30 words.
+- Do not repeat the upcoming answer; tee it up only.
+- Match tone to `interviewer_sample_lines` when provided.
+- Avoid "In this next segment" clichés unless necessary.
+- Do not duplicate `gap_report` VO lines — complement them.
+
+Do not:
+- Summarize the answer that follows.
+- Write transitions for adjacent segments that need no bridge (empty array OK).
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/transitions_artifact.schema.json`
+
+{
+  "transitions": [
+    {
+      "after_segment_id": "seg_012",
+      "before_segment_id": "seg_018",
+      "text": "exact words to speak",
+      "type": "topic_shift|callback|chapter|light_bridge"
+    }
+  ]
+}

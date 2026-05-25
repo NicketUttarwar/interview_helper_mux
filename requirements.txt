@@ -1,47 +1,20 @@
-# interview_helper_mux — full Python stack
-#
-#   eval "$(/opt/homebrew/bin/brew shellenv)"    # Apple Silicon
-#   export PYTHON=/opt/homebrew/bin/python3.12  # recommended pin
-#   ./scripts/bootstrap_venv.sh
-#   source .venv/bin/activate
-#
-# Canonical: Python 3.12.x, native arch (arm64 on Apple Silicon).
-# Minimum (pyproject.toml): >=3.12,<3.14
-# Do NOT use macOS system python3 (often 3.9), Rosetta shells (uname -m x86_64),
-# or /usr/local python3.12 (often x86_64) on M1/M2/M3.
-# Host tools: ffmpeg, optional AWS CLI.
-# Secrets: config/secrets/secrets.env (see config/templates/secrets.env.example)
+# interview_helper_mux — third-party dependencies (no editable install).
+# The local package is installed by scripts/run.sh and scripts/bootstrap_venv.sh via: pip install .
 
-setuptools>=68,<82
-
-# Cloud integrations (AWS uses host CLI via aws_mux — no boto3)
 openai>=2,<3
 elevenlabs>=2.40,<3
-
-# Orchestration, schemas, CLI
 pydantic>=2,<3
 typer>=0.12,<1
 rich>=13,<14
 jsonschema>=4.20,<5
 numpy>=1.26,<3
-scipy>=1.11,<2
-scikit-learn>=1.4,<2
-pytest>=8,<9
-
-# Speech-to-text (default provider; no PyTorch — unlike openai-whisper)
-faster-whisper>=1.0,<2
-
-# Audio ingest, mux, mastering, preset E DSP
 ffmpeg-python>=0.2,<1
 pydub>=0.25,<1
 pyloudnorm>=0.1,<1
 soundfile>=0.12,<1
-mutagen>=1.47,<2
-networkx>=3.2,<4
-ortools>=9.9,<10
-pulp>=2.8,<3
-pedalboard>=0.9,<1
-noisereduce>=3,<4
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+python-multipart>=0.0.12,<1
+filelock>=3.16,<4
 
-# Repo packages: pipeline, mux_store, mux_secrets, openai_mux, aws_mux, elevenlabs_mux
--e .
+# Dev (optional): pip install pytest>=8,<9

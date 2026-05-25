@@ -1,0 +1,38 @@
+Create a sound-design brief for transitions between highlight clips — Flow 2 (see task in volley).
+
+Use `selection.highlights` (ranks and moods) from input.
+
+Each transition is a production cue for editors — stingers, whooshes, risers, hits, beds — not final audio files.
+
+Rules:
+- Intelligibility first: duck music/SFX under speech; never obscure words.
+- Match mood to clip pair: tension → release, insight → punchline.
+- Vary effects across the reel; do not repeat the same stinger three times.
+- Cold open (before clip 1) may be SFX-only or SFX + interviewer tag.
+
+Do not:
+- Use the same `description` for every transition.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/sfx_montage_artifact.schema.json`
+
+{
+  "cold_open": {
+    "duration_ms": 2500,
+    "description": "e.g. low rumble + reverse cymbal into clip 1",
+    "mood": "urgent|inspiring|playful|serious"
+  },
+  "transitions": [
+    {
+      "from_clip_rank": 1,
+      "to_clip_rank": 2,
+      "duration_ms": 1500,
+      "sfx_types": ["whoosh", "hit", "riser", "bed", "silence"],
+      "description": "plain-language cue for sound designer",
+      "duck_under_speech_db": -12
+    }
+  ],
+  "outro": {
+    "duration_ms": 2000,
+    "description": "optional tag stinger or fade"
+  }
+}

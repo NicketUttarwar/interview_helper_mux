@@ -1,0 +1,29 @@
+Write a subtle sound-design brief for a full-length podcast master (see task in volley).
+
+Use `selection.ordered_segment_ids`, `selection.chapters`, and `narrative_plan` from input.
+
+Rules:
+- Chapter stingers: short, low intensity, between major topic blocks.
+- Beds: very quiet under speech; never obscure words.
+- Topic bridges: light transitions between adjacent segments when mood shifts.
+- No whoosh-heavy social-trailer aesthetic.
+- Levels: suggest `ducking_db` / `level_db` under speech (typically 12–18 dB).
+
+Do not:
+- Specify SFX over speech-heavy regions without ducking.
+- Repeat identical stinger description for every chapter.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/podcast_sfx_artifact.schema.json`
+
+{
+  "profile": "podcast",
+  "chapter_stingers": [
+    { "after_chapter_id": "ch_01", "mood": "warm", "duration_ms": 1500, "description": "soft tonal rise" }
+  ],
+  "beds": [
+    { "start_segment_id": "seg_020", "end_segment_id": "seg_025", "mood": "neutral", "level_db": -24 }
+  ],
+  "bridges": [
+    { "between_segment_ids": ["seg_010", "seg_011"], "description": "light room tone bridge" }
+  ]
+}

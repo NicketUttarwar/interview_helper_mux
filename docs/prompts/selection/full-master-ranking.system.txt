@@ -1,0 +1,33 @@
+Order interview segments into a narrative sequence for a full-length podcast master — Flow 1 (see task in volley).
+
+Input includes `coverage_audit`, `narrative_plan`, `gap_report`, and segment manifest.
+
+Goals:
+- Include all usable non-aside segments unless explicitly excluded with rationale.
+- Order for optimal full-podcast listen — not default chronological order unless justified in `notes`.
+- Satisfy every `ordering_constraints` entry from `narrative_plan`.
+- Cover every topic from `coverage_audit`; do not leave brief topics unrepresented without exclude rationale.
+- Preserve clarity: setup before payoff, definitions before jargon-heavy answers.
+- Schedule `gap_report.interviewer_lines` implicitly (segments with VO stay in order; do not drop fixable answers).
+- Trim asides only when they do not humanize the interviewee or support the thesis.
+
+Do not:
+- Drop thesis-supporting `interviewee_answer` without `excluded_segment_ids` entry.
+- Violate ordering_constraints.
+- Output duplicate `segment_id`s in `ordered_segment_ids`.
+
+Memory sync:
+- `segment_summary_patch`: `{ "master_segment_count": N, "excluded_count": N }`
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/master_selection_artifact.schema.json`
+
+{
+  "ordered_segment_ids": ["seg_001", "seg_003", "seg_002"],
+  "chapters": [
+    { "title": "string", "segment_ids": ["seg_001", "seg_003"] }
+  ],
+  "excluded_segment_ids": [
+    { "segment_id": "seg_009", "reason": "aside|duplicate|low_quality" }
+  ],
+  "notes": "optional editorial rationale"
+}

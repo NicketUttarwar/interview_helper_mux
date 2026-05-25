@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoverageAuditArtifact",
+  "type": "object",
+  "required": ["topic_mappings", "coverage_score"],
+  "properties": {
+    "topic_mappings": { "type": "array" },
+    "claim_mappings": { "type": "array" },
+    "missing_coverage": { "type": "array" },
+    "orphan_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "coverage_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

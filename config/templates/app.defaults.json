@@ -1,6 +1,39 @@
 {
-  "database_path": "data/interview_mux.sqlite",
   "assets_root": "ASSETS",
   "input_audio_path": "ASSETS/input/interview.wav",
-  "_comment": "Paths are relative to the repository root unless absolute. Override per machine in config/secrets/secrets.env (INPUT_AUDIO_PATH). Each pipeline run auto-allocates a sequential session id (run_001, run_002, …)."
+  "data_root": "data",
+  "sample_rate": 48000,
+  "flow1_target_lufs": -16.0,
+  "flow2_target_lufs": -14.0,
+  "models": {
+    "speaker_roles": "gpt-4o-mini",
+    "content_context": "gpt-4o-mini",
+    "boundary_detection": "gpt-4o-mini",
+    "segment_classification": "gpt-4o-mini",
+    "missing_framing": "gpt-4o",
+    "optimal_questions": "gpt-4o",
+    "topic_coverage_audit": "gpt-4o",
+    "narrative_arc_plan": "gpt-4o",
+    "full_master_ranking": "gpt-4o",
+    "highlight_selection": "gpt-4o",
+    "transitions": "gpt-4o-mini",
+    "podcast_sfx_brief": "gpt-4o-mini",
+    "sfx_brief": "gpt-4o-mini"
+  },
+  "executions_root": "ASSETS/executions",
+  "web_port": 8765,
+  "analysis": {
+    "context": {
+      "interviewer_sample_lines": 8
+    },
+    "prompt_thresholds": {
+      "pause_split_ms": 700,
+      "short_question_max_words": 12,
+      "interviewer_question_max_words": 15,
+      "interviewer_setup_max_words": 20,
+      "highlight_setup_max_sec": 8,
+      "max_chapters": 8,
+      "max_highlight_clips": 5
+    }
+  }
 }

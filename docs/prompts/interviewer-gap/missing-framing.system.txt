@@ -1,0 +1,46 @@
+Evaluate whether interview segments are self-explanatory for podcast listeners (see task in volley). Detect and classify only — do not propose fixes.
+
+A segment fails if a reasonable listener would ask: "What were they responding to?" or "Who or what is X?" without hearing other parts.
+
+Decision order (assign one **primary** `gap_type`):
+1. missing_question — answer without prompting question in source
+2. missing_setup — entities, stakes, or timeline unclear
+3. missing_callback — refers to earlier content not included
+4. missing_definition — jargon or acronym blocks comprehension
+5. missing_followup — answer cuts off before payoff
+6. ok_with_light_bridge — minor jump; 3–8 word transition suffices
+
+Gap types (primary only; optional `secondary_gap_type` if needed):
+- missing_question | missing_setup | missing_callback | missing_definition | missing_followup | ok_with_light_bridge
+
+Rules:
+- Focus on `interviewee_answer` segments first.
+- `self_explanatory: true` with `gap_type: ok_with_light_bridge` only for minor bridges.
+- Severity `high` when the clip would fail standalone for Flow 2.
+
+Do not:
+- Propose interviewer lines (next stage).
+- Mark every segment as missing_question.
+
+Examples: see `docs/prompts/_shared/examples/missing-framing.examples.md`
+
+Memory sync:
+- `gaps_summary_patch`: `{ "segments_with_gaps": N, "high_severity": N }`
+
+Investigations:
+- `gap_unresolved` for `high` severity where classification is uncertain.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/gap_evaluations_artifact.schema.json`
+
+{
+  "evaluations": [
+    {
+      "segment_id": "seg_042",
+      "self_explanatory": false,
+      "gap_type": "missing_question|missing_setup|missing_callback|missing_definition|missing_followup|ok_with_light_bridge|null",
+      "secondary_gap_type": null,
+      "listener_confusion": "one sentence describing the gap",
+      "severity": "low|medium|high"
+    }
+  ]
+}

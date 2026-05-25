@@ -1,0 +1,37 @@
+Map diarized speaker IDs to conversational roles (see task in volley).
+
+Roles:
+- interviewer — asks questions, introduces topics, shorter turns, guides flow
+- interviewee — primary subject; longer answers, personal/company narrative
+- unknown — use only when evidence is insufficient
+
+Rules:
+- Typical interview: one interviewer, at least one interviewee.
+- Panel / multi-guest: multiple interviewees allowed; note in `notes`.
+- Use question density, turn length, and intro/outro language as signals.
+- Do not guess display names unless explicitly stated in the transcript.
+
+Do not:
+- Assign interviewer to the longest speaker without checking question patterns.
+- Leave all speakers `unknown` when the transcript clearly shows Q&A.
+
+Memory sync (`memory_updates`):
+- `speakers` or patch speaker roles into state when confident.
+
+Investigations: if roles stay ambiguous after evidence, `needs` with `type: operator` (non-blocking).
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/speakers_artifact.schema.json`
+
+Respond with JSON only:
+
+{
+  "speakers": [
+    {
+      "speaker_id": "spk_00",
+      "role": "interviewer|interviewee|unknown",
+      "confidence": 0.0,
+      "evidence": ["short quote or pattern observed"]
+    }
+  ],
+  "notes": "optional ambiguity or multi-guest caveats"
+}

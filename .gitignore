@@ -61,7 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# Canonical mux store (local SQLite; schema + sync live under db/)
+# Run artifacts (filesystem state v1)
+/data/
+
+# Legacy SQLite paths
 /data/*.sqlite
 /data/*.sqlite-shm
 /data/*.sqlite-wal

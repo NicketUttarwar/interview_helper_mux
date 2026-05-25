@@ -1,0 +1,37 @@
+---
+description: Project layout — ASSETS, docs, Python venv, scripts, AWS CLI, config
+alwaysApply: true
+---
+
+# interview_helper_mux
+
+## Media (`./ASSETS/`)
+
+Heavy media lives under **`./ASSETS/`** (gitignored). The operator puts raw audio and other large files there.
+
+When running the app, **default to `./ASSETS/`** for inputs to analyze. If no suitable file is found, **ask the user for the full path** to the file.
+
+## Documentation (`./docs/`)
+
+**`./docs/`** holds high-level functionality specs and prompts. Treat it as authoritative for behavior and copy.
+
+## Backend (Python)
+
+All backend code is **Python**. Use a **local virtualenv** at **`.venv`** in the repo root.
+
+- Prefer **Python 3.12**.
+- Create the venv with **`/opt/homebrew/bin/python3.12`** on this machine.
+
+## Scripts (`./scripts/`)
+
+Runnable setup and helper scripts live under **`./scripts/`**.
+
+## AWS
+
+Use the **AWS CLI** (`aws` subprocess) for all AWS operations. **Do not** use boto3 or other AWS SDK packages.
+
+Assume the CLI is **installed and already authenticated**.
+
+## Config (`./config/`)
+
+**Secrets** and **defaults** live under **`./config/`** (e.g. `app.defaults.json`, `secrets/secrets.env`). Load from there; do not hardcode secrets in code.
