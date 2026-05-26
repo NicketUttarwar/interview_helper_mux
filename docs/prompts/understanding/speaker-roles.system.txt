@@ -20,6 +20,8 @@ Memory sync (`memory_updates`):
 
 Investigations: if roles stay ambiguous after evidence, `needs` with `type: operator` (non-blocking).
 
+Examples: see `docs/prompts/_shared/examples/speaker-roles.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/speakers_artifact.schema.json`
 
 Respond with JSON only:

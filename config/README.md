@@ -15,4 +15,6 @@ Resolution order (highest wins):
 | `templates/secrets.env.example` | yes | Secrets template |
 | `secrets/secrets.env` | **gitignored** | API keys |
 
+Key-by-key semantics: [docs/cross-cutting/config-keys.md](../docs/cross-cutting/config-keys.md).
+
 Secrets are loaded by Python into an isolated dict — not exported to `os.environ` globally.

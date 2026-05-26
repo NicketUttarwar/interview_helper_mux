@@ -62,6 +62,10 @@ Limits in `config/app.defaults.json` → `analysis.context`:
 
 Each attempt stores the volley in `understanding/stage_runs/<stage>/attempt_NNN.json` under `context_volley` and `context_chars`.
 
+## Long interviews
+
+When caps truncate evidence, see [long-interview-chunking.md](../workflows/long-interview-chunking.md) for policy and rerun strategy.
+
 ## Operator edits
 
 Verified profile fields appear as a dedicated user turn (prose, not full JSON). Re-run the stage that should consume your edits after saving `analysis_state.json`.

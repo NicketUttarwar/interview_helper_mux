@@ -22,6 +22,18 @@
     "text": { "type": "string" },
     "topic_tags": { "type": "array", "items": { "type": "string" } },
     "ready": { "type": "boolean" },
-    "self_explanatory": { "type": "boolean" }
+    "self_explanatory": { "type": "boolean" },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "starts_mid_thought",
+          "references_prior_missing",
+          "heavy_crosstalk"
+        ]
+      },
+      "description": "Segmentation / classification signals; same vocabulary as manifest artifact items."
+    }
   }
 }

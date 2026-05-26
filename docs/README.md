@@ -13,7 +13,17 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to two 
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
 | [build-out/](./build-out/) | Agent implementation tickets |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
+| [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
+| [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) | `app.defaults.json` + secrets keys reference |
 | [workflows/](./workflows/) | Gates, idempotency, smoke test |
+| [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) | GUI panels ↔ API ↔ logs ↔ artifacts |
+| [workflows/api-reference.md](./workflows/api-reference.md) | HTTP `/api/*` reference (methods, bodies, errors) |
+| [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) | Context caps + chunking policy |
+| [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md) | Per-stage operator verification |
+| [workflows/troubleshooting.md](./workflows/troubleshooting.md) | Symptom playbook + guards |
+| [workflows/smoke-test.md](./workflows/smoke-test.md) | Greenfield machine checklist |
+| [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md) | STT + diarization options (catalog) |
+| [pipeline/transcription/source-separation-and-enhancement.md](./pipeline/transcription/source-separation-and-enhancement.md) | Denoise / separation options |
 
 ## Inputs and outputs
 

@@ -14,6 +14,8 @@ Do not:
 Memory sync:
 - `narrative_patch`: refine `thesis` if arc reveals a sharper through-line
 
+Examples: see `docs/prompts/_shared/examples/narrative-arc-plan.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/narrative_plan_artifact.schema.json`
 
 {

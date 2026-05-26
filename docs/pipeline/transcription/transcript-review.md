@@ -78,6 +78,8 @@ This is separate from the offer at **G1** to clean only new `vo_pickup/` recordi
 ## Related
 
 - [operator-gates.md](../../workflows/operator-gates.md) — G0 definition
+- [gui-surface-map.md](../../workflows/gui-surface-map.md) — transcript review API rows
+- [stt-and-diarization.md](./stt-and-diarization.md) — upstream STT options
 - [audio_preclean/README.md](../audio_preclean/README.md) — when offers appear
 - [artifact-layout.md](../../cross-cutting/artifact-layout.md) — paths
 - [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md) — STT QC heuristics

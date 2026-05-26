@@ -21,6 +21,8 @@ Memory sync:
 
 Investigations: `theme_unmapped` only if a clear theme in transcript cannot be named yet (rare at this stage).
 
+Examples: see `docs/prompts/_shared/examples/content-context.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/content_brief_artifact.schema.json`
 
 {

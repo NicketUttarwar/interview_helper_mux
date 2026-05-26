@@ -13,6 +13,8 @@ Do not:
 - Summarize the answer that follows.
 - Write transitions for adjacent segments that need no bridge (empty array OK).
 
+Examples: see `docs/prompts/_shared/examples/transitions.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/transitions_artifact.schema.json`
 
 {

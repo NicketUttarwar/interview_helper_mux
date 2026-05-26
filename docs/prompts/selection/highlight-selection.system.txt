@@ -23,6 +23,8 @@ Do not:
 Memory sync:
 - `narrative_patch.audience` if reel implies a sharper investor pitch
 
+Examples: see `docs/prompts/_shared/examples/highlight-selection.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/highlights_artifact.schema.json`
 
 {

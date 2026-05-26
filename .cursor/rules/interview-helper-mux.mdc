@@ -1,5 +1,5 @@
 ---
-description: Project layout — ASSETS, docs, Python venv, scripts, AWS CLI, config
+description: Project layout — ASSETS, docs, Python venv, scripts, AWS CLI, config; operator checklists; GUI status/logs
 alwaysApply: true
 ---
 
@@ -14,6 +14,15 @@ When running the app, **default to `./ASSETS/`** for inputs to analyze. If no su
 ## Documentation (`./docs/`)
 
 **`./docs/`** holds high-level functionality specs and prompts. Treat it as authoritative for behavior and copy.
+
+### Operator stage checklists (mandatory for feature work)
+
+- **`docs/workflows/operator-stage-checklists.md`** is the **single checklist index** for pipeline stages, gates, quality offers, and post-export QA.
+- **Whenever you add or change** a pipeline stage, gate, GUI panel, quality offer, or operator-visible status: **update that file in the same change** (new subsection or new table rows: Pass / If fail, or edge-case bullets).
+- **GUI ↔ API ↔ logs:** Keep **`docs/workflows/gui-surface-map.md`** in sync when you add or rename FastAPI routes, sidebar stages (`src/interview_mux/web/stages.py`), or new artifacts the GUI reads/writes.
+- **HTTP API reference:** When you change **`src/interview_mux/web/server.py`** routes (path/method), request/response bodies, query params, or documented HTTP errors, update **`docs/workflows/api-reference.md`** in the same change so it stays the machine-readable companion to the GUI map.
+- **GUI contract:** Operator-visible status, prompts, and dismiss/accept flows should be recoverable from **`gui_log.jsonl`** (append-only) plus per-stage **`understanding/stage_runs/<stage>/attempt_*.json`** for LLM/schema detail. If you add a new user-facing prompt or status string, document **where it appears in the GUI** and **which log file** captures it (see the “Where status, prompts, and logs appear” section at the top of the checklists doc).
+- **Config keys:** Document new `app.defaults.json` or `secrets.env` keys in **`docs/cross-cutting/config-keys.md`** in the same PR.
 
 ## Backend (Python)
 

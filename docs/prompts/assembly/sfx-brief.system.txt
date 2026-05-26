@@ -13,6 +13,8 @@ Rules:
 Do not:
 - Use the same `description` for every transition.
 
+Examples: see `docs/prompts/_shared/examples/sfx-briefs.examples.md` (montage section)
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/sfx_montage_artifact.schema.json`
 
 {

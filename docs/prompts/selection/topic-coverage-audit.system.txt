@@ -20,6 +20,8 @@ Memory sync:
 Investigations / needs:
 - For each `missing_coverage` item, add `follow_up_investigations` kind `theme_unmapped` → `segment_classification`, or `needs` `rerun_stage` if blocking.
 
+Examples: see `docs/prompts/_shared/examples/topic-coverage-audit.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/coverage_audit_artifact.schema.json`
 
 {

@@ -19,6 +19,8 @@ Do not:
 Memory sync:
 - `segment_summary_patch`: `{ "master_segment_count": N, "excluded_count": N }`
 
+Examples: see `docs/prompts/_shared/examples/full-master-ranking.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/master_selection_artifact.schema.json`
 
 {

@@ -36,3 +36,7 @@ Flow stages use the same envelope and read `analysis_state_summary` but do not r
 | theme_unmapped | Topic in brief, no segments | segment_classification |
 | segment_ambiguity | Overlapping boundaries | boundary_detection |
 | gap_unresolved | High-severity gap | missing_framing |
+
+## Example packs
+
+Good vs bad patterns for many stages live under [`_shared/examples/`](./_shared/examples/). Index: [prompts README — Example packs](./README.md#example-packs).

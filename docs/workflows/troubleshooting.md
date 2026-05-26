@@ -1,0 +1,147 @@
+# Troubleshooting playbook
+
+Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For re-run flags see [idempotent-runs.md](./idempotent-runs.md) and [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md).
+
+---
+
+## Pipeline / CLI
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Stage skipped unexpectedly | `.stage_done/` marker present | `.stage_done/<stage>` | Delete marker for that stage **and** downstream only if you intend re-run; or use `--from-stage` |
+| `run_analysis.py` stops mid-run | Gate G0 or `needs` in envelope | `transcript/review_queue.json`, `gui_log.jsonl`, `understanding/stage_runs/.../attempt_*.json` | Complete G0; fix `needs` per envelope |
+| Wrong run directory | `--run-id` mismatch | `run_meta.json` | Pass correct `--run-id` / execution folder |
+
+---
+
+## Transcription (AWS)
+
+### Symptom table (behavioral)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| No `full.json` | Job failed or not polled | CLI / cloud logs, S3 keys | Re-`transcribe`; verify `AWS_S3_BUCKET`, region, credentials |
+| Broken timestamps | Bad audio or Transcribe glitch | `transcript/full.json` words | `--from-stage transcribe` after fixing source |
+| Missing speakers | Diarization off | `transcript/speakers.json` | Re-transcribe; check channel layout / mono merge |
+| Job stuck “IN_PROGRESS” forever | Rare service stall or bad object | `aws transcribe get-transcription-job`, S3 object size | Cancel job; re-upload; open AWS support if regional outage |
+
+### AWS CLI and S3 (`aws s3 cp`) — strings in the wild
+
+Match **substrings** in stderr / exit output (wording varies by CLI version). Treat as heuristics, not exhaustive.
+
+| If you see (substring) | Meaning | Inspect | Action |
+|------------------------|---------|---------|--------|
+| `AccessDenied` / `Access Denied` / `403` | IAM or bucket policy blocks principal or object ACL | Caller identity, bucket policy, object ownership | Fix IAM role/user policy; ensure bucket allows `s3:PutObject` / `GetObject` for your ARN |
+| `InvalidAccessKeyId` / `SignatureDoesNotMatch` | Wrong or rotated static key | `secrets.env`, env vars | Rotate keys; fix `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
+| `ExpiredToken` / `RequestExpired` / `security token included in the request is expired` | STS session ended | SSO / assumed-role session | Re-login (`aws sso login`, refresh role chain) |
+| `NoSuchBucket` / `Not Found` + bucket name | Wrong `AWS_S3_BUCKET` or typo | `config/secrets/secrets.env` | Fix bucket string; create bucket if intentional |
+| `404` + `NoSuchKey` / `NotFound` + key | Wrong `AWS_S3_INPUT_KEY` or object deleted | Key in config vs `aws s3 ls` | Fix key prefix; re-upload `normalized.wav` |
+| `PermanentRedirect` / `endpoint` mismatch | Wrong region endpoint for bucket | Bucket region vs `AWS_DEFAULT_REGION` | Use `aws s3api get-bucket-location`; align region |
+| `IllegalLocationConstraintException` | Create-bucket in wrong region | CLI args | Create bucket in same region as Transcribe job |
+| `SlowDown` / `503` / `Please reduce your request rate` | S3 throttling | Large parallel uploads | Backoff; serial uploads; smaller multipart |
+| `Could not connect` / `Connection reset` / `TLS` / `timeout` | Network / proxy / VPN | Local network, corporate proxy | Retry; fix proxy; verify TLS intercept |
+| `KMS` + `AccessDeniedException` | SSE-KMS key policy | Bucket default encryption | Grant KMS decrypt/encrypt to uploading principal |
+| `EntityTooSmall` / `IncompleteBody` | Truncated upload | File size vs source | Re-`cp`; verify disk read no errors |
+| `fatal error: An error occurred (InvalidRequest)` when uploading | Sometimes encryption headers / ACL mismatch | Bucket policy | Compare with working bucket; remove legacy ACL expectations |
+
+### Amazon Transcribe — job API and console
+
+| If you see | Meaning | Inspect | Action |
+|------------|---------|---------|--------|
+| `get-transcription-job` → `FAILED` | Transcribe rejected job | `FailureReason` field in JSON | Fix media (codec, sample rate, size); fix S3 URI; see reason text |
+| `Unsupported media format` / `format` in FailureReason | WAV/container not supported | `ffprobe` on `normalized.wav` | Re-ingest to supported PCM WAV per ingest spec |
+| `The URI that you provided doesn't refer to an S3 object` | Bad `MediaFileUri` | Job request params / app config | Fix bucket + key template |
+| `Access denied` inside FailureReason | Transcribe service role cannot read object | Bucket policy, KMS, object ACL | Add `transcribe.amazonaws.com` principal or correct object grant |
+| Job completes but JSON empty / odd | Rare parse or zero audio | Source file | Listen to normalized; check duration |
+
+**Guard:** Always capture **`FailureReason`** from `get-transcription-job` when reporting bugs — it is the authoritative Transcribe error string.
+
+---
+
+## LLM / JSON validation
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Log: “Schema validation failed” | `artifacts` ≠ stage schema | Same stage `attempt_*.json` + error list | Model retry may fix; else tighten prompt input (profile, manifest size) |
+| `segment_classification` fails | Invalid `type` / `speaker_role` / `flags` | Error path in message | Use only enums from [segment-schema.md](../cross-cutting/segment-schema.md) |
+| Repeated `theme_unmapped` | Brief topic has no segments | `coverage_audit.json`, `manifest.json` | Re-classify or add `topic_tags` to segments |
+
+**Guard:** New stages must register in `STAGE_ARTIFACT_SCHEMAS` — see [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md).
+
+---
+
+## Segmentation & gaps
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Absurd segment count | Over-splitting | `segments/boundaries.json` | `--from-stage boundary_detection` with clearer brief |
+| Wrong gap types | STT errors in segment text | `segments/manifest.json` text | Fix G0 transcript first, then `--from-stage missing_framing` |
+| G1 never clears | Missing WAV or wrong filename | `gap_report.json`, `vo_pickup/` | Match `{line_id}.wav` or `{targets_segment_id}.wav` — [operator-gates.md](./operator-gates.md) |
+
+---
+
+## Flow 1 ordering & narrative
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Duplicate `segment_id` in order | Model error | `flow_1_master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
+| Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
+| Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
+
+---
+
+## Flow 2 highlights
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Overlapping clips | Selection error | `flow_2_highlights/selection.json` | `--from-stage highlight_selection` |
+| All clips same topic | Diversity not enforced | `scores.diversity_bonus`, `rejected_candidates` | Re-run selection; tighten brief audience |
+
+---
+
+## Audio / mux (v1 vs target)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| No VO in `master.wav` | v1 Flow 1 speech-only mux | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expected until BUILD-067/065; verify artifacts exist for later mix |
+| SFX feels random | v1 one-shot per cue | `podcast_sfx_brief.json`, [sound-design.md](../cross-cutting/sound-design.md) | Track Wave 5 SDP; optional G1.5 when implemented |
+| Loudness wrong | Mastering not measuring LUFS yet | `verify_master.py` behavior | BUILD-070/071 — [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+
+---
+
+## ElevenLabs (SFX / isolation — API)
+
+| If you see | Meaning | Inspect | Action |
+|------------|---------|---------|--------|
+| `401` / `Unauthorized` | Bad or missing API key | `ELEVENLABS_API_KEY` | Fix secrets; reload env |
+| `429` / `rate limit` / `too many requests` | Quota or burst cap | Logs, account dashboard | Backoff; reduce parallel cues; upgrade quota |
+| `402` / payment (varies by vendor copy) | Billing / plan | ElevenLabs account | Resolve billing |
+| Timeout / empty body | Network or large file | Payload size | Retry; split audio; check proxy |
+
+---
+
+## NLE / timeline (BUILD-068+)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Timeline edits ignored | v1 wiring | `segments/nle_edits.json` vs `selection.json` | Until BUILD-068, treat NLE as draft or edit `selection.json` directly — [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
+
+---
+
+## Still stuck?
+
+1. Read the latest `understanding/stage_runs/<stage>/attempt_*.json` for `context_volley` and validation errors.
+2. Confirm [operator-stage-checklists.md](./operator-stage-checklists.md) for the stage you just ran.
+3. Open [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md) to see whether the artifact you edited is schema-backed.
+
+---
+
+## Related
+
+- [smoke-test.md](./smoke-test.md) — greenfield machine checklist
+- [analysis-orchestration-loop.md](./analysis-orchestration-loop.md) — envelope `status` / `needs`
+- [pipeline/transcription/README.md](../pipeline/transcription/README.md) — AWS stage overview
+- [pipeline/transcription/stt-and-diarization.md](../pipeline/transcription/stt-and-diarization.md) — STT/diarization catalog
+- [pipeline/transcription/source-separation-and-enhancement.md](../pipeline/transcription/source-separation-and-enhancement.md) — denoise / separation
+- [workflows/gui-surface-map.md](./gui-surface-map.md) — GUI ↔ logs ↔ artifacts
+- [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) — SDP / mix rails (Wave 5)

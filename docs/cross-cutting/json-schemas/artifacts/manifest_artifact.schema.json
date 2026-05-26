@@ -12,11 +12,34 @@
         "required": ["segment_id", "type", "speaker_id", "speaker_role", "topic_tags"],
         "properties": {
           "segment_id": { "type": "string" },
-          "type": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "interviewer_question",
+              "interviewee_answer",
+              "interviewer_reaction",
+              "setup",
+              "aside",
+              "coda"
+            ]
+          },
           "speaker_id": { "type": "string" },
-          "speaker_role": { "type": "string" },
+          "speaker_role": {
+            "type": "string",
+            "enum": ["interviewer", "interviewee", "unknown"]
+          },
           "topic_tags": { "type": "array", "items": { "type": "string" } },
-          "flags": { "type": "array", "items": { "type": "string" } }
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "starts_mid_thought",
+                "references_prior_missing",
+                "heavy_crosstalk"
+              ]
+            }
+          }
         }
       }
     }

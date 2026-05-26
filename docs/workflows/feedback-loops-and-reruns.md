@@ -1,5 +1,7 @@
 # Feedback loops and reruns
 
+See also: [troubleshooting.md](./troubleshooting.md) when a re-run does not fix the issue.
+
 ## Re-run pre-clean (quality)
 
 When the operator accepts a background-noise offer:

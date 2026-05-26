@@ -1,0 +1,24 @@
+# JSON Schemas — index
+
+Schemas in this folder define **machine-checkable contracts** for interview mux runs.
+
+## Layout
+
+| Location | Contents |
+|----------|----------|
+| `*.schema.json` (this directory) | Shared objects: envelope, analysis state, segment, transcript review queue, investigation queue, `gap_report` |
+| `artifacts/*.schema.json` | LLM stage **artifacts** validated by `interview_mux.prompt_validation` |
+
+## Coverage and gaps
+
+Not every file under [artifact-layout.md](../artifact-layout.md) has a schema yet. See **[json-schema-coverage.md](../json-schema-coverage.md)** for:
+
+- Which stages are validated automatically
+- Which artifacts still need schemas and suggested tickets
+- **Guards** (registration in `STAGE_ARTIFACT_SCHEMAS`, CI, pre-mux checks)
+
+## Conventions
+
+- Prefer **Draft 2020-12** (`$schema` URL in each file).
+- Add **`schema_version`** (integer) at the root of evolving run artifacts when consumers must branch.
+- Keep **prompt examples** and **schema enums** in sync — see [segment-schema.md](../segment-schema.md).

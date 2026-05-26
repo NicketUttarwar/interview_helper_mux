@@ -2,6 +2,8 @@
 
 Implement as `*.system.txt` when executing [BUILD-060–066](../../build-out/README.md#wave-5--coherent-sound-design-planned). Full logic: [sound-design.md](../../cross-cutting/sound-design.md).
 
+**Guardrails + edge cases (light, breadth-first):** [guardrails-and-edge-cases.md](./guardrails-and-edge-cases.md) — read before authoring prompts or mix validators.
+
 ---
 
 ## `theme-palettes.system.txt` (stage: `sound_design_palettes`)
@@ -67,4 +69,4 @@ Implement as `*.system.txt` when executing [BUILD-060–066](../../build-out/REA
 
 - No voices, lyrics, or speech in prompts.
 - Consistent with `sonic_identity`.
-- Beds 4–8s; stingers 1–2.5s; accents &lt;1.5s.
+- Beds 4–8s; stingers 1–2.5s; accents <1.5s.

@@ -6,6 +6,8 @@
 
 **Build tickets:** [BUILD-060–066](../build-out/README.md#wave-5--coherent-sound-design-planned)
 
+**Prompt-stage guardrails (breadth, light examples):** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) — extend when BUILD-061+ `.system.txt` files land.
+
 ---
 
 ## Problem with v1

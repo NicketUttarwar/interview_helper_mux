@@ -2,6 +2,8 @@
 
 All run artifacts live under `ASSETS/executions/exec_NNN_TIMESTAMP/` (filesystem-only state). Legacy `data/run_NNN/` runs are still readable.
 
+See also: [json-schema-coverage.md](./json-schema-coverage.md) and [json-schemas/README.md](./json-schemas/README.md) for which artifacts are schema-backed vs planned. **GUI:** [workflows/gui-surface-map.md](../workflows/gui-surface-map.md).
+
 ## Run root
 
 ```

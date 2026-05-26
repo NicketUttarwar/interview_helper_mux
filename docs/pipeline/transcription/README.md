@@ -2,6 +2,11 @@
 
 AWS Transcribe via CLI with speaker diarization.
 
+**Source-of-truth catalogs (vendors, local OSS, policies):**
+
+- [stt-and-diarization.md](./stt-and-diarization.md) — STT + diarization options (AWS implemented; alternatives for integration).
+- [source-separation-and-enhancement.md](./source-separation-and-enhancement.md) — denoise / separation / enhancement before or after STT.
+
 ## Ticket
 
 BUILD-021

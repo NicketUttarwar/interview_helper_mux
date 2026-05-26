@@ -24,6 +24,8 @@ Investigations:
 - `theme_unmapped` when a content brief topic has zero segments tagged.
 - `segment_ambiguity` when boundary intent is unclear (type contradicts text).
 
+Examples: see `docs/prompts/_shared/examples/segment-classification.examples.md`
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/manifest_artifact.schema.json`
 
 {

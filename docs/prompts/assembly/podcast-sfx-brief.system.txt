@@ -13,6 +13,8 @@ Do not:
 - Specify SFX over speech-heavy regions without ducking.
 - Repeat identical stinger description for every chapter.
 
+Examples: see `docs/prompts/_shared/examples/sfx-briefs.examples.md` (podcast section)
+
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/podcast_sfx_artifact.schema.json`
 
 {

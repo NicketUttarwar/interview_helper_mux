@@ -57,3 +57,7 @@ python tools/verify_master.py data/run_001/flow_2_highlights/master.wav
 - No unhandled exceptions
 - Master WAV plays; duration > 0
 - `ffprobe` reports valid sample rate
+
+## If something fails
+
+Use [troubleshooting.md](./troubleshooting.md) and [operator-stage-checklists.md](./operator-stage-checklists.md) to narrow the stage, then [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) for `--from-stage` commands.

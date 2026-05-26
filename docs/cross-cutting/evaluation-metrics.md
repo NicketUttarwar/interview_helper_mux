@@ -7,7 +7,7 @@
 | Speaker labels | ≥2 speakers or single-speaker flag |
 | Timestamps | Monotonic word times |
 | WER | No automated WER in v1; flag if >30% `[inaudible]` tokens |
-| Confidence review | Chunks with mean word confidence &lt; 0.85 flagged `needs_review` in queue |
+| Confidence review | Chunks with mean word confidence < 0.85 flagged `needs_review` in queue |
 | G0 sign-off | `.stage_done/transcript_review` required before speaker_roles |
 
 ## Gap / segment quality
@@ -46,3 +46,5 @@
 - After each LLM stage, `interview_mux.prompt_validation.validate_stage_artifacts` checks `artifacts` against `docs/cross-cutting/json-schemas/artifacts/*.schema.json`
 - Failed validation triggers one automatic retry with error feedback in the message volley
 - Golden fixtures: `tests/fixtures/prompts/` (optional regression snapshots)
+
+**Operator workflow:** [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) · **When something breaks:** [troubleshooting.md](../workflows/troubleshooting.md) · **Config caps / keys:** [config-keys.md](./config-keys.md)

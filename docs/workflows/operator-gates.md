@@ -141,3 +141,10 @@ Default for all offers: **off** — operator opts in.
 - VO recording for `delivery: synthesize` (deferred in v1)
 - Mandatory pre-clean at any step
 - Re-confirming gates on idempotent re-runs when artifacts already satisfy checks
+
+## Related
+
+- [gui-surface-map.md](./gui-surface-map.md) — panels ↔ API ↔ `gui_log.jsonl` ↔ artifacts
+- [operator-stage-checklists.md](./operator-stage-checklists.md) — per-stage verification tables
+- [troubleshooting.md](./troubleshooting.md) — symptom → artifact → re-run playbook
+- [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) — `--from-stage` recipes

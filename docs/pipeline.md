@@ -121,4 +121,10 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 - [prompts/README.md](./prompts/README.md)
 - [build-out/README.md](./build-out/README.md)
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent SFX (BUILD-060+)
+- [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs
+- [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) — context caps
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — gates + quality offers
+- [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md) — per-stage verification
+- [workflows/troubleshooting.md](./workflows/troubleshooting.md) — symptom playbook
+- [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)
+- [pipeline/transcription/source-separation-and-enhancement.md](./pipeline/transcription/source-separation-and-enhancement.md)

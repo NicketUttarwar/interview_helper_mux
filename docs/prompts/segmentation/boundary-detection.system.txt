@@ -10,6 +10,8 @@ Rules:
 - Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in one segment when intent is one Q+A pair.
 - Long or multi-part questions: split question and answer.
 
+Examples: see `docs/prompts/_shared/examples/boundary-detection.examples.md`
+
 Do not:
 - Create hundreds of micro-segments for every backchannel.
 - Overlap time ranges or leave gaps without noting in `warnings`.

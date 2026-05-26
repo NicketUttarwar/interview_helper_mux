@@ -11,7 +11,7 @@ prompts/
 ├── README.md
 ├── _shared/
 │   ├── analysis-preamble.system.txt    ← envelope + memory rules (all LLM stages)
-│   └── examples/                       ← few-shot reference (gap detection, VO lines)
+│   └── examples/                       ← good vs bad pattern packs (*.examples.md)
 ├── understanding/
 │   ├── content-context.system.txt
 │   └── speaker-roles.system.txt
@@ -30,9 +30,32 @@ prompts/
 │   ├── transitions.system.txt
 │   ├── podcast-sfx-brief.system.txt   ← v1 SFX brief
 │   └── sfx-brief.system.txt           ← v1 montage brief
-└── sound_design/                      ← planned (BUILD-061–064); see README there
-    └── README.md
+└── sound_design/                      ← planned (BUILD-061–064); README + guardrails-and-edge-cases.md
+    ├── README.md
+    └── guardrails-and-edge-cases.md
 ```
+
+## Example packs
+
+Markdown “good vs bad” references under [`_shared/examples/`](./_shared/examples/). Each stage `.system.txt` that has a pack links to it (same pattern as gap stages).
+
+| Stage / area | Example file |
+|--------------|----------------|
+| Speaker roles | [speaker-roles.examples.md](./_shared/examples/speaker-roles.examples.md) |
+| Content brief | [content-context.examples.md](./_shared/examples/content-context.examples.md) |
+| Boundary detection | [boundary-detection.examples.md](./_shared/examples/boundary-detection.examples.md) |
+| Segment classification | [segment-classification.examples.md](./_shared/examples/segment-classification.examples.md) |
+| Missing framing | [missing-framing.examples.md](./_shared/examples/missing-framing.examples.md) |
+| Optimal questions | [optimal-questions.examples.md](./_shared/examples/optimal-questions.examples.md) |
+| Topic coverage audit | [topic-coverage-audit.examples.md](./_shared/examples/topic-coverage-audit.examples.md) |
+| Narrative arc plan | [narrative-arc-plan.examples.md](./_shared/examples/narrative-arc-plan.examples.md) |
+| Full master ranking | [full-master-ranking.examples.md](./_shared/examples/full-master-ranking.examples.md) |
+| Highlight selection | [highlight-selection.examples.md](./_shared/examples/highlight-selection.examples.md) |
+| Transitions | [transitions.examples.md](./_shared/examples/transitions.examples.md) |
+| Podcast + montage SFX briefs | [sfx-briefs.examples.md](./_shared/examples/sfx-briefs.examples.md) |
+| Sound design (Wave 5 — guardrails) | [sound_design/guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) |
+
+**Guard:** When you change rules in a `.system.txt`, update the matching `.examples.md` in the same PR so operators and reviewers stay aligned. For future **sound_design** `*.system.txt`, extend [guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) with any new edge-case rows (prefer breadth over many narrative examples).
 
 ## Invocation order
 
@@ -68,7 +91,7 @@ Flow stages use the same envelope; read memory but single pass (no inner loop).
 - Per-stage artifact schemas: [`json-schemas/artifacts/`](../cross-cutting/json-schemas/artifacts/) — validated in Python via `interview_mux.prompt_validation`.
 - Runtime injects **pipeline thresholds** from `config/app.defaults.json` → `analysis.prompt_thresholds` (pause ms, word limits, max chapters/clips).
 - Each stage prompt includes **memory sync**, **investigations**, and **do not** rules where applicable.
-- Few-shot references: [`_shared/examples/`](./_shared/examples/).
+- Few-shot references: [`_shared/examples/`](./_shared/examples/) — see [Example packs](#example-packs).
 - Never embed secrets in prompt files.
 - Operator-edited `analysis_state.json` is authoritative when `meta.operator_verified` is true.
 - Keep interviewer lines **short** — [logic-tree.md](../logic-tree.md).
@@ -78,6 +101,7 @@ Flow stages use the same envelope; read memory but single pass (no inner loop).
 - [analysis_state.schema.json](../cross-cutting/json-schemas/analysis_state.schema.json)
 - [analysis_envelope.schema.json](../cross-cutting/json-schemas/analysis_envelope.schema.json)
 - [segment.schema.json](../cross-cutting/json-schemas/segment.schema.json)
+- [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md) — stage validation map + missing-contract checklist
 
 Shared segment reference (in `stage_input` / manifest):
 
