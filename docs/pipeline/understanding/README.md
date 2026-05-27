@@ -56,3 +56,9 @@ See [analysis-memory.md](../../cross-cutting/analysis-memory.md).
 ## Module
 
 `src/interview_mux/stages/understanding.py`, `analysis_memory.py`, `analysis_orchestrator.py`
+
+---
+
+## Build-out
+
+BUILD-022–023, BUILD-018 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

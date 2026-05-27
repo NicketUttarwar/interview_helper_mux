@@ -1,5 +1,6 @@
 # Generated-style lock snapshot for documentation (2026-05-27)
-# Authoritative install file: requirements.lock at repo root (BUILD-010).
+# Authoritative install file: requirements.lock at repo root (BUILD-010; partial).
+# Today: pip install -r requirements.txt at repo root; regenerate lock with pip-compile when BUILD-010 completes.
 # Regenerate with: pip-compile requirements.txt -o requirements.lock
 # Verify: pip-audit -r requirements.lock --strict
 

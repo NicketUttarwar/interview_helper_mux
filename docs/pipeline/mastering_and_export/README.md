@@ -35,3 +35,9 @@ If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclea
 ## Module
 
 `src/interview_mux/stages/mastering.py` — target two-pass loudness (BUILD-071)
+
+---
+
+## Build-out
+
+BUILD-036, BUILD-044, BUILD-050, BUILD-070–071 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

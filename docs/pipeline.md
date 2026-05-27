@@ -144,7 +144,9 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 - [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target, priority waves
 - [logic-tree.md](./logic-tree.md)
 - [prompts/README.md](./prompts/README.md)
-- [build-out/README.md](./build-out/README.md)
+- [build-out/README.md](./build-out/README.md) — tickets
+- [build-out/repository-map.md](./build-out/repository-map.md) — repo ↔ code
+- [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent SFX (BUILD-060+)
 - [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs
 - [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) — context caps

@@ -87,7 +87,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** \| **`flow3`** |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** (`flow3` planned — BUILD-080; server today: `flow1` \| `flow2` only) |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 
@@ -97,7 +97,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `flow` | string | **`flow1`**, **`flow2`**, or **`flow3`** (regex-enforced when implemented) |
+| `flow` | string | **`flow1`** or **`flow2`** today (`FlowBody` in `server.py`); **`flow3`** when BUILD-080 ships |
 
 ### `ArtifactBody`
 

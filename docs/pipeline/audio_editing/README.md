@@ -42,3 +42,9 @@ Before final concat/mix, operator may accept [pre-clean](../audio_preclean/READM
 ## Module
 
 `assembly_flow1.py`, `assembly_flow2.py` — see [assembly_and_mux](../assembly_and_mux/README.md)
+
+---
+
+## Build-out
+
+BUILD-032, BUILD-067–069 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

@@ -77,4 +77,6 @@ Flat hub for **interview_helper_mux**.
 
 ## Agent build-out
 
-- [build-out/README.md](./build-out/README.md)
+- [build-out/README.md](./build-out/README.md) — numbered tickets (Waves 0–7)
+- [build-out/repository-map.md](./build-out/repository-map.md) — repo layout ↔ modules ↔ docs
+- [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog

@@ -25,8 +25,11 @@ Single LLM stage today; export step may mirror JSON → markdown on disk without
 
 ## Module (planned)
 
-- `selection_flow3.py` or `publishing_flow3.py` — thin wrapper around `podcast_show_description`
-- Wired in `tools/run_flow.py --flow flow3`
+- `src/interview_mux/stages/publishing_flow3.py` — thin wrapper around `podcast_show_description`
+- `FLOW3_ORDER` in `pipeline.py`; `run_flow3` / `run_single_stage` branches
+- **BUILD-080** — `tools/run_flow.py --flow flow3`, `cli.flow_cmd`, `web/runner.py`, `web/server.py` (`FlowBody` + execute `mode: flow3`), `web/stages.py` Flow 3 panels
+
+Track: [build-out/README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)
 
 ## Context volley
 
@@ -55,3 +58,9 @@ Full table: [operator-stage-checklists.md](../../workflows/operator-stage-checkl
 - [pipeline.md](../../pipeline.md) — three flows overview
 - [artifact-layout.md](../../cross-cutting/artifact-layout.md) — `flow_3_description/`
 - [model-routing.md](../../cross-cutting/model-routing.md) — flagship for `podcast_show_description`
+
+---
+
+## Build-out
+
+BUILD-045, BUILD-046, BUILD-080 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

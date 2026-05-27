@@ -4,7 +4,7 @@
 **Scope:** Python runtime, pip packages, system binaries, external HTTP API surfaces, and optional research libraries.  
 **Not in scope:** Operator secrets, per-account OpenAI model availability, or ElevenLabs account tier limits.
 
-**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml` + lock files in repo root)
+**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt` at repo root; **`requirements.lock` + `pip-audit` gate partial**)
 
 ---
 

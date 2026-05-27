@@ -45,7 +45,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`) | `segments/nle_edits.json` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | any allowed JSON under run (e.g. `understanding/analysis_state.json`); optional invalidation |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` (`flow3` planned — BUILD-080), `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---
@@ -57,7 +57,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` | `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `.stage_done/transcript_review` |
 | **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`, editable JSON paths in response |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV) | `gui_log.jsonl` (`g1_vo_pickup`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json` |
-| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
+| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" }` (`flow3` when BUILD-080 ships) | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
 
 ---
 
@@ -81,7 +81,7 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 
 ## Flow 1 / Flow 2 / Flow 3 stages (after G2)
 
-Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: "flow1"` \| `"flow2"` \| `"flow3"` runs full flow or use `from_stage`.
+Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: "flow1"` \| `"flow2"` runs full flow or use `from_stage`. **Flow 3** stages below are spec/UI placeholders until **BUILD-045** / **BUILD-080** wire `publishing_flow3.py` and runner support.
 
 | Flow | Title | `id` | Main artifacts |
 |------|-------|------|------------------|

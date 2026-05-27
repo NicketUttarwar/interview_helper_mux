@@ -59,3 +59,9 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 **v1:** `assembly_flow1.py`, `assembly_flow2.py`, `sfx_elevenlabs.py`
 
 **planned:** `sound_design.py`, `stages/sound_design_stages.py`
+
+---
+
+## Build-out
+
+BUILD-035, BUILD-043, BUILD-065–066 · [README.md](../../build-out/README.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md)

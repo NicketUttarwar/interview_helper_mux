@@ -60,6 +60,10 @@ python tools/verify_master.py data/run_001/flow_2_highlights/master.wav
 
 ## Flow 3
 
+**Status:** Not runnable until **BUILD-045** / **BUILD-080** (no `publishing_flow3.py` or `run_flow3` in `pipeline.py` yet). Spec: [publishing/README.md](../pipeline/publishing/README.md).
+
+When implemented:
+
 ```bash
 python tools/run_flow.py --flow flow3 --run-id run_001
 # Expect flow_3_description/show_description.json (and .md when BUILD-046 ships)

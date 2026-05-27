@@ -91,6 +91,8 @@ flowchart LR
 
 ## Related docs
 
+- [build-out/steps-forward.md](../build-out/steps-forward.md) — prioritized implementation backlog
+- [build-out/repository-map.md](../build-out/repository-map.md) — code ↔ docs layout
 - [pipeline.md](../pipeline.md) — stage overview
 - [operator-gates.md](../workflows/operator-gates.md) — mandatory stops + quality offers
 - [audio_preclean/README.md](../pipeline/audio_preclean/README.md) — pre-clean semantics

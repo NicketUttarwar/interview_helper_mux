@@ -188,3 +188,9 @@ See [build-out/README.md](../../build-out/README.md) and [podcast-quality-roadma
 - [interviewer-gap](../interviewer-gap/README.md) — G1 pickup
 - [operator-gates.md](../../workflows/operator-gates.md) — gates vs quality offers
 - [artifact-layout.md](../../cross-cutting/artifact-layout.md)
+
+---
+
+## Build-out
+
+BUILD-019, BUILD-072 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

@@ -46,3 +46,9 @@ After transcription, operators correct STT in the GUI before analysis continues.
 ## Prompts
 
 None — see [docs/prompts/transcription/README.md](../../prompts/transcription/README.md)
+
+---
+
+## Build-out
+
+BUILD-021, BUILD-018 (G0) · [README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md)

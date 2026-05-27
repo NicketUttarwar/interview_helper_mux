@@ -39,3 +39,9 @@ If the operator accepts a **full-source** pre-clean offer at any checkpoint, inv
 ## Module
 
 `src/interview_mux/stages/ingest.py` (pre-clean: BUILD-019, planned)
+
+---
+
+## Build-out
+
+BUILD-020 · [README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md)

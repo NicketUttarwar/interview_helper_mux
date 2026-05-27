@@ -1,0 +1,82 @@
+# Setup — interview_helper_mux
+
+Greenfield install for the interview audio pipeline and Web GUI.
+
+## Requirements
+
+- **macOS** (developed on Apple Silicon) or Linux with equivalent tools
+- **Python 3.12** — on this machine prefer `/opt/homebrew/bin/python3.12`
+- **ffmpeg** and **ffprobe** on `PATH`
+- **AWS CLI** authenticated (`aws sts get-caller-identity`)
+- API keys in `config/secrets/secrets.env` (see below)
+
+Pinned versions and CVE policy: [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md).
+
+## 1. Clone and bootstrap
+
+```bash
+cd interview_helper_mux
+./scripts/bootstrap_venv.sh
+source .venv/bin/activate
+./tools/check_prerequisites.sh
+```
+
+`bootstrap_venv.sh` creates `.venv`, installs from `requirements.txt`, and installs this package in editable mode.
+
+**Anchor lock (BUILD-010):** When `requirements.lock` exists at repo root, bootstrap should install from the lock only and `check_prerequisites.sh` should run `pip-audit`. Until then, direct pins live in `requirements.txt`; doc mirror: [docs/cross-cutting/anchored-requirements.lock](docs/cross-cutting/anchored-requirements.lock).
+
+## 2. Config
+
+```bash
+cp config/templates/secrets.env.example config/secrets/secrets.env
+# Edit: OPENAI_API_KEY, ELEVENLABS_API_KEY, AWS_S3_BUCKET, AWS_DEFAULT_REGION
+```
+
+Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md).
+
+## 3. Media
+
+Place source audio under:
+
+```text
+ASSETS/input/interview.wav
+```
+
+Or set `INPUT_AUDIO_PATH` in secrets / defaults. Heavy media stays under `ASSETS/` (gitignored).
+
+## 4. Run
+
+**Web GUI (recommended):**
+
+```bash
+./scripts/run.sh
+# or: python -m interview_mux serve
+```
+
+**CLI:**
+
+```bash
+python tools/run_analysis.py --run-id run_001
+# After G0/G1/G2 in GUI or CLI:
+python tools/run_flow.py --flow flow1 --run-id run_001
+python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
+```
+
+Flow 3 (show description) is **not wired in code yet** — see BUILD-045 in [docs/build-out/README.md](docs/build-out/README.md).
+
+## 5. Validate
+
+Follow [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).
+
+## Docs map
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/INDEX.md](docs/INDEX.md) | Documentation hub |
+| [AGENTS.md](AGENTS.md) | Agent constraints and read order |
+| [docs/build-out/repository-map.md](docs/build-out/repository-map.md) | Code ↔ docs layout |
+| [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) | Prioritized backlog |
+
+## Troubleshooting
+
+[docs/workflows/troubleshooting.md](docs/workflows/troubleshooting.md)

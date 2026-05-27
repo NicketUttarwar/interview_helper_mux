@@ -5,15 +5,17 @@ Rules for autonomous agents implementing or running this pipeline.
 ## Read order
 
 1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — future-proofing guardrails + small R&D directions (audio-only; optional research track)
-2. [docs/build-out/README.md](docs/build-out/README.md) — ticket sequence and dependencies
-3. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
-4. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
-5. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — **per-stage verification**; extend this file whenever you add a stage, gate, GUI panel, or quality offer
-6. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI panels ↔ FastAPI routes ↔ `gui_log.jsonl` / `gui_job.json` ↔ artifacts
-7. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — full `/api/*` contract (companion to the GUI map)
-8. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
-9. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
-10. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — `config/app.defaults.json` + merged `secrets.env` keys
+2. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — prioritized backlog (what to implement next)
+3. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs
+4. [docs/build-out/README.md](docs/build-out/README.md) — full ticket index (Waves 0–7)
+5. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
+6. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
+7. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — **per-stage verification**; extend this file whenever you add a stage, gate, GUI panel, or quality offer
+8. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI panels ↔ FastAPI routes ↔ `gui_log.jsonl` / `gui_job.json` ↔ artifacts
+9. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — full `/api/*` contract (companion to the GUI map)
+10. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
+11. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
+12. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — `config/app.defaults.json` + merged `secrets.env` keys
 
 ## Hard constraints
 

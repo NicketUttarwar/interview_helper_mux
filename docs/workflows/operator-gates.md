@@ -101,10 +101,10 @@ in `run_meta.json` (under `ASSETS/executions/…` or legacy `data/run_NNN/`). Us
 ```bash
 python tools/run_flow.py --flow flow1
 python tools/run_flow.py --flow flow2
-python tools/run_flow.py --flow flow3
+# flow3 — not wired in CLI yet (BUILD-045 / BUILD-080)
 ```
 
-Flow 3 does not require ElevenLabs or mastering; it runs a single flagship LLM stage after shared analysis. Profile verification is **recommended** — see [publishing/README.md](../pipeline/publishing/README.md).
+Flow 3 does not require ElevenLabs or mastering; it will run a single flagship LLM stage after shared analysis once implemented. Profile verification is **recommended** — see [publishing/README.md](../pipeline/publishing/README.md). You may set `"selected_flow": "flow3"` in `run_meta.json` for planning; pipeline stages are not executable until BUILD-080.
 
 ---
 

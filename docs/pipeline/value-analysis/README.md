@@ -12,3 +12,9 @@ Spike rubrics, moonshots, and scratch notes for **future-proofing** — see [gua
 | [spike-score-templates/](./spike-score-templates/) | Blank score sheets |
 
 Per-stage notes (if needed): [sections/](./sections/).
+
+---
+
+## Build-out
+
+Optional R&D — not on default delivery path. Product backlog: [steps-forward.md](../../build-out/steps-forward.md) · [future-proofing.md](../../roadmap/future-proofing.md).

@@ -47,3 +47,9 @@ BUILD-024, BUILD-025
 ## Module
 
 `src/interview_mux/stages/segmentation.py`
+
+---
+
+## Build-out
+
+BUILD-024 · [README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md)
