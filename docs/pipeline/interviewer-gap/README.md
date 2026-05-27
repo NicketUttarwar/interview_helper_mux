@@ -40,6 +40,15 @@ Gap placements (`before` / `after` segment) and `vo_pickup` files must appear in
 - [missing-framing.system.txt](../../prompts/interviewer-gap/missing-framing.system.txt)
 - [optimal-questions.system.txt](../../prompts/interviewer-gap/optimal-questions.system.txt)
 
+## Models
+
+| Stage | Tier (target) | Decompose |
+|-------|----------------|-----------|
+| `missing_framing` | flagship | yes |
+| `optimal_questions` | flagship | no |
+
+[llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md)
+
 ## Module
 
 `src/interview_mux/stages/gaps.py`

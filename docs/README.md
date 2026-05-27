@@ -1,18 +1,27 @@
 # Documentation
 
-Authoritative specs for **interview_helper_mux** — raw interview audio to two deliverables.
+Authoritative specs for **interview_helper_mux** — raw interview audio to three deliverables.
 
 ## Contents
 
 | Document | Purpose |
 |----------|---------|
 | [INDEX.md](./INDEX.md) | Flat hub |
-| [pipeline.md](./pipeline.md) | Pipeline, operator gates, two flows |
+| [roadmap/future-proofing.md](./roadmap/future-proofing.md) | Future-proofing: guardrails + small R&D directions (audio-only) |
+| [roadmap/README.md](./roadmap/README.md) | Roadmap folder pointer |
+| [pipeline/value-analysis/README.md](./pipeline/value-analysis/README.md) | Optional: spike rubrics / moonshots (see future-proofing first) |
+| [pipeline.md](./pipeline.md) | Pipeline, operator gates, three flows |
 | [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
+| [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (planned) |
 | [build-out/](./build-out/) | Agent implementation tickets |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
+| [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (**spec**) |
+| [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) | Per-stage model tier matrix |
+| [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) | ElevenLabs REST SFX + isolation + GUI journey |
+| [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) | `prompt_influence` tuning table |
+| [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) | Golden prompt regression QA |
 | [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
 | [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) | `app.defaults.json` + secrets keys reference |
 | [workflows/](./workflows/) | Gates, idempotency, smoke test |
@@ -32,6 +41,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to two 
 - **Outputs (per run, operator chooses one flow after analysis):**
   1. **Full master podcast** — full coverage, optimal order, VO bridges, podcast SFX, mastered WAV
   2. **Highlight reel** — ≤5 clips, montage SFX, mastered WAV
+  3. **Podcast show description** — ~200-word, third-person blurb to entice listeners (text; no audio mux)
 
 Shared stages run first via `tools/run_analysis.py`. Flow work runs via `tools/run_flow.py`.
 

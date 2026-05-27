@@ -35,6 +35,15 @@ OpenAI Chat Completions
 - [boundary-detection.system.txt](../../prompts/segmentation/boundary-detection.system.txt)
 - [segment-classification.system.txt](../../prompts/segmentation/segment-classification.system.txt)
 
+## Models
+
+| Stage | Tier (target) | Decompose |
+|-------|----------------|-----------|
+| `boundary_detection` | standard | yes |
+| `segment_classification` | standard | yes |
+
+[llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md)
+
 ## Module
 
 `src/interview_mux/stages/segmentation.py`

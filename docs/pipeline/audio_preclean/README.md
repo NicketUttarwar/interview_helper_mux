@@ -82,8 +82,8 @@ Uses the same `ELEVENLABS_API_KEY` as SFX generation.
 
 | Item | Value |
 |------|--------|
-| API | `POST https://api.elevenlabs.io/v1/audio-isolation` (or streaming for long files) |
-| SDK | `elevenlabs.audio_isolation.convert(audio=...)` |
+| API | `POST https://api.elevenlabs.io/v1/audio-isolation` (multipart; streaming for long files when implemented) |
+| Client | `interview_mux.elevenlabs_rest.isolate_audio` — **REST only** (no Python SDK) |
 | Strength | Speech-focused background removal; already in project secrets |
 
 **Caveats:** Tuned for vocals/speech; music-heavy beds may be altered. Re-processing clean audio can degrade quality.
@@ -180,6 +180,7 @@ See [build-out/README.md](../../build-out/README.md) and [podcast-quality-roadma
 
 ## Related
 
+- [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md) — isolation service + scopes (canonical)
 - [capture](../capture/README.md)
 - [ingest](../ingest/README.md)
 - [interviewer-gap](../interviewer-gap/README.md) — G1 pickup

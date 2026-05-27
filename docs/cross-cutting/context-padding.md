@@ -2,6 +2,8 @@
 
 OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user/assistant volley** built by `src/interview_mux/context_volley.py`. The pipeline does **not** send the full `analysis_state.json` on every call.
 
+**Smart routing (spec):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls. v1 uses `full` only.
+
 ## Message structure
 
 | Turn | Role | Contents |
@@ -32,8 +34,25 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `transitions` | full_master_ranking, optimal_questions | style, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
 | `sfx_brief` | highlight_selection | style, narrative | — |
+| `podcast_show_description` | content_context, speaker_roles, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
 
-See [prompts/analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md).
+See [prompts/analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md). Per-stage volley profile: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
+
+## Volley profiles (target)
+
+| Profile | When | Assistant prior turns | Investigations | Input shaping |
+|---------|------|----------------------|----------------|---------------|
+| `full` | `task_kind=primary` (default) | Yes — prior stage summaries | Yes, capped per `STAGE_PLANS` | Current caps in `analysis.context` |
+| `shard` | `task_kind=shard` during decompose | **No** — one-line parent `reasoning_summary` only | None | Tighter per-shard caps; single batch of `segment_ids` |
+| `collate` | `task_kind=collate` after shards | Yes — one assistant turn per shard summary | None | Merged compact shard artifacts only |
+
+**Padding rules:**
+
+- Not every call gets full user/assistant banter — only `full` and `collate` include multi-turn prior conclusions.
+- `shard` calls must not replay the entire investigation queue or full profile slice; parent stage passes minimal context.
+- Arbiter calls use a **minimal** volley (see [llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md)) — not `STAGE_PLANS`.
+
+Implement in `build_message_volley(..., profile="full"|"shard"|"collate")` — see [llm-orchestration-implementation-handoff.md](./llm-orchestration-implementation-handoff.md).
 
 ## Stage data shaping
 
@@ -45,6 +64,7 @@ Heavy fields are stripped per stage:
 - Flow stages get slim brief + capped manifest; ranking also gets compact `coverage_audit`, `narrative_plan`, `gap_report`
 - `transitions` gets `interviewer_sample_lines` from manifest + `gap_report`
 - `podcast_sfx_brief` / `sfx_brief` get compact `selection` (order or highlights), not full transcript
+- `podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
 
 Limits in `config/app.defaults.json` → `analysis.context`:
 

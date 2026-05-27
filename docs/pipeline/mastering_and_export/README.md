@@ -24,6 +24,8 @@ pyloudnorm, ffmpeg
 | `flow_1_master/master.wav` | Full episode |
 | `flow_2_highlights/master.wav` | Short reel |
 
+Flow 3 has **no mastering step** — text export only. See [publishing/README.md](../publishing/README.md).
+
 ## QA
 
 `python tools/verify_master.py <path>` — v1: format check only; target LUFS/peak (BUILD-070).

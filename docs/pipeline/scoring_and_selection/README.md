@@ -26,8 +26,19 @@ Branches after operator gate G2.
 
 **Goals:** ≤5 non-overlapping, diverse, self-contained clips.
 
+## Flow 3 (publishing)
+
+| Ticket | Output | Prompt |
+|--------|--------|--------|
+| BUILD-045 | `show_description.json` | podcast-show-description |
+
+**Goals:** ~200-word third-person blurb; rich context volley; flagship model. No selection or mux.
+
+See [publishing/README.md](../publishing/README.md).
+
 ## Module
 
 - `analysis_flow1_extended.py`
 - `selection_flow1.py`
 - `selection_flow2.py`
+- `publishing_flow3.py` *(planned)*

@@ -22,6 +22,8 @@ source .venv/bin/activate
 python tools/run_analysis.py
 ```
 
+**Future (after smart routing implementation):** spot-check `understanding/stage_runs/<stage>/attempt_001.json` for `arbiter_result.verdict: accept` on at least one LLM stage; long-interview fixture should show `shard_count` > 0 when decompose fires — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+
 Expect under `data/run_001/`:
 
 - `ingest/normalized.wav`
@@ -51,6 +53,15 @@ Use a fresh run or separate `run_002` after analysis:
 python tools/run_flow.py --flow flow2 --run-id run_001
 python tools/verify_master.py data/run_001/flow_2_highlights/master.wav
 ```
+
+## Flow 3
+
+```bash
+python tools/run_flow.py --flow flow3 --run-id run_001
+# Expect flow_3_description/show_description.json (and .md when BUILD-046 ships)
+```
+
+**Expectations:** Third-person blurb ~150–250 words; no `master.wav`. Inspect JSON in GUI artifact editor or `cat flow_3_description/show_description.md`.
 
 ## Pass criteria
 

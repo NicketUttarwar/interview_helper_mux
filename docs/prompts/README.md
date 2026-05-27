@@ -4,6 +4,8 @@ Prompts are organized by **pipeline stage**. Each `.system.txt` file is a stage 
 
 User messages include **analysis memory** (`analysis_state_summary`, `open_investigations`) plus `stage_input`. See [analysis-memory.md](../cross-cutting/analysis-memory.md) and [analysis-stage-matrix.md](./analysis-stage-matrix.md).
 
+**Smart routing (spec):** After each primary call, an economy-tier **arbiter** ([arbiter.system.txt](./_shared/arbiter.system.txt), [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md)) judges the envelope before memory merge. Shard/collate volleys use tighter profiles — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+
 ## Tree
 
 ```
@@ -11,6 +13,8 @@ prompts/
 ├── README.md
 ├── _shared/
 │   ├── analysis-preamble.system.txt    ← envelope + memory rules (all LLM stages)
+│   ├── arbiter.system.txt            ← economy-tier quality gate (spec; see llm-arbiter-contract.md)
+│   ├── llm-arbiter-contract.md         ← arbiter JSON verdict schema
 │   └── examples/                       ← good vs bad pattern packs (*.examples.md)
 ├── understanding/
 │   ├── content-context.system.txt
@@ -30,8 +34,14 @@ prompts/
 │   ├── transitions.system.txt
 │   ├── podcast-sfx-brief.system.txt   ← v1 SFX brief
 │   └── sfx-brief.system.txt           ← v1 montage brief
-└── sound_design/                      ← planned (BUILD-061–064); README + guardrails-and-edge-cases.md
+├── publishing/
+│   └── podcast-show-description.system.txt  ← Flow 3 show blurb
+└── sound_design/                      ← BUILD-061–064 (Wave 5)
     ├── README.md
+    ├── theme-palettes.system.txt
+    ├── plan-flow1.system.txt
+    ├── plan-flow2.system.txt
+    ├── elevenlabs-prompt-craft.system.txt
     └── guardrails-and-edge-cases.md
 ```
 
@@ -51,17 +61,20 @@ Markdown “good vs bad” references under [`_shared/examples/`](./_shared/exam
 | Narrative arc plan | [narrative-arc-plan.examples.md](./_shared/examples/narrative-arc-plan.examples.md) |
 | Full master ranking | [full-master-ranking.examples.md](./_shared/examples/full-master-ranking.examples.md) |
 | Highlight selection | [highlight-selection.examples.md](./_shared/examples/highlight-selection.examples.md) |
+| Podcast show description | [podcast-show-description.examples.md](./_shared/examples/podcast-show-description.examples.md) |
 | Transitions | [transitions.examples.md](./_shared/examples/transitions.examples.md) |
 | Podcast + montage SFX briefs | [sfx-briefs.examples.md](./_shared/examples/sfx-briefs.examples.md) |
-| Sound design (Wave 5 — guardrails) | [sound_design/guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) |
+| Sound design + ElevenLabs craft | [sound-design.examples.md](./_shared/examples/sound-design.examples.md) |
+| ElevenLabs regression (golden prompts) | [elevenlabs-prompt-regression.md](./_shared/examples/elevenlabs-prompt-regression.md) |
+| Sound design (guardrails) | [sound_design/guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) |
 
-**Guard:** When you change rules in a `.system.txt`, update the matching `.examples.md` in the same PR so operators and reviewers stay aligned. For future **sound_design** `*.system.txt`, extend [guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) with any new edge-case rows (prefer breadth over many narrative examples).
+**Guard:** When you change rules in a `.system.txt`, update the matching `.examples.md` in the same PR. For **sound_design**, also see [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md).
 
 ## Invocation order
 
 ### Analysis phase (`run_analysis.py`)
 
-Orchestrator: inner retries per stage + investigation queue drain. See [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
+Orchestrator: inner retries per stage + investigation queue drain. Target: + arbiter per primary call — [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 1. `understanding/speaker-roles`
 2. `understanding/content-context`
@@ -73,7 +86,7 @@ Orchestrator: inner retries per stage + investigation queue drain. See [analysis
 
 **Gate G1** — human VO for `delivery: record`
 
-**Gate G2** — operator picks `flow1` or `flow2`
+**Gate G2** — operator picks `flow1`, `flow2`, or `flow3`
 
 ### Flow phase (`run_flow.py`)
 
@@ -83,7 +96,9 @@ Flow stages use the same envelope; read memory but single pass (no inner loop).
 
 **Flow 2:** highlight-selection → sfx-brief *(v1)*
 
-**Planned (BUILD-060+):** palettes in analysis → `sound_design/plan-flow*` → generate per `asset_id` → mix — [sound-design.md](../cross-cutting/sound-design.md)
+**Flow 3:** podcast-show-description *(spec; BUILD-045)*
+
+**Planned (BUILD-060+):** palettes → `sound_design/plan-flow*` → `elevenlabs_prompt_craft` → generate per `asset_id` → post-analysis → mix — [sound-design.md](../cross-cutting/sound-design.md), [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md)
 
 ## Conventions
 

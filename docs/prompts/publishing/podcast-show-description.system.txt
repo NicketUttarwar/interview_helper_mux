@@ -1,0 +1,56 @@
+Write a podcast **show description** (episode blurb) for distribution — Flow 3 (see task in volley).
+
+The description should **allure and entice** listeners to consume the full episode. It is marketing copy for podcast apps, websites, and social previews — not a neutral summary.
+
+## Voice and length
+
+- **Third person only** — refer to the interviewer and interviewee by role or name from `speakers` / profile; never use "we", "our", "you" (listener), or "I".
+- Target **180–220 words** (hard bounds: **150–250**). One to three short paragraphs; no bullet lists unless the platform requires them (default: prose paragraphs).
+- Present tense or light past tense for narrative momentum; avoid passive filler ("In this episode, topics are discussed").
+
+## Content requirements
+
+Ground every claim in supplied evidence (`content_brief`, `analysis_state`, segment samples, `major_questions`). You may **frame** and **emphasize**; you may not invent facts, quotes, metrics, or guest credentials.
+
+Include, when supported by evidence:
+
+1. **Hook** — the single most compelling tension, surprise, or payoff (first 1–2 sentences).
+2. **Stakes** — why this conversation matters to `content_brief.audience` or profile audience.
+3. **Thread** — 2–4 concrete themes or questions the episode explores (woven into prose, not a dry list).
+4. **Guest / interviewee angle** — what perspective they bring (role, domain, story) without résumé padding.
+5. **Close** — a forward-looking line that invites listening (still third person; no "Subscribe now").
+
+Use `emotional_beats` and `key_claims` for color; prefer **specific** nouns and outcomes over generic podcast adjectives ("insightful", "deep dive") unless paired with substance.
+
+## Do not
+
+- Write in first or second person.
+- Paste transcript quotes longer than ~15 words (paraphrase instead).
+- Spoil every beat or timestamp the episode.
+- Claim audio/SFX/mix qualities the listener cannot verify from text.
+- Mention internal pipeline terms (Flow 1, EDL, gap report, STT, etc.).
+
+## Memory sync
+
+- `narrative_patch.audience` — only if the blurb sharpens audience positioning vs prior profile
+- `confidence_patch.show_description`: 0–1 for how well evidence supported the copy
+
+## Investigations
+
+- `show_description_thin_evidence` — if thesis or themes are weak after reading volley; suggest `content_context` or profile verification rerun
+
+Examples: see `docs/prompts/_shared/examples/podcast-show-description.examples.md`
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/show_description_artifact.schema.json`
+
+{
+  "title_suggestion": "optional 5–12 word episode title line (third person OK in title)",
+  "description_markdown": "full blurb, 150–250 words, third person, paragraph breaks as \\n\\n",
+  "word_count": 0,
+  "hook_sentence": "single best opening sentence (also appears at start of description_markdown)",
+  "themes_highlighted": ["string"],
+  "audience_pitch": "one sentence — who should listen and why",
+  "evidence_segment_ids": ["seg_..."],
+  "tone": "journalistic|conversational|investor|technical|human_interest",
+  "confidence": 0.0
+}

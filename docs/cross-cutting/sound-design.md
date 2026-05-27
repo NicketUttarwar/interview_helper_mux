@@ -6,7 +6,13 @@
 
 **Build tickets:** [BUILD-060–066](../build-out/README.md#wave-5--coherent-sound-design-planned)
 
-**Prompt-stage guardrails (breadth, light examples):** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) — extend when BUILD-061+ `.system.txt` files land.
+**Prompt-stage guardrails:** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md)
+
+**ElevenLabs canonical guide:** [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — API, spend, post-analysis, doc inventory.
+
+**Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [elevenlabs-prompt-craft](../prompts/sound_design/elevenlabs-prompt-craft.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
+
+**Per-interview acoustic baseline (planned):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
 
 ---
 
@@ -167,7 +173,7 @@ flowchart TB
 
 | Phase | Stage key | Inputs | Writes |
 |-------|-----------|--------|--------|
-| A | `sound_design_palettes` | `content_brief`, `segments`, `analysis_state` | `palettes`, `coherence` |
+| A | `sound_design_palettes` | `content_brief`, `segments`, `analysis_state`, `source_acoustic_profile` (planned) | `palettes`, `coherence` |
 | B | `sound_design_plan_flow1` or `_flow2` | SDP, selection, narrative, gaps, transitions | `assets`, `flow_plans.*.cues` |
 | C | *(optional)* `sound_design_vo_finalize` | SDP + `vo_pickup` durations | Adjust VO bridge cues |
 | D | `sound_design_generate_flow*` | SDP assets | `sound_design/assets/*.wav` |
@@ -179,12 +185,14 @@ flowchart TB
 
 ## LLM stages and prompts
 
-| Stage | Model tier | Prompt file (to add) |
-|-------|------------|----------------------|
-| `sound_design_palettes` | mini | `docs/prompts/sound_design/theme-palettes.system.txt` |
-| `sound_design_plan_flow1` | quality | `docs/prompts/sound_design/plan-flow1.system.txt` |
-| `sound_design_plan_flow2` | quality | `docs/prompts/sound_design/plan-flow2.system.txt` |
-| `elevenlabs_prompt_craft` | mini | `docs/prompts/sound_design/elevenlabs-prompt-craft.system.txt` |
+| Stage | Model tier (target) | Prompt file |
+|-------|---------------------|-------------|
+| `sound_design_palettes` | economy | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
+| `sound_design_plan_flow1` | flagship | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
+| `sound_design_plan_flow2` | flagship | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
+| `elevenlabs_prompt_craft` | economy | [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt) |
+
+Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
 ### Palette stage (analysis)
 
@@ -218,12 +226,105 @@ flowchart TB
 For each unique `asset_id` referenced by active flow cues:
 
 1. Run prompt craft (if not cached in `elevenlabs_prompts.json`).
-2. `ElevenLabs.text_to_sound_effects.convert(text=..., duration_seconds=...)`.
-3. Write `sound_design/assets/{asset_id}.wav`.
+2. `POST https://api.elevenlabs.io/v1/sound-generation` via `interview_mux.elevenlabs_rest.generate_sound_effect` (`text`, `duration_seconds`, `prompt_influence`).
+3. Write `sound_design/assets/{asset_id}.wav` (normalize to mono 48 kHz WAV if API returns MPEG).
+
+**Tuning / QA:** [elevenlabs-prompt-influence-tuning.md](./elevenlabs-prompt-influence-tuning.md) · [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md)
 4. On failure → silent ffmpeg placeholder (length from `duration_seconds`).
 5. Skip regen if file exists and `generated[asset_id]` unchanged (idempotent reruns).
 
 **Not** one file per cue (`sfx_001`, `sfx_002`).
+
+---
+
+## Musical structure for ElevenLabs prompts
+
+Musical language in prompts must serve **speech-first podcast clarity**, not standalone music production.
+
+### musical_intent schema (craft stage)
+
+Stored on each row in `sound_design/elevenlabs_prompts.json` when the asset uses pitch motion:
+
+| Field | Values | Default for beds |
+|-------|--------|------------------|
+| `register` | `low` \| `mid` \| `high` | N/A (beds omit musical_intent) |
+| `motion` | `static` \| `rise` \| `fall` \| `rise_then_fall` | — |
+| `tonal_center` | `unspecified_warm` \| `unspecified_neutral` \| `none` | — |
+| `harmonic_density` | `none` \| `sparse` \| `moderate` | `none` for beds |
+| `rhythmic_presence` | `none` \| `pulse` | **`none`** always for beds |
+| `tempo_feel_bpm` | number or null | `null` |
+| `meter_feel` | `free` \| `even` \| `swung` | `free` |
+
+### Podcast-safe defaults
+
+- **Beds:** No pitch center, no meter, no pulse — only environmental spectrum and motion (wind, room).
+- **Chapter stingers:** At most **one** pitch gesture over ≤2 s; prefer noise+filter sweep over diatonic melody.
+- **Montage transitions:** Forward spectral motion; avoid memorable melodic hooks listeners would hum.
+- **Midrange discipline:** Stingers and transitions keep energy out of 1–4 kHz when they might overlap speech tails.
+
+### Role-specific musical constraints
+
+| Role | Allowed | Forbidden |
+|------|---------|-----------|
+| `ambient_bed` | Aperiodic texture, rare non-pitched events | Beat, chord progression, hook |
+| `chapter_stinger` | Single rise/fall, sparse partials | Drum kit, long riser >1.5 s |
+| `transition_stinger` | Brief sweep, noise burst | Vocal-like formants, EDM build |
+| `cold_open` | Slightly stronger gesture than transition | Lyrics, chant, recognizable tune |
+| `vo_bridge` | High-passed air only | Any pitch competing with VO formants |
+
+Craft prompts must **verbalize** these constraints in prose even when `musical_intent` is present — the API receives `elevenlabs_prompt` text only.
+
+---
+
+## Post-generation analysis and adaptive placement
+
+**Status:** Documented workflow (spec). Implementation in mix engine + optional QA stage (BUILD-065+).
+
+Initial ElevenLabs output is a **candidate**. Final timeline placement uses analysis **after** generation against interview themes, keywords, operator notes (`style.sound_design_notes`), and the speech stem.
+
+### Workflow
+
+```mermaid
+flowchart LR
+  GEN[Generate_assets] --> LISTEN[Listen_per_asset]
+  LISTEN --> FIT{Theme_and_speech_fit?}
+  FIT -->|no| REGEN[Regen_or_replace]
+  FIT -->|yes| CUE[Map_cues_to_timeline]
+  CUE --> ADAPT[Adapt_overlap_duck_crossfade]
+  ADAPT --> MUX[Mix_flow1_or_flow2]
+```
+
+### Phase 1 — Per-asset fit
+
+| Check | Method | Fail |
+|-------|--------|------|
+| Theme fit | Compare asset timbre to palette keywords + `sonic_identity` | Regen (max 2) |
+| Intelligibility | Bed under densest speech segment | Lower level / stronger duck |
+| Duration | Tail vs cue window | Adjust `duration_seconds` |
+| Policy | Voice-like content | Discard; tighten negative_prompt |
+| Loop seam | Bed loop in DAW | Regen with seamless-wrap language |
+
+**Inputs:** `content_brief`, `analysis_state.themes`, `segments.manifest`, generated WAV, `ingest/normalized.wav` or `assembly_preview.wav`. Planned: `source_acoustic_profile` — [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md).
+
+### Phase 2 — Transition adaptation (decided here, not in plan stage)
+
+| Pattern | Use when | Typical params |
+|---------|----------|----------------|
+| Sequential | Stinger after clean speech tail | 50–150 ms gap optional |
+| Overlap + duck | Bed under segment | Bed −26 to −30 dB; duck 14–20 dB |
+| Equal-power crossfade | Flow 2 clip change | 80–200 ms |
+| Fade under | VO enters over bed | Bed −3 dB/s over 300 ms |
+| Layer + attenuate | Cold open into clip 1 | Open −6 to −12 dB over 400 ms |
+
+**Flow 1:** Longer bed fades at chapters; stingers **after** words, not over them.
+
+**Flow 2:** Shorter crossfades; one transition asset; level_db tweaks per cue only.
+
+### Phase 3 — Operator gate
+
+Log approve / regen / level change in `gui_log.jsonl`. Optional G1.5 covers **pre-spend** prompt review; this phase is **post-listen**.
+
+Full playbook: [elevenlabs-integration-guide.md § Post-generation](./elevenlabs-integration-guide.md#post-generation-analysis-and-adaptive-placement).
 
 ---
 
@@ -258,6 +359,7 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
 |--------|---------|
 | `content_brief.topics`, `emotional_beats` | Palettes, mood |
 | `analysis_state.themes`, `entities` | Keywords, avoid list |
+| `source_acoustic_profile` (planned) | `pace_class`, `mix_contract`, `prompt_tokens` |
 | `segments.manifest` + `topic_tags` | Segment ↔ palette mapping |
 | `gap_report` + `vo_pickup` | VO bridge cues, timing |
 | `narrative_plan`, `selection.chapters` | Chapter stingers |
@@ -296,6 +398,8 @@ Add `style.sound_design_notes` to `analysis_state.json` for operator overrides (
 
 ## Related
 
+- [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — canonical ElevenLabs API + operations
+- [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md) — worked prompts
 - v1 prompts: `docs/prompts/assembly/podcast-sfx-brief.system.txt`, `sfx-brief.system.txt`
 - v1 code: `sfx_elevenlabs.py`, `selection_flow1.py`, `assembly_flow1.py`, `assembly_flow2.py`
 - [analysis-memory.md](./analysis-memory.md) — profile feeds all LLM stages

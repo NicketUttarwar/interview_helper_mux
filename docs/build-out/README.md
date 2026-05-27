@@ -39,6 +39,8 @@ Numbered tickets for agent implementation. Status: **implemented** in greenfield
 | BUILD-022–027 | LLM analysis | `understanding.py`, `segmentation.py`, `gaps.py` |
 | BUILD-028 | Analysis CLI | `tools/run_analysis.py` |
 
+**Smart LLM routing (docs shipped; code planned):** Spec in [llm-orchestration.md](../cross-cutting/llm-orchestration.md), matrix in [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md), implementation checklist in [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md).
+
 **Gate G1** after BUILD-028 — see [operator-gates.md](../workflows/operator-gates.md)
 
 ## Wave 3a — Flow 1
@@ -50,7 +52,7 @@ Numbered tickets for agent implementation. Status: **implemented** in greenfield
 | BUILD-031 | Full master ranking | `selection_flow1.py` | done |
 | BUILD-032 | Transitions | `selection_flow1.py` | done |
 | BUILD-033 | Podcast SFX brief | `selection_flow1.py` | done (v1 brief only) |
-| BUILD-034 | ElevenLabs SFX | `sfx_elevenlabs.py` | done (v1 per-cue, no reuse) |
+| BUILD-034 | ElevenLabs SFX | `sfx_elevenlabs.py` + `elevenlabs_rest.py` (REST `/v1/sound-generation`) | done (v1 per-cue, no reuse) |
 | BUILD-035 | Mux assembly | `assembly_flow1.py` | done (v1 speech-only) |
 | BUILD-036 | Master export | `mastering.py` | done |
 
@@ -65,6 +67,15 @@ Numbered tickets for agent implementation. Status: **implemented** in greenfield
 | BUILD-044 | Master export | `mastering.py` | done |
 
 **Gate G2** before Wave 3 — flow selection in `run_meta.json`
+
+## Wave 3c — Flow 3 (publishing copy)
+
+| Ticket | Title | Module | Status |
+|--------|-------|--------|--------|
+| BUILD-045 | Podcast show description | `publishing_flow3.py` (planned) | planned |
+| BUILD-046 | Show description export | markdown export from JSON | planned |
+
+**Spec:** [pipeline/publishing/README.md](../pipeline/publishing/README.md) · **Prompt:** [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt)
 
 ## Wave 4 — QA
 
@@ -129,7 +140,7 @@ Replaces v1 BUILD-033/034/041/042/035/043 behavior with analysis-informed, reusa
 000 → 001 → 002 → 003 → 004
 010 → 011 → 012 → 013
 019 (optional) → 020 → 021 → 022…027 → 028 → [G1] → [G2]
-029…036 (flow1) OR 040…044 (flow2)
+029…036 (flow1) OR 040…044 (flow2) OR 045…046 (flow3)
 050 → 051 → 052 → 053
 060 → 061 → 062 & 063 → 064 → 065 → 066
 ```

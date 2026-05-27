@@ -15,13 +15,61 @@ When running the app, **default to `./ASSETS/`** for inputs to analyze. If no su
 
 **`./docs/`** holds high-level functionality specs and prompts. Treat it as authoritative for behavior and copy.
 
+## Centralized operator status and logs (single source of truth)
+
+Every **operator-visible** status line, progress update, error, quality offer, gate prompt, and approve/dismiss outcome must go through the **run logging surface** so the Web GUI log panel shows it (including after refresh). Do not invent parallel status channels.
+
+### Canonical files (per run directory)
+
+| File | Purpose |
+|------|---------|
+| **`gui_log.jsonl`** | Append-only **operator log** — primary channel for “what happened” and “what the user should know” |
+| **`gui_job.json`** | **Current / last background pipeline job** (`status`, `mode`, `stage`, `message`, `updated_at`) for execute spinner / blocked state |
+
+Implementation: `src/interview_mux/session_log.py` (`append_log`, `read_log`), `RunContext.log()` in `run_context.py`, `src/interview_mux/web/runner.py` (job file).
+
+### How to write (code — use only these paths)
+
+| Context | Write via |
+|---------|-----------|
+| Pipeline stages, gates, CLI tools with `RunContext` | **`ctx.log(message, level=..., stage=..., detail=...)`** |
+| Setup without full context | **`session_log.append_log(run_dir, ...)`** |
+| Web server / manual operator note | **`POST /api/runs/{id}/log`** (calls `append_log`) |
+| Long-running **`POST …/execute`** | Update **`gui_job.json`** on state changes **and** `ctx.log()` for milestones the operator should read |
+
+**Levels:** `info`, `success`, `warning`, `error` (match existing `gui_log.jsonl` entries). Include **`stage`** when the message belongs to a pipeline stage id.
+
+### Do not use for operator-visible output
+
+- **`print()`**, bare **`logging`** to stdout/stderr, or Rich console alone (CLI-only traces are OK if **also** mirrored with `ctx.log()` when the run has a workspace)
+- Ad-hoc `*.log` files under the run directory
+- **`understanding/stage_runs/<stage>/attempt_*.json`** for operator copy — that path is **engineering / LLM audit** only
+
+**`run_meta.json`** holds durable metadata (flow, pre-clean flags), not a live log stream — do not treat it as a substitute for `gui_log.jsonl`.
+
+### How the GUI reads it
+
+- **Log panel:** `GET /api/runs/{id}/log?tail=…` and `log_tail` on `GET /api/runs/{id}`
+- **Job status:** `GET /api/runs/{id}/job`
+
+Panel ↔ route ↔ artifact mapping (reference only, not a second policy): **`docs/workflows/gui-surface-map.md`**.
+
+### When adding or changing features
+
+1. **Log every operator-visible outcome** to `gui_log.jsonl` in the same change (success, failure, offer shown, accept/dismiss).
+2. Update **`docs/workflows/gui-surface-map.md`** if you add/rename GUI panels, routes, or artifacts.
+3. Update **`docs/workflows/operator-stage-checklists.md`** for new stages/gates/offers (Pass / If fail).
+4. Update **`docs/workflows/api-reference.md`** if HTTP contracts change.
+
+Do **not** copy this policy into other docs — link to **this section** or to `gui-surface-map.md` for tables.
+
+---
+
 ### Operator stage checklists (mandatory for feature work)
 
 - **`docs/workflows/operator-stage-checklists.md`** is the **single checklist index** for pipeline stages, gates, quality offers, and post-export QA.
 - **Whenever you add or change** a pipeline stage, gate, GUI panel, quality offer, or operator-visible status: **update that file in the same change** (new subsection or new table rows: Pass / If fail, or edge-case bullets).
-- **GUI ↔ API ↔ logs:** Keep **`docs/workflows/gui-surface-map.md`** in sync when you add or rename FastAPI routes, sidebar stages (`src/interview_mux/web/stages.py`), or new artifacts the GUI reads/writes.
-- **HTTP API reference:** When you change **`src/interview_mux/web/server.py`** routes (path/method), request/response bodies, query params, or documented HTTP errors, update **`docs/workflows/api-reference.md`** in the same change so it stays the machine-readable companion to the GUI map.
-- **GUI contract:** Operator-visible status, prompts, and dismiss/accept flows should be recoverable from **`gui_log.jsonl`** (append-only) plus per-stage **`understanding/stage_runs/<stage>/attempt_*.json`** for LLM/schema detail. If you add a new user-facing prompt or status string, document **where it appears in the GUI** and **which log file** captures it (see the “Where status, prompts, and logs appear” section at the top of the checklists doc).
+- **Logging:** Follow **Centralized operator status and logs** above — every new status string must use `RunContext.log()` / `append_log` / `gui_job.json` as appropriate.
 - **Config keys:** Document new `app.defaults.json` or `secrets.env` keys in **`docs/cross-cutting/config-keys.md`** in the same PR.
 
 ## Backend (Python)

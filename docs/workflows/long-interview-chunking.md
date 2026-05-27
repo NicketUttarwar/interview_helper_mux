@@ -4,6 +4,8 @@ When a recording is **long or dense**, LLM stages may hit **token / character ca
 
 This document is the **policy** for operators and implementers: what to expect, what breaks, and how to recover **without** silently losing fidelity.
 
+**Target (spec only):** automatic **shard → collate** when the arbiter returns `decompose` for eligible stages (`missing_framing`, `segment_classification`, `boundary_detection`) — [llm-orchestration.md](../cross-cutting/llm-orchestration.md). **Not implemented in v1.**
+
 ---
 
 ## Caps (authoritative keys)
@@ -25,7 +27,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 
 ## Operator expectations (honest)
 
-1. **No automatic “smart chunking” of the whole interview** is specified beyond what `context_volley` already strips and caps (see code). Very long files may produce **partial coverage** in a single pass unless stages re-run with investigations.
+1. **v1:** No automatic shard/collate — only what `context_volley` strips and caps. Very long files may produce **partial coverage** in a single pass unless stages re-run with investigations.
 2. **`investigation_queue.json` + `follow_up_investigations`** exist partly to surface “we need another pass on region X” — watch for `theme_unmapped`, `segment_ambiguity`, `gap_unresolved`.
 3. **Profile verification** (`meta.operator_verified`) before Flow 1 extended reduces wasted extended passes on wrong themes — see [operator-gates.md](./operator-gates.md).
 
@@ -39,7 +41,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 | **Re-run from a mid pipeline stage** | After fixing G0 / manifest / profile | `--from-stage` per [idempotent-runs.md](./idempotent-runs.md) | Downstream invalidated |
 | **Operator edits + targeted re-run** | A theme is wrong but transcript OK | e.g. `--from-stage segment_classification` | Fastest when root cause is classification |
 | **Split into two executions** (manual) | Two logical “halves” of same recording | Two `run_id`s; merge in NLE later (advanced) | Editorial burden outside tool |
-| **Hierarchical summary (future)** | Not implemented as first-class | N/A | Would require new stage + doc |
+| **Shard/collate (target)** | Arbiter `decompose` on eligible stages | Same stage after collate | Spec: [llm-orchestration.md](../cross-cutting/llm-orchestration.md) — **not in v1 code** |
 
 ---
 
@@ -69,5 +71,6 @@ See [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md).
 ## Related
 
 - [context-padding.md](../cross-cutting/context-padding.md)
+- [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) — decompose eligibility
 - [operator-stage-checklists.md](./operator-stage-checklists.md)
 - [gui-surface-map.md](./gui-surface-map.md)

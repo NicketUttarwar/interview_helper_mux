@@ -31,6 +31,7 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `transitions` | `artifacts/transitions_artifact.schema.json` | |
 | `podcast_sfx_brief` | `artifacts/podcast_sfx_artifact.schema.json` | |
 | `sfx_brief` | `artifacts/sfx_montage_artifact.schema.json` | |
+| `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3; planned BUILD-045 |
 
 **Guard:** Any new LLM stage that writes structured JSON should register in `src/interview_mux/prompt_validation.py` → `STAGE_ARTIFACT_SCHEMAS` **and** add or extend a schema file. Missing registration = **silent** non-validation (worst case).
 
@@ -61,6 +62,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `transcript/corrections.json` | Operator edits | Small object schema |
 | `ingest/checksums.json` | Lineage | Small object schema |
 | `understanding/sound_design_plan.json` | SDP | BUILD-060 |
+| `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | Spec: [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `gui_log.jsonl` | NDJSON stream | Often line-schema only |
 
 **Best-in-class fixes (priority order):**
@@ -85,6 +87,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
 | `flow_1_master/edl.json` | **No** | **No** |
+| `flow_3_description/show_description.json` | Via `show_description_artifact` | When BUILD-045 ships |
 | `segments/nle_edits.json` | **No** | **No** |
 | `transcript/review_queue.json` | `transcript_review.schema.json` | No (unless wired) |
 

@@ -99,6 +99,17 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 ---
 
+## Flow 3 show description
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Blurb uses "we" / "you" | First/second person leak | `flow_3_description/show_description.json` → `description_markdown` | Re-run `podcast_show_description`; see [examples](../prompts/_shared/examples/podcast-show-description.examples.md) |
+| Too short or too long | Word count out of band | `word_count` field | Re-run stage; adjust `show_description_*_words` in config when BUILD-045 ships |
+| Generic hype, no specifics | Thin volley or weak brief | `content_brief.json`, `analysis_state.json`, `stage_runs/podcast_show_description/` | Verify profile; `--from-stage content_context` |
+| Invented facts | Model drift | `evidence_segment_ids`, transcript | Re-run with verified profile; tighten prompt guardrails |
+
+---
+
 ## Audio / mux (v1 vs target)
 
 | Symptom | Likely cause | Inspect | Action |
@@ -111,12 +122,37 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 ## ElevenLabs (SFX / isolation — API)
 
+**Canonical guide:** [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md). **Checklists:** [operator-stage-checklists.md § ElevenLabs](./operator-stage-checklists.md#elevenlabs-sfx--isolation).
+
+### HTTP / API
+
 | If you see | Meaning | Inspect | Action |
 |------------|---------|---------|--------|
-| `401` / `Unauthorized` | Bad or missing API key | `ELEVENLABS_API_KEY` | Fix secrets; reload env |
-| `429` / `rate limit` / `too many requests` | Quota or burst cap | Logs, account dashboard | Backoff; reduce parallel cues; upgrade quota |
-| `402` / payment (varies by vendor copy) | Billing / plan | ElevenLabs account | Resolve billing |
-| Timeout / empty body | Network or large file | Payload size | Retry; split audio; check proxy |
+| `401` / `Unauthorized` | Bad or missing API key | `ELEVENLABS_API_KEY` | Fix secrets; reload env; **do not retry** |
+| `429` / `rate limit` / `too many requests` | Quota or burst cap | Logs, dashboard | Backoff 2^n s (n=1..5); ≤2 parallel; serialize assets |
+| `402` / payment (varies by vendor copy) | Billing / plan | ElevenLabs account | Stop generation; resolve billing |
+| `5xx` / timeout | Server or network | Payload size, proxy | Retry 5s, 15s, 45s (max 3); then placeholder WAV (target) |
+| Timeout / empty body | Network or large file | Isolation file duration | Retry once; for isolation use streaming/chunking when implemented |
+
+### Quality / product
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| SFX unused in master | v1 speech-only mux | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expected until BUILD-065/067 |
+| Random / trailer feel | v1 raw brief → API | `podcast_sfx_brief.json` | Wave 5: SDP + craft; tune [prompt_influence](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
+| Wrong timbre after regen | Variance or influence | `elevenlabs_prompts.json` | [Regression appendix](../prompts/_shared/examples/elevenlabs-prompt-regression.md); rewrite prompt |
+| Voice in generated bed | Weak craft | `elevenlabs_prompts.json` | Regen; strengthen `negative_prompt`; block policy strings |
+| Bed buries speech | Level / duck too hot | SDP cues `level_db`, `duck_under_speech_db` | Post-gen: lower bed −4 dB or duck +4 dB — [sound-design.md](../cross-cutting/sound-design.md) |
+| Harsh montage cuts | Fixed concat / no crossfade | Flow 2 selection ranks | Post-gen: 80–200 ms crossfade; lower transition level |
+| Isolation underwater | Over-processing | A/B raw vs `preclean/isolated.wav` | Disable pre-clean; try `rnnoise_local` |
+| Cost spike | Per-cue v1 or regen loop | # API calls vs unique `asset_id`s | Enforce reuse; idempotent skip; G1.5 approval |
+| Regen loop | Plan hash not updating | SDP + `elevenlabs_prompts.json` | Fix craft; cap 2 regens per asset |
+
+### Spend controls
+
+- Run **assembly_preview** before SFX when available (BUILD-069).
+- Enable **G1.5** (`require_operator_prompt_approval: true`) for high-cost runs.
+- Target architecture: one call per `asset_id`, not per cue.
 
 ---
 

@@ -1,8 +1,8 @@
-# Pipeline — two output flows
+# Pipeline — three output flows
 
-One source interview session produces **two possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection and assembly diverge after **gate G2**.
+One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
-**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. Flow 3 is **docs + prompt spec** until BUILD-045 ships. See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
 
 ```mermaid
 flowchart TB
@@ -26,8 +26,10 @@ flowchart TB
     F1b --> F1c[SFX plan + mix]
     G2 -->|Flow 2| F2[Highlight pick]
     F2 --> F2b[Montage SFX + mix]
+    G2 -->|Flow 3| F3[Show description]
     F1c --> K[Master + export]
     F2b --> K
+    F3 --> T[Text export]
 ```
 
 ---
@@ -37,7 +39,7 @@ flowchart TB
 All work starts from a single long-form interview recording in `./ASSETS/`.
 
 | Stage | Goal | Key artifacts |
-|-------|------|-----------------|
+|-------|------|----------------|
 | **Audio pre-clean** *(optional)* | Remove background noise before STT/mux | `preclean/isolated.wav`, `preclean/lineage.json` |
 | **Ingest** | Normalize format, checksum, session id | `run_NNN/` workspace, normalized WAV |
 | **Transcribe + diarize** | Word-level text with speaker labels | Transcript JSON, speaker map |
@@ -54,7 +56,7 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 
 **Gate G1** — human VO for `delivery: record` → [operator-gates.md](./workflows/operator-gates.md)
 
-**Gate G2** — choose `flow1` or `flow2` before `run_flow.py`
+**Gate G2** — choose `flow1`, `flow2`, or `flow3` before `run_flow.py`
 
 ---
 
@@ -96,15 +98,36 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 
 ---
 
+## Flow 3 — Podcast show description
+
+**Intent:** A **~200-word, third-person** episode blurb that allures and entices listeners — for podcast directories, web pages, and social previews. **No audio output.**
+
+### Stage sequence (after G2)
+
+1. **Podcast show description** — flagship LLM with rich user/assistant context volley (content brief, profile, manifest slice, optional gap summaries)
+2. **Export** *(planned)* — `show_description.md` plain text alongside JSON
+
+### Success criteria
+
+- 150–250 words; third person throughout
+- Hook, stakes, themes, and audience pitch grounded in `content_brief` / segments
+- No invented facts, long transcript quotes, or pipeline jargon
+
+See [pipeline/publishing/README.md](./pipeline/publishing/README.md) and [podcast-show-description.system.txt](./prompts/publishing/podcast-show-description.system.txt).
+
+---
+
 ## Flow comparison
 
-| Dimension | Flow 1 | Flow 2 |
-|-----------|--------|--------|
-| Coverage | All usable material | ≤5 clips |
-| Analysis | Shared + extended audit/arc | Shared only |
-| Ordering | Optimal podcast narrative | Hook → kicker |
-| SFX | Subtle podcast | Montage |
-| Length | Long episode | ≤ ~3 min |
+| Dimension | Flow 1 | Flow 2 | Flow 3 |
+|-----------|--------|--------|--------|
+| Output | Mastered WAV (full episode) | Mastered WAV (reel) | Show description (text) |
+| Coverage | All usable material | ≤5 clips | Whole-interview narrative |
+| Analysis | Shared + extended audit/arc | Shared only | Shared only |
+| Ordering | Optimal podcast narrative | Hook → kicker | N/A |
+| SFX / mux | Yes | Yes | No |
+| Length | Long episode | ≤ ~3 min | ~200 words |
+| Model tier (key stage) | Flagship (ranking) | Flagship (selection) | **Flagship** (`podcast_show_description`) |
 
 ---
 
@@ -128,3 +151,4 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md) — symptom playbook
 - [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)
 - [pipeline/transcription/source-separation-and-enhancement.md](./pipeline/transcription/source-separation-and-enhancement.md)
+- [pipeline/publishing/README.md](./pipeline/publishing/README.md) — Flow 3 copy stage

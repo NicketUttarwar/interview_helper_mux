@@ -1,6 +1,8 @@
 # GUI surface map — panels, APIs, logs, artifacts
 
-Single reference for **what the operator sees**, which **HTTP API** backs it, which **log files** record it, and which **artifacts** on disk are read or written. Source: `src/interview_mux/web/server.py`, `web/static/app.js`, `web/stages.py`, `session_log.py`, `web/runner.py`.
+Single reference for **what the operator sees**, which **HTTP API** backs it, and which **artifacts** on disk are read or written. Source: `src/interview_mux/web/server.py`, `web/static/app.js`, `web/stages.py`, `session_log.py`, `web/runner.py`.
+
+**Logging policy (do not duplicate elsewhere):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — write operator-visible status only via `RunContext.log()` / `append_log` → `gui_log.jsonl`, and background execute state via `gui_job.json`.
 
 **HTTP companion:** [api-reference.md](./api-reference.md) — method/path/body tables and common status codes.
 
@@ -43,7 +45,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, wh
 | NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`) | `segments/nle_edits.json` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | any allowed JSON under run (e.g. `understanding/analysis_state.json`); optional invalidation |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---
@@ -55,7 +57,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, wh
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` | `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `.stage_done/transcript_review` |
 | **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`, editable JSON paths in response |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV) | `gui_log.jsonl` (`g1_vo_pickup`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json` |
-| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
+| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
 
 ---
 
@@ -77,9 +79,9 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 
 ---
 
-## Flow 1 / Flow 2 stages (after G2)
+## Flow 1 / Flow 2 / Flow 3 stages (after G2)
 
-Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: "flow1"` \| `"flow2"` runs full flow or use `from_stage`.
+Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: "flow1"` \| `"flow2"` \| `"flow3"` runs full flow or use `from_stage`.
 
 | Flow | Title | `id` | Main artifacts |
 |------|-------|------|------------------|
@@ -97,6 +99,18 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: 
 | 2 | Generate SFX | `elevenlabs_sfx_flow2` | `flow_2_highlights/sfx/*.wav` |
 | 2 | Micro-assembly | `mux_flow2` | `flow_2_highlights/assembly.wav` |
 | 2 | Master export | `master_flow2` | `flow_2_highlights/master.wav` |
+| 3 | Show description | `podcast_show_description` | `flow_3_description/show_description.json` |
+| 3 | Export blurb | `export_show_description` | `flow_3_description/show_description.md` |
+
+### ElevenLabs operator journey (SFX + G1.5)
+
+Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
+
+| v1 today | Target (planned) |
+|----------|------------------|
+| JSON editor on `podcast_sfx_brief.json` / `sfx_brief.json` | + `sound_design/elevenlabs_prompts.json` |
+| Sidebar **Generate SFX** → REST `/v1/sound-generation` | G1.5 **Prompt review** panel before generate |
+| Log: `ElevenLabs SFX generated …` `detail.api: rest` | + `elevenlabs_post_listen_pass` / `fail` |
 
 ---
 
@@ -105,6 +119,8 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: 
 | Path | Purpose |
 |------|---------|
 | `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, `context_volley`, schema validation errors — for **debugging model I/O**. |
+
+**Target fields (spec only, not yet in v1 JSON):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 Operators rarely need this; engineers and support do.
 

@@ -1,6 +1,6 @@
 # Understanding
 
-Speaker roles, content brief, and **per-interview analysis profile** from transcript.
+Speaker roles, content brief, and **per-interview analysis profile** from transcript. **Planned:** acoustic/pacing profile from source audio — [source-derived-sonic-mix-profile.md](../../cross-cutting/source-derived-sonic-mix-profile.md).
 
 ## Tickets
 
@@ -16,6 +16,7 @@ OpenAI Chat Completions (envelope + memory padding)
 |------|-------------|
 | `transcript/full.json` | Full transcript |
 | `transcript/speakers.json` | Diarization labels |
+| `ingest/normalized.wav` | Normalized audio (for planned `source_acoustic_profile` stage) |
 | `understanding/analysis_state.json` | Rolling memory (created at first LLM stage) |
 
 ## Outputs
@@ -26,6 +27,7 @@ OpenAI Chat Completions (envelope + memory padding)
 | `understanding/investigation_queue.json` | Yes | Open investigations |
 | `understanding/speakers.json` | Yes | Role mapping |
 | `understanding/content_brief.json` | Yes | Thesis, topics, claims, beats |
+| `understanding/source_acoustic_profile.json` | Yes (planned) | WPM, pause stats, mix contract — derived once after transcription |
 
 ## Operator workflow
 
@@ -44,7 +46,12 @@ See [analysis-memory.md](../../cross-cutting/analysis-memory.md).
 
 ## Models
 
-`speaker_roles`, `content_context` — see [model-routing.md](../../cross-cutting/model-routing.md)
+| Stage | Tier (target) |
+|-------|----------------|
+| `speaker_roles` | economy |
+| `content_context` | economy |
+
+[llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md) · [model-routing.md](../../cross-cutting/model-routing.md)
 
 ## Module
 

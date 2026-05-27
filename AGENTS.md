@@ -4,15 +4,16 @@ Rules for autonomous agents implementing or running this pipeline.
 
 ## Read order
 
-1. [docs/build-out/README.md](docs/build-out/README.md) — ticket sequence and dependencies
-2. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
-3. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
-4. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — **per-stage verification**; extend this file whenever you add a stage, gate, GUI panel, or quality offer
-5. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI panels ↔ FastAPI routes ↔ `gui_log.jsonl` / `gui_job.json` ↔ artifacts
-6. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — full `/api/*` contract (companion to the GUI map)
-7. [docs/pipeline.md](docs/pipeline.md) — two flows, stage overview
-8. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
-9. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — `config/app.defaults.json` + merged `secrets.env` keys
+1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — future-proofing guardrails + small R&D directions (audio-only; optional research track)
+2. [docs/build-out/README.md](docs/build-out/README.md) — ticket sequence and dependencies
+3. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
+4. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
+5. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — **per-stage verification**; extend this file whenever you add a stage, gate, GUI panel, or quality offer
+6. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI panels ↔ FastAPI routes ↔ `gui_log.jsonl` / `gui_job.json` ↔ artifacts
+7. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — full `/api/*` contract (companion to the GUI map)
+8. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
+9. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
+10. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — `config/app.defaults.json` + merged `secrets.env` keys
 
 ## Hard constraints
 
@@ -28,7 +29,7 @@ Rules for autonomous agents implementing or running this pipeline.
 |------|------|--------|
 | **G0** | After `transcript_review_build` | Operator corrects STT in GUI (confidence-ranked clips); sign off before `speaker_roles` |
 | **G1** | After `run_analysis.py` | If `delivery: record` lines lack `vo_pickup/*.wav`, stop until operator records |
-| **G2** | After G1 cleared | Ask: `flow1` (full podcast) or `flow2` (highlight reel) |
+| **G2** | After G1 cleared | Ask: `flow1` (full podcast), `flow2` (highlight reel), or `flow3` (show description) |
 
 **Quality offers (optional, not gates):** Offer background noise removal at documented checkpoints — before ingest, after G0, **after G1 pickup recordings** (`vo_pickup` scope), before mix. Never auto-enable. See [docs/pipeline/audio_preclean/README.md](docs/pipeline/audio_preclean/README.md).
 
@@ -51,13 +52,16 @@ Do not run Flow 1 extended analysis (BUILD-029+) unless `run_meta.json` has `sel
 
 Launch with `./scripts/run.sh` (default) or `python -m interview_mux serve`. The GUI reads/writes run state from the **run directory** (`ASSETS/executions/exec_*` or legacy `data/run_*`) via the FastAPI routes in `src/interview_mux/web/server.py`.
 
-- **Operator-visible log:** `gui_log.jsonl` (append-only). **Job status:** `gui_job.json`. See [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md).
+- **Operator status/logs:** `.cursor/rules/interview-helper-mux.mdc` (Centralized operator status and logs). GUI wiring: [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md).
 - **Long runs / LLM context:** see [docs/workflows/long-interview-chunking.md](docs/workflows/long-interview-chunking.md).
 
 ## Audio / STT reference docs
 
 - [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md) — STT + diarization catalog (AWS = implemented)
 - [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md) — denoise / separation options
+- [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md) — ElevenLabs REST SFX + isolation (canonical)
+- [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md) — `prompt_influence` tuning
+- [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompt QA
 
 ## Testing changes
 

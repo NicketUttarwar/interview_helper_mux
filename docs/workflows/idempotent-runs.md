@@ -32,4 +32,4 @@ Override with `--run-id run_001` to continue an existing workspace.
 | STT corrections changed | `--from-stage transcript_review` (re-sign-off) or `transcript_review_build` to rebuild clips |
 | Changed prompts only | `--from-stage <llm_stage>` |
 | New VO files added | `--from-stage vo_ingest` |
-| Switched flow | New `run_meta.json`; do not mix flow_1 and flow_2 artifacts in one run without clearing |
+| Switched flow | New `run_meta.json`; do not mix `flow_1_master/`, `flow_2_highlights/`, and `flow_3_description/` artifacts in one run without clearing |

@@ -10,7 +10,8 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 | VO pickup (G1) | Record lines to `vo_pickup/` | Same + optional **background cleanup on new VO** |
 | Assembly Flow 1 | Speech-only concat from `selection.json` | EDL with gaps + VO + transitions + mix |
 | Assembly Flow 2 | Clips + SFX by index | Cold open + shared transition asset |
-| SFX | Late brief, one WAV per cue, fixed 2s | [Sound Design Plan](./sound-design.md) (BUILD-060+) |
+| Flow 3 publishing | Spec + prompt (BUILD-045) | ~200-word third-person show description from shared analysis |
+| SFX | Late brief, one WAV per cue, fixed 2s | [Sound Design Plan](./sound-design.md) + [ElevenLabs guide](./elevenlabs-integration-guide.md) (BUILD-060+) |
 | NLE GUI | Saves `segments/nle_edits.json` | Feeds manifest / selection / EDL |
 | Master QA | `ffprobe` only | LUFS, true peak, narrative validators |
 | Pre-clean | Spec only (BUILD-019) | Offered at **multiple workflow points** |
@@ -29,7 +30,9 @@ Until Wave 5 and assembly wiring land, treat **v1 `master.wav` as a reordered in
 
 ### Wave B — Coherent sound + mix (BUILD-060–066)
 
-See [sound-design.md](./sound-design.md) and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-planned).
+See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md), and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-planned).
+
+**Wave B companion (design target):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — derive pacing, energy, and a shared **mix contract** once per interview from source audio + transcript; consume through SDP, craft, and mux for a homogeneous episode.
 
 ### Wave C — QA and mastering (BUILD-070–071, planned)
 

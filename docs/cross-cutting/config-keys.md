@@ -15,11 +15,58 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
-| `models.<stage_key>` | `get_model()` → OpenAI calls | Wrong model: cost/quality drift; unknown name → API errors |
+| `models.<stage_key>` | `get_model()` → OpenAI calls (**v1**) | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` — see `merged_config()`.
 
-**Optional secrets (fallback):** `OPENAI_MODEL` used when a stage key is missing from `models` map.
+**Optional secrets (fallback, v1):** `OPENAI_MODEL` used when a stage key is missing from `models` map.
+
+---
+
+## `models` — v1 (current runtime)
+
+Flat map: each `models.<stage_key>` is a **string** OpenAI API model ID. Resolved by `get_model(stage_key)` in `src/interview_mux/config.py` with fallback to `OPENAI_MODEL` then `gpt-4o-mini`.
+
+Tier guidance (target defaults): [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID registry: [model-routing.md](./model-routing.md#model-tier-registry).
+
+---
+
+## `models` — proposed (not yet implemented)
+
+**Status: spec only.** Smart routing per [llm-orchestration.md](./llm-orchestration.md).
+
+```json
+"models": {
+  "tiers": {
+    "economy": "<api-id>",
+    "standard": "<api-id>",
+    "flagship": "<api-id>"
+  },
+  "stages": {
+    "missing_framing": { "tier": "flagship", "severity": "high" },
+    "segment_classification": { "tier": "standard", "severity": "medium" }
+  },
+  "missing_framing": "gpt-4o"
+}
+```
+
+| Key | Purpose |
+|-----|---------|
+| `models.tiers.<economy\|standard\|flagship>` | Maps tier alias → API ID |
+| `models.stages.<stage_key>.tier` | Default tier for `task_kind=primary` |
+| `models.stages.<stage_key>.severity` | `low` \| `medium` \| `high` — drives collate floor |
+| `models.<stage_key>` (string) | **Override:** explicit API ID wins over tier lookup |
+
+**Proposed secrets (optional):**
+
+| Key | Effect |
+|-----|--------|
+| `OPENAI_TIER_ECONOMY` | Override economy tier API ID |
+| `OPENAI_TIER_STANDARD` | Override standard tier API ID |
+| `OPENAI_TIER_FLAGSHIP` | Override flagship tier API ID |
+| `OPENAI_MODEL` | Fallback when stage missing (unchanged) |
+
+`task_kind` (`primary`, `arbiter`, `shard`, `collate`) is **not** a config key — resolved in code per [llm-orchestration.md](./llm-orchestration.md).
 
 ---
 
@@ -64,6 +111,8 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 | `highlight_setup_max_sec` | Flow 2 clip + VO timing invalid vs schema |
 | `max_chapters` | Narrative plan violates cap → validation / model confusion |
 | `max_highlight_clips` | Selection over cap (should match product ≤5) |
+| `show_description_min_words` / `show_description_max_words` | Flow 3 length validation *(proposed, BUILD-045)* | Blurb too short/long for hosts |
+| `show_description_target_words` | Editorial target (~200) for prompts | Copy drifts from product spec |
 
 ---
 
@@ -86,7 +135,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_DEFAULT_REGION` / `AWS_REGION` | Transcribe / S3 wrong region |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
-| `ELEVENLABS_API_KEY` | SFX + future isolation fail |
+| `ELEVENLABS_API_KEY` | SFX + isolation fail — see [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
 
@@ -94,7 +143,9 @@ Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Dee
 
 ## Related
 
-- [model-routing.md](./model-routing.md) — model tier guidance
+- [model-routing.md](./model-routing.md) — tier registry and v1 mapping
+- [llm-orchestration.md](./llm-orchestration.md) — arbiter, shard/collate (spec)
+- [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) — per-stage tiers
 - [prompts/README.md](../prompts/README.md) — prompt conventions
 - `src/interview_mux/config.py` — merge rules
 - `config/templates/secrets.env.example` — secret key names

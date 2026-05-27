@@ -85,7 +85,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** \| **`flow3`** |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 
@@ -95,7 +95,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `flow` | string | **`flow1`** or **`flow2`** (regex-enforced) |
+| `flow` | string | **`flow1`**, **`flow2`**, or **`flow3`** (regex-enforced when implemented) |
 
 ### `ArtifactBody`
 

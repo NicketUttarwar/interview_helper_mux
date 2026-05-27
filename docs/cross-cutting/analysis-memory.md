@@ -12,7 +12,7 @@ Every execution builds a **custom analysis profile** for that recording. Memory 
 | `understanding/speakers.json` | Speaker roles |
 | `segments/manifest.json` | Segment timeline |
 
-Edit these in the **Interview profile** GUI panel or any stage JSON editor. After edits, use **Redo from selected stage** to re-run downstream LLM stages with your changes.
+Edit these in the **Interview profile** GUI panel or any stage JSON editor. After edits, use **Redo from selected stage** to re-run downstream LLM stages with your changes. Flow 3 (`podcast_show_description`) reads the same profile slice as Flow 1 ranking — verification is strongly recommended before generating show copy.
 
 ### Operator verification
 
@@ -36,8 +36,10 @@ Not the whole memory file. `context_volley.py` selects prior conclusions, profil
 - Stage artifacts (`content_brief.json`, etc.) remain the canonical output for assembly; sync helpers copy key fields into memory.
 - Operator edits to `analysis_state.json` are **not** overwritten silently — conflicting model updates should surface as `needs` with `type: operator`.
 
+**Target (spec only):** Do **not** merge memory when the LLM arbiter rejects a primary response (`retry_uptier`, mid-flight `decompose`, or `enqueue_investigation`). Merge only after `accept` or successful collate — [llm-orchestration.md](./llm-orchestration.md).
+
 ## Per-interview customization
 
 No two interviews share memory. A new `exec_NNN_*` run starts from an empty profile template; analysis discovers themes and style from **that** transcript only.
 
-See [context-padding.md](./context-padding.md) and [workflows/analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
+See [context-padding.md](./context-padding.md), [llm-orchestration.md](./llm-orchestration.md), and [workflows/analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).

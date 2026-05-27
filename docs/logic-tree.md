@@ -45,6 +45,7 @@ flowchart TD
     G1 -->|yes| G2{G2: Operator picks flow}
     G2 -->|flow1| OUT1[Flow 1 extended analysis + master]
     G2 -->|flow2| OUT2[Flow 2 highlights]
+    G2 -->|flow3| OUT3[Flow 3 show description]
 ```
 
 See [workflows/operator-gates.md](./workflows/operator-gates.md) for G1 and G2.
@@ -258,6 +259,23 @@ flowchart TD
 - Prefer **including** weak sections with interviewer bridges over silent deletion.
 - Asides: trim unless they humanize the interviewee.
 
+### After gap analysis → Flow 3 (show description)
+
+```mermaid
+flowchart TD
+    A[Gap report + content brief complete] --> B[Rich context volley]
+    B --> C[Flagship show description]
+    C --> D{Word count + third person OK?}
+    D -->|no| C
+    D -->|yes| E[Export show_description.json / .md]
+```
+
+- Uses **whole-interview** understanding, not clip selection.
+- **Third person** editorial voice; ~200 words; entice without inventing facts.
+- Does not require Flow 1 ranking or Flow 2 highlights.
+
+See [pipeline/publishing/README.md](./pipeline/publishing/README.md).
+
 ### After gap analysis → Flow 2 (highlights)
 
 ```mermaid
@@ -282,7 +300,7 @@ flowchart TD
 |------|-----------|--------|
 | **G0** | `review_queue.json` present, transcript review not signed off | GUI: correct ranked STT clips, complete review |
 | **G1** | `delivery: record` in gap report without `vo_pickup/*.wav` | Stop; operator records from `interviewer_script.txt` |
-| **G2** | Analysis complete, G1 clear | Operator selects `flow1` or `flow2` in `run_meta.json` |
+| **G2** | Analysis complete, G1 clear | Operator selects `flow1`, `flow2`, or `flow3` in `run_meta.json` |
 
 `synthesize` delivery is **deferred** in v1 — only `record` triggers G1.
 
@@ -315,3 +333,4 @@ Flow 1 export must include gap VO, transitions, and sound design per [podcast-qu
 | Interviewer lines | [optimal-questions.system.txt](./prompts/interviewer-gap/optimal-questions.system.txt) |
 | Flow 1 ordering | [full-master-ranking.system.txt](./prompts/selection/full-master-ranking.system.txt) |
 | Flow 2 picks | [highlight-selection.system.txt](./prompts/selection/highlight-selection.system.txt) |
+| Flow 3 show description | [podcast-show-description.system.txt](./prompts/publishing/podcast-show-description.system.txt) |

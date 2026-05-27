@@ -1,6 +1,6 @@
 # Sound design — guardrails and edge cases (BUILD-060+)
 
-**When to use:** After `theme-palettes.system.txt`, `plan-flow1.system.txt`, `plan-flow2.system.txt`, and `elevenlabs-prompt-craft.system.txt` exist (Wave 5). Spec source: [sound-design.md](../../cross-cutting/sound-design.md). This doc is **settings + rails + breadth**, not a large example library.
+**When to use:** Wave 5 sound design (prompt files shipped). Spec: [sound-design.md](../../cross-cutting/sound-design.md), [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md). Examples: [sound-design.examples.md](../_shared/examples/sound-design.examples.md). This doc is **settings + rails + breadth**, not a large example library.
 
 ---
 
@@ -71,9 +71,18 @@
 
 ---
 
+## Post-generation — edge cases
+
+| Situation | Bad outcome | Rail |
+|-----------|-------------|------|
+| Plan fixes crossfade ms before listen | Wrong for spectral clash between clips | Adapt in post-analysis only — [sound-design.md](../../cross-cutting/sound-design.md) |
+| Regen without plan hash change | Cost loop | Max 2 regens per `asset_id`; log in `gui_log.jsonl` |
+| Operator theme/scripture notes ignored | Off-brand beds | Merge `style.sound_design_notes` into craft + post-gen theme fit |
+
 ## Related
 
 - [README.md](./README.md) — stage → prompt file map
+- [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md) — API + post-analysis playbook
 - [sound-design.md](../../cross-cutting/sound-design.md) — SDP shape and waves
-- [operator-stage-checklists.md](../../workflows/operator-stage-checklists.md) — add SDP / G1.5 rows when shipped
+- [operator-stage-checklists.md](../../workflows/operator-stage-checklists.md) — ElevenLabs pre/post spend
 - [prompts README — Example packs](../README.md#example-packs) — index of pattern packs + this doc

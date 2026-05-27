@@ -52,7 +52,7 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 
 ## Tools
 
-ffmpeg, pydub, ElevenLabs sound effects API
+ffmpeg, pydub, ElevenLabs REST `POST /v1/sound-generation` (`elevenlabs_rest.py`)
 
 ## Modules
 

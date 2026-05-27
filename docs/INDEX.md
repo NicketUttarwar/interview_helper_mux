@@ -2,17 +2,27 @@
 
 Flat hub for **interview_helper_mux**.
 
+## Roadmap — future-proofing
+
+- [roadmap/future-proofing.md](./roadmap/future-proofing.md) — **guardrails** + compact idea directions for future analysis/features (audio-only)
+- [roadmap/README.md](./roadmap/README.md) — pointer to the above
+- [pipeline/value-analysis/README.md](./pipeline/value-analysis/README.md) — optional: spike rubrics, moonshots (read [future-proofing](./roadmap/future-proofing.md) first)
+
 ## Core specs
 
 - [README.md](./README.md) — doc overview
-- [pipeline.md](./pipeline.md) — two output flows, operator gates
+- [pipeline.md](./pipeline.md) — three output flows, operator gates
 - [logic-tree.md](./logic-tree.md) — gap detection and decisions
 - [prompts/README.md](./prompts/README.md) — LLM prompt tree
-- [prompts/sound_design/README.md](./prompts/sound_design/README.md) — planned SFX prompts (BUILD-061–064)
+- [prompts/sound_design/README.md](./prompts/sound_design/README.md) — sound-design LLM stages + ElevenLabs craft
 - [prompts/sound_design/guardrails-and-edge-cases.md](./prompts/sound_design/guardrails-and-edge-cases.md) — SDP/mix guardrails (Wave 5)
+- [prompts/_shared/examples/sound-design.examples.md](./prompts/_shared/examples/sound-design.examples.md) — rich ElevenLabs prompt examples
 
 ## Cross-cutting
 
+- [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) — **canonical** ElevenLabs REST SFX + isolation, GUI journey, post-analysis
+- [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) — `prompt_influence` symptom table
+- [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompts + must-not-hear QA
 - [cross-cutting/podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves, quality offers
 - [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) — per-interview profile, operator edits
 - [cross-cutting/context-padding.md](./cross-cutting/context-padding.md) — what each LLM call receives
@@ -20,8 +30,13 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md)
 - [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) — schema gaps, fixes, guards
 - [cross-cutting/json-schemas/README.md](./cross-cutting/json-schemas/README.md) — schema index + conventions
-- [cross-cutting/model-routing.md](./cross-cutting/model-routing.md)
+- [cross-cutting/model-routing.md](./cross-cutting/model-routing.md) — tier registry (API IDs in one place)
+- [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) — arbiter, shard/collate, task_kind (**spec**)
+- [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) — per-stage tier and severity
+- [cross-cutting/llm-orchestration-implementation-handoff.md](./cross-cutting/llm-orchestration-implementation-handoff.md) — future code mapping
+- [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (planned, BUILD-060+)
+- [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) — per-interview acoustic/pacing profile from source audio (planned)
 - [cross-cutting/evaluation-metrics.md](./cross-cutting/evaluation-metrics.md)
 - [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) — `app.defaults.json` + secrets merge
 - [cross-cutting/json-schemas/](./cross-cutting/json-schemas/)
@@ -35,6 +50,7 @@ Flat hub for **interview_helper_mux**.
 - [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)
 - [pipeline/transcription/source-separation-and-enhancement.md](./pipeline/transcription/source-separation-and-enhancement.md)
 - [pipeline/transcription/transcript-review.md](./pipeline/transcription/transcript-review.md)
+- [pipeline/value-analysis/README.md](./pipeline/value-analysis/README.md) — value-forward analysis research (moonshots, Phase 3 spikes; audio-only)
 - [pipeline/understanding/README.md](./pipeline/understanding/README.md)
 - [pipeline/segmentation/README.md](./pipeline/segmentation/README.md)
 - [pipeline/interviewer-gap/README.md](./pipeline/interviewer-gap/README.md)
@@ -42,6 +58,7 @@ Flat hub for **interview_helper_mux**.
 - [pipeline/audio_editing/README.md](./pipeline/audio_editing/README.md)
 - [pipeline/assembly_and_mux/README.md](./pipeline/assembly_and_mux/README.md)
 - [pipeline/mastering_and_export/README.md](./pipeline/mastering_and_export/README.md)
+- [pipeline/publishing/README.md](./pipeline/publishing/README.md) — Flow 3 show description (text)
 
 ## Workflows
 

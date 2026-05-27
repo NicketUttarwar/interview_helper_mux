@@ -86,6 +86,7 @@ See [audio pre-clean — G1 pickup](../pipeline/audio_preclean/README.md#g1-pick
 
 - `flow1` — full master podcast (extended analysis + optimal order + podcast SFX)
 - `flow2` — highlight reel (≤5 clips + montage SFX)
+- `flow3` — podcast show description (~200 words, third person; text only, no mux)
 
 **Persist:**
 
@@ -93,14 +94,17 @@ See [audio pre-clean — G1 pickup](../pipeline/audio_preclean/README.md#g1-pick
 { "selected_flow": "flow1", "selected_at": "ISO8601" }
 ```
 
-in `run_meta.json` (under `ASSETS/executions/…` or legacy `data/run_NNN/`).
+in `run_meta.json` (under `ASSETS/executions/…` or legacy `data/run_NNN/`). Use `"flow3"` for the publishing copy path.
 
 **CLI:**
 
 ```bash
 python tools/run_flow.py --flow flow1
 python tools/run_flow.py --flow flow2
+python tools/run_flow.py --flow flow3
 ```
+
+Flow 3 does not require ElevenLabs or mastering; it runs a single flagship LLM stage after shared analysis. Profile verification is **recommended** — see [publishing/README.md](../pipeline/publishing/README.md).
 
 ---
 
@@ -112,7 +116,7 @@ python tools/run_flow.py --flow flow2
 
 **Action:** Operator reviews cue list and crafted prompts; approve or edit plan JSON.
 
-See [sound-design.md](../cross-cutting/sound-design.md).
+See [sound-design.md](../cross-cutting/sound-design.md) and [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey) (`elevenlabs_prompts_approved`, post-listen log events).
 
 ---
 

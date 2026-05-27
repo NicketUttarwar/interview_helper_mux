@@ -2,13 +2,27 @@
 
 Shared analysis (`tools/run_analysis.py`) uses an orchestrator on top of the linear stage list.
 
-## Flow
+**Smart routing (spec only):** target flow adds an economy-tier **LLM arbiter** after schema validation on each primary call, optional shard/collate, and tier-aware models — [llm-orchestration.md](../cross-cutting/llm-orchestration.md). v1 follows the flow below without arbiter.
+
+## Flow (v1 runtime)
 
 1. **Init** — create `analysis_state.json`, `investigation_queue.json`, `context_index.json` before first LLM stage.
 2. **Run stage** — up to `analysis.max_iterations_per_stage` (default 3) inner retries until `status: complete` and no blocking `needs`.
 3. **Merge memory** — apply `memory_updates` and enqueue `follow_up_investigations`.
 4. **Drain queue** — after each LLM stage, run up to `max_queue_drains_per_stage` suggested reruns (e.g. re-classify after a theme investigation).
 5. **Finalize** — update `completion.analysis_ready` and write `analysis_complete.json`.
+
+## Flow (target — after implementation)
+
+1. Init (unchanged)
+2. **Run stage** — build volley (`full` profile) → **primary** call at stage tier → schema validate → **arbiter** (economy) → verdict
+3. **On accept** — merge memory + persist (unchanged)
+4. **On `retry_uptier`** — re-run primary at bumped tier (capped)
+5. **On `decompose`** — economy **shard** calls → **collate** → validate → merge if accept
+6. **On `enqueue_investigation`** — queue only; do not merge rejected primary
+7. Drain queue + finalize (unchanged)
+
+See [llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md) for verdict enum.
 
 ## Context volley
 

@@ -9,7 +9,8 @@ See also: [json-schema-coverage.md](./json-schema-coverage.md) and [json-schemas
 ```
 ASSETS/executions/exec_001_20260523T120000Z/
   run_meta.json                 # execution_number, input path, selected_flow, timestamps
-  gui_log.jsonl                 # append-only prompt log (survives browser refresh)
+  gui_log.jsonl                 # centralized operator log (policy: .cursor/rules/interview-helper-mux.mdc)
+  gui_job.json                  # last background execute job status (GUI job panel)
   segments/nle_edits.json       # non-linear editor state
   analysis_complete.json        # set when Wave 2 finishes
   .stage_done/                  # one empty marker file per completed stage
@@ -22,6 +23,7 @@ ASSETS/executions/exec_001_20260523T120000Z/
   segments/
   flow_1_master/                # only when flow1 selected
   flow_2_highlights/            # only when flow2 selected
+  flow_3_description/           # only when flow3 selected
 ```
 
 ## Shared analysis (Wave 2)
@@ -33,6 +35,7 @@ ASSETS/executions/exec_001_20260523T120000Z/
 | `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile |
 | `understanding/investigation_queue.json` | Yes | Open investigations / rerun hints |
 | `understanding/content_brief.json` | Yes | Content brief artifact (synced to memory) |
+| `understanding/source_acoustic_profile.json` | Yes (planned) | Per-interview pacing, energy, mix contract — see [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
 
@@ -57,6 +60,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
 | `understanding/speakers.json` | speaker roles (LLM) |
 | `understanding/content_brief.json` | content context |
+| `understanding/source_acoustic_profile.json` | source_acoustic_profile (planned) |
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
 | `understanding/interviewer_script.txt` | human-readable VO script |
@@ -88,6 +92,15 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `sfx/*.wav` | ElevenLabs generated |
 | `assembly.wav` | micro-assembly |
 | `master.wav` | final export |
+
+## Flow 3 — `flow_3_description/`
+
+| Path | Stage |
+|------|-------|
+| `show_description.json` | podcast show description (LLM artifact) |
+| `show_description.md` | plain-text export for paste into hosts *(planned)* |
+
+No audio artifacts. See [pipeline/publishing/README.md](../pipeline/publishing/README.md).
 
 ## VO pickup naming
 
