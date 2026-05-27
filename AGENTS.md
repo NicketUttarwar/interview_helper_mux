@@ -1,75 +1,36 @@
 # Agent guide — interview_helper_mux
 
-Rules for autonomous agents implementing or running this pipeline.
+**Persistent constraints** (logging, gates, toolchain, build-out workflow, v1 honesty, doc obligations) live in **`.cursor/rules/interview-helper-mux.mdc`** — always applied in Cursor. This file is the **navigation index** into `docs/`.
 
 ## Read order
 
-1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — future-proofing guardrails + small R&D directions (audio-only; optional research track)
-2. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — prioritized backlog (what to implement next)
-3. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs
-4. [docs/build-out/README.md](docs/build-out/README.md) — full ticket index (Waves 0–7)
-5. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves
-6. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + optional quality offers (incl. pre-clean)
-7. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — **per-stage verification**; extend this file whenever you add a stage, gate, GUI panel, or quality offer
-8. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI panels ↔ FastAPI routes ↔ `gui_log.jsonl` / `gui_job.json` ↔ artifacts
-9. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — full `/api/*` contract (companion to the GUI map)
-10. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
-11. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — file paths per run
-12. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — `config/app.defaults.json` + merged `secrets.env` keys
+1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — guardrails + optional R&D (audio-only)
+2. [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) — full-repository build plan (all phases)
+3. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — prioritized backlog (what to implement next)
+4. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
+5. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
+6. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end operator + system journey
+7. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ **known doc↔code gaps**
+8. [docs/build-out/README.md](docs/build-out/README.md) — ticket index (Waves 0–7)
+9. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master
+10. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + quality offers
+11. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — per-stage verification (extend when you add stages)
+12. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI ↔ API ↔ logs ↔ artifacts
+13. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
+14. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
+15. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — paths per run
+16. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — defaults + secrets keys
+17. [docs/build-out/doc-maintenance.md](docs/build-out/doc-maintenance.md) — docs to update per PR
+18. [docs/build-out/testing-and-verification.md](docs/build-out/testing-and-verification.md) — verify each wave
 
-## Hard constraints
+## Audio / STT / ElevenLabs (when implementing those areas)
 
-- **Context7 (code generation):** Before writing or changing Python (or shell) that calls third-party libraries/APIs, use the **Context7** MCP server (`resolve-library-id` → `query-docs`) at versions from [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md) / `requirements.lock`. Do not rely on training-data API shapes. Installed at user level (`~/.cursor/mcp.json` → `context7`); tools appear as server **`user-context7`** in Cursor.
-- **Python 3.12** in `.venv` at repo root; bootstrap via `scripts/bootstrap_venv.sh`
-- **AWS**: use `aws` CLI subprocess only — **no boto3**
-- **Secrets**: load from `config/secrets/secrets.env` — never commit, never hardcode
-- **Media**: default input `./ASSETS/`; ask for full path if missing
-- **Docs/prompts** are authoritative for LLM behavior — do not drift copy without updating specs
+- [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md)
+- [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md)
+- [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md)
+- [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md)
+- [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md)
 
-## Operator gates (mandatory)
+## Testing (quick)
 
-| Gate | When | Action |
-|------|------|--------|
-| **G0** | After `transcript_review_build` | Operator corrects STT in GUI (confidence-ranked clips); sign off before `speaker_roles` |
-| **G1** | After `run_analysis.py` | If `delivery: record` lines lack `vo_pickup/*.wav`, stop until operator records |
-| **G2** | After G1 cleared | Ask: `flow1` (full podcast), `flow2` (highlight reel), or `flow3` (show description) |
-
-**Quality offers (optional, not gates):** Offer background noise removal at documented checkpoints — before ingest, after G0, **after G1 pickup recordings** (`vo_pickup` scope), before mix. Never auto-enable. See [docs/pipeline/audio_preclean/README.md](docs/pipeline/audio_preclean/README.md).
-
-Do not run Flow 1 extended analysis (BUILD-029+) unless `run_meta.json` has `selected_flow: flow1`.
-
-**v1 assembly:** Flow 1 mux is speech-only; do not claim VO/SFX are in `master.wav` until BUILD-065/067 ship.
-
-## Idempotency
-
-- Each stage writes `data/run_NNN/.stage_done/<stage_name>` (or under `ASSETS/executions/.../.stage_done/`)
-- Re-run a stage only if upstream artifacts exist and operator requests it
-- See [docs/workflows/idempotent-runs.md](docs/workflows/idempotent-runs.md)
-
-## What not to build in v1
-
-- SQLite / mux_store
-- boto3, preset ladder A–E from old repo
-
-## Web GUI
-
-Launch with `./scripts/run.sh` (default) or `python -m interview_mux serve`. The GUI reads/writes run state from the **run directory** (`ASSETS/executions/exec_*` or legacy `data/run_*`) via the FastAPI routes in `src/interview_mux/web/server.py`.
-
-- **Operator status/logs:** `.cursor/rules/interview-helper-mux.mdc` (Centralized operator status and logs). GUI wiring: [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md).
-- **Long runs / LLM context:** see [docs/workflows/long-interview-chunking.md](docs/workflows/long-interview-chunking.md).
-
-## Audio / STT reference docs
-
-- [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md) — STT + diarization catalog (AWS = implemented)
-- [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md) — denoise / separation options
-- [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md) — ElevenLabs REST SFX + isolation (canonical)
-- [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md) — `prompt_influence` tuning
-- [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompt QA
-
-## Testing changes
-
-```bash
-./tools/check_prerequisites.sh
-python tools/run_analysis.py --run-id run_001
-python tools/verify_master.py data/run_001/flow_1_master/master.wav
-```
+See **Verify before finishing** in `.cursor/rules/interview-helper-mux.mdc` and [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).

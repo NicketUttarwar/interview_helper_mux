@@ -141,10 +141,14 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 
 ## Related docs
 
+- [build-out/implementation-guide.md](./build-out/implementation-guide.md) — full-repository build plan (start here for code)
+- [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator journey
+- [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id and status
 - [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target, priority waves
 - [logic-tree.md](./logic-tree.md)
 - [prompts/README.md](./prompts/README.md)
 - [build-out/README.md](./build-out/README.md) — tickets
+- [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance per BUILD id
 - [build-out/repository-map.md](./build-out/repository-map.md) — repo ↔ code
 - [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent SFX (BUILD-060+)

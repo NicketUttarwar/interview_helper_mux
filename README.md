@@ -20,6 +20,10 @@ See **[SETUP.md](SETUP.md)** for bootstrap, secrets, and first run.
 | Resource | Link |
 |----------|------|
 | Doc hub | [docs/INDEX.md](docs/INDEX.md) |
+| **Full build-out guide** | [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) |
+| Application flow (E2E) | [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) |
+| Stage registry | [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) |
+| Ticket acceptance | [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) |
 | Pipeline overview | [docs/pipeline.md](docs/pipeline.md) |
 | Agent guide | [AGENTS.md](AGENTS.md) |
 | Build-out tickets | [docs/build-out/README.md](docs/build-out/README.md) |

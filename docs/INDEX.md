@@ -77,6 +77,12 @@ Flat hub for **interview_helper_mux**.
 
 ## Agent build-out
 
+- [build-out/implementation-guide.md](./build-out/implementation-guide.md) — **master plan**: all phases, waves, definition of done
+- [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator + system journey
+- [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id, module, artifact, status
+- [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance criteria per BUILD ticket
 - [build-out/README.md](./build-out/README.md) — numbered tickets (Waves 0–7)
-- [build-out/repository-map.md](./build-out/repository-map.md) — repo layout ↔ modules ↔ docs
 - [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog
+- [build-out/repository-map.md](./build-out/repository-map.md) — repo layout ↔ modules ↔ docs
+- [build-out/testing-and-verification.md](./build-out/testing-and-verification.md) — verify each wave
+- [build-out/doc-maintenance.md](./build-out/doc-maintenance.md) — docs to update per PR

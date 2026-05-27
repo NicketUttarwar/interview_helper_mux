@@ -1,0 +1,79 @@
+# Documentation maintenance
+
+Every code PR that changes behavior must keep docs authoritative. Agents: run this checklist before marking a BUILD ticket done.
+
+**Policy source (always-on in Cursor):** `.cursor/rules/interview-helper-mux.mdc` — build-out workflow, hard constraints, gates, logging, v1 honesty, doc obligations. Do not duplicate those blocks in other docs; link instead.
+
+---
+
+## Always update (same PR as code)
+
+| Change type | Update |
+|-------------|--------|
+| New / renamed pipeline stage | [stage-registry.md](./stage-registry.md), `pipeline.py` comment if needed, `docs/pipeline/<area>/README.md`, [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
+| Stage I/O path change | [artifact-layout.md](../cross-cutting/artifact-layout.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), json-schemas if applicable |
+| New GUI panel or route | [gui-surface-map.md](../workflows/gui-surface-map.md), [api-reference.md](../workflows/api-reference.md), `web/stages.py` |
+| Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
+| LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/` |
+| Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |
+| Dependency pin | `requirements.lock`, [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md), [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock) |
+| Ticket shipped or partial | [README.md](./README.md), [ticket-specs.md](./ticket-specs.md) checkboxes, [repository-map.md](./repository-map.md) gap table |
+| Closed doc↔code gap | Remove or update row in [repository-map.md](./repository-map.md); adjust [steps-forward.md](./steps-forward.md) if backlog item complete |
+
+---
+
+## Update when scope warrants
+
+| Change type | Update |
+|-------------|--------|
+| New BUILD ticket | [README.md](./README.md) wave table, [ticket-specs.md](./ticket-specs.md), [stage-registry.md](./stage-registry.md) if stage involved |
+| Priority shift | [steps-forward.md](./steps-forward.md) |
+| New module / top-level path | [repository-map.md](./repository-map.md) |
+| Smoke path change | [smoke-test.md](../workflows/smoke-test.md), [SETUP.md](../../SETUP.md) |
+| Troubleshooting symptom | [troubleshooting.md](../workflows/troubleshooting.md) |
+| Sound / mix behavior | [sound-design.md](../cross-cutting/sound-design.md), [assembly_and_mux/README.md](../pipeline/assembly_and_mux/README.md) |
+
+---
+
+## Do not duplicate
+
+| Topic | Canonical location |
+|-------|-------------------|
+| Python / ffmpeg / API versions | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
+| Operator logging | `.cursor/rules/interview-helper-mux.mdc` |
+| Per-stage Pass / If fail | [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
+| HTTP request bodies | [api-reference.md](../workflows/api-reference.md) |
+| Ticket acceptance | [ticket-specs.md](./ticket-specs.md) |
+
+Link instead of copying tables across files.
+
+---
+
+## Optional / out of default path
+
+| Area | Rule |
+|------|------|
+| [value-analysis/](../pipeline/value-analysis/) | Update only when running spikes; not required for core ship |
+| [future-proofing.md](../roadmap/future-proofing.md) | Guardrails only; no implementation promise |
+
+---
+
+## PR self-check (copy for description)
+
+```markdown
+- [ ] stage-registry.md (if stage)
+- [ ] operator-stage-checklists.md (if operator-visible)
+- [ ] gui-surface-map + api-reference (if GUI/API)
+- [ ] artifact-layout / schemas (if I/O)
+- [ ] prompts + analysis-stage-matrix (if LLM)
+- [ ] build-out README + ticket-specs + repository-map gaps (if BUILD ticket)
+- [ ] ctx.log() for new operator strings
+- [ ] smoke-test section still accurate
+```
+
+---
+
+## Related
+
+- [implementation-guide.md](./implementation-guide.md) — per-ticket workflow
+- [testing-and-verification.md](./testing-and-verification.md) — verification steps

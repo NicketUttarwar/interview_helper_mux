@@ -1,103 +1,185 @@
 ---
-description: Project layout — ASSETS, docs, Python venv, scripts, AWS CLI, config; operator checklists; GUI status/logs
+description: interview_helper_mux — build-out, pipeline, gates, logging, toolchain, and doc obligations (always apply)
 alwaysApply: true
 ---
 
 # interview_helper_mux
 
-## Media (`./ASSETS/`)
+Local pipeline: long-form interview audio → shared analysis → operator picks **flow1** (full master), **flow2** (highlights), or **flow3** (show description). Specs live in **`docs/`**; prompts in **`docs/prompts/`** are authoritative for LLM copy.
 
-Heavy media lives under **`./ASSETS/`** (gitignored). The operator puts raw audio and other large files there.
+---
 
-When running the app, **default to `./ASSETS/`** for inputs to analyze. If no suitable file is found, **ask the user for the full path** to the file.
+## Build-out workflow (every code change)
 
-## Documentation (`./docs/`)
+Applies for the **entire** repository build-out (Waves 0–7). Details and acceptance live in docs — do not skip them.
 
-**`./docs/`** holds high-level functionality specs and prompts. Treat it as authoritative for behavior and copy.
+1. Read **`docs/build-out/steps-forward.md`** — what to implement next.
+2. Read **`docs/build-out/ticket-specs.md`** — acceptance for your BUILD id(s).
+3. Read **`docs/build-out/stage-registry.md`** + `docs/pipeline/<area>/README.md` for the stage you touch.
+4. If adding/changing behavior: **`docs/prompts/`** + **`docs/cross-cutting/json-schemas/`** must stay in sync with code.
+5. Before marking a ticket done: **`docs/build-out/doc-maintenance.md`** + **`docs/build-out/testing-and-verification.md`**.
+6. After shipping: update **`docs/build-out/README.md`** status, **`ticket-specs.md`** checkboxes, **`repository-map.md`** gap table.
+
+**Navigation (deeper specs):** `AGENTS.md` read order · `docs/build-out/implementation-guide.md` (all phases) · `docs/INDEX.md` (hub).
+
+**Doc ↔ code gaps:** Before claiming a path works end-to-end, check **`docs/build-out/repository-map.md`** (Known gaps). Do not tell operators a planned feature is shipped until that row is cleared.
+
+---
+
+## Hard constraints
+
+| Rule | Detail |
+|------|--------|
+| **Context7** | Before writing/changing Python or shell that calls third-party libs/APIs: MCP **`user-context7`** → `resolve-library-id` → `query-docs`. Use pins from **`docs/cross-cutting/anchored-toolchain.md`** / `requirements.lock`. Do not rely on training-data API shapes. |
+| **Python** | 3.12 in **`.venv`** at repo root; bootstrap **`scripts/bootstrap_venv.sh`**. On this machine prefer **`/opt/homebrew/bin/python3.12`**. |
+| **AWS** | **`aws` CLI subprocess only** — no boto3, no AWS SDK packages. Assume CLI installed and authenticated. |
+| **ElevenLabs** | REST via **`interview_mux.elevenlabs_rest`** — no ElevenLabs SDK. Canonical spec: **`docs/cross-cutting/elevenlabs-integration-guide.md`**. |
+| **Secrets** | Load from **`config/secrets/secrets.env`** — never commit, never hardcode. New keys → **`docs/cross-cutting/config-keys.md`**. |
+| **Media** | Default input **`./ASSETS/`** (gitignored). If missing, ask for full path. Runs under **`ASSETS/executions/exec_*`** or legacy **`data/run_*`**. |
+| **Prompts** | Load from **`docs/prompts/`**; stage keys must match **`pipeline.py`** / **`stage-registry.md`**. Do not drift copy without updating specs + examples. |
+| **Schemas** | Validate stage JSON with **`prompt_validation`** / schemas under **`docs/cross-cutting/json-schemas/`**. |
+| **Scope** | **Audio + transcript text** only — no video/CV unless product explicitly expands. Optional R&D: **`docs/pipeline/value-analysis/`** — not the default delivery path. |
+
+### What not to build
+
+- SQLite / `mux_store`
+- boto3 or preset ladder A–E from old repos
+- Parallel operator status channels (see logging below)
+- Auto-enabling pre-clean or other **quality offers** (operator must accept)
+
+### New dependencies
+
+Must follow anchor lock policy: **`requirements.lock`**, `pip-audit` in **`tools/check_prerequisites.sh`**, document in **`anchored-toolchain.md`**. See **`docs/roadmap/future-proofing.md`** guardrails.
+
+---
+
+## v1 honesty (do not over-promise)
+
+Until build-out tickets close the matching gap in **`repository-map.md`**:
+
+- **Flow 1 `master.wav`:** v1 is **reordered speech-only** concat — not final VO + SFX mix (target: BUILD-065–067).
+- **Flow 2 SFX:** index-based concat; shared transition asset is planned (BUILD-065).
+- **Flow 3:** spec + prompt exist; pipeline/CLI/GUI **not wired** until BUILD-045–046, BUILD-080.
+- **G2 API (today):** `flow1` \| `flow2` only in `server.py` `FlowBody` — extend when shipping flow3.
+- **Pre-clean:** spec only until BUILD-019 / BUILD-072.
+- **LLM routing:** single-model runner until BUILD-073.
+
+Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.json`** has **`selected_flow: flow1`**. Profile gate before extended Flow 1: BUILD-081 (see **`operator-gates.md`**).
+
+---
+
+## Operator gates (mandatory)
+
+| Gate | When | Action |
+|------|------|--------|
+| **G0** | After `transcript_review_build` | Operator fixes STT in GUI; complete before `speaker_roles` |
+| **G1** | After analysis / `optimal_questions` | If `delivery: record` gaps lack **`vo_pickup/*.wav`**, stop until recorded; then `vo_ingest` |
+| **G2** | After G1 clear | Set **`selected_flow`**: `flow1` \| `flow2` \| `flow3` in **`run_meta.json`** before flow pipeline |
+
+**Quality offers (optional, not gates):** Background noise removal — offered at documented checkpoints; **never auto-run**. Pickup-only scope after G1 recordings. Spec: **`docs/pipeline/audio_preclean/README.md`**, **`docs/cross-cutting/podcast-quality-roadmap.md`**.
+
+Full gate copy: **`docs/workflows/operator-gates.md`**.
+
+---
+
+## Pipeline & code conventions
+
+- **Stage orders:** `ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER` in **`src/interview_mux/pipeline.py`** — add `FLOW3_ORDER` / `run_flow3` when shipping Flow 3.
+- **Idempotency:** Each stage writes **`.stage_done/<stage_id>`**; re-run with **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**.
+- **GUI metadata:** New stages → **`web/stages.py`** + **`docs/workflows/gui-surface-map.md`** + **`api-reference.md`**.
+- **Orchestrator:** Shared LLM stages may enqueue investigations — **`analysis_orchestrator.py`**; do not bypass memory merge rules in **`docs/cross-cutting/analysis-memory.md`**.
+- **Long interviews:** Respect context policy — **`docs/workflows/long-interview-chunking.md`**.
+- **NLE:** **`segments/nle_edits.json`** via API; consumption in ranking/EDL is BUILD-068 (planned).
+
+---
 
 ## Centralized operator status and logs (single source of truth)
 
-Every **operator-visible** status line, progress update, error, quality offer, gate prompt, and approve/dismiss outcome must go through the **run logging surface** so the Web GUI log panel shows it (including after refresh). Do not invent parallel status channels.
+Every **operator-visible** status, progress, error, quality offer, gate prompt, and approve/dismiss outcome → **run logging surface** (GUI log panel, including after refresh). No parallel channels.
 
 ### Canonical files (per run directory)
 
 | File | Purpose |
 |------|---------|
-| **`gui_log.jsonl`** | Append-only **operator log** — primary channel for “what happened” and “what the user should know” |
-| **`gui_job.json`** | **Current / last background pipeline job** (`status`, `mode`, `stage`, `message`, `updated_at`) for execute spinner / blocked state |
+| **`gui_log.jsonl`** | Append-only operator log |
+| **`gui_job.json`** | Background job: `status`, `mode`, `stage`, `message`, `updated_at` |
 
-Implementation: `src/interview_mux/session_log.py` (`append_log`, `read_log`), `RunContext.log()` in `run_context.py`, `src/interview_mux/web/runner.py` (job file).
+Implementation: **`session_log.py`**, **`RunContext.log()`**, **`web/runner.py`**.
 
-### How to write (code — use only these paths)
+### How to write
 
 | Context | Write via |
 |---------|-----------|
-| Pipeline stages, gates, CLI tools with `RunContext` | **`ctx.log(message, level=..., stage=..., detail=...)`** |
-| Setup without full context | **`session_log.append_log(run_dir, ...)`** |
-| Web server / manual operator note | **`POST /api/runs/{id}/log`** (calls `append_log`) |
-| Long-running **`POST …/execute`** | Update **`gui_job.json`** on state changes **and** `ctx.log()` for milestones the operator should read |
+| Pipeline / gates / CLI with `RunContext` | **`ctx.log(message, level=..., stage=..., detail=...)`** |
+| Setup without context | **`session_log.append_log(run_dir, ...)`** |
+| Manual operator note | **`POST /api/runs/{id}/log`** |
+| **`POST …/execute`** | Update **`gui_job.json`** + **`ctx.log()`** for milestones |
 
-**Levels:** `info`, `success`, `warning`, `error` (match existing `gui_log.jsonl` entries). Include **`stage`** when the message belongs to a pipeline stage id.
+**Levels:** `info`, `success`, `warning`, `error`. Include **`stage`** when tied to a pipeline stage id.
 
 ### Do not use for operator-visible output
 
-- **`print()`**, bare **`logging`** to stdout/stderr, or Rich console alone (CLI-only traces are OK if **also** mirrored with `ctx.log()` when the run has a workspace)
-- Ad-hoc `*.log` files under the run directory
-- **`understanding/stage_runs/<stage>/attempt_*.json`** for operator copy — that path is **engineering / LLM audit** only
+- **`print()`** / bare **`logging`** alone (OK for CLI trace if **also** `ctx.log()` when run workspace exists)
+- Ad-hoc `*.log` under the run dir
+- **`understanding/stage_runs/<stage>/attempt_*.json`** — engineering audit only
 
-**`run_meta.json`** holds durable metadata (flow, pre-clean flags), not a live log stream — do not treat it as a substitute for `gui_log.jsonl`.
+**`run_meta.json`** = durable metadata (flow, flags), **not** a log stream.
 
-### How the GUI reads it
-
-- **Log panel:** `GET /api/runs/{id}/log?tail=…` and `log_tail` on `GET /api/runs/{id}`
-- **Job status:** `GET /api/runs/{id}/job`
-
-Panel ↔ route ↔ artifact mapping (reference only, not a second policy): **`docs/workflows/gui-surface-map.md`**.
-
-### When adding or changing features
-
-1. **Log every operator-visible outcome** to `gui_log.jsonl` in the same change (success, failure, offer shown, accept/dismiss).
-2. Update **`docs/workflows/gui-surface-map.md`** if you add/rename GUI panels, routes, or artifacts.
-3. Update **`docs/workflows/operator-stage-checklists.md`** for new stages/gates/offers (Pass / If fail).
-4. Update **`docs/workflows/api-reference.md`** if HTTP contracts change.
-
-Do **not** copy this policy into other docs — link to **this section** or to `gui-surface-map.md` for tables.
+GUI reads: **`GET …/log`**, **`GET …/job`**. Panel map: **`docs/workflows/gui-surface-map.md`** (reference only).
 
 ---
 
-### Operator stage checklists (mandatory for feature work)
+## Documentation obligations (same PR as code)
 
-- **`docs/workflows/operator-stage-checklists.md`** is the **single checklist index** for pipeline stages, gates, quality offers, and post-export QA.
-- **Whenever you add or change** a pipeline stage, gate, GUI panel, quality offer, or operator-visible status: **update that file in the same change** (new subsection or new table rows: Pass / If fail, or edge-case bullets).
-- **Logging:** Follow **Centralized operator status and logs** above — every new status string must use `RunContext.log()` / `append_log` / `gui_job.json` as appropriate.
-- **Config keys:** Document new `app.defaults.json` or `secrets.env` keys in **`docs/cross-cutting/config-keys.md`** in the same PR.
+Do **not** copy this block into other docs — link to **this file** or **`doc-maintenance.md`**.
 
-## Context7 (library docs for code changes)
+| Change | Update |
+|--------|--------|
+| Stage / gate / offer | **`operator-stage-checklists.md`**, **`stage-registry.md`**, pipeline README |
+| GUI / API | **`gui-surface-map.md`**, **`api-reference.md`**, `web/stages.py` |
+| Artifacts / paths | **`artifact-layout.md`**, schemas if applicable |
+| LLM prompt | **`docs/prompts/`**, **`analysis-stage-matrix.md`**, examples |
+| BUILD ticket shipped | **`build-out/README.md`**, **`ticket-specs.md`**, **`repository-map.md`** gaps |
+| Operator-visible string | **`ctx.log()`** in the same change |
 
-When implementing or editing code that uses **FastAPI**, **OpenAI**, **jsonschema**, **typer**, **uvicorn**, **ffmpeg**/**aws** CLI, or other pinned deps, call the **Context7** MCP server first:
+**Single checklist index for operators:** **`docs/workflows/operator-stage-checklists.md`**.
 
-1. `resolve-library-id` (`libraryName` + task `query`)
-2. `query-docs` (`libraryId` + focused `query`)
+---
 
-Use versions from [docs/cross-cutting/anchored-toolchain.md](../../docs/cross-cutting/anchored-toolchain.md). MCP server id in Cursor: **`user-context7`** (configured in `~/.cursor/mcp.json` as `context7`).
+## Repo layout
 
-## Backend (Python)
+| Path | Role |
+|------|------|
+| **`ASSETS/`** | Operator media (gitignored): `input/`, `executions/` |
+| **`config/`** | `app.defaults.json`, `secrets/secrets.env` |
+| **`docs/`** | Authoritative specs and prompts |
+| **`src/interview_mux/`** | Python package (pipeline + Web GUI) |
+| **`tools/`** | `run_analysis.py`, `run_flow.py`, `check_prerequisites.sh`, `verify_master.py` |
+| **`scripts/`** | `bootstrap_venv.sh`, `run.sh` |
+| **`tests/`** | pytest |
 
-All backend code is **Python**. Use a **local virtualenv** at **`.venv`** in the repo root.
+Launch GUI: **`./scripts/run.sh`** or **`python -m interview_mux serve`**.
 
-- Prefer **Python 3.12**.
-- Create the venv with **`/opt/homebrew/bin/python3.12`** on this machine.
+---
 
-## Scripts (`./scripts/`)
+## Verify before finishing
 
-Runnable setup and helper scripts live under **`./scripts/`**.
+```bash
+./tools/check_prerequisites.sh
+pytest tests/   # when touching validation / review
+python tools/run_analysis.py --run-id <id>   # shared analysis
+python tools/run_flow.py --flow flow1|flow2 --run-id <id>   # flow3 when BUILD-080 ships
+python tools/verify_master.py <path>/master.wav   # audio flows
+```
 
-## AWS
+Full checklists: **`docs/workflows/smoke-test.md`**, **`docs/build-out/testing-and-verification.md`**.
 
-Use the **AWS CLI** (`aws` subprocess) for all AWS operations. **Do not** use boto3 or other AWS SDK packages.
+Failures: **`docs/workflows/troubleshooting.md`**, **`docs/workflows/feedback-loops-and-reruns.md`**.
 
-Assume the CLI is **installed and already authenticated**.
+---
 
-## Config (`./config/`)
+## Context7 (library docs)
 
-**Secrets** and **defaults** live under **`./config/`** (e.g. `app.defaults.json`, `secrets/secrets.env`). Load from there; do not hardcode secrets in code.
+MCP server **`user-context7`**: `resolve-library-id` → `query-docs`. Pin versions from **`docs/cross-cutting/anchored-toolchain.md`**.
+
+Typical libraries: FastAPI, OpenAI, jsonschema, typer, uvicorn, pydub; shell-invoked **ffmpeg** / **aws**.

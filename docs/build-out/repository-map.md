@@ -1,6 +1,8 @@
 # Repository map
 
-How **docs**, **code**, **config**, **tools**, and **operator media** fit together. Ticket IDs and delivery order: [README.md](./README.md) · prioritized backlog: [steps-forward.md](./steps-forward.md).
+How **docs**, **code**, **config**, **tools**, and **operator media** fit together.
+
+**Build-out:** [implementation-guide.md](./implementation-guide.md) · [full-application-flow.md](./full-application-flow.md) · [stage-registry.md](./stage-registry.md) · [ticket-specs.md](./ticket-specs.md) · tickets: [README.md](./README.md) · backlog: [steps-forward.md](./steps-forward.md).
 
 ---
 
@@ -102,7 +104,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `docs/workflows/` | Gates, GUI, smoke test, troubleshooting |
 | `docs/roadmap/` | Future-proofing guardrails |
 | `docs/pipeline/value-analysis/` | Optional R&D spikes (not default product path) |
-| `docs/build-out/` | Tickets, repo map, steps forward |
+| `docs/build-out/` | Full build-out suite: [implementation-guide](./implementation-guide.md), [stage-registry](./stage-registry.md), [ticket-specs](./ticket-specs.md), tickets, repo map, steps forward |
 
 **Hub:** [INDEX.md](../INDEX.md) · **Pipeline overview:** [pipeline.md](../pipeline.md)
 

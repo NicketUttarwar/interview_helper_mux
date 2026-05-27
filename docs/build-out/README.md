@@ -1,6 +1,19 @@
 # Build-out index
 
-Numbered tickets for agent implementation. **Repository map:** [repository-map.md](./repository-map.md) · **Prioritized backlog:** [steps-forward.md](./steps-forward.md).
+Numbered tickets and **full-repository build-out specs** for agent implementation.
+
+## Start here
+
+| Doc | Purpose |
+|-----|---------|
+| [implementation-guide.md](./implementation-guide.md) | **Master build plan** — all phases, waves, verification |
+| [steps-forward.md](./steps-forward.md) | Prioritized backlog (what to do next) |
+| [full-application-flow.md](./full-application-flow.md) | End-to-end operator + system journey |
+| [stage-registry.md](./stage-registry.md) | Every stage id, module, artifact, status |
+| [ticket-specs.md](./ticket-specs.md) | Acceptance criteria per BUILD ticket |
+| [repository-map.md](./repository-map.md) | Repo layout ↔ code ↔ docs |
+| [testing-and-verification.md](./testing-and-verification.md) | How to verify each wave |
+| [doc-maintenance.md](./doc-maintenance.md) | Docs to update in the same PR as code |
 
 North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
 
@@ -23,7 +36,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-001 | Artifact layout + schemas | `docs/cross-cutting/*`, `json-schemas/` | done |
 | BUILD-002 | Operator gates | `docs/workflows/operator-gates.md` | done |
 | BUILD-003 | Stage READMEs | `docs/pipeline/*/README.md` | done |
-| BUILD-004 | Build-out index | this file, [steps-forward.md](./steps-forward.md) | done |
+| BUILD-004 | Build-out index | this file, [steps-forward.md](./steps-forward.md), [implementation-guide.md](./implementation-guide.md), [stage-registry.md](./stage-registry.md), [ticket-specs.md](./ticket-specs.md), [full-application-flow.md](./full-application-flow.md), [testing-and-verification.md](./testing-and-verification.md), [doc-maintenance.md](./doc-maintenance.md) | done |
 
 ---
 
@@ -197,6 +210,8 @@ Wave 5 can start after BUILD-013 and BUILD-028; flow tickets 062–063 require G
 
 ## How to use this index
 
-1. **Agents:** Read `AGENTS.md` → [steps-forward.md](./steps-forward.md) (what to do next) → stage README for the module you touch.
-2. **Operators:** Use [operator-stage-checklists.md](../workflows/operator-stage-checklists.md), not ticket IDs.
-3. **When shipping a ticket:** Update status here, [repository-map.md](./repository-map.md) gap table, and any affected pipeline README in the same change.
+1. **Agents (building code):** `AGENTS.md` → [implementation-guide.md](./implementation-guide.md) → [steps-forward.md](./steps-forward.md) → [ticket-specs.md](./ticket-specs.md) for your BUILD id → [stage-registry.md](./stage-registry.md) + pipeline stage README.
+2. **Agents (understanding the app):** [full-application-flow.md](./full-application-flow.md) → [pipeline.md](../pipeline.md) → [logic-tree.md](../logic-tree.md).
+3. **Operators:** [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) — not ticket IDs.
+4. **When shipping a ticket:** [doc-maintenance.md](./doc-maintenance.md) checklist; update status here, [ticket-specs.md](./ticket-specs.md) checkboxes, [repository-map.md](./repository-map.md) gap table.
+5. **Verify:** [testing-and-verification.md](./testing-and-verification.md) + [smoke-test.md](../workflows/smoke-test.md).

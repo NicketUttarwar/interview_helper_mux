@@ -2,6 +2,8 @@
 
 Prioritized backlog for making the **whole repository** coherent: code, GUI, docs, and operator journey. Each item links to build-out tickets and north-star docs.
 
+**Holistic build-out guide:** [implementation-guide.md](./implementation-guide.md) (all phases) · [full-application-flow.md](./full-application-flow.md) (operator journey) · [ticket-specs.md](./ticket-specs.md) (acceptance per BUILD id) · [stage-registry.md](./stage-registry.md) (every stage).
+
 **Status key:** **Now** = unblock operators or agents this week · **Next** = quality/mix wave · **Later** = R&D or optional track
 
 ---
@@ -100,6 +102,12 @@ flowchart TB
 
 ## Related
 
+- [implementation-guide.md](./implementation-guide.md) — phased build plan for entire app
 - [build-out/README.md](./README.md) — full ticket table
+- [ticket-specs.md](./ticket-specs.md) — acceptance criteria
+- [stage-registry.md](./stage-registry.md) — all stage ids
+- [full-application-flow.md](./full-application-flow.md) — end-to-end flow
+- [testing-and-verification.md](./testing-and-verification.md) — verify each wave
+- [doc-maintenance.md](./doc-maintenance.md) — docs to update per PR
 - [repository-map.md](./repository-map.md) — path ↔ module index
 - [INDEX.md](../INDEX.md) — documentation hub

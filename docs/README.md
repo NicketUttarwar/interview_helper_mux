@@ -17,7 +17,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
 | [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (planned) |
-| [build-out/](./build-out/) | Tickets, [repository map](./build-out/repository-map.md), [steps forward](./build-out/steps-forward.md) |
+| [build-out/](./build-out/) | **Full build-out suite:** [implementation guide](./build-out/implementation-guide.md), [application flow](./build-out/full-application-flow.md), [stage registry](./build-out/stage-registry.md), [ticket specs](./build-out/ticket-specs.md), [tickets](./build-out/README.md), [steps forward](./build-out/steps-forward.md), [repository map](./build-out/repository-map.md) |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
 | [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) | Pinned Python/system/API versions, anchor lock, `pip-audit`, Context7 |
 | [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (**spec**) |
