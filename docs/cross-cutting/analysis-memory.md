@@ -1,5 +1,7 @@
 # Analysis memory (per interview)
 
+**LLM client:** `openai` version — [anchored-toolchain.md](./anchored-toolchain.md). Model IDs — [model-routing.md](./model-routing.md).
+
 Every execution builds a **custom analysis profile** for that recording. Memory is stored on disk and padded into every LLM call so later stages see themes, questions, style, and open investigations from earlier passes.
 
 ## Primary files (operator-editable)

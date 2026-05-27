@@ -1,5 +1,7 @@
 # Model routing
 
+**SDK / runtime:** `openai` package version — [anchored-toolchain.md](./anchored-toolchain.md#python-packages-application). Use **Context7** at that version when changing `llm_runner.py`.
+
 OpenAI Chat Completions models per pipeline stage. **Prose in this repo uses tier names** (`economy`, `standard`, `flagship`), not scattered API IDs.
 
 **Status:** Tier matrix and arbiter orchestration are **spec only** — see [llm-orchestration.md](./llm-orchestration.md). v1 runtime resolves a single model string per `stage_key` from `config/app.defaults.json` via `get_model()`.

@@ -8,7 +8,7 @@ BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), 
 
 ## Tools
 
-ffmpeg, pydub (mix engine, planned)
+**ffmpeg**, **pydub** (mix engine, planned) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md)
 
 ## Inputs
 

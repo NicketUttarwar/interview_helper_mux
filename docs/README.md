@@ -2,6 +2,8 @@
 
 Authoritative specs for **interview_helper_mux** — raw interview audio to three deliverables.
 
+**Toolchain versions:** All dependency pins, vulnerability setup gate, and Context7 rules live in [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Do not duplicate version numbers in other docs — link there.
+
 ## Contents
 
 | Document | Purpose |
@@ -17,6 +19,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (planned) |
 | [build-out/](./build-out/) | Agent implementation tickets |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
+| [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) | Pinned Python/system/API versions, anchor lock, `pip-audit`, Context7 |
 | [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (**spec**) |
 | [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) | Per-stage model tier matrix |
 | [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) | ElevenLabs REST SFX + isolation + GUI journey |

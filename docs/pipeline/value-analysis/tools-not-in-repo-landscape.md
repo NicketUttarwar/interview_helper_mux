@@ -4,6 +4,8 @@ Catalog of **directions** and representative tools/libraries/services **not firs
 
 **Audio-only.** For model families, see [moonshot-model-families.md](./moonshot-model-families.md). For guardrails and idea themes, see [future-proofing.md](../../roadmap/future-proofing.md).
 
+**When a spike ships code:** Pin exact versions in [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#optional-research--spike-libraries-not-in-default-lock), refresh `requirements.lock`, run `pip-audit`, and use **Context7** at that version before writing integrations.
+
 ---
 
 ## Lever A — Find the emotional authentic peak

@@ -1,5 +1,7 @@
 # Podcast quality roadmap
 
+**Dependencies:** Pinned stack for mix/SFX/STT — [anchored-toolchain.md](./anchored-toolchain.md).
+
 How the project moves from **strong analysis** to a **polished mastered podcast** the operator can trust. This doc is the north star for docs, build-out tickets, and GUI copy — not a promise that every item is implemented yet.
 
 ## v1 reality vs target

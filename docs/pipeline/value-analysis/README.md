@@ -1,6 +1,6 @@
 # Value analysis (optional detail)
 
-Spike rubrics, moonshots, and scratch notes for **future-proofing** — see [guardrails first](../../roadmap/future-proofing.md).
+Spike rubrics, moonshots, and scratch notes for **future-proofing** — see [guardrails first](../../roadmap/future-proofing.md). Any spike that adds libraries must pin versions in [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) and pass `pip-audit`.
 
 | Doc | Purpose |
 |-----|---------|

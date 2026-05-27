@@ -1,5 +1,7 @@
 # Prompt tree
 
+**Implementers:** Python/OpenAI client behavior must match [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) (lock + `pip-audit` + **Context7** at pinned package versions). Model API IDs: [model-routing.md](../cross-cutting/model-routing.md).
+
 Prompts are organized by **pipeline stage**. Each `.system.txt` file is a stage template; runtime prepends [`_shared/analysis-preamble.system.txt`](./_shared/analysis-preamble.system.txt) for all LLM calls.
 
 User messages include **analysis memory** (`analysis_state_summary`, `open_investigations`) plus `stage_input`. See [analysis-memory.md](../cross-cutting/analysis-memory.md) and [analysis-stage-matrix.md](./analysis-stage-matrix.md).

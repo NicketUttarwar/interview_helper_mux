@@ -1,5 +1,7 @@
 # Evaluation metrics
 
+**Measurement tools:** `ffprobe` / `ffmpeg` now; `pyloudnorm` (BUILD-070) — pins in [anchored-toolchain.md](./anchored-toolchain.md).
+
 ## Transcription QC
 
 | Check | Pass heuristic |

@@ -20,6 +20,8 @@ Flat hub for **interview_helper_mux**.
 
 ## Cross-cutting
 
+- [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — **pinned** Python, system binaries, API surfaces, lock + CVE gate + Context7
+- [cross-cutting/anchored-requirements.lock](./cross-cutting/anchored-requirements.lock) — doc snapshot of lock pins (install from repo-root `requirements.lock`)
 - [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) — **canonical** ElevenLabs REST SFX + isolation, GUI journey, post-analysis
 - [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) — `prompt_influence` symptom table
 - [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompts + must-not-hear QA

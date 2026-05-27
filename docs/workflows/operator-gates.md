@@ -2,7 +2,7 @@
 
 Mandatory human checkpoints. Agents **must stop** at these gates — do not auto-continue.
 
-**Quality offers** (optional, non-blocking) are separate from gates — see [Quality improvement offers](#quality-improvement-offers-not-gates) and [audio pre-clean](../pipeline/audio_preclean/README.md).
+**Quality offers** (optional, non-blocking) are separate from gates — see [Quality improvement offers](#quality-improvement-offers-not-gates) and [audio pre-clean](../pipeline/audio_preclean/README.md). ElevenLabs/ffmpeg pins: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
 ---
 

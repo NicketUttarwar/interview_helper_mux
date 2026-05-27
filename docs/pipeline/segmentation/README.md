@@ -8,7 +8,7 @@ BUILD-024, BUILD-025
 
 ## Tools
 
-OpenAI Chat Completions
+**OpenAI** Chat Completions — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
 
 ## Inputs
 

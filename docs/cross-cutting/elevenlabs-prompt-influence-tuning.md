@@ -1,6 +1,6 @@
 # ElevenLabs `prompt_influence` tuning guide
 
-**API field:** `prompt_influence` on `POST https://api.elevenlabs.io/v1/sound-generation` (0.0–1.0 typical range; higher = stricter adherence to prompt text).
+**API field:** `prompt_influence` on `POST https://api.elevenlabs.io/v1/sound-generation` (path anchor: [anchored-toolchain.md](./anchored-toolchain.md#external-http-apis-version-surfaces)) (0.0–1.0 typical range; higher = stricter adherence to prompt text).
 
 **REST-only:** Implement via [elevenlabs_rest.py](../../src/interview_mux/elevenlabs_rest.py) — not the ElevenLabs Python SDK.
 

@@ -13,7 +13,7 @@ BUILD-021
 
 ## Tools
 
-`aws s3 cp`, `aws transcribe start-transcription-job`, poll `get-transcription-job`
+**AWS CLI** (`aws s3 cp`, `aws transcribe start-transcription-job`, poll `get-transcription-job`) — CLI pin: [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#system-binaries). No boto3.
 
 ## Inputs
 

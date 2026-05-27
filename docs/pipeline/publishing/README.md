@@ -1,5 +1,7 @@
 # Publishing copy (Flow 3)
 
+**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
+
 Text deliverable for podcast distribution — no audio mux.
 
 ## Intent

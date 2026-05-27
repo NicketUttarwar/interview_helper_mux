@@ -1,5 +1,7 @@
 # Sound design prompts (BUILD-061–064)
 
+**Pins:** `openai`, ElevenLabs REST `/v1`, `pydub` — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md). Code changes: **Context7** at lock versions.
+
 Stage prompts for Wave 5 sound design. Full logic: [sound-design.md](../../cross-cutting/sound-design.md). ElevenLabs API and post-analysis: [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md).
 
 | File | Stage |

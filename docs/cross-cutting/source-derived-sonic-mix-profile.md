@@ -62,7 +62,7 @@ Speech is **irregular** (bursts, pauses, overlap). Setting `tempo_feel_bpm` equa
 | `prosody_summary` (optional) | F0 median band, variability flag — **not** full pitch tracks in JSON | `musical_intent.register`, warm vs neutral `tonal_center` |
 | `source_music_risk` | Heuristic: sustained harmonic energy under speech | Flag `underscore_policy: sparse_or_skip` |
 
-**Tools (implementation options):** ffmpeg/astats, pyloudnorm, openSMILE eGeMAPS, SpeechBrain — see [tools-not-in-repo-landscape.md](../pipeline/value-analysis/tools-not-in-repo-landscape.md).
+**Tools (implementation options):** **ffmpeg**, **pyloudnorm** (pinned in [anchored-toolchain.md](./anchored-toolchain.md)); optional spike libs (openSMILE, SpeechBrain) — [tools-not-in-repo-landscape.md](../pipeline/value-analysis/tools-not-in-repo-landscape.md). Use **Context7** at lock versions when implementing.
 
 ### 3. Semantic profile (existing — merge, do not duplicate)
 

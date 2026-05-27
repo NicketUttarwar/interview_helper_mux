@@ -4,6 +4,7 @@
 
 **Related:**
 
+- [anchored-toolchain.md](./anchored-toolchain.md) — `openai` SDK pin, lock, CVE gate, Context7
 - [model-routing.md](./model-routing.md) — tier registry and API ID mapping
 - [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) — per-stage severity, tier, volley profile
 - [context-padding.md](./context-padding.md) — message volley and profiles

@@ -8,7 +8,7 @@ BUILD-026, BUILD-027
 
 ## Tools
 
-OpenAI Chat Completions; human mic for `delivery: record`
+**OpenAI** Chat Completions (`openai` SDK pin) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md); model IDs — [model-routing.md](../../cross-cutting/model-routing.md). Human mic for `delivery: record`.
 
 ## Inputs
 

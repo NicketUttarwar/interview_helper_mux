@@ -1,5 +1,7 @@
 # JSON Schemas — index
 
+**Validator:** `jsonschema` package pin — [anchored-toolchain.md](../anchored-toolchain.md). Use **Context7** when editing `prompt_validation.py`.
+
 Schemas in this folder define **machine-checkable contracts** for interview mux runs.
 
 ## Layout

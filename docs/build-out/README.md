@@ -24,7 +24,7 @@ Numbered tickets for agent implementation. Status: **implemented** in greenfield
 
 | Ticket | Title | Module |
 |--------|-------|--------|
-| BUILD-010 | pyproject + venv | `pyproject.toml`, `scripts/bootstrap_venv.sh` |
+| BUILD-010 | pyproject + venv + **anchor lock** | `pyproject.toml`, `requirements.txt`, `requirements.lock`, `scripts/bootstrap_venv.sh`, `pip-audit` in `check_prerequisites.sh` — [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
 | BUILD-011 | Config loader | `src/interview_mux/config.py` |
 | BUILD-012 | Run workspace | `src/interview_mux/run_context.py` |
 | BUILD-013 | OpenAI runner | `src/interview_mux/stages/llm_runner.py` |

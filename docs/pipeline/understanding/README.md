@@ -8,7 +8,7 @@ BUILD-022, BUILD-023
 
 ## Tools
 
-OpenAI Chat Completions (envelope + memory padding)
+**OpenAI** Chat Completions (envelope + memory padding) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
 
 ## Inputs
 

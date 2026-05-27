@@ -8,7 +8,7 @@ BUILD-036 (Flow 1), BUILD-044 (Flow 2), BUILD-050 (shared module)
 
 ## Tools
 
-pyloudnorm, ffmpeg
+**pyloudnorm**, **ffmpeg** — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md)
 
 ## Targets
 

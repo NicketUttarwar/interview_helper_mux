@@ -4,11 +4,15 @@ End-to-end validation checklist for a new machine.
 
 ## Prerequisites
 
+Install from the **anchor lock** (exact pins in repo-root `requirements.lock`; doc mirror: [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock)). Policy: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
+
 ```bash
-./scripts/bootstrap_venv.sh
+./scripts/bootstrap_venv.sh   # venv + pip install -r requirements.lock
 source .venv/bin/activate
-./tools/check_prerequisites.sh
+./tools/check_prerequisites.sh # ffmpeg, ffprobe, aws, Python 3.12.x, pip-audit on lock, import smoke
 ```
+
+**Fail fast:** If `pip-audit` reports HIGH/CRITICAL CVEs against the lock, refresh the lock or record an accepted advisory in [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md#accepted-advisories) before continuing.
 
 ## Config
 

@@ -17,6 +17,7 @@ Rules for autonomous agents implementing or running this pipeline.
 
 ## Hard constraints
 
+- **Context7 (code generation):** Before writing or changing Python (or shell) that calls third-party libraries/APIs, use the **Context7** MCP server (`resolve-library-id` → `query-docs`) at versions from [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md) / `requirements.lock`. Do not rely on training-data API shapes. Installed at user level (`~/.cursor/mcp.json` → `context7`); tools appear as server **`user-context7`** in Cursor.
 - **Python 3.12** in `.venv` at repo root; bootstrap via `scripts/bootstrap_venv.sh`
 - **AWS**: use `aws` CLI subprocess only — **no boto3**
 - **Secrets**: load from `config/secrets/secrets.env` — never commit, never hardcode

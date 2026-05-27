@@ -2,7 +2,7 @@
 
 **Separation** tries to split a mixed recording into **sources** (e.g., speech vs music). **Denoise / enhancement** reduces noise while keeping speech intelligible. They overlap (some models do both).
 
-This repo’s **product-level optional** path for **speech isolation** is documented under [audio_preclean](../audio_preclean/README.md) (ElevenLabs + RNNoise fallback). **Ingest** still expects a sane `normalized.wav` for STT regardless of chain.
+This repo’s **product-level optional** path for **speech isolation** is documented under [audio_preclean](../audio_preclean/README.md) (ElevenLabs + RNNoise fallback). **Pinned:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md). Catalog libraries below are not locked until added there. **Ingest** still expects a sane `normalized.wav` for STT regardless of chain.
 
 ---
 

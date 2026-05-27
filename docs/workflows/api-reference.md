@@ -1,5 +1,7 @@
 # HTTP API reference (FastAPI)
 
+**Stack pins:** `fastapi`, `uvicorn`, `pydantic` — [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md). Use **Context7** at those versions when changing `server.py`.
+
 Authoritative route list for **`interview_mux` web server** (`src/interview_mux/web/server.py`). The single-page GUI under `/` is static files; all JSON state goes through **`/api/*`**.
 
 **Companion:** [gui-surface-map.md](./gui-surface-map.md) maps UI areas to these routes and on-disk artifacts.

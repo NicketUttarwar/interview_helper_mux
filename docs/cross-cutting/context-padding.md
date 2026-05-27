@@ -1,6 +1,6 @@
 # Context padding (selective message volley)
 
-OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user/assistant volley** built by `src/interview_mux/context_volley.py`. The pipeline does **not** send the full `analysis_state.json` on every call.
+OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user/assistant volley** built by `src/interview_mux/context_volley.py`. Client version: [anchored-toolchain.md](./anchored-toolchain.md). The pipeline does **not** send the full `analysis_state.json` on every call.
 
 **Smart routing (spec):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls. v1 uses `full` only.
 

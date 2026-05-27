@@ -1,5 +1,7 @@
 # Scoring and selection
 
+**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
+
 Branches after operator gate G2.
 
 ## Flow 1 (extended)

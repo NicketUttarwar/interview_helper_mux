@@ -2,6 +2,8 @@
 
 Shared analysis (`tools/run_analysis.py`) uses an orchestrator on top of the linear stage list.
 
+**Runtime pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) (`openai`, lock, Context7).
+
 **Smart routing (spec only):** target flow adds an economy-tier **LLM arbiter** after schema validation on each primary call, optional shard/collate, and tier-aware models — [llm-orchestration.md](../cross-cutting/llm-orchestration.md). v1 follows the flow below without arbiter.
 
 ## Flow (v1 runtime)

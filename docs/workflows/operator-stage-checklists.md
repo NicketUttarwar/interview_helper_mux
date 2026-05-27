@@ -12,6 +12,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **LLM smart routing (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md) · per-stage tiers: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
+**Toolchain:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) — venv from `requirements.lock`, `check_prerequisites.sh` + `pip-audit`.
+
 **Support bundle:** `gui_log.jsonl` tail (what the operator saw) + latest `understanding/stage_runs/<stage>/attempt_*.json` (what the model returned).
 
 ---
@@ -25,6 +27,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Stage markers | `.stage_done/` matches what you think ran | [idempotent-runs.md](./idempotent-runs.md) |
 | Disk space | Enough room for `normalized.wav`, clips, SFX, masters | Free space check before long runs |
 | Secrets loaded | App sees `OPENAI_*`, `AWS_*`, `ELEVENLABS_*` as required by stage | [smoke-test.md](./smoke-test.md) |
+| Toolchain lock | `./tools/check_prerequisites.sh` OK; `pip-audit` clean on lock | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md); refresh lock or accepted advisory |
 
 ---
 

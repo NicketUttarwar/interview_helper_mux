@@ -1,5 +1,7 @@
 # Audio pre-clean (optional)
 
+**Toolchain:** ElevenLabs REST `/v1/audio-isolation`, **ffmpeg** — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md). No ElevenLabs SDK.
+
 Remove background noise so speech is clearer for STT, review clips, VO pickup, and the final mix. **Always optional** — never auto-enabled without operator consent.
 
 Most interviews skip pre-clean. Enable when the source or **new pickup recordings** have noticeable room tone, HVAC, keyboard clicks, traffic, or other steady noise.

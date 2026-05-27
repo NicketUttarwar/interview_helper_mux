@@ -2,7 +2,7 @@
 
 **Status: spec only** — authoritative per-stage routing table for the smart-routing framework. v1 code uses flat `models.<stage_key>` strings in `config/app.defaults.json`; see [model-routing.md](./model-routing.md) for current runtime mapping.
 
-**Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md)
+**Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
 
 ---
 

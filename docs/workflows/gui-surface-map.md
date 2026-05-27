@@ -4,7 +4,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **Logging policy (do not duplicate elsewhere):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — write operator-visible status only via `RunContext.log()` / `append_log` → `gui_log.jsonl`, and background execute state via `gui_job.json`.
 
-**HTTP companion:** [api-reference.md](./api-reference.md) — method/path/body tables and common status codes.
+**HTTP companion:** [api-reference.md](./api-reference.md) — method/path/body tables and common status codes. Stack pins: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
 **Convention:** `{run_id}` is the execution id (e.g. `exec_001_20260523T120000Z` or legacy `run_001`). Run root = that folder under `executions_root` or `data_root` — see [artifact-layout.md](../cross-cutting/artifact-layout.md).
 

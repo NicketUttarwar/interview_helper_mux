@@ -72,6 +72,15 @@ Do **not** copy this policy into other docs — link to **this section** or to `
 - **Logging:** Follow **Centralized operator status and logs** above — every new status string must use `RunContext.log()` / `append_log` / `gui_job.json` as appropriate.
 - **Config keys:** Document new `app.defaults.json` or `secrets.env` keys in **`docs/cross-cutting/config-keys.md`** in the same PR.
 
+## Context7 (library docs for code changes)
+
+When implementing or editing code that uses **FastAPI**, **OpenAI**, **jsonschema**, **typer**, **uvicorn**, **ffmpeg**/**aws** CLI, or other pinned deps, call the **Context7** MCP server first:
+
+1. `resolve-library-id` (`libraryName` + task `query`)
+2. `query-docs` (`libraryId` + focused `query`)
+
+Use versions from [docs/cross-cutting/anchored-toolchain.md](../../docs/cross-cutting/anchored-toolchain.md). MCP server id in Cursor: **`user-context7`** (configured in `~/.cursor/mcp.json` as `context7`).
+
 ## Backend (Python)
 
 All backend code is **Python**. Use a **local virtualenv** at **`.venv`** in the repo root.

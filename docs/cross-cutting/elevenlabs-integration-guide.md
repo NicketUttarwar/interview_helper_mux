@@ -3,6 +3,7 @@
 **Status:** Authoritative docs for all ElevenLabs usage in **interview_helper_mux**.  
 **Scope:** Text-to-Sound Effects (SFX), Audio Isolation (pre-clean), prompt craft, spend controls, and post-generation integration.  
 **Transport:** **REST API only** in application code (`interview_mux.elevenlabs_rest`) — do not use the ElevenLabs Python SDK in pipeline stages.  
+**API anchor:** `https://api.elevenlabs.io/v1` — [anchored-toolchain.md](./anchored-toolchain.md#external-http-apis-version-surfaces). Implement with **Context7** vendor docs for this path, not the SDK.  
 **Not in scope:** TTS, voice cloning, dubbing, music generation, or other ElevenLabs product lines unless the product explicitly expands.
 
 **Also see:** [prompt-influence tuning](./elevenlabs-prompt-influence-tuning.md) · [prompt regression fixtures](../prompts/_shared/examples/elevenlabs-prompt-regression.md)

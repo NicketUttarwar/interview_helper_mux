@@ -2,6 +2,8 @@
 
 **Status: reference only** — maps the documentation framework to suggested future code. **Do not implement behavior that contradicts these docs** without updating the specs first.
 
+**Before coding:** [anchored-toolchain.md](./anchored-toolchain.md) (`openai` pin, lock, `pip-audit`) + **Context7** for SDK/API docs at that version.
+
 **Framework docs:**
 
 - [llm-orchestration.md](./llm-orchestration.md)

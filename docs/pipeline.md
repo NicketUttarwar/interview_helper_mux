@@ -1,5 +1,7 @@
 # Pipeline — three output flows
 
+**Toolchain:** Pinned Python packages, `ffmpeg`/`aws` CLI, and HTTP API paths — [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Implementers use **Context7** at those exact versions.
+
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
 **Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. Flow 3 is **docs + prompt spec** until BUILD-045 ships. See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).

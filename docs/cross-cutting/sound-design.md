@@ -10,6 +10,8 @@
 
 **ElevenLabs canonical guide:** [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — API, spend, post-analysis, doc inventory.
 
+**Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, ElevenLabs `/v1`, `openai` for craft stages).
+
 **Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [elevenlabs-prompt-craft](../prompts/sound_design/elevenlabs-prompt-craft.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
 
 **Per-interview acoustic baseline (planned):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.

@@ -1,5 +1,7 @@
 # Troubleshooting playbook
 
+**Environment:** Wrong package or CLI version → [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md); re-run `./tools/check_prerequisites.sh` (includes `pip-audit` on lock).
+
 Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For re-run flags see [idempotent-runs.md](./idempotent-runs.md) and [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md).
 
 ---

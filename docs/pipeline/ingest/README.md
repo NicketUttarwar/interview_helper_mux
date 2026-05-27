@@ -8,7 +8,7 @@ BUILD-020
 
 ## Tools
 
-ffmpeg
+**ffmpeg** — version anchor: [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#system-binaries)
 
 ## Inputs
 

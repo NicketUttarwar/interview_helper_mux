@@ -4,7 +4,7 @@ All LLM stages prepend [`_shared/analysis-preamble.system.txt`](./_shared/analys
 
 Context is a **selective user/assistant volley** (see [context-padding.md](../cross-cutting/context-padding.md)), not a blind dump of `analysis_state.json`.
 
-**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Orchestration (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Orchestration (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md). **Pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
 ## Shared analysis
 

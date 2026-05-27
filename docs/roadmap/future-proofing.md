@@ -4,6 +4,8 @@ Lightweight rules and **small idea directions** for future work. Does not replac
 
 ## Guardrails
 
+**Toolchain:** New dependencies must use the [anchor lock](../cross-cutting/anchored-toolchain.md) (`requirements.lock`), pass `pip-audit` at setup, and be documented with exact versions. Code agents use **Context7** at those pins.
+
 **Optimize for (when adding analysis or product features):**
 
 | Axis | Ask |

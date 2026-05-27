@@ -75,7 +75,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 **Resilience guards (operational):**
 
 - **Pre-mux checklist:** If `edl.json` / `nle_edits.json` is required for a build wave, add an explicit “file exists and validates” step in [workflows/smoke-test.md](../workflows/smoke-test.md) when those tickets ship.
-- **CI:** Run `jsonschema` (or existing Python tests) against fixtures whenever schemas change.
+- **CI:** Run `jsonschema` (pinned in [anchored-toolchain.md](./anchored-toolchain.md); use **Context7** at that version when changing validators) against fixtures whenever schemas change.
 - **Do not infer:** If code reads a field not in the schema, either extend the schema or treat the field as experimental and undocumented.
 
 ## Hyper-useful quick matrix (artifact → schema?)
