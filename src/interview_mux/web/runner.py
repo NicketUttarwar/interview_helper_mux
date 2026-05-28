@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from threading import Lock, Thread
 from typing import Any
 
+from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
 from interview_mux.pipeline import (
@@ -146,6 +147,11 @@ class JobRunner:
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
+        if stage in ("elevenlabs_sfx_flow1", "elevenlabs_sfx_flow2"):
+            ok, message = can_run_elevenlabs_generation(ctx)
+            if not ok:
+                ctx.log(message, level="warning", stage=stage)
+                raise RuntimeError(message)
         run_single_stage(ctx, stage)
 
     def _run_master_qa(self, ctx: RunContext, *, flow: FlowName, rel_path: str) -> None:

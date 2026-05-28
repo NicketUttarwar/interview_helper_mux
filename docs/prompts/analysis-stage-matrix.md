@@ -20,7 +20,7 @@ Context is a **selective user/assistant volley** (see [context-padding.md](../cr
 
 ## Flow 1 / Flow 2
 
-Flow stages use the same envelope and read `analysis_state_summary`; BUILD-073 adds arbiter evaluation per attempt (and optional uptier retry).
+Flow stages use the same envelope and read `analysis_state_summary`; arbiter runs after each primary attempt (uptier retry capped at 2 per stage per run).
 
 | Stage | Prompt | Tier | Volley |
 |-------|--------|------|--------|

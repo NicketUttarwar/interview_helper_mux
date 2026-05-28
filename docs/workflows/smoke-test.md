@@ -59,7 +59,7 @@ python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
 python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1_master/master.wav
 ```
 
-**Expectations:** v1 produces a playable `master.wav` (reordered speech). Full VO+SFX mix is not validated until BUILD-065/067. `verify_master.py` now enforces LUFS and true-peak thresholds (Flow 1: -16 +/-1 LUFS, <= -1 dBTP) and exits non-zero on failure.
+**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. Full VO+SFX mix quality is separate (BUILD-065/067 listen tests).
 
 ## Flow 2
 
@@ -69,6 +69,8 @@ Use a fresh run or separate `run_002` after analysis:
 python tools/run_flow.py --flow flow2 --run-id exec_001_20260523T120000Z
 python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_2_highlights/master.wav
 ```
+
+**Expectations:** Flow 2 targets: integrated LUFS −14 ±1, true peak ≤ −1 dBTP (same sample-rate and duration rules as Flow 1).
 
 ## Flow 3
 

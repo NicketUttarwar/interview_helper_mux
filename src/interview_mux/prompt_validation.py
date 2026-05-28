@@ -27,6 +27,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "transitions": "transitions_artifact.schema.json",
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
     "sound_design_plan_flow1": "sound_design_plan_flow1_artifact.schema.json",
+    "sound_design_plan_flow2": "sound_design_plan_flow2_artifact.schema.json",
     "elevenlabs_prompt_craft": "elevenlabs_prompts_artifact.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
     "podcast_show_description": "show_description_artifact.schema.json",
@@ -35,6 +36,18 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
 
 def _schemas_dir() -> Path:
     return repo_root() / "docs" / "cross-cutting" / "json-schemas" / "artifacts"
+
+
+def _json_schemas_root() -> Path:
+    return repo_root() / "docs" / "cross-cutting" / "json-schemas"
+
+
+@lru_cache(maxsize=8)
+def _load_root_schema(filename: str) -> dict[str, Any] | None:
+    path = _json_schemas_root() / filename
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @lru_cache(maxsize=32)
@@ -71,3 +84,16 @@ def format_validation_feedback(errors: list[str]) -> str:
         "Fix `artifacts` to satisfy the stage schema. Errors:\n"
         + "\n".join(f"- {e}" for e in errors)
     )
+
+
+def validate_sound_design_plan(plan: dict[str, Any]) -> list[str]:
+    """Validate `understanding/sound_design_plan.json` against sound_design_plan.schema.json."""
+    schema = _load_root_schema("sound_design_plan.schema.json")
+    if not schema:
+        return []
+    validator = Draft202012Validator(schema)
+    errors: list[str] = []
+    for err in sorted(validator.iter_errors(plan), key=lambda e: list(e.path)):
+        loc = ".".join(str(p) for p in err.path) or "(root)"
+        errors.append(f"{loc}: {err.message}")
+    return errors[:12]

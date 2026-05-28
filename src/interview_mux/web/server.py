@@ -20,6 +20,11 @@ from interview_mux.analysis_memory import (
     save_analysis_state,
 )
 from interview_mux.config import merged_config, repo_root
+from interview_mux.value_analysis.config import value_analysis_enabled
+from interview_mux.g15_prompt_review import (
+    sdp_asset_id_warnings,
+    validate_prompts_payload,
+)
 from interview_mux.file_store import read_json, write_json
 from interview_mux.gates import (
     check_g1_vo,
@@ -125,6 +130,12 @@ class ElevenLabsPromptApproveBody(BaseModel):
     approved_by: str | None = None
 
 
+class ElevenLabsListenResultBody(BaseModel):
+    asset_id: str = Field(min_length=1)
+    result: str = Field(pattern="^(pass|fail)$")
+    note: str | None = None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Interview Helper Mux", version="0.2.0")
     app.add_middleware(
@@ -148,6 +159,7 @@ def create_app() -> FastAPI:
             "data_root": cfg.get("data_root", "data"),
             "web_port": cfg.get("web_port", 8765),
             "repo_root": str(root),
+            "value_analysis_enabled": value_analysis_enabled(cfg),
         }
 
     @app.get("/api/session")
@@ -389,6 +401,11 @@ def create_app() -> FastAPI:
             action=body.action,
             scope=body.scope,
         )
+        if body.action == "accept" and changed:
+            from interview_mux.stages.audio_preclean import invalidate_after_preclean_accept
+
+            scope = str(payload.get("scope") or "full_source")
+            invalidate_after_preclean_accept(ctx, scope)
         return {"ok": True, "changed": changed, "audio_preclean": payload}
 
     @app.get("/api/runs/{run_id}/elevenlabs-prompts")
@@ -402,12 +419,14 @@ def create_app() -> FastAPI:
         review = _read_prompt_review_meta(ctx)
         review_required = bool(merged_config().get("g1_5_require_prompt_approval", False))
         approved = bool(review.get("approved"))
+        warnings = sdp_asset_id_warnings(ctx, rows)
         return {
             "path": path,
             "prompts": rows,
             "review": review,
             "review_required": review_required,
             "can_generate": (not review_required) or approved,
+            "warnings": warnings,
         }
 
     @app.put("/api/runs/{run_id}/elevenlabs-prompts")
@@ -420,6 +439,9 @@ def create_app() -> FastAPI:
         rows = body.data.get("prompts")
         if not isinstance(rows, list):
             raise HTTPException(400, "Prompt payload must include prompts[] array.")
+        schema_errors = validate_prompts_payload({"prompts": rows})
+        if schema_errors:
+            raise HTTPException(400, "; ".join(schema_errors[:5]))
         write_json(ctx.path(body.path), {"prompts": rows})
         review = _set_prompt_review_meta(
             ctx,
@@ -435,7 +457,8 @@ def create_app() -> FastAPI:
         )
         if body.invalidate_from:
             runner.invalidate_from(run_id, body.invalidate_from)
-        return {"ok": True, "path": body.path, "review": review}
+        warnings = sdp_asset_id_warnings(ctx, rows)
+        return {"ok": True, "path": body.path, "review": review, "warnings": warnings}
 
     @app.post("/api/runs/{run_id}/elevenlabs-prompts/approve")
     def approve_elevenlabs_prompts(run_id: str, body: ElevenLabsPromptApproveBody) -> dict[str, Any]:
@@ -459,7 +482,37 @@ def create_app() -> FastAPI:
             stage="elevenlabs_prompt_craft",
             detail=str(detail),
         )
-        return {"ok": True, "review": review, "asset_ids": asset_ids}
+        warnings = sdp_asset_id_warnings(ctx, rows)
+        for w in warnings:
+            ctx.log(w, level="warning", stage="elevenlabs_prompt_craft")
+        return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
+
+    @app.post("/api/runs/{run_id}/elevenlabs-prompts/listen-result")
+    def post_elevenlabs_listen_result(run_id: str, body: ElevenLabsListenResultBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        asset_id = body.asset_id.strip()
+        if not asset_id:
+            raise HTTPException(400, "asset_id is required")
+        entry, results = _append_elevenlabs_listen_result(
+            ctx,
+            asset_id=asset_id,
+            result=body.result,
+            note=body.note,
+        )
+        event = (
+            "elevenlabs_post_listen_pass"
+            if body.result == "pass"
+            else "elevenlabs_post_listen_fail"
+        )
+        detail: dict[str, str] = {"asset_id": asset_id}
+        if body.note:
+            detail["note"] = body.note
+        ctx.log(
+            event,
+            level="success" if body.result == "pass" else "warning",
+            detail=str(detail),
+        )
+        return {"ok": True, "entry": entry, "elevenlabs_listen_results": results}
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
@@ -805,3 +858,27 @@ def _set_prompt_review_meta(
     meta["elevenlabs_prompt_review"] = review
     ctx.write_json("run_meta.json", meta)
     return review
+
+
+def _append_elevenlabs_listen_result(
+    ctx: RunContext,
+    *,
+    asset_id: str,
+    result: str,
+    note: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    results = meta.get("elevenlabs_listen_results")
+    if not isinstance(results, list):
+        results = []
+    entry: dict[str, Any] = {
+        "asset_id": asset_id,
+        "result": result,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    if note:
+        entry["note"] = note
+    results.append(entry)
+    meta["elevenlabs_listen_results"] = results
+    ctx.write_json("run_meta.json", meta)
+    return entry, results

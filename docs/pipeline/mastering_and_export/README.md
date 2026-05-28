@@ -28,13 +28,15 @@ Flow 3 has **no mastering step** — text export only. See [publishing/README.md
 
 ## QA
 
-`python tools/verify_master.py <path>` — v1: format check only; target LUFS/peak (BUILD-070).
+`python tools/verify_master.py <path> [--flow flow1|flow2]` — integrated LUFS and true peak per [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md) (BUILD-070). Infers flow from path (`flow_1_master` / `flow_2_highlights`) or use `--flow`.
 
 If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclean/README.md) and re-run from mux/ingest per operator choice — see [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
 ## Module
 
-`src/interview_mux/stages/mastering.py` — target two-pass loudness (BUILD-071)
+`src/interview_mux/mastering_bus.py` — pyloudnorm assembly-bus measurement (BUILD-071)
+
+`src/interview_mux/stages/mastering.py` — assembly measure + ffmpeg true-peak limiter (BUILD-071); QA via BUILD-070
 
 ---
 

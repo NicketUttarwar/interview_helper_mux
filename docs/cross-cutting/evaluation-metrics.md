@@ -1,6 +1,6 @@
 # Evaluation metrics
 
-**Measurement tools:** `ffprobe` / `ffmpeg` now; `pyloudnorm` (BUILD-070) — pins in [anchored-toolchain.md](./anchored-toolchain.md).
+**Measurement tools:** `ffprobe` (format/duration) and `ffmpeg` `loudnorm` filter `print_format=json` (`input_i`, `input_tp`) for integrated LUFS and true peak on finished masters (BUILD-070). `pyloudnorm` + `soundfile` measure integrated LUFS on the **assembly bus** before the final limiter (BUILD-071) — [anchored-toolchain.md](./anchored-toolchain.md).
 
 ## Transcription QC
 
@@ -28,7 +28,9 @@
 | Sample rate | 48000 or 44100 | same |
 | Duration | > 60s | 60s–180s typical |
 
-**v1:** Tool runs `ffprobe` only (format/duration). **Target (BUILD-070):** measure LUFS and true peak; fail with actionable message in GUI.
+**Enforcement (BUILD-070):** `interview_mux.master_qc.verify_master` measures integrated LUFS and true peak; failures list actionable thresholds. CLI (`tools/verify_master.py`) exits non-zero on fail; GUI logs pass/fail on `stage: verify_master` after `flow1` / `flow2` execute.
+
+**Mastering bus (BUILD-071):** `interview_mux.mastering_bus.measure_assembly_bus` runs ITU-R BS.1770 integrated loudness on `assembly.wav` via `pyloudnorm`. `stages/mastering.py` logs the reading, then applies ffmpeg `loudnorm` (true-peak limiter) using flow targets from `master_qc.TARGETS` (−16 / −14 LUFS, −1 dBTP ceiling). Post-export QA still uses BUILD-070 on `master.wav`.
 
 **Noise on master:** If integrated noise or operator listen-test fails, offer [pre-clean](../pipeline/audio_preclean/README.md) and re-run from `mux_flow*` or ingest — not a substitute for proper mix ducking (BUILD-065).
 

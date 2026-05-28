@@ -46,8 +46,8 @@ ASSETS/executions/exec_001_20260523T120000Z/
 | `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile |
 | `understanding/investigation_queue.json` | Yes | Open investigations / rerun hints |
 | `understanding/content_brief.json` | Yes | Content brief artifact (synced to memory) |
-| `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; expanded by Wave 5 stages) |
-| `understanding/source_acoustic_profile.json` | Yes (planned) | Per-interview pacing, energy, mix contract — see [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; schema: [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json); expanded by Wave 5 stages) |
+| `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — see [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
 
@@ -73,7 +73,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/speakers.json` | speaker roles (LLM) |
 | `understanding/content_brief.json` | content context |
 | `understanding/sound_design_plan.json` | shared analysis init (BUILD-060 baseline) |
-| `understanding/source_acoustic_profile.json` | source_acoustic_profile (planned) |
+| `understanding/source_acoustic_profile.json` | source_acoustic_profile |
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
 | `understanding/interviewer_script.txt` | human-readable VO script |

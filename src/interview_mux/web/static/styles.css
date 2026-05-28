@@ -121,6 +121,29 @@ code {
   font-size: 0.875rem;
 }
 
+.value-features-card h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.value-features-dl {
+  display: grid;
+  grid-template-columns: minmax(10rem, 38%) 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+}
+
+.value-features-dl dt {
+  margin: 0;
+  color: var(--muted);
+}
+
+.value-features-dl dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .btn {
   border: 1px solid var(--border);
   background: var(--surface-2);

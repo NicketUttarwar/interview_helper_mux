@@ -1,6 +1,6 @@
-# Source-derived sonic / mix profile (planned)
+# Source-derived sonic / mix profile
 
-**Status:** Spec only — not implemented in code. Defines how **acoustic and pacing signals** from each interview’s source audio and transcript become a **stable per-run profile** that guides underscore, SFX, and mix decisions for a homogeneous, speech-first episode.
+**Status:** Shipped — `source_acoustic_profile` stage in `understanding.py` writes `understanding/source_acoustic_profile.json`. Defines how **acoustic and pacing signals** from each interview’s source audio and transcript become a **stable per-run profile** that guides underscore, SFX, and mix decisions for a homogeneous, speech-first episode.
 
 **Related:** [sound-design.md](./sound-design.md) (SDP + roles), [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) (generation + post-analysis), [analysis-memory.md](./analysis-memory.md) (semantic profile), [context-padding.md](./context-padding.md) (LLM volleys), [artifact-layout.md](./artifact-layout.md).
 
@@ -78,9 +78,9 @@ The acoustic profile **informs** LLM stages (optional summary injected into voll
 
 ## Target artifact
 
-**Path (planned):** `understanding/source_acoustic_profile.json`
+**Path:** `understanding/source_acoustic_profile.json`
 
-**Stage key (planned):** `source_acoustic_profile` — runs once after `transcription` (and after `audio_preclean` if enabled), before or during Wave 2 understanding; **before** `sound_design_palettes`.
+**Stage key:** `source_acoustic_profile` — runs once after `transcribe` + `transcript_review_build` (and after `audio_preclean` when enabled), before `speaker_roles`; consumed by `sound_design_palettes` and `elevenlabs_prompt_craft`.
 
 ### Invalidation
 
@@ -179,7 +179,7 @@ flowchart TB
 
 **Ordering:**
 
-1. `ingest` → `transcription` → **`source_acoustic_profile`** (planned)
+1. `ingest` → `transcription` → **`source_acoustic_profile`**
 2. Wave 2 LLM stages may receive a **compact prose summary** of pacing + mix_contract in the volley ([context-padding.md](./context-padding.md) — future `STAGE_PLANS` row).
 3. Wave 5: `sound_design_palettes` / plan / `elevenlabs_prompt_craft` read `source_acoustic_profile` + semantic profile.
 4. Post-generation QA and mux use `mix_contract` + per-cue placement hints.
@@ -199,17 +199,15 @@ flowchart TB
 | `mux_flow*` (future) | `duck_under_speech_db`, pause-aligned gaps | Automated duck curves |
 | GUI **Interview profile** (future) | Editable overrides | Operator tune without re-running DSP |
 
-### Future context volley slice (spec)
+### Context volley slices
 
-Add to `STAGE_PLANS` in `context_volley.py` when implemented:
-
-| Stage | Profile slice |
-|-------|----------------|
-| `content_context` | `pace_class` + one-line pacing summary |
-| `sound_design_palettes` | `mix_contract` + `prompt_tokens` |
-| `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` |
-| `elevenlabs_prompt_craft` | Full `prompt_tokens` + optional `musical_intent` defaults |
-| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` |
+| Stage | Profile slice | Status |
+|-------|----------------|--------|
+| `content_context` | `pace_class` + one-line pacing summary | planned |
+| `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`_compact_source_acoustic_profile` in `context_volley.py`) |
+| `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | planned |
+| `elevenlabs_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
+| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | planned |
 
 Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 
@@ -244,10 +242,10 @@ All ElevenLabs outputs for a run should obey the **same** `mix_contract`:
 
 | Piece | Suggestion |
 |-------|------------|
-| Stage | `src/interview_mux/stages/source_acoustic_profile.py` — pure Python + ffmpeg/numpy; no LLM required |
+| Stage | `src/interview_mux/stages/understanding.py` (`run_source_acoustic_profile`) — pure Python + wave/numpy; no LLM required |
 | Config | `analysis.source_acoustic.enabled`, pause thresholds, WPM window seconds |
 | GUI | Read-only panel + override fields; **Recompute** button |
-| Schema | `docs/cross-cutting/json-schemas/source_acoustic_profile.schema.json` when code lands |
+| Schema | `docs/cross-cutting/json-schemas/source_acoustic_profile.schema.json` |
 | Tests | Golden fixture from short WAV + synthetic transcript |
 
 **Build-out:** Link from [build-out/README.md](../build-out/README.md) when ticket is added (e.g. companion to Wave 5 / BUILD-060).

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-
 import pytest
 
 from interview_mux.gates import (
@@ -16,15 +13,7 @@ from interview_mux.gates import (
     set_selected_flow,
 )
 from interview_mux.run_context import RunContext
-
-
-def _ctx_from_fixture(tmp_path: Path) -> RunContext:
-    fixture = Path(__file__).parent / "fixtures" / "runs" / "base_smoke"
-    run_dir = tmp_path / "run_fixture"
-    shutil.copytree(fixture, run_dir)
-    ctx = RunContext("exec_999_20260101T000000Z", create=False)
-    ctx.run_dir = run_dir
-    return ctx
+from run_fixtures import ctx_from_fixture, isolated_run_ctx
 
 
 def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
@@ -35,9 +24,8 @@ def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
     )
 
 
-def test_profile_gate_pending_only_for_flow1_unverified(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_001", create=True)
+def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_001")
     set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
     assert check_profile_gate_pending(ctx) is True
@@ -45,18 +33,16 @@ def test_profile_gate_pending_only_for_flow1_unverified(tmp_path, monkeypatch):
     assert check_profile_gate_pending(ctx) is False
 
 
-def test_profile_gate_skipped_after_topic_coverage_done(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_002", create=True)
+def test_profile_gate_skipped_after_topic_coverage_done(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_002")
     set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
     ctx.mark_done("topic_coverage_audit")
     assert check_profile_gate_pending(ctx) is False
 
 
-def test_require_profile_verified_raises_and_logs(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_003", create=True)
+def test_require_profile_verified_raises_and_logs(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_003")
     set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
     with pytest.raises(SystemExit, match="Profile gate"):
@@ -66,32 +52,28 @@ def test_require_profile_verified_raises_and_logs(tmp_path, monkeypatch):
     assert "Profile gate" in log_path.read_text(encoding="utf-8")
 
 
-def test_flow1_extended_requires_selected_flow_flow1(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_004", create=True)
+def test_flow1_extended_requires_selected_flow_flow1(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_004")
     _write_analysis_state(ctx, verified=True)
     set_selected_flow(ctx, "flow2")
     with pytest.raises(SystemExit, match="selected_flow=flow1"):
         require_flow1_extended_gates(ctx)
 
 
-def test_is_operator_profile_verified_missing_state(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_005", create=True)
+def test_is_operator_profile_verified_missing_state(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_005")
     assert is_operator_profile_verified(ctx) is False
 
 
-def test_flow2_requires_selected_flow_flow2(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_006", create=True)
+def test_flow2_requires_selected_flow_flow2(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_006")
     set_selected_flow(ctx, "flow1")
     with pytest.raises(SystemExit, match="selected_flow=flow2"):
         require_selected_flow_flow2(ctx)
 
 
-def test_set_selected_flow_preserves_existing_run_meta(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_007", create=True)
+def test_set_selected_flow_preserves_existing_run_meta(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_007")
     ctx.write_json(
         "run_meta.json",
         {
@@ -107,14 +89,14 @@ def test_set_selected_flow_preserves_existing_run_meta(tmp_path, monkeypatch):
 
 
 def test_check_transcript_review_pending_clears_after_done_marker(tmp_path):
-    ctx = _ctx_from_fixture(tmp_path)
+    ctx = ctx_from_fixture(tmp_path)
     assert check_transcript_review_pending(ctx) is True
     ctx.mark_done("transcript_review")
     assert check_transcript_review_pending(ctx) is False
 
 
 def test_check_g1_vo_accepts_line_id_or_segment_id_wav(tmp_path):
-    ctx = _ctx_from_fixture(tmp_path)
+    ctx = ctx_from_fixture(tmp_path, run_id="exec_g1_smoke")
     ctx.write_json(
         "understanding/gap_report.json",
         {

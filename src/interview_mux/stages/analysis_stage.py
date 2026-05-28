@@ -8,9 +8,11 @@ from interview_mux.analysis_memory import (
     apply_envelope_to_memory,
     ensure_analysis_workspace,
     record_stage_attempt,
+    record_uptier_retry,
     sync_content_brief_to_state,
     sync_gaps_to_state,
     sync_speakers_to_state,
+    uptier_budget_remaining,
     update_completion_from_analysis,
 )
 from interview_mux.context_volley import build_message_volley
@@ -97,7 +99,8 @@ def run_analysis_llm_stage(
         )
         shard_count = 0
         verdict = arbiter_result.get("verdict")
-        if verdict == "retry_uptier":
+        if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
+            record_uptier_retry(ctx, stage_key)
             envelope = run_prompt_envelope(
                 stage_key,
                 prompt_rel,
@@ -108,6 +111,17 @@ def run_analysis_llm_stage(
             )
             artifacts = envelope.get("artifacts") or {}
             schema_errors = validate_stage_artifacts(stage_key, artifacts)
+        elif verdict == "retry_uptier":
+            envelope.setdefault("follow_up_investigations", [])
+            envelope["follow_up_investigations"].append(
+                arbiter_result.get("suggested_investigation")
+                or {
+                    "kind": "uptier_exhausted",
+                    "question": f"{stage_key}: uptier budget exhausted for this run.",
+                    "blocking": True,
+                }
+            )
+            envelope["status"] = "blocked"
         elif verdict == "decompose" and stage_key in DECOMPOSE_ELIGIBLE:
             envelope, shard_count = run_shards_then_collate(
                 ctx,
@@ -118,6 +132,17 @@ def run_analysis_llm_stage(
             )
             artifacts = envelope.get("artifacts") or {}
             schema_errors = validate_stage_artifacts(stage_key, artifacts)
+        elif verdict == "decompose":
+            envelope.setdefault("follow_up_investigations", [])
+            envelope["follow_up_investigations"].append(
+                arbiter_result.get("suggested_investigation")
+                or {
+                    "kind": "decompose_ineligible",
+                    "question": f"{stage_key} is not shard/collate eligible; use investigation queue.",
+                    "blocking": True,
+                }
+            )
+            envelope["status"] = "blocked"
         elif verdict == "enqueue_investigation":
             envelope.setdefault("follow_up_investigations", [])
             suggested = arbiter_result.get("suggested_investigation")
@@ -236,7 +261,9 @@ def run_flow_llm_stage(
             "decompose_eligible": False,
         },
     )
-    if arbiter_result.get("verdict") == "retry_uptier":
+    verdict = arbiter_result.get("verdict")
+    if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
+        record_uptier_retry(ctx, stage_key)
         envelope = run_prompt_envelope(
             stage_key,
             prompt_rel,
@@ -246,7 +273,19 @@ def run_flow_llm_stage(
             bump_tier=True,
         )
         artifacts = envelope.get("artifacts") or {}
-    elif arbiter_result.get("verdict") == "enqueue_investigation":
+    elif verdict == "retry_uptier":
+        envelope.setdefault("follow_up_investigations", [])
+        envelope["follow_up_investigations"].append(
+            arbiter_result.get("suggested_investigation")
+            or {
+                "kind": "uptier_exhausted",
+                "question": f"{stage_key}: uptier budget exhausted for this run.",
+                "blocking": True,
+            }
+        )
+        envelope["status"] = "blocked"
+        artifacts = envelope.get("artifacts") or {}
+    elif verdict == "enqueue_investigation":
         envelope.setdefault("follow_up_investigations", [])
         suggested = arbiter_result.get("suggested_investigation")
         if suggested:

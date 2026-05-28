@@ -17,6 +17,11 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
+| `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
+| `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py` | Master switch for optional R&D tooling (default off) |
+| `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
+| `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
+| `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
 | `models.<stage_key>` | `get_model()` → OpenAI calls (**v1**) | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).
@@ -59,7 +64,7 @@ Tier guidance (target defaults): [llm-stage-model-matrix.md](./llm-stage-model-m
 | `models.stages.<stage_key>.severity` | `low` \| `medium` \| `high` — drives collate floor |
 | `models.<stage_key>` (string) | **Override:** explicit API ID wins over tier lookup |
 
-**Proposed secrets (optional):**
+**Optional secrets (BUILD-073):**
 
 | Key | Effect |
 |-----|--------|

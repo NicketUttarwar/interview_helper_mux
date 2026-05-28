@@ -427,6 +427,7 @@ async function renderGateActions(stage) {
           : ""
       }`;
     el.appendChild(copy);
+    await renderPrecleanOffer(stage, el);
     return;
   }
 
@@ -496,6 +497,11 @@ async function renderGateActions(stage) {
     });
   }
 
+  if (stage.id === "content_context" && state.config?.value_analysis_enabled) {
+    el.classList.remove("hidden");
+    await renderValueFeaturesPanel(el);
+  }
+
   if (stage.id === "elevenlabs_prompt_craft") {
     el.classList.remove("hidden");
     await renderElevenLabsPromptReviewPanel(el);
@@ -504,10 +510,15 @@ async function renderGateActions(stage) {
 
   if (stage.id === "elevenlabs_sfx_flow1" || stage.id === "elevenlabs_sfx_flow2") {
     const review = await api(`/api/runs/${state.runId}/elevenlabs-prompts`).catch(() => null);
-    if (review?.review_required && !review?.review?.approved) {
+    if (review?.review_required && review?.can_generate === false) {
       el.classList.remove("hidden");
-      el.innerHTML = `<p class="hint"><strong>G1.5 required:</strong> review and approve ElevenLabs prompts before generation.</p>
-      <button class="btn primary sm" type="button" id="btn-open-prompt-review">Open prompt review</button>`;
+      el.innerHTML = `<div class="quality-offer-card">
+        <p class="hint"><strong>G1.5 required:</strong> review and approve ElevenLabs prompts before generation.</p>
+        <p class="muted">Open <strong>ElevenLabs prompt craft</strong> to edit prompts, tune influence, and approve.</p>
+        <div class="flow-choice">
+          <button class="btn primary sm" type="button" id="btn-open-prompt-review">Open prompt craft</button>
+        </div>
+      </div>`;
       el.querySelector("#btn-open-prompt-review")?.addEventListener("click", () => {
         selectStage("elevenlabs_prompt_craft");
       });
@@ -518,11 +529,95 @@ async function renderGateActions(stage) {
   await renderPrecleanOffer(stage, el);
 }
 
+const VALUE_FEATURES_PATH = "understanding/value_features.json";
+
+function formatValueMetric(value) {
+  if (value == null || value === "") return "—";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  return String(value);
+}
+
+function formatValueTags(tags) {
+  if (!tags || typeof tags !== "object") return [];
+  return ["LEX", "COM", "CRE"].flatMap((axis) => {
+    const items = tags[axis];
+    if (!Array.isArray(items) || !items.length) return [];
+    return items.map((t) => `${axis}:${t}`);
+  });
+}
+
+async function renderValueFeaturesPanel(host) {
+  const card = document.createElement("div");
+  card.className = "quality-offer-card value-features-card";
+  card.innerHTML = `<h4>Value features (R&amp;D)</h4>
+    <p class="muted">Read-only tooling summary — not consumed by the default pipeline.</p>`;
+  host.appendChild(card);
+
+  let data;
+  try {
+    data = await api(
+      `/api/runs/${state.runId}/artifact?path=${encodeURIComponent(VALUE_FEATURES_PATH)}`,
+    );
+  } catch {
+    card.innerHTML += `<p class="hint">No <code>${VALUE_FEATURES_PATH}</code> yet. With <code>value_analysis.enabled</code> in config, run:</p>
+      <p class="hint"><code>python tools/extract_value_features.py --run-id ${state.runId} --profile all</code></p>`;
+    return;
+  }
+
+  const profiles = data?.profiles && typeof data.profiles === "object" ? data.profiles : {};
+  const rows = [];
+  const tr = profiles.transcript;
+  if (tr && typeof tr === "object") {
+    rows.push(
+      ["Transcript · WPM proxy", tr.words_per_minute_proxy],
+      ["Transcript · median pause (ms)", tr.median_pause_ms],
+      ["Transcript · segments", tr.segment_count],
+      ["Transcript · segment p50 / p90", `${formatValueMetric(tr.segment_length_p50)} / ${formatValueMetric(tr.segment_length_p90)}`],
+      ["Transcript · interviewer turn ratio", tr.interviewer_turn_ratio],
+      ["Transcript · tags", formatValueTags(tr.tags).join(", ") || "—"],
+    );
+  }
+  const au = profiles.audio;
+  if (au && typeof au === "object") {
+    rows.push(
+      ["Audio · duration (s)", au.duration_sec],
+      ["Audio · silence ratio", au.silence_ratio],
+      ["Audio · RMS p50 / p90", `${formatValueMetric(au.rms_p50)} / ${formatValueMetric(au.rms_p90)}`],
+      ["Audio · peak dBFS proxy", au.peak_dbfs_proxy],
+    );
+  }
+
+  if (!rows.length) {
+    card.innerHTML += `<p class="hint"><code>${VALUE_FEATURES_PATH}</code> exists but has no profiles — re-run the extractor.</p>`;
+    return;
+  }
+
+  const dl = document.createElement("dl");
+  dl.className = "value-features-dl";
+  rows.forEach(([label, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = formatValueMetric(value);
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  });
+  card.appendChild(dl);
+  const meta = document.createElement("p");
+  meta.className = "muted";
+  meta.textContent = `run_id ${data.run_id || state.runId} · ${VALUE_FEATURES_PATH}`;
+  card.appendChild(meta);
+}
+
 async function renderElevenLabsPromptReviewPanel(host) {
   const data = await api(`/api/runs/${state.runId}/elevenlabs-prompts`);
   const prompts = Array.isArray(data.prompts) ? data.prompts : [];
   const approved = Boolean(data.review?.approved);
   const reviewRequired = Boolean(data.review_required);
+  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+  const warningsHtml = warnings.length
+    ? `<ul class="muted">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
+    : "";
   host.innerHTML = `
     <div class="quality-offer-card">
       <p class="hint"><strong>G1.5 prompt review:</strong> review or edit crafted prompts before SFX generation.</p>
@@ -533,9 +628,10 @@ async function renderElevenLabsPromptReviewPanel(host) {
       }${reviewRequired ? " (required before generate)" : " (optional)"}.</p>
     </div>
     <div id="el-prompt-list"></div>
+    ${warningsHtml}
     <div class="flow-choice">
       <button class="btn ghost sm" type="button" id="btn-el-save-prompts">Save edits</button>
-      <button class="btn primary sm" type="button" id="btn-el-approve-prompts">Approve prompts</button>
+      <button class="btn primary sm" type="button" id="btn-el-approve-prompts" ${prompts.length ? "" : "disabled"}>Approve prompts</button>
     </div>
   `;
   const list = host.querySelector("#el-prompt-list");
@@ -550,7 +646,9 @@ async function renderElevenLabsPromptReviewPanel(host) {
         const influence = Number(row.prompt_influence ?? 0.35);
         return `<div class="vo-card" data-idx="${idx}">
           <h4>${aid} · ${role}</h4>
-          <div class="asset-meta">duration ${duration.toFixed(2)}s · influence ${influence.toFixed(2)}</div>
+          <div class="asset-meta">duration ${duration.toFixed(2)}s</div>
+          <label class="tr-label">Prompt influence (0–1)</label>
+          <input class="input el-prompt-influence" type="number" min="0" max="1" step="0.05" value="${influence.toFixed(2)}" />
           <label class="tr-label">Prompt</label>
           <textarea class="tr-textarea el-prompt-text" rows="3">${escapeHtml(row.elevenlabs_prompt || "")}</textarea>
           <label class="tr-label">Negative prompt</label>
@@ -594,10 +692,13 @@ function collectElevenLabsPromptEdits(originalRows, host) {
     if (!card) return row;
     const promptText = card.querySelector(".el-prompt-text")?.value || "";
     const negative = card.querySelector(".el-negative-prompt")?.value || "";
+    const influenceRaw = card.querySelector(".el-prompt-influence")?.value;
+    const influence = influenceRaw !== undefined && influenceRaw !== "" ? Number(influenceRaw) : row.prompt_influence;
     return {
       ...row,
       elevenlabs_prompt: promptText.trim(),
       negative_prompt: negative.trim(),
+      prompt_influence: Number.isFinite(influence) ? Math.min(1, Math.max(0, influence)) : row.prompt_influence,
     };
   });
 }
@@ -666,7 +767,7 @@ function resolvePrecleanOffer(stage) {
       prompt: "Remove background noise from your new pickup recordings?",
     };
   }
-  if (stage.id === "mux_flow1" || stage.id === "mux_flow2") {
+  if (stage.id === "mix_flow1" || stage.id === "mix_flow2" || stage.id === "mux_flow1" || stage.id === "mux_flow2") {
     return {
       checkpoint: "before_flow_mix",
       scope: "normalized_rebuild",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from interview_mux.stages.llm_runner import run_prompt_envelope
@@ -26,14 +27,28 @@ def run_llm_arbiter(
         "truncation_flags": truncation_flags,
         "stage_expectations": stage_expectations,
     }
-    verdict_env = run_prompt_envelope(
-        "_arbiter",
-        ARBITER_PROMPT,
-        user_content=_compact_json(payload),
-        include_preamble=False,
-        task_kind="arbiter",
-        response_format={"type": "json_object"},
-    )
+    try:
+        verdict_env = run_prompt_envelope(
+            "_arbiter",
+            ARBITER_PROMPT,
+            user_content=_compact_json(payload),
+            include_preamble=False,
+            task_kind="arbiter",
+            response_format={"type": "json_object"},
+        )
+    except (ValueError, json.JSONDecodeError):
+        return {
+            "verdict": "enqueue_investigation",
+            "confidence": 0.0,
+            "gaps": ["Arbiter response was not valid JSON."],
+            "shard_plan": [],
+            "suggested_investigation": {
+                "kind": "arbiter_parse_failure",
+                "question": f"Re-run {stage_key} after arbiter parse failure.",
+                "blocking": True,
+            },
+            "reasoning_summary": "Arbiter call failed JSON parse; enqueueing investigation.",
+        }
     return _normalize_arbiter_result(verdict_env.get("artifacts") or verdict_env)
 
 

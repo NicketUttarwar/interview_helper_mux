@@ -97,7 +97,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 | Order | Stage ids | Module | Ticket |
 |-------|-----------|--------|--------|
-| optional | `audio_preclean` | `audio_preclean.py` | BUILD-019 (planned) |
+| optional | `audio_preclean` | `audio_preclean.py` | BUILD-019 |
 | 1 | `ingest` | `ingest.py` | BUILD-020 |
 | 2 | `transcribe` | `transcribe_aws.py` | BUILD-021 |
 | 3 | `transcript_review_build`, `transcript_review` | `transcript_review.py` | BUILD-018 |
@@ -124,7 +124,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 | `elevenlabs_sfx_flow1` | BUILD-034 | ElevenLabs REST |
 | `edl_flow1`, `mux_flow1`, `master_flow1` | BUILD-035–036 | — |
 
-**Requires:** G1 clear, `selected_flow: flow1` (G2). **Profile gate (planned):** BUILD-081 before extended analysis.
+**Requires:** G1 clear, `selected_flow: flow1` (G2). **Profile gate (BUILD-081):** `meta.operator_verified: true` in `analysis_state.json` before `topic_coverage_audit` — [operator-gates.md](../workflows/operator-gates.md#profile-gate--flow-1-extended-build-081).
 
 **Verify:** `python tools/run_flow.py --flow flow1` + `verify_master.py` on `master.wav`.
 
@@ -188,13 +188,13 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ---
 
-### Phase 7 — Intelligence and guardrails (BUILD-073, 081–082) — planned
+### Phase 7 — Intelligence and guardrails (BUILD-073, 082) — done
 
-| Ticket | Deliverable |
-|--------|-------------|
-| BUILD-073 | Smart LLM routing — [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md) |
-| BUILD-081 | Profile gate before Flow 1 extended stages |
-| BUILD-082 | `source_acoustic_profile` stage |
+| Ticket | Deliverable | Status |
+|--------|-------------|--------|
+| BUILD-073 | Smart LLM routing — [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md) | done |
+| BUILD-081 | Profile gate before Flow 1 extended stages | done — [operator-gates.md](../workflows/operator-gates.md#profile-gate--flow-1-extended-build-081) |
+| BUILD-082 | `source_acoustic_profile` stage | done |
 
 **Optional R&D:** [value-analysis/](../pipeline/value-analysis/) — not on default path.
 
@@ -223,7 +223,7 @@ Repository-wide checklist (also in [steps-forward.md](./steps-forward.md)):
 - [ ] Fresh clone: SETUP → bootstrap → check_prerequisites → smoke-test for **flow1, flow2, and flow3**
 - [ ] All three flows selectable at G2 and runnable via CLI + GUI
 - [ ] `master.wav` for flow1/2 includes VO + SFX mix per north star (not speech-only)
-- [ ] `verify_master` enforces LUFS/true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md)
+- [x] `verify_master` enforces LUFS/true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md)
 - [ ] Pre-clean offered at documented checkpoints; never auto-enabled
 - [ ] [stage-registry.md](./stage-registry.md) matches `pipeline.py` and `web/stages.py`
 - [ ] No stale rows in [repository-map.md](./repository-map.md) gap table

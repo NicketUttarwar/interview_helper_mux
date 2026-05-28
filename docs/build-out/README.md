@@ -60,6 +60,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-015 | Background job runner | `web/runner.py` → `gui_job.json` | done |
 | BUILD-016 | Centralized operator log | `session_log.py`, `RunContext.log()` | done |
 | BUILD-017 | Gates G0–G2 | `gates.py`, GUI gate panels | done (G2: flow1 \| flow2 \| flow3) |
+| BUILD-081 | Profile gate (Flow 1 extended) | `gates.py`, GUI stage lock + gate hints | done |
 | BUILD-018 | Transcript review + analysis memory | `transcript_review.py`, `analysis_memory.py`, `analysis_orchestrator.py` | done |
 | BUILD-056 | NLE editor state | `nle_state.py`, `/api/runs/.../nle` | done (feeds BUILD-068) |
 | BUILD-057 | GUI session / active run | `gui_session.py`, `/api/session` | done |
@@ -72,7 +73,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module | Status |
 |--------|-------|--------|--------|
-| BUILD-019 | Audio pre-clean (optional) | `stages/audio_preclean.py` | planned |
+| BUILD-019 | Audio pre-clean (optional) | `stages/audio_preclean.py` | done (GUI offers: BUILD-072) |
 | BUILD-020 | Ingest | `stages/ingest.py` | done |
 | BUILD-021 | AWS Transcribe | `stages/transcribe_aws.py` | done |
 | BUILD-022 | Speaker roles | `understanding.py` | done |
@@ -82,8 +83,9 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-026 | Optimal questions + gap report | `gaps.py` | done |
 | BUILD-027 | VO ingest | `gaps.ingest_vo_pickup` | done |
 | BUILD-028 | Analysis CLI + pipeline | `tools/run_analysis.py`, `pipeline.run_analysis` | done |
+| BUILD-082 | Source acoustic profile | `understanding.py` → `understanding/source_acoustic_profile.json` | done |
 
-**Smart LLM routing (docs shipped; code planned):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md), [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md), [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md) → **BUILD-073**
+**Smart LLM routing:** [llm-orchestration.md](../cross-cutting/llm-orchestration.md), [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) — **BUILD-073** done (`model_registry`, `llm_arbiter`, `llm_subtasks`)
 
 **Gate G1** after BUILD-028 — [operator-gates.md](../workflows/operator-gates.md)
 
@@ -136,7 +138,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 |--------|-------|--------|--------|
 | BUILD-050 | Mastering module | `mastering.py` | done |
 | BUILD-051 | Flow CLI | `tools/run_flow.py`, `cli.flow_cmd` | done (flow1 \| flow2 \| flow3) |
-| BUILD-052 | verify_master | `tools/verify_master.py` | done (ffprobe; LUFS → BUILD-070) |
+| BUILD-052 | verify_master | `tools/verify_master.py`, `master_qc.py` | done |
 | BUILD-053 | Smoke test doc | `docs/workflows/smoke-test.md` | done |
 | BUILD-054 | Prompt validation tests | `tests/test_prompt_validation.py` | done |
 | BUILD-055 | Transcript review tests | `tests/test_transcript_review.py` | done |
@@ -149,13 +151,13 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Deliverable |
 |--------|-------|-------------|
-| BUILD-060 | SDP schema + empty plan init | `sound_design_plan.schema.json`, template in run workspace |
-| BUILD-061 | Theme palettes stage | `sound_design_palettes` after `segment_classification` |
-| BUILD-062 | Flow 1 plan stage | `sound_design_plan_flow1`; merge into SDP |
-| BUILD-063 | Flow 2 plan stage | `sound_design_plan_flow2` |
-| BUILD-064 | ElevenLabs prompt craft + generate | one WAV per `asset_id` |
-| BUILD-065 | Mix engine | `mix_flow1` / `mix_flow2`; VO + beds + stingers |
-| BUILD-066 | Pipeline + GUI wire-up | replace/alias v1 SFX stages; optional G1.5 gate |
+| BUILD-060 | SDP schema + empty plan init | done — `sound_design_plan.schema.json`, init in `ensure_analysis_workspace` |
+| BUILD-061 | Theme palettes stage | done — `sound_design_palettes` after `segment_classification` |
+| BUILD-062 | Flow 1 plan stage | done — `sound_design_plan_flow1` after `transitions`; merges `assets` + `flow_plans.flow1` into SDP; cue `asset_id` link validation |
+| BUILD-063 | Flow 2 plan stage | done — `sound_design_plan_flow2` after `highlight_selection`; merges `assets` + `flow_plans.flow2` into SDP; cue `asset_id` link validation |
+| BUILD-064 | ElevenLabs prompt craft + generate | done — craft → `elevenlabs_prompts.json`; REST one WAV per `asset_id` in `sound_design/assets/` |
+| BUILD-065 | Mix engine | **done** — `sound_design.py`; `mix_flow1` / `mix_flow2`; VO + beds + stingers + ducking |
+| BUILD-066 | Pipeline + GUI wire-up | **done** — `mix_flow1`/`mix_flow2` in pipeline + GUI; v1 briefs legacy-only; G1.5 prompt review panel |
 
 Acceptance details: see historical BUILD-060–066 notes in git history or [sound-design.md](../cross-cutting/sound-design.md).
 
@@ -167,12 +169,12 @@ Acceptance details: see historical BUILD-060–066 notes in git history or [soun
 
 | Ticket | Title | Deliverable |
 |--------|-------|-------------|
-| BUILD-067 | Gap report → EDL | **done** — `edl_flow1` includes `vo_pickup` + gap placements; mux speech-only |
-| BUILD-068 | NLE → selection/EDL | `nle_edits.json` applied in ranking + EDL |
+| BUILD-067 | Gap report → EDL | **done** — `edl_flow1` includes `vo_pickup` + gap placements |
+| BUILD-068 | NLE → selection/EDL | **done** — `nle_edits.json` applied in `full_master_ranking` + `edl_flow1` (`selection.json`, EDL bounds) |
 | BUILD-069 | Assembly preview | **done** — `flow_1_master/assembly_preview.wav` (speech + VO) + GUI listen action before ElevenLabs |
-| BUILD-070 | verify_master LUFS/peak | per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
-| BUILD-071 | Mastering measurement | two-pass or pyloudnorm on assembly bus |
-| BUILD-072 | Pre-clean quality offers | GUI prompts; pickup scope in `run_meta.json` |
+| BUILD-070 | verify_master LUFS/peak | **done** — `master_qc.py`; ffmpeg loudnorm measurement; CLI + post-flow GUI log |
+| BUILD-071 | Mastering measurement | **done** — `mastering_bus.py` pyloudnorm on assembly; ffmpeg limiter uses BUILD-070 targets |
+| BUILD-072 | Pre-clean quality offers | **done** — GUI prompts at roadmap checkpoints; `run_meta.json` scope + `gui_log.jsonl` |
 
 ---
 
@@ -180,9 +182,7 @@ Acceptance details: see historical BUILD-060–066 notes in git history or [soun
 
 | Ticket | Title | Deliverable |
 |--------|-------|-------------|
-| BUILD-073 | Smart LLM routing | `model_registry`, `llm_arbiter`, shard/collate per handoff doc |
-| BUILD-081 | Profile gate for Flow 1 extended | block/warn before `topic_coverage_audit` without `operator_verified` |
-| BUILD-082 | Source acoustic profile stage | `understanding/source_acoustic_profile.json` per [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
+| BUILD-073 | Smart LLM routing | done — `model_registry.py`, `llm_arbiter.py`, `llm_subtasks.py`; wired in `analysis_stage.py` |
 
 **Optional R&D:** [pipeline/value-analysis/](../pipeline/value-analysis/) — not on the default delivery path; see [future-proofing.md](../roadmap/future-proofing.md).
 

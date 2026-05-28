@@ -4,30 +4,34 @@ Combine speech, interviewer VO pickup, transitions, and ElevenLabs SFX into `ass
 
 **North star:** [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md)
 
-## v1 (shipped) — known gaps
+## Mix engine (BUILD-065)
 
-| Flow | Tickets | Behavior |
-|------|---------|----------|
-| Flow 1 | BUILD-033–035 | Brief + `sfx/*.wav` generated; mux is **speech-only** concat — VO, transitions, SFX **not mixed** |
-| Flow 2 | BUILD-041–043 | Clips + `sfx_NNN` by **index** (cold open / shared transition semantics wrong) |
+Module: `src/interview_mux/sound_design.py` — `mix_flow1` / `mix_flow2`.
 
-Do not tell operators that v1 `master.wav` is the final podcast mix.
+| Stage | Pipeline id (until BUILD-066) | Output |
+|-------|------------------------------|--------|
+| Flow 1 mix | `mux_flow1` (alias) / `mix_flow1` | `flow_1_master/assembly.wav` — EDL speech + VO + SDP overlays (beds, stingers, ducking) |
+| Flow 2 mix | `mux_flow2` (alias) / `mix_flow2` | `flow_2_highlights/assembly.wav` — highlights + cold open + shared `between_clips` transition |
+
+`master_flow*` loudness-normalizes `assembly.wav` → `master.wav` (SFX remain audible).
+
+**Listen check:** After `mux_flow1` / `master_flow1`, confirm beds/stingers in `master.wav` — not speech-only concat.
 
 ## Assembly wiring (BUILD-067–069)
 
 | Ticket | Behavior |
 |--------|----------|
-| BUILD-067 | **Shipped (EDL):** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors; `mux_flow1` still speech-only |
+| BUILD-067 | **Shipped:** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors |
 | BUILD-068 | `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
 | BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
 
-## Planned — coherent mix (BUILD-060–066)
+## Sound design inputs (BUILD-060–064)
 
 See [sound-design.md](../../cross-cutting/sound-design.md).
 
 - `understanding/sound_design_plan.json` — palettes, reusable `assets`, per-flow `cues`
 - `sound_design/assets/{asset_id}.wav` — one file per asset, many cue references
-- `mix_flow1` / `mix_flow2` — pydub overlay (beds), ducked under speech, VO bridges
+- Legacy fallback: `flow_*/sfx/*.wav` when SDP cues absent (Flow 1 bed + index stingers)
 
 **Pre-clean before mix:** Operator may accept full-source or `normalized_rebuild` clean offer immediately before mux — see [audio_preclean](../audio_preclean/README.md).
 
@@ -56,9 +60,10 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 
 ## Modules
 
-**v1:** `assembly_flow1.py`, `assembly_flow2.py`, `sfx_elevenlabs.py`
-
-**planned:** `sound_design.py`, `stages/sound_design_stages.py`
+- `sound_design.py` — mix engine (`mix_flow1`, `mix_flow2`)
+- `assembly_flow1.py` — `edl_flow1`, `run_mux` → `mix_flow1`, `assembly_preview`
+- `assembly_flow2.py` — `run_micro_assembly` → `mix_flow2`
+- `sfx_elevenlabs.py`, `sound_design_stages.py`
 
 ---
 

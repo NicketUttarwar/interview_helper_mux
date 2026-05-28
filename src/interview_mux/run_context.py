@@ -103,7 +103,9 @@ class RunContext:
             self.write_json("run_meta.json", meta)
 
     def mark_done(self, stage: str) -> None:
-        (self.path(".stage_done", stage)).touch()
+        marker = self.path(".stage_done", stage)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
         self.log(f"Stage complete: {stage}", level="success", stage=stage)
 
     def is_done(self, stage: str) -> bool:

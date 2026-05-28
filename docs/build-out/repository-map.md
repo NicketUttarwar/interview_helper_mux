@@ -36,7 +36,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `file_store.py` | Locked JSON read/write | BUILD-012 |
 | `session_log.py` | `gui_log.jsonl` append/read | BUILD-016 |
 | `gui_session.py` | Active run / server session under `ASSETS/.gui` | BUILD-014 |
-| `gates.py` | G0/G1/G2 checks, `selected_flow` | BUILD-017 |
+| `gates.py` | G0/G1/G2 checks, `selected_flow`, profile gate before Flow 1 extended | BUILD-017, 081 |
 | `pipeline.py` | Stage orders, `run_analysis`, `run_flow1/2` | BUILD-028, 035–036, 043–044 |
 | `analysis_orchestrator.py` | Investigation queue drain after LLM stages | BUILD-018 |
 | `analysis_memory.py` | `analysis_state.json`, profile, queue | BUILD-018 |
@@ -55,18 +55,22 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `understanding.py` | `speaker_roles`, `content_context` | BUILD-022 |
 | `segmentation.py` | `boundary_detection`, `segment_classification` | BUILD-023–024 |
 | `gaps.py` | `missing_framing`, `optimal_questions`, `vo_ingest` | BUILD-025–027 |
-| `llm_runner.py` | OpenAI calls | BUILD-013 |
-| `analysis_stage.py` | Shared LLM stage runner | BUILD-013 |
+| `llm_runner.py` | OpenAI calls (`task_kind`, tier meta) | BUILD-013, 073 |
+| `analysis_stage.py` | Shared LLM stage runner + arbiter | BUILD-013, 073 |
+| `model_registry.py` | Tier → API ID resolution | BUILD-073 |
+| `llm_arbiter.py` | Post-primary verdict | BUILD-073 |
+| `llm_subtasks.py` | Shard/collate decompose | BUILD-073 |
 | `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
-| `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033 |
+| `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
 | `selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
 | `sfx_elevenlabs.py` | `elevenlabs_sfx_flow1/2` | BUILD-034, 042 |
-| `assembly_flow1.py` | `edl_flow1`, `mux_flow1` | BUILD-035, 067 |
-| `assembly_flow2.py` | `mux_flow2` | BUILD-043 |
+| `sound_design.py` | `mix_flow1`, `mix_flow2` | BUILD-065 |
+| `assembly_flow1.py` | `edl_flow1`, `mux_flow1` → `mix_flow1` | BUILD-035, 065, 067, 068 |
+| `assembly_flow2.py` | `mux_flow2` → `mix_flow2` | BUILD-043, 065 |
 | `mastering.py` | `master_flow1`, `master_flow2` | BUILD-036, 050 |
-| `audio_preclean.py` | *(planned)* | BUILD-019 |
+| `audio_preclean.py` | ElevenLabs isolation (optional) | BUILD-019 |
 | `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
-| `sound_design_stages.py` | *(planned)* | BUILD-061–063 |
+| `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `elevenlabs_prompt_craft` | BUILD-061–064 |
 
 ### Web GUI (`src/interview_mux/web/`)
 
@@ -90,7 +94,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, import smoke, `pip-audit` on `requirements.lock` | BUILD-010 |
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
 | `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
-| `tools/verify_master.py` | ffprobe smoke on `master.wav` | BUILD-052 |
+| `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` | BUILD-052, BUILD-070 |
+| `src/interview_mux/master_qc.py` | Measurement + threshold checks (shared by CLI and GUI) | BUILD-070 |
+| `src/interview_mux/mastering_bus.py` | pyloudnorm assembly-bus LUFS before limiter | BUILD-071 |
 
 ---
 
@@ -126,8 +132,8 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | Topic | Docs say | Code today |
 |-------|----------|------------|
 | ASSETS-first input | GUI asset list + executions under `ASSETS/executions/`; resume via `GET /api/session` + `PUT /api/session/active` | **Shipped** — GUI + `RunContext` exec_* ids; CLI `--run-id exec_*` opens existing execution; headless fallback still uses `input_audio_path` / `INPUT_AUDIO_PATH` |
-| Full podcast mix | VO + SFX in `master.wav` | EDL lists VO + transitions (BUILD-067); `mux_flow1` still speech-only concat — BUILD-065/069 |
-| Smart LLM routing | Full spec | Single-model `llm_runner` — BUILD-073+ |
-| Pre-clean offers | Multiple checkpoints | Stage not implemented — BUILD-019, 072 |
+| Full podcast mix | VO + SFX in `master.wav` | **Shipped (BUILD-065–066)** — `mix_flow1`/`mix_flow2` canonical in `pipeline.py` + GUI; `mux_flow*` legacy single-stage alias |
+| Smart LLM routing | `model_registry`, `llm_arbiter`, `llm_subtasks` | done (BUILD-073) |
+| Pre-clean offers | Multiple checkpoints | **done** — BUILD-019 stage + BUILD-072 GUI checkpoints |
 
 When you close a gap, update this table and the ticket status in [README.md](./README.md).

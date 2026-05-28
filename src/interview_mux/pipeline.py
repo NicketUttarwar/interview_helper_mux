@@ -65,7 +65,7 @@ FLOW1_ORDER = [
     "assembly_preview",
     "elevenlabs_prompt_craft",
     "elevenlabs_sfx_flow1",
-    "mux_flow1",
+    "mix_flow1",
     "master_flow1",
 ]
 
@@ -74,7 +74,7 @@ FLOW2_ORDER = [
     "sound_design_plan_flow2",
     "elevenlabs_prompt_craft",
     "elevenlabs_sfx_flow2",
-    "mux_flow2",
+    "mix_flow2",
     "master_flow2",
 ]
 
@@ -111,10 +111,9 @@ def _flow1_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "sound_design_plan_flow1": lambda: sound_design_stages.run_sound_design_plan_flow1(ctx),
         "edl_flow1": assembly_flow1.run_edl,
         "assembly_preview": assembly_flow1.run_preview,
-        "podcast_sfx_brief": selection_flow1.run_podcast_sfx_brief,
         "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
         "elevenlabs_sfx_flow1": lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="podcast"),
-        "mux_flow1": assembly_flow1.run_mux,
+        "mix_flow1": assembly_flow1.run_mix_flow1,
         "master_flow1": mastering.run_master_flow1,
     }
 
@@ -123,10 +122,9 @@ def _flow2_stage_fns(ctx: RunContext) -> dict[str, Any]:
     return {
         "highlight_selection": selection_flow2.run_highlight_selection,
         "sound_design_plan_flow2": lambda: sound_design_stages.run_sound_design_plan_flow2(ctx),
-        "sfx_brief": selection_flow2.run_sfx_brief,
         "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
         "elevenlabs_sfx_flow2": lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="montage"),
-        "mux_flow2": assembly_flow2.run_micro_assembly,
+        "mix_flow2": assembly_flow2.run_mix_flow2,
         "master_flow2": mastering.run_master_flow2,
     }
 
@@ -144,12 +142,18 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         transcript_review.mark_transcript_review_complete(ctx)
         return
     if stage == "podcast_sfx_brief":
-        # Backward-compatible alias; Flow 1 default path is now SDP -> prompt craft.
+        # v1 legacy — not in FLOW1_ORDER; SDP + elevenlabs_prompt_craft is the default path.
         selection_flow1.run_podcast_sfx_brief(ctx)
         return
     if stage == "sfx_brief":
-        # Backward-compatible alias; Flow 2 default path is now SDP -> prompt craft.
+        # v1 legacy — not in FLOW2_ORDER; SDP + elevenlabs_prompt_craft is the default path.
         selection_flow2.run_sfx_brief(ctx)
+        return
+    if stage == "mux_flow1":
+        assembly_flow1.run_mux(ctx)
+        return
+    if stage == "mux_flow2":
+        assembly_flow2.run_micro_assembly(ctx)
         return
 
     if stage in ANALYSIS_ORDER:
@@ -279,7 +283,7 @@ def run_flow1(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("assembly_preview", assembly_flow1.run_preview),
         ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),
         ("elevenlabs_sfx_flow1", lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="podcast")),
-        ("mux_flow1", assembly_flow1.run_mux),
+        ("mix_flow1", assembly_flow1.run_mix_flow1),
         ("master_flow1", mastering.run_master_flow1),
     ]
     _run_steps(ctx, steps, from_stage)
@@ -296,7 +300,7 @@ def run_flow2(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("sound_design_plan_flow2", lambda: sound_design_stages.run_sound_design_plan_flow2(ctx)),
         ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),
         ("elevenlabs_sfx_flow2", lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="montage")),
-        ("mux_flow2", assembly_flow2.run_micro_assembly),
+        ("mix_flow2", assembly_flow2.run_mix_flow2),
         ("master_flow2", mastering.run_master_flow2),
     ]
     _run_steps(ctx, steps, from_stage)

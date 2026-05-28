@@ -15,6 +15,39 @@ Per-stage notes (if needed): [sections/](./sections/).
 
 ---
 
+## Tooling (feature-flagged)
+
+Optional R&D CLIs — **not** registered in [`pipeline.py`](../../src/interview_mux/pipeline.py). Enable locally in `config/app.defaults.json` (or secrets overlay); see [config-keys.md](../../cross-cutting/config-keys.md).
+
+**Execution guide:** [g15-and-value-analysis-execution.md](../../build-out/g15-and-value-analysis-execution.md) (Track B commands, file checklist).
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `value_analysis.enabled` | `false` | Master switch; when `false`, CLIs exit 0 with a message |
+| `value_analysis.spike_scoring` | `true` | Allows `tools/run_value_spike.py` when master is on |
+| `value_analysis.transcript_features` | `true` | Transcript profile in `extract_value_features` |
+| `value_analysis.audio_features` | `false` | Audio profile (`ingest/normalized.wav`) in extractor |
+
+**Spike scoring** — aggregate scorecard JSON (LEX / COM / CRE rubric):
+
+```bash
+python tools/run_value_spike.py \
+  --scorecard tests/fixtures/value_analysis/spike_flow1_sound.json \
+  --profiles listener-first,idea-first \
+  --out /tmp/spike_ranked.json
+```
+
+**Feature extraction** — merge profiles into `understanding/value_features.json` ([schema](../../cross-cutting/json-schemas/value_features.schema.json)):
+
+```bash
+python tools/extract_value_features.py --run-id run_201 --profile all
+python tools/extract_value_features.py --run-id run_301 --profile transcript
+```
+
+Record spike outcomes in [spike-results-and-winners.md](./spike-results-and-winners.md).
+
+---
+
 ## Build-out
 
 Optional R&D — not on default delivery path. Product backlog: [steps-forward.md](../../build-out/steps-forward.md) · [future-proofing.md](../../roadmap/future-proofing.md).

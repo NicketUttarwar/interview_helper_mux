@@ -48,3 +48,28 @@ def test_audio_preclean_runs_when_enabled(tmp_path, monkeypatch) -> None:
     assert out.is_file()
     assert ctx.artifact_exists("preclean/lineage.json")
     assert ctx.artifact_exists("preclean/provider.json")
+
+
+def test_audio_preclean_vo_pickup_scope(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_703", create=True)
+    src = tmp_path / "input.wav"
+    _write_wav(src)
+    ctx.init_run_meta(str(src))
+    pickup = ctx.path("vo_pickup", "line_001.wav")
+    _write_wav(pickup)
+
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {"enabled": True, "scope": "vo_pickup"}
+    ctx.write_json("run_meta.json", meta)
+
+    monkeypatch.setattr(audio_preclean, "require_secret", lambda _: "test-key")
+    monkeypatch.setattr(audio_preclean, "isolate_audio", lambda **_: pickup.read_bytes())
+
+    out = audio_preclean.run_audio_preclean(ctx)
+    assert out is None
+    clean = ctx.path("vo_pickup", "clean", "line_001.wav")
+    assert clean.is_file()
+    lineage = ctx.read_json("preclean/lineage.json")
+    assert lineage["scope"] == "vo_pickup"
+    assert lineage["files"][0]["output_path"] == "vo_pickup/clean/line_001.wav"

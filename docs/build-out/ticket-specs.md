@@ -112,18 +112,18 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ## Wave 2 — Shared analysis
 
-### BUILD-019 — Audio pre-clean (planned)
+### BUILD-019 — Audio pre-clean
 
-- [ ] `stages/audio_preclean.py` calls ElevenLabs isolation REST
-- [ ] Writes `preclean/isolated.wav` + `lineage.json`
-- [ ] Invalidates downstream from ingest (or vo_ingest for pickup-only)
-- [ ] GUI offers at checkpoints in [audio_preclean/README.md](../pipeline/audio_preclean/README.md)
-- [ ] Never auto-runs
+- [x] `stages/audio_preclean.py` calls ElevenLabs isolation REST
+- [x] Writes `preclean/isolated.wav` + `lineage.json` (full source); `vo_pickup/clean/` + lineage for pickup scope
+- [x] Invalidates downstream from ingest (or vo_ingest for pickup-only) on operator accept
+- [x] GUI offers at checkpoints in [audio_preclean/README.md](../pipeline/audio_preclean/README.md) — **BUILD-072**
+- [x] Never auto-runs
 
 ### BUILD-020 — Ingest
 
 - [x] Normalized WAV + checksums
-- [ ] Optional input from preclean path when BUILD-019 used
+- [x] Optional input from preclean path when BUILD-019 used
 
 ### BUILD-021 — AWS Transcribe
 
@@ -169,18 +169,17 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-033 — Podcast SFX brief (v1)
 
 - [x] `podcast_sfx_brief.json` generated
-- [ ] Superseded by SDP flow plan (BUILD-062) when Wave 5 ships
+- [x] Superseded by SDP flow plan (BUILD-062) on default Flow 1 path
 
 ### BUILD-034 — ElevenLabs SFX flow1
 
 - [x] WAV per brief line via REST
-- [ ] One WAV per `asset_id` (BUILD-064)
+- [x] One WAV per `asset_id` (BUILD-064)
 
 ### BUILD-035 — Mux assembly (v1)
 
-- [x] `edl.json`, `assembly.wav` (speech-only mux; EDL includes VO placements per BUILD-067)
+- [x] `edl.json`, `assembly.wav` (mix via BUILD-065; EDL includes VO placements per BUILD-067)
 - [x] EDL includes gap VO placements (BUILD-067)
-- [ ] Real mix (BUILD-065)
 
 ### BUILD-036 — Master export flow1
 
@@ -200,7 +199,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-043 — Micro-assembly
 
-- [x] `assembly.wav` (index-based SFX — fix in BUILD-065)
+- [x] `assembly.wav` (SDP `between_clips` + cold open via BUILD-065)
 
 ### BUILD-044 — Master export flow2
 
@@ -249,7 +248,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-052 — verify_master
 
 - [x] ffprobe format check
-- [ ] LUFS + true peak (BUILD-070)
+- [x] LUFS + true peak (BUILD-070)
 
 ### BUILD-053 — Smoke test doc
 
@@ -259,7 +258,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-054–055 — Tests
 
 - [x] `test_prompt_validation.py`, `test_transcript_review.py`
-- [ ] Gates + pipeline smoke fixtures (steps-forward #18)
+- [x] Gates + pipeline smoke fixtures (steps-forward #18) — `test_gates.py`, `test_pipeline.py`, `run_fixtures.py`
 
 ---
 
@@ -267,36 +266,48 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-060 — SDP schema + empty plan init
 
-- [ ] `sound_design_plan.schema.json` in json-schemas
-- [ ] Initialize `understanding/sound_design_plan.json` after shared analysis or at palettes stage
+- [x] `sound_design_plan.schema.json` in json-schemas
+- [x] Initialize `understanding/sound_design_plan.json` in `ensure_analysis_workspace` (first LLM analysis stage / profile edit)
+- [x] Schema validation via `prompt_validation.validate_sound_design_plan` (init + Wave 5 SDP persists)
 
 ### BUILD-061 — Theme palettes stage
 
-- [ ] `sound_design_palettes` after `segment_classification`
-- [ ] Writes `palettes` + `coherence` to SDP
+- [x] `sound_design_palettes` after `segment_classification`
+- [x] Writes `palettes` + `coherence` to SDP
 
-### BUILD-062–063 — Flow plan stages
+### BUILD-062 — Flow 1 sound design plan
 
-- [ ] `sound_design_plan_flow1` / `_flow2` after G2 selection
-- [ ] Cues reference reusable `asset_id`s
+- [x] `sound_design_plan_flow1` in `FLOW1_ORDER` after `transitions` (post G2 flow1 selection inputs)
+- [x] Requires `run_meta.selected_flow` = `flow1`
+- [x] LLM artifacts merge `assets[]` and `flow_plans.flow1` into `understanding/sound_design_plan.json`
+- [x] Persist validates full SDP schema; cues must reference known `asset_id` values
+- [x] Prompt: [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt)
+
+### BUILD-063 — Flow 2 sound design plan
+
+- [x] `sound_design_plan_flow2` in `FLOW2_ORDER` after `highlight_selection` (post G2 flow2 selection inputs)
+- [x] Requires `run_meta.selected_flow` = `flow2`
+- [x] LLM artifacts merge `assets[]` and `flow_plans.flow2` into `understanding/sound_design_plan.json`
+- [x] Persist validates full SDP schema; cues must reference known `asset_id` values
+- [x] Prompt: [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt)
 
 ### BUILD-064 — ElevenLabs prompt craft + generate
 
-- [ ] OpenAI craft stage → `elevenlabs_prompts.json`
-- [ ] One REST call per unique `asset_id`
-- [ ] Respects `duration_seconds` from plan
+- [x] OpenAI craft stage → `elevenlabs_prompts.json`
+- [x] One REST call per unique `asset_id`
+- [x] Respects `duration_seconds` from plan
 
 ### BUILD-065 — Mix engine
 
-- [ ] `mix_flow1` / `mix_flow2` replace v1 speech-only mux
-- [ ] VO + beds + stingers + ducking per [sound-design.md](../cross-cutting/sound-design.md)
-- [ ] `master.wav` audibly includes SFX
+- [x] `mix_flow1` / `mix_flow2` replace v1 speech-only mux (`sound_design.py` + canonical pipeline ids — BUILD-066)
+- [x] VO + beds + stingers + ducking per [sound-design.md](../cross-cutting/sound-design.md)
+- [x] `master.wav` audibly includes SFX (via `assembly.wav` → `master_flow*`)
 
 ### BUILD-066 — Pipeline + GUI wire-up
 
-- [ ] Stage order updated in `pipeline.py` and `web/stages.py`
-- [ ] Optional G1.5 SFX prompt review panel
-- [ ] v1 brief stages aliased or removed from default path
+- [x] Stage order updated in `pipeline.py` and `web/stages.py` (`mix_flow1` / `mix_flow2` canonical; `mux_flow*` legacy aliases)
+- [x] Optional G1.5 SFX prompt review panel (`elevenlabs_prompt_craft` + `/api/runs/{id}/elevenlabs-prompts*`; `g1_5_require_prompt_approval`)
+- [x] v1 brief stages aliased or removed from default path (`podcast_sfx_brief` / `sfx_brief` single-stage only)
 
 ---
 
@@ -319,17 +330,21 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-070 — verify_master LUFS/peak
 
-- [ ] Integrated loudness and true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md)
-- [ ] CLI exit non-zero on fail; GUI surfaces result
+- [x] Integrated loudness and true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md)
+- [x] CLI exit non-zero on fail; GUI surfaces result (`gui_log.jsonl`, `stage: verify_master` after flow execute)
 
 ### BUILD-071 — Mastering measurement
 
-- [ ] Two-pass or pyloudnorm on assembly bus before final limiter
+- [x] `pyloudnorm` integrated LUFS on `assembly.wav` before final limiter (`mastering_bus.py`)
+- [x] Targets and true-peak ceiling from BUILD-070 `TARGETS`; gain offset drives ffmpeg `loudnorm` pass
+- [x] `gui_log.jsonl` records assembly-bus measurement on `master_flow1` / `master_flow2`
 
 ### BUILD-072 — Pre-clean quality offers
 
-- [ ] GUI prompts at all checkpoints in quality roadmap
-- [ ] Pickup-only scope flag in `run_meta.json`
+- [x] GUI prompts at all checkpoints in quality roadmap
+- [x] Pickup-only scope flag in `run_meta.json` (`audio_preclean.scope: vo_pickup`)
+- [x] `ctx.log()` for offer / accept / dismiss (`POST /api/runs/{id}/preclean-offer`)
+- [x] Never auto-run pre-clean (stage skips until operator accepts)
 
 ---
 
@@ -337,9 +352,9 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-073 — Smart LLM routing
 
-- [ ] `model_registry`, `llm_arbiter` per [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md)
-- [ ] Shard/collate for long interviews
-- [ ] `stage_runs/*/attempt_*.json` records arbiter verdict
+- [x] `model_registry`, `llm_arbiter` per [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md)
+- [x] Shard/collate for long interviews (`missing_framing`, `segment_classification`)
+- [x] `stage_runs/*/attempt_*.json` records arbiter verdict (`arbiter_result`, `shard_count`, `model_tier`, `truncation_flags`)
 
 ### BUILD-081 — Profile gate for Flow 1 extended
 

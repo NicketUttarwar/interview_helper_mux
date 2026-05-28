@@ -117,8 +117,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | No VO in `master.wav` | v1 Flow 1 speech-only mux | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expected until BUILD-067/065; verify artifacts exist for later mix |
-| SFX feels random | v1 one-shot per cue | `podcast_sfx_brief.json`, [sound-design.md](../cross-cutting/sound-design.md) | Track Wave 5 SDP; optional G1.5 when implemented |
-| Loudness wrong | Mastering not measuring LUFS yet | `verify_master.py` behavior | BUILD-070/071 — [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| SFX feels random | v1 one-shot per cue | `podcast_sfx_brief.json`, [sound-design.md](../cross-cutting/sound-design.md) | Track Wave 5 SDP; enable G1.5 (`g1_5_require_prompt_approval: true`) for pre-spend prompt approval |
+| Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | BUILD-071 mastering measurement — [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 
 ---
 
@@ -153,7 +153,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 ### Spend controls
 
 - Run **assembly_preview** before SFX when available (BUILD-069).
-- Enable **G1.5** (`require_operator_prompt_approval: true`) for high-cost runs.
+- Enable **G1.5** (`g1_5_require_prompt_approval: true`) for high-cost runs.
 - Target architecture: one call per `asset_id`, not per cue.
 
 ---

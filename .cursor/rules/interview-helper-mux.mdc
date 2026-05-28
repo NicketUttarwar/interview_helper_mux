@@ -60,8 +60,8 @@ Until build-out tickets close the matching gap in **`repository-map.md`**:
 - **Flow 1 `master.wav`:** v1 is **reordered speech-only** concat — not final VO + SFX mix (target: BUILD-065–067).
 - **Flow 2 SFX:** index-based concat; shared transition asset is planned (BUILD-065).
 - **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`.
-- **Pre-clean:** spec only until BUILD-019 / BUILD-072.
-- **LLM routing:** single-model runner until BUILD-073.
+- **Pre-clean:** stage shipped (BUILD-019); GUI checkpoint offers BUILD-072.
+- **LLM routing:** tier-aware `model_registry` + economy arbiter + shard/collate (BUILD-073).
 
 Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.json`** has **`selected_flow: flow1`** and **`understanding/analysis_state.json`** has **`meta.operator_verified: true`** (profile gate — **`operator-gates.md`**).
 

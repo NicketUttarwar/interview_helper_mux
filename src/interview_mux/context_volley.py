@@ -139,6 +139,12 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
     ),
+    "sound_design_plan_flow2": StageContextPlan(
+        task_line="Plan reusable Flow 2 montage assets and cue placements between highlights.",
+        prior_stages=("highlight_selection",),
+        profile_keys=("style", "themes", "narrative"),
+        max_investigations=0,
+    ),
     "sfx_brief": StageContextPlan(
         task_line="Specify montage SFX between highlight clips.",
         prior_stages=("highlight_selection",),
@@ -312,6 +318,21 @@ def _artifact_digest(ctx: RunContext, stage: str) -> str:
                 t = s.get("type", "unknown")
                 types[t] = types.get(t, 0) + 1
             return f"{len(segs)} segments. Types: {types}."
+        if stage == "sound_design_palettes" and ctx.artifact_exists("understanding/sound_design_plan.json"):
+            sdp = ctx.read_json("understanding/sound_design_plan.json")
+            coh = sdp.get("coherence") if isinstance(sdp.get("coherence"), dict) else {}
+            palettes = sdp.get("palettes") or []
+            mood = coh.get("primary_mood", "")
+            density = coh.get("density", "")
+            labels = [
+                p.get("theme_label", "")
+                for p in palettes[:4]
+                if isinstance(p, dict) and p.get("theme_label")
+            ]
+            return (
+                f"{len(palettes)} palette(s); mood={mood or '?'}, density={density or '?'}"
+                + (f"; themes: {', '.join(labels)}" if labels else "")
+            )
         if stage == "missing_framing" and ctx.artifact_exists("understanding/gap_evaluations.json"):
             ev = ctx.read_json("understanding/gap_evaluations.json")
             evals = ev.get("evaluations") or []
@@ -491,6 +512,9 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             }
         if raw.get("operator_style_sound_design_notes"):
             out_sdp["operator_style_sound_design_notes"] = raw.get("operator_style_sound_design_notes")
+        sap = _compact_source_acoustic_profile(raw.get("source_acoustic_profile"))
+        if sap:
+            out_sdp["source_acoustic_profile"] = sap
         return out_sdp
     if stage_key == "missing_framing":
         return {
@@ -521,6 +545,7 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         "highlight_selection",
         "transitions",
         "sound_design_plan_flow1",
+        "sound_design_plan_flow2",
         "podcast_sfx_brief",
         "sfx_brief",
     ):
@@ -543,6 +568,8 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["gap_report"] = _compact_gap_report(raw["gap_report"])
     if "selection" in raw:
         out["selection"] = _compact_selection(raw["selection"], stage_key)
+    if "sound_design_plan" in raw and stage_key in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+        out["sound_design_plan"] = _compact_sound_design_plan_for_flow(raw["sound_design_plan"])
     if "transitions" in raw and stage_key in ("podcast_sfx_brief", "sound_design_plan_flow1"):
         out["transitions"] = raw["transitions"]
     if "interviewer_sample_lines" in raw and stage_key == "transitions":
@@ -561,6 +588,17 @@ def _compact_coverage_audit(audit: Any) -> Any:
         "missing_coverage": audit.get("missing_coverage"),
         "orphan_segment_ids": audit.get("orphan_segment_ids"),
         "coverage_score": audit.get("coverage_score"),
+    }
+
+
+def _compact_sound_design_plan_for_flow(plan: Any) -> dict[str, Any]:
+    """Palettes + coherence for flow plan stages (assets/cues are stage output)."""
+    if not isinstance(plan, dict):
+        return {}
+    return {
+        "version": plan.get("version", 1),
+        "coherence": plan.get("coherence", {}),
+        "palettes": plan.get("palettes", []),
     }
 
 
@@ -598,6 +636,41 @@ def _compact_selection(sel: Any, stage_key: str) -> Any:
         "excluded_segment_ids": sel.get("excluded_segment_ids"),
         "notes": (sel.get("notes") or "")[:500],
     }
+
+
+def _compact_source_acoustic_profile(profile: Any) -> dict[str, Any] | None:
+    """Slice pacing + mix contract for palette stage volley (~500 token budget)."""
+    if not isinstance(profile, dict):
+        return None
+    pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
+    energy = profile.get("energy") if isinstance(profile.get("energy"), dict) else {}
+    mix = profile.get("mix_contract") if isinstance(profile.get("mix_contract"), dict) else {}
+    tokens = profile.get("prompt_tokens") if isinstance(profile.get("prompt_tokens"), dict) else {}
+    out: dict[str, Any] = {}
+    if pacing.get("pace_class"):
+        out["pace_class"] = pacing["pace_class"]
+    if pacing.get("speech_active_ratio") is not None:
+        out["speech_active_ratio"] = pacing["speech_active_ratio"]
+    if energy.get("room_timbre_hint"):
+        out["room_timbre_hint"] = energy["room_timbre_hint"]
+    if mix:
+        out["mix_contract"] = {
+            k: mix[k]
+            for k in (
+                "underscore_policy",
+                "stinger_max_per_minute",
+                "duck_under_speech_db",
+                "rhythmic_presence_default",
+            )
+            if k in mix
+        }
+    if tokens:
+        out["prompt_tokens"] = {
+            k: tokens[k]
+            for k in ("bed", "stinger", "avoid", "density")
+            if tokens.get(k)
+        }
+    return out or None
 
 
 def _compact_brief(brief: Any) -> Any:

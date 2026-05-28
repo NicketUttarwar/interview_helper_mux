@@ -73,9 +73,12 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** if not `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
-| `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate` | **404** missing prompts artifact |
-| `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` | **400** invalid path/payload, **404** |
-| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids` | **404** missing prompts artifact |
+| `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]` (one row per SDP `asset_id`; `duration_seconds` normalized from plan on craft persist), `review`, `review_required`, `can_generate` | **404** missing prompts artifact |
+| `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
+| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `elevenlabs_prompts_approved` | **404** missing prompts artifact |
+| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/listen-result` | — | **ElevenLabsListenResultBody** (`asset_id`, `result`: `pass`\|`fail`, optional `note`) | `ok`, `entry`, `elevenlabs_listen_results[]`; appends `run_meta.elevenlabs_listen_results`; logs `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` | **400** invalid body |
+
+**G1.5 (optional):** When `g1_5_require_prompt_approval` is true in merged config, `can_generate` is false until approve; `elevenlabs_sfx_flow*` stages raise at runtime if unapproved. Review UI is on stage `elevenlabs_prompt_craft` — see [gui-surface-map.md](./gui-surface-map.md#elevenlabs-operator-journey-sfx--g15).
 | `POST` | `/api/runs/{run_id}/execute` | — | **ExecuteBody** | `ok`, `run_id`, `mode` (immediate ack; work runs in thread) | **409** job already running, **404** |
 | `GET` | `/api/runs/{run_id}/job` | — | — | `gui_job.json` payload or `{status: idle, run_id}` | — |
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
@@ -98,6 +101,10 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 
 **Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `complete`, `error`, `gate`, `idle`.
+
+**ElevenLabs SFX stages (`elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2`):** one REST `POST /v1/sound-generation` per unique SDP `asset_id`; canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `duration_seconds` sent to ElevenLabs always comes from the plan asset, not operator-edited craft rows. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
+
+**Mix stages (`mix_flow1` / `mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `FLOW1_ORDER` / `FLOW2_ORDER`.
 
 ### `FlowBody`
 

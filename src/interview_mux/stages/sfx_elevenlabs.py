@@ -5,7 +5,8 @@ import logging
 import subprocess
 from pathlib import Path
 
-from interview_mux.config import merged_config, require_secret
+from interview_mux.config import require_secret
+from interview_mux.g15_prompt_review import require_elevenlabs_generation
 from interview_mux.elevenlabs_rest import ElevenLabsApiError, generate_sound_effect
 from interview_mux.run_context import RunContext
 
@@ -33,7 +34,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         stage = "elevenlabs_sfx_flow2"
     out_dir = ctx.path(out_rel)
     out_dir.mkdir(parents=True, exist_ok=True)
-    _require_prompt_review_if_enabled(ctx)
+    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    require_elevenlabs_generation(ctx)
     cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
     api_key = require_secret("ELEVENLABS_API_KEY")
 
@@ -41,7 +44,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
     generation_items = _collect_generation_items(ctx=ctx, profile=profile, fallback_cues=cues)
     for item in generation_items:
         asset_id = item["asset_id"]
-        out_file = out_dir / f"{asset_id}.wav"
+        out_file = assets_dir / f"{asset_id}.wav"
         prompt_row = crafted.get(asset_id) if crafted else None
         text, duration_seconds, influence = _resolve_generation_params(item, prompt_row)
         try:
@@ -54,7 +57,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             _write_audio_as_wav(out_file, audio)
             ctx.log(
                 "info",
-                f"ElevenLabs SFX generated {out_file.name}",
+                f"ElevenLabs SFX generated {asset_id}.wav",
                 stage=stage,
                 detail={
                     "asset_id": asset_id,
@@ -62,6 +65,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                     "prompt_influence": influence,
                     "api": "rest",
                     "path": "/v1/sound-generation",
+                    "artifact": f"sound_design/assets/{asset_id}.wav",
                 },
             )
         except ElevenLabsApiError as exc:
@@ -70,7 +74,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                 "warning",
                 f"ElevenLabs SFX failed for {asset_id}; wrote silence placeholder",
                 stage=stage,
-                detail={"status": exc.status, "api": "rest"},
+                detail={"status": exc.status, "api": "rest", "asset_id": asset_id},
             )
             _write_silent_wav(out_file, duration_ms=int(duration_seconds * 1000))
         except Exception as exc:
@@ -78,24 +82,20 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             _write_silent_wav(out_file, duration_ms=int(duration_seconds * 1000))
 
     if generation_items:
-        _write_shared_asset_mirror(ctx=ctx, source_dir=out_dir, asset_ids=[item["asset_id"] for item in generation_items])
+        _mirror_assets_to_flow_dir(
+            ctx=ctx,
+            asset_ids=[item["asset_id"] for item in generation_items],
+            target_dir=out_dir,
+        )
 
-    manifest = {"profile": profile, "files": [p.name for p in sorted(out_dir.glob("*.wav"))], "api": "rest"}
+    manifest = {
+        "profile": profile,
+        "files": [p.name for p in sorted(assets_dir.glob("*.wav"))],
+        "asset_paths": [f"sound_design/assets/{p.name}" for p in sorted(assets_dir.glob("*.wav"))],
+        "api": "rest",
+    }
     ctx.write_json(f"{out_rel}/manifest.json", manifest)
     ctx.mark_done(stage)
-
-
-def _require_prompt_review_if_enabled(ctx: RunContext) -> None:
-    if not bool(merged_config().get("g1_5_require_prompt_approval", False)):
-        return
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    review = meta.get("elevenlabs_prompt_review") if isinstance(meta.get("elevenlabs_prompt_review"), dict) else {}
-    if review.get("approved"):
-        return
-    raise RuntimeError(
-        "G1.5 prompt approval required before ElevenLabs generation. "
-        "Review and approve sound_design/elevenlabs_prompts.json in the GUI panel."
-    )
 
 
 def _load_crafted_prompts(ctx: RunContext) -> dict[str, dict]:
@@ -114,22 +114,30 @@ def _resolve_generation_params(
     cue: dict,
     prompt_row: dict | None,
 ) -> tuple[str, float, float | None]:
+    duration_seconds = _plan_duration_seconds(cue)
+    role = cue.get("role") or "chapter_stinger"
+    influence = _ROLE_INFLUENCE.get(role, 0.35)
+
     if prompt_row:
         text = prompt_row.get("elevenlabs_prompt") or ""
         neg = prompt_row.get("negative_prompt")
         if neg:
             text = f"{text}\n\nAvoid: {neg}"
-        duration = float(prompt_row.get("duration_seconds") or cue.get("duration_seconds") or 2.0)
-        role = cue.get("role") or "chapter_stinger"
-        influence = float(prompt_row["prompt_influence"]) if "prompt_influence" in prompt_row else _ROLE_INFLUENCE.get(role, 0.35)
-        return text, duration, influence
+        if "prompt_influence" in prompt_row:
+            influence = float(prompt_row["prompt_influence"])
+        return text, duration_seconds, influence
 
     desc = cue.get("description") or cue.get("mood") or "short podcast stinger"
+    return desc, duration_seconds, influence
+
+
+def _plan_duration_seconds(cue: dict) -> float:
     if cue.get("duration_seconds") is not None:
-        return desc, float(cue.get("duration_seconds") or 2.0), 0.35
+        return float(cue["duration_seconds"])
     duration_ms = cue.get("duration_ms")
-    duration_seconds = float(duration_ms) / 1000.0 if duration_ms else 2.0
-    return desc, duration_seconds, 0.35
+    if duration_ms is not None:
+        return float(duration_ms) / 1000.0
+    return 2.0
 
 
 def _collect_generation_items(
@@ -199,8 +207,9 @@ def _dedupe_fallback_cues(cues: list[dict]) -> list[dict]:
     return out
 
 
-def _write_shared_asset_mirror(*, ctx: RunContext, source_dir: Path, asset_ids: list[str]) -> None:
-    target_dir = ctx.path("sound_design", "assets")
+def _mirror_assets_to_flow_dir(*, ctx: RunContext, asset_ids: list[str], target_dir: Path) -> None:
+    """Copy canonical sound_design/assets WAVs into flow-specific sfx/ for v1 paths."""
+    source_dir = ctx.path("sound_design", "assets")
     target_dir.mkdir(parents=True, exist_ok=True)
     for asset_id in asset_ids:
         src = source_dir / f"{asset_id}.wav"

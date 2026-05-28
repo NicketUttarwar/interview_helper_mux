@@ -1,6 +1,6 @@
 # Coherent sound design (planned)
 
-**Status:** Spec only — not implemented in code. v1 ships a single late SFX brief + per-cue ElevenLabs generation + naive concat. This document defines the **target** system: analysis-informed, reusable assets, multi-stage planning, and proper mux.
+**Status:** Wave 5 in progress. **BUILD-060 (shipped):** `understanding/sound_design_plan.json` schema + empty scaffold at shared-analysis init (`ensure_analysis_workspace`). v1 still ships a single late SFX brief + per-cue ElevenLabs generation + naive concat on the default path until BUILD-066 wires Wave 5 end-to-end. This document defines the **target** system: analysis-informed, reusable assets, multi-stage planning, and proper mux.
 
 **Context:** Part of [podcast-quality-roadmap.md](./podcast-quality-roadmap.md). Assembly must also wire gap VO and NLE (BUILD-067–068) — sound design alone does not deliver a polished interview master.
 
@@ -175,13 +175,13 @@ flowchart TB
 
 | Phase | Stage key | Inputs | Writes |
 |-------|-----------|--------|--------|
-| A | `sound_design_palettes` | `content_brief`, `segments`, `analysis_state`, `source_acoustic_profile` (planned) | `palettes`, `coherence` |
+| A | `sound_design_palettes` | `content_brief`, `segments`, `analysis_state`, `source_acoustic_profile` | `palettes`, `coherence` |
 | B | `sound_design_plan_flow1` or `_flow2` | SDP, selection, narrative, gaps, transitions | `assets`, `flow_plans.*.cues` |
 | C | *(optional)* `sound_design_vo_finalize` | SDP + `vo_pickup` durations | Adjust VO bridge cues |
 | D | `sound_design_generate_flow*` | SDP assets | `sound_design/assets/*.wav` |
 | E | `mux_flow*` | SDP + EDL/selection + VO | `assembly.wav` |
 
-**Gate:** Optional **G1.5** — operator reviews cue list / prompt craft before ElevenLabs spend.
+**Gate (shipped, optional):** **G1.5** — when `g1_5_require_prompt_approval: true`, operator reviews cue list / prompt craft before ElevenLabs spend ([operator-gates.md](../workflows/operator-gates.md#g15--sound-design-prompt-approval-optional-shipped)).
 
 ---
 
@@ -324,7 +324,7 @@ flowchart LR
 
 ### Phase 3 — Operator gate
 
-Log approve / regen / level change in `gui_log.jsonl`. Optional G1.5 covers **pre-spend** prompt review; this phase is **post-listen**.
+Log approve / regen / level change in `gui_log.jsonl`. When enabled, G1.5 (`g1_5_require_prompt_approval`) covers **pre-spend** prompt review; this phase is **post-listen**.
 
 Full playbook: [elevenlabs-integration-guide.md § Post-generation](./elevenlabs-integration-guide.md#post-generation-analysis-and-adaptive-placement).
 
@@ -332,7 +332,7 @@ Full playbook: [elevenlabs-integration-guide.md § Post-generation](./elevenlabs
 
 ## Mix logic
 
-Module: `src/interview_mux/sound_design.py` (to implement).
+Module: `src/interview_mux/sound_design.py` (`mix_flow1`, `mix_flow2`).
 
 ### Flow 1 (`mix_flow1`)
 
@@ -390,7 +390,7 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
   "max_assets_flow1": 6,
   "max_assets_flow2": 4,
   "allow_diegetic_ambient": true,
-  "require_operator_prompt_approval": false
+  "g1_5_require_prompt_approval": false
 }
 ```
 
@@ -405,4 +405,4 @@ Add `style.sound_design_notes` to `analysis_state.json` for operator overrides (
 - v1 prompts: `docs/prompts/assembly/podcast-sfx-brief.system.txt`, `sfx-brief.system.txt`
 - v1 code: `sfx_elevenlabs.py`, `selection_flow1.py`, `assembly_flow1.py`, `assembly_flow2.py`
 - [analysis-memory.md](./analysis-memory.md) — profile feeds all LLM stages
-- [artifact-layout.md](./artifact-layout.md) — run folder layout (update when BUILD-060 lands)
+- [artifact-layout.md](./artifact-layout.md) — run folder layout (SDP path + schema link)

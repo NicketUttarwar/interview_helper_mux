@@ -1,6 +1,6 @@
 # LLM orchestration (smart routing)
 
-**Status: spec only** — described behavior is the target architecture. v1 runtime uses a single model per `stage_key` via `get_model()` with no arbiter or shard/collate passes until a separate implementation PR lands.
+**Status: implemented (BUILD-073)** — `analysis_stage.py` runs primary → schema validate → `llm_arbiter` → optional uptier / shard+collate / investigation enqueue. `get_model()` delegates to `model_registry.resolve_model`.
 
 **Related:**
 
@@ -45,9 +45,9 @@ flowchart TD
   Merge --> Done[Stage attempt complete]
 ```
 
-### v1 baseline (today)
+### Legacy note
 
-Primary → schema validate → (optional same-attempt schema retry user message) → memory merge. Inner loop on `status: partial | needs_input`. Investigation queue drain after stage. See [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
+Before BUILD-073, runtime was primary-only (no arbiter). Inner loop on `status: partial | needs_input` and investigation queue drain are unchanged — see [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
 
 ---
 
@@ -153,7 +153,7 @@ Prefer shard/collate when the problem is **payload size**; prefer investigations
 
 ## Observability (target attempt JSON fields)
 
-Extend `understanding/stage_runs/<stage>/attempt_NNN.json` (spec only until implemented):
+Extend `understanding/stage_runs/<stage>/attempt_NNN.json` (written by `record_stage_attempt`):
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -195,4 +195,4 @@ flowchart TD
 ## Related v1 docs
 
 - [analysis-memory.md](./analysis-memory.md) — what gets merged
-- [config-keys.md](./config-keys.md) — proposed `models.tiers` / `models.stages` (not implemented)
+- [config-keys.md](./config-keys.md) — `models.tiers` / `models.stages`

@@ -76,7 +76,11 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
             continue
         lid = line.get("line_id", "")
         seg = line.get("targets_segment_id", "")
-        candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
+        clean = pickup / "clean"
+        bases = [clean, pickup] if clean.is_dir() else [pickup]
+        candidates: list[Path] = []
+        for base in bases:
+            candidates.extend([base / f"{lid}.wav", base / f"{seg}.wav"])
         if not any(p.is_file() for p in candidates):
             missing.append(lid or seg)
     if missing:

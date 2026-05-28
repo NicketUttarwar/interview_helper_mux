@@ -17,9 +17,18 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _ingest_source(ctx: RunContext) -> tuple[Path, Path | None]:
+    """Return (ffmpeg input path, optional preclean/isolated.wav path)."""
+    isolated = ctx.path("preclean", "isolated.wav")
+    if isolated.is_file():
+        return isolated, isolated
+    raw = ctx.input_audio()
+    return raw, None
+
+
 def run_ingest(ctx: RunContext) -> Path:
     cfg = merged_config()
-    src = ctx.input_audio()
+    src, preclean = _ingest_source(ctx)
     if not src.is_file():
         raise FileNotFoundError(f"Input audio not found: {src}")
 
@@ -43,12 +52,15 @@ def run_ingest(ctx: RunContext) -> Path:
     ]
     subprocess.run(cmd, check=True, capture_output=True)
 
-    checksums = {
-        "source_path": str(src),
-        "source_sha256": _sha256(src),
+    checksums: dict[str, object] = {
+        "source_path": str(ctx.input_audio()),
+        "source_sha256": _sha256(ctx.input_audio()),
         "normalized_sha256": _sha256(normalized),
         "sample_rate": rate,
     }
+    if preclean is not None:
+        checksums["preclean_path"] = "preclean/isolated.wav"
+        checksums["preclean_sha256"] = _sha256(preclean)
     (out_dir / "checksums.json").write_text(json.dumps(checksums, indent=2), encoding="utf-8")
     ctx.mark_done("ingest")
     return normalized

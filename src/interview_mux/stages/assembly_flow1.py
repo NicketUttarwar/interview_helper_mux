@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import json
-import math
 import subprocess
 from pathlib import Path
 from typing import Callable
-
-from pydub import AudioSegment
 
 from interview_mux.nle_state import (
     apply_nle_to_selection,
@@ -232,7 +228,7 @@ def build_flow1_edl(
             "missing_vo_files": sorted(set(missing_vo)),
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
         },
-        "mux_scope": "speech_only",
+        "mux_scope": "full_mix",
     }
 
 
@@ -292,7 +288,7 @@ def run_edl(ctx: RunContext) -> None:
     ctx.log(
         f"EDL built: {len(edl.get('clips') or [])} events, "
         f"{vo_n} vo_pickup, timeline {edl.get('timeline_duration_ms')} ms "
-        f"(mux_flow1 speech-only until BUILD-065)",
+        f"(mix_flow1: speech + VO + SDP overlays)",
         level="success",
         stage="edl_flow1",
     )
@@ -300,188 +296,18 @@ def run_edl(ctx: RunContext) -> None:
     ctx.mark_done("edl_flow1")
 
 
+def run_mix_flow1(ctx: RunContext) -> Path:
+    """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
+    from interview_mux.sound_design import mix_flow1
+
+    return mix_flow1(ctx)
+
+
 def run_mux(ctx: RunContext) -> Path:
-    edl = ctx.read_json("flow_1_master/edl.json")
-    source = _load_audio(ctx.path("ingest", "normalized.wav"))
-    base = AudioSegment.silent(duration=0, frame_rate=48000)
-    segment_timing: dict[str, tuple[int, int]] = {}
-    speech_count = 0
-    vo_count = 0
-
-    for clip in (edl.get("clips") or []):
-        ctype = str(clip.get("type") or "")
-        if ctype == "speech":
-            start = int(clip.get("source_start_ms", 0))
-            end = int(clip.get("source_end_ms", start))
-            audio = source[max(0, start) : max(start, end)]
-            seg_id = str(clip.get("segment_id") or "")
-            if seg_id:
-                t0 = int(clip.get("timeline_start_ms", len(base)))
-                segment_timing[seg_id] = (t0, t0 + len(audio))
-            speech_count += 1
-        elif ctype == "vo_pickup":
-            src_rel = clip.get("source_path")
-            if src_rel:
-                vo_path = ctx.path(str(src_rel))
-                audio = _load_audio(vo_path) if vo_path.is_file() else AudioSegment.silent(duration=0)
-            else:
-                audio = AudioSegment.silent(duration=0)
-            vo_count += 1
-        else:
-            continue
-        base += audio
-
-    mix = base
-    overlays = _flow1_overlays(ctx, segment_timing, timeline_ms=len(base))
-    for cue in overlays:
-        clip_audio = cue["audio"]
-        if not isinstance(clip_audio, AudioSegment):
-            continue
-        mix = mix.overlay(
-            clip_audio,
-            position=max(0, int(cue.get("position_ms", 0))),
-        )
-
-    ctx.log(
-        (
-            f"mux_flow1: mixed speech={speech_count}, vo={vo_count}, "
-            f"sfx_overlays={len(overlays)} (beds + stingers with ducking)"
-        ),
-        level="info",
-        stage="mux_flow1",
-    )
-    assembly = ctx.path("flow_1_master", "assembly.wav")
-    mix.export(str(assembly), format="wav")
+    """Backward-compatible alias for mix_flow1 (v1 pipeline stage id)."""
+    assembly = run_mix_flow1(ctx)
     ctx.mark_done("mux_flow1")
     return assembly
-
-
-def _flow1_overlays(
-    ctx: RunContext, segment_timing: dict[str, tuple[int, int]], timeline_ms: int
-) -> list[dict]:
-    overlays = _flow1_overlays_from_sdp(ctx, segment_timing=segment_timing)
-    if overlays:
-        return overlays
-    return _flow1_overlays_legacy(ctx, segment_timing=segment_timing, timeline_ms=timeline_ms)
-
-
-def _flow1_overlays_from_sdp(
-    ctx: RunContext, *, segment_timing: dict[str, tuple[int, int]]
-) -> list[dict]:
-    plan_path = ctx.path("understanding", "sound_design_plan.json")
-    if not plan_path.is_file():
-        return []
-    try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
-    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
-    assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
-    assets_by_id = {
-        str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
-    }
-    out: list[dict] = []
-    for cue in cues:
-        if not isinstance(cue, dict):
-            continue
-        asset_id = str(cue.get("asset_id") or "")
-        asset = assets_by_id.get(asset_id, {})
-        wav = _resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
-        if wav is None:
-            continue
-        base = _load_audio(wav)
-        placement = str(cue.get("placement") or "")
-        level_db = float(cue.get("level_db", -24.0))
-        if placement == "under_segment":
-            seg_id = str(cue.get("segment_id") or "")
-            timing = segment_timing.get(seg_id)
-            if not timing:
-                continue
-            start_ms, end_ms = timing
-            dur = max(0, end_ms - start_ms)
-            if dur <= 0:
-                continue
-            bed = _loop_to_duration(base, dur)
-            duck_db = float(cue.get("duck_under_speech_db", 16.0))
-            bed = bed.apply_gain(level_db - duck_db).fade_in(120).fade_out(150)
-            out.append({"audio": bed, "position_ms": start_ms})
-            continue
-        cue_audio = base.apply_gain(level_db).fade_in(50).fade_out(130)
-        pos = _flow1_cue_position(cue=cue, segment_timing=segment_timing)
-        if pos is None:
-            # Fallback placement for sparse plans: append after known timeline sections.
-            pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
-        if asset.get("role") == "chapter_stinger":
-            cue_audio = cue_audio[: int(float(asset.get("duration_seconds", 1.8)) * 1000)]
-        out.append({"audio": cue_audio, "position_ms": pos})
-    return out
-
-
-def _flow1_overlays_legacy(
-    ctx: RunContext, *, segment_timing: dict[str, tuple[int, int]], timeline_ms: int
-) -> list[dict]:
-    sfx_dir = ctx.path("flow_1_master", "sfx")
-    sfx_files = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
-    if not sfx_files:
-        return []
-    out: list[dict] = []
-    # Legacy fallback: first asset is a soft bed across the episode.
-    bed = _loop_to_duration(_load_audio(sfx_files[0]), timeline_ms)
-    out.append({"audio": bed.apply_gain(-36.0).fade_in(200).fade_out(250), "position_ms": 0})
-    segment_ends = sorted(end for _start, end in segment_timing.values())
-    for i, path in enumerate(sfx_files[1:]):
-        pos = segment_ends[min(i, max(0, len(segment_ends) - 1))] if segment_ends else 0
-        sting = _load_audio(path).apply_gain(-16.0).fade_in(40).fade_out(180)
-        out.append({"audio": sting, "position_ms": max(0, pos - 40)})
-    return out
-
-
-def _flow1_cue_position(
-    *, cue: dict, segment_timing: dict[str, tuple[int, int]]
-) -> int | None:
-    placement = str(cue.get("placement") or "")
-    if placement in {"before_segment", "under_segment"}:
-        sid = str(cue.get("segment_id") or cue.get("before_segment_id") or "")
-        timing = segment_timing.get(sid)
-        return timing[0] if timing else None
-    if placement == "after_segment":
-        sid = str(cue.get("after_segment_id") or cue.get("segment_id") or "")
-        timing = segment_timing.get(sid)
-        return timing[1] if timing else None
-    return None
-
-
-def _resolve_asset_path(ctx: RunContext, *, asset_id: str, generated: object) -> Path | None:
-    if isinstance(generated, dict):
-        rel = generated.get(asset_id)
-        if isinstance(rel, str):
-            candidate = ctx.path(rel)
-            if candidate.is_file():
-                return candidate
-    candidates = [
-        ctx.path("sound_design", "assets", f"{asset_id}.wav"),
-        ctx.path("flow_1_master", "sfx", f"{asset_id}.wav"),
-    ]
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
-
-
-def _loop_to_duration(segment: AudioSegment, duration_ms: int) -> AudioSegment:
-    if duration_ms <= 0:
-        return AudioSegment.silent(duration=0, frame_rate=segment.frame_rate)
-    if len(segment) <= 0:
-        return AudioSegment.silent(duration=duration_ms, frame_rate=48000)
-    loops = max(1, math.ceil(duration_ms / len(segment)))
-    return (segment * loops)[:duration_ms]
-
-
-def _load_audio(path: Path) -> AudioSegment:
-    seg = AudioSegment.from_file(path)
-    return seg.set_channels(1).set_frame_rate(48000)
 
 
 def run_preview(ctx: RunContext) -> Path:

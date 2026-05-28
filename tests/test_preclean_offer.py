@@ -1,0 +1,98 @@
+"""BUILD-072 — pre-clean quality offer API and run_meta persistence."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from interview_mux.session_log import read_log
+from interview_mux.web.server import (
+    _default_scope_for_checkpoint,
+    _record_preclean_offer,
+    create_app,
+)
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_server_ctx
+
+
+def test_default_scope_for_checkpoint() -> None:
+    assert _default_scope_for_checkpoint("g1_vo_pickup") == "vo_pickup"
+    assert _default_scope_for_checkpoint("before_flow_mix") == "normalized_rebuild"
+    assert _default_scope_for_checkpoint("before_ingest") == "full_source"
+
+
+def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_900")
+    init_run_meta_for_test(ctx)
+
+    changed, _ = _record_preclean_offer(
+        ctx, checkpoint="before_ingest", action="offer", scope=None
+    )
+    assert changed
+    messages = [e["message"] for e in read_log(ctx.run_dir)]
+    assert any("Quality offer shown" in m for m in messages)
+
+    changed, payload = _record_preclean_offer(
+        ctx, checkpoint="g1_vo_pickup", action="accept", scope="vo_pickup"
+    )
+    assert changed
+    assert payload["enabled"] is True
+    assert payload["scope"] == "vo_pickup"
+    meta = ctx.read_json("run_meta.json")
+    assert meta["audio_preclean"]["scope"] == "vo_pickup"
+    assert "g1_vo_pickup" in meta["audio_preclean"]["offered_at"]
+    decisions = meta["audio_preclean"]["decisions"]
+    assert decisions[-1]["action"] == "accept"
+    assert decisions[-1]["scope"] == "vo_pickup"
+    messages = [e["message"] for e in read_log(ctx.run_dir)]
+    assert any("accepted" in m and "g1_vo_pickup" in m for m in messages)
+
+    _record_preclean_offer(ctx, checkpoint="after_g0", action="dismiss", scope=None)
+    meta = ctx.read_json("run_meta.json")
+    assert meta["audio_preclean"]["enabled"] is False
+    messages = [e["message"] for e in read_log(ctx.run_dir)]
+    assert any("dismissed" in m and "after_g0" in m for m in messages)
+
+
+def test_preclean_offer_accept_invalidates_markers(tmp_path, monkeypatch) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_901")
+    init_run_meta_for_test(ctx)
+    ctx.mark_done("ingest")
+    ctx.mark_done("transcribe")
+    patch_server_ctx(monkeypatch, ctx)
+
+    client = TestClient(create_app())
+    res = client.post(
+        f"/api/runs/{ctx.run_id}/preclean-offer",
+        json={"checkpoint": "after_g0", "action": "accept", "scope": "full_source"},
+    )
+    assert res.status_code == 200
+    assert res.json()["audio_preclean"]["enabled"] is True
+    assert not ctx.is_done("ingest")
+
+
+def test_preclean_offer_api_rejects_unknown_checkpoint(tmp_path, monkeypatch) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_902")
+    init_run_meta_for_test(ctx)
+    patch_server_ctx(monkeypatch, ctx)
+
+    client = TestClient(create_app())
+    res = client.post(
+        f"/api/runs/{ctx.run_id}/preclean-offer",
+        json={"checkpoint": "not_a_checkpoint", "action": "offer"},
+    )
+    assert res.status_code == 400
+
+
+def test_preclean_offer_idempotent_offer(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_903")
+    init_run_meta_for_test(ctx)
+
+    _record_preclean_offer(ctx, checkpoint="before_ingest", action="offer", scope=None)
+    log_path = ctx.run_dir / "gui_log.jsonl"
+    count_after_first = sum(1 for _ in log_path.open())
+
+    changed, _ = _record_preclean_offer(
+        ctx, checkpoint="before_ingest", action="offer", scope=None
+    )
+    assert changed is False
+    count_after_second = sum(1 for _ in log_path.open())
+    assert count_after_second == count_after_first

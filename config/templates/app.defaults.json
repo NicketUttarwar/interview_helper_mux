@@ -6,10 +6,30 @@
   "flow1_target_lufs": -16.0,
   "flow2_target_lufs": -14.0,
   "models": {
+    "tiers": {
+      "economy": "gpt-4o-mini",
+      "standard": "gpt-4o",
+      "flagship": "gpt-4o"
+    },
+    "stages": {
+      "speaker_roles": { "tier": "economy" },
+      "content_context": { "tier": "economy" },
+      "boundary_detection": { "tier": "standard" },
+      "segment_classification": { "tier": "standard" },
+      "missing_framing": { "tier": "flagship" },
+      "optimal_questions": { "tier": "flagship" },
+      "topic_coverage_audit": { "tier": "flagship" },
+      "narrative_arc_plan": { "tier": "flagship" },
+      "full_master_ranking": { "tier": "flagship" },
+      "highlight_selection": { "tier": "flagship" },
+      "transitions": { "tier": "economy" },
+      "podcast_sfx_brief": { "tier": "economy" },
+      "sfx_brief": { "tier": "economy" }
+    },
     "speaker_roles": "gpt-4o-mini",
     "content_context": "gpt-4o-mini",
-    "boundary_detection": "gpt-4o-mini",
-    "segment_classification": "gpt-4o-mini",
+    "boundary_detection": "gpt-4o",
+    "segment_classification": "gpt-4o",
     "missing_framing": "gpt-4o",
     "optimal_questions": "gpt-4o",
     "topic_coverage_audit": "gpt-4o",
@@ -21,6 +41,13 @@
     "sfx_brief": "gpt-4o-mini"
   },
   "executions_root": "ASSETS/executions",
+  "g1_5_require_prompt_approval": false,
+  "value_analysis": {
+    "enabled": false,
+    "spike_scoring": true,
+    "transcript_features": true,
+    "audio_features": false
+  },
   "web_port": 8765,
   "analysis": {
     "context": {

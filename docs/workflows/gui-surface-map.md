@@ -65,6 +65,23 @@ After resume or create, the UI navigates to the **workspace** view (`GET /api/ru
 
 ---
 
+## Quality offers (pre-clean, BUILD-072)
+
+Non-blocking cards in the workspace **gate-actions** panel when the selected stage matches a [quality roadmap](../cross-cutting/podcast-quality-roadmap.md) checkpoint. Pre-clean never auto-runs.
+
+| Checkpoint | GUI stage focus | Default `scope` | API |
+|------------|-----------------|-----------------|-----|
+| `before_ingest` | `audio_preclean` | `full_source` | `POST …/preclean-offer` |
+| `after_g0` | `transcript_review` (done) | `full_source` | same |
+| `after_profile_or_segmentation` | `analysis_profile`, `segment_classification` | `full_source` | same |
+| `g1_vo_pickup` | `g1_vo_pickup` (all lines recorded) | **`vo_pickup`** | same |
+| `before_flow_mix` | `mix_flow1`, `mix_flow2`, `mux_flow1`, `mux_flow2` | `normalized_rebuild` | same |
+| `before_master_export` | `master_flow1`, `master_flow2` | `normalized_rebuild` | same |
+
+**`action` values:** `offer` (card shown), `accept`, `dismiss`. Persisted under `run_meta.json` → `audio_preclean` (`enabled`, `scope`, `offered_at`, `decisions`). Log lines use `RunContext.log()` → `gui_log.jsonl`.
+
+---
+
 ## Gates and dedicated flows
 
 | User-visible | Stage `id` | API | Log file | Artifacts |
@@ -110,27 +127,37 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: 
 | 1 | EDL | `edl_flow1` | `flow_1_master/edl.json` |
 | 1 | Assembly preview | `assembly_preview` | `flow_1_master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
 | 1 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
-| 1 | Generate SFX | `elevenlabs_sfx_flow1` | `flow_1_master/sfx/*.wav` |
-| 1 | Assembly | `mux_flow1` | `flow_1_master/assembly.wav` |
+| 1 | Generate SFX | `elevenlabs_sfx_flow1` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_1_master/sfx/`) |
+| 1 | Mix assembly | `mix_flow1` | `flow_1_master/assembly.wav` |
 | 1 | Master export | `master_flow1` | `flow_1_master/master.wav` |
 | 2 | Highlight selection | `highlight_selection` | `flow_2_highlights/selection.json` |
 | 2 | Sound design plan | `sound_design_plan_flow2` | `understanding/sound_design_plan.json` |
 | 2 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
-| 2 | Generate SFX | `elevenlabs_sfx_flow2` | `flow_2_highlights/sfx/*.wav` |
-| 2 | Micro-assembly | `mux_flow2` | `flow_2_highlights/assembly.wav` |
+| 2 | Generate SFX | `elevenlabs_sfx_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_2_highlights/sfx/`) |
+| 2 | Mix assembly | `mix_flow2` | `flow_2_highlights/assembly.wav` |
 | 2 | Master export | `master_flow2` | `flow_2_highlights/master.wav` |
+| 1 / 2 | Master QA (post-flow, automatic) | `verify_master` | `gui_log.jsonl` (`stage: verify_master`); validates `flow_*_*/master.wav` LUFS + true peak |
 | 3 | Show description | `podcast_show_description` | `flow_3_description/show_description.json` |
 | 3 | Export blurb | `export_show_description` | `flow_3_description/show_description.md` |
 
 ### ElevenLabs operator journey (SFX + G1.5)
 
+**G1.5 (shipped):** Optional pre-spend prompt review when `g1_5_require_prompt_approval: true` in merged config.
+
 Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
 
-| Current | Target (planned) |
-|---------|------------------|
-| Stage **Craft ElevenLabs prompts** now shows G1.5 review panel (inline prompt edit + approve) | richer prompt validation helpers |
-| Sidebar **Generate SFX** → REST `/v1/sound-generation` | post-listen pass/fail helpers in GUI |
-| Log includes `elevenlabs_prompts_approved` and edit/reset events via `ctx.log()` | + `elevenlabs_post_listen_pass` / `fail` |
+| User-visible | Stage `id` | API | Log file | Artifacts |
+|--------------|------------|-----|----------|-----------|
+| **G1.5 prompt review** (optional) | `elevenlabs_prompt_craft` | `GET/PUT …/elevenlabs-prompts`, `POST …/elevenlabs-prompts/approve` | `gui_log.jsonl` (`elevenlabs_prompt_craft`) | `sound_design/elevenlabs_prompts.json`, `run_meta.json` → `elevenlabs_prompt_review` |
+| **Generate SFX** blocked when G1.5 required | `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+
+Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before ElevenLabs spend. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
+
+| Shipped | Planned |
+|---------|---------|
+| G1.5 inline panel (edit prompts, `prompt_influence`, approve, SDP warnings) | post-listen pass/fail helpers in GUI |
+| Schema validation on PUT; `can_generate` blocks SFX stages | — |
+| Log: `elevenlabs_prompts_approved`, edit resets approval | — |
 
 ---
 

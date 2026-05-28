@@ -42,7 +42,12 @@ def main() -> None:
         print(f"  reason: {exc}")
         sys.exit(1)
 
+    m = result.metrics
     print(f"QA target: {result.flow}")
+    print(
+        f"  metrics: duration={m.duration_seconds:.2f}s sample_rate={m.sample_rate_hz}Hz "
+        f"channels={m.channels} integrated_lufs={m.integrated_lufs:.2f} true_peak_dbtp={m.true_peak_dbtp:.2f}"
+    )
     for line in result.checks:
         print(f"  - {line}")
 

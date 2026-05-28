@@ -151,9 +151,10 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | **Profile gate** | See [Profile gate](#profile-gate--flow-1-extended-build-081) before `topic_coverage_audit` | — |
 | `topic_coverage_audit` | `flow_1_master/coverage_audit.json`; `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix `segments/manifest.json` / profile topics — [artifact-layout](../cross-cutting/artifact-layout.md#flow-1--flow_1_master) |
 | `narrative_arc_plan` | `flow_1_master/narrative_plan.json`; chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
-| `full_master_ranking` | `flow_1_master/selection.json`; `ordered_segment_ids` unique; constraints satisfied | `--from-stage full_master_ranking` |
+| `full_master_ranking` | `flow_1_master/selection.json`; `ordered_segment_ids` unique; constraints satisfied; after NLE **Save timeline**, re-run so `nle_edits.json` merges (`nle_applied` when overrides present) | `--from-stage full_master_ranking` |
 | `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
-| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report` | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
+| `sound_design_plan_flow1` | G2 `selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.flow1.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan_flow1`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
+| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
 | `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json`; ducking / levels described | `--from-stage podcast_sfx_brief` |
 | **v1 reality** | EDL lists VO + transitions; `assembly.wav` / `master.wav` remain **speech-only** mux until BUILD-065/069 — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expectation only; track [podcast-quality-roadmap](../cross-cutting/podcast-quality-roadmap.md) |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
@@ -170,8 +171,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | Flow selected | G2 done; `run_meta.selected_flow` set | Complete G2 |
 | Preview first | `assembly_preview.wav` listened when BUILD-069 exists | Generate preview before SFX spend |
-| Plan exists | v1: `podcast_sfx_brief.json` / `sfx_brief.json`; target: SDP + craft | Re-run brief/plan stages |
-| **G1.5** (if `require_operator_prompt_approval`) | Operator approved `elevenlabs_prompts.json` or craft in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
+| Plan exists | Flow 1: SDP `flow_plans.flow1` + `assets[]` (`sound_design_plan_flow1`); Flow 2: SDP `flow_plans.flow2` or v1 `sfx_brief.json`; craft follows plan | Re-run `sound_design_plan_flow1` / `_flow2` or v1 brief stages |
+| **G1.5** (shipped; if `g1_5_require_prompt_approval`) | Operator approved `elevenlabs_prompts.json` in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
 | Craft quality | No vocals/lyrics in prompts; durations match role bands | [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md); regression: [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) |
 | Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md); log `elevenlabs_post_listen_pass` / `fail` |
 | Asset count | Target: ≤6 Flow 1 / ≤4 Flow 2 unique `asset_id`s | Trim SDP plan |
@@ -240,13 +241,13 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 ---
 
-## Sound design & mix (when BUILD-060+ ships)
+## Sound design & mix
 
 | Check | Pass | If fail |
 |-------|------|--------|
 | `sound_design_palettes` | Stage done marker exists and SDP has non-empty `coherence.sonic_identity` + `palettes[]` | Re-run `python tools/run_analysis.py --run-id <id> --from-stage sound_design_palettes`; then inspect `understanding/sound_design_plan.json` |
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
-| G1.5 (optional) | Operator approved prompt craft when `require_operator_prompt_approval` | Approve or edit plan JSON — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
+| G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
 | Post-gen placement | Beds/stingers placed after listen + theme check | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) |
 | Mix vs speech-only | Know whether this build muxes VO/SFX or concat-only | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
 
@@ -258,7 +259,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | `selection.json` | ≤5 clips; non-overlapping `start_ms`/`end_ms` | `--from-stage highlight_selection` |
 | Self-contained | Each clip or ≤8s setup VO per spec | Edit selection or gap VO |
-| `sfx_brief.json` | Matches clip count / ranks | `--from-stage sfx_brief` |
+| `sound_design_plan_flow2` | G2 `selected_flow` is `flow2`; SDP has `assets[]` (2–4 unique `asset_id`s) and `flow_plans.flow2.cues[]`; every cue `asset_id` appears in `assets[]`; one `transition_stinger` reused for all `between_clips` | `--from-stage sound_design_plan_flow2`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-2-plan) |
+| `sfx_brief.json` | v1 montage brief (optional if SDP flow2 plan used) | `--from-stage sfx_brief` |
 
 ---
 
@@ -266,7 +268,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `verify_master.py` | Exits 0; duration > 0 | [mastering_and_export](../pipeline/mastering_and_export/README.md) |
+| `verify_master.py` | Exits 0; LUFS/peak per flow; duration > 0; 44.1/48 kHz | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md), [mastering_and_export](../pipeline/mastering_and_export/README.md) |
 | Listen | No clipped silence, wrong order, missing pickups (when mux wired) | [troubleshooting.md](./troubleshooting.md) |
 
 ---

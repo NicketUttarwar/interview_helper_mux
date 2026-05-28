@@ -29,7 +29,7 @@ source .venv/bin/activate
 
 ---
 
-## Automated tests (BUILD-054–055, expand in #18)
+## Automated tests (BUILD-054–055, #18)
 
 ```bash
 pytest tests/
@@ -37,14 +37,17 @@ pytest tests/
 
 | Test file | Covers |
 |-----------|--------|
-| `test_prompt_validation.py` | JSON schema validation for stage outputs |
+| `test_prompt_validation.py` | JSON schema validation; `fixtures/prompts/stage_artifacts.json` per stage key |
 | `test_transcript_review.py` | Review queue / correction merge |
+| `test_gates.py` | Profile gate, G1 VO, flow selection, transcript review pending |
+| `test_pipeline.py` | Flow 1/2/3 + analysis order smoke (stubbed stages, `fixtures/runs/base_smoke`) |
+| `test_build073_llm_routing.py` | Arbiter + shard/collate routing |
+| `test_g1_5_prompt_review.py` | ElevenLabs prompt review API (GET/PUT/approve) |
+| `test_preclean_offer.py` | BUILD-072 pre-clean offer API + run_meta |
+| `test_master_qc.py` | LUFS / true-peak thresholds, sample-rate checks |
+| `test_verify_master_cli.py` | CLI exit codes + flow path inference |
 
-**Planned (steps-forward #18):**
-
-- Gate helpers (`check_g1_vo`, transcript review pending)
-- Pipeline smoke with fixture run directory (no live AWS/OpenAI)
-- Schema fixture per stage key
+**Helpers:** `tests/run_fixtures.py` — `isolated_run_ctx`, `ctx_from_fixture`, `patch_server_ctx` (keeps pytest off repo `data/run_*`).
 
 ---
 
@@ -108,7 +111,8 @@ python tools/verify_master.py <run>/flow_1_master/master.wav
 | Speech order matches selection | Manual listen | Required |
 | VO audible in master | Not required v1 | Required (BUILD-067, 065) |
 | SFX audible | Not required v1 | Required (BUILD-065) |
-| LUFS −16 ±1 and true peak ≤ −1 dBTP | Enforced by `verify_master.py` | BUILD-070 |
+| LUFS −16 ±1 and true peak ≤ −1 dBTP | `verify_master.py` (non-zero exit on fail) | **done** (BUILD-070) |
+| Assembly bus measured before limiter | `gui_log.jsonl` `master_flow*` lines; `pytest tests/test_mastering_bus.py` | **done** (BUILD-071) |
 
 ---
 

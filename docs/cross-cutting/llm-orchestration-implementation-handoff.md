@@ -1,6 +1,6 @@
 # LLM orchestration — implementation handoff
 
-**Status: reference only** — maps the documentation framework to suggested future code. **Do not implement behavior that contradicts these docs** without updating the specs first.
+**Status: implementation map (BUILD-073 shipped)** — keep in sync when changing routing behavior.
 
 **Before coding:** [anchored-toolchain.md](./anchored-toolchain.md) (`openai` pin, lock, `pip-audit`) + **Context7** for SDK/API docs at that version.
 
@@ -33,29 +33,29 @@
 
 ### Phase A — registry
 
-- [ ] Add `models.tiers` and `models.stages` to `config/app.defaults.json` (migrate from flat strings)
-- [ ] Implement `model_registry.resolve_model(stage_key, task_kind)`
-- [ ] Unit tests: tier rules for arbiter/shard/collate; string override wins
+- [x] Add `models.tiers` and `models.stages` to `config/app.defaults.json` (migrate from flat strings)
+- [x] Implement `model_registry.resolve_model(stage_key, task_kind)`
+- [x] Unit tests: tier rules for arbiter/shard/collate; string override wins
 
 ### Phase B — arbiter
 
-- [ ] Load arbiter system prompt from repo path (same as other prompts)
-- [ ] Build compact arbiter user payload (no full transcript)
-- [ ] Parse verdict JSON per contract; handle invalid arbiter JSON as `enqueue_investigation`
-- [ ] Wire into `run_analysis_llm_stage` and `run_flow_llm_stage`
-- [ ] Skip arbiter on pre-arbiter failures (see orchestration doc)
-- [ ] Cap: 1 arbiter per primary attempt; 2 uptier retries per stage per run
+- [x] Load arbiter system prompt from repo path (same as other prompts)
+- [x] Build compact arbiter user payload (no full transcript)
+- [x] Parse verdict JSON per contract; handle invalid arbiter JSON as `enqueue_investigation`
+- [x] Wire into `run_analysis_llm_stage` and `run_flow_llm_stage`
+- [ ] Skip arbiter on pre-arbiter failures (JSON parse still raises before arbiter today)
+- [x] Cap: 1 arbiter per primary attempt; 2 uptier retries per stage per run
 
 ### Phase C — decompose
 
-- [ ] `llm_subtasks.run_shards` + `run_collate` for pilot stages: `missing_framing`, `segment_classification`
-- [ ] Volley profiles in `build_message_volley(..., profile=...)`
-- [ ] Collate tier rule for high severity
-- [ ] Max 8 shards; fallback to investigation if not decompose_eligible
+- [x] `llm_subtasks.run_shards_then_collate` for pilot stages: `missing_framing`, `segment_classification`
+- [x] Volley profiles in `build_message_volley(..., profile=...)`
+- [x] Collate tier rule for high severity
+- [x] Max 8 shards; fallback to investigation if not decompose_eligible
 
 ### Phase D — observability
 
-- [ ] Extend `attempt_NNN.json` fields per [llm-orchestration.md](./llm-orchestration.md#observability-target-attempt-json-fields)
+- [x] Extend `attempt_NNN.json` fields per [llm-orchestration.md](./llm-orchestration.md#observability-target-attempt-json-fields)
 - [ ] GUI: display arbiter verdict in stage debug (optional)
 - [ ] Smoke: short interview + long interview fixtures
 

@@ -15,8 +15,8 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 | Flow 3 publishing | Spec + prompt (BUILD-045) | ~200-word third-person show description from shared analysis |
 | SFX | Late brief, one WAV per cue, fixed 2s | [Sound Design Plan](./sound-design.md) + [ElevenLabs guide](./elevenlabs-integration-guide.md) (BUILD-060+) |
 | NLE GUI | Saves `segments/nle_edits.json` | Feeds manifest / selection / EDL |
-| Master QA | `ffprobe` only | LUFS, true peak, narrative validators |
-| Pre-clean | Spec only (BUILD-019) | Offered at **multiple workflow points** |
+| Master QA | LUFS + true peak (`verify_master`) | Narrative validators (planned) |
+| Pre-clean | Shipped (BUILD-019 + BUILD-072 GUI offers) | Offered at **multiple workflow points** |
 
 Until Wave 5 and assembly wiring land, treat **v1 `master.wav` as a reordered interview speech export** — not the final podcast mix described in [pipeline.md](../pipeline.md).
 
@@ -36,14 +36,14 @@ See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./el
 
 **Wave B companion (design target):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — derive pacing, energy, and a shared **mix contract** once per interview from source audio + transcript; consume through SDP, craft, and mux for a homogeneous episode.
 
-### Wave C — QA and mastering (BUILD-070–071, planned)
+### Wave C — QA and mastering (BUILD-070–071, shipped)
 
 - `verify_master.py`: integrated LUFS, true peak, duration rules per [evaluation-metrics.md](./evaluation-metrics.md).
 - Two-pass or measured loudness on assembly bus; GUI surfaces failures.
 
-### Wave D — Audio pre-clean (BUILD-019 + BUILD-072, planned)
+### Wave D — Audio pre-clean (BUILD-019 + BUILD-072 done)
 
-- Implement `audio_preclean` stage.
+- `audio_preclean` stage shipped (ElevenLabs REST, optional).
 - **Quality offers** at every checkpoint — see [audio pre-clean](../pipeline/audio_preclean/README.md#when-the-operator-is-offered-pre-clean).
 
 ---

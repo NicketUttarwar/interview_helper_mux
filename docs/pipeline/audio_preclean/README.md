@@ -127,11 +127,11 @@ Uses the same `ELEVENLABS_API_KEY` as SFX generation.
 | `vo_pickup` | Clean only files in `vo_pickup/`; re-run `vo_ingest` and assembly stages that use VO |
 | `normalized_rebuild` | Re-clean from current `ingest/normalized.wav` (late offer before mix) |
 
-**CLI (planned, BUILD-019):**
+**CLI:**
 
 ```bash
 python -m interview_mux run-stage --run-id exec_001 --stage audio_preclean
-python tools/run_analysis.py --run-id exec_001 --audio-preclean
+python tools/run_analysis.py --run-id exec_001 --from-stage audio_preclean
 ```
 
 Default: `enabled: false`.
@@ -176,7 +176,7 @@ When **vo_pickup** only: ingest/transcript unchanged; mux and gap ingest read cl
 ## Implementation tickets
 
 - **BUILD-019** — stage module `stages/audio_preclean.py`
-- **BUILD-072** — GUI quality offers at checkpoints (including G1 pickup prompt)
+- **BUILD-072** — **done** — GUI quality offers at checkpoints (including G1 pickup prompt; `scope: vo_pickup` in `run_meta.json`)
 
 See [build-out/README.md](../../build-out/README.md) and [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 

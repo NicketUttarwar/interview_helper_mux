@@ -74,7 +74,7 @@ flowchart TB
 | 2 | `./scripts/run.sh` | FastAPI + static UI | `ASSETS/.gui/server_session.json` |
 | 3a | **New:** pick file in **Input audio** (home) | `POST /api/runs` → `ASSETS/executions/exec_*/` | `run_meta.json` (`input_audio_path`) |
 | 3b | **Resume:** pick row in **Previous executions** | `PUT /api/session/active` | same `exec_*` folder; logs + `.stage_done` intact |
-| 4 | Optional: accept pre-clean offer | `audio_preclean` *(planned)* | `preclean/isolated.wav` |
+| 4 | Optional: accept pre-clean offer | `audio_preclean` | `preclean/isolated.wav` |
 | 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions` | `.stage_done/*` under same `exec_*` |
 | 6 | **G0:** Review ranked STT clips | `transcript_review` completes | `transcript/corrections.json` |
 | 7 | Edit interview profile (optional) | — | `analysis_state.json` |
@@ -145,10 +145,13 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 ## Flow 2 stage order (after G2 = flow2)
 
 1. `highlight_selection`
-2. `sfx_brief`
-3. `elevenlabs_sfx_flow2`
-4. `mux_flow2`
-5. `master_flow2`
+2. `sound_design_plan_flow2`
+3. `elevenlabs_prompt_craft`
+4. `elevenlabs_sfx_flow2`
+5. `mux_flow2`
+6. `master_flow2`
+
+**v1 legacy:** `sfx_brief` remains available as a single-stage rerun (`run_single_stage`) but is not in `FLOW2_ORDER`.
 
 ---
 
@@ -198,9 +201,9 @@ Full tree: [artifact-layout.md](../cross-cutting/artifact-layout.md).
 | G2 API | flow1 \| flow2 | + flow3 |
 | Flow 1 master | Speech-only concat | VO + SFX mix (BUILD-065–067) |
 | Flow 2 montage | Index-based SFX | Shared transition asset (BUILD-065) |
-| Master QA | ffprobe | LUFS + true peak (BUILD-070) |
-| LLM routing | Single model per stage | Arbiter + tiers (BUILD-073) |
-| Pre-clean | Spec only | Offers at checkpoints (BUILD-019, 072) |
+| Master QA | `master_qc.verify_master` (ffmpeg loudnorm + ffprobe) | LUFS + true peak (BUILD-070) |
+| LLM routing | Tier registry + arbiter + shard/collate (BUILD-073) | Same |
+| Pre-clean | Shipped | Stage BUILD-019; GUI offers BUILD-072 |
 
 Track progress in [steps-forward.md](./steps-forward.md) and [repository-map.md](./repository-map.md).
 

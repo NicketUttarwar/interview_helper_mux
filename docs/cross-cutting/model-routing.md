@@ -36,7 +36,7 @@ Do **not** pin flagship to a marketing name in pipeline READMEs — use the tier
 | standard | `gpt-4o` | 2026-05-27 |
 | flagship | `gpt-4o` (upgrade to newest flagship when available) | 2026-05-27 |
 
-Optional secrets overrides (proposed, not implemented): `OPENAI_TIER_ECONOMY`, `OPENAI_TIER_STANDARD`, `OPENAI_TIER_FLAGSHIP`.
+Optional secrets overrides: `OPENAI_TIER_ECONOMY`, `OPENAI_TIER_STANDARD`, `OPENAI_TIER_FLAGSHIP` (read from merged config `secrets` via `model_registry`).
 
 ---
 
@@ -79,7 +79,7 @@ Committed defaults still include flat stage strings for backward compatibility.
 | `speaker_roles`, `content_context`, `transitions`, `podcast_sfx_brief`, `sfx_brief` | economy registry ID | economy |
 | `boundary_detection`, `segment_classification`, `missing_framing`, `optimal_questions`, Flow 1/2 selection stages | standard registry ID | standard / flagship per matrix above |
 
-**Target:** high-severity stages should use **flagship** registry ID once smart routing is implemented; v1 may still point some high-severity stages at standard IDs until config is migrated.
+**Note:** flat `models.<stage_key>` strings in committed defaults still override tier lookup for `task_kind=primary` (escape hatch). Prefer `models.stages.<key>.tier` for new config.
 
 Override per machine in `config/app.defaults.json` — never in prompt files.
 

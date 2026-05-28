@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourceAcousticProfile",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "derived_from",
+    "pacing",
+    "energy",
+    "mix_contract",
+    "prompt_tokens",
+    "placement_hints",
+    "operator_overrides"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "derived_from": {
+      "type": "object",
+      "required": ["normalized_wav", "transcript", "computed_at", "stage"],
+      "properties": {
+        "normalized_wav": { "type": "string" },
+        "normalized_wav_sha256": { "type": "string" },
+        "transcript": { "type": "string" },
+        "transcript_sha256": { "type": "string" },
+        "preclean_isolated": { "type": ["string", "null"] },
+        "preclean_isolated_sha256": { "type": ["string", "null"] },
+        "computed_at": { "type": "string" },
+        "stage": { "type": "string", "const": "source_acoustic_profile" }
+      }
+    },
+    "pacing": {
+      "type": "object",
+      "required": ["global_wpm", "wpm_by_quartile", "pace_class"],
+      "properties": {
+        "global_wpm": { "type": "integer", "minimum": 0 },
+        "wpm_by_quartile": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "pause_p50_ms": { "type": "integer", "minimum": 0 },
+        "pause_p90_ms": { "type": "integer", "minimum": 0 },
+        "phrase_boundary_density_per_min": { "type": "number", "minimum": 0 },
+        "overlap_proxy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "speech_active_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "pace_class": {
+          "type": "string",
+          "enum": ["calm", "conversational", "brisk", "dense"]
+        }
+      }
+    },
+    "energy": {
+      "type": "object",
+      "required": ["room_timbre_hint"],
+      "properties": {
+        "loudness_p10_lufs": { "type": "number" },
+        "loudness_p50_lufs": { "type": "number" },
+        "loudness_p90_lufs": { "type": "number" },
+        "dynamic_range_db": { "type": "number", "minimum": 0 },
+        "silence_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "room_timbre_hint": { "type": "string", "minLength": 1 }
+      }
+    },
+    "prosody_summary": { "type": "object" },
+    "source_music_risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "mix_contract": {
+      "type": "object",
+      "required": ["underscore_policy"],
+      "properties": {
+        "bed_level_db_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        },
+        "duck_under_speech_db": { "type": "number" },
+        "stinger_max_per_minute": { "type": "integer", "minimum": 0 },
+        "midrange_policy": { "type": "string" },
+        "rhythmic_presence_default": { "type": "string" },
+        "tempo_feel_bpm": { "type": ["integer", "null"] },
+        "underscore_policy": {
+          "type": "string",
+          "enum": ["normal", "sparse", "skip"]
+        }
+      }
+    },
+    "prompt_tokens": {
+      "type": "object",
+      "properties": {
+        "bed": { "type": "string" },
+        "stinger": { "type": "string" },
+        "avoid": { "type": "string" },
+        "density": { "type": "string" }
+      }
+    },
+    "placement_hints": { "type": "object" },
+    "operator_overrides": { "type": "object" }
+  }
+}

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
 
 SCHEMA_VERSION = 1
@@ -144,7 +145,13 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
         ctx.write_json(ORCHESTRATION_PATH, default_orchestration())
     if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
-        ctx.write_json(SOUND_DESIGN_PLAN_PATH, default_sound_design_plan())
+        plan = default_sound_design_plan()
+        sdp_errors = validate_sound_design_plan(plan)
+        if sdp_errors:
+            raise RuntimeError(
+                "default_sound_design_plan() failed schema validation: " + "; ".join(sdp_errors)
+            )
+        ctx.write_json(SOUND_DESIGN_PLAN_PATH, plan)
     (ctx.path("understanding", "stage_runs")).mkdir(parents=True, exist_ok=True)
 
 
@@ -440,6 +447,25 @@ def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
     state["completion"]["blockers"] = blockers
     save_analysis_state(ctx, state)
     return state["completion"]
+
+
+MAX_UPTIER_RETRIES_PER_STAGE = 2
+
+
+def uptier_budget_remaining(ctx: RunContext, stage_key: str) -> int:
+    """How many retry_uptier primary re-runs remain for this stage in the run."""
+    if not ctx.artifact_exists(ORCHESTRATION_PATH):
+        return MAX_UPTIER_RETRIES_PER_STAGE
+    orch = ctx.read_json(ORCHESTRATION_PATH)
+    used = int((orch.get("uptier_counts") or {}).get(stage_key, 0))
+    return max(0, MAX_UPTIER_RETRIES_PER_STAGE - used)
+
+
+def record_uptier_retry(ctx: RunContext, stage_key: str) -> None:
+    orch = ctx.read_json(ORCHESTRATION_PATH) if ctx.artifact_exists(ORCHESTRATION_PATH) else default_orchestration()
+    counts = orch.setdefault("uptier_counts", {})
+    counts[stage_key] = int(counts.get(stage_key, 0)) + 1
+    ctx.write_json(ORCHESTRATION_PATH, orch)
 
 
 def record_stage_attempt(

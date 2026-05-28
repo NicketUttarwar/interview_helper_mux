@@ -13,9 +13,9 @@ from interview_mux.run_context import RunContext
 
 
 def run_audio_preclean(ctx: RunContext) -> Path | None:
-    """Optionally run ElevenLabs isolation before ingest."""
-    mode = _selected_mode(ctx)
-    if mode not in {"full_source", "normalized_rebuild"}:
+    """Optionally run ElevenLabs isolation (operator must enable in run_meta)."""
+    scope = _selected_scope(ctx)
+    if not scope:
         ctx.log(
             "Audio pre-clean skipped (quality offer not accepted).",
             level="info",
@@ -24,14 +24,28 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         ctx.mark_done("audio_preclean")
         return None
 
-    source = ctx.path("ingest", "normalized.wav") if mode == "normalized_rebuild" else ctx.input_audio()
+    if scope == "vo_pickup":
+        return _run_vo_pickup_preclean(ctx)
+
+    if scope not in {"full_source", "normalized_rebuild"}:
+        ctx.log(
+            f"Audio pre-clean skipped (unsupported scope: {scope}).",
+            level="info",
+            stage="audio_preclean",
+        )
+        ctx.mark_done("audio_preclean")
+        return None
+
+    source = ctx.path("ingest", "normalized.wav") if scope == "normalized_rebuild" else ctx.input_audio()
     if not source.is_file():
         raise FileNotFoundError(f"Audio pre-clean source not found: {source}")
 
     src_hash = _sha256(source)
     lineage_path = ctx.path("preclean", "lineage.json")
     out_path = ctx.path("preclean", "isolated.wav")
-    if _can_skip(lineage_path=lineage_path, out_path=out_path, source_sha=src_hash, scope=mode):
+    if _can_skip_full_source(
+        lineage_path=lineage_path, out_path=out_path, source_sha=src_hash, scope=scope
+    ):
         ctx.log(
             "Audio pre-clean unchanged; using existing isolated.wav.",
             level="info",
@@ -45,10 +59,10 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _write_audio_as_wav(out_path, isolated_bytes)
-    _write_provider(ctx, mode)
-    _write_lineage(ctx=ctx, source=source, source_sha=src_hash, scope=mode, output=out_path)
+    _write_provider(ctx, scope)
+    _write_full_source_lineage(ctx=ctx, source=source, source_sha=src_hash, scope=scope, output=out_path)
     ctx.log(
-        f"Audio pre-clean complete ({mode}) → preclean/isolated.wav",
+        f"Audio pre-clean complete ({scope}) → preclean/isolated.wav",
         level="success",
         stage="audio_preclean",
     )
@@ -56,9 +70,89 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
     return out_path
 
 
-def _selected_mode(ctx: RunContext) -> str:
-    meta_path = ctx.path("run_meta.json")
-    if not meta_path.is_file():
+def invalidate_after_preclean_accept(ctx: RunContext, scope: str) -> None:
+    """Clear stage markers so re-run picks up new cleaned audio."""
+    from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER
+
+    if scope == "vo_pickup":
+        for stage in ("audio_preclean", "vo_ingest"):
+            ctx.path(".stage_done", stage).unlink(missing_ok=True)
+        flow = (ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}).get(
+            "selected_flow"
+        )
+        if flow == "flow1":
+            ctx.clear_from("edl_flow1", FLOW1_ORDER)
+        elif flow == "flow2":
+            ctx.clear_from("mix_flow2", FLOW2_ORDER)
+        ctx.log(
+            "Invalidated vo_ingest and downstream flow stages after pickup pre-clean accept.",
+            level="warning",
+            stage="audio_preclean",
+        )
+        return
+
+    ctx.clear_from("audio_preclean", ANALYSIS_ORDER)
+    flow = (ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}).get(
+        "selected_flow"
+    )
+    if flow == "flow1":
+        ctx.clear_from("topic_coverage_audit", FLOW1_ORDER)
+    elif flow == "flow2":
+        ctx.clear_from("highlight_selection", FLOW2_ORDER)
+
+
+def _run_vo_pickup_preclean(ctx: RunContext) -> None:
+    pickup = ctx.path("vo_pickup")
+    sources = sorted(p for p in pickup.glob("*.wav") if p.is_file())
+    if not sources:
+        ctx.log(
+            "Audio pre-clean skipped: no vo_pickup WAV files found.",
+            level="info",
+            stage="audio_preclean",
+        )
+        ctx.mark_done("audio_preclean")
+        return None
+
+    lineage_path = ctx.path("preclean", "lineage.json")
+    if _can_skip_vo_pickup(lineage_path=lineage_path, sources=sources):
+        ctx.log(
+            "VO pickup pre-clean unchanged; using existing vo_pickup/clean/*.wav.",
+            level="info",
+            stage="audio_preclean",
+        )
+        ctx.mark_done("audio_preclean")
+        return None
+
+    api_key = require_secret("ELEVENLABS_API_KEY")
+    clean_dir = pickup / "clean"
+    clean_dir.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, Any]] = []
+    for source in sources:
+        isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
+        dest = clean_dir / source.name
+        _write_audio_as_wav(dest, isolated_bytes)
+        entries.append(
+            {
+                "source_path": str(source),
+                "source_sha256": _sha256(source),
+                "output_path": f"vo_pickup/clean/{source.name}",
+                "output_sha256": _sha256(dest),
+            }
+        )
+
+    _write_provider(ctx, "vo_pickup")
+    _write_vo_pickup_lineage(ctx, entries)
+    ctx.log(
+        f"VO pickup pre-clean complete → {len(entries)} file(s) in vo_pickup/clean/",
+        level="success",
+        stage="audio_preclean",
+    )
+    ctx.mark_done("audio_preclean")
+    return None
+
+
+def _selected_scope(ctx: RunContext) -> str:
+    if not ctx.artifact_exists("run_meta.json"):
         return ""
     meta = ctx.read_json("run_meta.json")
     preclean = meta.get("audio_preclean")
@@ -66,11 +160,12 @@ def _selected_mode(ctx: RunContext) -> str:
         return ""
     if not preclean.get("enabled"):
         return ""
-    scope = str(preclean.get("scope") or "").strip()
-    return scope
+    return str(preclean.get("scope") or "").strip()
 
 
-def _can_skip(*, lineage_path: Path, out_path: Path, source_sha: str, scope: str) -> bool:
+def _can_skip_full_source(
+    *, lineage_path: Path, out_path: Path, source_sha: str, scope: str
+) -> bool:
     if not lineage_path.is_file() or not out_path.is_file():
         return False
     try:
@@ -82,6 +177,34 @@ def _can_skip(*, lineage_path: Path, out_path: Path, source_sha: str, scope: str
         and lineage.get("source_sha256") == source_sha
         and lineage.get("provider") == "elevenlabs"
     )
+
+
+def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
+    if not lineage_path.is_file():
+        return False
+    try:
+        lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if lineage.get("scope") != "vo_pickup" or lineage.get("provider") != "elevenlabs":
+        return False
+    files = lineage.get("files")
+    if not isinstance(files, list):
+        return False
+    by_name = {
+        Path(str(entry.get("source_path", ""))).name: entry.get("source_sha256")
+        for entry in files
+        if isinstance(entry, dict)
+    }
+    clean_dir = sources[0].parent / "clean"
+    for source in sources:
+        expected = by_name.get(source.name)
+        if expected != _sha256(source):
+            return False
+        dest = clean_dir / source.name
+        if not dest.is_file():
+            return False
+    return True
 
 
 def _read_isolation_bytes(*, api_key: str, source: Path) -> bytes:
@@ -116,7 +239,9 @@ def _write_provider(ctx: RunContext, scope: str) -> None:
     ctx.write_json("preclean/provider.json", provider)
 
 
-def _write_lineage(*, ctx: RunContext, source: Path, source_sha: str, scope: str, output: Path) -> None:
+def _write_full_source_lineage(
+    *, ctx: RunContext, source: Path, source_sha: str, scope: str, output: Path
+) -> None:
     lineage: dict[str, Any] = {
         "provider": "elevenlabs",
         "scope": scope,
@@ -124,6 +249,16 @@ def _write_lineage(*, ctx: RunContext, source: Path, source_sha: str, scope: str
         "source_sha256": source_sha,
         "output_path": "preclean/isolated.wav",
         "isolated_sha256": _sha256(output),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ctx.write_json("preclean/lineage.json", lineage)
+
+
+def _write_vo_pickup_lineage(ctx: RunContext, entries: list[dict[str, Any]]) -> None:
+    lineage: dict[str, Any] = {
+        "provider": "elevenlabs",
+        "scope": "vo_pickup",
+        "files": entries,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     ctx.write_json("preclean/lineage.json", lineage)

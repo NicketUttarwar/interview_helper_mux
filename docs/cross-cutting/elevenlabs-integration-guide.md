@@ -21,7 +21,7 @@
 | SFX outputs | `flow_1_master/sfx/*.wav`, `flow_2_highlights/sfx/*.wav` | `sound_design/assets/{asset_id}.wav` |
 | Flow 1 mux | **Speech-only** — generated SFX may exist but not in `master.wav` | Speech + VO + beds + stingers (BUILD-065/067) |
 | Flow 2 mux | SFX concat by index (imperfect) | Cold open + shared transition asset + ranks |
-| Audio isolation | Spec only (BUILD-019) | `audio_preclean` stage; same API key |
+| Audio isolation | Shipped (BUILD-019) | `audio_preclean` stage; same API key |
 | Prompt craft | None (brief → API directly) | OpenAI `elevenlabs_prompt_craft` → ElevenLabs |
 | Post-gen analysis | None | Documented workflow (this guide § Post-generation) |
 | G1.5 approval | Spec only | Optional block before generation spend |
@@ -37,7 +37,7 @@ ElevenLabs is used for **two** capabilities in this repo:
 | Service | Product name | Primary use | Pipeline stage(s) | Auth |
 |---------|--------------|-------------|-------------------|------|
 | **A** | Text-to-Sound Effects | Podcast beds, stingers, transitions, accents | `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2`; target: `sound_design_generate_flow*` | `ELEVENLABS_API_KEY` |
-| **B** | Audio Isolation | Speech-focused denoise before STT / VO / mix | `audio_preclean` (planned) | Same key |
+| **B** | Audio Isolation | Speech-focused denoise before STT / VO / mix | `audio_preclean` | Same key |
 
 Both share one secret. See [config-keys.md](./config-keys.md).
 
@@ -167,7 +167,7 @@ from interview_mux.elevenlabs_rest import isolate_audio
 out_bytes = isolate_audio(api_key=api_key, audio_bytes=wav_bytes, filename="source.wav")
 ```
 
-Use `isolate_audio` from `elevenlabs_rest.py` when `audio_preclean` stage ships (BUILD-019).
+Use `isolate_audio` from `elevenlabs_rest.py` in `stages/audio_preclean.py` (BUILD-019).
 
 **Outputs:** `preclean/isolated.wav`, `vo_pickup/clean/*.wav`, `preclean/provider.json`, `preclean/lineage.json`.
 

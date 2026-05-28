@@ -143,6 +143,42 @@
     "profile": "podcast",
     "chapter_stingers": []
   },
+  "sound_design_plan_flow2": {
+    "assets": [
+      {
+        "asset_id": "montage_transition_glue",
+        "role": "transition_stinger",
+        "description": "Short forward-motion whoosh with no vocals, reusable between clips.",
+        "duration_seconds": 1.4,
+        "reuse_note": "Shared between all between_clips cues."
+      },
+      {
+        "asset_id": "cold_open_pulse",
+        "role": "cold_open",
+        "description": "Tight tonal rise before the first highlight.",
+        "duration_seconds": 2.0
+      }
+    ],
+    "flow_plans": {
+      "flow2": {
+        "profile": "montage",
+        "cues": [
+          {
+            "cue_id": "open_001",
+            "asset_id": "cold_open_pulse",
+            "placement": "before_timeline"
+          },
+          {
+            "cue_id": "cut_1_2",
+            "asset_id": "montage_transition_glue",
+            "placement": "between_clips",
+            "from_clip_rank": 1,
+            "to_clip_rank": 2
+          }
+        ]
+      }
+    }
+  },
   "sound_design_plan_flow1": {
     "assets": [
       {

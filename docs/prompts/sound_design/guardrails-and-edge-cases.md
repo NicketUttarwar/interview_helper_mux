@@ -10,7 +10,7 @@
 |------|----------------|-------|
 | `sound_design.enabled` | Spend on SFX when operator wants dry review | Default off or explicit opt-in; respect assembly-preview-first flow when BUILD-069 exists |
 | `max_assets_flow1` / `max_assets_flow2` | API cost + timbral soup | Cap enforced in code; plans that exceed cap → validation failure, not silent trim |
-| `require_operator_prompt_approval` (G1.5) | Surprise spend | When true, block ElevenLabs until operator approves crafted prompts |
+| `g1_5_require_prompt_approval` (G1.5, shipped) | Surprise spend | When true, block ElevenLabs until operator approves crafted prompts in GUI |
 | `allow_diegetic_ambient` | Music mistaken for “room” | If false, reject beds that imply performance; document in SDP `avoid` |
 
 ---

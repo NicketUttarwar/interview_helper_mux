@@ -4,6 +4,7 @@ import math
 import wave
 from pathlib import Path
 
+from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.stages import understanding
 
@@ -20,6 +21,16 @@ def _write_test_wav(path: Path, *, sample_rate: int = 16000, duration_seconds: f
             sample = int(amp * math.sin(2.0 * math.pi * 220.0 * (i / sample_rate)))
             frames += int(sample).to_bytes(2, byteorder="little", signed=True)
         wf.writeframes(bytes(frames))
+
+
+def test_analysis_order_places_source_acoustic_profile_after_transcript_review():
+    review_idx = ANALYSIS_ORDER.index("transcript_review_build")
+    sap_idx = ANALYSIS_ORDER.index("source_acoustic_profile")
+    speaker_idx = ANALYSIS_ORDER.index("speaker_roles")
+    palettes_idx = ANALYSIS_ORDER.index("sound_design_palettes")
+    assert sap_idx == review_idx + 1
+    assert speaker_idx == sap_idx + 1
+    assert palettes_idx > sap_idx
 
 
 def test_run_source_acoustic_profile_writes_artifact(tmp_path, monkeypatch):

@@ -4,7 +4,7 @@ Trim boundaries, build EDL from selection, and prepare clips for mix.
 
 ## Tickets
 
-BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), BUILD-067 (EDL wiring), BUILD-068 (NLE → selection/EDL), BUILD-069 (planned)
+BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), BUILD-067 (EDL wiring), BUILD-068 (NLE → selection/EDL), BUILD-069 (assembly preview)
 
 ## Tools
 

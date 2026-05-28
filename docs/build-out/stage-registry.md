@@ -20,7 +20,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt / spec |
 |----------|--------|--------|--------|-----------------|---------------|
-| `audio_preclean` | planned | `stages/audio_preclean.py` | BUILD-019 | `preclean/isolated.wav`, `preclean/lineage.json` | — · [audio_preclean/README.md](../pipeline/audio_preclean/README.md) |
+| `audio_preclean` | shipped | `stages/audio_preclean.py` | BUILD-019 | `preclean/isolated.wav`, `preclean/lineage.json`, `vo_pickup/clean/` | — · [audio_preclean/README.md](../pipeline/audio_preclean/README.md) |
 
 ---
 
@@ -70,10 +70,10 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` — speech + `vo_pickup` + transition events; `mux_scope: speech_only` | — |
 | `assembly_preview` | shipped | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` (speech + VO, no SFX) | — |
 | `podcast_sfx_brief` | shipped (v1) | `selection_flow1.py` | BUILD-033 | `flow_1_master/podcast_sfx_brief.json` | `assembly/podcast-sfx-brief` |
-| `sound_design_plan_flow1` | planned | `sound_design_stages.py` | BUILD-062 | SDP `flow_plans.flow1` | `sound_design/plan-flow1` |
+| `sound_design_plan_flow1` | shipped | `sound_design_stages.py` | BUILD-062 | SDP `assets` + `flow_plans.flow1.cues` (after `transitions`; requires G2 `flow1`) | `sound_design/plan-flow1` |
 | `elevenlabs_sfx_flow1` | shipped (v1) | `sfx_elevenlabs.py` | BUILD-034, **064** | `flow_1_master/sfx/*.wav` | craft: `elevenlabs-prompt-craft` |
-| `mux_flow1` | shipped (v1 speech) | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/assembly.wav` — concat **speech** EDL clips only; VO/transitions for BUILD-065/069 | — |
-| `mix_flow1` | planned | TBD | BUILD-065 | Replaces/aliases v1 mux | — |
+| `mix_flow1` | shipped | `assembly_flow1.py` → `sound_design.mix_flow1` | BUILD-035, **065**, **066**, 067 | `flow_1_master/assembly.wav` — speech + VO + SDP overlays | — |
+| `mux_flow1` | shipped (legacy alias) | `assembly_flow1.run_mux` | BUILD-066 | Same artifact; single-stage rerun only | — |
 | `master_flow1` | shipped | `mastering.py` | BUILD-036, **071** | `flow_1_master/master.wav` | — |
 
 **README:** [scoring_and_selection](../pipeline/scoring_and_selection/README.md) · [audio_editing](../pipeline/audio_editing/README.md) · [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [mastering_and_export](../pipeline/mastering_and_export/README.md)
@@ -86,10 +86,10 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 |----------|--------|--------|--------|-----------------|--------|
 | `highlight_selection` | shipped | `selection_flow2.py` | BUILD-040 | `flow_2_highlights/selection.json` | `selection/highlight-selection` |
 | `sfx_brief` | shipped (v1) | `selection_flow2.py` | BUILD-041 | `flow_2_highlights/sfx_brief.json` | `assembly/sfx-brief` |
-| `sound_design_plan_flow2` | planned | `sound_design_stages.py` | BUILD-063 | SDP `flow_plans.flow2` | `sound_design/plan-flow2` |
+| `sound_design_plan_flow2` | shipped | `sound_design_stages.py` | BUILD-063 | SDP `assets` + `flow_plans.flow2.cues` (after `highlight_selection`; requires G2 `flow2`) | `sound_design/plan-flow2` |
 | `elevenlabs_sfx_flow2` | shipped (v1) | `sfx_elevenlabs.py` | BUILD-042, **064** | `flow_2_highlights/sfx/*.wav` | craft stage |
-| `mux_flow2` | shipped | `assembly_flow2.py` | BUILD-043 | `flow_2_highlights/assembly.wav` | — |
-| `mix_flow2` | planned | TBD | BUILD-065 | Target mix engine | — |
+| `mix_flow2` | shipped | `assembly_flow2.py` → `sound_design.mix_flow2` | BUILD-043, **065**, **066** | `flow_2_highlights/assembly.wav` — montage + SDP transitions | — |
+| `mux_flow2` | shipped (legacy alias) | `assembly_flow2.run_micro_assembly` | BUILD-066 | Same artifact; single-stage rerun only | — |
 | `master_flow2` | shipped | `mastering.py` | BUILD-044 | `flow_2_highlights/master.wav` | — |
 
 ---

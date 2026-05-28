@@ -31,6 +31,9 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `highlight_selection` | `artifacts/highlights_artifact.schema.json` | |
 | `transitions` | `artifacts/transitions_artifact.schema.json` | |
 | `podcast_sfx_brief` | `artifacts/podcast_sfx_artifact.schema.json` | |
+| `sound_design_plan_flow1` | `artifacts/sound_design_plan_flow1_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
+| `sound_design_plan_flow2` | `artifacts/sound_design_plan_flow2_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
+| `elevenlabs_prompt_craft` | `artifacts/elevenlabs_prompts_artifact.schema.json` | Writes `sound_design/elevenlabs_prompts.json` |
 | `sfx_brief` | `artifacts/sfx_montage_artifact.schema.json` | |
 | `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3 |
 
@@ -49,6 +52,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [investigation_queue.schema.json](./json-schemas/investigation_queue.schema.json) | Queue file |
 | [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
 
+**On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
+
 **Guard:** When adding GUI import/export or a new validator, prefer reusing these files instead of duplicating field lists in prose-only docs.
 
 ## Artifacts in layout with **no** JSON Schema yet (explicit gap)
@@ -63,8 +68,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `transcript/full.json` | AWS Transcribe export shape | Optional: external-shape schema |
 | `transcript/corrections.json` | Operator edits | Small object schema |
 | `ingest/checksums.json` | Lineage | Small object schema |
-| `understanding/sound_design_plan.json` | SDP | BUILD-060 schema present; now validated after `sound_design_palettes` persist |
-| `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | Spec: [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | `source_acoustic_profile.schema.json` · [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `gui_log.jsonl` | NDJSON stream | Often line-schema only |
 
 **Best-in-class fixes (priority order):**
@@ -86,6 +90,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 |----------|-----------------|-------------------|
 | Envelope `artifacts` from LLM stages | Per-stage rows above | Yes |
 | `understanding/analysis_state.json` | `analysis_state.schema.json` | No (manual / future) |
+| `understanding/sound_design_plan.json` | `sound_design_plan.schema.json` | Yes (init + Wave 5 persist) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
 | `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | **No** (not wired in `prompt_validation` yet) |

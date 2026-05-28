@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ValueFeatures",
+  "type": "object",
+  "required": ["version", "run_id", "profiles"],
+  "properties": {
+    "version": { "type": "integer" },
+    "run_id": { "type": "string" },
+    "profiles": {
+      "type": "object",
+      "properties": {
+        "transcript": {
+          "type": "object",
+          "required": ["profile"],
+          "properties": {
+            "profile": { "const": "transcript" },
+            "words_per_minute_proxy": { "type": "number" },
+            "median_pause_ms": { "type": "number" },
+            "segment_count": { "type": "integer" },
+            "segment_length_p50": { "type": "number" },
+            "segment_length_p90": { "type": "number" },
+            "interviewer_turn_ratio": { "type": "number" },
+            "tags": {
+              "type": "object",
+              "properties": {
+                "LEX": { "type": "array", "items": { "type": "string" } },
+                "COM": { "type": "array", "items": { "type": "string" } },
+                "CRE": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "required": ["profile"],
+          "properties": {
+            "profile": { "const": "audio" },
+            "duration_sec": { "type": "number", "minimum": 0 },
+            "silence_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "rms_p50": { "type": "number", "minimum": 0 },
+            "rms_p90": { "type": "number", "minimum": 0 },
+            "peak_dbfs_proxy": { "type": "number" }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

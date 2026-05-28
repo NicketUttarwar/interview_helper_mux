@@ -40,7 +40,7 @@ If the operator accepts a **full-source** pre-clean offer at any checkpoint, inv
 
 ## Module
 
-`src/interview_mux/stages/ingest.py` (pre-clean: BUILD-019, planned)
+`src/interview_mux/stages/ingest.py` (pre-clean input: BUILD-019)
 
 ---
 

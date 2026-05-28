@@ -51,7 +51,7 @@ Use step-specific **Verify** blocks below when they apply.
 | ~~1~~ | ~~**Finish anchor lock**~~ — **done** (`requirements.lock`, `pip-audit` gate, lock-only bootstrap) | BUILD-010 | `scripts/`, `tools/check_prerequisites.sh`, [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
 | 2 | **Flow 3 end-to-end** — `publishing_flow3.py`, `FLOW3_ORDER` in `pipeline.py`, CLI/GUI/runner | BUILD-045, 046, **080** | `src/`, [publishing/README.md](../pipeline/publishing/README.md), [smoke-test.md](../workflows/smoke-test.md) |
 | 3 | **Align API docs with server** — mark `flow3` execute/G2 as shipped only after #2; until then GUI copy = flow1 \| flow2 only | BUILD-080 | [api-reference.md](../workflows/api-reference.md), [gui-surface-map.md](../workflows/gui-surface-map.md) |
-| 4 | **Profile gate before Flow 1 extended** — warn/block `topic_coverage_audit` if `operator_verified` false | BUILD-081 *(new)* | `gates.py`, GUI, [operator-gates.md](../workflows/operator-gates.md) |
+| ~~4~~ | ~~**Profile gate before Flow 1 extended**~~ — **done** (blocks `topic_coverage_audit` when `meta.operator_verified` false and `selected_flow: flow1`) | BUILD-081 | `gates.py`, GUI, [operator-gates.md](../workflows/operator-gates.md) |
 | 5 | **Keep operator checklists current** — any new stage/offer updates [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) in the same PR | — | workflows |
 
 ### Step #0 — ASSETS-first operator model
@@ -226,7 +226,7 @@ Read first:
 @docs/build-out/stage-registry.md (topic_coverage_audit)
 
 Constraints: .cursor/rules/interview-helper-mux.mdc.
-- Block or warn before topic_coverage_audit when operator_verified is false in run_meta.json
+- Block or warn before topic_coverage_audit when meta.operator_verified is false in analysis_state.json
 - ctx.log() explains required operator action
 - GUI gate panel if applicable
 - Do not run Flow 1 extended unless selected_flow is flow1
@@ -899,8 +899,8 @@ pytest tests/
 Use this when you want a straight sequence of **one command per Cursor Agent chat** based on current shipped/planned status in `docs/build-out/README.md`.
 
 Assumption used for this queue:
-- Already shipped: BUILD-010, 012, 014, 045, 046, 057, 080, 067, 069.
-- Remaining focus: BUILD-081, 068, 060-066, 082, 070-072, 019, 073, plus optional #18-#20.
+- Already shipped: BUILD-010, 012, 014, 045, 046, 057, 080, 067, 068, 069.
+- Remaining focus: BUILD-060-066, 070-072, 019, 073, plus optional #18-#20.
 
 How to run:
 1. Open a new Cursor Agent chat.
@@ -920,7 +920,7 @@ Read first:
 @docs/build-out/stage-registry.md (topic_coverage_audit)
 
 Constraints:
-- Block or warn before topic_coverage_audit when operator_verified is false in run_meta.json
+- Block or warn before topic_coverage_audit when meta.operator_verified is false in analysis_state.json
 - Use ctx.log() for operator-visible message
 - Update GUI gate panel if applicable
 - Ensure this applies only for selected_flow=flow1
@@ -1331,7 +1331,9 @@ python -c "import glob; fs=glob.glob('ASSETS/executions/${EXEC_ID}/understanding
 ### Optional commands (staffing-dependent)
 
 ```text
-Optional A — backlog #18: expand pytest coverage (BUILD-054/055 extension).
-Optional B — backlog #19: value-analysis spike docs/prototype only (no default pipeline wire-up).
-Optional C — backlog #20: G1.5 SFX prompt review panel (BUILD-066 partial UX pass).
+Optional A — backlog #18: expand pytest coverage (BUILD-054/055 extension). [done — test_pipeline flow1/2/3+analysis, test_gates, test_g1_5_prompt_review, run_fixtures.py]
+Optional B — backlog #19: value-analysis spike docs/prototype only (no default pipeline wire-up). [docs exist — see docs/pipeline/value-analysis/]
+Optional C — backlog #20: G1.5 SFX prompt review panel (BUILD-066 partial UX pass). [done — app.js + API; test_g1_5_prompt_review.py]
 ```
+
+Verify optional A: `pytest tests/ -q` (107+ tests, no live AWS/OpenAI).

@@ -221,7 +221,8 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "elevenlabs_prompt_craft",
         "Craft ElevenLabs prompts",
-        "Build one crafted prompt per planned asset_id for ElevenLabs generation.",
+        "Build one crafted prompt per planned asset_id. When G1.5 is enabled "
+        "(g1_5_require_prompt_approval), review and approve prompts here before SFX generation.",
         "flow1",
         ("sound_design/elevenlabs_prompts.json",),
         ("sound_design/elevenlabs_prompts.json",),
@@ -229,17 +230,18 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "elevenlabs_sfx_flow1",
         "Generate SFX",
-        "Generate sound effects via ElevenLabs from sound design plan assets/prompts.",
+        "One ElevenLabs REST call per unique asset_id; writes sound_design/assets/{asset_id}.wav.",
         "flow1",
         ("understanding/sound_design_plan.json", "sound_design/elevenlabs_prompts.json"),
         (),
+        ("sound_design/assets/", "flow_1_master/sfx/"),
     ),
     StageInfo(
-        "mux_flow1",
-        "Assembly",
-        "Mux speech, VO, and SFX into a pre-master assembly WAV.",
+        "mix_flow1",
+        "Mix assembly",
+        "Mix speech, VO, beds, and stingers into a pre-master assembly WAV.",
         "flow1",
-        (),
+        ("flow_1_master/assembly.wav",),
         (),
         ("flow_1_master/assembly.wav",),
     ),
@@ -274,7 +276,8 @@ FLOW2_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "elevenlabs_prompt_craft",
         "Craft ElevenLabs prompts",
-        "Build one crafted prompt per planned asset_id for ElevenLabs generation.",
+        "Build one crafted prompt per planned asset_id. When G1.5 is enabled "
+        "(g1_5_require_prompt_approval), review and approve prompts here before SFX generation.",
         "flow2",
         ("sound_design/elevenlabs_prompts.json",),
         ("sound_design/elevenlabs_prompts.json",),
@@ -282,17 +285,18 @@ FLOW2_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "elevenlabs_sfx_flow2",
         "Generate SFX",
-        "Generate montage sound effects via ElevenLabs from sound design plan assets/prompts.",
+        "One ElevenLabs REST call per unique asset_id; writes sound_design/assets/{asset_id}.wav.",
         "flow2",
         ("understanding/sound_design_plan.json", "sound_design/elevenlabs_prompts.json"),
         (),
+        ("sound_design/assets/", "flow_2_highlights/sfx/"),
     ),
     StageInfo(
-        "mux_flow2",
-        "Micro-assembly",
-        "Assemble highlight clips with SFX into a pre-master WAV.",
+        "mix_flow2",
+        "Mix assembly",
+        "Assemble highlight clips with cold open, transitions, and SFX into a pre-master WAV.",
         "flow2",
-        (),
+        ("flow_2_highlights/assembly.wav",),
         (),
         ("flow_2_highlights/assembly.wav",),
     ),
@@ -336,6 +340,43 @@ G2_STAGE = StageInfo(
     ("run_meta.json",),
 )
 
+_LEGACY_STAGE_ALIASES: tuple[StageInfo, ...] = (
+    StageInfo(
+        "mux_flow1",
+        "Assembly (legacy)",
+        "Backward-compatible id for mix_flow1.",
+        "flow1",
+        ("flow_1_master/assembly.wav",),
+        (),
+        ("flow_1_master/assembly.wav",),
+    ),
+    StageInfo(
+        "mux_flow2",
+        "Micro-assembly (legacy)",
+        "Backward-compatible id for mix_flow2.",
+        "flow2",
+        ("flow_2_highlights/assembly.wav",),
+        (),
+        ("flow_2_highlights/assembly.wav",),
+    ),
+    StageInfo(
+        "podcast_sfx_brief",
+        "SFX brief (v1 legacy)",
+        "v1 one-shot brief — not on the default Flow 1 path. Use sound_design_plan_flow1 instead.",
+        "flow1",
+        ("flow_1_master/podcast_sfx_brief.json",),
+        ("flow_1_master/podcast_sfx_brief.json",),
+    ),
+    StageInfo(
+        "sfx_brief",
+        "SFX brief (v1 legacy)",
+        "v1 montage brief — not on the default Flow 2 path. Use sound_design_plan_flow2 instead.",
+        "flow2",
+        ("flow_2_highlights/sfx_brief.json",),
+        ("flow_2_highlights/sfx_brief.json",),
+    ),
+)
+
 STAGE_BY_ID: dict[str, StageInfo] = {
     s.id: s
     for s in (
@@ -347,6 +388,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
         *FLOW1_STAGES,
         *FLOW2_STAGES,
         *FLOW3_STAGES,
+        *_LEGACY_STAGE_ALIASES,
     )
 }
 

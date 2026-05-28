@@ -45,6 +45,8 @@ Rubrics, moonshot model families, templates, per-stage notes: [pipeline/value-an
 
 | Capability | ON |
 |------------|-----|
-| *(none from this track yet)* | No |
+| G1.5 prompt review gate (`g1_5_require_prompt_approval`) | Yes — GUI + API + `g15_prompt_review.py` (flag default off) |
+| Value-analysis spike scoring CLI | Yes — `tools/run_value_spike.py` (**tooling only**; not a default pipeline stage) |
+| Value-features extractor CLI | Yes — `tools/extract_value_features.py` → `understanding/value_features.json` (**tooling only**) |
 
 Update this table when a future-proofed capability lands in the app.

@@ -96,7 +96,7 @@ _FLOW1_ORDER = (
     "assembly_preview",
     "elevenlabs_prompt_craft",
     "elevenlabs_sfx_flow1",
-    "mux_flow1",
+    "mix_flow1",
     "master_flow1",
 )
 

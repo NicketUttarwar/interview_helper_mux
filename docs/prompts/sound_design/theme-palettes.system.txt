@@ -65,7 +65,7 @@ See `docs/prompts/_shared/examples/sound-design.examples.md` (palette section).
 
 ## Schema
 
-Partial SDP — validate palette list structure; full SDP schema pending BUILD-060.
+Stage output validates against `sound_design_palettes_artifact.schema.json`; merged SDP must satisfy `sound_design_plan.schema.json` (BUILD-060).
 
 {
   "coherence": {

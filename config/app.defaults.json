@@ -48,6 +48,12 @@
   "_comment": "Runs stored under ASSETS/executions/exec_NNN_TIMESTAMP/. Legacy data/run_NNN/ still supported.",
   "executions_root": "ASSETS/executions",
   "g1_5_require_prompt_approval": false,
+  "value_analysis": {
+    "enabled": false,
+    "spike_scoring": true,
+    "transcript_features": true,
+    "audio_features": false
+  },
   "web_port": 8765,
   "analysis": {
     "max_iterations_per_stage": 3,

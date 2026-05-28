@@ -111,15 +111,15 @@ Flow 3 does not require ElevenLabs or mastering. Profile verification is **recom
 
 ---
 
-## G1.5 — Sound design approval (optional, planned)
+## G1.5 — Sound design prompt approval (optional, shipped)
 
-**When:** After Flow 1/2 sound plan exists, **before** ElevenLabs generation spend.
+**When:** After `elevenlabs_prompt_craft`, **before** `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` generation spend.
 
-**Trigger:** `sound_design_plan.json` has cues and `require_operator_prompt_approval: true` in config (default false).
+**Trigger:** `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (default `false`).
 
-**Action:** Operator reviews cue list and crafted prompts; approve or edit plan JSON.
+**Action:** Operator reviews and edits `sound_design/elevenlabs_prompts.json` on the **Craft ElevenLabs prompts** stage panel; **Approve** sets `run_meta.json` → `elevenlabs_prompt_review.approved`. Generation is blocked in GUI and at runtime until approved.
 
-See [sound-design.md](../cross-cutting/sound-design.md) and [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey) (`elevenlabs_prompts_approved`, post-listen log events).
+See [gui-surface-map.md](./gui-surface-map.md#elevenlabs-operator-journey-sfx--g15) · [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
 
 ---
 
@@ -136,7 +136,11 @@ These **do not** block the pipeline unless the operator accepts and a re-run is 
 | Assembly preview listen | After ranking, before SFX | N/A (listen only) |
 | Re-verify master | After `master.wav` | QA + optional re-mux |
 
-Log accept/dismiss in `run_meta.json` → `audio_preclean.offered_at` and GUI log.
+Log accept/dismiss in `run_meta.json` → `audio_preclean.offered_at`, `audio_preclean.decisions`, and `gui_log.jsonl` (`stage: audio_preclean`).
+
+**GUI (BUILD-072):** When the operator selects a stage tied to a checkpoint, the workspace shows a non-blocking **Quality offer** card (Accept / Dismiss). Showing the card calls `POST …/preclean-offer` with `action: offer`; buttons send `accept` or `dismiss` with the checkpoint’s default scope (`vo_pickup` at G1). See [gui-surface-map.md](./gui-surface-map.md#quality-offers-pre-clean).
+
+On **accept**, the server clears downstream stage markers (`audio_preclean` → ingest/transcribe for `full_source` / `normalized_rebuild`; `vo_ingest` + flow assembly for `vo_pickup`). Re-run `audio_preclean` then the invalidated stages. Pre-clean **never** runs until accept — the `audio_preclean` stage logs a skip when `enabled` is false.
 
 Default for all offers: **off** — operator opts in.
 

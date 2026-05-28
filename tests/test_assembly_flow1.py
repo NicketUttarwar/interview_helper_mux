@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from interview_mux.run_context import RunContext
 from interview_mux.stages import assembly_flow1
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
 
@@ -81,6 +82,46 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
     assert edl["vo_pickup_clip_count"] == 2
     assert edl["timeline_duration_ms"] == 10_000 + 2_000 + 0 + 2_000 + 15_000
     assert len(edl["gap_placements"]) == 2
+
+
+def test_run_edl_applies_nle_to_selection_and_edl() -> None:
+    ctx = RunContext("run_206", create=True)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {"segment_id": "seg_a", "start_ms": 0, "end_ms": 10_000},
+                {"segment_id": "seg_b", "start_ms": 10_000, "end_ms": 20_000},
+                {"segment_id": "seg_c", "start_ms": 20_000, "end_ms": 30_000},
+            ]
+        },
+    )
+    ctx.write_json(
+        "flow_1_master/selection.json",
+        {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"], "excluded_segment_ids": []},
+    )
+    ctx.write_json(
+        "segments/nle_edits.json",
+        {
+            "sequence_order": ["seg_c", "seg_a"],
+            "segment_overrides": {"seg_b": {"excluded": True}},
+        },
+    )
+
+    assembly_flow1.run_edl(ctx)
+
+    selection = ctx.read_json("flow_1_master/selection.json")
+    assert selection["ordered_segment_ids"] == ["seg_c", "seg_a"]
+    assert selection.get("nle_applied") is True
+    assert any(
+        e.get("segment_id") == "seg_b" for e in selection.get("excluded_segment_ids") or []
+    )
+
+    edl = ctx.read_json("flow_1_master/edl.json")
+    speech_ids = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]
+    assert "seg_b" not in speech_ids
+    assert speech_ids == ["seg_c", "seg_a"]
+    assert ctx.is_done("edl_flow1")
 
 
 def test_edl_skips_non_record_delivery() -> None:

@@ -126,6 +126,35 @@ def test_validate_sound_design_plan_flow1_artifact_ok():
     assert validate_stage_artifacts("sound_design_plan_flow1", artifacts) == []
 
 
+def test_validate_sound_design_plan_flow2_artifact_ok():
+    artifacts = {
+        "assets": [
+            {
+                "asset_id": "montage_transition_glue",
+                "role": "transition_stinger",
+                "description": "Short forward-motion transition with no vocals.",
+                "duration_seconds": 1.4,
+                "reuse_note": "Shared between all between_clips cues.",
+            }
+        ],
+        "flow_plans": {
+            "flow2": {
+                "profile": "montage",
+                "cues": [
+                    {
+                        "cue_id": "cut_1_2",
+                        "asset_id": "montage_transition_glue",
+                        "placement": "between_clips",
+                        "from_clip_rank": 1,
+                        "to_clip_rank": 2,
+                    }
+                ],
+            }
+        },
+    }
+    assert validate_stage_artifacts("sound_design_plan_flow2", artifacts) == []
+
+
 def test_validate_highlights_requires_diversity_bonus():
     artifacts = {
         "highlights": [

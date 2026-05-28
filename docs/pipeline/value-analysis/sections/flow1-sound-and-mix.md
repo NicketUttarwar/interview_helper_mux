@@ -8,6 +8,8 @@ Use sound design to **underline ideas** and emotional truth—never decoration t
 
 `podcast_sfx_brief`, ElevenLabs generation, v1 mux limits per [sound-design.md](../../../cross-cutting/sound-design.md) and [podcast-quality-roadmap.md](../../../cross-cutting/podcast-quality-roadmap.md).
 
+**Optional (tooling):** When `value_analysis.enabled`, `tools/extract_value_features.py` may write `understanding/value_features.json` (transcript/audio proxies) to inform spikes — not consumed by the default pipeline.
+
 ## 3. Value hypotheses
 
 | Hypothesis | One-line thesis |
@@ -36,6 +38,7 @@ Use sound design to **underline ideas** and emotional truth—never decoration t
 
 - A/B same narrative with sting placement informed vs uninformed by events.
 - Listener LEX-B (sonic trust) + COM-A after clip.
+- Optional prep: with `value_analysis.enabled`, run `tools/extract_value_features.py` on the run to populate `understanding/value_features.json` (transcript/audio proxies) before scoring hypotheses in [phase3-spike-framework.md](../phase3-spike-framework.md); the default mux path does not read this file.
 
 ## Related
 

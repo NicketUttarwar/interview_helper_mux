@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from jsonschema import Draft202012Validator
-
 from interview_mux.analysis_memory import default_sound_design_plan
-from interview_mux.config import repo_root
+from interview_mux.prompt_validation import (
+    validate_sound_design_plan as _sdp_schema_errors,
+    validate_stage_artifacts,
+)
 from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
@@ -149,8 +147,14 @@ def run_elevenlabs_prompt_craft(ctx: RunContext) -> None:
     def persist(c: RunContext, artifacts: dict) -> None:
         prompts = artifacts.get("prompts")
         if not isinstance(prompts, list):
-            return
-        c.write_json("sound_design/elevenlabs_prompts.json", {"prompts": prompts})
+            raise ValueError("elevenlabs_prompt_craft: missing artifacts.prompts list")
+        sdp = _load_sound_design_plan(c)
+        normalized = _normalize_elevenlabs_prompts(sdp, prompts)
+        payload = {"prompts": normalized}
+        schema_errors = validate_stage_artifacts("elevenlabs_prompt_craft", payload)
+        if schema_errors:
+            raise ValueError(f"Invalid ElevenLabs prompts artifact: {schema_errors[0]}")
+        c.write_json("sound_design/elevenlabs_prompts.json", payload)
 
     run_flow_llm_stage(
         ctx,
@@ -171,19 +175,10 @@ def _load_sound_design_plan(ctx: RunContext) -> dict:
 
 
 def _validate_sound_design_plan(plan: dict) -> None:
-    schema = _load_sound_design_schema()
-    validator = Draft202012Validator(schema)
-    errors = sorted(validator.iter_errors(plan), key=lambda e: list(e.path))
+    errors = _sdp_schema_errors(plan)
     if not errors:
         return
-    first = errors[0]
-    path = ".".join(str(p) for p in first.path) or "(root)"
-    raise ValueError(f"Invalid sound design plan at {path}: {first.message}")
-
-
-def _load_sound_design_schema() -> dict:
-    path = repo_root() / "docs" / "cross-cutting" / "json-schemas" / "sound_design_plan.schema.json"
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    raise ValueError(f"Invalid sound design plan: {errors[0]}")
 
 
 def _validate_flow1_asset_links(plan: dict) -> None:
@@ -204,6 +199,50 @@ def _validate_flow1_asset_links(plan: dict) -> None:
             "Invalid sound design plan flow1: cues reference unknown asset_id values for "
             f"cue_id(s) {missing}"
         )
+
+
+def _normalize_elevenlabs_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
+    """One crafted row per SDP asset; duration_seconds always from the plan asset."""
+    assets = plan.get("assets")
+    if not isinstance(assets, list) or not assets:
+        raise ValueError(
+            "elevenlabs_prompt_craft requires assets in understanding/sound_design_plan.json; "
+            "run sound_design_plan_flow1 or sound_design_plan_flow2 first"
+        )
+    assets_by_id: dict[str, dict] = {
+        str(item["asset_id"]): item
+        for item in assets
+        if isinstance(item, dict) and item.get("asset_id")
+    }
+    if not assets_by_id:
+        raise ValueError("elevenlabs_prompt_craft: sound design plan assets lack asset_id values")
+
+    by_id: dict[str, dict] = {}
+    for row in prompts:
+        if not isinstance(row, dict):
+            continue
+        aid = str(row.get("asset_id") or "")
+        if not aid or aid not in assets_by_id:
+            continue
+        merged = {**row, "asset_id": aid}
+        plan_duration = assets_by_id[aid].get("duration_seconds")
+        if plan_duration is not None:
+            merged["duration_seconds"] = float(plan_duration)
+        by_id[aid] = merged
+
+    missing = sorted(set(assets_by_id) - set(by_id))
+    if missing:
+        raise ValueError(
+            "elevenlabs_prompt_craft: missing crafted prompt for asset_id(s) "
+            + ", ".join(missing)
+        )
+    extra = sorted(set(by_id) - set(assets_by_id))
+    if extra:
+        raise ValueError(
+            "elevenlabs_prompt_craft: prompts reference unknown asset_id(s) "
+            + ", ".join(extra)
+        )
+    return [by_id[aid] for aid in sorted(by_id)]
 
 
 def _validate_flow2_asset_links(plan: dict) -> None:
