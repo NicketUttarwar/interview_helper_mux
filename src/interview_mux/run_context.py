@@ -15,7 +15,7 @@ LEGACY_RUN_RE = re.compile(r"^run_\d{3}$")
 
 
 class RunContext:
-    def __init__(self, run_id: str | None = None) -> None:
+    def __init__(self, run_id: str | None = None, *, create: bool = True) -> None:
         cfg = merged_config()
         self.root = repo_root()
         self.assets_root = self.root / cfg.get("assets_root", "ASSETS")
@@ -23,9 +23,16 @@ class RunContext:
         self.legacy_data_root = self.root / cfg.get("data_root", "data")
         self.run_id = run_id or self._allocate_run_id()
         self.run_dir = self._resolve_run_dir(self.run_id)
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        (self.run_dir / "vo_pickup").mkdir(exist_ok=True)
-        (self.run_dir / ".stage_done").mkdir(exist_ok=True)
+        if create:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            (self.run_dir / "vo_pickup").mkdir(exist_ok=True)
+            (self.run_dir / ".stage_done").mkdir(exist_ok=True)
+
+    @classmethod
+    def exists(cls, run_id: str) -> bool:
+        """True when the run directory exists (execution or legacy run_*)."""
+        ctx = cls(run_id, create=False)
+        return ctx.run_dir.is_dir()
 
     @staticmethod
     def _executions_root(cfg: dict[str, Any]) -> Path:
@@ -149,7 +156,7 @@ class RunContext:
 
     @classmethod
     def summarize_run(cls, run_id: str) -> dict[str, Any]:
-        ctx = cls(run_id)
+        ctx = cls(run_id, create=False)
         meta: dict[str, Any] = {}
         if ctx.artifact_exists("run_meta.json"):
             meta = ctx.read_json("run_meta.json")

@@ -10,16 +10,16 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 
 | Key | Used by | If wrong |
 |-----|---------|----------|
-| `assets_root` | `RunContext`, GUI assets list | Wrong folder for audio discovery |
-| `input_audio_path` | CLI / tools default input | Analysis points at missing file |
+| `assets_root` | `RunContext`, GUI assets list (`GET /api/assets`) | Wrong folder for audio discovery |
+| `input_audio_path` | CLI / tools **default** when no run exists yet | Headless analysis points at missing file; **GUI operators use asset picker instead** — [assets-and-executions.md](./assets-and-executions.md) |
 | `data_root` | Legacy runs `data/run_NNN` | Legacy paths broken |
-| `executions_root` | New runs under `ASSETS/executions/...` | Runs created outside expected tree |
+| `executions_root` | New runs under `ASSETS/executions/...` | Runs created outside expected tree; resume breaks |
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `models.<stage_key>` | `get_model()` → OpenAI calls (**v1**) | Wrong model: cost/quality drift; unknown name → API errors |
 
-**Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` — see `merged_config()`.
+**Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).
 
 **Optional secrets (fallback, v1):** `OPENAI_MODEL` used when a stage key is missing from `models` map.
 
@@ -113,8 +113,9 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 | `highlight_setup_max_sec` | Flow 2 clip + VO timing invalid vs schema |
 | `max_chapters` | Narrative plan violates cap → validation / model confusion |
 | `max_highlight_clips` | Selection over cap (should match product ≤5) |
-| `show_description_min_words` / `show_description_max_words` | Flow 3 length validation *(proposed, BUILD-045)* | Blurb too short/long for hosts |
-| `show_description_target_words` | Editorial target (~200) for prompts | Copy drifts from product spec |
+| `show_description_min_words` / `show_description_max_words` | Flow 3 JSON schema band (150–250) | Blurb too short/long for hosts |
+| `show_description_target_words` | Editorial target (~200) in `app.defaults.json` | Copy drifts from product spec |
+| `models.podcast_show_description` | OpenAI model for Flow 3 blurb (flagship tier) | Weak or generic show copy |
 
 ---
 
@@ -130,7 +131,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 
 | Key | Effect if wrong / missing |
 |-----|---------------------------|
-| `INPUT_AUDIO_PATH` | Overrides `input_audio_path` — wrong path → ingest fails |
+| `INPUT_AUDIO_PATH` | Overrides `input_audio_path` for CLI default — optional when using GUI + `exec_*` run ids |
 | `OPENAI_API_KEY` | LLM stages fail at runtime |
 | `OPENAI_MODEL` | Fallback when `models.<stage>` missing |
 | `OPENAI_SPEECH_MODEL` | Reserved for future OpenAI audio adapters |

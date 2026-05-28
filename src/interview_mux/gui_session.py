@@ -41,6 +41,12 @@ def set_active_execution(run_id: str, **extra: Any) -> dict[str, Any]:
     return payload
 
 
+def clear_active_execution() -> None:
+    p = active_execution_path()
+    if p.is_file():
+        p.unlink()
+
+
 def touch_server_session(*, port: int, host: str = "127.0.0.1") -> dict[str, Any]:
     payload = {
         "started_at": datetime.now(timezone.utc).isoformat(),

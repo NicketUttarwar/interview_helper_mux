@@ -2,7 +2,18 @@
 
 All run artifacts live under `ASSETS/executions/exec_NNN_TIMESTAMP/` (filesystem-only state). Legacy `data/run_NNN/` runs are still readable.
 
+**ASSETS model (source audio + resume):** [assets-and-executions.md](./assets-and-executions.md) — operators pick input WAVs from `ASSETS/` in the GUI; every execution folder holds full run state for relaunch via `./scripts/run.sh`.
+
 See also: [json-schema-coverage.md](./json-schema-coverage.md) and [json-schemas/README.md](./json-schemas/README.md) for which artifacts are schema-backed vs planned. **GUI:** [workflows/gui-surface-map.md](../workflows/gui-surface-map.md).
+
+## ASSETS top level
+
+```
+ASSETS/
+  input/                    # operator source WAVs (recommended; any name)
+  executions/exec_* /       # per-run workspace (tree below)
+  .gui/                     # active run pointer, server session (not stage artifacts)
+```
 
 ## Run root
 
@@ -35,6 +46,7 @@ ASSETS/executions/exec_001_20260523T120000Z/
 | `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile |
 | `understanding/investigation_queue.json` | Yes | Open investigations / rerun hints |
 | `understanding/content_brief.json` | Yes | Content brief artifact (synced to memory) |
+| `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; expanded by Wave 5 stages) |
 | `understanding/source_acoustic_profile.json` | Yes (planned) | Per-interview pacing, energy, mix contract — see [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
@@ -60,6 +72,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
 | `understanding/speakers.json` | speaker roles (LLM) |
 | `understanding/content_brief.json` | content context |
+| `understanding/sound_design_plan.json` | shared analysis init (BUILD-060 baseline) |
 | `understanding/source_acoustic_profile.json` | source_acoustic_profile (planned) |
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
@@ -77,11 +90,11 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transitions.json` | interviewer bridges |
 | `podcast_sfx_brief.json` | subtle SFX spec |
 | `sfx/*.wav` | ElevenLabs generated |
-| `edl.json` | edit decision list (target: speech + VO placements, BUILD-067) |
+| `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline (BUILD-067); `mux_scope: speech_only` until mix |
 | `assembly_preview.wav` | speech + VO preview before SFX (planned, BUILD-069) |
 | `assembly.wav` | pre-master mux |
 | `master.wav` | final export |
-| `understanding/sound_design_plan.json` | coherent SFX plan (planned, BUILD-060) |
+| `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
 
 ## Flow 2 — `flow_2_highlights/`
 

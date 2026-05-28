@@ -13,7 +13,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `AGENTS.md` | Agent read order, gates, constraints | BUILD-000 |
 | `README.md` | Repo entry, links to setup and docs | BUILD-000 |
 | `SETUP.md` | Bootstrap, secrets, first run | BUILD-000 |
-| `ASSETS/` | Operator media (gitignored): `input/`, `executions/` | [capture](../pipeline/capture/README.md) |
+| `ASSETS/` | Operator media (gitignored): `input/`, `executions/`, `.gui/` — [assets-and-executions.md](../cross-cutting/assets-and-executions.md) | [capture](../pipeline/capture/README.md) |
 | `config/` | `app.defaults.json`, `secrets/secrets.env` | BUILD-011 · [config-keys](../cross-cutting/config-keys.md) |
 | `docs/` | Authoritative specs and prompts | Waves 0–6 |
 | `src/interview_mux/` | Python package | Waves 1–5, 7 |
@@ -43,7 +43,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `context_volley.py` | LLM message volleys per stage | BUILD-013 |
 | `prompt_validation.py` | JSON schema validation for stage outputs | BUILD-001 |
 | `elevenlabs_rest.py` | REST SFX (no SDK) | BUILD-034, 042 |
-| `nle_state.py` | `segments/nle_edits.json` | BUILD-068 (consume planned) |
+| `nle_state.py` | `segments/nle_edits.json` | BUILD-068 (ranking + EDL) |
 
 ### Stages (`src/interview_mux/stages/`)
 
@@ -65,7 +65,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `assembly_flow2.py` | `mux_flow2` | BUILD-043 |
 | `mastering.py` | `master_flow1`, `master_flow2` | BUILD-036, 050 |
 | `audio_preclean.py` | *(planned)* | BUILD-019 |
-| `publishing_flow3.py` | *(planned)* | BUILD-045–046 |
+| `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
 | `sound_design_stages.py` | *(planned)* | BUILD-061–063 |
 
 ### Web GUI (`src/interview_mux/web/`)
@@ -85,11 +85,11 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 | Entry | Invokes | Ticket |
 |-------|---------|--------|
-| `scripts/bootstrap_venv.sh` | venv + `pip install -r requirements.txt` + editable package | BUILD-010 |
+| `scripts/bootstrap_venv.sh` | venv + `pip install -r requirements.lock` + editable package | BUILD-010 |
 | `scripts/run.sh` | Web GUI (`python -m interview_mux serve`) | BUILD-014 |
-| `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, import smoke | BUILD-010 |
+| `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, import smoke, `pip-audit` on `requirements.lock` | BUILD-010 |
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
-| `tools/run_flow.py` | Flow 1 or 2 after G2 | BUILD-051 |
+| `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
 | `tools/verify_master.py` | ffprobe smoke on `master.wav` | BUILD-052 |
 
 ---
@@ -125,11 +125,8 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 | Topic | Docs say | Code today |
 |-------|----------|------------|
-| Flow 3 | G2 + `run_flow.py --flow flow3` | **Not wired** — BUILD-045–046, BUILD-080 |
-| `flow3` execute mode | API reference lists `mode: flow3` | Runner accepts `flow1` \| `flow2` only |
-| G2 API | `flow3` in some tables | `FlowBody` regex: `flow1` \| `flow2` only |
-| Anchor lock | `requirements.lock` at repo root + `pip-audit` in `check_prerequisites.sh` | **BUILD-010 partial** — `requirements.txt` + `pyproject.toml` shipped; lock + audit gate pending |
-| Full podcast mix | VO + SFX in `master.wav` | v1 speech-only concat — BUILD-065–067 |
+| ASSETS-first input | GUI asset list + executions under `ASSETS/executions/`; resume via `GET /api/session` + `PUT /api/session/active` | **Shipped** — GUI + `RunContext` exec_* ids; CLI `--run-id exec_*` opens existing execution; headless fallback still uses `input_audio_path` / `INPUT_AUDIO_PATH` |
+| Full podcast mix | VO + SFX in `master.wav` | EDL lists VO + transitions (BUILD-067); `mux_flow1` still speech-only concat — BUILD-065/069 |
 | Smart LLM routing | Full spec | Single-model `llm_runner` — BUILD-073+ |
 | Pre-clean offers | Multiple checkpoints | Stage not implemented — BUILD-019, 072 |
 

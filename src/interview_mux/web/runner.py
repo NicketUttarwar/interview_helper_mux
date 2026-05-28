@@ -6,13 +6,16 @@ from threading import Lock, Thread
 from typing import Any
 
 from interview_mux.gates import get_selected_flow, set_selected_flow
+from interview_mux.master_qc import FlowName, verify_master
 from interview_mux.pipeline import (
     ANALYSIS_ORDER,
     FLOW1_ORDER,
     FLOW2_ORDER,
+    FLOW3_ORDER,
     run_analysis,
     run_flow1,
     run_flow2,
+    run_flow3,
     run_single_stage,
 )
 from interview_mux.stages import transcript_review
@@ -38,7 +41,7 @@ class JobRunner:
         ctx.write_json("gui_job.json", payload)
 
     def get_job(self, run_id: str) -> dict[str, Any]:
-        ctx = RunContext(run_id)
+        ctx = RunContext(run_id, create=False)
         p = ctx.path("gui_job.json")
         if not p.is_file():
             return {"status": "idle", "run_id": run_id}
@@ -63,7 +66,7 @@ class JobRunner:
             return {"ok": False, "error": "A job is already running for this run."}
 
         def _run() -> None:
-            ctx = RunContext(run_id)
+            ctx = RunContext(run_id, create=False)
             label = stage or from_stage or mode
             info = STAGE_BY_ID.get(label or "")
             try:
@@ -84,10 +87,20 @@ class JobRunner:
                     set_selected_flow(ctx, "flow1")
                     ctx.log("Running Flow 1 — full master podcast pipeline…", level="info", stage="flow1")
                     run_flow1(ctx, from_stage=from_stage or stage)
+                    self._run_master_qa(ctx, flow="flow1", rel_path="flow_1_master/master.wav")
                 elif mode == "flow2":
                     set_selected_flow(ctx, "flow2")
                     ctx.log("Running Flow 2 — highlight reel pipeline…", level="info", stage="flow2")
                     run_flow2(ctx, from_stage=from_stage or stage)
+                    self._run_master_qa(ctx, flow="flow2", rel_path="flow_2_highlights/master.wav")
+                elif mode == "flow3":
+                    set_selected_flow(ctx, "flow3")
+                    ctx.log(
+                        "Running Flow 3 — podcast show description (text only)…",
+                        level="info",
+                        stage="flow3",
+                    )
+                    run_flow3(ctx, from_stage=from_stage or stage)
                 else:
                     raise ValueError(f"Unknown mode: {mode}")
                 done_msg = f"Finished: {info.title if info else label}"
@@ -132,11 +145,33 @@ class JobRunner:
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
-            ctx = RunContext(ctx.run_id)
+            ctx = RunContext(ctx.run_id, create=False)
         run_single_stage(ctx, stage)
 
+    def _run_master_qa(self, ctx: RunContext, *, flow: FlowName, rel_path: str) -> None:
+        master = ctx.path(rel_path)
+        if not master.is_file():
+            raise FileNotFoundError(f"Expected master file missing after {flow}: {master}")
+        result = verify_master(master, flow=flow)
+        if result.ok:
+            ctx.log(
+                f"Master QA pass ({flow}): LUFS {result.metrics.integrated_lufs:.2f}, TP {result.metrics.true_peak_dbtp:.2f} dBTP.",
+                level="success",
+                stage="verify_master",
+                detail="; ".join(result.checks),
+            )
+            return
+        detail = "; ".join(result.failures)
+        ctx.log(
+            f"Master QA failed ({flow}): {detail}",
+            level="error",
+            stage="verify_master",
+            detail="; ".join(result.checks),
+        )
+        raise RuntimeError(f"verify_master failed for {master}: {detail}")
+
     def invalidate_from(self, run_id: str, stage_id: str) -> None:
-        ctx = RunContext(run_id)
+        ctx = RunContext(run_id, create=False)
         for order in EXECUTABLE_ORDER.values():
             if stage_id in order:
                 ctx.clear_from(stage_id, order)
@@ -148,6 +183,8 @@ class JobRunner:
             ctx.clear_from(stage_id, FLOW1_ORDER)
         if flow == "flow2" and stage_id in FLOW2_ORDER:
             ctx.clear_from(stage_id, FLOW2_ORDER)
+        if flow == "flow3" and stage_id in FLOW3_ORDER:
+            ctx.clear_from(stage_id, FLOW3_ORDER)
 
 
 runner = JobRunner()

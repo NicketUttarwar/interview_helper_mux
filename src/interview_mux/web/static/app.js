@@ -16,6 +16,7 @@ const state = {
   zoom: 1,
   transcriptReview: null,
   transcriptReviewIndex: 0,
+  shownPrecleanOffers: new Set(),
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -208,6 +209,7 @@ async function openRun(runId, opts = {}) {
 async function refreshRun() {
   if (!state.runId) return;
   state.run = await api(`/api/runs/${state.runId}`);
+  state.shownPrecleanOffers = new Set(state.run?.meta?.audio_preclean?.offered_at || []);
   state.timeline = await api(`/api/runs/${state.runId}/timeline`).catch(() => null);
   state.nle = state.timeline?.nle || null;
   state.zoom = state.nle?.zoom || 1;
@@ -368,7 +370,7 @@ async function selectStage(stageId) {
   $("#stage-title").textContent = stage.title;
   $("#stage-description").textContent = stage.description;
   updateStatusBar(state.run);
-  renderGateActions(stage);
+  await renderGateActions(stage);
   updateProfilePanelVisibility(stage);
   populateArtifactSelect(stage);
   if (stage.id === "analysis_profile") loadAnalysisProfile();
@@ -382,16 +384,59 @@ function updateProfilePanelVisibility(stage) {
   panel.classList.toggle("hidden", !show);
 }
 
-function renderGateActions(stage) {
+async function renderGateActions(stage) {
   const el = $("#gate-actions");
   el.innerHTML = "";
   el.classList.add("hidden");
 
+  const audioOutputs = stage.audio_outputs_present || [];
+  if (audioOutputs.length) {
+    el.classList.remove("hidden");
+    const listen = document.createElement("div");
+    listen.className = "stage-audio-actions";
+    listen.innerHTML = `<p class="hint"><strong>Listen</strong> stage output audio:</p>`;
+    audioOutputs.forEach((path) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn ghost sm";
+      btn.textContent = `Listen ${path.split("/").pop()}`;
+      btn.addEventListener("click", () => {
+        const player = $("#audio-player");
+        const url = `/api/runs/${state.runId}/audio?path=${encodeURIComponent(path)}`;
+        player.src = url;
+        player.setAttribute("data-src", url);
+        player.currentTime = 0;
+        player.play().catch(() => {});
+      });
+      listen.appendChild(btn);
+    });
+    el.appendChild(listen);
+  }
+
   if (stage.id === "analysis_profile") {
     el.classList.remove("hidden");
     const verified = stage.status === "done";
-    el.innerHTML = `<p class="hint">Review themes, major questions, and style in the <strong>Interview profile</strong> panel below. Mark verified when the profile matches your intent for this recording.</p>
-      <p class="muted">${verified ? "Profile marked verified." : "Not verified yet — AI stages still treat profile as draft."}</p>`;
+    const flow1Block =
+      state.run?.selected_flow === "flow1" && state.run?.profile_gate_pending;
+    const copy = document.createElement("div");
+    copy.innerHTML = `<p class="hint">Review themes, major questions, and style in the <strong>Interview profile</strong> panel below. Mark verified when the profile matches your intent for this recording.</p>
+      <p class="muted">${verified ? "Profile marked verified." : "Not verified yet — AI stages still treat profile as draft."}</p>
+      ${
+        flow1Block
+          ? "<p class=\"hint\"><strong>Flow 1 extended</strong> (topic coverage and later) is blocked until you mark the profile verified.</p>"
+          : ""
+      }`;
+    el.appendChild(copy);
+    return;
+  }
+
+  if (
+    stage.id === "topic_coverage_audit" &&
+    stage.status === "locked" &&
+    state.run?.profile_gate_pending
+  ) {
+    el.classList.remove("hidden");
+    el.innerHTML = `<p class="hint"><strong>Profile gate:</strong> verify the interview profile before Flow 1 extended analysis. Open <strong>Interview profile</strong> in the stage list, edit themes and style, then click <strong>Mark profile verified</strong>.</p>`;
     return;
   }
 
@@ -437,6 +482,7 @@ function renderGateActions(stage) {
       <div class="flow-choice">
         <button class="btn primary" data-flow="flow1" type="button">Flow 1 — Full podcast</button>
         <button class="btn primary" data-flow="flow2" type="button">Flow 2 — Highlight reel</button>
+        <button class="btn primary" data-flow="flow3" type="button">Flow 3 — Show description</button>
       </div>`;
     el.querySelectorAll("[data-flow]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -449,6 +495,202 @@ function renderGateActions(stage) {
       });
     });
   }
+
+  if (stage.id === "elevenlabs_prompt_craft") {
+    el.classList.remove("hidden");
+    await renderElevenLabsPromptReviewPanel(el);
+    return;
+  }
+
+  if (stage.id === "elevenlabs_sfx_flow1" || stage.id === "elevenlabs_sfx_flow2") {
+    const review = await api(`/api/runs/${state.runId}/elevenlabs-prompts`).catch(() => null);
+    if (review?.review_required && !review?.review?.approved) {
+      el.classList.remove("hidden");
+      el.innerHTML = `<p class="hint"><strong>G1.5 required:</strong> review and approve ElevenLabs prompts before generation.</p>
+      <button class="btn primary sm" type="button" id="btn-open-prompt-review">Open prompt review</button>`;
+      el.querySelector("#btn-open-prompt-review")?.addEventListener("click", () => {
+        selectStage("elevenlabs_prompt_craft");
+      });
+      return;
+    }
+  }
+
+  await renderPrecleanOffer(stage, el);
+}
+
+async function renderElevenLabsPromptReviewPanel(host) {
+  const data = await api(`/api/runs/${state.runId}/elevenlabs-prompts`);
+  const prompts = Array.isArray(data.prompts) ? data.prompts : [];
+  const approved = Boolean(data.review?.approved);
+  const reviewRequired = Boolean(data.review_required);
+  host.innerHTML = `
+    <div class="quality-offer-card">
+      <p class="hint"><strong>G1.5 prompt review:</strong> review or edit crafted prompts before SFX generation.</p>
+      <p class="muted">Approval status: ${
+        approved
+          ? `approved by ${escapeHtml(data.review?.approved_by || "operator")} at ${formatTs(data.review?.approved_at)}`
+          : "pending approval"
+      }${reviewRequired ? " (required before generate)" : " (optional)"}.</p>
+    </div>
+    <div id="el-prompt-list"></div>
+    <div class="flow-choice">
+      <button class="btn ghost sm" type="button" id="btn-el-save-prompts">Save edits</button>
+      <button class="btn primary sm" type="button" id="btn-el-approve-prompts">Approve prompts</button>
+    </div>
+  `;
+  const list = host.querySelector("#el-prompt-list");
+  if (!prompts.length) {
+    list.innerHTML = `<p class="empty-state">No crafted prompts yet. Run this stage first.</p>`;
+  } else {
+    list.innerHTML = prompts
+      .map((row, idx) => {
+        const aid = escapeHtml(row.asset_id || `asset_${idx + 1}`);
+        const role = escapeHtml(row.role || "unknown");
+        const duration = Number(row.duration_seconds || 0);
+        const influence = Number(row.prompt_influence ?? 0.35);
+        return `<div class="vo-card" data-idx="${idx}">
+          <h4>${aid} · ${role}</h4>
+          <div class="asset-meta">duration ${duration.toFixed(2)}s · influence ${influence.toFixed(2)}</div>
+          <label class="tr-label">Prompt</label>
+          <textarea class="tr-textarea el-prompt-text" rows="3">${escapeHtml(row.elevenlabs_prompt || "")}</textarea>
+          <label class="tr-label">Negative prompt</label>
+          <input class="input el-negative-prompt" value="${escapeHtml(row.negative_prompt || "")}" />
+        </div>`;
+      })
+      .join("");
+  }
+
+  host.querySelector("#btn-el-save-prompts")?.addEventListener("click", async () => {
+    const next = collectElevenLabsPromptEdits(prompts, host);
+    await api(`/api/runs/${state.runId}/elevenlabs-prompts`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "sound_design/elevenlabs_prompts.json",
+        data: { prompts: next },
+        invalidate_from: "elevenlabs_prompt_craft",
+      }),
+    });
+    showToast("Prompt edits saved; approval reset.");
+    await refreshRun();
+    await selectStage("elevenlabs_prompt_craft");
+  });
+
+  host.querySelector("#btn-el-approve-prompts")?.addEventListener("click", async () => {
+    await api(`/api/runs/${state.runId}/elevenlabs-prompts/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved_by: "operator_gui" }),
+    });
+    showToast("Prompts approved.");
+    await refreshRun();
+    await selectStage("elevenlabs_prompt_craft");
+  });
+}
+
+function collectElevenLabsPromptEdits(originalRows, host) {
+  return originalRows.map((row, idx) => {
+    const card = host.querySelector(`.vo-card[data-idx="${idx}"]`);
+    if (!card) return row;
+    const promptText = card.querySelector(".el-prompt-text")?.value || "";
+    const negative = card.querySelector(".el-negative-prompt")?.value || "";
+    return {
+      ...row,
+      elevenlabs_prompt: promptText.trim(),
+      negative_prompt: negative.trim(),
+    };
+  });
+}
+
+async function renderPrecleanOffer(stage, host) {
+  const offer = resolvePrecleanOffer(stage);
+  if (!offer || !state.runId) return;
+  host.classList.remove("hidden");
+  await announcePrecleanOffer(offer.checkpoint);
+  const card = document.createElement("div");
+  card.className = "quality-offer-card";
+  card.innerHTML = `<p class="hint"><strong>Quality offer:</strong> ${offer.prompt}</p>
+    <p class="muted">Scope: <code>${offer.scope}</code>. Optional, non-blocking, and never auto-runs.</p>
+    <div class="flow-choice">
+      <button class="btn ghost sm" type="button" data-action="dismiss">Dismiss</button>
+      <button class="btn primary sm" type="button" data-action="accept">Accept</button>
+    </div>`;
+  host.appendChild(card);
+  card.querySelectorAll("[data-action]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      await api(`/api/runs/${state.runId}/preclean-offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkpoint: offer.checkpoint,
+          action: btn.dataset.action,
+          scope: offer.scope,
+        }),
+      });
+      showToast(
+        btn.dataset.action === "accept"
+          ? `Saved pre-clean preference (${offer.scope}).`
+          : "Pre-clean offer dismissed."
+      );
+      await refreshRun();
+    })
+  );
+}
+
+function resolvePrecleanOffer(stage) {
+  if (stage.id === "audio_preclean") {
+    return {
+      checkpoint: "before_ingest",
+      scope: "full_source",
+      prompt: "Clean source interview background noise before ingest?",
+    };
+  }
+  if (stage.id === "transcript_review" && stage.status === "done") {
+    return {
+      checkpoint: "after_g0",
+      scope: "full_source",
+      prompt: "Re-clean full source if low-confidence transcript errors seem noise-related?",
+    };
+  }
+  if (stage.id === "analysis_profile" || stage.id === "segment_classification") {
+    return {
+      checkpoint: "after_profile_or_segmentation",
+      scope: "full_source",
+      prompt: "Clean source audio before re-running analysis from ingest?",
+    };
+  }
+  if (stage.id === "g1_vo_pickup" && !(state.run?.g1_missing || []).length) {
+    return {
+      checkpoint: "g1_vo_pickup",
+      scope: "vo_pickup",
+      prompt: "Remove background noise from your new pickup recordings?",
+    };
+  }
+  if (stage.id === "mux_flow1" || stage.id === "mux_flow2") {
+    return {
+      checkpoint: "before_flow_mix",
+      scope: "normalized_rebuild",
+      prompt: "Clean normalized interview audio before final assembly/mix?",
+    };
+  }
+  if (stage.id === "master_flow1" || stage.id === "master_flow2") {
+    return {
+      checkpoint: "before_master_export",
+      scope: "normalized_rebuild",
+      prompt: "Last chance: pre-clean before master export?",
+    };
+  }
+  return null;
+}
+
+async function announcePrecleanOffer(checkpoint) {
+  if (!checkpoint || state.shownPrecleanOffers.has(checkpoint)) return;
+  await api(`/api/runs/${state.runId}/preclean-offer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ checkpoint, action: "offer" }),
+  });
+  state.shownPrecleanOffers.add(checkpoint);
 }
 
 async function renderTranscriptReviewPanel(el) {

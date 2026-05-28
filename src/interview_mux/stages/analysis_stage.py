@@ -14,6 +14,10 @@ from interview_mux.analysis_memory import (
     update_completion_from_analysis,
 )
 from interview_mux.context_volley import build_message_volley
+from interview_mux.context_volley import truncation_flags_for_volley
+from interview_mux.llm_arbiter import run_llm_arbiter
+from interview_mux.llm_subtasks import DECOMPOSE_ELIGIBLE, run_shards_then_collate
+from interview_mux.model_registry import resolve_model
 from interview_mux.run_context import RunContext
 from interview_mux.prompt_validation import (
     format_validation_feedback,
@@ -50,6 +54,7 @@ def run_analysis_llm_stage(
             prompt_rel,
             messages=volley,
             ctx=ctx,
+            task_kind="primary",
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -71,11 +76,66 @@ def run_analysis_llm_stage(
                 prompt_rel,
                 messages=volley,
                 ctx=ctx,
+                task_kind="primary",
             )
             artifacts = envelope.get("artifacts") or {}
             schema_errors = validate_stage_artifacts(stage_key, artifacts)
 
-        record_stage_attempt(ctx, stage_key, attempt, envelope, context_volley=volley)
+        default_tier = resolve_model(stage_key, "primary").tier
+        arbiter_result = run_llm_arbiter(
+            stage_key=stage_key,
+            attempt_number=attempt,
+            envelope=envelope,
+            schema_errors=schema_errors,
+            context_chars=sum(len(m.get("content", "")) for m in volley),
+            truncation_flags=truncation_flags_for_volley(volley),
+            stage_expectations={
+                "severity": "high" if default_tier == "flagship" else "medium",
+                "default_tier": default_tier,
+                "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
+            },
+        )
+        shard_count = 0
+        verdict = arbiter_result.get("verdict")
+        if verdict == "retry_uptier":
+            envelope = run_prompt_envelope(
+                stage_key,
+                prompt_rel,
+                messages=volley,
+                ctx=ctx,
+                task_kind="primary",
+                bump_tier=True,
+            )
+            artifacts = envelope.get("artifacts") or {}
+            schema_errors = validate_stage_artifacts(stage_key, artifacts)
+        elif verdict == "decompose" and stage_key in DECOMPOSE_ELIGIBLE:
+            envelope, shard_count = run_shards_then_collate(
+                ctx,
+                stage_key=stage_key,
+                prompt_rel=prompt_rel,
+                stage_input=stage_input,
+                shard_plan=arbiter_result.get("shard_plan") or [],
+            )
+            artifacts = envelope.get("artifacts") or {}
+            schema_errors = validate_stage_artifacts(stage_key, artifacts)
+        elif verdict == "enqueue_investigation":
+            envelope.setdefault("follow_up_investigations", [])
+            suggested = arbiter_result.get("suggested_investigation")
+            if suggested:
+                envelope["follow_up_investigations"].append(suggested)
+            envelope["status"] = "blocked"
+
+        record_stage_attempt(
+            ctx,
+            stage_key,
+            attempt,
+            envelope,
+            context_volley=volley,
+            task_kind="primary",
+            arbiter_result=arbiter_result,
+            shard_count=shard_count,
+            truncation_flags=truncation_flags_for_volley(volley),
+        )
         last_envelope = envelope
 
         if schema_errors:
@@ -137,6 +197,7 @@ def run_flow_llm_stage(
         prompt_rel,
         messages=volley,
         ctx=ctx,
+        task_kind="primary",
     )
     artifacts = envelope.get("artifacts") or {}
     schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -150,6 +211,7 @@ def run_flow_llm_stage(
             prompt_rel,
             messages=volley_retry,
             ctx=ctx,
+            task_kind="primary",
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -160,7 +222,47 @@ def run_flow_llm_stage(
                 stage=stage_key,
             )
         volley = volley_retry
-    record_stage_attempt(ctx, stage_key, 1, envelope, context_volley=volley)
+    default_tier = resolve_model(stage_key, "primary").tier
+    arbiter_result = run_llm_arbiter(
+        stage_key=stage_key,
+        attempt_number=1,
+        envelope=envelope,
+        schema_errors=schema_errors,
+        context_chars=sum(len(m.get("content", "")) for m in volley),
+        truncation_flags=truncation_flags_for_volley(volley),
+        stage_expectations={
+            "severity": "high" if default_tier == "flagship" else "medium",
+            "default_tier": default_tier,
+            "decompose_eligible": False,
+        },
+    )
+    if arbiter_result.get("verdict") == "retry_uptier":
+        envelope = run_prompt_envelope(
+            stage_key,
+            prompt_rel,
+            messages=volley,
+            ctx=ctx,
+            task_kind="primary",
+            bump_tier=True,
+        )
+        artifacts = envelope.get("artifacts") or {}
+    elif arbiter_result.get("verdict") == "enqueue_investigation":
+        envelope.setdefault("follow_up_investigations", [])
+        suggested = arbiter_result.get("suggested_investigation")
+        if suggested:
+            envelope["follow_up_investigations"].append(suggested)
+        envelope["status"] = "blocked"
+        artifacts = envelope.get("artifacts") or {}
+    record_stage_attempt(
+        ctx,
+        stage_key,
+        1,
+        envelope,
+        context_volley=volley,
+        task_kind="primary",
+        arbiter_result=arbiter_result,
+        truncation_flags=truncation_flags_for_volley(volley),
+    )
     if artifacts:
         persist_artifacts(ctx, artifacts)
     elif output_rel and envelope.get("artifacts") is None:

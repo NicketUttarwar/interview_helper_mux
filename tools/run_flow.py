@@ -29,6 +29,6 @@ if __name__ == "__main__":
         else:
             i += 1
     if not flow:
-        print("Usage: python tools/run_flow.py --flow flow1|flow2 [--run-id run_001]  (flow3: BUILD-045)")
+        print("Usage: python tools/run_flow.py --flow flow1|flow2|flow3 [--run-id run_001]")
         sys.exit(1)
     flow_cmd(flow=flow, run_id=run_id, from_stage=from_stage)

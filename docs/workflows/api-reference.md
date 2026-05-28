@@ -36,6 +36,8 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
 | `PUT` | `/api/session/active` | — | **ActiveBody** | Result of `set_active_execution` | **404** if `run_id` not found |
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
+
+Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 | `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `meta` summary fields, `progress`, `last_stage` when resolvable | Per-run errors swallowed → `progress: {0,0}` |
 | `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number` | **404** if `input_audio_path` file missing |
 
@@ -43,7 +45,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Required | Notes |
 |-------|------|----------|--------|
-| `input_audio_path` | string | yes | Repo-relative or absolute path to source audio |
+| `input_audio_path` | string | yes | Repo-relative path to source audio (typically from `GET /api/assets` → `files[].path`, e.g. `ASSETS/input/interview.wav`) |
 | `run_id` | string \| null | no | If omitted, server allocates new `exec_*` id |
 
 ### `ActiveBody`
@@ -70,6 +72,10 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
 | `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** if not `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
+| `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
+| `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate` | **404** missing prompts artifact |
+| `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` | **400** invalid path/payload, **404** |
+| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids` | **404** missing prompts artifact |
 | `POST` | `/api/runs/{run_id}/execute` | — | **ExecuteBody** | `ok`, `run_id`, `mode` (immediate ack; work runs in thread) | **409** job already running, **404** |
 | `GET` | `/api/runs/{run_id}/job` | — | — | `gui_job.json` payload or `{status: idle, run_id}` | — |
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
@@ -87,7 +93,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** (`flow3` planned — BUILD-080; server today: `flow1` \| `flow2` only) |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** \| **`flow3`** |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 
@@ -97,7 +103,21 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `flow` | string | **`flow1`** or **`flow2`** today (`FlowBody` in `server.py`); **`flow3`** when BUILD-080 ships |
+| `flow` | string | **`flow1`** \| **`flow2`** \| **`flow3`** (`FlowBody` pattern in `server.py`) |
+
+### `PrecleanOfferBody`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `checkpoint` | string | One of `before_ingest`, `after_g0`, `after_profile_or_segmentation`, `g1_vo_pickup`, `before_flow_mix`, `before_master_export` |
+| `action` | string | `offer` \| `accept` \| `dismiss` |
+| `scope` | string \| null | Optional override: `full_source` \| `vo_pickup` \| `normalized_rebuild` |
+
+### `ElevenLabsPromptApproveBody`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `approved_by` | string \| null | Optional reviewer identity; defaults to `operator` |
 
 ### `ArtifactBody`
 
@@ -171,7 +191,7 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 
 ## `GET /api/runs/{run_id}` — `stages[]` entries
 
-Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable `artifacts_present`.
+Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable `artifacts_present` + `audio_outputs_present` (present files that can be played via `GET /api/runs/{run_id}/audio`).
 
 Stage ids match `src/interview_mux/web/stages.py` (`STAGE_BY_ID`).
 

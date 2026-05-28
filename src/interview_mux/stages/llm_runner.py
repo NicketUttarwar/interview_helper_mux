@@ -7,7 +7,8 @@ from typing import Any
 
 from openai import OpenAI
 
-from interview_mux.config import get_model, merged_config, repo_root, require_secret
+from interview_mux.config import merged_config, repo_root, require_secret
+from interview_mux.model_registry import resolve_model
 from interview_mux.run_context import RunContext
 
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
@@ -103,6 +104,10 @@ def run_prompt_envelope(
     ctx: RunContext | None = None,
     include_preamble: bool = True,
     messages: list[dict[str, str]] | None = None,
+    task_kind: str = "primary",
+    bump_tier: bool = False,
+    explicit_tier: str | None = None,
+    response_format: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -111,7 +116,17 @@ def run_prompt_envelope(
     """
     client = OpenAI(api_key=require_secret("OPENAI_API_KEY"))
     system = load_system_prompt(prompt_rel, include_preamble=include_preamble)
-    chosen = model or get_model(stage_key)
+    resolved = (
+        None
+        if model
+        else resolve_model(
+            stage_key,
+            task_kind=task_kind,
+            bump_tier=bump_tier,
+            explicit_tier=explicit_tier,
+        )
+    )
+    chosen = model or (resolved.model_id if resolved else None) or "gpt-4o-mini"
 
     if messages:
         chat_messages: list[dict[str, str]] = [{"role": "system", "content": system}, *messages]
@@ -123,13 +138,21 @@ def run_prompt_envelope(
     else:
         raise ValueError("Provide messages volley or user_content")
 
-    resp = client.chat.completions.create(
-        model=chosen,
-        messages=chat_messages,
-        temperature=0.2,
-    )
+    kwargs: dict[str, Any] = {
+        "model": chosen,
+        "messages": chat_messages,
+        "temperature": 0.0 if task_kind == "arbiter" else 0.2,
+    }
+    if response_format:
+        kwargs["response_format"] = response_format
+    resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or ""
     envelope = normalize_envelope(_extract_json(content))
+    envelope["_llm_meta"] = {
+        "model_id": chosen,
+        "model_tier": resolved.tier if resolved else ("explicit" if model else "economy"),
+        "task_kind": task_kind,
+    }
     if ctx:
         turns = len(messages) if messages else 1
         chars = sum(len(m.get("content", "")) for m in (messages or []))

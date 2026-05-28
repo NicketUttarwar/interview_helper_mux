@@ -10,7 +10,7 @@ How to take **interview_helper_mux** from a fresh clone to a production-ready op
 
 | Doc | Use when |
 |-----|----------|
-| [steps-forward.md](./steps-forward.md) | **What to do next** (prioritized backlog) |
+| [steps-forward.md](./steps-forward.md) | **What to do next** + Cursor Agent prompts per step |
 | [README.md](./README.md) | Ticket index by wave + status |
 | [ticket-specs.md](./ticket-specs.md) | **Acceptance criteria** per BUILD ticket |
 | [stage-registry.md](./stage-registry.md) | Every stage id, module, artifact, prompt |
@@ -75,11 +75,11 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ### Phase 1.5 — Web GUI and operator platform (BUILD-014–018, 056–057)
 
-**Goal:** Operator runs pipeline from browser; gates G0–G2; centralized logs.
+**Goal:** Operator runs pipeline from browser; gates G0–G2; centralized logs. **No config-file WAV path** for normal use — source audio is discovered under `ASSETS/` and executions persist under `ASSETS/executions/` for resume after `./scripts/run.sh` ([assets-and-executions.md](../cross-cutting/assets-and-executions.md)).
 
 | Ticket | Module | Workflow doc |
 |--------|--------|----------------|
-| BUILD-014 | `web/server.py`, `web/static/*`, `scripts/run.sh` | [gui-surface-map.md](../workflows/gui-surface-map.md) |
+| BUILD-014 | `web/server.py`, `web/static/*`, `scripts/run.sh` | [gui-surface-map.md](../workflows/gui-surface-map.md) · [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
 | BUILD-015 | `web/runner.py` → `gui_job.json` | [api-reference.md](../workflows/api-reference.md) |
 | BUILD-016 | `session_log.py`, `RunContext.log()` | `.cursor/rules/interview-helper-mux.mdc` |
 | BUILD-017 | `gates.py`, gate panels | [operator-gates.md](../workflows/operator-gates.md) |
@@ -87,7 +87,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 | BUILD-056 | `nle_state.py` | [audio_editing/README.md](../pipeline/audio_editing/README.md) |
 | BUILD-057 | `gui_session.py` | [api-reference.md](../workflows/api-reference.md) |
 
-**Verify:** `./scripts/run.sh` → create run → execute analysis → G0 panel → log panel shows `gui_log.jsonl` lines.
+**Verify:** `./scripts/run.sh` → home screen lists WAVs under `ASSETS/` → start execution from picker → execute analysis → G0 panel → log panel shows `gui_log.jsonl` lines → stop server → relaunch → **Previous executions** resumes same `exec_*` folder.
 
 ---
 
@@ -142,7 +142,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ---
 
-### Phase 3c — Flow 3 publishing (BUILD-045–046, 080) — **not wired**
+### Phase 3c — Flow 3 publishing (BUILD-045–046, 080) — **shipped**
 
 **Goal:** Third-person show description JSON + markdown export; no audio.
 
@@ -202,6 +202,8 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ## Implementation workflow (per ticket)
 
+**Cursor Agent:** Copy-paste prompts and verify commands for each backlog step (#0–#20) live in [steps-forward.md](./steps-forward.md#cursor-agent--how-to-use-this-page). Use **one step per agent chat** unless the step says to split BUILD ids.
+
 1. Claim BUILD id from [steps-forward.md](./steps-forward.md).
 2. Read acceptance in [ticket-specs.md](./ticket-specs.md).
 3. Read stage row in [stage-registry.md](./stage-registry.md).
@@ -217,6 +219,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 Repository-wide checklist (also in [steps-forward.md](./steps-forward.md)):
 
+- [x] ASSETS-first operator path: WAV in `ASSETS/`, GUI picker, full state under `ASSETS/executions/exec_*`, resume after `./scripts/run.sh` ([assets-and-executions.md](../cross-cutting/assets-and-executions.md))
 - [ ] Fresh clone: SETUP → bootstrap → check_prerequisites → smoke-test for **flow1, flow2, and flow3**
 - [ ] All three flows selectable at G2 and runnable via CLI + GUI
 - [ ] `master.wav` for flow1/2 includes VO + SFX mix per north star (not speech-only)

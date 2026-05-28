@@ -21,7 +21,11 @@ fi
 source "$VENV/bin/activate"
 
 pip install -q -U pip setuptools wheel
-pip install -q -r "$ROOT/requirements.txt"
+if [[ -f "$ROOT/requirements.lock" ]]; then
+  pip install -q -r "$ROOT/requirements.lock"
+else
+  pip install -q -r "$ROOT/requirements.txt"
+fi
 pip install -q "$ROOT"
 
 if [[ "${1:-}" == "--cli" ]]; then

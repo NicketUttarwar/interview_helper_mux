@@ -13,13 +13,13 @@ Combine speech, interviewer VO pickup, transitions, and ElevenLabs SFX into `ass
 
 Do not tell operators that v1 `master.wav` is the final podcast mix.
 
-## Planned — assembly wiring (BUILD-067–069)
+## Assembly wiring (BUILD-067–069)
 
 | Ticket | Behavior |
 |--------|----------|
-| BUILD-067 | `edl.json` includes `vo_pickup`, gap `placement`, transition ordering |
-| BUILD-068 | `segments/nle_edits.json` → manifest / `selection.json` |
-| BUILD-069 | `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
+| BUILD-067 | **Shipped (EDL):** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors; `mux_flow1` still speech-only |
+| BUILD-068 | `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
+| BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
 
 ## Planned — coherent mix (BUILD-060–066)
 

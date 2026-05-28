@@ -32,6 +32,122 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
     write_json(ctx.path(NLE_REL), data)
 
 
+def nle_has_operator_edits(nle: dict[str, Any]) -> bool:
+    overrides = nle.get("segment_overrides") or {}
+    order = nle.get("sequence_order") or []
+    if order:
+        return True
+    for ov in overrides.values():
+        if ov.get("excluded") or ov.get("mark_redo"):
+            return True
+        if "start_ms" in ov or "end_ms" in ov or ov.get("split_into"):
+            return True
+    return False
+
+
+def _excluded_entries(selection: dict[str, Any]) -> list[dict[str, str]]:
+    raw = selection.get("excluded_segment_ids") or []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            sid, reason = item, "operator"
+        elif isinstance(item, dict):
+            sid = item.get("segment_id", "")
+            reason = item.get("reason", "operator")
+        else:
+            continue
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        out.append({"segment_id": sid, "reason": reason})
+    return out
+
+
+def apply_nle_to_selection(
+    selection: dict[str, Any],
+    nle: dict[str, Any],
+    *,
+    segments_by_id: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Merge operator NLE exclude/split/reorder into a selection artifact."""
+    if not nle_has_operator_edits(nle):
+        return selection
+
+    overrides = nle.get("segment_overrides") or {}
+    order = list(nle.get("sequence_order") or [])
+    result = dict(selection)
+    excluded = _excluded_entries(result)
+    excluded_ids = {e["segment_id"] for e in excluded}
+
+    for seg_id, ov in overrides.items():
+        if not ov.get("excluded"):
+            continue
+        if seg_id not in excluded_ids:
+            excluded.append({"segment_id": seg_id, "reason": "nle_operator"})
+            excluded_ids.add(seg_id)
+
+    ordered = list(result.get("ordered_segment_ids") or [])
+    for sid in excluded_ids:
+        while sid in ordered:
+            ordered.remove(sid)
+
+    if order:
+        active: list[str] = []
+        for sid in order:
+            ov = overrides.get(sid, {})
+            if ov.get("excluded") or sid in excluded_ids:
+                continue
+            if segments_by_id is not None and sid not in segments_by_id:
+                continue
+            if sid not in active:
+                active.append(sid)
+        nle_set = set(active)
+        rest = [
+            s
+            for s in ordered
+            if s not in nle_set and s not in excluded_ids
+            and (segments_by_id is None or s in segments_by_id)
+        ]
+        ordered = active + rest
+    else:
+        ordered = [s for s in ordered if s not in excluded_ids]
+
+    # Drop stale parent ids replaced by splits (children already in order).
+    for seg_id, ov in overrides.items():
+        for child in ov.get("split_into") or []:
+            if seg_id in ordered and child in ordered:
+                ordered.remove(seg_id)
+                break
+
+    seen_order: set[str] = set()
+    deduped: list[str] = []
+    for sid in ordered:
+        if sid in seen_order or sid in excluded_ids:
+            continue
+        seen_order.add(sid)
+        deduped.append(sid)
+
+    result["ordered_segment_ids"] = deduped
+    result["excluded_segment_ids"] = excluded
+    result["nle_applied"] = True
+    return result
+
+
+def segments_by_id_with_nle(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    manifest = ctx.read_json("segments/manifest.json")
+    nle = load_nle(ctx)
+    applied = apply_segments_with_nle(manifest.get("segments") or [], nle)
+    out: dict[str, dict[str, Any]] = {}
+    for seg in applied:
+        sid = seg.get("segment_id")
+        if not sid:
+            continue
+        clean = {k: v for k, v in seg.items() if not str(k).startswith("_")}
+        out[sid] = clean
+    return out
+
+
 def apply_segments_with_nle(segments: list[dict[str, Any]], nle: dict[str, Any]) -> list[dict[str, Any]]:
     overrides = nle.get("segment_overrides") or {}
     order = nle.get("sequence_order") or []

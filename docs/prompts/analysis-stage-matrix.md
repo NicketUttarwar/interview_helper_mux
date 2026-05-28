@@ -14,12 +14,13 @@ Context is a **selective user/assistant volley** (see [context-padding.md](../cr
 | content_context | understanding/content-context | economy | full | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
 | boundary_detection | segmentation/boundary-detection | standard | full / shard / collate | boundaries.json | segment_summary_patch |
 | segment_classification | segmentation/segment-classification | standard | full / shard / collate | manifest.json | themes_append segment_ids |
+| sound_design_palettes | sound_design/theme-palettes | flagship | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
 | missing_framing | interviewer-gap/missing-framing | flagship | full / shard / collate | gap_evaluations.json | gaps_summary_patch |
 | optimal_questions | interviewer-gap/optimal-questions | flagship | full | gap_report.json | major_questions_append, gaps_summary_patch |
 
 ## Flow 1 / Flow 2
 
-Flow stages use the same envelope and read `analysis_state_summary` but do not run the inner retry loop by default (single pass).
+Flow stages use the same envelope and read `analysis_state_summary`; BUILD-073 adds arbiter evaluation per attempt (and optional uptier retry).
 
 | Stage | Prompt | Tier | Volley |
 |-------|--------|------|--------|

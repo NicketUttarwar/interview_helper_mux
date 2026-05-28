@@ -10,7 +10,12 @@ echo "Using Python: $PY"
 # shellcheck source=/dev/null
 source "$ROOT/.venv/bin/activate"
 pip install -U pip setuptools wheel
-pip install -r "$ROOT/requirements.txt"
+if [[ -f "$ROOT/requirements.lock" ]]; then
+  echo "Installing from requirements.lock (anchor lock)..."
+  pip install -r "$ROOT/requirements.lock"
+else
+  echo "requirements.lock missing — falling back to requirements.txt"
+  pip install -r "$ROOT/requirements.txt"
+fi
 pip install "$ROOT"
-pip install "pytest>=8,<9"
 echo "Done. Run: ./scripts/run.sh   (or: source .venv/bin/activate)"

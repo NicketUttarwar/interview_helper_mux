@@ -14,15 +14,17 @@ BUILD-020
 
 | Path | Description |
 |------|-------------|
-| `ASSETS/input/interview.wav` | Raw source (configurable) |
+| `run_meta.json` → `input_audio_path` | Source WAV chosen at run creation (GUI asset picker or CLI); typically `ASSETS/input/…` |
 | `preclean/isolated.wav` | When [audio pre-clean](../audio_preclean/README.md) ran — ingest uses this instead of raw capture |
+
+Run workspace: `ASSETS/executions/exec_NNN_…/` ([assets-and-executions.md](../../cross-cutting/assets-and-executions.md)).
 
 ## Outputs
 
 | Path | Description |
 |------|-------------|
-| `data/run_NNN/ingest/normalized.wav` | 48 kHz PCM WAV, peak-safe |
-| `data/run_NNN/ingest/checksums.json` | SHA-256 of source + normalized |
+| `ingest/normalized.wav` | 48 kHz PCM WAV, peak-safe |
+| `ingest/checksums.json` | SHA-256 of source + normalized |
 
 ## Re-run after pre-clean
 

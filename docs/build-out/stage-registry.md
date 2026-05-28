@@ -39,8 +39,9 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` |
 | `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
 | `vo_ingest` | shipped | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline | — |
-| `source_acoustic_profile` | planned | `understanding.py` or new | BUILD-082 | `understanding/source_acoustic_profile.json` | TBD · [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
-| `sound_design_palettes` | planned | `sound_design_stages.py` | BUILD-061 | SDP `palettes`, `coherence` | `sound_design/theme-palettes` |
+| `sound_design_plan_init` | shipped (init hook) | `analysis_memory.py` | BUILD-060 | `understanding/sound_design_plan.json` (empty scaffold) | `cross-cutting/json-schemas/sound_design_plan.schema.json` |
+| `source_acoustic_profile` | shipped | `understanding.py` | BUILD-082 | `understanding/source_acoustic_profile.json` | deterministic derivation · [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
+| `sound_design_palettes` | shipped | `sound_design_stages.py` | BUILD-061 | SDP `palettes`, `coherence` | `sound_design/theme-palettes` |
 
 **GUI-only (not in `ANALYSIS_ORDER`):** `analysis_profile` — edit `analysis_state.json` ([analysis-memory.md](../cross-cutting/analysis-memory.md)).
 
@@ -66,12 +67,12 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `narrative_arc_plan` | shipped | `analysis_flow1_extended.py` | BUILD-030 | `flow_1_master/narrative_plan.json` | `selection/narrative-arc-plan` |
 | `full_master_ranking` | shipped | `selection_flow1.py` | BUILD-031 | `flow_1_master/selection.json` | `selection/full-master-ranking` |
 | `transitions` | shipped | `selection_flow1.py` | BUILD-032 | `flow_1_master/transitions.json` | `assembly/transitions` |
+| `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` — speech + `vo_pickup` + transition events; `mux_scope: speech_only` | — |
+| `assembly_preview` | shipped | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` (speech + VO, no SFX) | — |
 | `podcast_sfx_brief` | shipped (v1) | `selection_flow1.py` | BUILD-033 | `flow_1_master/podcast_sfx_brief.json` | `assembly/podcast-sfx-brief` |
 | `sound_design_plan_flow1` | planned | `sound_design_stages.py` | BUILD-062 | SDP `flow_plans.flow1` | `sound_design/plan-flow1` |
 | `elevenlabs_sfx_flow1` | shipped (v1) | `sfx_elevenlabs.py` | BUILD-034, **064** | `flow_1_master/sfx/*.wav` | craft: `elevenlabs-prompt-craft` |
-| `assembly_preview` | planned | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` | — |
-| `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` | — |
-| `mux_flow1` | shipped (v1 speech) | `assembly_flow1.py` | BUILD-035 | `flow_1_master/assembly.wav` | — |
+| `mux_flow1` | shipped (v1 speech) | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/assembly.wav` — concat **speech** EDL clips only; VO/transitions for BUILD-065/069 | — |
 | `mix_flow1` | planned | TBD | BUILD-065 | Replaces/aliases v1 mux | — |
 | `master_flow1` | shipped | `mastering.py` | BUILD-036, **071** | `flow_1_master/master.wav` | — |
 
@@ -97,10 +98,10 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
-| `podcast_show_description` | planned | `publishing_flow3.py` | BUILD-045 | `flow_3_description/show_description.json` | `publishing/podcast-show-description` |
-| `export_show_description` | planned | `publishing_flow3.py` | BUILD-046 | `flow_3_description/show_description.md` | — |
+| `podcast_show_description` | shipped | `publishing_flow3.py` | BUILD-045 | `flow_3_description/show_description.json` | `publishing/podcast-show-description` |
+| `export_show_description` | shipped | `publishing_flow3.py` | BUILD-046 | `flow_3_description/show_description.md` | — |
 
-**Wire-up ticket:** BUILD-080 (`FLOW3_ORDER`, `run_flow3`, CLI, GUI).
+**Wire-up:** BUILD-080 (`FLOW3_ORDER`, `run_flow3`, CLI, GUI).
 
 **README:** [publishing](../pipeline/publishing/README.md)
 
@@ -135,9 +136,6 @@ Update this table when closing gaps:
 
 | Item | Code | Docs / GUI |
 |------|------|------------|
-| Flow 3 stages | Not in `pipeline.py` | Listed in G2 copy, publishing README |
-| G2 API | `flow1\|flow2` regex | Operator docs mention flow3 |
-| `web/stages.py` | No `FLOW3_STAGES` | gui-surface-map has Flow 3 placeholders |
 | v1 mux | Speech-only | assembly README describes target mix |
 
 See [repository-map.md](./repository-map.md#known-doc--code-gaps-track-in-steps-forwardmd).

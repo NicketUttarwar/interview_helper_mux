@@ -9,13 +9,22 @@ class StageInfo:
     id: str
     title: str
     description: str
-    phase: str  # analysis | flow1 | flow2 | gate
+    phase: str  # analysis | flow1 | flow2 | flow3 | gate
     artifacts: tuple[str, ...]
     editable: tuple[str, ...]
     audio_outputs: tuple[str, ...] = ()
 
 
 ANALYSIS_STAGES: tuple[StageInfo, ...] = (
+    StageInfo(
+        "audio_preclean",
+        "Audio pre-clean (optional)",
+        "Optional ElevenLabs noise isolation before ingest; runs only when operator enables pre-clean.",
+        "analysis",
+        ("preclean/provider.json", "preclean/lineage.json"),
+        ("run_meta.json",),
+        ("preclean/isolated.wav",),
+    ),
     StageInfo(
         "ingest",
         "Ingest",
@@ -61,17 +70,27 @@ ANALYSIS_PROFILE_STAGE = StageInfo(
         "understanding/analysis_state.json",
         "understanding/investigation_queue.json",
         "understanding/content_brief.json",
+        "understanding/sound_design_plan.json",
     ),
     (
         "understanding/analysis_state.json",
         "understanding/investigation_queue.json",
         "understanding/content_brief.json",
+        "understanding/sound_design_plan.json",
         "understanding/speakers.json",
         "segments/manifest.json",
     ),
 )
 
 ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
+    StageInfo(
+        "source_acoustic_profile",
+        "Source acoustic profile",
+        "Derive per-interview pacing/energy profile and mix contract from transcript timing plus source audio.",
+        "analysis",
+        ("understanding/source_acoustic_profile.json",),
+        ("understanding/source_acoustic_profile.json",),
+    ),
     StageInfo(
         "speaker_roles",
         "Speaker roles",
@@ -103,6 +122,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "analysis",
         ("segments/manifest.json",),
         ("segments/manifest.json",),
+    ),
+    StageInfo(
+        "sound_design_palettes",
+        "Sound design palettes",
+        "Create transcript-grounded sound design coherence plus reusable theme palettes.",
+        "analysis",
+        ("understanding/sound_design_plan.json",),
+        ("understanding/sound_design_plan.json",),
     ),
     StageInfo(
         "missing_framing",
@@ -167,28 +194,45 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         ("flow_1_master/transitions.json",),
     ),
     StageInfo(
-        "podcast_sfx_brief",
-        "SFX brief",
-        "Specify subtle podcast sound design (stingers, beds).",
+        "sound_design_plan_flow1",
+        "Sound design plan",
+        "Build Flow 1 reusable sound design assets and cues in the shared sound design plan.",
         "flow1",
-        ("flow_1_master/podcast_sfx_brief.json",),
-        ("flow_1_master/podcast_sfx_brief.json",),
-    ),
-    StageInfo(
-        "elevenlabs_sfx_flow1",
-        "Generate SFX",
-        "Generate sound effects via ElevenLabs from the SFX brief.",
-        "flow1",
-        ("flow_1_master/podcast_sfx_brief.json",),
-        (),
+        ("understanding/sound_design_plan.json",),
+        ("understanding/sound_design_plan.json",),
     ),
     StageInfo(
         "edl_flow1",
         "Edit decision list",
-        "Build the EDL combining speech, VO pickup, and SFX.",
+        "Build the EDL combining speech order, VO pickup placements, and transition anchors.",
         "flow1",
         ("flow_1_master/edl.json",),
         ("flow_1_master/edl.json",),
+    ),
+    StageInfo(
+        "assembly_preview",
+        "Assembly preview",
+        "Render speech + recorded VO only (no ElevenLabs SFX) so you can listen before spend.",
+        "flow1",
+        ("flow_1_master/edl.json",),
+        (),
+        ("flow_1_master/assembly_preview.wav",),
+    ),
+    StageInfo(
+        "elevenlabs_prompt_craft",
+        "Craft ElevenLabs prompts",
+        "Build one crafted prompt per planned asset_id for ElevenLabs generation.",
+        "flow1",
+        ("sound_design/elevenlabs_prompts.json",),
+        ("sound_design/elevenlabs_prompts.json",),
+    ),
+    StageInfo(
+        "elevenlabs_sfx_flow1",
+        "Generate SFX",
+        "Generate sound effects via ElevenLabs from sound design plan assets/prompts.",
+        "flow1",
+        ("understanding/sound_design_plan.json", "sound_design/elevenlabs_prompts.json"),
+        (),
     ),
     StageInfo(
         "mux_flow1",
@@ -220,19 +264,27 @@ FLOW2_STAGES: tuple[StageInfo, ...] = (
         ("flow_2_highlights/selection.json",),
     ),
     StageInfo(
-        "sfx_brief",
-        "Montage SFX brief",
-        "Specify montage-style sound design for the highlight reel.",
+        "sound_design_plan_flow2",
+        "Sound design plan",
+        "Build Flow 2 reusable sound design assets and cue plan in the shared sound design plan.",
         "flow2",
-        ("flow_2_highlights/sfx_brief.json",),
-        ("flow_2_highlights/sfx_brief.json",),
+        ("understanding/sound_design_plan.json",),
+        ("understanding/sound_design_plan.json",),
+    ),
+    StageInfo(
+        "elevenlabs_prompt_craft",
+        "Craft ElevenLabs prompts",
+        "Build one crafted prompt per planned asset_id for ElevenLabs generation.",
+        "flow2",
+        ("sound_design/elevenlabs_prompts.json",),
+        ("sound_design/elevenlabs_prompts.json",),
     ),
     StageInfo(
         "elevenlabs_sfx_flow2",
         "Generate SFX",
-        "Generate montage sound effects via ElevenLabs.",
+        "Generate montage sound effects via ElevenLabs from sound design plan assets/prompts.",
         "flow2",
-        ("flow_2_highlights/sfx_brief.json",),
+        ("understanding/sound_design_plan.json", "sound_design/elevenlabs_prompts.json"),
         (),
     ),
     StageInfo(
@@ -255,10 +307,30 @@ FLOW2_STAGES: tuple[StageInfo, ...] = (
     ),
 )
 
+FLOW3_STAGES: tuple[StageInfo, ...] = (
+    StageInfo(
+        "podcast_show_description",
+        "Show description",
+        "Generate a ~200-word third-person podcast blurb from shared analysis (flagship LLM).",
+        "flow3",
+        ("flow_3_description/show_description.json",),
+        ("flow_3_description/show_description.json",),
+    ),
+    StageInfo(
+        "export_show_description",
+        "Export blurb",
+        "Export plain-text show description for podcast directories (no LLM).",
+        "flow3",
+        ("flow_3_description/show_description.md",),
+        (),
+    ),
+)
+
 G2_STAGE = StageInfo(
     "g2_flow_select",
     "Choose output (G2)",
-    "Pick Flow 1 (full master podcast) or Flow 2 (highlight reel). This choice determines the remaining pipeline stages.",
+    "Pick Flow 1 (full master podcast), Flow 2 (highlight reel), or Flow 3 (show description). "
+    "This choice determines the remaining pipeline stages.",
     "gate",
     ("run_meta.json",),
     ("run_meta.json",),
@@ -274,6 +346,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
         G2_STAGE,
         *FLOW1_STAGES,
         *FLOW2_STAGES,
+        *FLOW3_STAGES,
     )
 }
 
@@ -281,6 +354,7 @@ EXECUTABLE_ORDER: dict[str, list[str]] = {
     "analysis": [s.id for s in ANALYSIS_STAGES],
     "flow1": [s.id for s in FLOW1_STAGES],
     "flow2": [s.id for s in FLOW2_STAGES],
+    "flow3": [s.id for s in FLOW3_STAGES],
 }
 
 
@@ -307,6 +381,9 @@ def all_stages_for_run(selected_flow: str | None) -> list[dict[str, Any]]:
             out.append(_stage_dict(s))
     elif selected_flow == "flow2":
         for s in FLOW2_STAGES:
+            out.append(_stage_dict(s))
+    elif selected_flow == "flow3":
+        for s in FLOW3_STAGES:
             out.append(_stage_dict(s))
     return out
 

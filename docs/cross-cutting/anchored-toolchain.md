@@ -4,7 +4,7 @@
 **Scope:** Python runtime, pip packages, system binaries, external HTTP API surfaces, and optional research libraries.  
 **Not in scope:** Operator secrets, per-account OpenAI model availability, or ElevenLabs account tier limits.
 
-**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt` at repo root; **`requirements.lock` + `pip-audit` gate partial**)
+**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt`, **`requirements.lock`**, `pip-audit` in `check_prerequisites.sh`)
 
 ---
 
@@ -35,12 +35,14 @@ source .venv/bin/activate
 
 ### Vulnerability audit (setup gate)
 
-Documented contract for `tools/check_prerequisites.sh` (implementation tracked under BUILD-010):
+Contract for `tools/check_prerequisites.sh` (BUILD-010):
 
-1. Require `pip-audit` in the venv (dev dependency) or invoke via `python -m pip_audit`.
-2. Run: `pip-audit -r requirements.lock --strict` (or equivalent OSV feed).
-3. **Fail** if any finding is **HIGH** or **CRITICAL** (configurable `PIP_AUDIT_FAIL_LEVEL`).
-4. Print advisory IDs and fixed versions; do not proceed to pipeline work until lock is refreshed or finding is accepted in writing in this doc’s [Accepted advisories](#accepted-advisories) table.
+1. Require `pip-audit` in the venv (from `requirements.lock`) and invoke via `python -m pip_audit`.
+2. Audit `requirements.lock` (JSON output); resolve severity via OSV for each advisory.
+3. **Fail** if any unaccepted finding is **HIGH** or **CRITICAL** (default `PIP_AUDIT_FAIL_LEVEL=HIGH`; use `PIP_AUDIT_IGNORE_VULNS` only with a row in [Accepted advisories](#accepted-advisories)).
+4. Print advisory IDs and fix versions; refresh the lock or document an exception before pipeline work.
+
+**Regenerate lock:** `pip-compile requirements.txt -o requirements.lock` (Python 3.12).
 
 Optional CI: same command on every PR that touches `requirements.txt` or `requirements.lock`.
 
@@ -84,7 +86,7 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `pytest` | 8.4.2 | Unit tests |
-| `pip-audit` | *(pin in lock)* | CVE gate at setup |
+| `pip-audit` | 2.10.0 | CVE gate at setup |
 
 **Explicitly excluded from application env:**
 

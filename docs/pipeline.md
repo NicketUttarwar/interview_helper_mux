@@ -4,7 +4,7 @@
 
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
-**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. Flow 3 is **docs + prompt spec** until BUILD-045 ships. See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. Flow 3 ships show-description copy via `publishing_flow3.py` (no audio mux). See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
 
 ```mermaid
 flowchart TB
@@ -38,12 +38,12 @@ flowchart TB
 
 ## Shared foundation
 
-All work starts from a single long-form interview recording in `./ASSETS/`.
+All work starts from a single long-form interview recording in `./ASSETS/`. Operators select the file in the GUI (**Input audio**) or pass `input_audio_path` when creating a run via API; each run persists under `ASSETS/executions/exec_*` — [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md).
 
 | Stage | Goal | Key artifacts |
 |-------|------|----------------|
 | **Audio pre-clean** *(optional)* | Remove background noise before STT/mux | `preclean/isolated.wav`, `preclean/lineage.json` |
-| **Ingest** | Normalize format, checksum, session id | `run_NNN/` workspace, normalized WAV |
+| **Ingest** | Normalize format, checksum, session id | `ASSETS/executions/exec_*` workspace, normalized WAV |
 | **Transcribe + diarize** | Word-level text with speaker labels | Transcript JSON, speaker map |
 | **Transcript review (G0)** | Operator fixes STT using confidence-ranked clips | Corrections merged into transcript |
 | **Content understanding** | Themes, narrative arc, who said what | `analysis_state.json`, content brief, speaker roles |

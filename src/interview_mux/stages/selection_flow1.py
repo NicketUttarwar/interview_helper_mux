@@ -1,21 +1,64 @@
 from __future__ import annotations
 
 from interview_mux.context_volley import interviewer_sample_lines
+from interview_mux.nle_state import (
+    apply_nle_to_selection,
+    apply_segments_with_nle,
+    load_nle,
+    nle_has_operator_edits,
+    segments_by_id_with_nle,
+)
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
+def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
+    ordered = selection.get("ordered_segment_ids") or []
+    excluded = selection.get("excluded_segment_ids") or []
+    ctx.log(
+        f"Applied NLE timeline edits: {len(ordered)} segments in order, "
+        f"{len(excluded)} excluded (re-run from edl_flow1 if only EDL was stale).",
+        level="info",
+        stage=stage,
+    )
+
+
 def run_full_master_ranking(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
-            "segments": c.read_json("segments/manifest.json"),
+        manifest = c.read_json("segments/manifest.json")
+        nle = load_nle(c)
+        segments_payload = manifest
+        if nle_has_operator_edits(nle):
+            raw = manifest.get("segments") or []
+            segments_payload = {
+                **manifest,
+                "segments": apply_segments_with_nle(raw, nle),
+            }
+            c.log(
+                "NLE timeline edits included in ranking input "
+                "(exclude/split/reorder/trim).",
+                level="info",
+                stage="full_master_ranking",
+            )
+        payload = {
+            "segments": segments_payload,
             "gap_report": c.read_json("understanding/gap_report.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("flow_1_master/coverage_audit.json"),
             "narrative_plan": c.read_json("flow_1_master/narrative_plan.json"),
         }
+        if nle_has_operator_edits(nle):
+            payload["nle_edits"] = nle
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        nle = load_nle(c)
+        if nle_has_operator_edits(nle):
+            by_id = segments_by_id_with_nle(c)
+            artifacts = apply_nle_to_selection(
+                artifacts, nle, segments_by_id=by_id
+            )
+            _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
         c.write_json("flow_1_master/selection.json", artifacts)
 
     run_flow_llm_stage(

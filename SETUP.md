@@ -21,9 +21,9 @@ source .venv/bin/activate
 ./tools/check_prerequisites.sh
 ```
 
-`bootstrap_venv.sh` creates `.venv`, installs from `requirements.txt`, and installs this package in editable mode.
+`bootstrap_venv.sh` creates `.venv`, installs from `requirements.lock` (full transitive pins), and installs this package in editable mode. Direct dependency edits go in `requirements.txt`; regenerate the lock with `pip-compile requirements.txt -o requirements.lock` (Python 3.12). Doc mirror: [docs/cross-cutting/anchored-requirements.lock](docs/cross-cutting/anchored-requirements.lock).
 
-**Anchor lock (BUILD-010):** When `requirements.lock` exists at repo root, bootstrap should install from the lock only and `check_prerequisites.sh` should run `pip-audit`. Until then, direct pins live in `requirements.txt`; doc mirror: [docs/cross-cutting/anchored-requirements.lock](docs/cross-cutting/anchored-requirements.lock).
+`check_prerequisites.sh` runs `pip-audit` against the lock and fails on unaccepted **HIGH** / **CRITICAL** findings (`PIP_AUDIT_FAIL_LEVEL`, default `HIGH`).
 
 ## 2. Config
 
@@ -62,7 +62,7 @@ python tools/run_flow.py --flow flow1 --run-id run_001
 python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
 ```
 
-Flow 3 (show description) is **not wired in code yet** — see BUILD-045 in [docs/build-out/README.md](docs/build-out/README.md).
+Flow 3 (show description): `python tools/run_flow.py --flow flow3 --run-id <exec_id>` after G2 — see [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).
 
 ## 5. Validate
 
@@ -75,7 +75,7 @@ Follow [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).
 | [docs/INDEX.md](docs/INDEX.md) | Documentation hub |
 | [AGENTS.md](AGENTS.md) | Agent constraints and read order |
 | [docs/build-out/repository-map.md](docs/build-out/repository-map.md) | Code ↔ docs layout |
-| [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) | Prioritized backlog |
+| [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) | Prioritized backlog + **Cursor Agent copy-paste prompts** per step |
 
 ## Troubleshooting
 

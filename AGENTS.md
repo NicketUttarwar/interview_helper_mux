@@ -6,7 +6,7 @@
 
 1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — guardrails + optional R&D (audio-only)
 2. [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) — full-repository build plan (all phases)
-3. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — prioritized backlog (what to implement next)
+3. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — prioritized backlog + **copy-paste Cursor Agent prompts** per step (#0–#20)
 4. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
 5. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
 6. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end operator + system journey
@@ -31,6 +31,13 @@
 - [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md)
 - [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md)
 
+## Building code in Cursor
+
+1. Open **Agent mode** (not Ask).
+2. Pick the next step in [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) (section **Cursor Agent**).
+3. Copy the **Agent prompt** for that step into chat; `@`-attach the listed docs.
+4. Run the step **Verify** shell block when the agent finishes.
+
 ## Testing (quick)
 
-See **Verify before finishing** in `.cursor/rules/interview-helper-mux.mdc` and [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).
+See **Verify before finishing** in `.cursor/rules/interview-helper-mux.mdc`, per-step blocks in [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md), and [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).

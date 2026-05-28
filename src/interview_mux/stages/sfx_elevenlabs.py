@@ -5,7 +5,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from interview_mux.config import require_secret
+from interview_mux.config import merged_config, require_secret
 from interview_mux.elevenlabs_rest import ElevenLabsApiError, generate_sound_effect
 from interview_mux.run_context import RunContext
 
@@ -22,7 +22,7 @@ _ROLE_INFLUENCE: dict[str, float] = {
 
 
 def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
-    """Generate SFX wav files from brief using ElevenLabs REST API."""
+    """Generate SFX wav files from sound design assets using ElevenLabs REST API."""
     if profile == "podcast":
         brief_path = "flow_1_master/podcast_sfx_brief.json"
         out_rel = "flow_1_master/sfx"
@@ -31,20 +31,19 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         brief_path = "flow_2_highlights/sfx_brief.json"
         out_rel = "flow_2_highlights/sfx"
         stage = "elevenlabs_sfx_flow2"
-
-    brief = ctx.read_json(brief_path)
     out_dir = ctx.path(out_rel)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    cues = _collect_cues(brief, profile)
+    _require_prompt_review_if_enabled(ctx)
+    cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
     api_key = require_secret("ELEVENLABS_API_KEY")
 
     crafted = _load_crafted_prompts(ctx)
-    for i, cue in enumerate(cues):
-        asset_id = cue.get("asset_id") or f"sfx_{i+1:03d}"
-        out_file = out_dir / f"{asset_id}.wav" if crafted else out_dir / f"sfx_{i+1:03d}.wav"
+    generation_items = _collect_generation_items(ctx=ctx, profile=profile, fallback_cues=cues)
+    for item in generation_items:
+        asset_id = item["asset_id"]
+        out_file = out_dir / f"{asset_id}.wav"
         prompt_row = crafted.get(asset_id) if crafted else None
-        text, duration_seconds, influence = _resolve_generation_params(cue, prompt_row)
+        text, duration_seconds, influence = _resolve_generation_params(item, prompt_row)
         try:
             audio = generate_sound_effect(
                 api_key=api_key,
@@ -78,9 +77,25 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             logger.warning("ElevenLabs generation failed for %s: %s", asset_id, exc)
             _write_silent_wav(out_file, duration_ms=int(duration_seconds * 1000))
 
+    if generation_items:
+        _write_shared_asset_mirror(ctx=ctx, source_dir=out_dir, asset_ids=[item["asset_id"] for item in generation_items])
+
     manifest = {"profile": profile, "files": [p.name for p in sorted(out_dir.glob("*.wav"))], "api": "rest"}
     ctx.write_json(f"{out_rel}/manifest.json", manifest)
     ctx.mark_done(stage)
+
+
+def _require_prompt_review_if_enabled(ctx: RunContext) -> None:
+    if not bool(merged_config().get("g1_5_require_prompt_approval", False)):
+        return
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    review = meta.get("elevenlabs_prompt_review") if isinstance(meta.get("elevenlabs_prompt_review"), dict) else {}
+    if review.get("approved"):
+        return
+    raise RuntimeError(
+        "G1.5 prompt approval required before ElevenLabs generation. "
+        "Review and approve sound_design/elevenlabs_prompts.json in the GUI panel."
+    )
 
 
 def _load_crafted_prompts(ctx: RunContext) -> dict[str, dict]:
@@ -104,15 +119,95 @@ def _resolve_generation_params(
         neg = prompt_row.get("negative_prompt")
         if neg:
             text = f"{text}\n\nAvoid: {neg}"
-        duration = float(prompt_row.get("duration_seconds") or 2.0)
+        duration = float(prompt_row.get("duration_seconds") or cue.get("duration_seconds") or 2.0)
         role = cue.get("role") or "chapter_stinger"
         influence = float(prompt_row["prompt_influence"]) if "prompt_influence" in prompt_row else _ROLE_INFLUENCE.get(role, 0.35)
         return text, duration, influence
 
     desc = cue.get("description") or cue.get("mood") or "short podcast stinger"
+    if cue.get("duration_seconds") is not None:
+        return desc, float(cue.get("duration_seconds") or 2.0), 0.35
     duration_ms = cue.get("duration_ms")
     duration_seconds = float(duration_ms) / 1000.0 if duration_ms else 2.0
     return desc, duration_seconds, 0.35
+
+
+def _collect_generation_items(
+    *,
+    ctx: RunContext,
+    profile: str,
+    fallback_cues: list[dict],
+) -> list[dict]:
+    plan = _load_sound_design_plan(ctx)
+    if not plan:
+        return _dedupe_fallback_cues(fallback_cues)
+
+    flow_key = "flow1" if profile == "podcast" else "flow2"
+    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    flow = flow_plans.get(flow_key) if isinstance(flow_plans.get(flow_key), dict) else {}
+    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
+    assets_by_id = {
+        str(asset.get("asset_id")): asset
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("asset_id")
+    }
+
+    ordered_asset_ids: list[str] = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        aid = str(cue.get("asset_id") or "")
+        if not aid or aid not in assets_by_id or aid in ordered_asset_ids:
+            continue
+        ordered_asset_ids.append(aid)
+
+    if not ordered_asset_ids:
+        return _dedupe_fallback_cues(fallback_cues)
+
+    return [assets_by_id[aid] for aid in ordered_asset_ids]
+
+
+def _load_sound_design_plan(ctx: RunContext) -> dict:
+    path = ctx.path("understanding/sound_design_plan.json")
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_fallback_cues(*, ctx: RunContext, brief_path: str, profile: str) -> list[dict]:
+    """Fallback cues for runs without sound design plan asset definitions."""
+    if ctx.path(brief_path).is_file():
+        brief = ctx.read_json(brief_path)
+        return _collect_cues(brief, profile)
+    return [{"description": "short neutral stinger", "duration_ms": 1500, "role": "chapter_stinger"}]
+
+
+def _dedupe_fallback_cues(cues: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, cue in enumerate(cues):
+        asset_id = str(cue.get("asset_id") or f"sfx_{i+1:03d}")
+        if asset_id in seen:
+            continue
+        seen.add(asset_id)
+        out.append({**cue, "asset_id": asset_id})
+    return out
+
+
+def _write_shared_asset_mirror(*, ctx: RunContext, source_dir: Path, asset_ids: list[str]) -> None:
+    target_dir = ctx.path("sound_design", "assets")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for asset_id in asset_ids:
+        src = source_dir / f"{asset_id}.wav"
+        if not src.is_file():
+            continue
+        dst = target_dir / f"{asset_id}.wav"
+        dst.write_bytes(src.read_bytes())
 
 
 def _collect_cues(brief: dict, profile: str) -> list[dict]:

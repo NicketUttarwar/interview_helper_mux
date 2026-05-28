@@ -71,6 +71,13 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         investigation_kinds=frozenset({"theme_unmapped", "segment_ambiguity"}),
         max_investigations=3,
     ),
+    "sound_design_palettes": StageContextPlan(
+        task_line="Define transcript-grounded sound design coherence and theme palettes.",
+        prior_stages=("content_context", "segment_classification"),
+        profile_keys=("themes", "narrative", "style", "operator_notes"),
+        investigation_kinds=frozenset({"theme_unmapped"}),
+        max_investigations=2,
+    ),
     "missing_framing": StageContextPlan(
         task_line="Evaluate which segments are self-explanatory for listeners; classify gaps only.",
         prior_stages=("segment_classification", "content_context"),
@@ -126,11 +133,37 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         profile_keys=("style",),
         max_investigations=0,
     ),
+    "sound_design_plan_flow1": StageContextPlan(
+        task_line="Plan reusable Flow 1 sound design assets and cue placements.",
+        prior_stages=("full_master_ranking", "narrative_arc_plan", "transitions", "optimal_questions"),
+        profile_keys=("style", "themes", "narrative"),
+        max_investigations=0,
+    ),
     "sfx_brief": StageContextPlan(
         task_line="Specify montage SFX between highlight clips.",
         prior_stages=("highlight_selection",),
         profile_keys=("style", "narrative"),
         max_investigations=0,
+    ),
+    "elevenlabs_prompt_craft": StageContextPlan(
+        task_line="Craft one ElevenLabs sound-generation prompt per planned asset_id.",
+        prior_stages=("sound_design_plan_flow1", "sound_design_plan_flow2"),
+        profile_keys=("style", "themes", "narrative"),
+        max_investigations=0,
+    ),
+    "podcast_show_description": StageContextPlan(
+        task_line=(
+            "Write a third-person podcast show description (~200 words) grounded in the content brief."
+        ),
+        prior_stages=(
+            "content_context",
+            "segment_classification",
+            "missing_framing",
+            "optimal_questions",
+        ),
+        profile_keys=("themes", "narrative", "style", "major_questions", "entities"),
+        investigation_kinds=frozenset({"show_description_thin_evidence"}),
+        max_investigations=2,
     ),
 }
 
@@ -159,6 +192,8 @@ def build_message_volley(
     ctx: RunContext,
     stage_key: str,
     stage_input: dict[str, Any],
+    *,
+    profile: str = "full",
 ) -> list[dict[str, str]]:
     """
     Build OpenAI messages: system (from caller) + user/assistant volley + final user task.
@@ -174,13 +209,15 @@ def build_message_volley(
             "role": "user",
             "content": (
                 f"## Current task\n{plan.task_line}\n\n"
+                f"Volley profile: {profile}\n\n"
                 "Below is established context from earlier steps (read only). "
                 "Your reply must be the JSON envelope described in the system prompt."
             ),
         }
     )
 
-    prior_text = _format_prior_conclusions(ctx, plan.prior_stages, state)
+    prior_stages = plan.prior_stages if profile == "full" else plan.prior_stages[:1]
+    prior_text = _format_prior_conclusions(ctx, prior_stages, state)
     if prior_text:
         messages.append({"role": "assistant", "content": prior_text})
 
@@ -190,7 +227,7 @@ def build_message_volley(
         label = "Operator-verified profile" if verified else "Interview profile (draft — may refine)"
         messages.append({"role": "user", "content": f"## {label}\n{profile_text}"})
 
-    inv_text = _format_investigations(ctx, stage_key, plan)
+    inv_text = _format_investigations(ctx, stage_key, plan if profile == "full" else StageContextPlan(task_line=plan.task_line, max_investigations=0))
     if inv_text:
         messages.append({"role": "user", "content": inv_text})
 
@@ -217,6 +254,16 @@ def build_message_volley(
 
 def volley_char_estimate(messages: list[dict[str, str]]) -> int:
     return sum(len(m.get("content", "")) for m in messages)
+
+
+def truncation_flags_for_volley(messages: list[dict[str, str]]) -> list[str]:
+    flags: list[str] = []
+    joined = "\n".join(m.get("content", "") for m in messages)
+    if "…[stage data truncated]" in joined:
+        flags.append("max_stage_data_chars")
+    if "…[truncated]" in joined:
+        flags.append("field_truncated")
+    return flags
 
 
 def _format_prior_conclusions(
@@ -428,6 +475,23 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             "content_brief": _compact_brief(raw.get("content_brief")),
             "transcript": _clip_transcript_for_segments(raw.get("transcript")),
         }
+    if stage_key == "sound_design_palettes":
+        out_sdp: dict[str, Any] = {
+            "content_brief": _compact_brief(raw.get("content_brief")),
+            "segments": _compact_segments(raw.get("segments"), max_count=100),
+            "sound_design_plan": raw.get("sound_design_plan"),
+        }
+        state = raw.get("analysis_state")
+        if isinstance(state, dict):
+            out_sdp["analysis_state"] = {
+                "themes": state.get("themes"),
+                "narrative": state.get("narrative"),
+                "style": state.get("style"),
+                "operator_notes": state.get("operator_notes"),
+            }
+        if raw.get("operator_style_sound_design_notes"):
+            out_sdp["operator_style_sound_design_notes"] = raw.get("operator_style_sound_design_notes")
+        return out_sdp
     if stage_key == "missing_framing":
         return {
             "content_brief": _compact_brief(raw.get("content_brief")),
@@ -439,12 +503,24 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             "segments": _compact_segments_for_gaps(raw),
             "content_brief": _compact_brief(raw.get("content_brief")),
         }
+    if stage_key == "podcast_show_description":
+        out_psd: dict[str, Any] = {
+            "content_brief": _compact_brief(raw.get("content_brief")),
+            "speakers": raw.get("speakers"),
+            "segments": _compact_segments(raw.get("segments"), max_count=80),
+        }
+        if raw.get("gap_summary"):
+            out_psd["gap_summary"] = raw["gap_summary"]
+        if raw.get("interviewer_vo_summary"):
+            out_psd["interviewer_vo_summary"] = raw["interviewer_vo_summary"]
+        return out_psd
     if stage_key in (
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
         "highlight_selection",
         "transitions",
+        "sound_design_plan_flow1",
         "podcast_sfx_brief",
         "sfx_brief",
     ):
@@ -467,7 +543,7 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["gap_report"] = _compact_gap_report(raw["gap_report"])
     if "selection" in raw:
         out["selection"] = _compact_selection(raw["selection"], stage_key)
-    if "transitions" in raw and stage_key == "podcast_sfx_brief":
+    if "transitions" in raw and stage_key in ("podcast_sfx_brief", "sound_design_plan_flow1"):
         out["transitions"] = raw["transitions"]
     if "interviewer_sample_lines" in raw and stage_key == "transitions":
         out["interviewer_sample_lines"] = raw["interviewer_sample_lines"]

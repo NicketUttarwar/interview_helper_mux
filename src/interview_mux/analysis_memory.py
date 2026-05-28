@@ -16,10 +16,12 @@ ANALYSIS_STATE_PATH = "understanding/analysis_state.json"
 INVESTIGATION_QUEUE_PATH = "understanding/investigation_queue.json"
 CONTEXT_INDEX_PATH = "understanding/context_index.json"
 ORCHESTRATION_PATH = "understanding/analysis_orchestration.json"
+SOUND_DESIGN_PLAN_PATH = "understanding/sound_design_plan.json"
 
 EDITABLE_PROFILE_PATHS = (
     ANALYSIS_STATE_PATH,
     INVESTIGATION_QUEUE_PATH,
+    SOUND_DESIGN_PLAN_PATH,
     "understanding/content_brief.json",
     "understanding/speakers.json",
     "segments/manifest.json",
@@ -113,6 +115,24 @@ def default_orchestration() -> dict[str, Any]:
     }
 
 
+def default_sound_design_plan() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "coherence": {
+            "sonic_identity": "",
+            "primary_mood": "",
+            "density": "",
+        },
+        "palettes": [],
+        "assets": [],
+        "flow_plans": {
+            "flow1": {"profile": "podcast", "cues": []},
+            "flow2": {"profile": "montage", "cues": []},
+        },
+        "generated": {},
+    }
+
+
 def ensure_analysis_workspace(ctx: RunContext) -> None:
     """Create memory files if missing (call before first LLM analysis stage)."""
     if not ctx.artifact_exists(ANALYSIS_STATE_PATH):
@@ -123,6 +143,8 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
         ctx.write_json(CONTEXT_INDEX_PATH, default_context_index(ctx.run_id))
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
         ctx.write_json(ORCHESTRATION_PATH, default_orchestration())
+    if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
+        ctx.write_json(SOUND_DESIGN_PLAN_PATH, default_sound_design_plan())
     (ctx.path("understanding", "stage_runs")).mkdir(parents=True, exist_ok=True)
 
 
@@ -427,6 +449,10 @@ def record_stage_attempt(
     envelope: dict[str, Any],
     *,
     context_volley: list[dict[str, str]] | None = None,
+    task_kind: str = "primary",
+    arbiter_result: dict[str, Any] | None = None,
+    shard_count: int = 0,
+    truncation_flags: list[str] | None = None,
 ) -> None:
     base = ctx.path("understanding", "stage_runs", stage_key)
     base.mkdir(parents=True, exist_ok=True)
@@ -434,6 +460,7 @@ def record_stage_attempt(
     from interview_mux.file_store import write_json
     from interview_mux.context_volley import volley_char_estimate
 
+    meta = envelope.get("_llm_meta") or {}
     write_json(
         path,
         {
@@ -442,6 +469,12 @@ def record_stage_attempt(
             "recorded_at": _now(),
             "context_volley": context_volley,
             "context_chars": volley_char_estimate(context_volley) if context_volley else 0,
+            "model_tier": meta.get("model_tier"),
+            "model_id": meta.get("model_id"),
+            "task_kind": task_kind or meta.get("task_kind") or "primary",
+            "arbiter_result": arbiter_result,
+            "shard_count": shard_count,
+            "truncation_flags": truncation_flags or [],
             "envelope": envelope,
         },
     )

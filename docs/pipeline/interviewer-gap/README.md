@@ -31,9 +31,9 @@ G1 — record lines into `vo_pickup/` when `delivery: record`
 
 After each pickup (or when all lines are recorded), the operator should be **offered** optional [background noise removal](../audio_preclean/README.md) scoped to **`vo_pickup` only** — common when additional questions are recorded in a home office while the interview was cleaner. This does not force re-cleaning the original interview.
 
-## Target assembly use (planned, BUILD-067)
+## Assembly use (BUILD-067)
 
-Gap placements (`before` / `after` segment) and `vo_pickup` files must appear in Flow 1 `edl.json` and final mix — not only in JSON artifacts. See [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+Gap placements (`before` / `after` segment) and `vo_pickup` paths appear in Flow 1 `edl.json` (`edl_flow1`). Final audible mix of VO + SFX is **BUILD-065/069** — see [assembly_and_mux](../assembly_and_mux/README.md).
 
 ## Prompts
 

@@ -6,6 +6,27 @@
   "flow1_target_lufs": -16.0,
   "flow2_target_lufs": -14.0,
   "models": {
+    "tiers": {
+      "economy": "gpt-4o-mini",
+      "standard": "gpt-4o",
+      "flagship": "gpt-4o"
+    },
+    "stages": {
+      "speaker_roles": { "tier": "economy" },
+      "content_context": { "tier": "economy" },
+      "boundary_detection": { "tier": "standard" },
+      "segment_classification": { "tier": "standard" },
+      "missing_framing": { "tier": "flagship" },
+      "optimal_questions": { "tier": "flagship" },
+      "topic_coverage_audit": { "tier": "flagship" },
+      "narrative_arc_plan": { "tier": "flagship" },
+      "full_master_ranking": { "tier": "flagship" },
+      "highlight_selection": { "tier": "flagship" },
+      "podcast_show_description": { "tier": "flagship" },
+      "transitions": { "tier": "economy" },
+      "podcast_sfx_brief": { "tier": "economy" },
+      "sfx_brief": { "tier": "economy" }
+    },
     "speaker_roles": "gpt-4o-mini",
     "content_context": "gpt-4o-mini",
     "boundary_detection": "gpt-4o",
@@ -18,10 +39,15 @@
     "highlight_selection": "gpt-4o",
     "transitions": "gpt-4o-mini",
     "podcast_sfx_brief": "gpt-4o-mini",
-    "sfx_brief": "gpt-4o-mini"
+    "sfx_brief": "gpt-4o-mini",
+    "podcast_show_description": "gpt-4o"
   },
+  "show_description_min_words": 150,
+  "show_description_max_words": 250,
+  "show_description_target_words": 200,
   "_comment": "Runs stored under ASSETS/executions/exec_NNN_TIMESTAMP/. Legacy data/run_NNN/ still supported.",
   "executions_root": "ASSETS/executions",
+  "g1_5_require_prompt_approval": false,
   "web_port": 8765,
   "analysis": {
     "max_iterations_per_stage": 3,

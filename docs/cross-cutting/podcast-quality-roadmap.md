@@ -10,7 +10,7 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 |-------|--------------|--------|
 | Analysis | Content brief, segments, gaps, Flow 1 ranking | Same + profile gate before extended Flow 1 |
 | VO pickup (G1) | Record lines to `vo_pickup/` | Same + optional **background cleanup on new VO** |
-| Assembly Flow 1 | Speech-only concat from `selection.json` | EDL with gaps + VO + transitions + mix |
+| Assembly Flow 1 | EDL with gaps + VO + transitions; mux speech-only concat | Full mix + preview (BUILD-065/069) |
 | Assembly Flow 2 | Clips + SFX by index | Cold open + shared transition asset |
 | Flow 3 publishing | Spec + prompt (BUILD-045) | ~200-word third-person show description from shared analysis |
 | SFX | Late brief, one WAV per cue, fixed 2s | [Sound Design Plan](./sound-design.md) + [ElevenLabs guide](./elevenlabs-integration-guide.md) (BUILD-060+) |
@@ -24,11 +24,11 @@ Until Wave 5 and assembly wiring land, treat **v1 `master.wav` as a reordered in
 
 ## Priority implementation waves
 
-### Wave A — Assembly honesty (BUILD-067–069, planned)
+### Wave A — Assembly honesty (BUILD-067–069)
 
-1. **Gap report → EDL** — `vo_pickup` and gap placements in `edl.json` before mux.
-2. **NLE → selection** — `nle_edits.json` overrides (exclude, split, reorder) applied before ranking or at EDL build.
-3. **Speech preview** — `assembly_preview.wav` (speech + VO, no ElevenLabs) after ranking for operator listen-before-SFX.
+1. **Gap report → EDL** — **shipped (BUILD-067):** `vo_pickup` and gap placements in `edl.json`; `mux_flow1` still speech-only until mix/preview tickets.
+2. **NLE → selection** — **shipped (BUILD-068):** `nle_edits.json` overrides applied in `full_master_ranking` and `edl_flow1`.
+3. **Speech preview** — **shipped (BUILD-069):** `assembly_preview.wav` (speech + VO, no ElevenLabs) after ranking for operator listen-before-SFX.
 
 ### Wave B — Coherent sound + mix (BUILD-060–066)
 

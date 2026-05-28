@@ -8,6 +8,21 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **Convention:** `{run_id}` is the execution id (e.g. `exec_001_20260523T120000Z` or legacy `run_001`). Run root = that folder under `executions_root` or `data_root` — see [artifact-layout.md](../cross-cutting/artifact-layout.md).
 
+**ASSETS-first flow:** Operators do not configure a WAV path in secrets for GUI use. Home screen **Input audio** lists files under `ASSETS/` (via `GET /api/assets`); **Previous executions** lists `ASSETS/executions/exec_*` for resume. Canonical spec: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
+
+---
+
+## Home screen (no `run_id`)
+
+| User-visible | API | Log / session | Artifact / disk |
+|--------------|-----|---------------|-----------------|
+| **Input audio** list + Refresh | `GET /api/assets` | — | Scans `ASSETS/`; skips `executions/`, `.gui/` |
+| Start execution on a file | `POST /api/runs` body `{ input_audio_path }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
+| **Previous executions** list + Refresh | `GET /api/runs` | — | Summaries from each `run_meta.json` |
+| Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace |
+
+After resume or create, the UI navigates to the **workspace** view (`GET /api/runs/{id}`).
+
 ---
 
 ## Log and job files (all runs)
@@ -29,9 +44,9 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Paths / port for UI | `GET /api/config` | — | reads `config` + repo |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
 | Set active run / stage focus | `PUT /api/session/active` | — | may touch session store under `.gui` (implementation detail) |
-| Browse input audio | `GET /api/assets` | — | scans `ASSETS/` (skips `executions`, `.gui`) |
-| List runs | `GET /api/runs` | — | summarizes each `run_meta.json` |
-| Create run from asset | `POST /api/runs` | `gui_log.jsonl` (`setup`) | creates `run_meta.json`, dirs |
+| Browse input audio | `GET /api/assets` | — | scans `ASSETS/` (skips `executions`, `.gui`) — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
+| List runs | `GET /api/runs` | — | summarizes each `run_meta.json` under `executions_root` |
+| Create run from asset | `POST /api/runs` | `gui_log.jsonl` (`setup`) | creates `ASSETS/executions/exec_*`, `run_meta.json`, dirs |
 
 ---
 
@@ -42,10 +57,10 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*` |
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
 | Timeline (waveform, segments, VO lines) | *(view)* | `GET /api/runs/{id}/timeline` | — | `segments/manifest.json`, `segments/nle_edits.json` (via NLE), `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
-| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`) | `segments/nle_edits.json` |
+| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`, `full_master_ranking`, `edl_flow1` on apply) | `segments/nle_edits.json`; re-run **`full_master_ranking`** or **`edl_flow1`** to affect `selection.json` / `edl.json` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | any allowed JSON under run (e.g. `understanding/analysis_state.json`); optional invalidation |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` (`flow3` planned — BUILD-080), `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---
@@ -56,8 +71,8 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 |--------------|------------|-----|----------|-----------|
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` | `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `.stage_done/transcript_review` |
 | **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`, editable JSON paths in response |
-| **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV) | `gui_log.jsonl` (`g1_vo_pickup`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json` |
-| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" }` (`flow3` when BUILD-080 ships) | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
+| **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
+| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
 
 ---
 
@@ -81,7 +96,9 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 
 ## Flow 1 / Flow 2 / Flow 3 stages (after G2)
 
-Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: "flow1"` \| `"flow2"` runs full flow or use `from_stage`. **Flow 3** stages below are spec/UI placeholders until **BUILD-045** / **BUILD-080** wire `publishing_flow3.py` and runner support.
+Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: "flow1"` \| `"flow2"` \| `"flow3"` runs the full selected flow (or pass `from_stage`), or use `mode: "stage"` with a single stage id.
+
+**Flow 3** is text-only publishing copy (`flow_3_description/show_description.json` + `.md`); no audio mux or `master.wav`.
 
 | Flow | Title | `id` | Main artifacts |
 |------|-------|------|------------------|
@@ -89,13 +106,16 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: 
 | 1 | Narrative arc | `narrative_arc_plan` | `flow_1_master/narrative_plan.json` |
 | 1 | Segment ordering | `full_master_ranking` | `flow_1_master/selection.json` |
 | 1 | Transitions | `transitions` | `flow_1_master/transitions.json` |
-| 1 | SFX brief | `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json` |
-| 1 | Generate SFX | `elevenlabs_sfx_flow1` | `flow_1_master/sfx/*.wav` |
+| 1 | Sound design plan | `sound_design_plan_flow1` | `understanding/sound_design_plan.json` |
 | 1 | EDL | `edl_flow1` | `flow_1_master/edl.json` |
+| 1 | Assembly preview | `assembly_preview` | `flow_1_master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
+| 1 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
+| 1 | Generate SFX | `elevenlabs_sfx_flow1` | `flow_1_master/sfx/*.wav` |
 | 1 | Assembly | `mux_flow1` | `flow_1_master/assembly.wav` |
 | 1 | Master export | `master_flow1` | `flow_1_master/master.wav` |
 | 2 | Highlight selection | `highlight_selection` | `flow_2_highlights/selection.json` |
-| 2 | Montage SFX brief | `sfx_brief` | `flow_2_highlights/sfx_brief.json` |
+| 2 | Sound design plan | `sound_design_plan_flow2` | `understanding/sound_design_plan.json` |
+| 2 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
 | 2 | Generate SFX | `elevenlabs_sfx_flow2` | `flow_2_highlights/sfx/*.wav` |
 | 2 | Micro-assembly | `mux_flow2` | `flow_2_highlights/assembly.wav` |
 | 2 | Master export | `master_flow2` | `flow_2_highlights/master.wav` |
@@ -106,11 +126,11 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint; `mode: 
 
 Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
 
-| v1 today | Target (planned) |
-|----------|------------------|
-| JSON editor on `podcast_sfx_brief.json` / `sfx_brief.json` | + `sound_design/elevenlabs_prompts.json` |
-| Sidebar **Generate SFX** → REST `/v1/sound-generation` | G1.5 **Prompt review** panel before generate |
-| Log: `ElevenLabs SFX generated …` `detail.api: rest` | + `elevenlabs_post_listen_pass` / `fail` |
+| Current | Target (planned) |
+|---------|------------------|
+| Stage **Craft ElevenLabs prompts** now shows G1.5 review panel (inline prompt edit + approve) | richer prompt validation helpers |
+| Sidebar **Generate SFX** → REST `/v1/sound-generation` | post-listen pass/fail helpers in GUI |
+| Log includes `elevenlabs_prompts_approved` and edit/reset events via `ctx.log()` | + `elevenlabs_post_listen_pass` / `fail` |
 
 ---
 

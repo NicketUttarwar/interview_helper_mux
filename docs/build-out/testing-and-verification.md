@@ -25,7 +25,7 @@ source .venv/bin/activate
 ./tools/check_prerequisites.sh
 ```
 
-**Pass:** Python 3.12.x, ffmpeg/ffprobe, aws CLI, imports smoke, pip-audit clean (when BUILD-010 complete).
+**Pass:** Python 3.12.x, ffmpeg/ffprobe, aws CLI, imports smoke, `pip-audit` on `requirements.lock` with no unaccepted HIGH/CRITICAL findings.
 
 ---
 
@@ -63,6 +63,8 @@ pytest tests/
 | Check | Action |
 |-------|--------|
 | Server starts | `./scripts/run.sh` |
+| ASSETS input picker | WAV under `ASSETS/input/` appears on home **Input audio**; start execution creates `ASSETS/executions/exec_*` — [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
+| Resume | Stop server; `./scripts/run.sh`; open same run from **Previous executions**; stages + log tail intact |
 | Log panel | Execute stage; refresh page; lines persist in `gui_log.jsonl` |
 | Job file | Long execute shows `gui_job.json` running → done |
 | G0 panel | Analysis pauses; complete review; analysis continues |
@@ -106,7 +108,7 @@ python tools/verify_master.py <run>/flow_1_master/master.wav
 | Speech order matches selection | Manual listen | Required |
 | VO audible in master | Not required v1 | Required (BUILD-067, 065) |
 | SFX audible | Not required v1 | Required (BUILD-065) |
-| LUFS −16 ± tolerance | Not enforced | BUILD-070 |
+| LUFS −16 ±1 and true peak ≤ −1 dBTP | Enforced by `verify_master.py` | BUILD-070 |
 
 ---
 
@@ -155,7 +157,7 @@ python tools/run_flow.py --flow flow3 --run-id <id>
 | EDL has VO | Inspect `edl.json` for pickup placements |
 | NLE applied | Edit in GUI; rerun ranking; selection changes |
 | Preview before SFX | `assembly_preview.wav` exists; operator signed off in log |
-| LUFS | `verify_master.py` fails on out-of-spec master |
+| LUFS / true peak | `verify_master.py` fails on out-of-spec master (non-zero exit) |
 
 ---
 

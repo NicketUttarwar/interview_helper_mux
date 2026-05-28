@@ -19,17 +19,15 @@ After shared analysis and **gate G2** when `run_meta.json` has `selected_flow: f
 | Order | Stage key | Model tier | Output |
 |-------|-----------|------------|--------|
 | 1 | `podcast_show_description` | **flagship** | `flow_3_description/show_description.json` |
-| 2 | `export_show_description` *(planned)* | — | `flow_3_description/show_description.md` (plain text export) |
+| 2 | `export_show_description` | — | `flow_3_description/show_description.md` (plain text export) |
 
-Single LLM stage today; export step may mirror JSON → markdown on disk without a model call.
+Single LLM stage; export mirrors JSON → plain text on disk without a model call.
 
-## Module (planned)
+## Module
 
-- `src/interview_mux/stages/publishing_flow3.py` — thin wrapper around `podcast_show_description`
+- `src/interview_mux/stages/publishing_flow3.py` — `podcast_show_description` + `export_show_description`
 - `FLOW3_ORDER` in `pipeline.py`; `run_flow3` / `run_single_stage` branches
-- **BUILD-080** — `tools/run_flow.py --flow flow3`, `cli.flow_cmd`, `web/runner.py`, `web/server.py` (`FlowBody` + execute `mode: flow3`), `web/stages.py` Flow 3 panels
-
-Track: [build-out/README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)
+- CLI/GUI: `tools/run_flow.py --flow flow3`, `cli.flow_cmd`, `web/runner.py` (`mode: flow3`), `web/server.py` `FlowBody`, `web/stages.py` `FLOW3_STAGES`
 
 ## Context volley
 

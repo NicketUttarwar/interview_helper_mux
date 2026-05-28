@@ -6,8 +6,8 @@ import typer
 from rich.console import Console
 
 from interview_mux.gates import check_g1_vo, set_selected_flow
-from interview_mux.pipeline import run_analysis, run_flow1, run_flow2
-from interview_mux.run_context import RunContext
+from interview_mux.pipeline import run_analysis, run_flow1, run_flow2, run_flow3
+from interview_mux.run_context import EXEC_ID_RE, LEGACY_RUN_RE, RunContext
 
 app = typer.Typer(help="interview_helper_mux pipeline")
 console = Console()
@@ -16,7 +16,7 @@ console = Console()
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    flow: str | None = typer.Option(None, "--flow", help="flow1 or flow2 (G2)"),
+    flow: str | None = typer.Option(None, "--flow", help="flow1, flow2, or flow3 (G2)"),
     run_id: str | None = typer.Option(None, "--run-id"),
     analysis_only: bool = typer.Option(False, "--analysis-only", help="Stop after analysis"),
     skip_analysis: bool = typer.Option(False, "--skip-analysis", help="Skip if analysis_complete.json exists"),
@@ -35,6 +35,21 @@ def main(
     raise typer.Exit()
 
 
+def _open_run(run_id: str | None) -> RunContext:
+    if run_id:
+        if not (EXEC_ID_RE.match(run_id) or LEGACY_RUN_RE.match(run_id)):
+            console.print(f"[red]Invalid --run-id:[/red] {run_id} (expected exec_NNN_… or run_NNN)")
+            raise typer.Exit(1)
+        if not RunContext.exists(run_id):
+            console.print(
+                f"[red]Run not found:[/red] {run_id}\n"
+                "  Create via GUI (ASSETS/ → New execution) or omit --run-id to allocate a new exec_* folder."
+            )
+            raise typer.Exit(1)
+        return RunContext(run_id, create=False)
+    return RunContext(create=True)
+
+
 def run_pipeline(
     *,
     flow: str | None = None,
@@ -44,7 +59,7 @@ def run_pipeline(
     from_stage: str | None = None,
     flow_from_stage: str | None = None,
 ) -> RunContext:
-    ctx = RunContext(run_id)
+    ctx = _open_run(run_id)
     console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
 
     if not skip_analysis or not ctx.path("analysis_complete.json").is_file():
@@ -68,15 +83,18 @@ def run_pipeline(
 
     chosen = flow
     if not chosen:
-        console.print("Choose output flow: [bold]flow1[/bold] (full podcast) or [bold]flow2[/bold] (highlight reel)")
+        console.print(
+            "Choose output flow: [bold]flow1[/bold] (full podcast), "
+            "[bold]flow2[/bold] (highlight reel), or [bold]flow3[/bold] (show description)"
+        )
         try:
             chosen = typer.prompt("flow", default="flow1").strip().lower()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[red]Aborted.[/red]")
             raise typer.Exit(1) from None
 
-    if chosen not in ("flow1", "flow2"):
-        console.print(f"[red]Invalid flow: {chosen}[/red] (use flow1 or flow2)")
+    if chosen not in ("flow1", "flow2", "flow3"):
+        console.print(f"[red]Invalid flow: {chosen}[/red] (use flow1, flow2, or flow3)")
         raise typer.Exit(1)
 
     set_selected_flow(ctx, chosen)
@@ -84,9 +102,14 @@ def run_pipeline(
     if chosen == "flow1":
         run_flow1(ctx, from_stage=flow_from_stage)
         console.print(f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
-    else:
+    elif chosen == "flow2":
         run_flow2(ctx, from_stage=flow_from_stage)
         console.print(f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
+    else:
+        run_flow3(ctx, from_stage=flow_from_stage)
+        console.print(
+            f"[green]Show description:[/green] {ctx.path('flow_3_description/show_description.md')}"
+        )
     return ctx
 
 
@@ -95,7 +118,7 @@ def analysis_cmd(
     run_id: str | None = typer.Option(None, "--run-id"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
 ) -> None:
-    ctx = RunContext(run_id)
+    ctx = _open_run(run_id)
     console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
     run_analysis(ctx, from_stage=from_stage)
     console.print("[green]Analysis complete.[/green] Resolve G1 if needed, then run flow.")
@@ -103,11 +126,11 @@ def analysis_cmd(
 
 @app.command("flow")
 def flow_cmd(
-    flow: str = typer.Option(..., "--flow", help="flow1 or flow2"),
+    flow: str = typer.Option(..., "--flow", help="flow1, flow2, or flow3"),
     run_id: str | None = typer.Option(None, "--run-id"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
 ) -> None:
-    ctx = RunContext(run_id)
+    ctx = _open_run(run_id)
     set_selected_flow(ctx, flow)
     console.print(f"[bold]Flow[/bold] {flow} on {ctx.run_id}")
     if flow == "flow1":
@@ -116,8 +139,13 @@ def flow_cmd(
     elif flow == "flow2":
         run_flow2(ctx, from_stage=from_stage)
         console.print(f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
+    elif flow == "flow3":
+        run_flow3(ctx, from_stage=from_stage)
+        console.print(
+            f"[green]Show description:[/green] {ctx.path('flow_3_description/show_description.md')}"
+        )
     else:
-        raise typer.BadParameter("flow must be flow1 or flow2")
+        raise typer.BadParameter("flow must be flow1, flow2, or flow3")
 
 
 @app.command("serve")

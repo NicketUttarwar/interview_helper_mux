@@ -13,7 +13,7 @@ Local pipeline: long-form interview audio → shared analysis → operator picks
 
 Applies for the **entire** repository build-out (Waves 0–7). Details and acceptance live in docs — do not skip them.
 
-1. Read **`docs/build-out/steps-forward.md`** — what to implement next.
+1. Read **`docs/build-out/steps-forward.md`** — what to implement next; paste the **Agent prompt** for your backlog step (#0–#20) into Cursor Agent mode.
 2. Read **`docs/build-out/ticket-specs.md`** — acceptance for your BUILD id(s).
 3. Read **`docs/build-out/stage-registry.md`** + `docs/pipeline/<area>/README.md` for the stage you touch.
 4. If adding/changing behavior: **`docs/prompts/`** + **`docs/cross-cutting/json-schemas/`** must stay in sync with code.
@@ -59,12 +59,11 @@ Until build-out tickets close the matching gap in **`repository-map.md`**:
 
 - **Flow 1 `master.wav`:** v1 is **reordered speech-only** concat — not final VO + SFX mix (target: BUILD-065–067).
 - **Flow 2 SFX:** index-based concat; shared transition asset is planned (BUILD-065).
-- **Flow 3:** spec + prompt exist; pipeline/CLI/GUI **not wired** until BUILD-045–046, BUILD-080.
-- **G2 API (today):** `flow1` \| `flow2` only in `server.py` `FlowBody` — extend when shipping flow3.
+- **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`.
 - **Pre-clean:** spec only until BUILD-019 / BUILD-072.
 - **LLM routing:** single-model runner until BUILD-073.
 
-Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.json`** has **`selected_flow: flow1`**. Profile gate before extended Flow 1: BUILD-081 (see **`operator-gates.md`**).
+Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.json`** has **`selected_flow: flow1`** and **`understanding/analysis_state.json`** has **`meta.operator_verified: true`** (profile gate — **`operator-gates.md`**).
 
 ---
 
@@ -75,6 +74,7 @@ Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.j
 | **G0** | After `transcript_review_build` | Operator fixes STT in GUI; complete before `speaker_roles` |
 | **G1** | After analysis / `optimal_questions` | If `delivery: record` gaps lack **`vo_pickup/*.wav`**, stop until recorded; then `vo_ingest` |
 | **G2** | After G1 clear | Set **`selected_flow`**: `flow1` \| `flow2` \| `flow3` in **`run_meta.json`** before flow pipeline |
+| **Profile** | Before Flow 1 `topic_coverage_audit` | **`meta.operator_verified: true`** in **`analysis_state.json`** |
 
 **Quality offers (optional, not gates):** Background noise removal — offered at documented checkpoints; **never auto-run**. Pickup-only scope after G1 recordings. Spec: **`docs/pipeline/audio_preclean/README.md`**, **`docs/cross-cutting/podcast-quality-roadmap.md`**.
 
@@ -89,7 +89,7 @@ Full gate copy: **`docs/workflows/operator-gates.md`**.
 - **GUI metadata:** New stages → **`web/stages.py`** + **`docs/workflows/gui-surface-map.md`** + **`api-reference.md`**.
 - **Orchestrator:** Shared LLM stages may enqueue investigations — **`analysis_orchestrator.py`**; do not bypass memory merge rules in **`docs/cross-cutting/analysis-memory.md`**.
 - **Long interviews:** Respect context policy — **`docs/workflows/long-interview-chunking.md`**.
-- **NLE:** **`segments/nle_edits.json`** via API; consumption in ranking/EDL is BUILD-068 (planned).
+- **NLE:** **`segments/nle_edits.json`** via API; applied in **`full_master_ranking`** input/persist and **`edl_flow1`** (`nle_state.py`).
 
 ---
 
@@ -168,7 +168,7 @@ Launch GUI: **`./scripts/run.sh`** or **`python -m interview_mux serve`**.
 ./tools/check_prerequisites.sh
 pytest tests/   # when touching validation / review
 python tools/run_analysis.py --run-id <id>   # shared analysis
-python tools/run_flow.py --flow flow1|flow2 --run-id <id>   # flow3 when BUILD-080 ships
+python tools/run_flow.py --flow flow1|flow2|flow3 --run-id <id>
 python tools/verify_master.py <path>/master.wav   # audio flows
 ```
 

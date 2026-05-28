@@ -50,12 +50,15 @@ def require_g1_clear(ctx: RunContext) -> None:
 
 
 def set_selected_flow(ctx: RunContext, flow: str) -> None:
-    if flow not in ("flow1", "flow2"):
-        raise ValueError("flow must be flow1 or flow2")
-    meta = {
-        "selected_flow": flow,
-        "selected_at": datetime.now(timezone.utc).isoformat(),
-    }
+    if flow not in ("flow1", "flow2", "flow3"):
+        raise ValueError("flow must be flow1, flow2, or flow3")
+    meta = ctx.read_json("run_meta.json") if ctx.path("run_meta.json").is_file() else {}
+    meta.update(
+        {
+            "selected_flow": flow,
+            "selected_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     ctx.write_json("run_meta.json", meta)
 
 
@@ -64,3 +67,85 @@ def get_selected_flow(ctx: RunContext) -> str | None:
     if not p.is_file():
         return None
     return ctx.read_json("run_meta.json").get("selected_flow")
+
+
+def is_operator_profile_verified(ctx: RunContext) -> bool:
+    """True when analysis_state.meta.operator_verified is set."""
+    if not ctx.artifact_exists("understanding/analysis_state.json"):
+        return False
+    state = ctx.read_json("understanding/analysis_state.json")
+    return bool((state.get("meta") or {}).get("operator_verified"))
+
+
+def check_profile_gate_pending(ctx: RunContext) -> bool:
+    """True when Flow 1 is selected but profile is not verified before extended analysis."""
+    if get_selected_flow(ctx) != "flow1":
+        return False
+    if is_operator_profile_verified(ctx):
+        return False
+    return not ctx.is_done("topic_coverage_audit")
+
+
+_FLOW1_ORDER = (
+    "topic_coverage_audit",
+    "narrative_arc_plan",
+    "full_master_ranking",
+    "transitions",
+    "sound_design_plan_flow1",
+    "edl_flow1",
+    "assembly_preview",
+    "elevenlabs_prompt_craft",
+    "elevenlabs_sfx_flow1",
+    "mux_flow1",
+    "master_flow1",
+)
+
+
+def _flow1_will_run_topic_coverage(ctx: RunContext, from_stage: str | None) -> bool:
+    """Whether the next flow1 run would execute topic_coverage_audit."""
+    if from_stage and from_stage != "topic_coverage_audit":
+        if from_stage not in _FLOW1_ORDER:
+            return False
+        return _FLOW1_ORDER.index(from_stage) <= _FLOW1_ORDER.index("topic_coverage_audit")
+    return not ctx.is_done("topic_coverage_audit") or from_stage == "topic_coverage_audit"
+
+
+def require_selected_flow_flow1(ctx: RunContext) -> None:
+    flow = get_selected_flow(ctx)
+    if flow != "flow1":
+        raise SystemExit(
+            f"Flow 1 stages require selected_flow=flow1 in run_meta.json (current: {flow!r}). "
+            "Choose Flow 1 in the GUI (G2) or: python tools/run_flow.py --flow flow1"
+        )
+
+
+def require_selected_flow_flow2(ctx: RunContext) -> None:
+    flow = get_selected_flow(ctx)
+    if flow != "flow2":
+        raise SystemExit(
+            f"Flow 2 stages require selected_flow=flow2 in run_meta.json (current: {flow!r}). "
+            "Choose Flow 2 in the GUI (G2) or: python tools/run_flow.py --flow flow2"
+        )
+
+
+def require_profile_verified_for_flow1_extended(ctx: RunContext) -> None:
+    if is_operator_profile_verified(ctx):
+        return
+    ctx.log(
+        "Profile gate: open Interview profile in the GUI, confirm themes, major questions, "
+        "and style, then click Mark profile verified before topic coverage (Flow 1 extended).",
+        level="action",
+        stage="analysis_profile",
+        detail=str(ctx.path("understanding/analysis_state.json")),
+    )
+    raise SystemExit(
+        "Profile gate: mark the interview profile verified before Flow 1 extended stages "
+        f"(topic_coverage_audit). → {ctx.path('understanding/analysis_state.json')}"
+    )
+
+
+def require_flow1_extended_gates(ctx: RunContext, *, from_stage: str | None = None) -> None:
+    """Enforce G2 flow1 selection and profile verification before topic_coverage_audit."""
+    require_selected_flow_flow1(ctx)
+    if _flow1_will_run_topic_coverage(ctx, from_stage):
+        require_profile_verified_for_flow1_extended(ctx)

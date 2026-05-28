@@ -60,9 +60,7 @@ Also editable: `investigation_queue.json`, `content_brief.json`, `speakers.json`
 
 `segments/nle_edits.json` — exclude, split, reorder in GUI.
 
-**Target (BUILD-068):** Re-run from `full_master_ranking` or `edl_flow1` after **Save timeline** so overrides affect export.
-
-**v1:** Edits persist on disk but may not affect pipeline until BUILD-068.
+**BUILD-068:** Re-run from `full_master_ranking` or `edl_flow1` after **Save timeline** so overrides affect `selection.json` and export.
 
 ## Human override (v1)
 

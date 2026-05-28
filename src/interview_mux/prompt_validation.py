@@ -17,6 +17,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "content_context": "content_brief_artifact.schema.json",
     "boundary_detection": "boundaries_artifact.schema.json",
     "segment_classification": "manifest_artifact.schema.json",
+    "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
     "missing_framing": "gap_evaluations_artifact.schema.json",
     "optimal_questions": "gap_report.schema.json",
     "topic_coverage_audit": "coverage_audit_artifact.schema.json",
@@ -25,7 +26,10 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "highlight_selection": "highlights_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
+    "sound_design_plan_flow1": "sound_design_plan_flow1_artifact.schema.json",
+    "elevenlabs_prompt_craft": "elevenlabs_prompts_artifact.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
+    "podcast_show_description": "show_description_artifact.schema.json",
 }
 
 

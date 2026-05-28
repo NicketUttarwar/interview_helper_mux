@@ -28,24 +28,26 @@ See [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
 ---
 
-## Interview profile review (recommended; blocking before Flow 1 extended — planned)
+## Profile gate — Flow 1 extended (BUILD-081)
 
-**When:** After `content_context` or when `analysis_complete.json` exists.
+**When:** Before `topic_coverage_audit` (first Flow 1 extended stage), when `run_meta.json` has `selected_flow: flow1`.
 
-**Artifacts:** `understanding/analysis_state.json`, `understanding/investigation_queue.json`
+**Trigger:** `understanding/analysis_state.json` → `meta.operator_verified` is not `true`, and `.stage_done/topic_coverage_audit` is missing.
 
 **Prompt operator:**
 
 1. Open GUI **Interview profile** (or edit JSON on disk)
 2. Adjust **themes**, **major_questions**, **style** (tone, pacing, interviewer/interviewee style)
 3. Click **Mark profile verified** (`meta.operator_verified: true`)
-4. If downstream stages already ran, **Redo from selected stage** (e.g. `segment_classification`)
+4. Re-run Flow 1 from **Topic coverage** or `python tools/run_flow.py --flow flow1`
+
+**Behavior:** Pipeline **blocks** with `SystemExit` and `ctx.log()` at `level=action` (GUI job status `gate`). Flow 1 stages stay **locked** in the stage list until verified. Flow 2 / Flow 3 are not blocked by this gate (Flow 3 warns only on unverified profile).
+
+**Skip when:** Profile verified, or `topic_coverage_audit` already completed (re-run from a later Flow 1 stage).
 
 LLM stages respect verified profile fields unless transcript evidence contradicts — then check `investigation_queue.json` or log `needs`.
 
-**Target behavior:** Block or strongly warn before `topic_coverage_audit` (Flow 1) if profile is not verified — see [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
-
-See [analysis-memory.md](../cross-cutting/analysis-memory.md).
+See [analysis-memory.md](../cross-cutting/analysis-memory.md), [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
 
 ---
 
@@ -101,10 +103,11 @@ in `run_meta.json` (under `ASSETS/executions/…` or legacy `data/run_NNN/`). Us
 ```bash
 python tools/run_flow.py --flow flow1
 python tools/run_flow.py --flow flow2
-# flow3 — not wired in CLI yet (BUILD-045 / BUILD-080)
+# flow3 — show description (text only)
+python tools/run_flow.py --flow flow3 --run-id <exec_id>
 ```
 
-Flow 3 does not require ElevenLabs or mastering; it will run a single flagship LLM stage after shared analysis once implemented. Profile verification is **recommended** — see [publishing/README.md](../pipeline/publishing/README.md). You may set `"selected_flow": "flow3"` in `run_meta.json` for planning; pipeline stages are not executable until BUILD-080.
+Flow 3 does not require ElevenLabs or mastering. Profile verification is **recommended** before `podcast_show_description` — see [publishing/README.md](../pipeline/publishing/README.md).
 
 ---
 
@@ -126,7 +129,7 @@ These **do not** block the pipeline unless the operator accepts and a re-run is 
 
 | Offer | Typical moment | Scope |
 |-------|----------------|-------|
-| Pre-clean source | Before ingest / new run | `full_source` |
+| Pre-clean source | Before ingest / new run (acceptance runs `audio_preclean` before `ingest`) | `full_source` |
 | Pre-clean after STT pain | After G0 | `full_source` |
 | Pre-clean pickup VO | **After G1 recordings** | `vo_pickup` only |
 | Pre-clean before mix | Before `mux_flow*` | `full_source` or `normalized_rebuild` |

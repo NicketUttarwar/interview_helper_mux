@@ -21,11 +21,23 @@ from interview_mux.analysis_memory import (
 )
 from interview_mux.config import merged_config, repo_root
 from interview_mux.file_store import read_json, write_json
-from interview_mux.gates import check_g1_vo, check_transcript_review_pending, get_selected_flow, set_selected_flow
+from interview_mux.gates import (
+    check_g1_vo,
+    check_profile_gate_pending,
+    check_transcript_review_pending,
+    get_selected_flow,
+    is_operator_profile_verified,
+    set_selected_flow,
+)
 from interview_mux.stages import transcript_review
-from interview_mux.gui_session import get_active_execution, get_server_session, set_active_execution
+from interview_mux.gui_session import (
+    clear_active_execution,
+    get_active_execution,
+    get_server_session,
+    set_active_execution,
+)
 from interview_mux.nle_state import apply_segments_with_nle, load_nle, save_nle, split_segment_at
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log, read_log
 from interview_mux.web.runner import runner
@@ -43,11 +55,11 @@ class CreateRunBody(BaseModel):
 
 
 class FlowBody(BaseModel):
-    flow: str = Field(pattern="^(flow1|flow2)$")
+    flow: str = Field(pattern="^(flow1|flow2|flow3)$")
 
 
 class ExecuteBody(BaseModel):
-    mode: str = Field(description="stage | analysis | flow1 | flow2")
+    mode: str = Field(description="stage | analysis | flow1 | flow2 | flow3")
     stage: str | None = None
     from_stage: str | None = None
 
@@ -103,6 +115,16 @@ class AnalysisProfileBody(BaseModel):
     invalidate_from: str | None = None
 
 
+class PrecleanOfferBody(BaseModel):
+    checkpoint: str
+    action: str = Field(pattern="^(offer|accept|dismiss)$")
+    scope: str | None = None
+
+
+class ElevenLabsPromptApproveBody(BaseModel):
+    approved_by: str | None = None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Interview Helper Mux", version="0.2.0")
     app.add_middleware(
@@ -135,12 +157,13 @@ def create_app() -> FastAPI:
         out: dict[str, Any] = {"server": session, "active": active}
         if active and active.get("run_id"):
             rid = active["run_id"]
-            try:
+            if not RunContext.exists(rid):
+                clear_active_execution()
+                out["active"] = None
+            else:
                 ctx = _ctx(rid)
                 out["log"] = read_log(ctx.run_dir, tail=200)
                 out["run_summary"] = RunContext.summarize_run(rid)
-            except HTTPException:
-                out["active"] = None
         return out
 
     @app.put("/api/session/active")
@@ -159,7 +182,7 @@ def create_app() -> FastAPI:
             if not p.is_file():
                 continue
             rel_parts = p.relative_to(assets).parts
-            if rel_parts and rel_parts[0] in SKIP_ASSET_PARTS:
+            if any(part in SKIP_ASSET_PARTS for part in rel_parts):
                 continue
             if p.suffix.lower() not in AUDIO_EXTS:
                 continue
@@ -181,9 +204,16 @@ def create_app() -> FastAPI:
         runs.sort(key=lambda r: r.get("execution_number") or 0, reverse=True)
         for r in runs:
             try:
-                ctx = RunContext(r["run_id"])
+                ctx = RunContext(r["run_id"], create=False)
                 flow = get_selected_flow(ctx)
-                stages = _build_stage_list(ctx, flow, check_g1_vo(ctx), check_transcript_review_pending(ctx))
+                stages = _build_stage_list(
+                    ctx,
+                    flow,
+                    check_g1_vo(ctx),
+                    check_transcript_review_pending(ctx),
+                    is_operator_profile_verified(ctx),
+                    check_profile_gate_pending(ctx),
+                )
                 done = sum(1 for s in stages if s["status"] == "done")
                 r["progress"] = {"done": done, "total": len(stages)}
                 r["last_stage"] = next((s["title"] for s in reversed(stages) if s["status"] == "done"), None)
@@ -196,7 +226,10 @@ def create_app() -> FastAPI:
         src = _resolve_repo_path(body.input_audio_path)
         if not src.is_file():
             raise HTTPException(404, f"Audio file not found: {body.input_audio_path}")
-        ctx = RunContext(body.run_id)
+        _assert_asset_input_path(body.input_audio_path)
+        if body.run_id and RunContext.exists(body.run_id):
+            raise HTTPException(409, f"Execution already exists: {body.run_id}")
+        ctx = RunContext(body.run_id, create=True)
         ctx.init_run_meta(body.input_audio_path)
         ensure_analysis_workspace(ctx)
         set_active_execution(ctx.run_id)
@@ -213,13 +246,19 @@ def create_app() -> FastAPI:
         g1_missing = check_g1_vo(ctx)
         flow = get_selected_flow(ctx)
         tr_pending = check_transcript_review_pending(ctx)
-        stages = _build_stage_list(ctx, flow, g1_missing, tr_pending)
+        profile_verified = is_operator_profile_verified(ctx)
+        profile_gate_pending = check_profile_gate_pending(ctx)
+        stages = _build_stage_list(
+            ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending
+        )
         return {
             "run_id": run_id,
             "meta": meta,
             "selected_flow": flow,
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
+            "profile_verified": profile_verified,
+            "profile_gate_pending": profile_gate_pending,
             "g1_missing": g1_missing,
             "g1_clear": not g1_missing,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
@@ -329,6 +368,99 @@ def create_app() -> FastAPI:
         ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
         return {"ok": True, "selected_flow": body.flow}
 
+    @app.post("/api/runs/{run_id}/preclean-offer")
+    def preclean_offer(run_id: str, body: PrecleanOfferBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        allowed_checkpoints = {
+            "before_ingest",
+            "after_g0",
+            "after_profile_or_segmentation",
+            "g1_vo_pickup",
+            "before_flow_mix",
+            "before_master_export",
+        }
+        if body.checkpoint not in allowed_checkpoints:
+            raise HTTPException(400, f"Unknown pre-clean checkpoint: {body.checkpoint}")
+        if body.scope and body.scope not in {"full_source", "vo_pickup", "normalized_rebuild"}:
+            raise HTTPException(400, f"Invalid pre-clean scope: {body.scope}")
+        changed, payload = _record_preclean_offer(
+            ctx,
+            checkpoint=body.checkpoint,
+            action=body.action,
+            scope=body.scope,
+        )
+        return {"ok": True, "changed": changed, "audio_preclean": payload}
+
+    @app.get("/api/runs/{run_id}/elevenlabs-prompts")
+    def get_elevenlabs_prompts(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        path = "sound_design/elevenlabs_prompts.json"
+        if not ctx.artifact_exists(path):
+            raise HTTPException(404, f"Artifact not found: {path}")
+        data = ctx.read_json(path)
+        rows = data.get("prompts") if isinstance(data, dict) and isinstance(data.get("prompts"), list) else []
+        review = _read_prompt_review_meta(ctx)
+        review_required = bool(merged_config().get("g1_5_require_prompt_approval", False))
+        approved = bool(review.get("approved"))
+        return {
+            "path": path,
+            "prompts": rows,
+            "review": review,
+            "review_required": review_required,
+            "can_generate": (not review_required) or approved,
+        }
+
+    @app.put("/api/runs/{run_id}/elevenlabs-prompts")
+    def put_elevenlabs_prompts(run_id: str, body: ArtifactBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if body.path != "sound_design/elevenlabs_prompts.json":
+            raise HTTPException(400, "This endpoint only supports sound_design/elevenlabs_prompts.json")
+        if not isinstance(body.data, dict):
+            raise HTTPException(400, "Prompt payload must be a JSON object with prompts[].")
+        rows = body.data.get("prompts")
+        if not isinstance(rows, list):
+            raise HTTPException(400, "Prompt payload must include prompts[] array.")
+        write_json(ctx.path(body.path), {"prompts": rows})
+        review = _set_prompt_review_meta(
+            ctx,
+            approved=False,
+            approved_by=None,
+            approved_at=None,
+        )
+        ctx.log(
+            "ElevenLabs prompts edited in review panel; approval reset.",
+            level="info",
+            stage="elevenlabs_prompt_craft",
+            detail=f"rows={len(rows)}",
+        )
+        if body.invalidate_from:
+            runner.invalidate_from(run_id, body.invalidate_from)
+        return {"ok": True, "path": body.path, "review": review}
+
+    @app.post("/api/runs/{run_id}/elevenlabs-prompts/approve")
+    def approve_elevenlabs_prompts(run_id: str, body: ElevenLabsPromptApproveBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        path = "sound_design/elevenlabs_prompts.json"
+        if not ctx.artifact_exists(path):
+            raise HTTPException(404, f"Artifact not found: {path}")
+        data = ctx.read_json(path)
+        rows = data.get("prompts") if isinstance(data, dict) and isinstance(data.get("prompts"), list) else []
+        review = _set_prompt_review_meta(
+            ctx,
+            approved=True,
+            approved_by=body.approved_by or "operator",
+            approved_at=datetime.now(timezone.utc).isoformat(),
+        )
+        asset_ids = [str(row.get("asset_id")) for row in rows if isinstance(row, dict) and row.get("asset_id")]
+        detail = {"approved_by": review.get("approved_by"), "asset_ids": asset_ids}
+        ctx.log(
+            "elevenlabs_prompts_approved",
+            level="success",
+            stage="elevenlabs_prompt_craft",
+            detail=str(detail),
+        )
+        return {"ok": True, "review": review, "asset_ids": asset_ids}
+
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
         _ctx(run_id)
@@ -339,7 +471,7 @@ def create_app() -> FastAPI:
             run_id,
             mode=body.mode,
             stage=body.stage,
-            flow=body.mode if body.mode in ("flow1", "flow2") else None,
+            flow=body.mode if body.mode in ("flow1", "flow2", "flow3") else None,
             from_stage=body.from_stage or body.stage,
         )
 
@@ -438,8 +570,9 @@ def create_app() -> FastAPI:
             src = _resolve_repo_path(body.new_input_audio_path)
             if not src.is_file():
                 raise HTTPException(404, f"Audio file not found: {body.new_input_audio_path}")
+            _assert_asset_input_path(body.new_input_audio_path)
             ctx.init_run_meta(body.new_input_audio_path)
-            for order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER):
+            for order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
                 if order:
                     ctx.clear_from(order[0], order)
         elif body.from_stage:
@@ -474,10 +607,26 @@ def create_app() -> FastAPI:
 
 
 def _ctx(run_id: str) -> RunContext:
-    ctx = RunContext(run_id)
-    if not ctx.run_dir.is_dir():
+    if not RunContext.exists(run_id):
         raise HTTPException(404, f"Run not found: {run_id}")
-    return ctx
+    return RunContext(run_id, create=False)
+
+
+def _assert_asset_input_path(rel: str) -> None:
+    """Source audio for a new execution must live under assets_root (not executions/.gui)."""
+    cfg = merged_config()
+    assets = (repo_root() / cfg.get("assets_root", "ASSETS")).resolve()
+    resolved = _resolve_repo_path(rel)
+    try:
+        resolved.relative_to(assets)
+    except ValueError as exc:
+        raise HTTPException(
+            400,
+            f"input_audio_path must be under {assets.relative_to(repo_root()).as_posix()}/",
+        ) from exc
+    rel_parts = resolved.relative_to(assets).parts
+    if any(part in SKIP_ASSET_PARTS for part in rel_parts):
+        raise HTTPException(400, "input_audio_path cannot be under executions/ or .gui/")
 
 
 def _resolve_repo_path(rel: str) -> Path:
@@ -497,6 +646,8 @@ def _build_stage_list(
     flow: str | None,
     g1_missing: list[str],
     transcript_review_pending: bool,
+    profile_verified: bool,
+    profile_gate_pending: bool,
 ) -> list[dict[str, Any]]:
     stages = all_stages_for_run(flow)
     for s in stages:
@@ -530,8 +681,10 @@ def _build_stage_list(
                 s["status"] = "action_required"
             else:
                 s["status"] = "locked"
-        elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase in ("flow1", "flow2"):
+        elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase in ("flow1", "flow2", "flow3"):
             if not flow:
+                s["status"] = "locked"
+            elif profile_gate_pending and STAGE_BY_ID[sid].phase == "flow1":
                 s["status"] = "locked"
             else:
                 s["status"] = "done" if ctx.is_done(sid) else "pending"
@@ -549,4 +702,106 @@ def _build_stage_list(
         info = STAGE_BY_ID.get(sid)
         if info:
             s["artifacts_present"] = [a for a in info.artifacts if ctx.artifact_exists(a)]
+            s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
     return stages
+
+
+def _record_preclean_offer(
+    ctx: RunContext,
+    *,
+    checkpoint: str,
+    action: str,
+    scope: str | None,
+) -> tuple[bool, dict[str, Any]]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    now = datetime.now(timezone.utc).isoformat()
+    preclean = meta.get("audio_preclean")
+    if not isinstance(preclean, dict):
+        preclean = {}
+    offered_at = preclean.get("offered_at")
+    if not isinstance(offered_at, list):
+        offered_at = []
+    decisions = preclean.get("decisions")
+    if not isinstance(decisions, list):
+        decisions = []
+    changed = False
+    if action == "offer":
+        if checkpoint not in offered_at:
+            offered_at.append(checkpoint)
+            changed = True
+            ctx.log(
+                f"Quality offer shown: background noise removal ({checkpoint}).",
+                level="info",
+                stage="audio_preclean",
+            )
+    elif action in {"accept", "dismiss"}:
+        requested_scope = scope or preclean.get("scope") or _default_scope_for_checkpoint(checkpoint)
+        if checkpoint not in offered_at:
+            offered_at.append(checkpoint)
+            changed = True
+        preclean["enabled"] = action == "accept"
+        preclean["scope"] = requested_scope
+        preclean["provider"] = "elevenlabs"
+        preclean["requested_at"] = now
+        decisions.append(
+            {
+                "checkpoint": checkpoint,
+                "action": action,
+                "scope": requested_scope,
+                "at": now,
+            }
+        )
+        changed = True
+        verb = "accepted" if action == "accept" else "dismissed"
+        ctx.log(
+            f"Quality offer {verb}: background noise removal ({checkpoint}, scope={requested_scope}).",
+            level="success" if action == "accept" else "info",
+            stage="audio_preclean",
+        )
+    else:
+        raise HTTPException(400, f"Unsupported offer action: {action}")
+    preclean["offered_at"] = offered_at
+    preclean["decisions"] = decisions
+    meta["audio_preclean"] = preclean
+    if changed:
+        ctx.write_json("run_meta.json", meta)
+    return changed, preclean
+
+
+def _default_scope_for_checkpoint(checkpoint: str) -> str:
+    if checkpoint == "g1_vo_pickup":
+        return "vo_pickup"
+    if checkpoint in {"before_flow_mix", "before_master_export"}:
+        return "normalized_rebuild"
+    return "full_source"
+
+
+def _read_prompt_review_meta(ctx: RunContext) -> dict[str, Any]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    review = meta.get("elevenlabs_prompt_review")
+    if not isinstance(review, dict):
+        return {"approved": False, "approved_by": None, "approved_at": None}
+    return {
+        "approved": bool(review.get("approved")),
+        "approved_by": review.get("approved_by"),
+        "approved_at": review.get("approved_at"),
+    }
+
+
+def _set_prompt_review_meta(
+    ctx: RunContext,
+    *,
+    approved: bool,
+    approved_by: str | None,
+    approved_at: str | None,
+) -> dict[str, Any]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    review = {
+        "approved": approved,
+        "approved_by": approved_by,
+        "approved_at": approved_at,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    meta["elevenlabs_prompt_review"] = review
+    ctx.write_json("run_meta.json", meta)
+    return review

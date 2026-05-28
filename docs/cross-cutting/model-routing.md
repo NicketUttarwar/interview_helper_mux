@@ -4,7 +4,7 @@
 
 OpenAI Chat Completions models per pipeline stage. **Prose in this repo uses tier names** (`economy`, `standard`, `flagship`), not scattered API IDs.
 
-**Status:** Tier matrix and arbiter orchestration are **spec only** — see [llm-orchestration.md](./llm-orchestration.md). v1 runtime resolves a single model string per `stage_key` from `config/app.defaults.json` via `get_model()`.
+**Status:** BUILD-073 ships tier-aware routing in runtime (`model_registry.resolve_model`) for `primary`, `arbiter`, `shard`, and `collate` task kinds. Stage-level string overrides in `config/app.defaults.json` remain an escape hatch.
 
 **Related:**
 
@@ -65,9 +65,14 @@ Planned sound-design stages: economy for `sound_design_palettes` and `elevenlabs
 
 ---
 
-## v1 runtime (`config/app.defaults.json`)
+## Runtime (`config/app.defaults.json`)
 
-Today each `models.<stage_key>` is a **flat API ID string**. Committed defaults (approximate tier mapping):
+Runtime supports both:
+
+- `models.tiers` + `models.stages.<stage_key>.tier` (preferred)
+- `models.<stage_key>` flat API ID string override (escape hatch)
+
+Committed defaults still include flat stage strings for backward compatibility.
 
 | Stage key | v1 API ID (committed) | Maps to tier |
 |-----------|----------------------|--------------|

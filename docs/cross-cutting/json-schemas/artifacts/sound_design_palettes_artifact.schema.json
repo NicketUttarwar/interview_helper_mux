@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SoundDesignPalettesArtifact",
+  "type": "object",
+  "required": ["coherence", "palettes"],
+  "properties": {
+    "coherence": {
+      "type": "object",
+      "required": ["sonic_identity", "primary_mood", "density"],
+      "properties": {
+        "sonic_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "primary_mood": {
+          "type": "string",
+          "minLength": 1
+        },
+        "density": {
+          "type": "string",
+          "enum": ["sparse", "moderate", "dense"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "palettes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "palette_id",
+          "theme_label",
+          "keywords",
+          "segment_ids",
+          "ambient_description",
+          "accent_description",
+          "avoid"
+        ],
+        "properties": {
+          "palette_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "theme_label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "keywords": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 8,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "segment_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "ambient_description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accent_description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "avoid": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 6,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

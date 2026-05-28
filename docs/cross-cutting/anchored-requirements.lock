@@ -1,10 +1,9 @@
-# Generated-style lock snapshot for documentation (2026-05-27)
-# Authoritative install file: requirements.lock at repo root (BUILD-010; partial).
-# Today: pip install -r requirements.txt at repo root; regenerate lock with pip-compile when BUILD-010 completes.
-# Regenerate with: pip-compile requirements.txt -o requirements.lock
-# Verify: pip-audit -r requirements.lock --strict
+# Doc mirror of repo-root requirements.lock (2026-05-27)
+# Authoritative install: pip install -r requirements.lock
+# Regenerate: pip-compile requirements.txt -o requirements.lock
+# Verify: ./tools/check_prerequisites.sh
 
-# --- direct application dependencies (target) ---
+# --- direct (requirements.txt) ---
 fastapi==0.136.3
 uvicorn[standard]==0.47.0
 openai==2.38.0
@@ -17,43 +16,62 @@ numpy==2.4.6
 pyloudnorm==0.2.0
 pydub==0.25.1
 soundfile==0.13.1
-
-# --- dev / setup gate ---
 pytest==8.4.2
-# pip-audit — dev-only; exact pin in repo requirements.lock when BUILD-010 lands
+pip-audit==2.10.0
 
-# --- transitive pins (representative; full graph in repo requirements.lock) ---
-starlette==1.1.0
-httpx==0.28.1
-anyio==4.13.0
+# --- full transitive graph (requirements.lock) ---
+annotated-doc==0.0.4
 annotated-types==0.7.0
-pydantic-core==2.46.4
-referencing==0.37.0
-rpds-py==0.30.0
-jsonschema-specifications==2025.9.1
+anyio==4.13.0
+attrs==26.1.0
+boolean-py==5.0
+cachecontrol[filecache]==0.14.4
+certifi==2026.5.20
+cffi==2.0.0
+charset-normalizer==3.4.7
 click==8.4.1
+cyclonedx-python-lib==11.7.0
+defusedxml==0.7.1
+distro==1.9.0
 h11==0.16.0
 httpcore==1.0.9
-certifi==2026.5.20
-typing-extensions==4.15.0
-urllib3==2.7.0
-charset-normalizer==3.4.7
+httptools==0.8.0
+httpx==0.28.1
 idna==3.16
-sniffio==1.3.1
+iniconfig==2.3.0
 jiter==0.15.0
-distro==1.9.0
-tqdm==4.67.3
+jsonschema-specifications==2025.9.1
+license-expression==30.4.4
 markdown-it-py==4.2.0
+mdurl==0.1.2
+msgpack==1.1.2
+packageurl-python==0.17.6
+packaging==26.2
+pip-api==0.0.34
+pip-requirements-parser==32.0.1
+platformdirs==4.9.6
+pluggy==1.6.0
+py-serializable==2.1.0
+pycparser==3.0
+pydantic-core==2.46.4
 pygments==2.20.0
+pyparsing==3.3.2
+python-dotenv==1.2.2
+pyyaml==6.0.3
+referencing==0.37.0
+requests==2.34.2
+rpds-py==0.30.0
+scipy==1.17.1
 shellingham==1.5.4
-httptools==0.7.1
+sniffio==1.3.1
+sortedcontainers==2.4.0
+starlette==1.1.0
+tomli==2.4.1
+tomli-w==1.2.0
+tqdm==4.67.3
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+urllib3==2.7.0
 uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.0
-scipy==1.17.1
-cffi==2.0.0
-pycparser==3.0
-attrs==26.1.0
-packaging==26.2
-pluggy==1.6.0
-iniconfig==2.3.0

@@ -7,11 +7,12 @@ Numbered tickets and **full-repository build-out specs** for agent implementatio
 | Doc | Purpose |
 |-----|---------|
 | [implementation-guide.md](./implementation-guide.md) | **Master build plan** — all phases, waves, verification |
-| [steps-forward.md](./steps-forward.md) | Prioritized backlog (what to do next) |
+| [steps-forward.md](./steps-forward.md) | Prioritized backlog + **Cursor Agent copy-paste prompts** per step |
 | [full-application-flow.md](./full-application-flow.md) | End-to-end operator + system journey |
 | [stage-registry.md](./stage-registry.md) | Every stage id, module, artifact, status |
 | [ticket-specs.md](./ticket-specs.md) | Acceptance criteria per BUILD ticket |
 | [repository-map.md](./repository-map.md) | Repo layout ↔ code ↔ docs |
+| [../cross-cutting/assets-and-executions.md](../cross-cutting/assets-and-executions.md) | ASSETS input picker, executions, resume |
 | [testing-and-verification.md](./testing-and-verification.md) | How to verify each wave |
 | [doc-maintenance.md](./doc-maintenance.md) | Docs to update in the same PR as code |
 
@@ -32,7 +33,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Deliverable | Status |
 |--------|-------|-------------|--------|
-| BUILD-000 | Doc hub + agent guide | `docs/INDEX.md`, `AGENTS.md`, `README.md`, `SETUP.md`, [repository-map.md](./repository-map.md) | partial — lock file pending BUILD-010 |
+| BUILD-000 | Doc hub + agent guide | `docs/INDEX.md`, `AGENTS.md`, `README.md`, `SETUP.md`, [repository-map.md](./repository-map.md) | done |
 | BUILD-001 | Artifact layout + schemas | `docs/cross-cutting/*`, `json-schemas/` | done |
 | BUILD-002 | Operator gates | `docs/workflows/operator-gates.md` | done |
 | BUILD-003 | Stage READMEs | `docs/pipeline/*/README.md` | done |
@@ -44,7 +45,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module / path | Status |
 |--------|-------|---------------|--------|
-| BUILD-010 | pyproject + venv + **anchor lock** | `pyproject.toml`, `requirements.txt`, `requirements.lock`, `scripts/bootstrap_venv.sh`, `pip-audit` in `check_prerequisites.sh` — [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) | **partial** — `requirements.txt` + `pyproject.toml`; lock + audit gate planned |
+| BUILD-010 | pyproject + venv + **anchor lock** | `pyproject.toml`, `requirements.txt`, `requirements.lock`, `scripts/bootstrap_venv.sh`, `pip-audit` in `check_prerequisites.sh` — [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) | done |
 | BUILD-011 | Config loader | `src/interview_mux/config.py`, `config/` | done |
 | BUILD-012 | Run workspace | `run_context.py`, `file_store.py` | done |
 | BUILD-013 | OpenAI runner + stage envelope | `stages/llm_runner.py`, `analysis_stage.py`, `context_volley.py`, `prompt_validation.py` | done |
@@ -58,7 +59,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-014 | FastAPI server + static UI | `web/server.py`, `web/static/*`, `scripts/run.sh` | done |
 | BUILD-015 | Background job runner | `web/runner.py` → `gui_job.json` | done |
 | BUILD-016 | Centralized operator log | `session_log.py`, `RunContext.log()` | done |
-| BUILD-017 | Gates G0–G2 | `gates.py`, GUI gate panels | done (G2: flow1 \| flow2 in API; flow3 → BUILD-080) |
+| BUILD-017 | Gates G0–G2 | `gates.py`, GUI gate panels | done (G2: flow1 \| flow2 \| flow3) |
 | BUILD-018 | Transcript review + analysis memory | `transcript_review.py`, `analysis_memory.py`, `analysis_orchestrator.py` | done |
 | BUILD-056 | NLE editor state | `nle_state.py`, `/api/runs/.../nle` | done (feeds BUILD-068) |
 | BUILD-057 | GUI session / active run | `gui_session.py`, `/api/session` | done |
@@ -113,7 +114,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-043 | Micro-assembly | `assembly_flow2.py` | done |
 | BUILD-044 | Master export | `mastering.py` | done |
 
-**Gate G2** before Wave 3 — `selected_flow` in `run_meta.json` (flow1 \| flow2 today; flow3 → BUILD-045)
+**Gate G2** before Wave 3 — `selected_flow` in `run_meta.json` (`flow1` \| `flow2` \| `flow3`)
 
 ---
 
@@ -121,9 +122,9 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module | Status |
 |--------|-------|-------------|--------|
-| BUILD-045 | Podcast show description | `publishing_flow3.py` | planned |
-| BUILD-046 | Show description export | JSON → `show_description.md` | planned |
-| BUILD-080 | Flow 3 wire-up | `pipeline.py`, `cli.py`, `web/runner.py`, `web/server.py`, `web/stages.py` | planned |
+| BUILD-045 | Podcast show description | `publishing_flow3.py` | done |
+| BUILD-046 | Show description export | JSON → `show_description.md` | done |
+| BUILD-080 | Flow 3 wire-up | `pipeline.py`, `cli.py`, `web/runner.py`, `web/server.py`, `web/stages.py` | done |
 
 **Spec:** [pipeline/publishing/README.md](../pipeline/publishing/README.md) · **Prompt:** [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt)
 
@@ -134,7 +135,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | Ticket | Title | Module | Status |
 |--------|-------|--------|--------|
 | BUILD-050 | Mastering module | `mastering.py` | done |
-| BUILD-051 | Flow CLI | `tools/run_flow.py`, `cli.flow_cmd` | done (flow1 \| flow2) |
+| BUILD-051 | Flow CLI | `tools/run_flow.py`, `cli.flow_cmd` | done (flow1 \| flow2 \| flow3) |
 | BUILD-052 | verify_master | `tools/verify_master.py` | done (ffprobe; LUFS → BUILD-070) |
 | BUILD-053 | Smoke test doc | `docs/workflows/smoke-test.md` | done |
 | BUILD-054 | Prompt validation tests | `tests/test_prompt_validation.py` | done |
@@ -166,9 +167,9 @@ Acceptance details: see historical BUILD-060–066 notes in git history or [soun
 
 | Ticket | Title | Deliverable |
 |--------|-------|-------------|
-| BUILD-067 | Gap report → EDL | `edl_flow1` includes `vo_pickup` + gap placements |
-| BUILD-068 | NLE → selection/EDL | `nle_edits.json` applied before ranking or mux |
-| BUILD-069 | Assembly preview | `flow_1_master/assembly_preview.wav` |
+| BUILD-067 | Gap report → EDL | **done** — `edl_flow1` includes `vo_pickup` + gap placements; mux speech-only |
+| BUILD-068 | NLE → selection/EDL | `nle_edits.json` applied in ranking + EDL |
+| BUILD-069 | Assembly preview | **done** — `flow_1_master/assembly_preview.wav` (speech + VO) + GUI listen action before ElevenLabs |
 | BUILD-070 | verify_master LUFS/peak | per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 | BUILD-071 | Mastering measurement | two-pass or pyloudnorm on assembly bus |
 | BUILD-072 | Pre-clean quality offers | GUI prompts; pickup scope in `run_meta.json` |
@@ -210,7 +211,7 @@ Wave 5 can start after BUILD-013 and BUILD-028; flow tickets 062–063 require G
 
 ## How to use this index
 
-1. **Agents (building code):** `AGENTS.md` → [implementation-guide.md](./implementation-guide.md) → [steps-forward.md](./steps-forward.md) → [ticket-specs.md](./ticket-specs.md) for your BUILD id → [stage-registry.md](./stage-registry.md) + pipeline stage README.
+1. **Agents (building code):** `AGENTS.md` → [implementation-guide.md](./implementation-guide.md) → [steps-forward.md](./steps-forward.md) (**paste Agent prompt for your step #**) → [ticket-specs.md](./ticket-specs.md) for your BUILD id → [stage-registry.md](./stage-registry.md) + pipeline stage README.
 2. **Agents (understanding the app):** [full-application-flow.md](./full-application-flow.md) → [pipeline.md](../pipeline.md) → [logic-tree.md](../logic-tree.md).
 3. **Operators:** [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) — not ticket IDs.
 4. **When shipping a ticket:** [doc-maintenance.md](./doc-maintenance.md) checklist; update status here, [ticket-specs.md](./ticket-specs.md) checkboxes, [repository-map.md](./repository-map.md) gap table.

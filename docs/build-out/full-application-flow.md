@@ -11,14 +11,14 @@ flowchart TB
   subgraph setup [Repository setup — once per machine]
     S1[Clone repo]
     S2[bootstrap_venv.sh]
-    S3[secrets.env + ASSETS/input]
+    S3[secrets.env + WAVs under ASSETS/]
     S4[check_prerequisites.sh]
     S1 --> S2 --> S3 --> S4
   end
 
   subgraph platform [Operator platform — per session]
     P1[run.sh / serve]
-    P2[Create or open run]
+    P2[Pick input WAV or resume exec_*]
     P3[GUI log + job status]
     P1 --> P2 --> P3
   end
@@ -70,11 +70,12 @@ flowchart TB
 
 | Step | Operator does | System runs | Gate / artifact |
 |------|---------------|-------------|-----------------|
-| 1 | Place `interview.wav` in `ASSETS/input/` | — | — |
-| 2 | `./scripts/run.sh` | FastAPI + static UI | `ASSETS/.gui/session.json` |
-| 3 | New run from GUI | Creates `ASSETS/executions/exec_*/` | `run_meta.json` |
+| 1 | Place one or more `.wav` files under `ASSETS/` (recommended: `ASSETS/input/`) | — | — |
+| 2 | `./scripts/run.sh` | FastAPI + static UI | `ASSETS/.gui/server_session.json` |
+| 3a | **New:** pick file in **Input audio** (home) | `POST /api/runs` → `ASSETS/executions/exec_*/` | `run_meta.json` (`input_audio_path`) |
+| 3b | **Resume:** pick row in **Previous executions** | `PUT /api/session/active` | same `exec_*` folder; logs + `.stage_done` intact |
 | 4 | Optional: accept pre-clean offer | `audio_preclean` *(planned)* | `preclean/isolated.wav` |
-| 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions` | `.stage_done/*` |
+| 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions` | `.stage_done/*` under same `exec_*` |
 | 6 | **G0:** Review ranked STT clips | `transcript_review` completes | `transcript/corrections.json` |
 | 7 | Edit interview profile (optional) | — | `analysis_state.json` |
 | 8 | Continue analysis if paused at G0 | Remaining analysis stages | `analysis_complete.json` |
@@ -162,7 +163,7 @@ No mastering. Output: `flow_3_description/show_description.json` + `.md`.
 
 ## Run workspace layout
 
-Per run under `ASSETS/executions/exec_*` (or legacy `data/run_*`):
+Per run under `ASSETS/executions/exec_*` (or legacy `data/run_*`). Full ASSETS conventions: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
 | Path | Created by |
 |------|------------|
@@ -207,6 +208,7 @@ Track progress in [steps-forward.md](./steps-forward.md) and [repository-map.md]
 
 ## Related
 
+- [assets-and-executions.md](../cross-cutting/assets-and-executions.md) — ASSETS layout, input picker, execution resume
 - [implementation-guide.md](./implementation-guide.md) — phased build plan
 - [stage-registry.md](./stage-registry.md) — complete stage table
 - [pipeline.md](../pipeline.md) — flow comparison

@@ -57,9 +57,14 @@ def merged_config() -> dict[str, Any]:
 
 
 def get_model(stage_key: str) -> str:
+    from interview_mux.model_registry import resolve_model
+
     cfg = merged_config()
     models = cfg.get("models") or {}
-    return str(models.get(stage_key, secrets_model_fallback(cfg, stage_key)))
+    if isinstance(models.get(stage_key), str):
+        return str(models[stage_key])
+    resolved = resolve_model(stage_key, "primary")
+    return resolved.model_id or secrets_model_fallback(cfg, stage_key)
 
 
 def secrets_model_fallback(cfg: dict[str, Any], stage_key: str) -> str:

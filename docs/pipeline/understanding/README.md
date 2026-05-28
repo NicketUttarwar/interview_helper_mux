@@ -1,10 +1,10 @@
 # Understanding
 
-Speaker roles, content brief, and **per-interview analysis profile** from transcript. **Planned:** acoustic/pacing profile from source audio — [source-derived-sonic-mix-profile.md](../../cross-cutting/source-derived-sonic-mix-profile.md).
+Speaker roles, content brief, **per-interview analysis profile**, and source-derived acoustic pacing/mix profile — [source-derived-sonic-mix-profile.md](../../cross-cutting/source-derived-sonic-mix-profile.md).
 
 ## Tickets
 
-BUILD-022, BUILD-023
+BUILD-022, BUILD-023, BUILD-082
 
 ## Tools
 
@@ -16,7 +16,7 @@ BUILD-022, BUILD-023
 |------|-------------|
 | `transcript/full.json` | Full transcript |
 | `transcript/speakers.json` | Diarization labels |
-| `ingest/normalized.wav` | Normalized audio (for planned `source_acoustic_profile` stage) |
+| `ingest/normalized.wav` | Normalized audio for `source_acoustic_profile` derivation |
 | `understanding/analysis_state.json` | Rolling memory (created at first LLM stage) |
 
 ## Outputs
@@ -27,7 +27,7 @@ BUILD-022, BUILD-023
 | `understanding/investigation_queue.json` | Yes | Open investigations |
 | `understanding/speakers.json` | Yes | Role mapping |
 | `understanding/content_brief.json` | Yes | Thesis, topics, claims, beats |
-| `understanding/source_acoustic_profile.json` | Yes (planned) | WPM, pause stats, mix contract — derived once after transcription |
+| `understanding/source_acoustic_profile.json` | Yes | WPM, pause stats, mix contract — derived once after transcription + review prep |
 
 ## Operator workflow
 

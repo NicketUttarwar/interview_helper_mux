@@ -22,6 +22,7 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `content_context` | `artifacts/content_brief_artifact.schema.json` | |
 | `boundary_detection` | `artifacts/boundaries_artifact.schema.json` | |
 | `segment_classification` | `artifacts/manifest_artifact.schema.json` | Classification slice; see [segment-schema.md](./segment-schema.md) |
+| `sound_design_palettes` | `artifacts/sound_design_palettes_artifact.schema.json` | Writes SDP `coherence` + `palettes`; persisted into `understanding/sound_design_plan.json` |
 | `missing_framing` | `artifacts/gap_evaluations_artifact.schema.json` | |
 | `optimal_questions` | `gap_report.schema.json` (repo root of json-schemas) | |
 | `topic_coverage_audit` | `artifacts/coverage_audit_artifact.schema.json` | |
@@ -31,7 +32,7 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `transitions` | `artifacts/transitions_artifact.schema.json` | |
 | `podcast_sfx_brief` | `artifacts/podcast_sfx_artifact.schema.json` | |
 | `sfx_brief` | `artifacts/sfx_montage_artifact.schema.json` | |
-| `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3; planned BUILD-045 |
+| `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3 |
 
 **Guard:** Any new LLM stage that writes structured JSON should register in `src/interview_mux/prompt_validation.py` → `STAGE_ARTIFACT_SCHEMAS` **and** add or extend a schema file. Missing registration = **silent** non-validation (worst case).
 
@@ -46,6 +47,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [segment.schema.json](./json-schemas/segment.schema.json) | Full timeline segment (timestamps + text); canonical reference |
 | [transcript_review.schema.json](./json-schemas/transcript_review.schema.json) | `review_queue.json` shape |
 | [investigation_queue.schema.json](./json-schemas/investigation_queue.schema.json) | Queue file |
+| [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
 
 **Guard:** When adding GUI import/export or a new validator, prefer reusing these files instead of duplicating field lists in prose-only docs.
 
@@ -55,13 +57,13 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 
 | Path | Why a schema matters | Target / ticket |
 |------|----------------------|-----------------|
-| `flow_1_master/edl.json` | Mux depends on timeline events | BUILD-067 |
-| `segments/nle_edits.json` | Overrides selection / EDL | BUILD-068 |
+| `flow_1_master/edl.json` | Mux depends on timeline events | BUILD-067 — `artifacts/edl_flow1.schema.json` |
+| `segments/nle_edits.json` | Overrides selection / EDL | BUILD-068 (shipped) |
 | `run_meta.json` | Flow, preclean offers, timestamps | Consider `run_meta.schema.json` |
 | `transcript/full.json` | AWS Transcribe export shape | Optional: external-shape schema |
 | `transcript/corrections.json` | Operator edits | Small object schema |
 | `ingest/checksums.json` | Lineage | Small object schema |
-| `understanding/sound_design_plan.json` | SDP | BUILD-060 |
+| `understanding/sound_design_plan.json` | SDP | BUILD-060 schema present; now validated after `sound_design_palettes` persist |
 | `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | Spec: [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `gui_log.jsonl` | NDJSON stream | Often line-schema only |
 
@@ -86,8 +88,8 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `understanding/analysis_state.json` | `analysis_state.schema.json` | No (manual / future) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
-| `flow_1_master/edl.json` | **No** | **No** |
-| `flow_3_description/show_description.json` | Via `show_description_artifact` | When BUILD-045 ships |
+| `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | **No** (not wired in `prompt_validation` yet) |
+| `flow_3_description/show_description.json` | Via `show_description_artifact` | Flow 3 LLM stage |
 | `segments/nle_edits.json` | **No** | **No** |
 | `transcript/review_queue.json` | `transcript_review.schema.json` | No (unless wired) |
 

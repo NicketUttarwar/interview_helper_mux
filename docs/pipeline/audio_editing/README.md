@@ -4,7 +4,7 @@ Trim boundaries, build EDL from selection, and prepare clips for mix.
 
 ## Tickets
 
-BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), BUILD-067–069 (planned wiring)
+BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), BUILD-067 (EDL wiring), BUILD-068 (NLE → selection/EDL), BUILD-069 (planned)
 
 ## Tools
 
@@ -18,7 +18,7 @@ BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), 
 | `*/selection.json` | Ordered segments or clips |
 | `vo_pickup/*.wav` | Human interviewer lines (G1); optional `vo_pickup/clean/` after pickup pre-clean |
 | `flow_1_master/transitions.json` | Interviewer bridges (target: consumed in EDL/mix) |
-| `segments/nle_edits.json` | Operator timeline overrides (target: BUILD-068) |
+| `segments/nle_edits.json` | Operator timeline overrides (applied in ranking + EDL, BUILD-068) |
 
 ## Outputs
 
@@ -33,7 +33,7 @@ BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), 
 
 - Avoid mid-word cuts (target: short crossfades 50–150 ms at jumps, planned)
 - Flow 2 allows harder cuts between clips
-- Gap report placements must appear in EDL (BUILD-067)
+- Gap report placements appear in EDL (`edl_flow1`, BUILD-067); audible VO in assembly is BUILD-065/069
 
 ## Quality offers
 

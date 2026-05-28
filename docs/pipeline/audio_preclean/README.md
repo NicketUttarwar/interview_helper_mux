@@ -26,7 +26,7 @@ Pre-clean is **not** a gate (not G0/G1/G2). The product should **offer** it at q
 
 | Workflow moment | What gets cleaned | Why |
 |-----------------|-------------------|-----|
-| **Before ingest** (start of run) | Raw capture (`ASSETS/input/...`) | Best STT and segmentation on noisy source |
+| **Before ingest** (start of run) | Raw capture (`run_meta.input_audio_path`, usually under `ASSETS/input/`) | Best STT and segmentation on noisy source |
 | **After G0 transcript review** | Full source (re-run from `audio_preclean` → ingest) | Low-confidence errors may be noise, not words |
 | **After analysis / before re-run** | Full source | Operator chose to redo from ingest with cleaner audio |
 | **G1 — after recording pickup questions** | **`vo_pickup/*.wav` only** | New interviewer lines often recorded in a noisier room than the interview |

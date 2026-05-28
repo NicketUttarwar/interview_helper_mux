@@ -6,7 +6,8 @@ Operator provides raw interview audio before any automated stage.
 
 ## Input
 
-- File under `ASSETS/input/` (default `interview.wav`)
+- One or more `.wav` files anywhere under `ASSETS/` (recommended folder: `ASSETS/input/`; any filename)
+- **GUI:** pick a file from the home **Input audio** list after `./scripts/run.sh` — no path in config required ([assets-and-executions.md](../../cross-cutting/assets-and-executions.md))
 - Phone or Zoom recordings acceptable; avoid clipped peaks
 
 ## Output

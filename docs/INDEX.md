@@ -29,6 +29,7 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) — per-interview profile, operator edits
 - [cross-cutting/context-padding.md](./cross-cutting/context-padding.md) — what each LLM call receives
 - [cross-cutting/segment-schema.md](./cross-cutting/segment-schema.md)
+- [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md) — **ASSETS/** source picker, executions, resume
 - [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md)
 - [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) — schema gaps, fixes, guards
 - [cross-cutting/json-schemas/README.md](./cross-cutting/json-schemas/README.md) — schema index + conventions
@@ -82,7 +83,7 @@ Flat hub for **interview_helper_mux**.
 - [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id, module, artifact, status
 - [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance criteria per BUILD ticket
 - [build-out/README.md](./build-out/README.md) — numbered tickets (Waves 0–7)
-- [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog
+- [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog + **Cursor Agent copy-paste prompts** (#0–#20)
 - [build-out/repository-map.md](./build-out/repository-map.md) — repo layout ↔ modules ↔ docs
 - [build-out/testing-and-verification.md](./build-out/testing-and-verification.md) — verify each wave
 - [build-out/doc-maintenance.md](./build-out/doc-maintenance.md) — docs to update per PR

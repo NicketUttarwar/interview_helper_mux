@@ -18,7 +18,7 @@ Branches after operator gate G2.
 
 **After ranking (planned):** `assembly_preview.wav` for listen-before-SFX — BUILD-069 in [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
-**NLE (target BUILD-068):** GUI timeline edits in `segments/nle_edits.json` should affect `selection.json` / EDL on re-run.
+**NLE (BUILD-068):** GUI timeline edits in `segments/nle_edits.json` affect `selection.json` on `full_master_ranking` and `edl_flow1` re-run.
 
 ## Flow 2
 

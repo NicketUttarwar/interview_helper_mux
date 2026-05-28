@@ -1,5 +1,5 @@
 # Direct application dependencies (BUILD-010).
-# Full transitive pins: requirements.lock (when generated).
+# Full transitive pins: requirements.lock (regenerate with pip-compile).
 # Doc mirror: docs/cross-cutting/anchored-requirements.lock
 
 fastapi==0.136.3

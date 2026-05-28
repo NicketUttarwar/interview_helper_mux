@@ -158,11 +158,11 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 ---
 
-## NLE / timeline (BUILD-068+)
+## NLE / timeline
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| Timeline edits ignored | v1 wiring | `segments/nle_edits.json` vs `selection.json` | Until BUILD-068, treat NLE as draft or edit `selection.json` directly — [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
+| Timeline edits ignored | Stale selection/EDL | `segments/nle_edits.json` vs `selection.json` | **Save timeline**, then re-run from `full_master_ranking` or `edl_flow1` — [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
 
 ---
 

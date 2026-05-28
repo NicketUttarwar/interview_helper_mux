@@ -37,13 +37,13 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ## Wave 1 — Shell and core library
 
-### BUILD-010 — Anchor lock (partial → done)
+### BUILD-010 — Anchor lock
 
-- [ ] `requirements.lock` at repo root with full transitive pins
-- [ ] `bootstrap_venv.sh` installs **only** from lock when present
-- [ ] `check_prerequisites.sh` runs `pip-audit`; fails on unaccepted HIGH/CRITICAL
-- [ ] [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock) doc mirror updated
-- [ ] Accepted advisories table in [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) if needed
+- [x] `requirements.lock` at repo root with full transitive pins
+- [x] `bootstrap_venv.sh` installs **only** from lock when present
+- [x] `check_prerequisites.sh` runs `pip-audit`; fails on unaccepted HIGH/CRITICAL
+- [x] [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock) doc mirror updated
+- [x] Accepted advisories table in [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) if needed
 
 ### BUILD-011 — Config loader
 
@@ -52,9 +52,10 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-012 — Run workspace
 
-- [ ] `RunContext` resolves paths under execution dir
-- [ ] `.stage_done/<stage>` idempotency
-- [ ] `ctx.log()` appends to `gui_log.jsonl`
+- [x] `RunContext` allocates `exec_NNN_<timestamp>` under `executions_root` (default `ASSETS/executions`)
+- [x] `RunContext` resolves paths under execution dir; `run_meta.json` records `input_audio_path` from GUI/API (not config-only)
+- [x] `.stage_done/<stage>` idempotency
+- [x] `ctx.log()` appends to `gui_log.jsonl`
 
 ### BUILD-013 — OpenAI runner + stage envelope
 
@@ -68,9 +69,11 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-014 — FastAPI server + static UI
 
-- [ ] `./scripts/run.sh` serves GUI
-- [ ] Run list, stage execute, artifact editor, log panel
-- [ ] Routes match [api-reference.md](../workflows/api-reference.md)
+- [x] `./scripts/run.sh` serves GUI
+- [x] Home screen: **Input audio** from `GET /api/assets` (no operator WAV path in config)
+- [x] Home screen: **Previous executions** from `GET /api/runs`; resume via `PUT /api/session/active`
+- [x] Run list, stage execute, artifact editor, log panel
+- [x] Routes match [api-reference.md](../workflows/api-reference.md) and [assets-and-executions.md](../cross-cutting/assets-and-executions.md)
 
 ### BUILD-015 — Background job runner
 
@@ -86,7 +89,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 - [x] G0 blocks analysis after `transcript_review_build` until review complete
 - [x] G1 blocks flow until `vo_pickup` satisfied for `delivery: record`
-- [ ] G2 API accepts `flow3` (today: flow1 \| flow2 only — BUILD-080)
+- [x] G2 API accepts `flow3` (flow1 \| flow2 \| flow3)
 - [ ] Gate panels match [gui-surface-map.md](../workflows/gui-surface-map.md)
 
 ### BUILD-018 — Transcript review + analysis memory
@@ -98,11 +101,12 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-056 — NLE editor state
 
 - [ ] `segments/nle_edits.json` read/write via API
-- [ ] Consumed by BUILD-068 when shipped
+- [x] Consumed by BUILD-068
 
 ### BUILD-057 — GUI session / active run
 
-- [ ] `GET /api/session` returns active run id
+- [x] `GET /api/session` returns active run id
+- [x] Active run persisted under `ASSETS/.gui/active_execution.json`; survives `./scripts/run.sh` restart when execution folder intact
 
 ---
 
@@ -155,12 +159,12 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-029–030 — Topic coverage + narrative arc
 
 - [x] JSON artifacts under `flow_1_master/`
-- [ ] BUILD-081: warn/block if `operator_verified` false
+- [x] BUILD-081: warn/block if `operator_verified` false
 
 ### BUILD-031–032 — Ranking + transitions
 
 - [x] `selection.json`, `transitions.json`
-- [ ] NLE overrides applied (BUILD-068)
+- [x] NLE overrides applied (BUILD-068)
 
 ### BUILD-033 — Podcast SFX brief (v1)
 
@@ -174,8 +178,8 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-035 — Mux assembly (v1)
 
-- [x] `edl.json`, `assembly.wav` (speech-only)
-- [ ] EDL includes gap VO placements (BUILD-067)
+- [x] `edl.json`, `assembly.wav` (speech-only mux; EDL includes VO placements per BUILD-067)
+- [x] EDL includes gap VO placements (BUILD-067)
 - [ ] Real mix (BUILD-065)
 
 ### BUILD-036 — Master export flow1
@@ -208,26 +212,26 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-045 — Podcast show description
 
-- [ ] `publishing_flow3.py` runs `podcast_show_description` stage
-- [ ] Output validates against show description schema
-- [ ] Third person; 150–250 words; grounded in content brief
-- [ ] Prompt: [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt)
+- [x] `publishing_flow3.py` runs `podcast_show_description` stage
+- [x] Output validates against show description schema
+- [x] Third person; 150–250 words; grounded in content brief
+- [x] Prompt: [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt)
 
 ### BUILD-046 — Show description export
 
-- [ ] `export_show_description` writes `show_description.md` from JSON (no LLM)
-- [ ] Plain text suitable for podcast directories
+- [x] `export_show_description` writes `show_description.md` from JSON (no LLM)
+- [x] Plain text suitable for podcast directories
 
 ### BUILD-080 — Flow 3 wire-up
 
-- [ ] `FLOW3_ORDER` in `pipeline.py`; `run_flow3()`; `run_single_stage` branch
-- [ ] `tools/run_flow.py --flow flow3`
-- [ ] `cli.flow_cmd` accepts flow3
-- [ ] `web/runner.py` execute `mode: flow3`
-- [ ] `server.py` `FlowBody` regex includes flow3
-- [ ] `web/stages.py` `FLOW3_STAGES` + `all_stages_for_run` branch
-- [ ] G2 GUI copy lists all three flows
-- [ ] [smoke-test.md](../workflows/smoke-test.md) Flow 3 section runnable
+- [x] `FLOW3_ORDER` in `pipeline.py`; `run_flow3()`; `run_single_stage` branch
+- [x] `tools/run_flow.py --flow flow3`
+- [x] `cli.flow_cmd` accepts flow3
+- [x] `web/runner.py` execute `mode: flow3`
+- [x] `server.py` `FlowBody` regex includes flow3
+- [x] `web/stages.py` `FLOW3_STAGES` + `all_stages_for_run` branch
+- [x] G2 GUI copy lists all three flows
+- [x] [smoke-test.md](../workflows/smoke-test.md) Flow 3 section runnable
 
 ---
 
@@ -240,7 +244,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-051 — Flow CLI
 
 - [x] `run_flow.py` for flow1 \| flow2
-- [ ] flow3 when BUILD-080 done
+- [x] flow3 when BUILD-080 done
 
 ### BUILD-052 — verify_master
 
@@ -300,18 +304,18 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-067 — Gap report → EDL
 
-- [ ] `edl_flow1` includes `vo_pickup` placements and gap-driven ordering
-- [ ] Transitions and ranking respect gap report
+- [x] `edl_flow1` includes `vo_pickup` placements and gap-driven ordering
+- [x] Transitions and ranking respect gap report (ranking/transitions LLM inputs; EDL weaves `transitions.json` + `gap_report` placements)
 
 ### BUILD-068 — NLE → selection/EDL
 
-- [ ] `nle_edits.json` applied before `full_master_ranking` or at EDL build
-- [ ] Exclude/split/reorder reflected in `selection.json` or EDL
+- [x] `nle_edits.json` applied before `full_master_ranking` or at EDL build
+- [x] Exclude/split/reorder reflected in `selection.json` or EDL
 
 ### BUILD-069 — Assembly preview
 
-- [ ] `assembly_preview.wav` — speech + VO, no ElevenLabs
-- [ ] GUI listen action before SFX spend
+- [x] `assembly_preview.wav` — speech + VO, no ElevenLabs
+- [x] GUI listen action before SFX spend
 
 ### BUILD-070 — verify_master LUFS/peak
 
@@ -339,14 +343,14 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-081 — Profile gate for Flow 1 extended
 
-- [ ] Block or warn before `topic_coverage_audit` when `operator_verified` false
-- [ ] `ctx.log()` explains required profile action
-- [ ] Documented in [operator-gates.md](../workflows/operator-gates.md)
+- [x] Block or warn before `topic_coverage_audit` when `operator_verified` false
+- [x] `ctx.log()` explains required profile action
+- [x] Documented in [operator-gates.md](../workflows/operator-gates.md)
 
 ### BUILD-082 — Source acoustic profile stage
 
-- [ ] `understanding/source_acoustic_profile.json` per [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md)
-- [ ] Consumed by BUILD-061 palettes and BUILD-064 craft
+- [x] `understanding/source_acoustic_profile.json` per [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md)
+- [x] Consumed by BUILD-061 palettes and BUILD-064 craft
 
 ---
 

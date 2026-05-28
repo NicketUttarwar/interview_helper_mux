@@ -22,7 +22,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| Run workspace exists | `run_meta.json` + `ASSETS/executions/…` or `data/run_NNN/` | Re-run ingest / fix paths in config |
+| Run workspace exists | `run_meta.json` + `ASSETS/executions/exec_*` (or legacy `data/run_NNN/`) | Start from GUI **Input audio** or resume **Previous executions** — [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
+| Source audio on disk | `run_meta.input_audio_path` file exists under repo | Re-pick asset or copy WAV into `ASSETS/` |
 | Input audio | `ingest/normalized.wav` duration > 0, `ffprobe` sane | [ingest](../pipeline/ingest/README.md) |
 | Stage markers | `.stage_done/` matches what you think ran | [idempotent-runs.md](./idempotent-runs.md) |
 | Disk space | Enough room for `normalized.wav`, clips, SFX, masters | Free space check before long runs |
@@ -90,10 +91,21 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | `understanding/content_brief.json` | `thesis`, `topics`, sensible `key_claims` | Edit profile + `--from-stage content_context` |
 | `understanding/speakers.json` | Roles match who asks vs answers | Edit + `--from-stage speaker_roles` or fix in profile |
+| `understanding/source_acoustic_profile.json` | `pacing.pace_class` and `mix_contract` look plausible for the interview cadence | Re-run `--from-stage source_acoustic_profile`; verify transcript timing + ingest WAV |
 | `understanding/analysis_state.json` | Themes / questions roughly match interview | [analysis-memory.md](../cross-cutting/analysis-memory.md) |
 | Investigations | `investigation_queue.json` not full of stale blockers | Resolve or dismiss; orchestrator may re-run |
 
-**Before Flow 1 extended (recommended guard):** set `meta.operator_verified: true` when themes, `major_questions`, and `style` are right — see [operator-gates.md](./operator-gates.md#interview-profile-review-recommended-blocking-before-flow-1-extended--planned).
+---
+
+## Profile gate — Flow 1 extended (BUILD-081)
+
+**When:** `run_meta.json` has `selected_flow: flow1` and the next run would execute `topic_coverage_audit`. **Not blocking** for Flow 2 or Flow 3 (Flow 3 logs a warning only).
+
+| Check | Pass | If fail |
+|-------|------|--------|
+| `understanding/analysis_state.json` | `meta.operator_verified: true` | GUI **Interview profile** → **Mark verified**; or edit JSON on disk — [artifact-layout](../cross-cutting/artifact-layout.md#shared-analysis-wave-2) |
+| Before `topic_coverage_audit` | `.stage_done/topic_coverage_audit` absent and profile verified, or re-run from a later Flow 1 stage | Pipeline blocks with `ctx.log` at `level=action`; check `gui_log.jsonl` — [operator-gates.md](./operator-gates.md#profile-gate--flow-1-extended-build-081) |
+| Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | Open **Interview profile** (`analysis_profile`); blocked stages show profile gate hint |
 
 ---
 
@@ -127,7 +139,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `run_meta.json` | `selected_flow` is `flow1`, `flow2`, or `flow3` | Set flow before `run_flow.py` |
+| `run_meta.json` | `selected_flow` is `flow1`, `flow2`, or `flow3`; `selected_at` set | GUI G2 or `python tools/run_flow.py --flow flow1` (or `flow2` / `flow3`) — [operator-gates.md](./operator-gates.md#g2--flow-selection) |
+| Flow match intent | `flow1` → expect `flow_1_master/`; `flow2` → `flow_2_highlights/`; `flow3` → `flow_3_description/` only (no audio) | Re-select G2; see [artifact-layout](../cross-cutting/artifact-layout.md) |
 
 ---
 
@@ -135,12 +148,14 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `coverage_audit.json` | `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix manifest/topics |
-| `narrative_plan.json` | Chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
-| `selection.json` | `ordered_segment_ids` unique; constraints satisfied | `--from-stage full_master_ranking` |
-| `transitions.json` | No duplicate gap VO; short lines | `--from-stage transitions` |
-| `podcast_sfx_brief.json` | Ducking / levels described | `--from-stage podcast_sfx_brief` |
-| **v1 reality** | `master.wav` is speech reorder until BUILD-065/067 — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expectation only; track [podcast-quality-roadmap](../cross-cutting/podcast-quality-roadmap.md) |
+| **Profile gate** | See [Profile gate](#profile-gate--flow-1-extended-build-081) before `topic_coverage_audit` | — |
+| `topic_coverage_audit` | `flow_1_master/coverage_audit.json`; `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix `segments/manifest.json` / profile topics — [artifact-layout](../cross-cutting/artifact-layout.md#flow-1--flow_1_master) |
+| `narrative_arc_plan` | `flow_1_master/narrative_plan.json`; chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
+| `full_master_ranking` | `flow_1_master/selection.json`; `ordered_segment_ids` unique; constraints satisfied | `--from-stage full_master_ranking` |
+| `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
+| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report` | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
+| `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json`; ducking / levels described | `--from-stage podcast_sfx_brief` |
+| **v1 reality** | EDL lists VO + transitions; `assembly.wav` / `master.wav` remain **speech-only** mux until BUILD-065/069 — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expectation only; track [podcast-quality-roadmap](../cross-cutting/podcast-quality-roadmap.md) |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
 
 ---
@@ -212,13 +227,16 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 ## Flow 3 — show description
 
+**Artifacts:** `flow_3_description/` — [artifact-layout](../cross-cutting/artifact-layout.md#flow-3--flow_3_description). **After G2** with `selected_flow: flow3`. Shared analysis complete; no Flow 1 ranking or Flow 2 highlights required.
+
 | Check | Pass | If fail |
 |-------|------|--------|
-| Profile | `meta.operator_verified: true` recommended | Verify interview profile before `podcast_show_description` |
-| `show_description.json` | `word_count` 150–250; third person in `description_markdown` | `--from-stage podcast_show_description`; edit profile/brief |
-| Evidence | `evidence_segment_ids` populated; no unsupported claims | Re-run `content_context` or fix brief |
-| `show_description.md` | Plain export readable *(when BUILD-046 ships)* | Re-run export stage |
-| No audio | Do not expect `master.wav` under `flow_3_description/` | Select flow1/flow2 for audio deliverables |
+| G2 | `run_meta.json` → `selected_flow: flow3` | Complete [G2](#g2--flow-pick); `python tools/run_flow.py --flow flow3` |
+| Profile (recommended) | `understanding/analysis_state.json` → `meta.operator_verified: true`, or you accept the unverified warning in `gui_log.jsonl` | [Profile gate](#profile-gate--flow-1-extended-build-081) (warn-only for Flow 3) |
+| `podcast_show_description` | `flow_3_description/show_description.json` exists; `word_count` 150–250; third person in `description_markdown` | `--from-stage podcast_show_description`; edit profile / `understanding/content_brief.json` |
+| Evidence | `evidence_segment_ids` populated; claims traceable to brief / manifest | Re-run `content_context` or fix brief |
+| `export_show_description` | `flow_3_description/show_description.md` exists; plain text (no `**` / `*` left from markdown strip) | `--from-stage export_show_description` after JSON stage |
+| No audio | No `master.wav` or `assembly.wav` under `flow_3_description/` | Select flow1/flow2 for audio deliverables — [publishing](../pipeline/publishing/README.md) |
 
 ---
 
@@ -226,6 +244,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
+| `sound_design_palettes` | Stage done marker exists and SDP has non-empty `coherence.sonic_identity` + `palettes[]` | Re-run `python tools/run_analysis.py --run-id <id> --from-stage sound_design_palettes`; then inspect `understanding/sound_design_plan.json` |
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (optional) | Operator approved prompt craft when `require_operator_prompt_approval` | Approve or edit plan JSON — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
 | Post-gen placement | Beds/stingers placed after listen + theme check | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) |
