@@ -36,6 +36,8 @@
 
 ## Building code in Cursor
 
+Optional: automate markdown command queues with [CURSOR_EXECUTE/README.md](CURSOR_EXECUTE/README.md) (`./CURSOR_EXECUTE/run.sh <commands.md>`).
+
 1. Open **Agent mode** (not Ask).
 2. Pick the next command in [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (or historical steps in [steps-forward.md](docs/build-out/steps-forward.md)).
 3. Copy the **Agent prompt** for that step into chat; `@`-attach the listed docs.

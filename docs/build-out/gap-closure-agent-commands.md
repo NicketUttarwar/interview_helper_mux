@@ -21,6 +21,17 @@
 
 **Always-on:** `.cursor/rules/interview-helper-mux.mdc` · [AGENTS.md](../../AGENTS.md)
 
+### Automation (optional)
+
+Run Phase 6 commands sequentially via the isolated [CURSOR_EXECUTE](../../CURSOR_EXECUTE/) runner (Cursor SDK; own `.venv`):
+
+```bash
+export CURSOR_API_KEY="cursor_..."
+./CURSOR_EXECUTE/run.sh docs/build-out/gap-closure-agent-commands.md --from 1 --to 13
+```
+
+Dry-run (parse + prompt sizes, no API): add `--dry-run`. Historical GC-00–GC-D1 blocks: add `--include-legacy-gc`. See [CURSOR_EXECUTE/README.md](../../CURSOR_EXECUTE/README.md).
+
 ### Where to begin
 
 | Start here | Why |
