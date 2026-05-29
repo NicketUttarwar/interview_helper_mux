@@ -132,6 +132,7 @@ These **do not** block the pipeline unless the operator accepts and a re-run is 
 | Pre-clean source | Before ingest / new run (acceptance runs `audio_preclean` before `ingest`) | `full_source` |
 | Pre-clean after STT pain | After G0 | `full_source` |
 | Pre-clean pickup VO | **After G1 recordings** | `vo_pickup` only |
+| Pre-clean before SFX spend | After `assembly_preview` — listen speech + VO before ElevenLabs API calls | `full_source` (checkpoint `before_sfx_spend`) |
 | Pre-clean before mix | Before `mux_flow*` | `full_source` or `normalized_rebuild` |
 | Assembly preview listen | After ranking, before SFX | N/A (listen only) |
 | Re-verify master | After `master.wav` | QA + optional re-mux |

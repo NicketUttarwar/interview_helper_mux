@@ -1,0 +1,11 @@
+{
+  "execution_id": "gap_closure_smoke",
+  "input_audio_path": "ASSETS/input/demo.wav",
+  "qc_summaries": {
+    "narrative_qc": {
+      "passed": true,
+      "errors": [],
+      "recorded_at": "2026-05-29T12:00:00+00:00"
+    }
+  }
+}

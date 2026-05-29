@@ -237,6 +237,7 @@ function updateStatusBar(run) {
     $("#status-job").textContent = "Idle";
     $("#status-job").className = "status-value idle";
     $("#status-updated").textContent = "—";
+    updatePrecleanWarningsBanner(null);
     return;
   }
   const num = run.meta?.execution_number;
@@ -483,6 +484,13 @@ async function renderGateActions(stage) {
     return;
   }
 
+  if (stage.id === "g1_vo_pickup" && stage.status === "done") {
+    el.classList.remove("hidden");
+    el.innerHTML = `<p class="hint">All pickup lines recorded. Optional: clean new VO files before ingest, or continue to flow selection.</p>`;
+    await renderPrecleanOffer(stage, el);
+    return;
+  }
+
   if (stage.id === "g1_vo_pickup" && stage.status === "action_required") {
     el.classList.remove("hidden");
     el.innerHTML = `<p class="hint">Record or upload pickup lines. Saved to <code>ASSETS/executions/…/vo_pickup/</code></p>`;
@@ -550,6 +558,7 @@ async function renderGateActions(stage) {
       await refreshRun();
     };
     el.appendChild(btn);
+    await renderAcousticProfileOverridesPanel(el);
   }
 
   if (stage.id === "full_master_ranking" || stage.id === "edl_flow1") {
@@ -595,6 +604,102 @@ async function renderGateActions(stage) {
 }
 
 const VALUE_FEATURES_PATH = "understanding/value_features.json";
+const SAP_PATH = "understanding/source_acoustic_profile.json";
+
+const PACE_CLASS_OPTIONS = ["", "calm", "conversational", "brisk", "dense"];
+const UNDERSCORE_POLICY_OPTIONS = ["", "normal", "sparse", "skip"];
+
+async function renderAcousticProfileOverridesPanel(host) {
+  const card = document.createElement("div");
+  card.className = "quality-offer-card acoustic-overrides-card";
+  card.innerHTML = `<h4>Operator overrides</h4>
+    <p class="muted">Tune pace and underscore policy without re-running DSP. Leave blank to use derived values.</p>`;
+  host.appendChild(card);
+
+  let profile;
+  try {
+    profile = await api(
+      `/api/runs/${state.runId}/artifact?path=${encodeURIComponent(SAP_PATH)}`,
+    );
+  } catch {
+    card.innerHTML += `<p class="hint">Run <strong>Source acoustic profile</strong> first.</p>`;
+    return;
+  }
+
+  const derivedPace = profile?.pacing?.pace_class || "—";
+  const derivedPolicy = profile?.mix_contract?.underscore_policy || "—";
+  const overrides = profile?.operator_overrides && typeof profile.operator_overrides === "object"
+    ? profile.operator_overrides
+    : {};
+  const paceOverride = overrides?.pacing?.pace_class || "";
+  const policyOverride = overrides?.mix_contract?.underscore_policy || "";
+
+  const form = document.createElement("div");
+  form.className = "acoustic-overrides-form";
+  form.innerHTML = `
+    <label class="tr-label">pace_class <span class="muted">(derived: ${escapeHtml(derivedPace)})</span>
+      <select id="sap-override-pace" class="select">
+        ${PACE_CLASS_OPTIONS.map(
+          (v) => `<option value="${v}"${v === paceOverride ? " selected" : ""}>${v || "— use derived —"}</option>`,
+        ).join("")}
+      </select>
+    </label>
+    <label class="tr-label">underscore_policy <span class="muted">(derived: ${escapeHtml(derivedPolicy)})</span>
+      <select id="sap-override-underscore" class="select">
+        ${UNDERSCORE_POLICY_OPTIONS.map(
+          (v) =>
+            `<option value="${v}"${v === policyOverride ? " selected" : ""}>${v || "— use derived —"}</option>`,
+        ).join("")}
+      </select>
+    </label>
+    <div class="flow-choice">
+      <button type="button" class="btn primary sm" id="sap-save-overrides">Save overrides</button>
+      <button type="button" class="btn sm" id="sap-clear-overrides">Clear overrides</button>
+    </div>
+    <p id="sap-overrides-status" class="save-status"></p>`;
+  card.appendChild(form);
+
+  const statusEl = form.querySelector("#sap-overrides-status");
+
+  async function saveOverrides(overrides) {
+    const res = await api(`/api/runs/${state.runId}/acoustic-profile/overrides`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ overrides }),
+    });
+    const eff = res?.effective || {};
+    statusEl.textContent = `Saved — effective pace=${eff.pace_class || "—"} underscore=${eff.underscore_policy || "—"}`;
+    showToast("Acoustic overrides saved");
+    await refreshRun();
+    if ($("#artifact-select")?.value === SAP_PATH) {
+      await loadSelectedArtifact();
+    }
+  }
+
+  form.querySelector("#sap-save-overrides")?.addEventListener("click", async () => {
+    const pace = form.querySelector("#sap-override-pace")?.value || "";
+    const policy = form.querySelector("#sap-override-underscore")?.value || "";
+    const overrides = {};
+    if (pace) overrides.pace_class = pace;
+    if (policy) overrides.underscore_policy = policy;
+    try {
+      await saveOverrides(overrides);
+    } catch (err) {
+      statusEl.textContent = err?.message || "Save failed";
+    }
+  });
+
+  form.querySelector("#sap-clear-overrides")?.addEventListener("click", async () => {
+    if (!confirm("Clear all operator overrides and use derived values?")) return;
+    try {
+      await saveOverrides({});
+      form.querySelector("#sap-override-pace").value = "";
+      form.querySelector("#sap-override-underscore").value = "";
+    } catch (err) {
+      statusEl.textContent = err?.message || "Clear failed";
+    }
+  });
+}
 
 function renderQcSummaryCard(host, key) {
   const summary = state.run?.meta?.qc_summaries?.[key];
@@ -926,11 +1031,16 @@ async function renderPrecleanOffer(stage, host) {
           scope: offer.scope,
         }),
       });
-      showToast(
-        btn.dataset.action === "accept"
-          ? `Saved pre-clean preference (${offer.scope}).`
-          : "Pre-clean offer dismissed."
-      );
+      if (btn.dataset.action === "accept" && offer.checkpoint === "g1_vo_pickup") {
+        showToast("Running pickup pre-clean…");
+        await executeJob({ mode: "stage", stage: "audio_preclean" });
+      } else {
+        showToast(
+          btn.dataset.action === "accept"
+            ? `Saved pre-clean preference (${offer.scope}).`
+            : "Pre-clean offer dismissed."
+        );
+      }
       await refreshRun();
     })
   );
@@ -958,11 +1068,11 @@ function resolvePrecleanOffer(stage) {
       prompt: "Clean source audio before re-running analysis from ingest?",
     };
   }
-  if (stage.id === "g1_vo_pickup" && !(state.run?.g1_missing || []).length) {
+  if (stage.id === "g1_vo_pickup" && stage.status === "done") {
     return {
       checkpoint: "g1_vo_pickup",
       scope: "vo_pickup",
-      prompt: "Remove background noise from your new pickup recordings?",
+      prompt: "Remove background noise from new pickup recordings?",
     };
   }
   if (stage.id === "mix_flow1" || stage.id === "mix_flow2" || stage.id === "mux_flow1" || stage.id === "mux_flow2") {
@@ -1530,7 +1640,11 @@ async function uploadVoFile(lineId, file) {
   const fd = new FormData();
   fd.append("file", file);
   await fetch(`/api/runs/${state.runId}/vo/${lineId}`, { method: "POST", body: fd });
+  const wasMissing = (state.run?.g1_missing || []).length > 0;
   await refreshRun();
+  if (wasMissing && state.run?.g1_clear) {
+    selectStage("g1_vo_pickup");
+  }
 }
 
 async function startVoRecording(btn) {
@@ -1613,7 +1727,7 @@ function startJobPoll() {
     const job = await api(`/api/runs/${state.runId}/job`);
     updateJobUI(job);
     await pollLog();
-    if (job.status !== "running") {
+    if (job.status !== "running" && job.status !== "running_with_warnings") {
       await refreshRun();
       stopJobPoll();
     }
@@ -1627,12 +1741,34 @@ function stopJobPoll() {
   }
 }
 
+function updatePrecleanWarningsBanner(job) {
+  const banner = $("#preclean-warnings-banner");
+  if (!banner) return;
+  const warnings = job?.preclean_warnings;
+  if (!Array.isArray(warnings) || !warnings.length) {
+    banner.classList.add("hidden");
+    banner.textContent = "";
+    return;
+  }
+  const lines = warnings.map(
+    (w) =>
+      `Pre-clean not acknowledged (${w.checkpoint}) — stage ${w.stage}`,
+  );
+  banner.textContent = lines.join(" · ");
+  banner.classList.remove("hidden");
+}
+
 function updateJobUI(job) {
-  const running = job?.status === "running";
+  const running =
+    job?.status === "running" || job?.status === "running_with_warnings";
   $("#btn-run-next").disabled = running;
   $("#btn-run-analysis").disabled = running;
+  updatePrecleanWarningsBanner(job);
   const el = $("#status-job");
-  if (running) {
+  if (job?.status === "running_with_warnings") {
+    el.textContent = `Running (warnings) ${job.stage || job.mode}`;
+    el.className = "status-value running_with_warnings";
+  } else if (running) {
     el.textContent = `Running ${job.stage || job.mode}`;
     el.className = "status-value running";
   } else if (job?.status === "gate") {

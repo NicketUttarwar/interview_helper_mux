@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary, quotability_signals
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
@@ -33,10 +34,19 @@ def run_highlight_selection(ctx: RunContext) -> None:
 
 def run_sfx_brief(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "selection": c.read_json("flow_2_highlights/selection.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
+        profile = load_profile(c)
+        if profile:
+            compact = compact_for_volley(profile)
+            payload["source_acoustic_profile"] = compact
+            payload["pace_class"] = compact.get("pace_class") or pacing_one_liner(profile)
+            mix = compact.get("mix_contract") if isinstance(compact.get("mix_contract"), dict) else {}
+            if mix.get("underscore_policy"):
+                payload["underscore_policy"] = mix["underscore_policy"]
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         c.write_json("flow_2_highlights/sfx_brief.json", artifacts)

@@ -6,8 +6,8 @@
 
 1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — guardrails + optional R&D (audio-only)
 2. [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) — full-repository build plan (all phases)
-3. [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) — **shipped** gap-closure plan (sections #2/#5; historical Agent prompts)
-4. [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) — **remaining** Agent commands (top-down; no shipped BUILD repeats)
+3. [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) — **remaining** Agent commands (top-down; no shipped BUILD repeats)
+4. [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) — gap-closure Agent queue (GC-00–GC-D1 shipped; Phase 6 follow-up)
 5. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — full backlog + historical Agent prompts (#0–#20)
 6. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
 7. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts

@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from interview_mux.gates import check_narrative_qc
+from interview_mux.gates import check_edl_qc, check_narrative_qc
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     load_nle,
@@ -296,6 +296,8 @@ def run_edl(ctx: RunContext) -> None:
         level="success",
         stage="edl_flow1",
     )
+    check_edl_qc(ctx, stage="edl_flow1", edl=edl, strict=True)
+
     edl_errors = validate_edl_flow1(edl)
     if edl_errors:
         for err in edl_errors:
@@ -315,6 +317,7 @@ def run_mix_flow1(ctx: RunContext) -> Path:
     """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
     from interview_mux.sound_design import mix_flow1
 
+    check_edl_qc(ctx, stage="mix_flow1", strict=False)
     return mix_flow1(ctx)
 
 

@@ -3,6 +3,7 @@
 # Doc mirror: docs/cross-cutting/anchored-requirements.lock
 
 fastapi==0.136.3
+python-multipart==0.0.29
 uvicorn[standard]==0.47.0
 openai==2.38.0
 typer==0.25.1

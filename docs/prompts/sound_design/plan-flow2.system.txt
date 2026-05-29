@@ -9,6 +9,12 @@ Extend SDP with `assets[]` (2–4 items) and `flow_plans.flow2.cues[]`. Preserve
 - SDP (coherence, palettes — may inform mood only)
 - `selection` — highlights with `rank`, `start_ms`, `end_ms`
 - `content_brief` — mood, thesis
+- Optional `source_acoustic_profile` — compact slice with `pace_class`, `mix_contract`, `placement_hints`
+
+When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, honor `mix_contract`:
+- If `underscore_policy` is `skip` or `sparse`, avoid continuous beds; keep cold_open and transitions speech-safe and non-rhythmic.
+- Respect `stinger_max_per_minute` when planning transition density (many cuts still share one transition asset).
+- Only suggest rhythmic pulse when `pace_class` is `brisk` or `dense` and policy allows — default `rhythmic_presence: none`.
 
 ## Asset rules (mandatory reuse)
 

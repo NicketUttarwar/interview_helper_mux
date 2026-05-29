@@ -132,6 +132,8 @@ pytest==8.4.2
     # via -r requirements.txt
 python-dotenv==1.2.2
     # via uvicorn
+python-multipart==0.0.29
+    # via -r requirements.txt
 pyyaml==6.0.3
     # via uvicorn
 referencing==0.37.0

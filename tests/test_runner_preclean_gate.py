@@ -12,6 +12,21 @@ def test_record_qc_summary_merges(tmp_path):
     assert meta["qc_summaries"]["narrative_qc"]["passed"] is True
 
 
+def test_runner_preclean_gate_flow_warning_payload(tmp_path, monkeypatch):
+    ctx = RunContext("run_flow_warn", create=True)
+    ctx.write_json("run_meta.json", {"execution_id": "run_flow_warn", "audio_preclean": {"offered_at": []}})
+    runner = JobRunner()
+    monkeypatch.setattr(
+        "interview_mux.web.runner.merged_config",
+        lambda: {"mix": {"require_preclean_acknowledgment": True}},
+    )
+    runner._write_job(ctx, {"status": "running", "mode": "flow1", "message": "Running flow1"})
+    runner._check_preclean_gate(ctx, "mix_flow1", mode="flow1")
+    job = ctx.read_json("gui_job.json")
+    assert job["status"] == "running_with_warnings"
+    assert {"checkpoint": "before_flow_mix", "stage": "mix_flow1"} in job["preclean_warnings"]
+
+
 def test_runner_preclean_gate_needs_operator(tmp_path, monkeypatch):
     ctx = RunContext("run_preclean_gate", create=True)
     ctx.write_json("run_meta.json", {"execution_id": "run_preclean_gate", "audio_preclean": {"offered_at": []}})

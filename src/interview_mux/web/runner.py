@@ -53,7 +53,8 @@ class JobRunner:
         return data
 
     def is_running(self, run_id: str) -> bool:
-        return self.get_job(run_id).get("status") == "running"
+        status = self.get_job(run_id).get("status")
+        return status in ("running", "running_with_warnings")
 
     def start(
         self,
@@ -89,12 +90,20 @@ class JobRunner:
                 elif mode == "flow1":
                     set_selected_flow(ctx, "flow1")
                     ctx.log("Running Flow 1 — full master podcast pipeline…", level="info", stage="flow1")
-                    run_flow1(ctx, from_stage=from_stage or stage)
+                    run_flow1(
+                        ctx,
+                        from_stage=from_stage or stage,
+                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow1"),
+                    )
                     self._run_master_qa(ctx, flow="flow1", rel_path="flow_1_master/master.wav")
                 elif mode == "flow2":
                     set_selected_flow(ctx, "flow2")
                     ctx.log("Running Flow 2 — highlight reel pipeline…", level="info", stage="flow2")
-                    run_flow2(ctx, from_stage=from_stage or stage)
+                    run_flow2(
+                        ctx,
+                        from_stage=from_stage or stage,
+                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow2"),
+                    )
                     self._run_master_qa(ctx, flow="flow2", rel_path="flow_2_highlights/master.wav")
                 elif mode == "flow3":
                     set_selected_flow(ctx, "flow3")
@@ -103,7 +112,11 @@ class JobRunner:
                         level="info",
                         stage="flow3",
                     )
-                    run_flow3(ctx, from_stage=from_stage or stage)
+                    run_flow3(
+                        ctx,
+                        from_stage=from_stage or stage,
+                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow3"),
+                    )
                 else:
                     raise ValueError(f"Unknown mode: {mode}")
                 done_msg = f"Finished: {info.title if info else label}"
@@ -145,6 +158,33 @@ class JobRunner:
         Thread(target=_run, daemon=True).start()
         return {"ok": True, "run_id": run_id, "mode": mode}
 
+    def _append_preclean_warning(
+        self,
+        ctx: RunContext,
+        *,
+        checkpoint: str,
+        stage: str,
+        mode: str,
+    ) -> None:
+        job = self.get_job(ctx.run_id)
+        warnings: list[dict[str, str]] = list(job.get("preclean_warnings") or [])
+        entry = {"checkpoint": checkpoint, "stage": stage}
+        if entry not in warnings:
+            warnings.append(entry)
+        payload = {
+            k: v
+            for k, v in job.items()
+            if k not in ("run_id", "updated_at", "preclean_warnings", "status")
+        }
+        payload.update(
+            {
+                "status": "running_with_warnings",
+                "preclean_warnings": warnings,
+                "mode": mode,
+            }
+        )
+        self._write_job(ctx, payload)
+
     def _check_preclean_gate(self, ctx: RunContext, stage: str, *, mode: str) -> None:
         checkpoint = stage_requires_preclean_ack(stage)
         if not checkpoint:
@@ -161,6 +201,7 @@ class JobRunner:
                 level="warning",
                 stage=stage,
             )
+            self._append_preclean_warning(ctx, checkpoint=checkpoint, stage=stage, mode=mode)
             return
         msg = (
             f"Complete the pre-clean quality offer for checkpoint '{checkpoint}' "

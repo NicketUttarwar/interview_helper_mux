@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from collections.abc import Callable
 from typing import Any
 
 from interview_mux.analysis_orchestrator import (
@@ -270,7 +271,12 @@ def run_analysis(ctx: RunContext, *, from_stage: str | None = None) -> None:
     )
 
 
-def run_flow1(ctx: RunContext, *, from_stage: str | None = None) -> None:
+def run_flow1(
+    ctx: RunContext,
+    *,
+    from_stage: str | None = None,
+    preclean_hook: Callable[[str], None] | None = None,
+) -> None:
     require_g1_clear(ctx)
     require_flow1_extended_gates(ctx, from_stage=from_stage)
     if from_stage:
@@ -290,10 +296,15 @@ def run_flow1(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("mix_flow1", assembly_flow1.run_mix_flow1),
         ("master_flow1", mastering.run_master_flow1),
     ]
-    _run_steps(ctx, steps, from_stage)
+    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
 
 
-def run_flow2(ctx: RunContext, *, from_stage: str | None = None) -> None:
+def run_flow2(
+    ctx: RunContext,
+    *,
+    from_stage: str | None = None,
+    preclean_hook: Callable[[str], None] | None = None,
+) -> None:
     require_g1_clear(ctx)
     require_selected_flow_flow2(ctx)
     if from_stage:
@@ -307,10 +318,15 @@ def run_flow2(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("mix_flow2", assembly_flow2.run_mix_flow2),
         ("master_flow2", mastering.run_master_flow2),
     ]
-    _run_steps(ctx, steps, from_stage)
+    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
 
 
-def run_flow3(ctx: RunContext, *, from_stage: str | None = None) -> None:
+def run_flow3(
+    ctx: RunContext,
+    *,
+    from_stage: str | None = None,
+    preclean_hook: Callable[[str], None] | None = None,
+) -> None:
     require_g1_clear(ctx)
     if from_stage:
         ctx.clear_from(from_stage, FLOW3_ORDER)
@@ -324,7 +340,7 @@ def run_flow3(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("podcast_show_description", publishing_flow3.run_podcast_show_description),
         ("export_show_description", publishing_flow3.run_export_show_description),
     ]
-    _run_steps(ctx, steps, from_stage)
+    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
     ctx.log(
         "Flow 3 complete — copy ready for podcast directories.",
         level="success",
@@ -333,7 +349,13 @@ def run_flow3(ctx: RunContext, *, from_stage: str | None = None) -> None:
     )
 
 
-def _run_steps(ctx: RunContext, steps: list, from_stage: str | None) -> None:
+def _run_steps(
+    ctx: RunContext,
+    steps: list,
+    from_stage: str | None,
+    *,
+    preclean_hook: Callable[[str], None] | None = None,
+) -> None:
     start = 0
     if from_stage:
         names = [s[0] for s in steps]
@@ -343,4 +365,6 @@ def _run_steps(ctx: RunContext, steps: list, from_stage: str | None) -> None:
     for name, fn in steps[start:]:
         if ctx.is_done(name) and from_stage != name:
             continue
+        if preclean_hook is not None:
+            preclean_hook(name)
         fn()

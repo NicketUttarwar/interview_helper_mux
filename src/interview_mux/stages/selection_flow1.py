@@ -9,6 +9,8 @@ from interview_mux.nle_state import (
     segments_by_id_with_nle,
 )
 from interview_mux.gates import check_narrative_qc
+from interview_mux.llm_specialists import maybe_run_post_stage_specialists
+from interview_mux.prompt_validation import validate_master_selection
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
@@ -62,6 +64,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 artifacts, nle, segments_by_id=by_id
             )
             _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
+        sel_errors = validate_master_selection(artifacts)
+        if sel_errors:
+            raise ValueError(f"Invalid selection: {sel_errors[0]}")
         c.write_json("flow_1_master/selection.json", artifacts)
 
     run_flow_llm_stage(
@@ -71,6 +76,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         build_input,
         persist,
     )
+    maybe_run_post_stage_specialists(ctx, "full_master_ranking", build_input(ctx))
     ctx.mark_done("full_master_ranking")
 
 

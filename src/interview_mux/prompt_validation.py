@@ -123,6 +123,11 @@ def validate_sound_design_plan(plan: dict[str, Any]) -> list[str]:
     return _validate_dict(plan, _load_root_schema("sound_design_plan.schema.json"))
 
 
+def validate_master_selection(selection: dict[str, Any]) -> list[str]:
+    """Validate `flow_1_master/selection.json` against master_selection_artifact.schema.json."""
+    return _validate_dict(selection, _load_schema("master_selection_artifact.schema.json"))
+
+
 def validate_edl_flow1(edl: dict[str, Any]) -> list[str]:
     """Validate `flow_1_master/edl.json` against artifacts/edl_flow1.schema.json."""
     return _validate_dict(edl, _load_schema("edl_flow1.schema.json"))
@@ -162,8 +167,10 @@ def validate_transcript_review_queue(data: dict[str, Any]) -> list[str]:
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "flow_1_master/edl.json": validate_edl_flow1,
+    "flow_1_master/selection.json": validate_master_selection,
     "understanding/source_acoustic_profile.json": validate_source_acoustic_profile,
     "understanding/analysis_state.json": validate_analysis_state,
+    "understanding/sound_design_plan.json": validate_sound_design_plan,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
     "transcript/review_queue.json": validate_transcript_review_queue,

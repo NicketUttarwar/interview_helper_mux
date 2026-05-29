@@ -583,7 +583,20 @@ code {
 }
 
 .status-value.running { color: var(--accent); }
+.status-value.running_with_warnings { color: var(--warning); }
 .status-value.action { color: var(--warning); }
+
+.preclean-warnings-banner {
+  max-width: 1400px;
+  margin: 0.5rem auto 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface-2));
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
 .status-value.error { color: var(--danger); }
 .status-value.idle { color: var(--muted); }
 

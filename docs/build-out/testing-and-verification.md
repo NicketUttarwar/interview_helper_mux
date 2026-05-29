@@ -46,8 +46,31 @@ pytest tests/
 | `test_preclean_offer.py` | BUILD-072 pre-clean offer API + run_meta |
 | `test_master_qc.py` | LUFS / true-peak thresholds, sample-rate checks |
 | `test_verify_master_cli.py` | CLI exit codes + flow path inference |
+| **Gap closure (GC-F1–GC-D1)** | |
+| `test_gap_foundation.py` | `acoustic_profile`, `audio_timeline` crossfade, `operator_quality.preclean_acknowledged` |
+| `test_sound_design_crossfade.py` | Assembly preview speech crossfades |
+| `test_mix_acoustic_profile.py` | SAP-driven duck / stinger policy in mix |
+| `test_transcript_review_schema.py` | `validate_transcript_review_queue` fail-fast |
+| `test_runner_preclean_gate.py` | `record_qc_summary` merge, runner preclean gate, strict NLE |
+| `test_elevenlabs_chunk_policy.py` | ElevenLabs upload byte limit contract |
+| `test_audio_preclean.py` | Pre-clean enable/skip, vo_pickup scope, chunked isolation path |
+| `test_gap_closure_smoke.py` | Smoke fixture validators + qc_summaries on fixture run dir |
+| `test_source_acoustic_profile.py` | SAP stage output shape |
+| `test_ingest_preclean.py` | Ingest path when preclean isolated exists |
+| **Phase 6 (GC-Q1–Q13)** | |
+| `test_selection_flow2_sap.py` | Flow 2 SAP in `sfx_brief` build_input |
+| `test_recompute_acoustic_profile.py` | Recompute invalidates downstream on pace change |
+| `test_stinger_pause_alignment.py` | Pause-aligned stinger placement |
+| `test_mix_intelligibility_qc.py` | Post-mix intelligibility QC + `qc_summaries` |
+| `test_llm_specialists.py` | Specialists pilot (`full_master_ranking`) |
+| `test_acoustic_profile_overrides.py` | SAP GUI `operator_overrides` API |
+| `test_edl_qc.py` | EDL-level QC + `validate_edl` tooling |
+
+**Fixture:** `tests/fixtures/runs/gap_closure_smoke/` — minimal `run_meta.json`, `source_acoustic_profile.json`, valid/invalid `nle_edits.json`, invalid `review_queue.json`.
 
 **Helpers:** `tests/run_fixtures.py` — `isolated_run_ctx`, `ctx_from_fixture`, `patch_server_ctx` (keeps pytest off repo `data/run_*`).
+
+**Phase 6 complete:** re-run `pytest tests/ -q` once (see [gap-closure final verification](./gap-closure-agent-commands.md#final-verification-run-once-after-all-commands)).
 
 ---
 

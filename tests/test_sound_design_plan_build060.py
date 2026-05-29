@@ -1,5 +1,7 @@
 """BUILD-060 — Sound Design Plan schema + empty plan init."""
 
+import pytest
+
 from interview_mux.analysis_memory import (
     SOUND_DESIGN_PLAN_PATH,
     default_sound_design_plan,
@@ -25,3 +27,10 @@ def test_ensure_analysis_workspace_initializes_sound_design_plan(tmp_path, monke
     assert plan["assets"] == []
     assert plan["flow_plans"]["flow1"]["cues"] == []
     assert validate_sound_design_plan(plan) == []
+
+
+def test_write_json_rejects_invalid_sound_design_plan(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_001", create=True)
+    with pytest.raises(ValueError, match="schema validation failed"):
+        ctx.write_json("understanding/sound_design_plan.json", {"version": 999})

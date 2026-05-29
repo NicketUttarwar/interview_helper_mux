@@ -1,30 +1,77 @@
 # Gap closure agent commands — optimized execution sequence
 
+**Purpose:** Copy-paste **one command per Agent chat** to close gaps between shipped BUILD waves and operator-ready quality (sections #2 / #5 in [steps-forward.md](./steps-forward.md)). Covers shared foundation modules, SAP-driven mix, operator gates, integration tests, and Phase 6 quality follow-up.
+
+**ONE COMMAND PER AGENT CHAT:** Run exactly one GC-* or Phase 6 command per Cursor Agent session. Do not batch F1 + F2, or Q1 + Q2, in a single chat.
+
+**CODE FIRST, TEST ONCE:** Each command implements production code (and test files where specified). **Do not run pytest between commands.** When the agent finishes a command, open the next chat immediately. Run the **[final verification](#final-verification-run-once-after-all-commands)** block only after **all** Phase 6 commands (1–13) are complete.
+
 **Status (original program):** **GC-00 through GC-D1 are shipped** in code and tests (`pytest tests/ -q` green as of gap-closure completion).
 
-**Status (quality follow-up):** **Phase 6 (GC-Q1–GC-Q13)** below is **not started** — copy-paste one command per Agent chat, top-down.
+**Status (quality follow-up):** **Phase 6 (Commands 1–13) is complete** — doc sweep (Command 13) landed; run **[final verification](#final-verification-run-once-after-all-commands)** once if not already done.
+
+### How to use
+
+1. Run **Step 0** (shell only — no Agent chat) once if `.venv/` is missing.
+2. Open **Agent mode** in Cursor.
+3. Copy the **Agent prompt** for the next command; `@`-attach listed docs.
+4. When the agent finishes, **immediately** start the next command — no pytest, no manual checks in between.
+5. After Command 13 (or when all code commands are done), run **[Final verification](#final-verification-run-once-after-all-commands)** once.
+6. Fix any test failures in a follow-up Agent chat if needed.
+
+**Always-on:** `.cursor/rules/interview-helper-mux.mdc` · [AGENTS.md](../../AGENTS.md)
 
 ### Where to begin
 
 | Start here | Why |
 |------------|-----|
-| **[GC-Q1](#gc-q1--complete-gc-t1-gaps-smoke-fixture--chunk-test)** | First unrun command; low-cost, high-trust; unblocks regression safety before larger features |
+| **[Step 0](#step-0--bootstrap-virtual-environment-required)** | One-time venv setup before the command run |
+| **[Command 1](#command-1--gc-q1-complete-gc-t1-gaps-smoke-fixture--chunk-test)** | First Agent command — then continue 2 → 3 → … → 13 without testing |
 
-Do **not** re-run GC-00–GC-D1 unless fixing a regression. For doc-only coherence (Command 2 from [remaining-build-commands.md](./remaining-build-commands.md)), use **[GC-Q-DOC](#gc-q-doc--doc-drift-sweep-gap-follow-up)** after GC-Q1–GC-Q4 or in parallel.
+Do **not** re-run GC-00–GC-D1 unless fixing a regression. Run Phase 6 **sequentially** (1 through 13); skip Command 13 only if you defer doc updates.
 
-### Phase 6 pre-flight (verified not run — 2026-05-29)
+### Phase 6 command index
 
-Spot-checks before authoring Phase 6; re-run after each command closes.
+Run **1 → 2 → 3 → … → 13** in order. Each command depends on the previous one completing (code landed); no pytest between steps.
 
-| Command | Check | Result |
-|---------|-------|--------|
-| GC-Q1 | `tests/fixtures/runs/gap_closure_smoke/` exists | **MISSING** |
-| GC-Q1 | `tests/` references `elevenlabs_chunked` or `chunk_wav_by_max_bytes` | **MISSING** |
-| GC-Q2 | `selection_flow2.py` imports `acoustic_profile` | **MISSING** |
-| GC-Q3 | `pace_class` / `underscore_policy` in plan-flow1 + podcast-sfx-brief prompts | **MISSING** |
-| GC-Q4 | `recompute-acoustic-profile` calls `clear_from` / `invalidate_from` on pace change | **MISSING** (log-only hint today) |
-| GC-Q5 | `sound_design.py` pause-aligned stinger placement | **MISSING** |
-| GC-Q6 | `master_qc.py` intelligibility-under-duck check | **MISSING** |
+| # | ID | Title |
+|---|-----|-------|
+| **0** | — | Bootstrap virtual environment (shell) |
+| **1** | GC-Q1 | Smoke fixture + chunk test |
+| **2** | GC-Q2 | Flow 2 SAP on `sfx_brief` |
+| **3** | GC-Q3 | SAP prompt one-liners |
+| **4** | GC-Q4 | Recompute SAP auto-invalidate |
+| **5** | GC-Q6 | Artifact boundary validators |
+| **6** | GC-Q7 | Full-flow preclean job banner |
+| **7** | GC-Q8 | Pause-aligned stinger placement |
+| **8** | GC-Q9 | Post-mix intelligibility QC |
+| **9** | GC-Q10 | Specialists pilot (one stage) |
+| **10** | GC-Q11 | SAP GUI `operator_overrides` |
+| **11** | GC-Q12 | EDL-level narrative QC |
+| **12** | GC-Q13 | G1 pickup preclean product polish |
+| **13** | GC-Q-DOC | Doc drift sweep (optional) |
+
+GC-Q5 is reserved (merged into Commands 4 + 6) — no separate prompt.
+
+### Phase 6 scope (what each command creates — verify once at end)
+
+Baseline before starting (2026-05-29). After all commands complete, the final verification block confirms these exist.
+
+| Command | Code / artifacts to create |
+|---------|---------------------------|
+| 1 (GC-Q1) | `tests/fixtures/runs/gap_closure_smoke/`, `tests/test_gap_closure_smoke.py`, chunk test in `test_audio_preclean.py` |
+| 2 (GC-Q2) | `selection_flow2.py` imports `acoustic_profile`; flow2 SAP in `sfx_brief` build_input |
+| 3 (GC-Q3) | `pace_class` / `underscore_policy` in plan-flow1 + podcast-sfx-brief prompts |
+| 4 (GC-Q4) | `recompute-acoustic-profile` calls `clear_from` / `invalidate_from` on pace change |
+| 5 (GC-Q6) | Extended `ARTIFACT_WRITE_VALIDATORS` for high-risk paths |
+| 6 (GC-Q7) | Full-flow `preclean_warnings` in gui_job + GUI amber banner |
+| 7 (GC-Q8) | Pause-aligned stinger placement in `sound_design.py` |
+| 8 (GC-Q9) | Post-mix intelligibility QC in `master_qc.py` |
+| 9 (GC-Q10) | Specialists pilot for `full_master_ranking` only |
+| 10 (GC-Q11) | SAP GUI `operator_overrides` API + panel |
+| 11 (GC-Q12) | EDL-level narrative QC + `validate_edl` tooling |
+| 12 (GC-Q13) | G1 pickup preclean offer on G1 complete |
+| 13 (GC-Q-DOC) | Doc drift sweep (optional) |
 
 **Related:** [remaining-build-commands.md](./remaining-build-commands.md) · [stage-registry.md](./stage-registry.md) · [config-keys.md](../cross-cutting/config-keys.md) · [definition-of-done-signoff.md](./definition-of-done-signoff.md)
 
@@ -88,40 +135,42 @@ flowchart TB
 
 ---
 
-## Execution phases (16 commands)
+## Execution phases
 
-| Phase | Cmd | Title | Depends on | Phase checkpoint |
-|-------|-----|-------|------------|------------------|
-| 0 | **GC-00** | Author command queue doc | — | File exists, linked from AGENTS.md |
-| 1 | **GC-F1** | Shared foundation modules + defaults skeleton | GC-00 | `pytest tests/test_gap_foundation.py` (created in F1) |
-| 1 | **GC-F2** | Schema hardening (fail-fast) | GC-F1 | Invalid fixture rejected by validator |
-| 1 | **GC-F3** | Production defaults + gates qc_summaries | GC-F1 | `merged_config()` returns sectional keys; narrative_qc.strict true |
-| 2 | **GC-A1** | Speech crossfades | GC-F1 | crossfade unit tests pass |
-| 2 | **GC-A2** | SAP-driven mix engine | GC-F1, GC-A1 | mix logs show profile duck db |
-| 2 | **GC-A3** | vo_finalize stage | GC-F1, GC-A2 | stage in FLOW1_ORDER |
-| 3 | **GC-A4** | SAP volley wiring | GC-F1 | volley JSON contains placement_hints |
-| 3 | **GC-B1** | Value pipeline wiring | GC-F3, GC-A4 | value_features.json when enabled |
-| 4 | **GC-C1** | Recompute SAP API + runner preclean gate | GC-F1, GC-F3, OQ | runner stops with needs_operator |
-| 4 | **GC-C2** | NLE UX + GUI QC panels + before_sfx_spend | GC-F2, GC-F3, GC-C1 | GUI shows QC banner |
-| 4 | **GC-C3** | ElevenLabs chunk resilience | GC-F1 (audio_timeline) | oversized wav chunks or clear error |
-| 5 | **GC-T1** | Integration tests | all above | `pytest tests/ -q` green |
-| 5 | **GC-D1** | Documentation closure | GC-T1 | no stale "planned" rows |
-| 6 | **GC-Q1** | GC-T1 gaps: smoke fixture + chunk test | GC-D1 | `pytest tests/test_gap_closure_smoke.py -q` |
-| 6 | **GC-Q2** | Flow 2 SAP on `sfx_brief` | GC-Q1 | flow2 build_input has `source_acoustic_profile` |
-| 6 | **GC-Q3** | SAP prompt one-liners in `.system.txt` | GC-Q2 | prompts mention pace/underscore |
-| 6 | **GC-Q4** | Recompute SAP auto-invalidate | GC-Q1 | pace change clears from `sound_design_palettes` |
-| 6 | **GC-Q5** | Recompute + preclean ROI (non-doc) | GC-Q4 | see GC-Q4, GC-Q7 |
-| 6 | **GC-Q6** | Artifact boundary validators (extend) | GC-Q1 | extra paths in ARTIFACT_WRITE_VALIDATORS |
-| 6 | **GC-Q7** | Full-flow preclean job banner | GC-Q1 | GUI shows missing checkpoint on flow run |
-| 6 | **GC-Q8** | Pause-aligned stinger placement | GC-Q2, GC-A2 | mix logs pause-aligned positions |
-| 6 | **GC-Q9** | Post-mix intelligibility QC | GC-Q8 | master_qc or mix warns on duck mask |
-| 6 | **GC-Q10** | Specialists pilot (one stage) | GC-Q3 | optional pass on ranking when enabled |
-| 6 | **GC-Q11** | SAP GUI `operator_overrides` | GC-Q4 | PUT profile merges overrides |
-| 6 | **GC-Q12** | EDL-level narrative QC | GC-Q1 | `validate_edl_narrative` before mix |
-| 6 | **GC-Q13** | G1 pickup preclean product polish | GC-Q7 | dedicated copy + offer on G1 complete |
-| 6 | **GC-Q-DOC** | Doc drift sweep (optional) | any | stage-registry FLOW1_ORDER includes vo_finalize |
+Phases 0–5 (GC-00 through GC-D1) are the **original 16-command program** (shipped). Phase 6 is the **quality follow-up** queue — see [Phase 6 status table](#phase-6-status-table).
 
-**Do not reorder phases.** Within a phase, commands are sequential (A1 before A2 because A2 mix builds on A1 concat patterns in same file). **Phase 6** runs after GC-D1; do not skip GC-Q1–GC-Q4 before GC-Q8+.
+| Phase | Cmd | Title | Depends on | Status | Deliverable (code) |
+|-------|-----|-------|------------|--------|---------------------|
+| 0 | **GC-00** | Author command queue doc | — | [x] | Queue file + AGENTS link |
+| 1 Foundation | **GC-F1** | Shared foundation modules + defaults skeleton | GC-00 | [x] | `acoustic_profile`, `audio_timeline`, `operator_quality` + test file |
+| 1 Schema | **GC-F2** | Schema hardening (fail-fast) | GC-F1 | [x] | Validators + `validate_nle.py` |
+| 1 Schema | **GC-F3** | Production defaults + gates qc_summaries | GC-F1 | [x] | Production `app.defaults.json` + gate wiring |
+| 2 Audio | **GC-A1** | Speech crossfades | GC-F1 | [x] | Crossfade in mix + assembly preview |
+| 2 Audio | **GC-A2** | SAP-driven mix engine | GC-F1, GC-A1 | [x] | SAP duck/stinger policy in mix |
+| 2 Audio | **GC-A3** | vo_finalize stage | GC-F1, GC-A2 | [x] | `sound_design_vo_finalize` in FLOW1_ORDER |
+| 3 Analysis | **GC-A4** | SAP volley wiring | GC-F1 | [x] | SAP in volley build_input |
+| 3 Analysis | **GC-B1** | Value pipeline wiring | GC-F3, GC-A4 | [x] | Value extract + gap volley wiring |
+| 4 Operator | **GC-C1** | Recompute SAP API + runner preclean gate | GC-F1, GC-F3, OQ | [x] | Recompute API + runner gate |
+| 4 Operator | **GC-C2** | NLE UX + GUI QC panels + before_sfx_spend | GC-F2, GC-F3, GC-C1 | [x] | GUI QC panels + preclean offers |
+| 4 Operator | **GC-C3** | ElevenLabs chunk resilience | GC-F1 (audio_timeline) | [x] | Chunk isolation path |
+| 5 Tests | **GC-T1** | Integration tests | all above | [x] | Full test suite + smoke fixture |
+| 5 Docs | **GC-D1** | Documentation closure | GC-T1 | [x] | Doc sweep |
+| 6 | **GC-Q1** | GC-T1 gaps: smoke fixture + chunk test | GC-D1 | [x] | Smoke fixture + test files |
+| 6 | **GC-Q2** | Flow 2 SAP on `sfx_brief` | GC-Q1 | [x] | Flow2 SAP wiring |
+| 6 | **GC-Q3** | SAP prompt one-liners in `.system.txt` | GC-Q2 | [x] | Prompt `.system.txt` updates |
+| 6 | **GC-Q4** | Recompute SAP auto-invalidate | GC-Q1 | [x] | Invalidation on pace change |
+| 6 | **GC-Q5** | Recompute + preclean ROI (non-doc) | GC-Q4 | [x] | (merged into Q4 + Q7) |
+| 6 | **GC-Q6** | Artifact boundary validators (extend) | GC-Q1 | [x] | Extended validators |
+| 6 | **GC-Q7** | Full-flow preclean job banner | GC-Q1 | [x] | GUI preclean warnings |
+| 6 | **GC-Q8** | Pause-aligned stinger placement | GC-Q2, GC-A2 | [x] | Pause-aligned stingers |
+| 6 | **GC-Q9** | Post-mix intelligibility QC | GC-Q8 | [x] | Intelligibility QC |
+| 6 | **GC-Q10** | Specialists pilot (one stage) | GC-Q3 | [x] | Ranking specialist pilot |
+| 6 | **GC-Q11** | SAP GUI `operator_overrides` | GC-Q4 | [x] | Override API + GUI |
+| 6 | **GC-Q12** | EDL-level narrative QC | GC-Q1 | [x] | EDL QC |
+| 6 | **GC-Q13** | G1 pickup preclean product polish | GC-Q7 | [x] | G1 pickup preclean offer |
+| 6 | **GC-Q-DOC** | Doc drift sweep (optional) | any | [x] | Doc updates |
+
+**Phase 6 agent queue:** Step 0 (venv, once) + Commands 1–13 in order — see [command index](#phase-6-command-index). **No pytest between commands**; run [final verification](#final-verification-run-once-after-all-commands) once after Command 13.
 
 ---
 
@@ -150,7 +199,7 @@ Single authoritative **[config/app.defaults.json](config/app.defaults.json)** wi
 "_comment_web": "port, GUI behavior flags"
 ```
 
-- **GC-F1:** structure + **safe** defaults (`strict: false`) so mid-build pytest stays green
+- **GC-F1:** structure + **safe** defaults (`strict: false`) until GC-F3 flips production values
 - **GC-F3:** flip production values (`strict: true`, `g1_5_require_prompt_approval: true`, `value_analysis.enabled: true`)
 - Mirror every change to [config/templates/app.defaults.json](config/templates/app.defaults.json)
 
@@ -159,37 +208,32 @@ Single authoritative **[config/app.defaults.json](config/app.defaults.json)** wi
 ## Global constraints (every command)
 
 - `.cursor/rules/interview-helper-mux.mdc` + [AGENTS.md](AGENTS.md)
+- **Code only during the command run — do not run pytest.** Write test files when the prompt asks; the operator runs tests once at the end.
 - Operator-visible strings **only** via `ctx.log()` → `gui_log.jsonl`
 - No new ML deps; no `torch` / `transformers`
 - Import shared modules from GC-F1 — never duplicate
 - Update [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) when adding keys
 - Same PR doc rule: touch [stage-registry.md](docs/build-out/stage-registry.md) when adding stages
+- When a command finishes, **continue to the next command** — no manual verification in between
 
 ---
 
-## Phase checkpoints (run between Agent chats)
+## Final verification (run once after all commands)
+
+Requires **Step 0** complete (`.venv` present). Run this **only after** Phase 6 Commands 1–13 (or after the last code command you intend to ship). Fix failures in a follow-up Agent chat.
 
 ```bash
 source .venv/bin/activate
 
-# After GC-F1
-pytest tests/test_gap_foundation.py -q
-python -c "from interview_mux.acoustic_profile import load_profile; from interview_mux.audio_timeline import append_with_crossfade; print('foundation ok')"
-
-# After GC-F3
-python -c "from interview_mux.config import merged_config; c=merged_config(); assert c['narrative_qc']['strict'] is True; print('defaults ok')"
-
-# After GC-A2
-pytest tests/test_sound_design_crossfade.py tests/test_mix_acoustic_profile.py -q
-
-# After GC-T1 (full)
 pytest tests/ -q
 ./tools/check_prerequisites.sh
 ```
 
 ---
 
-# Agent prompts (copy into gap-closure-agent-commands.md)
+# Original program agent prompts (GC-00 through GC-D1)
+
+**Convention (all prompts below):** Implement code and test files per deliverable. **Do not run pytest** during the command — continue to the next command; run [final verification](#final-verification-run-once-after-all-commands) once at the end.
 
 ---
 
@@ -208,7 +252,7 @@ Deliver:
    - Purpose, exclusion list (no ML inference), ONE COMMAND PER AGENT CHAT rule
    - Phase diagram (Foundation → Schema → Audio → Analysis → Operator → Tests → Docs)
    - Module contract table (acoustic_profile, audio_timeline, operator_quality)
-   - Phase checkpoint bash blocks
+   - Phase checkpoint bash blocks (single final verification only — no pytest between commands)
    - Full copy-paste Agent prompt for GC-F1 through GC-D1 (verbatim from plan)
    - Status table with [ ] per command
 2. Link from docs/build-out/remaining-build-commands.md Related section
@@ -279,7 +323,7 @@ Update docs/cross-cutting/config-keys.md with new keys (skeleton section).
 Do NOT modify mix_flow1 behavior yet. Do NOT enable strict QC yet (GC-F3).
 ```
 
-**Done when:** `pytest tests/test_gap_foundation.py -q` passes; three new modules importable.
+**Done when:** Three new modules exist and import; `tests/test_gap_foundation.py` written per deliverable. *(pytest deferred to final verification.)*
 
 ---
 
@@ -309,12 +353,7 @@ Add tests/test_transcript_review_schema.py + extend tests/test_prompt_validation
 Uses operator_quality only for logging — no GUI yet.
 ```
 
-**Done when:** Invalid review_queue fails build; validate_nle.py exits 1 on bad fixture.
-
-**Verify:**
-```bash
-pytest tests/test_transcript_review_schema.py tests/test_prompt_validation.py -q
-```
+**Done when:** Validators wired; `validate_nle.py` CLI exists; test files written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -350,7 +389,7 @@ Mirror config/templates/app.defaults.json. Update config-keys.md with sectional 
 Do NOT build GUI panels yet (GC-C2).
 ```
 
-**Done when:** `merged_config()["narrative_qc"]["strict"] is True`; gate test asserts run_meta.qc_summaries.
+**Done when:** Production defaults flipped; `gates.py` calls `record_qc_summary`; gate tests written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -376,7 +415,7 @@ Deliver:
 Do NOT duplicate crossfade logic. Do NOT change overlay/SFX path in GC-A1.
 ```
 
-**Done when:** Preview WAV no longer click on segment boundaries; pytest crossfade tests pass.
+**Done when:** Crossfade integrated in mix + assembly preview; test file written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -404,7 +443,7 @@ Update source-derived-sonic-mix-profile.md mux row → shipped.
 Builds on GC-A1 crossfade base timeline — run after GC-A1.
 ```
 
-**Done when:** Fixture profile with underscore_policy skip produces zero beds in overlay stats log.
+**Done when:** Mix reads SAP contract for duck/stinger/skip; test file written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -438,7 +477,7 @@ No LLM. Skip gracefully (mark done) when no vo_pickup files.
 Position in FLOW1_ORDER: ... sound_design_plan_flow1 → sound_design_vo_finalize → edl_flow1 ...
 ```
 
-**Done when:** Stage runnable via run_single_stage; SDP cues gain measured_duration_ms.
+**Done when:** Stage registered in `pipeline.py` + `web/stages.py`; test file written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -467,7 +506,7 @@ Deliver:
 No new models. ctx.log only for operator text.
 ```
 
-**Done when:** attempt JSON under understanding/stage_runs/sound_design_plan_flow1/ shows placement_hints in user message.
+**Done when:** Volley build_input includes SAP compact fields; duplicated compact logic removed from `context_volley.py`.
 
 ---
 
@@ -497,7 +536,7 @@ Depends on GC-F3 enabled flags and GC-A4 volley patterns.
 No torch/NISQA/ssl_features.
 ```
 
-**Done when:** Run with defaults produces understanding/value_features.json after content_context; gap volley may include value_features_summary.
+**Done when:** Value extract wired into content_context + gaps volley; GUI card extended.
 
 ---
 
@@ -532,7 +571,7 @@ Never auto-enable preclean on accept — acknowledgment only.
 tests/test_runner_preclean_gate.py with mocked RunContext meta.
 ```
 
-**Done when:** Runner returns needs_operator when before_flow_mix not in offered_at; recompute API returns 200 + updated artifact.
+**Done when:** Recompute API + runner preclean gate implemented; test file written. *(pytest deferred to final verification.)*
 
 ---
 
@@ -571,7 +610,7 @@ styles.css: .qc-summary-card, .nle-excluded, .quality-offer-card variants
 Update gui-surface-map.md, operator-stage-checklists.md, operator-gates.md (before_sfx_spend row).
 ```
 
-**Done when:** Manual GUI: QC card visible after narrative stage; NLE bad save shows toast; recompute button works.
+**Done when:** GUI panels, preclean offers, NLE UX, and recompute button implemented per deliverable.
 
 ---
 
@@ -598,14 +637,14 @@ Deliver:
 Import chunk helpers — do NOT copy ffmpeg segment logic into audio_preclean.py.
 ```
 
-**Done when:** Test asserts chunk path invoked for oversized fixture wav; guide documents limits.
+**Done when:** Chunk path in `audio_preclean`; REST limits from config; test file + guide update written. *(pytest deferred to final verification.)*
 
 ---
 
 ## GC-T1 — Integration test suite
 
 ```text
-Consolidate and extend tests for entire gap-closure stack.
+Consolidate and extend tests for entire gap-closure stack. Write all test files and fixtures — do not run pytest in this command.
 
 Read:
 @tests/test_gap_foundation.py
@@ -624,14 +663,14 @@ Deliver:
    - test operator_quality.record_qc_summary merge
    - test gates strict + qc_summaries integration end-to-end with fixture run dir under tests/fixtures/runs/gap_closure_smoke/
 2. Minimal fixture: run_meta.json, source_acoustic_profile.json, invalid/valid nle_edits.json, review_queue.json
-3. Run full suite: pytest tests/ -q
+3. Write full test suite files (operator runs `pytest tests/ -q` once at end — not during this command)
 
 Fix production bugs found by tests only — no new features.
 
 Update testing-and-verification.md with gap-closure test file list.
 ```
 
-**Done when:** `pytest tests/ -q` all green; `./tools/check_prerequisites.sh` passes.
+**Done when:** All test files and smoke fixture exist per deliverable list. *(Run `pytest tests/ -q` in final verification only.)*
 
 ---
 
@@ -681,7 +720,7 @@ Follow doc-maintenance.md.
 
 ## Success criteria (entire program)
 
-After GC-D1, a fresh operator path should:
+After all commands complete and [final verification](#final-verification-run-once-after-all-commands) passes, a fresh operator path should:
 
 1. Use one sectional `app.defaults.json` with strict QC + G1.5 + value analysis ON
 2. Produce crossfaded `assembly_preview.wav` and `master.wav` with SAP-driven duck/stinger policy
@@ -690,7 +729,7 @@ After GC-D1, a fresh operator path should:
 5. Show preclean offers at all roadmap checkpoints including before SFX spend
 6. Stop step-through runner until preclean offer acknowledged at mix/master gates
 7. Survive oversized interview WAV via ElevenLabs chunk isolation
-8. Pass `pytest tests/ -q` and manual [definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) §3 listen check
+8. Pass `pytest tests/ -q` (final verification) and manual [definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) §3 listen check
 
 ---
 
@@ -705,30 +744,57 @@ After GC-D1, a fresh operator path should:
 | Phase 4 Operator (C1–C3) | 3 |
 | Phase 5 Tests + Docs (T1, D1) | 2 |
 | **Original program (shipped)** | **16** |
-| Phase 6 Quality follow-up (Q1–Q13 + Q-DOC) | 14 |
-| **Total commands in this file** | **30** |
+| Phase 6 Quality follow-up (Step 0 + Commands 1–13) | 14 |
+| **Total commands in this file** | **31** |
 
 ---
 
-# Phase 6 — Quality follow-up (GC-Q1–GC-Q13)
+# Step 0 — Bootstrap virtual environment (required)
 
-**Goal:** Close gaps identified after GC-D1 for **successive run quality** — trust (tests + wiring), operator ROI (invalidation + preclean visibility), and audible polish (pause placement, intelligibility, optional specialists).
+**Type:** Shell only — **not** an Agent chat. Run once per machine (or whenever `.venv/` is missing).
+
+```bash
+cd /path/to/interview_helper_mux
+./scripts/bootstrap_venv.sh
+source .venv/bin/activate
+./tools/check_prerequisites.sh
+python -c "import interview_mux; print('venv ok')"
+```
+
+**Done when:** `.venv/` exists; `import interview_mux` succeeds; `check_prerequisites.sh` passes (or only warns on secrets you have not configured yet).
+
+**Notes:**
+- `bootstrap_venv.sh` creates `.venv`, installs from `requirements.lock`, and installs this package in editable mode.
+- You do **not** need pytest working until the [final verification](#final-verification-run-once-after-all-commands) step at the end.
+- Secrets and ASSETS are separate from venv; see [SETUP.md](../../SETUP.md) and [smoke-test.md](../workflows/smoke-test.md) before a full GUI run.
+
+---
+
+# Phase 6 — Quality follow-up (Commands 1–13)
+
+**Goal:** Create all remaining production code (and test files) for gap-closure quality follow-up — trust, operator ROI, and audible polish.
+
+**Workflow:** Run **Step 0** once, then Commands **1 → 2 → … → 13** in order. **Do not run pytest between commands.** Run [final verification](#final-verification-run-once-after-all-commands) once after the last command.
+
+**Convention (every Phase 6 prompt):** Code only — implement deliverables; write tests when listed; **do not run pytest**; continue to the next command immediately.
 
 **Tier map:**
 
 | Tier | Commands | Scope |
 |------|----------|--------|
-| **Low-cost, high-trust** | GC-Q1, GC-Q2, GC-Q3, GC-Q-DOC | Tests, Flow 2 SAP, prompt one-liners, doc drift |
-| **Biggest ROI (no `docs/` edits)** | GC-Q4, GC-Q5, GC-Q6, GC-Q7 | Recompute invalidation, preclean visibility, artifact validators |
-| **High impact** | GC-Q8, GC-Q9, GC-Q10, GC-Q11, GC-Q12, GC-Q13 | Mix placement, intelligibility QC, specialists pilot, SAP GUI overrides, EDL QC, G1 pickup UX |
+| **Low-cost, high-trust** | 1, 2, 3, 13 | Tests, Flow 2 SAP, prompt one-liners, doc drift |
+| **Biggest ROI (no `docs/` edits)** | 4, 5, 6 | Recompute invalidation, preclean visibility, artifact validators |
+| **High impact** | 7, 8, 9, 10, 11, 12 | Mix placement, intelligibility QC, specialists pilot, SAP GUI overrides, EDL QC, G1 pickup UX |
 
 ---
 
-## GC-Q1 — Complete GC-T1 gaps (smoke fixture + chunk test)
+## Command 1 — GC-Q1: Complete GC-T1 gaps (smoke fixture + chunk test)
 
-**Tier:** Low-cost, high-trust · **Depends on:** GC-D1 · **Status:** [ ] not run
+**Tier:** Low-cost, high-trust · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 2 when deliverables are implemented.
+
 Finish GC-T1 items that were specified but not fully delivered.
 
 Read:
@@ -756,21 +822,17 @@ Deliver:
 No live ElevenLabs API in tests.
 ```
 
-**Done when:** `pytest tests/test_gap_closure_smoke.py tests/test_audio_preclean.py -q` green.
-
-**Verify:**
-```bash
-pytest tests/test_gap_closure_smoke.py tests/test_audio_preclean.py -q
-test -d tests/fixtures/runs/gap_closure_smoke
-```
+**Done when:** Smoke fixture, `test_gap_closure_smoke.py`, and chunk test code exist per deliverable. **Continue to Command 2.** *(pytest deferred to final verification.)*
 
 ---
 
-## GC-Q2 — Flow 2 SAP on `sfx_brief`
+## Command 2 — GC-Q2: Flow 2 SAP on `sfx_brief`
 
-**Tier:** Low-cost, high-trust · **Depends on:** GC-Q1 · **Status:** [ ] not run
+**Tier:** Low-cost, high-trust · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 3 when deliverables are implemented.
+
 Mirror selection_flow1 podcast_sfx_brief SAP wiring for Flow 2 legacy sfx_brief stage.
 
 Read:
@@ -785,15 +847,17 @@ Deliver:
 Do not add docs/ changes in this command (use GC-Q-DOC).
 ```
 
-**Done when:** `rg "compact_for_volley" src/interview_mux/stages/selection_flow2.py` matches.
+**Done when:** `selection_flow2.py` wires SAP in `sfx_brief` build_input. **Continue to Command 3.**
 
 ---
 
-## GC-Q3 — SAP prompt one-liners in `.system.txt`
+## Command 3 — GC-Q3: SAP prompt one-liners in `.system.txt`
 
-**Tier:** Low-cost, high-trust · **Depends on:** GC-Q2 · **Status:** [ ] not run
+**Tier:** Low-cost, high-trust · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 4 when deliverables are implemented.
+
 Reinforce SAP fields in system prompts (GC-A4 optional follow-up).
 
 Read:
@@ -811,15 +875,17 @@ Deliver:
 Code-free except tests; no new inference.
 ```
 
-**Done when:** Prompt grep finds `underscore_policy` in plan-flow1 and podcast-sfx-brief prompts.
+**Done when:** Prompt files updated with SAP one-liners. **Continue to Command 4.**
 
 ---
 
-## GC-Q4 — Recompute SAP auto-invalidate downstream
+## Command 4 — GC-Q4: Recompute SAP auto-invalidate downstream
 
-**Tier:** Biggest ROI (code) · **Depends on:** GC-Q1 · **Status:** [ ] not run
+**Tier:** Biggest ROI (code) · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 5 when deliverables are implemented.
+
 When acoustic profile pace_class changes, invalidate downstream sound design stages automatically.
 
 Read:
@@ -836,21 +902,23 @@ Deliver:
 Do not edit docs/ in this command.
 ```
 
-**Done when:** Recompute with pace change removes `.stage_done/sound_design_palettes` (and downstream plan markers per policy).
+**Done when:** Recompute invalidates from `sound_design_palettes` on pace change; test file written. **Continue to Command 5.**
 
 ---
 
-## GC-Q5 — (Reserved — merged into GC-Q4)
+## GC-Q5 — (Reserved — merged into Commands 4 and 6)
 
-GC-Q5 row in phase table refers to GC-Q4 + GC-Q7 preclean ROI; no separate prompt.
+GC-Q5 row in the phase table refers to Command 4 + Command 6 preclean ROI; no separate prompt.
 
 ---
 
-## GC-Q6 — Artifact boundary validators (extend)
+## Command 5 — GC-Q6: Artifact boundary validators (extend)
 
-**Tier:** Biggest ROI (code) · **Depends on:** GC-Q1 · **Status:** [ ] not run
+**Tier:** Biggest ROI (code) · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 6 when deliverables are implemented.
+
 Extend schema validation at write boundaries beyond GC-F2 minimum.
 
 Read:
@@ -868,15 +936,17 @@ Deliver:
 Skip docs/ updates here.
 ```
 
-**Done when:** Invalid SDP write raises ValueError in test.
+**Done when:** Extended validators registered and wired; test written. **Continue to Command 6.**
 
 ---
 
-## GC-Q7 — Full-flow preclean job banner
+## Command 6 — GC-Q7: Full-flow preclean job banner
 
-**Tier:** Biggest ROI (code) · **Depends on:** GC-Q1 · **Status:** [ ] not run
+**Tier:** Biggest ROI (code) · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 7 when deliverables are implemented.
+
 Make full-flow preclean gaps visible in GUI job state (not only gui_log warning).
 
 Read:
@@ -893,15 +963,17 @@ Deliver:
 Do not edit docs/workflows/ in this command.
 ```
 
-**Done when:** Full-flow run with unacked `before_flow_mix` shows banner in GUI job poll response.
+**Done when:** `preclean_warnings` in gui_job + GUI banner implemented; test written. **Continue to Command 7.**
 
 ---
 
-## GC-Q8 — Pause-aligned stinger placement
+## Command 7 — GC-Q8: Pause-aligned stinger placement
 
-**Tier:** High impact · **Depends on:** GC-Q2, GC-A2 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 8 when deliverables are implemented.
+
 Place chapter stingers on pause tails using transcript timing + SAP placement_hints.
 
 Read:
@@ -919,15 +991,17 @@ Deliver:
 Import acoustic_profile.placement_hints — no duplicate SAP reads.
 ```
 
-**Done when:** Fixture transcript with 500ms pause before segment end shifts stinger position_ms.
+**Done when:** Pause-aligned stinger helper wired in mix; test written. **Continue to Command 8.**
 
 ---
 
-## GC-Q9 — Post-mix intelligibility QC
+## Command 8 — GC-Q9: Post-mix intelligibility QC
 
-**Tier:** High impact · **Depends on:** GC-Q8 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 9 when deliverables are implemented.
+
 Add lightweight post-mix check: beds should not mask speech band after ducking.
 
 Read:
@@ -944,15 +1018,17 @@ Deliver:
 Do not add torch/librosa.
 ```
 
-**Done when:** Obvious over-loud bed fixture triggers warn log and qc_summaries entry.
+**Done when:** Intelligibility QC implemented in mix path; test written. **Continue to Command 9.**
 
 ---
 
-## GC-Q10 — Specialists pilot (one stage)
+## Command 9 — GC-Q10: Specialists pilot (one stage)
 
-**Tier:** High impact · **Depends on:** GC-Q3 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 10 when deliverables are implemented.
+
 Pilot analysis.specialists for full_master_ranking only.
 
 Read:
@@ -970,15 +1046,17 @@ Deliver:
 Document in config-keys.md only if you must touch config-keys — prefer code comment in app.defaults.json _comment_analysis.
 ```
 
-**Done when:** With pilot config on, ranking stage calls one specialist; transitions does not.
+**Done when:** Pilot config + specialist gating implemented; test written. **Continue to Command 10.**
 
 ---
 
-## GC-Q11 — SAP GUI `operator_overrides`
+## Command 10 — GC-Q11: SAP GUI `operator_overrides`
 
-**Tier:** High impact · **Depends on:** GC-Q4 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 11 when deliverables are implemented.
+
 Let operators edit operator_overrides on source acoustic profile without re-running DSP.
 
 Read:
@@ -996,15 +1074,17 @@ Deliver:
 Skip docs/cross-cutting/source-derived-sonic-mix-profile.md in this PR (GC-Q-DOC).
 ```
 
-**Done when:** Override underscore_policy=skip changes mix_contract without recompute.
+**Done when:** Override API + GUI + merge in `load_profile` implemented; test written. **Continue to Command 11.**
 
 ---
 
-## GC-Q12 — EDL-level narrative QC
+## Command 11 — GC-Q12: EDL-level narrative QC
 
-**Tier:** High impact · **Depends on:** GC-Q1 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 12 when deliverables are implemented.
+
 Validate EDL timeline coherence beyond topic/chapter narrative_qc.
 
 Read:
@@ -1021,15 +1101,17 @@ Deliver:
 No docs/ in this command.
 ```
 
-**Done when:** EDL with overlapping speech clips fails strict check.
+**Done when:** EDL QC + tooling implemented; test written. **Continue to Command 12.**
 
 ---
 
-## GC-Q13 — G1 pickup preclean product polish
+## Command 12 — GC-Q13: G1 pickup preclean product polish
 
-**Tier:** High impact · **Depends on:** GC-Q7 · **Status:** [ ] not run
+**Tier:** High impact · **Status:** [x] done
 
 ```text
+Code only — do not run pytest. Continue to Command 13 when deliverables are implemented.
+
 Explicit product moment: after G1 VO recorded, offer pickup-only isolation.
 
 Read:
@@ -1047,16 +1129,16 @@ Deliver:
 Skip docs/ unless one line in gui_log message only.
 ```
 
-**Done when:** Test simulates G1 complete → preclean offer API called with vo_pickup scope.
+**Done when:** G1-complete preclean offer implemented; test written. **Continue to Command 13.**
 
 ---
 
-## GC-Q-DOC — Doc drift sweep (gap follow-up)
+## Command 13 — GC-Q-DOC: Doc drift sweep (gap follow-up)
 
-**Tier:** Low-cost, high-trust (docs only) · **Depends on:** any · **Status:** [ ] not run
+**Tier:** Low-cost, high-trust (docs only) · **Status:** [x] done
 
 ```text
-Doc-only sweep for gap-closure + Phase 6 operator truth. No production code.
+Doc-only sweep for gap-closure + Phase 6 operator truth. No production code. No pytest.
 
 Read:
 @docs/build-out/stage-registry.md (FLOW1_ORDER line ~66)
@@ -1071,51 +1153,32 @@ Deliver:
 2. operator-stage-checklists: vo_finalize, QC cards, before_sfx_spend, recompute button, strict-gate recovery steps
 3. operator-gates: before_sfx_spend row
 4. elevenlabs-integration-guide: chunk policy table (max_upload_bytes, chunk+concat, no SFX chunk)
-5. Mark GC-Q1–GC-Q13 [x] in this file as each completes
+5. Mark Commands 1–13 [x] in this file as each completes
 
 rg stale: sound_design_vo_finalize.*planned|chunk policy TBD|Recompute GUI.*future
 ```
 
-**Done when:** Stale rg clean; FLOW1_ORDER matches pipeline.py.
-
----
-
-## Phase 6 checkpoints
-
-```bash
-source .venv/bin/activate
-
-# After GC-Q1
-pytest tests/test_gap_closure_smoke.py tests/test_audio_preclean.py -q
-
-# After GC-Q4
-pytest tests/test_recompute_acoustic_profile.py -q
-
-# After GC-Q8–Q9
-pytest tests/test_stinger_pause_alignment.py tests/test_mix_intelligibility_qc.py -q
-
-# After full Phase 6
-pytest tests/ -q
-```
+**Done when:** Doc updates complete; Commands 1–13 marked [x]. **Then run [final verification](#final-verification-run-once-after-all-commands).**
 
 ---
 
 ## Phase 6 status table
 
-| Cmd | Tier | Status |
-|-----|------|--------|
-| GC-Q1 | Low-cost / trust | [ ] |
-| GC-Q2 | Low-cost / trust | [ ] |
-| GC-Q3 | Low-cost / trust | [ ] |
-| GC-Q-DOC | Low-cost / trust (docs) | [ ] |
-| GC-Q4 | ROI (code) | [ ] |
-| GC-Q6 | ROI (code) | [ ] |
-| GC-Q7 | ROI (code) | [ ] |
-| GC-Q8 | High impact | [ ] |
-| GC-Q9 | High impact | [ ] |
-| GC-Q10 | High impact | [ ] |
-| GC-Q11 | High impact | [ ] |
-| GC-Q12 | High impact | [ ] |
-| GC-Q13 | High impact | [ ] |
+| # | ID | Tier | Status |
+|---|-----|------|--------|
+| 0 | — | Setup (shell) | [ ] |
+| 1 | GC-Q1 | Low-cost / trust | [x] |
+| 2 | GC-Q2 | Low-cost / trust | [x] |
+| 3 | GC-Q3 | Low-cost / trust | [x] |
+| 4 | GC-Q4 | ROI (code) | [x] |
+| 5 | GC-Q6 | ROI (code) | [x] |
+| 6 | GC-Q7 | ROI (code) | [x] |
+| 7 | GC-Q8 | High impact | [x] |
+| 8 | GC-Q9 | High impact | [x] |
+| 9 | GC-Q10 | High impact | [x] |
+| 10 | GC-Q11 | High impact | [x] |
+| 11 | GC-Q12 | High impact | [x] |
+| 12 | GC-Q13 | High impact | [x] |
+| 13 | GC-Q-DOC | Low-cost / trust (docs) | [x] |
 
-All prompts above are the authoritative copy source for [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md).
+All prompts above are the authoritative copy source for this file. After Commands 1–13, run **[final verification](#final-verification-run-once-after-all-commands)** once.

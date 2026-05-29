@@ -412,6 +412,7 @@ Modules: `llm_stage_routing.py`, `llm_shard_plans.py`, `llm_routing_debug.py`, `
 
 ## Related
 
+- [gap-closure-agent-commands.md](./gap-closure-agent-commands.md) — gap-closure Agent queue (GC-00–GC-D1 shipped; Phase 6 follow-up)  
 - [steps-forward.md](./steps-forward.md) — historical backlog + shipped Agent prompts  
 - [g15-and-value-analysis-execution.md](./g15-and-value-analysis-execution.md) — G1.5 / VA track (mostly shipped)  
 - [implementation-guide.md](./implementation-guide.md) — phased build plan  

@@ -157,7 +157,15 @@ xi-api-key: <ELEVENLABS_API_KEY>
 Content-Type: multipart/form-data
 ```
 
-Long files: streaming endpoint per ElevenLabs docs (chunk policy TBD at implementation).
+**Upload size policy (shipped):**
+
+| Path | When | Behavior |
+|------|------|----------|
+| **Audio isolation** (`audio_preclean`) | Source WAV > `elevenlabs.max_upload_bytes` (default 52 428 800 / 50 MiB) | `audio_timeline.chunk_wav_by_max_bytes` → isolate each chunk via REST → `concat_clips_with_crossfade` (80 ms default) → `preclean/isolated.wav`; logs `elevenlabs_chunked_isolation` |
+| **Audio isolation** | Source ≤ limit | Single POST `/v1/audio-isolation` |
+| **SFX generation** | Any size | **No chunking** — prompts are short; one REST call per `asset_id`. Oversized uploads are not applicable |
+
+Config: `elevenlabs.max_upload_bytes` in [config-keys.md](./config-keys.md). Oversized single-shot isolation without chunk path raises `ElevenLabsApiError` with guidance to use chunked pre-clean.
 
 **Implementation (repo):**
 

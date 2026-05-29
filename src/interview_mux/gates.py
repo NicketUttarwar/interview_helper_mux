@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from interview_mux.config import merged_config
+from interview_mux.edl_qc import validate_flow1_edl
 from interview_mux.narrative_qc import validate_flow1_narrative
 from interview_mux.operator_quality import record_qc_summary
 from interview_mux.run_context import RunContext
@@ -218,6 +219,57 @@ def check_narrative_qc(
             f"narrative_qc strict: {len(errors)} issue(s) before {stage}. "
             f"Fix coverage_audit / selection or set narrative_qc.strict=false. "
             f"Run: python tools/validate_narrative.py --run-id {ctx.run_id}"
+        )
+
+
+def edl_qc_strict_enabled() -> bool:
+    eqc = merged_config().get("edl_qc") or {}
+    return bool(eqc.get("strict"))
+
+
+def check_edl_qc(
+    ctx: RunContext,
+    *,
+    stage: str,
+    edl: dict | None = None,
+    strict: bool | None = None,
+) -> None:
+    """Warn or block on Flow 1 EDL timeline QC before mix or after EDL build."""
+    errors = validate_flow1_edl(ctx, edl)
+    use_strict = edl_qc_strict_enabled() if strict is None else strict
+    if not errors:
+        ctx.log(
+            "Flow 1 EDL QC passed",
+            level="success",
+            stage=stage,
+            detail="edl_qc_pass",
+        )
+        record_qc_summary(
+            ctx,
+            "edl_qc",
+            {"passed": True, "errors": [], "strict": use_strict, "at_stage": stage},
+        )
+        return
+
+    summary = "; ".join(errors[:6])
+    if len(errors) > 6:
+        summary += f" (+{len(errors) - 6} more)"
+    ctx.log(
+        f"Flow 1 EDL QC failed ({len(errors)} issue(s)): {summary}",
+        level="error" if use_strict else "warn",
+        stage=stage,
+        detail="edl_qc_fail",
+    )
+    record_qc_summary(
+        ctx,
+        "edl_qc",
+        {"passed": False, "errors": errors[:12], "strict": use_strict, "at_stage": stage},
+    )
+    if use_strict:
+        raise SystemExit(
+            f"edl_qc strict: {len(errors)} issue(s) before {stage}. "
+            f"Fix flow_1_master/edl.json or re-run edl_flow1. "
+            f"Run: python tools/validate_edl.py --run-id {ctx.run_id}"
         )
 
 

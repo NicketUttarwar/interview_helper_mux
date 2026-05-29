@@ -4,6 +4,11 @@ Use `selection.highlights` (ranks and moods) from input.
 
 Each transition is a production cue for editors — stingers, whooshes, risers, hits, beds — not final audio files.
 
+When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, honor `mix_contract`:
+- If `underscore_policy` is `skip`, avoid bed-type transitions; favor stingers and silence between clips.
+- Match transition intensity to `pace_class` — sparser effects when speech is `dense` or pauses are short.
+- Respect duck depth from `mix_contract`; do not plan rhythmic beds under speech unless policy explicitly allows pulse.
+
 Rules:
 - Intelligibility first: duck music/SFX under speech; never obscure words.
 - Match mood to clip pair: tension → release, insight → punchline.

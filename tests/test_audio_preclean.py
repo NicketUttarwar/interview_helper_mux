@@ -73,3 +73,33 @@ def test_audio_preclean_vo_pickup_scope(tmp_path, monkeypatch) -> None:
     lineage = ctx.read_json("preclean/lineage.json")
     assert lineage["scope"] == "vo_pickup"
     assert lineage["files"][0]["output_path"] == "vo_pickup/clean/line_001.wav"
+
+
+def test_audio_preclean_chunk_path_for_oversized_wav(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_chunk", create=True)
+    src = tmp_path / "input.wav"
+    _write_wav(src, seconds=2.0)
+    assert src.stat().st_size > 500
+    ctx.init_run_meta(str(src))
+
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
+    ctx.write_json("run_meta.json", meta)
+
+    monkeypatch.setattr(audio_preclean, "require_secret", lambda _: "test-key")
+    monkeypatch.setattr(
+        "interview_mux.elevenlabs_rest._max_upload_bytes",
+        lambda: 500,
+    )
+    monkeypatch.setattr(
+        audio_preclean,
+        "isolate_audio",
+        lambda **kwargs: kwargs["audio_bytes"],
+    )
+
+    out = audio_preclean.run_audio_preclean(ctx)
+    assert out == ctx.path("preclean", "isolated.wav")
+    assert out.is_file()
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "elevenlabs_chunked_isolation" in log_text

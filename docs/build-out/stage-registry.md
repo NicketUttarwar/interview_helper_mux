@@ -63,7 +63,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Flow 1 — full master podcast
 
-**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `edl_flow1` → `assembly_preview` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow1` → `mix_flow1` → `master_flow1`
+**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_flow1` → `assembly_preview` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow1` → `mix_flow1` → `master_flow1`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -72,6 +72,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `full_master_ranking` | shipped | `selection_flow1.py` | BUILD-031 | `flow_1_master/selection.json` | `selection/full-master-ranking` |
 | `transitions` | shipped | `selection_flow1.py` | BUILD-032 | `flow_1_master/transitions.json` | `assembly/transitions` |
 | `sound_design_plan_flow1` | shipped | `sound_design_stages.py` | BUILD-062 | SDP `assets` + `flow_plans.flow1.cues` | `sound_design/plan-flow1` |
+| `sound_design_vo_finalize` | shipped | `sound_design_vo_finalize.py` | BUILD-066 / gap-closure | SDP `flow_plans.flow1.cues[]` — `measured_duration_ms` from `vo_pickup/` WAVs | — |
 | `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` — speech + `vo_pickup` + transition events | — |
 | `assembly_preview` | shipped | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` (speech + VO, no SFX) | — |
 | `elevenlabs_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/elevenlabs_prompts.json` | craft per `asset_id` |
@@ -121,7 +122,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 | Stage id | Status | Ticket | Notes |
 |----------|--------|--------|-------|
-| `sound_design_vo_finalize` | shipped | BUILD-066 / gap-closure | VO bridge cue duration finalize from vo_pickup WAVs |
+| `sound_design_vo_finalize` | shipped (in `FLOW1_ORDER`) | BUILD-066 / gap-closure | VO bridge cue duration finalize from vo_pickup WAVs — see Flow 1 table above |
 | `_arbiter` | shipped (meta) | BUILD-073 | Meta-stage; not in operator UI — [llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md) |
 
 ---

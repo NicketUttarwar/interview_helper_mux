@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "derived_from": {
+    "normalized_wav": "ingest/normalized.wav",
+    "transcript": "transcript/full.json",
+    "computed_at": "2026-05-29T12:00:00+00:00",
+    "stage": "source_acoustic_profile"
+  },
+  "pacing": {
+    "global_wpm": 142,
+    "wpm_by_quartile": [130, 140, 145, 150],
+    "pause_p50_ms": 680,
+    "pace_class": "conversational"
+  },
+  "energy": {
+    "room_timbre_hint": "dry_close_mic_warm_low_mid"
+  },
+  "mix_contract": {
+    "underscore_policy": "normal",
+    "duck_under_speech_db": 16
+  },
+  "prompt_tokens": {
+    "bed": "loopable ambient bed, no melody hook",
+    "stinger": "soft mid-register rise under 1.5s",
+    "avoid": "trailer whoosh, drum loop",
+    "density": "normal beds; pace=conversational"
+  },
+  "placement_hints": {
+    "stinger_density": "low",
+    "prefer_stinger_after_pause_tail": true
+  },
+  "operator_overrides": {}
+}

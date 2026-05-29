@@ -61,11 +61,12 @@ Optional CI: same command on every PR that touches `requirements.txt` or `requir
 
 ## Python packages (application)
 
-Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.lock` at repo root. Table below mirrors lock as of **`last_verified: 2026-05-27`** — if lock and table disagree, **lock wins**.
+Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.lock` at repo root. Table below mirrors lock as of **`last_verified: 2026-05-29`** — if lock and table disagree, **lock wins**.
 
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `fastapi` | 0.136.3 | Web GUI `/api/*` |
+| `python-multipart` | 0.0.29 | FastAPI form/file uploads (`UploadFile`, multipart endpoints) |
 | `uvicorn[standard]` | 0.47.0 | ASGI server for `serve` |
 | `starlette` | 1.1.0 | (transitive) ASGI stack |
 | `pydantic` | 2.13.4 | Request/response models |

@@ -89,7 +89,7 @@ Re-derive when any of these change (bump `derived_from` hashes):
 - `ingest/normalized.wav`
 - `preclean/isolated.wav` (if used)
 - `transcript/full.json` or `transcript/corrections.json` applied to timings
-- Operator clicks **Recompute acoustic profile** (future GUI)
+- Operator clicks **Recompute acoustic profile** in GUI (`POST …/recompute-acoustic-profile`) or edits `operator_overrides` via the SAP panel
 
 Do **not** re-derive per ElevenLabs asset or per cue.
 
@@ -196,8 +196,8 @@ flowchart TB
 | `elevenlabs_prompt_craft` | `prompt_tokens`, `musical_intent` hints, `mix_contract` | 80–220 word prompts; `tempo_feel_bpm` only when allowed |
 | `podcast_sfx_brief` / `sfx_brief` (v1) | Compact summary | Until full SDP ships |
 | Post-gen analysis | Theme fit + **intelligibility under measured duck** | Regen / level_db tweaks |
-| `mux_flow*` (future) | `duck_under_speech_db`, pause-aligned gaps | Automated duck curves |
-| GUI **Interview profile** (future) | Editable overrides | Operator tune without re-running DSP |
+| `mix_flow*` / `mux_flow*` | `duck_under_speech_db`, pause-aligned stinger placement | SAP-driven duck + pause-tail alignment in `sound_design.py` |
+| GUI **Source acoustic profile** | Editable `operator_overrides` + **Recompute profile** | Operator tune without re-running full analysis — `POST …/recompute-acoustic-profile`, `PUT …/acoustic-profile/overrides` |
 
 ### Context volley slices
 
@@ -244,7 +244,7 @@ All ElevenLabs outputs for a run should obey the **same** `mix_contract`:
 |-------|------------|
 | Stage | `src/interview_mux/stages/understanding.py` (`run_source_acoustic_profile`) — pure Python + wave/numpy; no LLM required |
 | Config | `analysis.source_acoustic.enabled`, pause thresholds, WPM window seconds |
-| GUI | Read-only panel + override fields; **Recompute** button |
+| GUI | Shipped: **Recompute profile** button + `operator_overrides` panel on `source_acoustic_profile` stage |
 | Schema | `docs/cross-cutting/json-schemas/source_acoustic_profile.schema.json` |
 | Tests | Golden fixture from short WAV + synthetic transcript |
 

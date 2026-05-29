@@ -178,6 +178,23 @@ def test_validate_edl_flow1_minimal_ok():
     assert validate_edl_flow1(edl) == []
 
 
+SAP_PROMPT_FILES = [
+    Path("docs/prompts/sound_design/plan-flow1.system.txt"),
+    Path("docs/prompts/sound_design/plan-flow2.system.txt"),
+    Path("docs/prompts/sound_design/theme-palettes.system.txt"),
+    Path("docs/prompts/assembly/podcast-sfx-brief.system.txt"),
+    Path("docs/prompts/assembly/sfx-brief.system.txt"),
+]
+
+
+@pytest.mark.parametrize("prompt_path", SAP_PROMPT_FILES, ids=[p.name for p in SAP_PROMPT_FILES])
+def test_sap_prompt_files_mention_pace_class_and_underscore_policy(prompt_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    text = (repo_root / prompt_path).read_text(encoding="utf-8")
+    assert "pace_class" in text
+    assert "underscore_policy" in text
+
+
 def test_validate_highlights_requires_diversity_bonus():
     artifacts = {
         "highlights": [

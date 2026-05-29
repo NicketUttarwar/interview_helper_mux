@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,6 +119,11 @@ class TranscriptReviewCompleteBody(BaseModel):
 class AnalysisProfileBody(BaseModel):
     data: dict[str, Any]
     operator_verified: bool | None = None
+    invalidate_from: str | None = None
+
+
+class AcousticProfileOverridesBody(BaseModel):
+    overrides: dict[str, Any] = Field(default_factory=dict)
     invalidate_from: str | None = None
 
 
@@ -355,13 +361,54 @@ def create_app() -> FastAPI:
             stage="source_acoustic_profile",
             detail="acoustic_profile_recomputed",
         )
+        out: dict[str, Any] = {
+            "ok": True,
+            "profile": profile,
+            "derived_from": profile.get("derived_from"),
+            "prior_pace": prior_pace,
+            "new_pace": new_pace,
+        }
         if prior_pace and new_pace and prior_pace != new_pace:
+            cleared = _invalidate_sound_design_for_pace_change(ctx)
             ctx.log(
-                f"pace_class changed {prior_pace} → {new_pace}; consider re-running sound_design_palettes.",
-                level="info",
+                f"pace_class changed {prior_pace} → {new_pace}; invalidated downstream sound design.",
+                level="warning",
                 stage="source_acoustic_profile",
+                detail=f"acoustic_profile_invalidation: {json.dumps(cleared)}",
             )
-        return {"ok": True, "profile": profile, "derived_from": profile.get("derived_from")}
+            out["invalidated_from"] = "sound_design_palettes"
+        return out
+
+    @app.patch("/api/runs/{run_id}/acoustic-profile/overrides")
+    def patch_acoustic_profile_overrides(run_id: str, body: AcousticProfileOverridesBody) -> dict[str, Any]:
+        from interview_mux.acoustic_profile import SAP_PATH, load_profile, save_operator_overrides
+
+        ctx = _ctx(run_id)
+        if not ctx.artifact_exists(SAP_PATH):
+            raise HTTPException(404, "Source acoustic profile not found — run source_acoustic_profile first.")
+        try:
+            merged = save_operator_overrides(ctx, body.overrides)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, {"errors": [str(exc)]}) from exc
+        ctx.log(
+            "Acoustic profile operator overrides saved.",
+            level="success",
+            stage="source_acoustic_profile",
+            detail="acoustic_profile_override_saved",
+        )
+        if body.invalidate_from:
+            runner.invalidate_from(run_id, body.invalidate_from)
+        return {
+            "ok": True,
+            "operator_overrides": merged.get("operator_overrides", {}),
+            "effective": {
+                "pace_class": (merged.get("pacing") or {}).get("pace_class"),
+                "underscore_policy": (merged.get("mix_contract") or {}).get("underscore_policy"),
+            },
+            "profile": load_profile(ctx),
+        }
 
     @app.patch("/api/runs/{run_id}/nle/segment")
     def patch_nle_segment(run_id: str, body: NleSegmentBody) -> dict[str, Any]:
@@ -417,7 +464,17 @@ def create_app() -> FastAPI:
                     },
                 )
         write_json(ctx.path(body.path), body.data)
-        ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=body.invalidate_from)
+        stage = body.invalidate_from or "artifact_editor"
+        ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
+        if body.path == "understanding/source_acoustic_profile.json" and isinstance(body.data, dict):
+            overrides = body.data.get("operator_overrides")
+            if isinstance(overrides, dict) and overrides:
+                ctx.log(
+                    "Acoustic profile operator overrides saved.",
+                    level="success",
+                    stage="source_acoustic_profile",
+                    detail="acoustic_profile_override_saved",
+                )
         if body.invalidate_from:
             runner.invalidate_from(run_id, body.invalidate_from)
         return {"ok": True, "path": body.path}
@@ -723,6 +780,30 @@ def create_app() -> FastAPI:
     return app
 
 
+def _done_markers_from(ctx: RunContext, order: list[str], from_stage: str) -> list[str]:
+    if from_stage not in order:
+        return []
+    idx = order.index(from_stage)
+    return [s for s in order[idx:] if ctx.is_done(s)]
+
+
+def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
+    """Clear analysis + flow sound-design markers after pace_class change."""
+    from_stage = "sound_design_palettes"
+    cleared = _done_markers_from(ctx, ANALYSIS_ORDER, from_stage)
+    flow = get_selected_flow(ctx)
+    if flow == "flow1":
+        cleared.extend(_done_markers_from(ctx, FLOW1_ORDER, "sound_design_plan_flow1"))
+    elif flow == "flow2":
+        cleared.extend(_done_markers_from(ctx, FLOW2_ORDER, "sound_design_plan_flow2"))
+    runner.invalidate_from(ctx.run_id, from_stage)
+    if flow == "flow1":
+        ctx.clear_from("sound_design_plan_flow1", FLOW1_ORDER)
+    elif flow == "flow2":
+        ctx.clear_from("sound_design_plan_flow2", FLOW2_ORDER)
+    return cleared
+
+
 def _ctx(run_id: str) -> RunContext:
     if not RunContext.exists(run_id):
         raise HTTPException(404, f"Run not found: {run_id}")
@@ -846,11 +927,14 @@ def _record_preclean_offer(
         if checkpoint not in offered_at:
             offered_at.append(checkpoint)
             changed = True
-            ctx.log(
-                f"Quality offer shown: background noise removal ({checkpoint}).",
-                level="info",
-                stage="audio_preclean",
-            )
+            if checkpoint == "g1_vo_pickup":
+                ctx.log("g1_pickup_preclean_offered", level="info", stage="g1_vo_pickup")
+            else:
+                ctx.log(
+                    f"Quality offer shown: background noise removal ({checkpoint}).",
+                    level="info",
+                    stage="audio_preclean",
+                )
     elif action in {"accept", "dismiss"}:
         requested_scope = scope or preclean.get("scope") or _default_scope_for_checkpoint(checkpoint)
         if checkpoint not in offered_at:
@@ -869,12 +953,15 @@ def _record_preclean_offer(
             }
         )
         changed = True
-        verb = "accepted" if action == "accept" else "dismissed"
-        ctx.log(
-            f"Quality offer {verb}: background noise removal ({checkpoint}, scope={requested_scope}).",
-            level="success" if action == "accept" else "info",
-            stage="audio_preclean",
-        )
+        if action == "accept" and checkpoint == "g1_vo_pickup":
+            ctx.log("g1_pickup_preclean_accepted", level="success", stage="g1_vo_pickup")
+        else:
+            verb = "accepted" if action == "accept" else "dismissed"
+            ctx.log(
+                f"Quality offer {verb}: background noise removal ({checkpoint}, scope={requested_scope}).",
+                level="success" if action == "accept" else "info",
+                stage="audio_preclean",
+            )
     else:
         raise HTTPException(400, f"Unsupported offer action: {action}")
     preclean["offered_at"] = offered_at

@@ -9,9 +9,10 @@ from typing import Any
 
 from pydub import AudioSegment
 
-from interview_mux.acoustic_profile import load_profile, mix_contract
+from interview_mux.acoustic_profile import load_profile, mix_contract, placement_hints
 from interview_mux.audio_timeline import append_with_crossfade
 from interview_mux.config import merged_config
+from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.run_context import RunContext
 
 DEFAULT_FRAME_RATE = 48_000
@@ -122,6 +123,15 @@ def mix_flow1(ctx: RunContext) -> Path:
         stage="mix_flow1",
         detail=str(assembly),
     )
+    maybe_check_mix_intelligibility(
+        ctx,
+        assembly_path=assembly,
+        flow="flow1",
+        stage="mix_flow1",
+        speech_stem=base,
+        segment_timing=segment_timing,
+        contract=contract,
+    )
     ctx.mark_done("mix_flow1")
     return assembly
 
@@ -142,6 +152,7 @@ def mix_flow2(ctx: RunContext) -> Path:
     sdp = load_sound_design_plan(ctx)
     cue_plan = flow2_cues_from_sdp(ctx, sdp)
     mix = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
+    speech_montage = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     missing_assets: list[str] = []
 
     if cue_plan.get("before_timeline") and contract.get("underscore_policy") != "skip":
@@ -166,8 +177,10 @@ def mix_flow2(ctx: RunContext) -> Path:
         slice_audio = source[int(start_ms) : int(end_ms)]
         if len(mix) == 0:
             mix = slice_audio
+            speech_montage = slice_audio
         else:
             mix = append_with_crossfade(mix, slice_audio, crossfade_ms)
+            speech_montage = append_with_crossfade(speech_montage, slice_audio, crossfade_ms)
         rank = int(hl.get("rank") or (i + 1))
         if i + 1 < len(highlights):
             next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
@@ -213,6 +226,15 @@ def mix_flow2(ctx: RunContext) -> Path:
         stage="mix_flow2",
         detail=str(assembly),
     )
+    maybe_check_mix_intelligibility(
+        ctx,
+        assembly_path=assembly,
+        flow="flow2",
+        stage="mix_flow2",
+        speech_stem=speech_montage,
+        segment_timing={},
+        contract=contract,
+    )
     ctx.mark_done("mix_flow2")
     return assembly
 
@@ -246,6 +268,9 @@ def flow1_overlays_from_sdp(
     if contract.get("underscore_policy") == "skip":
         ctx.log("mix_flow1: underscore_skipped — no bed overlays", level="info", stage="mix_flow1")
         return []
+    profile = load_profile(ctx)
+    transcript = _load_transcript(ctx)
+    segments_by_id = _segments_by_id(ctx)
     plan = load_sound_design_plan(ctx)
     if not plan:
         return []
@@ -313,6 +338,16 @@ def flow1_overlays_from_sdp(
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
         if asset.get("role") == "chapter_stinger":
             cue_audio = cue_audio[: int(float(asset.get("duration_seconds", 1.8)) * 1000)]
+            pos = _align_stinger_to_pause_tail(
+                ctx,
+                pos=pos,
+                cue=cue,
+                placement=placement,
+                profile=profile,
+                transcript=transcript,
+                segments_by_id=segments_by_id,
+                segment_timing=segment_timing,
+            )
         role = "bridge" if placement == "before_segment" else "stinger"
         out.append({"audio": cue_audio, "position_ms": pos, "role": role})
 
@@ -326,15 +361,223 @@ def flow1_overlays_legacy(
     sfx_files = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
     if not sfx_files:
         return []
+    profile = load_profile(ctx)
+    transcript = _load_transcript(ctx)
+    segments_by_id = _segments_by_id(ctx)
+    ordered_seg_ids = sorted(segment_timing.keys(), key=lambda sid: segment_timing[sid][0])
     out: list[dict[str, Any]] = []
     bed = loop_to_duration(load_audio(sfx_files[0]), timeline_ms)
     out.append({"audio": bed.apply_gain(-36.0).fade_in(200).fade_out(250), "position_ms": 0, "role": "bed"})
     segment_ends = sorted(end for _start, end in segment_timing.values())
     for i, path in enumerate(sfx_files[1:]):
         pos = segment_ends[min(i, max(0, len(segment_ends) - 1))] if segment_ends else 0
+        fallback = max(0, pos - 40)
+        aligned = fallback
+        if ordered_seg_ids:
+            seg_id = ordered_seg_ids[min(i, len(ordered_seg_ids) - 1)]
+            segment = segments_by_id.get(seg_id)
+            if segment:
+                source_pos = resolve_stinger_position_ms(
+                    segment,
+                    transcript,
+                    profile,
+                    placement="after_segment",
+                )
+                mapped = _source_ms_to_timeline_ms(source_pos, segment, segment_timing)
+                if mapped is not None:
+                    aligned = mapped
+                    ctx.log(
+                        f"mix_flow1: stinger_aligned pause_tail segment={seg_id} pos={aligned}",
+                        level="info",
+                        stage="mix_flow1",
+                    )
         sting = load_audio(path).apply_gain(-16.0).fade_in(40).fade_out(180)
-        out.append({"audio": sting, "position_ms": max(0, pos - 40), "role": "stinger"})
+        out.append({"audio": sting, "position_ms": aligned, "role": "stinger"})
     return out
+
+
+def _load_transcript(ctx: RunContext) -> dict[str, Any]:
+    if not ctx.artifact_exists("transcript/full.json"):
+        return {}
+    data = ctx.read_json("transcript/full.json")
+    return data if isinstance(data, dict) else {}
+
+
+def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return {}
+    manifest = ctx.read_json("segments/manifest.json")
+    if not isinstance(manifest, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for seg in manifest.get("segments") or []:
+        if isinstance(seg, dict) and seg.get("segment_id"):
+            out[str(seg["segment_id"])] = seg
+    return out
+
+
+def _transcript_words(transcript: dict[str, Any]) -> list[dict[str, Any]]:
+    words = [
+        w
+        for w in (transcript.get("words") or [])
+        if isinstance(w, dict)
+        and isinstance(w.get("start_ms"), (int, float))
+        and isinstance(w.get("end_ms"), (int, float))
+    ]
+    words.sort(key=lambda w: float(w["start_ms"]))
+    return words
+
+
+def _words_in_segment_range(
+    transcript: dict[str, Any],
+    start_ms: int,
+    end_ms: int,
+    *,
+    lookback_ms: int = 0,
+) -> list[dict[str, Any]]:
+    lo = start_ms - lookback_ms
+    return [
+        w
+        for w in _transcript_words(transcript)
+        if float(w["end_ms"]) > lo and float(w["start_ms"]) < end_ms
+    ]
+
+
+def resolve_stinger_position_ms(
+    segment: dict[str, Any],
+    transcript: dict[str, Any],
+    profile: dict[str, Any] | None,
+    *,
+    placement: str = "before_segment",
+) -> int | None:
+    """Return source-time ms at a pause tail near the segment boundary, or None."""
+    hints = placement_hints(profile)
+    if not hints.get("prefer_stinger_after_pause_tail", True):
+        return None
+
+    min_pause = int(hints.get("stinger_min_pause_after_speech_ms", 400))
+    seg_start = int(segment.get("start_ms", 0))
+    seg_end = int(segment.get("end_ms", seg_start))
+    if seg_end <= seg_start:
+        return None
+
+    if placement == "after_segment":
+        words = _words_in_segment_range(transcript, seg_start, seg_end)
+        return _last_pause_tail_ms(words, min_pause_ms=min_pause, bound_ms=seg_end)
+
+    lookback = max(min_pause * 2, 2000)
+    words = _words_in_segment_range(transcript, seg_start, seg_end, lookback_ms=lookback)
+    return _pause_tail_before_segment(words, min_pause_ms=min_pause, seg_start=seg_start)
+
+
+def _last_pause_tail_ms(
+    words: list[dict[str, Any]],
+    *,
+    min_pause_ms: int,
+    bound_ms: int,
+) -> int | None:
+    best: int | None = None
+    for i in range(len(words) - 1):
+        end_i = int(words[i]["end_ms"])
+        gap = int(words[i + 1]["start_ms"]) - end_i
+        if gap >= min_pause_ms and end_i <= bound_ms:
+            best = end_i
+    if words:
+        last_end = int(words[-1]["end_ms"])
+        if bound_ms - last_end >= min_pause_ms:
+            best = last_end
+    return best
+
+
+def _pause_tail_before_segment(
+    words: list[dict[str, Any]],
+    *,
+    min_pause_ms: int,
+    seg_start: int,
+) -> int | None:
+    if not words:
+        return None
+
+    first_idx = 0
+    for i, w in enumerate(words):
+        if int(w["start_ms"]) >= seg_start - 50:
+            first_idx = i
+            break
+
+    if first_idx > 0:
+        prev_end = int(words[first_idx - 1]["end_ms"])
+        gap = int(words[first_idx]["start_ms"]) - prev_end
+        if gap >= min_pause_ms and int(words[first_idx]["start_ms"]) <= seg_start + min_pause_ms:
+            return prev_end
+
+    scan_until = min(len(words), first_idx + 4)
+    for i in range(first_idx, scan_until - 1):
+        end_i = int(words[i]["end_ms"])
+        gap = int(words[i + 1]["start_ms"]) - end_i
+        if gap >= min_pause_ms and end_i >= seg_start - min_pause_ms:
+            return end_i
+
+    return _last_pause_tail_ms(
+        words,
+        min_pause_ms=min_pause_ms,
+        bound_ms=seg_start + min_pause_ms,
+    )
+
+
+def _source_ms_to_timeline_ms(
+    source_ms: int | None,
+    segment: dict[str, Any],
+    segment_timing: dict[str, tuple[int, int]],
+) -> int | None:
+    if source_ms is None:
+        return None
+    sid = str(segment.get("segment_id") or "")
+    timing = segment_timing.get(sid)
+    if not timing:
+        return None
+    t0, _t1 = timing
+    seg_start = int(segment.get("start_ms", 0))
+    return t0 + (int(source_ms) - seg_start)
+
+
+def _stinger_segment_id(cue: dict[str, Any], placement: str) -> str:
+    if placement in {"before_segment", "under_segment"}:
+        return str(cue.get("segment_id") or cue.get("before_segment_id") or "")
+    if placement == "after_segment":
+        return str(cue.get("after_segment_id") or cue.get("segment_id") or "")
+    return str(cue.get("segment_id") or "")
+
+
+def _align_stinger_to_pause_tail(
+    ctx: RunContext,
+    *,
+    pos: int,
+    cue: dict[str, Any],
+    placement: str,
+    profile: dict[str, Any] | None,
+    transcript: dict[str, Any],
+    segments_by_id: dict[str, dict[str, Any]],
+    segment_timing: dict[str, tuple[int, int]],
+) -> int:
+    seg_id = _stinger_segment_id(cue, placement)
+    segment = segments_by_id.get(seg_id)
+    if not segment:
+        return pos
+    source_pos = resolve_stinger_position_ms(
+        segment,
+        transcript,
+        profile,
+        placement=placement if placement in {"before_segment", "after_segment"} else "before_segment",
+    )
+    mapped = _source_ms_to_timeline_ms(source_pos, segment, segment_timing)
+    if mapped is None:
+        return pos
+    ctx.log(
+        f"mix_flow1: stinger_aligned pause_tail segment={seg_id} pos={mapped}",
+        level="info",
+        stage="mix_flow1",
+    )
+    return mapped
 
 
 def flow1_cue_position(*, cue: dict, segment_timing: dict[str, tuple[int, int]]) -> int | None:

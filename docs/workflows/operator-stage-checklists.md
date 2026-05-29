@@ -92,6 +92,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `understanding/content_brief.json` | `thesis`, `topics`, sensible `key_claims` | Edit profile + `--from-stage content_context` |
 | `understanding/speakers.json` | Roles match who asks vs answers | Edit + `--from-stage speaker_roles` or fix in profile |
 | `understanding/source_acoustic_profile.json` | `pacing.pace_class` and `mix_contract` look plausible for the interview cadence | Re-run `--from-stage source_acoustic_profile`; verify transcript timing + ingest WAV |
+| **Recompute SAP** (GUI) | **Recompute profile** on `source_acoustic_profile` stage re-derives from current ingest/transcript; invalidates downstream when pace class changes | Use after G0 corrections or preclean; check `gui_log.jsonl` for `acoustic_profile_recomputed` |
+| **SAP overrides** (GUI) | Optional `operator_overrides.pace_class` / `underscore_policy` saved without re-running DSP | Clear overrides to restore derived values — [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
 | `understanding/analysis_state.json` | Themes / questions roughly match interview | [analysis-memory.md](../cross-cutting/analysis-memory.md) |
 | Investigations | `investigation_queue.json` not full of stale blockers | Resolve or dismiss; orchestrator may re-run |
 
@@ -155,8 +157,10 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `validate_narrative.py` | Exits 0; every brief topic mapped or documented exclude; no empty selection chapters | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md); `--require-selection` before EDL |
 | `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
 | `sound_design_plan_flow1` | G2 `selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.flow1.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan_flow1`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
+| `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl_flow1` |
 | `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
 | `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO only (no SFX spend yet) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
+| **before_sfx_spend** (quality offer) | After preview listen, Accept/Dismiss pre-clean offer on `assembly_preview` panel if shown; checkpoint logged in `run_meta.audio_preclean.offered_at` | Accept → invalidate ingest path and re-run from `audio_preclean`; Dismiss → proceed to craft/generate — [operator-gates.md](./operator-gates.md#quality-improvement-offers-not-gates) |
 | `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 | `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
@@ -266,6 +270,35 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Self-contained | Each clip or ≤8s setup VO per spec | Edit selection or gap VO |
 | `sound_design_plan_flow2` | G2 `selected_flow` is `flow2`; SDP has `assets[]` (2–4 unique `asset_id`s) and `flow_plans.flow2.cues[]`; every cue `asset_id` appears in `assets[]`; one `transition_stinger` reused for all `between_clips` | `--from-stage sound_design_plan_flow2`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-2-plan) |
 | `sfx_brief.json` | v1 montage brief (optional if SDP flow2 plan used) | `--from-stage sfx_brief` |
+
+---
+
+## QC summary cards (GUI + `run_meta.qc_summaries`)
+
+Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log.jsonl`. **GUI cards** render on these stage panels only:
+
+| Stage panel | GUI card | `qc_summaries` key | Source |
+|-------------|----------|-------------------|--------|
+| `full_master_ranking`, `edl_flow1` | Yes | `narrative_qc` | `gates.check_narrative_qc` |
+| `podcast_show_description` | Yes | `show_description_qc` | `gates.check_show_description_qc` |
+
+**Log-only summaries** (no GUI card yet — inspect `run_meta.json` or `gui_log.jsonl`):
+
+| Key | Written at | Source |
+|-----|------------|--------|
+| `edl_qc` | `edl_flow1`, `mix_flow1` | `gates.check_edl_qc` |
+| `mix_intelligibility` | `mix_flow1`, `mix_flow2` | `master_qc.maybe_check_mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
+
+### Strict-gate recovery
+
+| Key | If fail (strict) |
+|-----|------------------|
+| `narrative_qc` | Fix `coverage_audit.json` / `selection.json`; `python tools/validate_narrative.py --run-id <id>`; or `narrative_qc.strict: false` |
+| `edl_qc` | Fix `flow_1_master/edl.json`; `python tools/validate_edl.py --run-id <id>`; `--from-stage edl_flow1`; or `edl_qc.strict: false` |
+| `show_description_qc` | Fix JSON evidence / word count; re-run stage; or `show_description_qc.strict: false` |
+| `mix_intelligibility` | Lower bed levels / increase duck; re-run mix; or disable `mix.intelligibility_qc.enabled` |
+
+**General:** Read error lists on the card or in `gui_log.jsonl` (`*_qc_fail` details). Fix artifacts, then `--from-stage <stage>`. With `nle_edits.strict: true`, fix `segments/nle_edits.json` before re-running ranking or EDL.
 
 ---
 

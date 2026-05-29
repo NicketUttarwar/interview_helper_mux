@@ -26,8 +26,9 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             "coherence": sdp.get("coherence", {}),
             "palettes": sdp.get("palettes", []),
         }
-        if c.artifact_exists("understanding/source_acoustic_profile.json"):
-            payload["source_acoustic_profile"] = c.read_json("understanding/source_acoustic_profile.json")
+        profile = load_profile(c)
+        if profile:
+            payload["source_acoustic_profile"] = compact_for_volley(profile)
 
         style = (payload["analysis_state"].get("style") or {}) if isinstance(payload["analysis_state"], dict) else {}
         notes = style.get("sound_design_notes")
@@ -144,8 +145,9 @@ def run_elevenlabs_prompt_craft(ctx: RunContext) -> None:
             "coherence": sdp.get("coherence", {}),
             "assets": sdp.get("assets", []),
         }
-        if c.artifact_exists("understanding/source_acoustic_profile.json"):
-            payload["source_acoustic_profile"] = c.read_json("understanding/source_acoustic_profile.json")
+        profile = load_profile(c)
+        if profile:
+            payload["source_acoustic_profile"] = profile
         if c.artifact_exists("understanding/analysis_state.json"):
             state = c.read_json("understanding/analysis_state.json")
             style = state.get("style") if isinstance(state, dict) else None

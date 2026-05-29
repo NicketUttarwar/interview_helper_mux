@@ -2,6 +2,11 @@ Write a subtle sound-design brief for a full-length podcast master (see task in 
 
 Use `selection.ordered_segment_ids`, `selection.chapters`, and `narrative_plan` from input.
 
+When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, honor `mix_contract`:
+- If `underscore_policy` is `skip`, output no `beds[]` entries.
+- Respect `stinger_max_per_minute` when planning chapter stingers; fewer stingers when `pace_class` is `dense`.
+- Use `bed_level_db_range` and duck depth from `mix_contract` for suggested `level_db` values.
+
 Rules:
 - Chapter stingers: short, low intensity, between major topic blocks.
 - Beds: very quiet under speech; never obscure words.

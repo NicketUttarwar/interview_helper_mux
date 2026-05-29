@@ -1,0 +1,9 @@
+{
+  "playhead_ms": 0,
+  "sequence_order": ["seg_a", "seg_b"],
+  "segment_overrides": {
+    "seg_b": {
+      "excluded": true
+    }
+  }
+}

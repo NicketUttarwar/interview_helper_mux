@@ -21,6 +21,7 @@ POST_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "missing_framing": ("comprehension_risk_blind",),
     "segment_classification": ("theme_coverage_pass",),
     "topic_coverage_audit": ("emphasis_coverage_pass",),
+    "full_master_ranking": ("comprehension_risk_blind",),
 }
 
 COMPREHENSION_RISK_THRESHOLD = 0.7
@@ -88,10 +89,27 @@ def _process_specialist_investigations(
     return len(items)
 
 
-def specialists_enabled(cfg: dict[str, Any] | None = None) -> bool:
+def _specialists_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     resolved = cfg if cfg is not None else merged_config()
-    analysis = resolved.get("analysis") or {}
-    return bool(analysis.get("specialists", {}).get("enabled", False))
+    return (resolved.get("analysis") or {}).get("specialists") or {}
+
+
+def specialists_enabled(
+    cfg: dict[str, Any] | None = None,
+    *,
+    stage_key: str | None = None,
+) -> bool:
+    spec_cfg = _specialists_cfg(cfg)
+    if not spec_cfg.get("enabled", False):
+        return False
+    pilot_stages = spec_cfg.get("pilot_stages")
+    if pilot_stages is not None:
+        if stage_key is None:
+            return bool(pilot_stages)
+        return stage_key in pilot_stages
+    if stage_key is None:
+        return True
+    return stage_key in POST_STAGE_SPECIALISTS
 
 
 def run_specialist(
@@ -121,7 +139,7 @@ def maybe_run_post_stage_specialists(
     cfg: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run configured specialists after a parent stage completes."""
-    if not specialists_enabled(cfg):
+    if not specialists_enabled(cfg, stage_key=stage_key):
         return []
     outputs: list[dict[str, Any]] = []
     for spec_key in POST_STAGE_SPECIALISTS.get(stage_key, ()):

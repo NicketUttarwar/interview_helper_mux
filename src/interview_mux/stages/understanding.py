@@ -89,6 +89,12 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
     source_music_risk = _derive_source_music_risk(pacing, energy)
     mix_contract = _derive_mix_contract(pacing, source_music_risk)
 
+    prior_overrides: dict[str, Any] = {}
+    if ctx.artifact_exists("understanding/source_acoustic_profile.json"):
+        prior = ctx.read_json("understanding/source_acoustic_profile.json")
+        if isinstance(prior, dict) and isinstance(prior.get("operator_overrides"), dict):
+            prior_overrides = prior["operator_overrides"]
+
     profile = {
         "schema_version": 1,
         "derived_from": _derived_from(transcript, normalized_wav, preclean if preclean.is_file() else None),
@@ -99,7 +105,7 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
         "mix_contract": mix_contract,
         "prompt_tokens": _derive_prompt_tokens(mix_contract, pacing, energy),
         "placement_hints": _placement_hints(pacing),
-        "operator_overrides": {},
+        "operator_overrides": prior_overrides,
     }
     ctx.write_json("understanding/source_acoustic_profile.json", profile)
     ctx.mark_done("source_acoustic_profile")

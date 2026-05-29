@@ -6,11 +6,33 @@ from fastapi.testclient import TestClient
 
 from interview_mux.session_log import read_log
 from interview_mux.web.server import (
+    _build_stage_list,
     _default_scope_for_checkpoint,
     _record_preclean_offer,
     create_app,
 )
 from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_server_ctx
+
+
+def _seed_g1_complete(ctx) -> None:
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "line_001",
+                    "targets_segment_id": "seg_001",
+                    "delivery": "record",
+                    "gap_type": "context",
+                    "text": "Add context",
+                    "placement": "before",
+                }
+            ]
+        },
+    )
+    pickup = ctx.path("vo_pickup")
+    pickup.mkdir(parents=True, exist_ok=True)
+    (pickup / "line_001.wav").write_bytes(b"RIFF")
 
 
 def test_default_scope_for_checkpoint() -> None:
@@ -43,7 +65,7 @@ def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
     assert decisions[-1]["action"] == "accept"
     assert decisions[-1]["scope"] == "vo_pickup"
     messages = [e["message"] for e in read_log(ctx.run_dir)]
-    assert any("accepted" in m and "g1_vo_pickup" in m for m in messages)
+    assert "g1_pickup_preclean_accepted" in messages
 
     _record_preclean_offer(ctx, checkpoint="after_g0", action="dismiss", scope=None)
     meta = ctx.read_json("run_meta.json")
@@ -96,3 +118,49 @@ def test_preclean_offer_idempotent_offer(tmp_path) -> None:
     assert changed is False
     count_after_second = sum(1 for _ in log_path.open())
     assert count_after_second == count_after_first
+
+
+def test_g1_complete_preclean_offer_logs_offered(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_904")
+    init_run_meta_for_test(ctx)
+    _seed_g1_complete(ctx)
+
+    changed, _ = _record_preclean_offer(
+        ctx, checkpoint="g1_vo_pickup", action="offer", scope=None
+    )
+    assert changed
+    messages = [e["message"] for e in read_log(ctx.run_dir)]
+    assert "g1_pickup_preclean_offered" in messages
+
+
+def test_g1_complete_stage_status_done(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_905")
+    init_run_meta_for_test(ctx)
+    _seed_g1_complete(ctx)
+
+    stages = _build_stage_list(ctx, None, [], False, True, False)
+    g1 = next(s for s in stages if s["id"] == "g1_vo_pickup")
+    assert g1["status"] == "done"
+
+
+def test_g1_pickup_preclean_accept_invalidates_vo_ingest(tmp_path, monkeypatch) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_906")
+    init_run_meta_for_test(ctx)
+    _seed_g1_complete(ctx)
+    ctx.write_json("run_meta.json", {**ctx.read_json("run_meta.json"), "selected_flow": "flow1"})
+    ctx.mark_done("vo_ingest")
+    ctx.mark_done("edl_flow1")
+    patch_server_ctx(monkeypatch, ctx)
+
+    client = TestClient(create_app())
+    res = client.post(
+        f"/api/runs/{ctx.run_id}/preclean-offer",
+        json={"checkpoint": "g1_vo_pickup", "action": "accept", "scope": "vo_pickup"},
+    )
+    assert res.status_code == 200
+    assert res.json()["audio_preclean"]["enabled"] is True
+    assert res.json()["audio_preclean"]["scope"] == "vo_pickup"
+    assert not ctx.is_done("vo_ingest")
+    assert not ctx.is_done("edl_flow1")
+    messages = [e["message"] for e in read_log(ctx.run_dir)]
+    assert "g1_pickup_preclean_accepted" in messages

@@ -10,6 +10,12 @@ Produce partial **Sound Design Plan (SDP)** content: `coherence` and `palettes[]
 - `segments.manifest` — segment_id, topic_tags, type, flags
 - Optional `analysis_state` — themes, entities, style
 - Optional operator `style.sound_design_notes` — treat as hard constraints on density and banned sounds
+- Optional `source_acoustic_profile` — compact slice with `pace_class`, `mix_contract`, `room_timbre_hint`
+
+When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, align palettes with `mix_contract`:
+- Set `coherence.density` to `sparse` when `pace_class` is `brisk` or `dense`; weave `room_timbre_hint` into ambient descriptions.
+- If `underscore_policy` is `skip`, palette accent textures only — no continuous ambient beds in underscoring descriptions.
+- If `underscore_policy` is `sparse`, keep ambient descriptions minimal and loop-safe for heavy ducking under speech.
 
 ## Output rules
 
