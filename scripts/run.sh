@@ -28,6 +28,11 @@ else
 fi
 pip install -q "$ROOT"
 
+if [[ ! -f "$ROOT/src/interview_mux/web/static/index.html" ]]; then
+  echo "Building React GUI (first run or missing static bundle) ..."
+  "$ROOT/scripts/build_gui.sh"
+fi
+
 if [[ "${1:-}" == "--cli" ]]; then
   shift
   exec python -m interview_mux "$@"

@@ -2,7 +2,9 @@
 
 **Stack pins:** `fastapi`, `uvicorn`, `pydantic` — [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md). Use **Context7** at those versions when changing `server.py`.
 
-Authoritative route list for **`interview_mux` web server** (`src/interview_mux/web/server.py`). The single-page GUI under `/` is static files; all JSON state goes through **`/api/*`**.
+Authoritative route list for **`interview_mux` web server** (`src/interview_mux/web/server.py`). The single-page GUI under `/` is a **React + TypeScript** app (source: `frontend/`, built to `web/static/`); all JSON state goes through **`/api/*`**.
+
+**GUI build:** `./scripts/build_gui.sh` or `cd frontend && npm run build`. `./scripts/run.sh` builds automatically if static output is missing.
 
 **Companion:** [gui-surface-map.md](./gui-surface-map.md) maps UI areas to these routes and on-disk artifacts.
 
@@ -14,7 +16,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 |------|--------|
 | Default port | From `config/app.defaults.json` → `web_port` (default **8765**) |
 | API prefix | **`/api`** |
-| Static UI | **`/`** — `StaticFiles` from `src/interview_mux/web/static/` when present |
+| Static UI | **`/`** — Vite-built React bundle in `src/interview_mux/web/static/` (source: `frontend/`) |
 | CORS | `allow_origins=["*"]` (dev-friendly) |
 
 ---

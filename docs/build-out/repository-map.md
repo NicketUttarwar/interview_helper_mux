@@ -17,8 +17,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `config/` | `app.defaults.json`, `secrets/secrets.env` | BUILD-011 · [config-keys](../cross-cutting/config-keys.md) |
 | `docs/` | Authoritative specs and prompts | Waves 0–7 |
 | `src/interview_mux/` | Python package | Waves 1–5, 7 |
+| `frontend/` | React + TypeScript operator GUI (Vite → `web/static/`) | BUILD-014 |
 | `tools/` | CLI wrappers (`run_analysis`, `run_flow`, QA checks, value-analysis) | BUILD-028, 051–052 |
-| `scripts/` | `bootstrap_venv.sh`, `run.sh` | BUILD-010 |
+| `scripts/` | `bootstrap_venv.sh`, `build_gui.sh`, `run.sh` | BUILD-010, 014 |
 | `tests/` | pytest (prompt validation, transcript review, shell) | BUILD-054–055 |
 | `.cursor/rules/` | IDE policy (logging, Context7) | — |
 
@@ -88,7 +89,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `server.py` | FastAPI `/api/*` | BUILD-014 |
 | `runner.py` | Background execute → `gui_job.json` | BUILD-015 |
 | `stages.py` | Stage metadata for UI | BUILD-014 |
-| `static/` | `index.html`, `app.js`, `styles.css` | BUILD-014 |
+| `static/` | Vite-built React SPA (`index.html`, `assets/*`) — source in `frontend/` | BUILD-014 |
 
 ### Value analysis (`src/interview_mux/value_analysis/`)
 
@@ -110,7 +111,8 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | Entry | Invokes | Ticket |
 |-------|---------|--------|
 | `scripts/bootstrap_venv.sh` | venv + `pip install -r requirements.lock` + editable package | BUILD-010 |
-| `scripts/run.sh` | Web GUI (`python -m interview_mux serve`) | BUILD-014 |
+| `scripts/build_gui.sh` | Vite build: `frontend/` → `web/static/` | BUILD-014 |
+| `scripts/run.sh` | Web GUI (`python -m interview_mux serve`; builds static if missing) | BUILD-014 |
 | `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, import smoke, `pip-audit` on `requirements.lock` | BUILD-010 |
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
 | `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |

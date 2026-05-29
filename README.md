@@ -41,6 +41,7 @@ ASSETS/          # input audio + per-run executions (gitignored)
 config/          # defaults + secrets
 docs/            # authoritative specs and prompts
 src/interview_mux/   # Python package (pipeline + Web GUI)
+frontend/            # React + TypeScript GUI (Vite → web/static/)
 tools/             # run_analysis, run_flow, verify_master, validate_narrative, verify_edl, value-analysis CLIs
 scripts/         # bootstrap, run.sh
 tests/           # pytest

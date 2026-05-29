@@ -1,0 +1,147 @@
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../../api/client";
+import { useApp } from "../../context/AppContext";
+import { isJsonArtifactPath } from "../../utils";
+import type { StageInfo } from "../../types";
+
+function artifactPaths(stage: StageInfo): string[] {
+  return [...new Set([...(stage.editable || []), ...(stage.artifacts || [])])].filter(
+    (p) => p && !p.endsWith("/") && (isJsonArtifactPath(p) || p.endsWith(".md") || p.endsWith(".txt")),
+  );
+}
+
+export function ArtifactEditor() {
+  const { run, selectedStage, refreshRun, showToast, confirm } = useApp();
+  const [paths, setPaths] = useState<string[]>([]);
+  const [selectedPath, setSelectedPath] = useState("");
+  const [editorValue, setEditorValue] = useState("");
+  const [isJson, setIsJson] = useState(true);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    if (!selectedStage) {
+      setPaths([]);
+      setSelectedPath("");
+      setEditorValue("");
+      setStatus("No editable artifacts for this stage yet.");
+      return;
+    }
+    const p = artifactPaths(selectedStage);
+    setPaths(p);
+    if (p.length) {
+      setSelectedPath(p[0]);
+    } else {
+      setSelectedPath("");
+      setEditorValue("");
+      setStatus("No editable artifacts for this stage yet.");
+    }
+  }, [selectedStage]);
+
+  const loadArtifact = useCallback(
+    async (path: string) => {
+      if (!run || !path) return;
+      setIsJson(isJsonArtifactPath(path));
+      try {
+        const data = await api<Record<string, unknown> | { text?: string }>(
+          `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(path)}`,
+        );
+        if (isJsonArtifactPath(path)) {
+          setEditorValue(JSON.stringify(data, null, 2));
+        } else {
+          setEditorValue((data as { text?: string }).text ?? "");
+        }
+        setStatus(`Loaded ${path}`);
+      } catch {
+        setEditorValue("");
+        setStatus(`${path} not found — run this stage first.`);
+      }
+    },
+    [run],
+  );
+
+  useEffect(() => {
+    if (selectedPath) void loadArtifact(selectedPath);
+  }, [selectedPath, loadArtifact]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const path = (e as CustomEvent<{ path: string }>).detail?.path;
+      if (path && paths.includes(path)) setSelectedPath(path);
+      else if (path) showToast(`Add ${path} to editor after stage lists it.`);
+    };
+    window.addEventListener("handoff-open", handler);
+    return () => window.removeEventListener("handoff-open", handler);
+  }, [paths, showToast]);
+
+  const saveArtifact = async () => {
+    if (!run || !selectedPath || !selectedStage) return;
+    const invalidate = (await confirm(
+      "Save to disk? Downstream stages may need re-run.",
+    ))
+      ? selectedStage.id
+      : null;
+    try {
+      if (isJson) {
+        let data: unknown;
+        try {
+          data = JSON.parse(editorValue);
+        } catch {
+          showToast("Invalid JSON");
+          return;
+        }
+        await api(`/api/runs/${run.run_id}/artifact`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: selectedPath,
+            data,
+            invalidate_from: invalidate,
+          }),
+        });
+      } else {
+        await api(`/api/runs/${run.run_id}/artifact/text`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: selectedPath,
+            text: editorValue,
+            invalidate_from: invalidate,
+          }),
+        });
+      }
+      showToast("Saved");
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Save failed");
+    }
+  };
+
+  return (
+    <div className="panel artifacts-panel">
+      <div className="panel-head">
+        <h3>File editor</h3>
+        <select
+          className="select"
+          value={selectedPath}
+          onChange={(e) => setSelectedPath(e.target.value)}
+        >
+          {paths.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn primary sm" onClick={() => void saveArtifact()}>
+          Save to file
+        </button>
+      </div>
+      <textarea
+        className="artifact-editor"
+        spellCheck={false}
+        value={editorValue}
+        onChange={(e) => setEditorValue(e.target.value)}
+      />
+      <p className="save-status">{status}</p>
+    </div>
+  );
+}

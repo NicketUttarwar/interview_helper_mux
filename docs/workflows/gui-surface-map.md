@@ -1,6 +1,6 @@
 # GUI surface map — panels, APIs, logs, artifacts
 
-Single reference for **what the operator sees**, which **HTTP API** backs it, and which **artifacts** on disk are read or written. Source: `src/interview_mux/web/server.py`, `web/static/app.js`, `web/stages.py`, `session_log.py`, `web/runner.py`.
+Single reference for **what the operator sees**, which **HTTP API** backs it, and which **artifacts** on disk are read or written. Source: `src/interview_mux/web/server.py`, `frontend/src/` (React + TypeScript GUI), `web/stages.py`, `session_log.py`, `web/runner.py`.
 
 **Logging policy (do not duplicate elsewhere):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — write operator-visible status only via `RunContext.log()` / `append_log` → `gui_log.jsonl`, and background execute state via `gui_job.json`.
 
@@ -12,37 +12,76 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 ---
 
-## Operator console layout (workspace)
+## Operator console layout (tabbed shell)
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | Status grid | Execution, stage, job, updated — always visible |
-| Header | **Mute alerts** / **Revoke API** | `localStorage.gui_mute_alerts`; clears `sessionStorage` API grants |
-| Header | Checkpoint banner | Shown when `job.status` is `gate` / `needs_operator` or any stage is `action_required` |
-| Header | API consent strip | Chips for OpenAI / AWS / ElevenLabs grant state (`GET/POST /api/session/api-consent`) |
-| Center | Checkpoint panel | **Continue to next step** (enabled when gate satisfied or handoff acknowledged) |
-| Center | Gate actions | G0/G1/G2/profile/preclean/QC panels (unchanged behavior) |
-| Center | **Outputs from this step** | Handoff file list from `detail.handoff` in log or `artifacts_present`; **Acknowledge & continue** → `POST …/handoff-ack` |
-| Center | File editor | JSON + `.md` / `.txt` via `PUT …/artifact` and `PUT …/artifact/text` |
-| Footer (sticky) | Operator log | `gui_log.jsonl` tail — polls every 2s |
+| Header | Compact status bar | Execution, stage, job, updated — single row |
+| Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
+| Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
+| Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
+| **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
+| **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; refresh on tab focus |
+| **Pipeline** | Stage rail + sub-tabs | **Stage \| Timeline \| Profile \| Files** — primary operator flow |
+| **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
+| Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
+| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers — auto-open on `action_required` |
+| Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
 
 **API consent:** Before `POST …/execute`, GUI prompts once per provider per browser session; optional persist to `ASSETS/.gui/api_consent.json`. Backend `runner.start` rejects execute when required providers are not granted (`job.status: needs_operator`).
 
+**Clear session:** Explicit control in header menu — stops job poll and clears active run (replaces old “Executions” header link that called `goHome()`).
+
 ---
 
-## Home screen (no `run_id`)
+## Start tab (no active run required)
 
 | User-visible | API | Log / session | Artifact / disk |
 |--------------|-----|---------------|-----------------|
 | **Input audio** list + Refresh | `GET /api/assets` | — | Scans `ASSETS/`; skips `executions/`, `.gui/` |
 | Start execution on a file | `POST /api/runs` body `{ input_audio_path }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
-| **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %; each run folder is immutable |
-| Recent log (active run) | `GET /api/session` → `log` | `gui_log.jsonl` | Last 5 lines on home when a run is active |
-| Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace |
 
-After resume or create, the UI navigates to the **workspace** view (`GET /api/runs/{id}`).
+After create, UI switches to **Pipeline → Stage** (`GET /api/runs/{id}`).
+
+---
+
+## Executions tab
+
+| User-visible | API | Log / session | Artifact / disk |
+|--------------|-----|---------------|-----------------|
+| **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %; each run folder is immutable |
+| Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace; switches to Pipeline |
+
+Browsing executions while another run is active does **not** stop job/log polling for the current session until the operator resumes a different run or clears the session.
+
+---
+
+## Pipeline tab (sub-tabs)
+
+| Sub-tab | Content | When visible |
+|---------|---------|--------------|
+| **Stage** | Stage title, description, LLM routing summary, checkpoint CTA | Always when `run_id` set |
+| **Timeline** | NLE waveform / segment editor | After segment classification (empty state otherwise) |
+| **Profile** | Analysis profile form | When profile stage exists / unlocked |
+| **Files** | JSON / text artifact editor | When stage has editable artifacts |
+
+Gate/checkpoint panels render in the **operator action modal**, not inline on Stage.
+
+---
+
+## Logs tab
+
+| Control | Behavior |
+|---------|----------|
+| Level / stage filters | Client-side filter on fetched tail |
+| Search | Text match on message, stage, detail |
+| Tail size | 200 / 500 / all fetched (poll fetches up to 500 lines) |
+| Auto-scroll | Default on; pauses when operator scrolls up |
+| Detail expand | Per-row JSON / text detail |
+
+**Where log data comes from:** `GET /api/runs/{id}/log?tail=…` polled every 2s while `runId` is set (all tabs).
 
 ---
 
@@ -53,7 +92,7 @@ After resume or create, the UI navigates to the **workspace** view (`GET /api/ru
 | `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
 | `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`). |
 
-**Where the UI shows them:** Sticky **Operator log** dock (footer) loads `GET /api/runs/{id}` → `log_tail` and polls `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Stage completion writes `detail` JSON with `handoff` paths via `RunContext.log_handoff()` / `mark_done()`.
+**Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Stage completion writes `detail` JSON with `handoff` paths via `RunContext.log_handoff()` / `mark_done()`.
 
 ---
 
