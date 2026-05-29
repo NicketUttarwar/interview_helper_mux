@@ -7,13 +7,15 @@ Numbered tickets and **full-repository build-out specs** for agent implementatio
 | Doc | Purpose |
 |-----|---------|
 | [implementation-guide.md](./implementation-guide.md) | **Master build plan** — all phases, waves, verification |
-| [steps-forward.md](./steps-forward.md) | Prioritized backlog + **Cursor Agent copy-paste prompts** per step |
+| [remaining-build-commands.md](./remaining-build-commands.md) | **What to do next** — Agent commands (no shipped BUILD repeats; no pytest) |
+| [steps-forward.md](./steps-forward.md) | Historical backlog + archived Agent prompts |
 | [full-application-flow.md](./full-application-flow.md) | End-to-end operator + system journey |
 | [stage-registry.md](./stage-registry.md) | Every stage id, module, artifact, status |
 | [ticket-specs.md](./ticket-specs.md) | Acceptance criteria per BUILD ticket |
 | [repository-map.md](./repository-map.md) | Repo layout ↔ code ↔ docs |
 | [../cross-cutting/assets-and-executions.md](../cross-cutting/assets-and-executions.md) | ASSETS input picker, executions, resume |
 | [testing-and-verification.md](./testing-and-verification.md) | How to verify each wave |
+| [definition-of-done-signoff.md](./definition-of-done-signoff.md) | Manual release-candidate checklist (pytest optional) |
 | [doc-maintenance.md](./doc-maintenance.md) | Docs to update in the same PR as code |
 
 North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
@@ -101,7 +103,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | BUILD-032 | Transitions | `selection_flow1.py` | done |
 | BUILD-033 | Podcast SFX brief | `selection_flow1.py` | done (v1 brief; superseded by BUILD-060+) |
 | BUILD-034 | ElevenLabs SFX | `sfx_elevenlabs.py`, `elevenlabs_rest.py` | done (v1 per-cue REST) |
-| BUILD-035 | Mux assembly | `assembly_flow1.py` | done (**v1 speech-only** concat) |
+| BUILD-035 | Mux assembly | `assembly_flow1.py` | done (superseded by `mix_flow1`, BUILD-065) |
 | BUILD-036 | Master export | `mastering.py` | done |
 
 ---
@@ -145,12 +147,12 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 ---
 
-## Wave 5 — Coherent sound design (planned)
+## Wave 5 — Coherent sound design (done)
 
 **Spec:** [sound-design.md](../cross-cutting/sound-design.md) · **Prompts:** [prompts/sound_design/README.md](../prompts/sound_design/README.md)
 
-| Ticket | Title | Deliverable |
-|--------|-------|-------------|
+| Ticket | Title | Status |
+|--------|-------|--------|
 | BUILD-060 | SDP schema + empty plan init | done — `sound_design_plan.schema.json`, init in `ensure_analysis_workspace` |
 | BUILD-061 | Theme palettes stage | done — `sound_design_palettes` after `segment_classification` |
 | BUILD-062 | Flow 1 plan stage | done — `sound_design_plan_flow1` after `transitions`; merges `assets` + `flow_plans.flow1` into SDP; cue `asset_id` link validation |
@@ -163,22 +165,22 @@ Acceptance details: see historical BUILD-060–066 notes in git history or [soun
 
 ---
 
-## Wave 6 — Podcast quality wiring (planned)
+## Wave 6 — Podcast quality wiring (done)
 
 **Spec:** [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md)
 
-| Ticket | Title | Deliverable |
-|--------|-------|-------------|
-| BUILD-067 | Gap report → EDL | **done** — `edl_flow1` includes `vo_pickup` + gap placements |
-| BUILD-068 | NLE → selection/EDL | **done** — `nle_edits.json` applied in `full_master_ranking` + `edl_flow1` (`selection.json`, EDL bounds) |
-| BUILD-069 | Assembly preview | **done** — `flow_1_master/assembly_preview.wav` (speech + VO) + GUI listen action before ElevenLabs |
-| BUILD-070 | verify_master LUFS/peak | **done** — `master_qc.py`; ffmpeg loudnorm measurement; CLI + post-flow GUI log |
-| BUILD-071 | Mastering measurement | **done** — `mastering_bus.py` pyloudnorm on assembly; ffmpeg limiter uses BUILD-070 targets |
-| BUILD-072 | Pre-clean quality offers | **done** — GUI prompts at roadmap checkpoints; `run_meta.json` scope + `gui_log.jsonl` |
+| Ticket | Title | Status |
+|--------|-------|--------|
+| BUILD-067 | Gap report → EDL | done — `edl_flow1` includes `vo_pickup` + gap placements |
+| BUILD-068 | NLE → selection/EDL | done — `nle_edits.json` applied in `full_master_ranking` + `edl_flow1` (`selection.json`, EDL bounds) |
+| BUILD-069 | Assembly preview | done — `flow_1_master/assembly_preview.wav` (speech + VO) + GUI listen action before ElevenLabs |
+| BUILD-070 | verify_master LUFS/peak | done — `master_qc.py`; ffmpeg loudnorm measurement; CLI + post-flow GUI log |
+| BUILD-071 | Mastering measurement | done — `mastering_bus.py` pyloudnorm on assembly; ffmpeg limiter uses BUILD-070 targets |
+| BUILD-072 | Pre-clean quality offers | done — GUI prompts at roadmap checkpoints; `run_meta.json` scope + `gui_log.jsonl` |
 
 ---
 
-## Wave 7 — Intelligence and guardrails (planned / optional)
+## Wave 7 — Intelligence and guardrails (optional)
 
 | Ticket | Title | Deliverable |
 |--------|-------|-------------|
@@ -211,7 +213,7 @@ Wave 5 can start after BUILD-013 and BUILD-028; flow tickets 062–063 require G
 
 ## How to use this index
 
-1. **Agents (building code):** `AGENTS.md` → [implementation-guide.md](./implementation-guide.md) → [steps-forward.md](./steps-forward.md) (**paste Agent prompt for your step #**) → [ticket-specs.md](./ticket-specs.md) for your BUILD id → [stage-registry.md](./stage-registry.md) + pipeline stage README.
+1. **Agents (building code):** `AGENTS.md` → [remaining-build-commands.md](./remaining-build-commands.md) (**current queue**) or [steps-forward.md](./steps-forward.md) (historical) → [implementation-guide.md](./implementation-guide.md) → [ticket-specs.md](./ticket-specs.md) → [stage-registry.md](./stage-registry.md) + pipeline stage README.
 2. **Agents (understanding the app):** [full-application-flow.md](./full-application-flow.md) → [pipeline.md](../pipeline.md) → [logic-tree.md](../logic-tree.md).
 3. **Operators:** [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) — not ticket IDs.
 4. **When shipping a ticket:** [doc-maintenance.md](./doc-maintenance.md) checklist; update status here, [ticket-specs.md](./ticket-specs.md) checkboxes, [repository-map.md](./repository-map.md) gap table.

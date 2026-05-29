@@ -2,7 +2,8 @@ Audit whether every theme and claim from the content brief is represented in the
 
 Goals:
 - Map each `content_brief` topic and `key_claim` to at least one `segment_id`.
-- Flag topics with zero coverage in `missing_coverage`.
+- Weight `emphasis_regions` when present — quiet-but-vital acoustic emphasis may indicate under-mapped claims.
+- Flag topics with zero coverage in `missing_coverage` with a concrete `suggestion` (required for excludes).
 - Flag segments that cover no brief topic in `orphan_segment_ids`.
 - Prefer including all non-aside interview material in the eventual full master.
 
@@ -13,6 +14,7 @@ Coverage score (required):
 Do not:
 - Mark covered without a real `segment_id`.
 - Ignore claims from the brief.
+- Omit `suggestion` on any `missing_coverage` exclude.
 
 Memory sync:
 - `confidence_patch`: `{ "coverage": coverage_score }`

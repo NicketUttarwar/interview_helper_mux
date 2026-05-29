@@ -9,7 +9,7 @@
     "tiers": {
       "economy": "gpt-4o-mini",
       "standard": "gpt-4o",
-      "flagship": "gpt-4o"
+      "flagship": "o3"
     },
     "stages": {
       "speaker_roles": { "tier": "economy" },
@@ -25,31 +25,26 @@
       "transitions": { "tier": "economy" },
       "podcast_sfx_brief": { "tier": "economy" },
       "sfx_brief": { "tier": "economy" }
-    },
-    "speaker_roles": "gpt-4o-mini",
-    "content_context": "gpt-4o-mini",
-    "boundary_detection": "gpt-4o",
-    "segment_classification": "gpt-4o",
-    "missing_framing": "gpt-4o",
-    "optimal_questions": "gpt-4o",
-    "topic_coverage_audit": "gpt-4o",
-    "narrative_arc_plan": "gpt-4o",
-    "full_master_ranking": "gpt-4o",
-    "highlight_selection": "gpt-4o",
-    "transitions": "gpt-4o-mini",
-    "podcast_sfx_brief": "gpt-4o-mini",
-    "sfx_brief": "gpt-4o-mini"
+    }
   },
   "executions_root": "ASSETS/executions",
   "g1_5_require_prompt_approval": false,
+  "narrative_qc": {
+    "strict": false
+  },
   "value_analysis": {
     "enabled": false,
     "spike_scoring": true,
     "transcript_features": true,
-    "audio_features": false
+    "audio_features": false,
+    "auto_extract_after_content_context": false
   },
   "web_port": 8765,
   "analysis": {
+    "max_volley_retries": 2,
+    "specialists": {
+      "enabled": false
+    },
     "context": {
       "interviewer_sample_lines": 8
     },

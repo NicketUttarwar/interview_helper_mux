@@ -11,6 +11,10 @@ import numpy as np
 
 from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.run_context import RunContext
+from interview_mux.value_analysis.extract import (
+    maybe_auto_extract_value_features,
+    maybe_enqueue_orchestration_investigations,
+)
 from interview_mux.stages.analysis_stage import (
     run_analysis_llm_stage,
     sync_content_brief_to_state,
@@ -62,6 +66,8 @@ def run_content_context(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
     )
+    maybe_auto_extract_value_features(ctx)
+    maybe_enqueue_orchestration_investigations(ctx)
     ctx.mark_done("content_context")
 
 

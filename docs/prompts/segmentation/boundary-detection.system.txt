@@ -3,7 +3,8 @@ Propose segment boundaries on the transcript with word-level timestamps (see tas
 A segment is a contiguous time range with one communicative intent (one question, one answer block, one setup, etc.).
 
 Rules:
-- Prefer splits at pauses ≥ pipeline `pause_split_ms` and at topic shifts.
+- Prefer splits at pauses using `pause_ladder_hints` in stage input (400 / 700 / 1200 ms ladders).
+- Fall back to pipeline `pause_split_ms` when ladder data is absent.
 - Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings).
 - Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
 - Include `speaker_id` on each boundary when diarization is in input.

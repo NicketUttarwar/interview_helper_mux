@@ -39,6 +39,12 @@
 - Coverage audit: every `content_brief.topics[]` maps to ≥1 segment or documented exclude
 - No chapter with zero segments
 
+**Enforcement:** `interview_mux.narrative_qc.validate_flow1_narrative` checks topic mappings against `coverage_audit.json` and non-empty `selection.json` chapters. CLI (`tools/validate_narrative.py --run-id <exec_id>`) exits non-zero on fail. Pipeline warns before `full_master_ranking` and `edl_flow1` (`gui_log.jsonl`, `detail: narrative_qc_pass|narrative_qc_fail`); set `narrative_qc.strict: true` in config to block.
+
+### Flow 3 show description
+
+**Enforcement:** `interview_mux.show_description_qc.validate_show_description` checks `evidence_segment_ids`, hook/body alignment, word count tolerance, and key-claim coverage. CLI: `tools/validate_show_description.py --run-id <exec_id>`. Pipeline warns on persist (`show_description_qc_fail`); set `show_description_qc.strict: true` to block bad artifacts.
+
 ## Flow 2 highlights
 
 - ≤5 clips, non-overlapping source ranges

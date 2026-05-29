@@ -25,6 +25,7 @@ from interview_mux.g15_prompt_review import (
     sdp_asset_id_warnings,
     validate_prompts_payload,
 )
+from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.file_store import read_json, write_json
 from interview_mux.gates import (
     check_g1_vo,
@@ -266,6 +267,7 @@ def create_app() -> FastAPI:
         return {
             "run_id": run_id,
             "meta": meta,
+            "elevenlabs_generated_assets": _discover_generated_sfx_assets(ctx),
             "selected_flow": flow,
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
@@ -350,6 +352,13 @@ def create_app() -> FastAPI:
         ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
         return {"ok": True, "nle": nle}
 
+    @app.get("/api/runs/{run_id}/llm-routing")
+    def get_llm_routing(run_id: str) -> dict[str, Any]:
+        from interview_mux.llm_routing_debug import list_stage_routing_attempts
+
+        ctx = _ctx(run_id)
+        return {"attempts": list_stage_routing_attempts(ctx)}
+
     @app.get("/api/runs/{run_id}/artifact")
     def get_artifact(run_id: str, path: str) -> Any:
         ctx = _ctx(run_id)
@@ -367,6 +376,17 @@ def create_app() -> FastAPI:
         _assert_artifact_path(body.path)
         if not body.path.endswith(".json"):
             raise HTTPException(400, "Only JSON artifacts can be edited via this endpoint.")
+        if isinstance(body.data, dict):
+            schema_errors = validate_artifact_write(body.path, body.data)
+            if schema_errors:
+                raise HTTPException(
+                    400,
+                    {
+                        "error": "schema_validation_failed",
+                        "path": body.path,
+                        "errors": schema_errors,
+                    },
+                )
         write_json(ctx.path(body.path), body.data)
         ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=body.invalidate_from)
         if body.invalidate_from:
@@ -420,6 +440,7 @@ def create_app() -> FastAPI:
         review_required = bool(merged_config().get("g1_5_require_prompt_approval", False))
         approved = bool(review.get("approved"))
         warnings = sdp_asset_id_warnings(ctx, rows)
+        listen_results = _read_elevenlabs_listen_results(ctx)
         return {
             "path": path,
             "prompts": rows,
@@ -427,6 +448,8 @@ def create_app() -> FastAPI:
             "review_required": review_required,
             "can_generate": (not review_required) or approved,
             "warnings": warnings,
+            "listen_results": listen_results,
+            "generated_assets": _discover_generated_sfx_assets(ctx),
         }
 
     @app.put("/api/runs/{run_id}/elevenlabs-prompts")
@@ -564,6 +587,17 @@ def create_app() -> FastAPI:
     def put_analysis_profile(run_id: str, body: AnalysisProfileBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         ensure_analysis_workspace(ctx)
+        if isinstance(body.data, dict):
+            schema_errors = validate_artifact_write(ANALYSIS_STATE_PATH, body.data)
+            if schema_errors:
+                raise HTTPException(
+                    400,
+                    {
+                        "error": "schema_validation_failed",
+                        "path": ANALYSIS_STATE_PATH,
+                        "errors": schema_errors,
+                    },
+                )
         save_analysis_state(ctx, body.data, stage="operator_gui")
         if body.operator_verified is not None:
             mark_operator_verified(ctx, body.operator_verified)
@@ -827,6 +861,26 @@ def _default_scope_for_checkpoint(checkpoint: str) -> str:
     if checkpoint in {"before_flow_mix", "before_master_export"}:
         return "normalized_rebuild"
     return "full_source"
+
+
+def _read_elevenlabs_listen_results(ctx: RunContext) -> list[dict[str, Any]]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    results = meta.get("elevenlabs_listen_results")
+    if not isinstance(results, list):
+        return []
+    return [r for r in results if isinstance(r, dict)]
+
+
+def _discover_generated_sfx_assets(ctx: RunContext) -> list[dict[str, str]]:
+    """WAV files under sound_design/assets/ for post-listen GUI."""
+    assets_dir = ctx.path("sound_design/assets")
+    if not assets_dir.is_dir():
+        return []
+    out: list[dict[str, str]] = []
+    for wav in sorted(assets_dir.glob("*.wav")):
+        rel = f"sound_design/assets/{wav.name}"
+        out.append({"asset_id": wav.stem, "path": rel})
+    return out
 
 
 def _read_prompt_review_meta(ctx: RunContext) -> dict[str, Any]:

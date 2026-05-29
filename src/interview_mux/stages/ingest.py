@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import subprocess
 from pathlib import Path
 
@@ -61,6 +60,6 @@ def run_ingest(ctx: RunContext) -> Path:
     if preclean is not None:
         checksums["preclean_path"] = "preclean/isolated.wav"
         checksums["preclean_sha256"] = _sha256(preclean)
-    (out_dir / "checksums.json").write_text(json.dumps(checksums, indent=2), encoding="utf-8")
+    ctx.write_json("ingest/checksums.json", checksums)
     ctx.mark_done("ingest")
     return normalized

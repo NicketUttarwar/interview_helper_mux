@@ -10,7 +10,7 @@ This document answers: **which on-disk artifacts have a formal JSON Schema**, wh
 - Docs and code can drift without a failing check.
 - Downstream stages may assume fields that upstream never guaranteed.
 
-That is expected for **binary/audio** paths and for **spec-ahead** artifacts (e.g. `edl.json` before BUILD-067), but it should be **explicit** so nobody treats “mentioned in layout” as “schema-validated in CI.”
+That is expected for **binary/audio** paths and for artifacts awaiting boundary validators, but it should be **explicit** so nobody treats “mentioned in layout” as “schema-validated in CI.”
 
 ## What is validated today (hard guard)
 
@@ -54,21 +54,29 @@ These support docs, optional tooling, or future gates; they are **not** automati
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
+**On-disk artifact validation (BUILD-067 / Command 3):** `prompt_validation.validate_artifact_write` runs from `RunContext.write_json` for registered paths and from the GUI artifact PUT / analysis-profile endpoints. `edl_flow1` also validates before write and fails the stage with `ctx.log` path errors. CLI: `python tools/verify_edl.py --run-id <exec_id>`.
+
+| Validator | Artifact path | Wired on write? |
+|-----------|---------------|-----------------|
+| `validate_edl_flow1` | `flow_1_master/edl.json` | Yes (`edl_flow1` + `write_json`) |
+| `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
+| `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
+| `validate_run_meta` | `run_meta.json` | Yes |
+| `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
+| `validate_ingest_checksums` | `ingest/checksums.json` | Yes |
+
 **Guard:** When adding GUI import/export or a new validator, prefer reusing these files instead of duplicating field lists in prose-only docs.
 
 ## Artifacts in layout with **no** JSON Schema yet (explicit gap)
 
 Treat these as **contract TBD** until a schema lands (and ideally a validator or mux-time check):
 
-| Path | Why a schema matters | Target / ticket |
-|------|----------------------|-----------------|
-| `flow_1_master/edl.json` | Mux depends on timeline events | BUILD-067 — `artifacts/edl_flow1.schema.json` |
-| `segments/nle_edits.json` | Overrides selection / EDL | BUILD-068 (shipped) |
-| `run_meta.json` | Flow, preclean offers, timestamps | Consider `run_meta.schema.json` |
+| Path | Why a schema matters | Status |
+|------|----------------------|--------|
+| `flow_1_master/edl.json` | Mux depends on timeline events | **Schema yes** — `artifacts/edl_flow1.schema.json`; **validator wired** (`validate_edl_flow1`, `tools/verify_edl.py`) |
+| `segments/nle_edits.json` | Overrides selection / EDL | **Schema yes** — `nle_edits.schema.json`; validator on `save_nle` + `write_json` |
 | `transcript/full.json` | AWS Transcribe export shape | Optional: external-shape schema |
-| `transcript/corrections.json` | Operator edits | Small object schema |
-| `ingest/checksums.json` | Lineage | Small object schema |
-| `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | `source_acoustic_profile.schema.json` · [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | `source_acoustic_profile.schema.json` · validator wired |
 | `gui_log.jsonl` | NDJSON stream | Often line-schema only |
 
 **Best-in-class fixes (priority order):**
@@ -89,11 +97,15 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | Artifact | Schema in repo? | Stage validation? |
 |----------|-----------------|-------------------|
 | Envelope `artifacts` from LLM stages | Per-stage rows above | Yes |
-| `understanding/analysis_state.json` | `analysis_state.schema.json` | No (manual / future) |
+| `understanding/analysis_state.json` | `analysis_state.schema.json` | Yes (GUI + `write_json`) |
 | `understanding/sound_design_plan.json` | `sound_design_plan.schema.json` | Yes (init + Wave 5 persist) |
+| `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |
+| `run_meta.json` | `run_meta.schema.json` | Yes (`write_json`) |
+| `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |
+| `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
-| `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | **No** (not wired in `prompt_validation` yet) |
+| `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | Yes (`edl_flow1` + `tools/verify_edl.py`) |
 | `flow_3_description/show_description.json` | Via `show_description_artifact` | Flow 3 LLM stage |
 | `segments/nle_edits.json` | **No** | **No** |
 | `transcript/review_queue.json` | `transcript_review.schema.json` | No (unless wired) |

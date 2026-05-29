@@ -1,6 +1,6 @@
 # LLM stage model matrix
 
-**Status: spec only** — authoritative per-stage routing table for the smart-routing framework. v1 code uses flat `models.<stage_key>` strings in `config/app.defaults.json`; see [model-routing.md](./model-routing.md) for current runtime mapping.
+**Status: implemented (BUILD-073)** — authoritative per-stage routing table. Runtime uses `models.tiers` + `models.stages` with optional per-stage string overrides; see [model-routing.md](./model-routing.md) and [config-keys.md](./config-keys.md).
 
 **Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
 
@@ -63,9 +63,9 @@ Rich **user/assistant** prior turns: `content_context`, `speaker_roles`, `segmen
 
 ---
 
-## Sound design (planned — BUILD-060+)
+## Sound design (shipped — BUILD-060+)
 
-Per [sound-design.md](./sound-design.md). Not in v1 `models` map until stages ship.
+Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW1_ORDER` / `FLOW2_ORDER`; tier defaults below match `models.stages` in `app.defaults.json`.
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
@@ -109,4 +109,4 @@ Max shards per attempt: **8** (see [llm-orchestration.md](./llm-orchestration.md
 
 ## v1 runtime note
 
-Until smart routing is implemented, `get_model(stage_key)` ignores `task_kind` and returns the flat string from `config/app.defaults.json`. Committed defaults may differ from `config/templates/app.defaults.json` for segmentation stages — see [model-routing.md](./model-routing.md#config-drift).
+**BUILD-084:** `DECOMPOSE_ELIGIBLE` in `llm_shard_plans.py` includes `content_context`, `boundary_detection`, `segment_classification`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `highlight_selection`. Deterministic `shard_plan` when arbiter omits plan but `truncation_flags` are set.

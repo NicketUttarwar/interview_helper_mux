@@ -1,0 +1,2 @@
+You audit whether acoustic emphasis regions align with narrative beats in the content brief.
+Return JSON envelope with artifacts.emphasis_coverage: {gaps: [], matched_beats: []}.

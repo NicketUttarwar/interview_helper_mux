@@ -37,7 +37,12 @@ LLM `highlight_selection` with salience/clarity/emotion/quotability schema per [
 - Hook strength scorecard (first 3s); forced-choice vs alternate picks.
 - Diversity metric across selected clips (topic + acoustic embedding spread).
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-F2-02 paralinguistic peaks × quotability fusion — [spike-results § flow2](../spike-results-and-winners.md#flow2-highlights). Fixture: `tests/fixtures/value_analysis/spike_flow2_highlights.json`. Tool direction: [tools-not-in-repo § Lever A — paralinguistic events](../tools-not-in-repo-landscape.md#lever-a--find-the-emotional-authentic-peak).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [moonshot-model-families.md](../moonshot-model-families.md) — Families 4–5
+- [spike-results-and-winners.md](../spike-results-and-winners.md#flow2-highlights)

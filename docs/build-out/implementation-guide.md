@@ -10,7 +10,8 @@ How to take **interview_helper_mux** from a fresh clone to a production-ready op
 
 | Doc | Use when |
 |-----|----------|
-| [steps-forward.md](./steps-forward.md) | **What to do next** + Cursor Agent prompts per step |
+| [remaining-build-commands.md](./remaining-build-commands.md) | **What to do next** — current Agent command queue |
+| [steps-forward.md](./steps-forward.md) | Historical backlog + archived step prompts |
 | [README.md](./README.md) | Ticket index by wave + status |
 | [ticket-specs.md](./ticket-specs.md) | **Acceptance criteria** per BUILD ticket |
 | [stage-registry.md](./stage-registry.md) | Every stage id, module, artifact, prompt |
@@ -27,7 +28,7 @@ How to take **interview_helper_mux** from a fresh clone to a production-ready op
 
 1. `.cursor/rules/interview-helper-mux.mdc` — **always-on** constraints (Context7, gates, logging, build-out workflow)
 2. [AGENTS.md](../../AGENTS.md) — doc navigation index
-3. [steps-forward.md](./steps-forward.md) — pick the current sprint item
+3. [remaining-build-commands.md](./remaining-build-commands.md) — pick the current Agent command (or [steps-forward.md](./steps-forward.md) for history)
 4. [ticket-specs.md](./ticket-specs.md) — acceptance for your BUILD id(s)
 5. [stage-registry.md](./stage-registry.md) — stage you touch
 6. Stage README under `docs/pipeline/<area>/README.md`
@@ -115,7 +116,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ### Phase 3a — Flow 1 full master (BUILD-029–036)
 
-**Goal:** Ranked full episode → `flow_1_master/master.wav` (v1: speech-only mux).
+**Goal:** Ranked full episode → `flow_1_master/master.wav` via `mix_flow1` (BUILD-065–066; legacy `mux_flow1` alias for single-stage rerun).
 
 | Stage | Ticket | Prompt |
 |-------|--------|--------|
@@ -166,23 +167,25 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ---
 
-### Phase 5 — Coherent sound design (BUILD-060–066) — planned
+### Phase 5 — Coherent sound design (BUILD-060–066) — **done**
 
 **Goal:** Sound Design Plan, reusable assets, real mix replacing v1 brief + speech concat.
 
 **Spec:** [sound-design.md](../cross-cutting/sound-design.md) · **Prompts:** [prompts/sound_design/](../prompts/sound_design/)
 
-**Requires:** G2 flow selected; shared analysis complete.
+**Shipped:** `sound_design_palettes`, flow plans, `elevenlabs_prompt_craft`, `mix_flow1`/`mix_flow2` in `pipeline.py` + GUI; G1.5 prompt review panel.
 
 **Verify:** `master.wav` contains beds + stingers + VO; one WAV per `asset_id`; ducking applied.
 
 ---
 
-### Phase 6 — Podcast quality wiring (BUILD-067–072) — planned
+### Phase 6 — Podcast quality wiring (BUILD-067–072) — **done**
 
 **Goal:** Honest EDL (gaps + VO), NLE overrides, assembly preview, LUFS QA, pre-clean offers.
 
 **Spec:** [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md)
+
+**Shipped:** `edl_flow1` with VO/gap placements; NLE overrides; `assembly_preview.wav`; `verify_master` LUFS/peak; pickup-scoped pre-clean GUI offers (BUILD-072).
 
 **Verify:** Gap placements in EDL; `assembly_preview.wav` before SFX spend; `verify_master` LUFS/peak.
 
@@ -202,9 +205,9 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ## Implementation workflow (per ticket)
 
-**Cursor Agent:** Copy-paste prompts and verify commands for each backlog step (#0–#20) live in [steps-forward.md](./steps-forward.md#cursor-agent--how-to-use-this-page). Use **one step per agent chat** unless the step says to split BUILD ids.
+**Cursor Agent:** Open commands live in [remaining-build-commands.md](./remaining-build-commands.md) (**current queue**). Historical step prompts (#0–#20) remain in [steps-forward.md](./steps-forward.md#cursor-agent--how-to-use-this-page). Use **one command per agent chat**.
 
-1. Claim BUILD id from [steps-forward.md](./steps-forward.md).
+1. Pick the next command from [remaining-build-commands.md](./remaining-build-commands.md).
 2. Read acceptance in [ticket-specs.md](./ticket-specs.md).
 3. Read stage row in [stage-registry.md](./stage-registry.md).
 4. Use **Context7** for any third-party API you call.
@@ -219,15 +222,15 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 Repository-wide checklist (also in [steps-forward.md](./steps-forward.md)):
 
-- [x] ASSETS-first operator path: WAV in `ASSETS/`, GUI picker, full state under `ASSETS/executions/exec_*`, resume after `./scripts/run.sh` ([assets-and-executions.md](../cross-cutting/assets-and-executions.md))
-- [ ] Fresh clone: SETUP → bootstrap → check_prerequisites → smoke-test for **flow1, flow2, and flow3**
-- [ ] All three flows selectable at G2 and runnable via CLI + GUI
-- [ ] `master.wav` for flow1/2 includes VO + SFX mix per north star (not speech-only)
-- [x] `verify_master` enforces LUFS/true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md)
-- [ ] Pre-clean offered at documented checkpoints; never auto-enabled
-- [ ] [stage-registry.md](./stage-registry.md) matches `pipeline.py` and `web/stages.py`
-- [ ] No stale rows in [repository-map.md](./repository-map.md) gap table
-- [ ] Smart LLM routing or documented deferral with arbiter smoke on long fixtures
+- [x] ASSETS-first operator path: WAV in `ASSETS/`, GUI picker, full state under `ASSETS/executions/exec_*`, resume after `./scripts/run.sh` ([assets-and-executions.md](../cross-cutting/assets-and-executions.md); GUI: `src/interview_mux/web/server.py`, `gui_session.py`)
+- [ ] Fresh clone: SETUP → bootstrap → check_prerequisites → smoke-test for **flow1, flow2, and flow3** — manual: [definition-of-done-signoff.md](./definition-of-done-signoff.md)
+- [x] All three flows selectable at G2 and runnable via CLI + GUI (`flow1` \| `flow2` \| `flow3` in `gates.py`, `cli.py`, `server.py`, `web/runner.py`)
+- [x] `master.wav` for flow1/2 includes VO + SFX mix per north star (`mix_flow1`/`mix_flow2` in `pipeline.py` → `assembly_flow1.py` / `assembly_flow2.py` / `sound_design.py`, BUILD-065–066)
+- [x] `verify_master` enforces LUFS/true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) (`tools/verify_master.py`, `src/interview_mux/master_qc.py`)
+- [x] Pre-clean offered at documented checkpoints; never auto-enabled (`stages/audio_preclean.py`, `POST …/preclean-offer` in `web/server.py`; BUILD-019 + BUILD-072)
+- [x] [stage-registry.md](./stage-registry.md) matches `pipeline.py` and `web/stages.py` (`EXECUTABLE_ORDER` parity — see signoff §5)
+- [x] No stale rows in [repository-map.md](./repository-map.md) gap table (shipped items cleared Command 9)
+- [x] Smart LLM routing shipped (BUILD-073); optional follow-ups in [remaining-build-commands.md](./remaining-build-commands.md)
 
 ---
 

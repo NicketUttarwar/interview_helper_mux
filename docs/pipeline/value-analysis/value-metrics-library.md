@@ -54,3 +54,18 @@ Every proxy row in a spike sheet must include **known failure modes** (e.g. musi
 ## 5. Linkage to rubric IDs
 
 See [phase3-spike-framework.md](./phase3-spike-framework.md) for LEX-*, COM-*, CRE-*, MEC-*, MOO-* definitions.
+
+## 6. Spike winners by metric (2026-05-28 fixture sprint)
+
+| Metric / protocol | Section winner | Spike record |
+|-------------------|----------------|--------------|
+| MOS-like predictor (NISQA-class) | shared-ingest-transcribe | [spike-results § shared-ingest](./spike-results-and-winners.md#shared-ingest-transcribe) |
+| Operator timed task (CRE-B/C) | shared-g0-and-profile, flow3-show-description | [§ shared-g0](./spike-results-and-winners.md#shared-g0-and-profile), [§ flow3](./spike-results-and-winners.md#flow3-show-description) |
+| Retell protocol (COM-A/B) | shared-gaps-and-vo, flow1-extended-narrative | [§ gaps](./spike-results-and-winners.md#shared-gaps-and-vo), [§ flow1 narrative](./spike-results-and-winners.md#flow1-extended-narrative) |
+| Listener Likert / boundary truth | shared-segmentation | [§ segmentation](./spike-results-and-winners.md#shared-segmentation) |
+| Clip A/B (LEX-B sonic trust) | flow1-sound-and-mix | [§ flow1 sound](./spike-results-and-winners.md#flow1-sound-and-mix) |
+| Paralinguistic event fusion | flow2-highlights | [§ flow2](./spike-results-and-winners.md#flow2-highlights) |
+| Prosody / affect features | shared-understanding | [§ understanding](./spike-results-and-winners.md#shared-understanding) |
+| Anomaly + ambiguity triggers | cross-orchestration-memory | [§ orchestration](./spike-results-and-winners.md#cross-orchestration-memory) |
+
+Fixtures: `tests/fixtures/value_analysis/spike_*.json`. Aggregate with `tools/run_value_spike.py --scorecard … --profiles listener-first,idea-first` (set `value_analysis.enabled` in config first).

@@ -29,6 +29,8 @@ BUILD-022, BUILD-023, BUILD-082
 | `understanding/content_brief.json` | Yes | Thesis, topics, claims, beats |
 | `understanding/source_acoustic_profile.json` | Yes | WPM, pause stats, mix contract — derived once after transcription + review prep |
 
+| `understanding/value_features.json` | Optional | Transcript/audio metrics when value-analysis flags on |
+
 ## Operator workflow
 
 1. Run analysis stages (or full `run_analysis.py`)

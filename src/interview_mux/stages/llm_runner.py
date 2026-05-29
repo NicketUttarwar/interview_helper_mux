@@ -12,6 +12,13 @@ from interview_mux.model_registry import resolve_model
 from interview_mux.run_context import RunContext
 
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
+STAGE_EXAMPLE_FILES: dict[str, str] = {
+    "missing_framing": "_shared/examples/missing-framing.examples.md",
+    "segment_classification": "_shared/examples/segment-classification.examples.md",
+    "topic_coverage_audit": "_shared/examples/topic-coverage-audit.examples.md",
+}
+COMPACT_EXAMPLE_MAX_CHARS = 600
+JSON_OBJECT_FORMAT: dict[str, str] = {"type": "json_object"}
 ENVELOPE_KEYS = frozenset(
     {
         "status",
@@ -60,6 +67,50 @@ def load_system_prompt(rel_path: str, *, include_preamble: bool = True) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def prompt_examples_enabled(stage_key: str, cfg: dict[str, Any] | None = None) -> bool:
+    resolved = cfg if cfg is not None else merged_config()
+    analysis = resolved.get("analysis") or {}
+    pe = analysis.get("prompt_examples") or {}
+    if pe.get("enabled") is False:
+        return False
+    allowed = pe.get("stages")
+    if isinstance(allowed, list) and allowed:
+        return stage_key in allowed
+    return stage_key in STAGE_EXAMPLE_FILES
+
+
+def load_compact_examples(stage_key: str) -> str | None:
+    """First good/bad block from stage example pack, capped for token budget."""
+    rel = STAGE_EXAMPLE_FILES.get(stage_key)
+    if not rel:
+        return None
+    path = prompt_path(*rel.split("/"))
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return None
+    clipped = text[:COMPACT_EXAMPLE_MAX_CHARS]
+    if len(text) > COMPACT_EXAMPLE_MAX_CHARS:
+        clipped = clipped.rsplit("\n", 1)[0] + "\n…"
+    return f"## Compact examples (reference)\n{clipped}"
+
+
+def load_system_prompt_for_stage(
+    rel_path: str,
+    stage_key: str,
+    *,
+    include_preamble: bool = True,
+    cfg: dict[str, Any] | None = None,
+) -> str:
+    system = load_system_prompt(rel_path, include_preamble=include_preamble)
+    if prompt_examples_enabled(stage_key, cfg):
+        examples = load_compact_examples(stage_key)
+        if examples:
+            system = f"{system}\n\n---\n\n{examples}"
+    return system
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("{"):
@@ -68,6 +119,14 @@ def _extract_json(text: str) -> dict[str, Any]:
     if not match:
         raise ValueError(f"No JSON object in model response: {text[:200]}")
     return json.loads(match.group())
+
+
+def _default_response_format(task_kind: str, explicit: dict[str, str] | None) -> dict[str, str] | None:
+    if explicit is not None:
+        return explicit
+    if task_kind in ("primary", "shard", "collate", "specialist", "arbiter"):
+        return JSON_OBJECT_FORMAT
+    return None
 
 
 def normalize_envelope(raw: dict[str, Any]) -> dict[str, Any]:
@@ -115,7 +174,13 @@ def run_prompt_envelope(
     - `user_content`: legacy single user JSON blob.
     """
     client = OpenAI(api_key=require_secret("OPENAI_API_KEY"))
-    system = load_system_prompt(prompt_rel, include_preamble=include_preamble)
+    cfg = merged_config()
+    system = load_system_prompt_for_stage(
+        prompt_rel,
+        stage_key,
+        include_preamble=include_preamble,
+        cfg=cfg,
+    )
     resolved = (
         None
         if model
@@ -143,8 +208,9 @@ def run_prompt_envelope(
         "messages": chat_messages,
         "temperature": 0.0 if task_kind == "arbiter" else 0.2,
     }
-    if response_format:
-        kwargs["response_format"] = response_format
+    fmt = _default_response_format(task_kind, response_format)
+    if fmt:
+        kwargs["response_format"] = fmt
     resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or ""
     envelope = normalize_envelope(_extract_json(content))

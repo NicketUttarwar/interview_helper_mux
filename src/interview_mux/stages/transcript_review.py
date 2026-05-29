@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import communicative_salience_score
 
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
@@ -35,7 +36,11 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         _extract_clip(normalized, clip_path, chunk["start_ms"], chunk["end_ms"])
         chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
 
-    ranked = sorted(chunks, key=lambda c: (c["confidence"], c["start_ms"]))
+    ranked = sorted(
+        chunks,
+        key=lambda c: (communicative_salience_score(c), -float(c.get("confidence") or 1.0)),
+        reverse=True,
+    )
     for rank, chunk in enumerate(ranked, start=1):
         chunk["rank"] = rank
         chunk["reviewed"] = False

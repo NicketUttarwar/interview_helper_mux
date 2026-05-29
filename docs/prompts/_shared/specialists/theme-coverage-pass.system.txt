@@ -1,0 +1,2 @@
+You re-classify segments for themes that were unmapped in the content brief.
+Return JSON envelope with artifacts.segment_topic_patches: list of {segment_id, topic_tags}.

@@ -1,10 +1,8 @@
-# Coherent sound design (planned)
+# Coherent sound design (shipped)
 
-**Status:** Wave 5 in progress. **BUILD-060 (shipped):** `understanding/sound_design_plan.json` schema + empty scaffold at shared-analysis init (`ensure_analysis_workspace`). v1 still ships a single late SFX brief + per-cue ElevenLabs generation + naive concat on the default path until BUILD-066 wires Wave 5 end-to-end. This document defines the **target** system: analysis-informed, reusable assets, multi-stage planning, and proper mux.
+**Status:** Wave 5 shipped — SDP palettes + flow plans, ElevenLabs craft/generate per `asset_id`, and `mix_flow1` / `mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
 
-**Context:** Part of [podcast-quality-roadmap.md](./podcast-quality-roadmap.md). Assembly must also wire gap VO and NLE (BUILD-067–068) — sound design alone does not deliver a polished interview master.
-
-**Build tickets:** [BUILD-060–066](../build-out/README.md#wave-5--coherent-sound-design-planned)
+**Build tickets:** [Wave 5 — done](../build-out/README.md#wave-5--coherent-sound-design-done)
 
 **Prompt-stage guardrails:** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md)
 
@@ -14,7 +12,7 @@
 
 **Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [elevenlabs-prompt-craft](../prompts/sound_design/elevenlabs-prompt-craft.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
 
-**Per-interview acoustic baseline (planned):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
+**Per-interview acoustic baseline (shipped, BUILD-082):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
 
 ---
 
@@ -280,7 +278,7 @@ Craft prompts must **verbalize** these constraints in prose even when `musical_i
 
 ## Post-generation analysis and adaptive placement
 
-**Status:** Documented workflow (spec). Implementation in mix engine + optional QA stage (BUILD-065+).
+**Status:** Operator workflow (post-listen QA). Mix placement and ducking ship in `sound_design.py` (`mix_flow1`, `mix_flow2`).
 
 Initial ElevenLabs output is a **candidate**. Final timeline placement uses analysis **after** generation against interview themes, keywords, operator notes (`style.sound_design_notes`), and the speech stem.
 
@@ -361,7 +359,7 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
 |--------|---------|
 | `content_brief.topics`, `emotional_beats` | Palettes, mood |
 | `analysis_state.themes`, `entities` | Keywords, avoid list |
-| `source_acoustic_profile` (planned) | `pace_class`, `mix_contract`, `prompt_tokens` |
+| `source_acoustic_profile` | `pace_class`, `mix_contract`, `prompt_tokens` |
 | `segments.manifest` + `topic_tags` | Segment ↔ palette mapping |
 | `gap_report` + `vo_pickup` | VO bridge cues, timing |
 | `narrative_plan`, `selection.chapters` | Chapter stingers |
@@ -369,16 +367,16 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
 
 ---
 
-## v1 vs target (summary)
+## Legacy v1 vs default path (summary)
 
-| Area | v1 (shipped) | Target (BUILD-060+) |
-|------|--------------|---------------------|
+| Area | Legacy v1 (single-stage rerun) | Default (shipped) |
+|------|-------------------------------|-------------------|
 | Planning | `podcast_sfx_brief` / `sfx_brief` at end | SDP + palettes + flow plans |
-| Reuse | None | `asset_id` → one WAV |
+| Reuse | Per-cue `sfx/*.wav` | `asset_id` → one WAV |
 | Thematic beds | Prompt only | `under_segment` + palette map |
 | ElevenLabs | Raw `description`, 2s fixed | Crafted prompt + variable duration |
-| Flow 1 mux | Speech concat | Speech + VO + beds + stingers |
-| Flow 2 mux | `sfx_i` after clip i | Cold open + shared transition |
+| Flow 1 mix | `mux_flow1` alias / legacy concat | `mix_flow1` — speech + VO + beds + stingers |
+| Flow 2 mix | Index-based `sfx_i` | `mix_flow2` — cold open + shared transition |
 
 ---
 

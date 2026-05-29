@@ -40,7 +40,12 @@ Use sound design to **underline ideas** and emotional truth—never decoration t
 - Listener LEX-B (sonic trust) + COM-A after clip.
 - Optional prep: with `value_analysis.enabled`, run `tools/extract_value_features.py` on the run to populate `understanding/value_features.json` (transcript/audio proxies) before scoring hypotheses in [phase3-spike-framework.md](../phase3-spike-framework.md); the default mux path does not read this file.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** `sdp_craft_path` (SDP + OpenAI craft + ElevenLabs) — [spike-results § flow1 sound](../spike-results-and-winners.md#flow1-sound-and-mix). Fixture: `tests/fixtures/value_analysis/spike_flow1_sound.json`. Metric: [value-metrics-library §1.4 — Clip A/B](../value-metrics-library.md#4-clip-ab-protocol) (LEX-B sonic trust).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [moonshot-model-families.md](../moonshot-model-families.md) — Families 4–5
+- [spike-results-and-winners.md](../spike-results-and-winners.md#flow1-sound-and-mix)

@@ -44,7 +44,7 @@ See [prompts/analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md). Per
 |---------|------|----------------------|----------------|---------------|
 | `full` | `task_kind=primary` (default) | Yes — prior stage summaries | Yes, capped per `STAGE_PLANS` | Current caps in `analysis.context` |
 | `shard` | `task_kind=shard` during decompose | **No** — one-line parent `reasoning_summary` only | None | Tighter per-shard caps; single batch of `segment_ids` |
-| `collate` | `task_kind=collate` after shards | Yes — one assistant turn per shard summary | None | Merged compact shard artifacts only |
+| `collate` | `task_kind=collate` after shards | Yes — **one assistant turn per shard** (`reasoning_summary` + artifact counts) | None | Merged compact shard payloads in final user turn |
 
 **Padding rules:**
 
@@ -65,6 +65,8 @@ Heavy fields are stripped per stage:
 - `transitions` gets `interviewer_sample_lines` from manifest + `gap_report`
 - `podcast_sfx_brief` / `sfx_brief` get compact `selection` (order or highlights), not full transcript
 - `podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
+
+**Enrichment keys** (when present): `pause_ladder_hints` (boundary), `emphasis_regions` (coverage/narrative arc), `quotability_signals` (highlights), `value_features_summary` (opt-in), `comprehension_risks` (missing framing after specialist pass). Built by [`stage_enrichment.py`](../../src/interview_mux/stage_enrichment.py).
 
 Limits in `config/app.defaults.json` → `analysis.context`:
 

@@ -1,0 +1,72 @@
+{
+  "section": "shared-g0-and-profile",
+  "section_fit": 4,
+  "candidates": [
+    {
+      "id": "communicative_salience_queue",
+      "label": "Communicative salience + idea-break risk queue (H-G0-01)",
+      "scores": {
+        "LEX-A": 4,
+        "LEX-B": 4,
+        "LEX-C": 3,
+        "COM-A": 5,
+        "COM-B": 4,
+        "COM-C": 4,
+        "CRE-A": 5,
+        "CRE-B": 5,
+        "CRE-C": 4,
+        "MEC-A": 4,
+        "MEC-B": 4,
+        "MEC-C": 3,
+        "MEC-D": 4,
+        "MOO-A": 3,
+        "MOO-B": 4,
+        "MOO-C": 4
+      }
+    },
+    {
+      "id": "confidence_only_baseline",
+      "label": "ASR confidence-ranked review queue (current G0)",
+      "scores": {
+        "LEX-A": 3,
+        "LEX-B": 3,
+        "LEX-C": 3,
+        "COM-A": 3,
+        "COM-B": 3,
+        "COM-C": 3,
+        "CRE-A": 3,
+        "CRE-B": 4,
+        "CRE-C": 4,
+        "MEC-A": 2,
+        "MEC-B": 5,
+        "MEC-C": 5,
+        "MEC-D": 5,
+        "MOO-A": 2,
+        "MOO-B": 5,
+        "MOO-C": 3
+      }
+    },
+    {
+      "id": "prompt_only_pattern",
+      "label": "No external tool; prompt-only editorial pattern",
+      "scores": {
+        "LEX-A": 3,
+        "LEX-B": 3,
+        "LEX-C": 3,
+        "COM-A": 3,
+        "COM-B": 3,
+        "COM-C": 3,
+        "CRE-A": 3,
+        "CRE-B": 4,
+        "CRE-C": 4,
+        "MEC-A": 1,
+        "MEC-B": 5,
+        "MEC-C": 5,
+        "MEC-D": 5,
+        "MOO-A": 1,
+        "MOO-B": 5,
+        "MOO-C": 2
+      }
+    }
+  ]
+}

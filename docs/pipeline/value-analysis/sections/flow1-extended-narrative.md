@@ -37,7 +37,12 @@ LLM stages: topic coverage audit, narrative arc plan, full master ranking, trans
 - Blind chapter order A/B; arc coherence scorecard.
 - Optional: pacing curve PNG + ranked segment list for operator workshop.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-F1N-02 acoustic emphasis coverage weighting — [spike-results § flow1 narrative](../spike-results-and-winners.md#flow1-extended-narrative). Fixture: `tests/fixtures/value_analysis/spike_flow1_extended_narrative.json`. Metric: [value-metrics-library §1.2 — Retell protocol](../value-metrics-library.md#12-retell-protocol-com-a-com-b) (blind chapter order).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [moonshot-model-families.md](../moonshot-model-families.md) — Families 1–2
+- [spike-results-and-winners.md](../spike-results-and-winners.md#flow1-extended-narrative)

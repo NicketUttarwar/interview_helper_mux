@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunMeta",
+  "type": "object",
+  "properties": {
+    "execution_id": { "type": "string" },
+    "execution_number": { "type": ["integer", "null"] },
+    "input_audio_path": { "type": "string" },
+    "storage_root": { "type": "string" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "selected_flow": { "enum": ["flow1", "flow2", "flow3"] },
+    "selected_at": { "type": "string" },
+    "audio_preclean": { "type": "object" },
+    "elevenlabs_prompt_review": { "type": "object" },
+    "elevenlabs_listen_results": { "type": "array" }
+  },
+  "additionalProperties": true
+}

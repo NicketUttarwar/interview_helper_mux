@@ -37,7 +37,12 @@ G0 uses confidence-ranked clips and operator corrections; interview profile live
 - Side-by-side queue orderings; timed correction tasks.
 - Optional: breath/stress curve overlaid on waveform in lab tool (out of band OK).
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-G0-01 communicative salience queue — [spike-results § shared-g0](../spike-results-and-winners.md#shared-g0-and-profile). Fixture: `tests/fixtures/value_analysis/spike_shared_g0_and_profile.json`. Metric: [value-metrics-library §1.3 — Operator timed task](../value-metrics-library.md#13-operator-timed-task-cre-b).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [transcript-review.md](../../transcription/transcript-review.md)
+- [spike-results-and-winners.md](../spike-results-and-winners.md#shared-g0-and-profile)

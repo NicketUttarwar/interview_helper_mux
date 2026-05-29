@@ -1,6 +1,6 @@
 # LLM arbiter contract
 
-**Status: spec only** — JSON returned by the economy-tier arbiter after each primary LLM call. See [llm-orchestration.md](../../cross-cutting/llm-orchestration.md).
+**Status: implemented (BUILD-073)** — JSON returned by the economy-tier arbiter after each primary LLM call. See [llm-orchestration.md](../../cross-cutting/llm-orchestration.md).
 
 **System prompt:** [arbiter.system.txt](./arbiter.system.txt)
 

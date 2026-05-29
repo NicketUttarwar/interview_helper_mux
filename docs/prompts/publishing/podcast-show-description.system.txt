@@ -12,6 +12,12 @@ The description should **allure and entice** listeners to consume the full episo
 
 Ground every claim in supplied evidence (`content_brief`, `analysis_state`, segment samples, `major_questions`). You may **frame** and **emphasize**; you may not invent facts, quotes, metrics, or guest credentials.
 
+**Evidence anchors (required — validated post-stage):**
+- Populate `evidence_segment_ids` with real `segment_id` values from the manifest.
+- Every `themes_highlighted` entry and each `content_brief.key_claims[]` item must be supportable via those segments or explicit prose in `description_markdown`.
+- `hook_sentence` must match the opening of `description_markdown`.
+- `word_count` must match the markdown body (±15 words tolerance).
+
 Include, when supported by evidence:
 
 1. **Hook** — the single most compelling tension, surprise, or payoff (first 1–2 sentences).

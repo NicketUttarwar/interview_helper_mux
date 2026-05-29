@@ -32,6 +32,8 @@ def test_elevenlabs_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
     body = res.json()
     assert body["prompts"][0]["asset_id"] == "sting_a"
     assert body["can_generate"] is True
+    assert body["listen_results"] == []
+    assert body["generated_assets"] == []
 
     res = client.put(
         f"/api/runs/{ctx.run_id}/elevenlabs-prompts",
@@ -96,3 +98,33 @@ def test_elevenlabs_listen_result_appends_meta_and_logs(tmp_path, monkeypatch) -
     log_text = (ctx.run_dir / "gui_log.jsonl").read_text(encoding="utf-8")
     assert "elevenlabs_post_listen_pass" in log_text
     assert "elevenlabs_post_listen_fail" in log_text
+
+
+def test_elevenlabs_generated_assets_on_prompts_get(tmp_path, monkeypatch) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_g15_assets")
+    init_run_meta_for_test(ctx)
+    ctx.write_json(
+        "sound_design/elevenlabs_prompts.json",
+        {
+            "prompts": [
+                {
+                    "asset_id": "sting_a",
+                    "elevenlabs_prompt": "Warm sting.",
+                    "duration_seconds": 1.5,
+                    "negative_prompt": "speech",
+                }
+            ]
+        },
+    )
+    assets_dir = ctx.path("sound_design/assets")
+    assets_dir.mkdir(parents=True)
+    (assets_dir / "sting_a.wav").write_bytes(b"RIFF")
+    patch_server_ctx(monkeypatch, ctx)
+    client = TestClient(create_app())
+
+    res = client.get(f"/api/runs/{ctx.run_id}/elevenlabs-prompts")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["generated_assets"]) == 1
+    assert body["generated_assets"][0]["asset_id"] == "sting_a"
+    assert body["generated_assets"][0]["path"] == "sound_design/assets/sting_a.wav"

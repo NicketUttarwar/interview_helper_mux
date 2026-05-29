@@ -37,7 +37,12 @@ LLM boundary and classification prompts; logic-tree pause heuristics (~700ms) as
 - Human **boundary truth** marks on 5 hard segments; compare candidate splits.
 - SectionFit dimension in [phase3-spike-framework.md](../phase3-spike-framework.md).
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-SEG-02 neural VAD pause ladder — [spike-results § segmentation](../spike-results-and-winners.md#shared-segmentation). Fixture: `tests/fixtures/value_analysis/spike_shared_segmentation.json`. Metric: [value-metrics-library §1.1 — Listener Likert](../value-metrics-library.md#11-listener-likert-1-5) (boundary truth).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [segment-schema.md](../../../cross-cutting/segment-schema.md)
+- [spike-results-and-winners.md](../spike-results-and-winners.md#shared-segmentation)

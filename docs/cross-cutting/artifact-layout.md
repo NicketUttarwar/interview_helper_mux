@@ -19,7 +19,7 @@ ASSETS/
 
 ```
 ASSETS/executions/exec_001_20260523T120000Z/
-  run_meta.json                 # execution_number, input path, selected_flow, timestamps
+  run_meta.json                 # execution_number, input path, selected_flow, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
   gui_log.jsonl                 # centralized operator log (policy: .cursor/rules/interview-helper-mux.mdc)
   gui_job.json                  # last background execute job status (GUI job panel)
   segments/nle_edits.json       # non-linear editor state
@@ -43,11 +43,11 @@ ASSETS/executions/exec_001_20260523T120000Z/
 
 | Path | Editable | Purpose |
 |------|----------|---------|
-| `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile |
+| `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile ([analysis_state.schema.json](./json-schemas/analysis_state.schema.json)) |
 | `understanding/investigation_queue.json` | Yes | Open investigations / rerun hints |
 | `understanding/content_brief.json` | Yes | Content brief artifact (synced to memory) |
 | `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; schema: [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json); expanded by Wave 5 stages) |
-| `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — see [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — [source_acoustic_profile.schema.json](./json-schemas/source_acoustic_profile.schema.json); [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
 
@@ -61,12 +61,12 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `preclean/provider.json` | audio_preclean |
 | `preclean/lineage.json` | audio_preclean |
 | `ingest/normalized.wav` | ingest |
-| `ingest/checksums.json` | ingest |
+| `ingest/checksums.json` | ingest ([ingest_checksums.schema.json](./json-schemas/ingest_checksums.schema.json)) |
 | `transcript/full.json` | transcription |
 | `transcript/speakers.json` | transcription (AWS diarization) |
 | `transcript/review_queue.json` | transcript_review_build |
 | `transcript/review_clips/*.wav` | transcript_review_build |
-| `transcript/corrections.json` | transcript_review (operator) |
+| `transcript/corrections.json` | transcript_review (operator) ([transcript_corrections.schema.json](./json-schemas/transcript_corrections.schema.json)) |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
 | `understanding/context_index.json` | context padding index |
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
@@ -77,6 +77,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
 | `understanding/interviewer_script.txt` | human-readable VO script |
+| `understanding/value_features.json` | optional; value-analysis extractor (`tools/extract_value_features.py` or auto after `content_context`) |
 | `segments/boundaries.json` | boundary detection |
 | `segments/manifest.json` | segment classification |
 
@@ -88,11 +89,12 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `narrative_plan.json` | narrative arc plan |
 | `selection.json` | ordered segments, chapters |
 | `transitions.json` | interviewer bridges |
-| `podcast_sfx_brief.json` | subtle SFX spec |
-| `sfx/*.wav` | ElevenLabs generated |
-| `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline (BUILD-067); `mux_scope: speech_only` until mix |
-| `assembly_preview.wav` | speech + VO preview before SFX (planned, BUILD-069) |
-| `assembly.wav` | pre-master mux |
+| `podcast_sfx_brief.json` | subtle SFX spec (v1 legacy brief) |
+| `sound_design/assets/{asset_id}.wav` | ElevenLabs generated (canonical SDP path) |
+| `sfx/*.wav` | legacy per-flow SFX folder when SDP assets absent |
+| `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline ([edl_flow1.schema.json](./json-schemas/artifacts/edl_flow1.schema.json)); consumed by `mix_flow1` |
+| `assembly_preview.wav` | speech + VO preview before SFX (BUILD-069, shipped) |
+| `assembly.wav` | pre-master mix (`mix_flow1`) |
 | `master.wav` | final export |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
 
@@ -103,7 +105,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `selection.json` | ≤5 clips |
 | `sfx_brief.json` | montage SFX spec |
 | `sfx/*.wav` | ElevenLabs generated |
-| `assembly.wav` | micro-assembly |
+| `assembly.wav` | pre-master mix (`mix_flow2`) |
 | `master.wav` | final export |
 
 ## Flow 3 — `flow_3_description/`
@@ -111,7 +113,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | Path | Stage |
 |------|-------|
 | `show_description.json` | podcast show description (LLM artifact) |
-| `show_description.md` | plain-text export for paste into hosts *(planned)* |
+| `show_description.md` | plain-text export for paste into hosts (BUILD-046) |
 
 No audio artifacts. See [pipeline/publishing/README.md](../pipeline/publishing/README.md).
 

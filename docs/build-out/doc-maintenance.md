@@ -20,6 +20,8 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
 | LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/` |
 | Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |
+| Narrative QC / EDL validators | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), `tools/validate_narrative.py`, `tools/verify_edl.py` |
+| Value analysis hook | [value-analysis/README.md](../pipeline/value-analysis/README.md), [config-keys.md](../cross-cutting/config-keys.md) |
 | Dependency pin | `requirements.txt`, `requirements.lock` (`pip-compile requirements.txt -o requirements.lock`), [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md), [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock); re-run `./tools/check_prerequisites.sh` |
 | Ticket shipped or partial | [README.md](./README.md), [ticket-specs.md](./ticket-specs.md) checkboxes, [repository-map.md](./repository-map.md) gap table |
 | Closed doc↔code gap | Remove or update row in [repository-map.md](./repository-map.md); adjust [steps-forward.md](./steps-forward.md) if backlog item complete |

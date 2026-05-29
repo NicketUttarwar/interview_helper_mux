@@ -56,10 +56,12 @@ Or set `INPUT_AUDIO_PATH` in secrets / defaults. Heavy media stays under `ASSETS
 **CLI:**
 
 ```bash
-python tools/run_analysis.py --run-id run_001
+python tools/run_analysis.py --run-id exec_001_20260523T120000Z
 # After G0/G1/G2 in GUI or CLI:
-python tools/run_flow.py --flow flow1 --run-id run_001
-python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
+python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
+python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1_master/master.wav
+python tools/validate_narrative.py --run-id exec_001_20260523T120000Z
+python tools/verify_edl.py --run-id exec_001_20260523T120000Z
 ```
 
 Flow 3 (show description): `python tools/run_flow.py --flow flow3 --run-id <exec_id>` after G2 — see [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md).

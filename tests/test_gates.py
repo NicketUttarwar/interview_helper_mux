@@ -12,16 +12,16 @@ from interview_mux.gates import (
     require_selected_flow_flow2,
     set_selected_flow,
 )
+from interview_mux.analysis_memory import default_analysis_state
 from interview_mux.run_context import RunContext
 from run_fixtures import ctx_from_fixture, isolated_run_ctx
 
 
 def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
     ctx.path("understanding").mkdir(parents=True, exist_ok=True)
-    ctx.write_json(
-        "understanding/analysis_state.json",
-        {"meta": {"operator_verified": verified}, "themes": []},
-    )
+    state = default_analysis_state(ctx.run_id)
+    state["meta"]["operator_verified"] = verified
+    ctx.write_json("understanding/analysis_state.json", state)
 
 
 def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):

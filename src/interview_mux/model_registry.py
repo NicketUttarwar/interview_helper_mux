@@ -10,7 +10,7 @@ TIER_ORDER = ("economy", "standard", "flagship")
 DEFAULT_TIER_MODELS: dict[str, str] = {
     "economy": "gpt-4o-mini",
     "standard": "gpt-4o",
-    "flagship": "gpt-4o",
+    "flagship": "o3",
 }
 
 DEFAULT_STAGE_TIERS: dict[str, str] = {
@@ -73,7 +73,12 @@ def resolve_model(
     secrets = cfg.get("secrets") or {}
 
     stage_override = models.get(stage_key)
-    if isinstance(stage_override, str) and task_kind == "primary" and not explicit_tier:
+    if (
+        isinstance(stage_override, str)
+        and task_kind == "primary"
+        and not explicit_tier
+        and not bump_tier
+    ):
         return ResolvedModel(stage_key=stage_key, task_kind=task_kind, tier="explicit", model_id=stage_override)
 
     tier = explicit_tier or _tier_for_task(stage_key, task_kind, cfg)
@@ -85,7 +90,7 @@ def resolve_model(
 
 def _tier_for_task(stage_key: str, task_kind: str, cfg: dict[str, Any]) -> str:
     models = cfg.get("models") or {}
-    if task_kind in ("arbiter", "shard"):
+    if task_kind in ("arbiter", "shard", "specialist"):
         return "economy"
     stage_tier = _stage_default_tier(models, stage_key)
     if task_kind == "collate":

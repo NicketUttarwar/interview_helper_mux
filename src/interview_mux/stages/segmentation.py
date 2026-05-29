@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from interview_mux.context_volley import transcript_quality_for_ctx
+from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import pause_ladder_hints
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
 
 
@@ -15,6 +17,7 @@ def run_boundaries(ctx: RunContext) -> None:
         quality = transcript_quality_for_ctx(c)
         if quality:
             payload["transcript_quality"] = quality
+        payload["pause_ladder_hints"] = pause_ladder_hints(c)
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
@@ -52,4 +55,5 @@ def run_classification(ctx: RunContext) -> None:
         build_input,
         persist,
     )
+    maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))
     ctx.mark_done("segment_classification")

@@ -152,29 +152,31 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `topic_coverage_audit` | `flow_1_master/coverage_audit.json`; `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix `segments/manifest.json` / profile topics — [artifact-layout](../cross-cutting/artifact-layout.md#flow-1--flow_1_master) |
 | `narrative_arc_plan` | `flow_1_master/narrative_plan.json`; chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
 | `full_master_ranking` | `flow_1_master/selection.json`; `ordered_segment_ids` unique; constraints satisfied; after NLE **Save timeline**, re-run so `nle_edits.json` merges (`nle_applied` when overrides present) | `--from-stage full_master_ranking` |
+| `validate_narrative.py` | Exits 0; every brief topic mapped or documented exclude; no empty selection chapters | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md); `--require-selection` before EDL |
 | `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
 | `sound_design_plan_flow1` | G2 `selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.flow1.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan_flow1`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
 | `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
-| `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json`; ducking / levels described | `--from-stage podcast_sfx_brief` |
-| **v1 reality** | EDL lists VO + transitions; `assembly.wav` / `master.wav` remain **speech-only** mux until BUILD-065/069 — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expectation only; track [podcast-quality-roadmap](../cross-cutting/podcast-quality-roadmap.md) |
+| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO only (no SFX spend yet) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
+| `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
+| `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
 
 ---
 
 ## ElevenLabs (SFX + isolation)
 
-**Canonical guide:** [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md). **v1:** per-cue `sfx/*.wav`, fixed ~2s, speech-only mux may ignore SFX. **Target:** per-`asset_id` under `sound_design/assets/`.
+**Canonical guide:** [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md). Default path: SDP `assets[]` → `sound_design/assets/{asset_id}.wav` → `mix_flow1` / `mix_flow2`. Legacy v1: per-cue `sfx/*.wav` and `podcast_sfx_brief` / `sfx_brief` (single-stage rerun only).
 
 ### Pre-spend (before any generation API call)
 
 | Check | Pass | If fail |
 |-------|------|--------|
 | Flow selected | G2 done; `run_meta.selected_flow` set | Complete G2 |
-| Preview first | `assembly_preview.wav` listened when BUILD-069 exists | Generate preview before SFX spend |
+| Preview first | `assembly_preview.wav` listened before SFX spend | `--from-stage assembly_preview`; fix EDL / VO before craft |
 | Plan exists | Flow 1: SDP `flow_plans.flow1` + `assets[]` (`sound_design_plan_flow1`); Flow 2: SDP `flow_plans.flow2` or v1 `sfx_brief.json`; craft follows plan | Re-run `sound_design_plan_flow1` / `_flow2` or v1 brief stages |
 | **G1.5** (shipped; if `g1_5_require_prompt_approval`) | Operator approved `elevenlabs_prompts.json` in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
 | Craft quality | No vocals/lyrics in prompts; durations match role bands | [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md); regression: [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) |
-| Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md); log `elevenlabs_post_listen_pass` / `fail` |
+| Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md); GUI **Pass** on craft/SFX panel or log `elevenlabs_post_listen_pass` |
 | Asset count | Target: ≤6 Flow 1 / ≤4 Flow 2 unique `asset_id`s | Trim SDP plan |
 | Cost sanity | # API calls = unique assets (target), not # cues | Fix plan reuse |
 
@@ -188,10 +190,13 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Idempotency | Unchanged plan hash → skip regen | Delete asset only if plan changed |
 | Audit | Target: `sound_design/elevenlabs_prompts.json` present | Re-run craft stage |
 
-### Post-generation (target / manual until automated)
+### Post-generation (advisory post-listen GUI)
 
 | Check | Pass | If fail |
 |-------|------|--------|
+| Listen each asset | Play `sound_design/assets/{asset_id}.wav` (or flow `sfx/` mirror) in GUI | Re-run **Generate SFX** after craft edits |
+| Post-listen QA | Click **Pass** in **Post-listen QA** panel; optional note | Click **Fail** + note; regen via craft/SFX or [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
+| Audit trail | `run_meta.elevenlabs_listen_results[]` and `gui_log.jsonl` (`elevenlabs_post_listen_pass` / `fail`) | Re-submit from GUI; does not block pipeline |
 | Theme fit | Asset matches palette / `sonic_identity` | Regen asset (≤2 retries) — [sound-design.md § Post-generation](../cross-cutting/sound-design.md#post-generation-analysis-and-adaptive-placement) |
 | Speech mask | Bed does not bury words in densest segment | Lower `level_db`; increase duck |
 | Transitions | Flow 2 cuts feel connected | Adjust crossfade 80–200 ms or transition level |
@@ -249,7 +254,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
 | Post-gen placement | Beds/stingers placed after listen + theme check | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) |
-| Mix vs speech-only | Know whether this build muxes VO/SFX or concat-only | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
+| Mix path | `mix_flow1` / `mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix_flow1` or `mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 
 ---
 

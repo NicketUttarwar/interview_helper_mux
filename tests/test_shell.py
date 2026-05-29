@@ -11,7 +11,8 @@ def test_repo_root_exists():
 def test_defaults_have_models():
     cfg = load_defaults()
     assert "models" in cfg
-    assert cfg["models"]["speaker_roles"]
+    assert cfg["models"]["stages"]["speaker_roles"]["tier"] == "economy"
+    assert cfg["models"]["tiers"]["flagship"] != cfg["models"]["tiers"]["economy"]
 
 
 def test_run_context_allocate(tmp_path, monkeypatch):

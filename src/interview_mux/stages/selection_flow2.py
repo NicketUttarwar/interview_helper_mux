@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import compact_value_features_summary, quotability_signals
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
 def run_highlight_selection(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "segments": c.read_json("segments/manifest.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
+            "quotability_signals": quotability_signals(c),
         }
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         c.write_json("flow_2_highlights/selection.json", artifacts)

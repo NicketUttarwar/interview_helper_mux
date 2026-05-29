@@ -4,6 +4,7 @@ import statistics
 from typing import Any
 
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import quality_trajectory_flags
 from interview_mux.value_analysis.config import require_value_analysis_flag
 
 VALUE_FEATURES_PATH = "understanding/value_features.json"
@@ -148,4 +149,5 @@ def extract_transcript_features(ctx: RunContext, *, cfg: dict[str, Any] | None =
         "segment_length_p90": p90_seg,
         "interviewer_turn_ratio": round(interviewer_ratio, 3),
         "tags": tags,
+        "quality_trajectory_flags": quality_trajectory_flags(ctx),
     }

@@ -29,6 +29,9 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | full_master_ranking | selection/full-master-ranking | flagship | full |
 | transitions | assembly/transitions | economy | full |
 | podcast_sfx_brief | assembly/podcast-sfx-brief | economy | full |
+| sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |
+| sound_design_plan_flow2 | sound_design/plan-flow2 | flagship | full |
+| elevenlabs_prompt_craft | sound_design/elevenlabs-prompt-craft | economy | full |
 | highlight_selection | selection/highlight-selection | flagship | full |
 | sfx_brief | assembly/sfx-brief | economy | full |
 
@@ -37,6 +40,7 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | Stage | Prompt | Tier | Volley | artifacts | Memory sync |
 |-------|--------|------|--------|-----------|-------------|
 | podcast_show_description | publishing/podcast-show-description | flagship | full | show_description.json | narrative_patch.audience, confidence_patch.show_description |
+| export_show_description | — | — | — | show_description.md | — |
 
 ## Meta
 
@@ -45,6 +49,16 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | `_arbiter` | _shared/arbiter | economy | minimal |
 
 Contract: [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md).
+
+## Specialist post-passes (`analysis.specialists.enabled`)
+
+| Parent stage | Specialist | Output artifact | Investigation trigger |
+|--------------|------------|-----------------|------------------------|
+| `missing_framing` | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `gap_unresolved` |
+| `segment_classification` | `theme_coverage_pass` | `segment_topic_patches[]` | Non-empty patches → `theme_unmapped` |
+| `topic_coverage_audit` | `emphasis_coverage_pass` | `emphasis_coverage.gaps[]` | Non-empty gaps → coverage re-audit |
+
+Enrichment inputs: see [context-padding.md](../cross-cutting/context-padding.md#stage-enrichment-inputs-stage_enrichmentpy).
 
 ## Typical investigations
 

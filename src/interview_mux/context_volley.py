@@ -11,6 +11,7 @@ from interview_mux.analysis_memory import (
     load_analysis_state,
     load_queue,
 )
+from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 
@@ -210,6 +211,10 @@ def build_message_volley(
     state = load_analysis_state(ctx)
     messages: list[dict[str, str]] = []
 
+    if profile == "collate" and stage_input.get("mode") == "collate":
+        messages.extend(_build_collate_volley(ctx, stage_key, plan, stage_input, state))
+        return messages
+
     messages.append(
         {
             "role": "user",
@@ -222,18 +227,24 @@ def build_message_volley(
         }
     )
 
+    if profile == "shard":
+        parent_line = _parent_reasoning_one_liner(ctx, stage_key)
+        if parent_line:
+            messages.append({"role": "assistant", "content": parent_line})
+
     prior_stages = plan.prior_stages if profile == "full" else plan.prior_stages[:1]
     prior_text = _format_prior_conclusions(ctx, prior_stages, state)
     if prior_text:
         messages.append({"role": "assistant", "content": prior_text})
 
     profile_text = _format_profile_slice(state, plan.profile_keys)
-    if profile_text:
+    if profile_text and profile == "full":
         verified = (state.get("meta") or {}).get("operator_verified")
         label = "Operator-verified profile" if verified else "Interview profile (draft — may refine)"
         messages.append({"role": "user", "content": f"## {label}\n{profile_text}"})
 
-    inv_text = _format_investigations(ctx, stage_key, plan if profile == "full" else StageContextPlan(task_line=plan.task_line, max_investigations=0))
+    inv_plan = plan if profile == "full" else StageContextPlan(task_line=plan.task_line, max_investigations=0)
+    inv_text = _format_investigations(ctx, stage_key, inv_plan)
     if inv_text:
         messages.append({"role": "user", "content": inv_text})
 
@@ -258,6 +269,96 @@ def build_message_volley(
     return messages
 
 
+def _build_collate_volley(
+    ctx: RunContext,
+    stage_key: str,
+    plan: StageContextPlan,
+    stage_input: dict[str, Any],
+    state: dict[str, Any],
+) -> list[dict[str, str]]:
+    """One assistant turn per shard summary, then merge instruction + compact shard payloads."""
+    messages: list[dict[str, str]] = []
+    shard_outputs = stage_input.get("shard_outputs") or []
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"## Collate task\n{plan.task_line}\n\n"
+                f"Merge {len(shard_outputs)} shard result(s) into one JSON envelope for `{stage_key}`. "
+                "Read each shard summary below, then produce a single coherent artifact set."
+            ),
+        }
+    )
+    for idx, shard in enumerate(shard_outputs, start=1):
+        env = shard.get("envelope") if isinstance(shard.get("envelope"), dict) else {}
+        artifacts = env.get("artifacts") or {}
+        counts = {k: len(v) if isinstance(v, list) else 1 for k, v in artifacts.items()}
+        label = shard.get("label") or f"shard_{idx}"
+        seg_ids = shard.get("segment_ids") or []
+        summary = env.get("reasoning_summary") or "(no summary)"
+        messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    f"**Shard {label}** — segments: {', '.join(seg_ids) or 'n/a'}\n"
+                    f"Summary: {summary}\n"
+                    f"Artifact keys: {list(artifacts.keys())}; counts: {counts}"
+                ),
+            }
+        )
+    prior_text = _format_prior_conclusions(ctx, plan.prior_stages, state)
+    if prior_text:
+        messages.append({"role": "user", "content": prior_text})
+
+    compact_shards = []
+    for shard in shard_outputs:
+        env = shard.get("envelope") if isinstance(shard.get("envelope"), dict) else {}
+        compact_shards.append(
+            {
+                "label": shard.get("label"),
+                "segment_ids": shard.get("segment_ids"),
+                "status": env.get("status"),
+                "artifacts": env.get("artifacts"),
+            }
+        )
+    data_block = json.dumps(
+        {"shard_outputs": compact_shards, "instruction": stage_input.get("instruction")},
+        indent=2,
+        ensure_ascii=False,
+    )
+    max_data = _char_limit("max_stage_data_chars", 32000)
+    if len(data_block) > max_data:
+        data_block = data_block[:max_data] + "\n…[stage data truncated]"
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"## Shard payloads to merge\n"
+                f"```json\n{data_block}\n```"
+            ),
+        }
+    )
+    return messages
+
+
+def _parent_reasoning_one_liner(ctx: RunContext, stage_key: str) -> str:
+    """Parent attempt reasoning for shard profile."""
+    base = ctx.path("understanding", "stage_runs", stage_key)
+    if not base.is_dir():
+        return ""
+    attempts = sorted(base.glob("attempt_*.json"), reverse=True)
+    for path in attempts:
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            env = doc.get("envelope") or {}
+            summary = (env.get("reasoning_summary") or "").strip()
+            if summary:
+                return f"## Parent pass context\n{summary[:500]}"
+        except Exception:
+            continue
+    return ""
+
+
 def volley_char_estimate(messages: list[dict[str, str]]) -> int:
     return sum(len(m.get("content", "")) for m in messages)
 
@@ -272,6 +373,31 @@ def truncation_flags_for_volley(messages: list[dict[str, str]]) -> list[str]:
     return flags
 
 
+def _summary_from_accepted_attempt(
+    ctx: RunContext,
+    stage: str,
+    accepted: dict[str, Any],
+) -> str:
+    attempt_n = accepted.get(stage) if isinstance(accepted, dict) else None
+    if not attempt_n:
+        return ""
+    base = ctx.path("understanding", "stage_runs", stage)
+    path = base / f"attempt_{int(attempt_n):03d}.json"
+    if not path.is_file():
+        return ""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        env = doc.get("envelope") or {}
+        verdict = (doc.get("arbiter_result") or {}).get("verdict")
+        if verdict and verdict not in ("accept",) and not doc.get("routed_via_collate"):
+            routing = (doc.get("envelope") or {}).get("_routing_meta") or {}
+            if not routing.get("routed_via_collate"):
+                return ""
+        return (env.get("reasoning_summary") or "")[:500]
+    except Exception:
+        return ""
+
+
 def _format_prior_conclusions(
     ctx: RunContext,
     prior_stages: tuple[str, ...],
@@ -280,10 +406,15 @@ def _format_prior_conclusions(
     if not prior_stages:
         return ""
     summaries = (state.get("meta") or {}).get("stage_summaries") or {}
+    accepted = (state.get("meta") or {}).get("last_accepted_attempt") or {}
     lines = ["## Established conclusions from earlier pipeline steps", ""]
     for stage in prior_stages:
         if stage in summaries and summaries[stage]:
             lines.append(f"**{stage.replace('_', ' ').title()}:** {summaries[stage]}")
+            continue
+        from_attempt = _summary_from_accepted_attempt(ctx, stage, accepted)
+        if from_attempt:
+            lines.append(f"**{stage.replace('_', ' ').title()}:** {from_attempt}")
             continue
         digest = _artifact_digest(ctx, stage)
         if digest:
@@ -488,6 +619,11 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out["transcript"] = _clip_text(tr, _char_limit("transcript_full_chars", 36000))
         if raw.get("transcript_quality"):
             out["transcript_quality"] = raw["transcript_quality"]
+        if raw.get("pause_ladder_hints"):
+            out["pause_ladder_hints"] = raw["pause_ladder_hints"]
+        vf = raw.get("value_features_summary") or compact_value_features_summary_from_raw(raw)
+        if vf:
+            out["value_features_summary"] = vf
         return out
     if stage_key == "segment_classification":
         return {
@@ -517,10 +653,13 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out_sdp["source_acoustic_profile"] = sap
         return out_sdp
     if stage_key == "missing_framing":
-        return {
+        out_mf: dict[str, Any] = {
             "content_brief": _compact_brief(raw.get("content_brief")),
             "segments": _compact_segments(raw.get("segments"), for_gaps=True),
         }
+        if raw.get("comprehension_risks"):
+            out_mf["comprehension_risks"] = raw["comprehension_risks"][:25]
+        return out_mf
     if stage_key == "optimal_questions":
         return {
             "gap_evaluations": _filter_gap_evaluations(raw.get("gap_evaluations")),
@@ -576,7 +715,19 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["interviewer_sample_lines"] = raw["interviewer_sample_lines"]
     if "highlights" in raw:
         out["highlights"] = raw["highlights"]
+    if raw.get("emphasis_regions") and stage_key in ("topic_coverage_audit", "narrative_arc_plan"):
+        out["emphasis_regions"] = raw["emphasis_regions"][:24]
+    if raw.get("quotability_signals") and stage_key == "highlight_selection":
+        out["quotability_signals"] = raw["quotability_signals"][:30]
+    vf = raw.get("value_features_summary")
+    if vf:
+        out["value_features_summary"] = vf
     return out
+
+
+def compact_value_features_summary_from_raw(raw: dict[str, Any]) -> dict[str, Any] | None:
+    vf = raw.get("value_features_summary")
+    return vf if isinstance(vf, dict) else None
 
 
 def _compact_coverage_audit(audit: Any) -> Any:

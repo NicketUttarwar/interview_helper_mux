@@ -5,27 +5,14 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from interview_mux.analysis_memory import (
-    apply_envelope_to_memory,
     ensure_analysis_workspace,
-    record_stage_attempt,
-    record_uptier_retry,
     sync_content_brief_to_state,
     sync_gaps_to_state,
     sync_speakers_to_state,
-    uptier_budget_remaining,
     update_completion_from_analysis,
 )
-from interview_mux.context_volley import build_message_volley
-from interview_mux.context_volley import truncation_flags_for_volley
-from interview_mux.llm_arbiter import run_llm_arbiter
-from interview_mux.llm_subtasks import DECOMPOSE_ELIGIBLE, run_shards_then_collate
-from interview_mux.model_registry import resolve_model
+from interview_mux.llm_stage_routing import finalize_stage_attempt, run_llm_stage_with_routing
 from interview_mux.run_context import RunContext
-from interview_mux.prompt_validation import (
-    format_validation_feedback,
-    validate_stage_artifacts,
-)
-from interview_mux.stages.llm_runner import run_prompt_envelope
 
 PersistFn = Callable[[RunContext, dict[str, Any]], None]
 SyncFn = Callable[[RunContext, dict[str, Any]], None]
@@ -50,133 +37,27 @@ def run_analysis_llm_stage(
 
     for attempt in range(1, limit + 1):
         stage_input = build_stage_input(ctx)
-        volley = build_message_volley(ctx, stage_key, stage_input)
-        envelope = run_prompt_envelope(
+        envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
+            ctx,
             stage_key,
             prompt_rel,
-            messages=volley,
-            ctx=ctx,
-            task_kind="primary",
+            stage_input,
+            attempt=attempt,
         )
-        artifacts = envelope.get("artifacts") or {}
-        schema_errors = validate_stage_artifacts(stage_key, artifacts)
-        if schema_errors and attempt < limit:
-            ctx.log(
-                f"Stage {stage_key} attempt {attempt}: artifact schema errors — retrying",
-                level="warning",
-                stage=stage_key,
-            )
-            volley = [
-                *volley,
-                {
-                    "role": "user",
-                    "content": format_validation_feedback(schema_errors),
-                },
-            ]
-            envelope = run_prompt_envelope(
-                stage_key,
-                prompt_rel,
-                messages=volley,
-                ctx=ctx,
-                task_kind="primary",
-            )
-            artifacts = envelope.get("artifacts") or {}
-            schema_errors = validate_stage_artifacts(stage_key, artifacts)
-
-        default_tier = resolve_model(stage_key, "primary").tier
-        arbiter_result = run_llm_arbiter(
-            stage_key=stage_key,
-            attempt_number=attempt,
-            envelope=envelope,
-            schema_errors=schema_errors,
-            context_chars=sum(len(m.get("content", "")) for m in volley),
-            truncation_flags=truncation_flags_for_volley(volley),
-            stage_expectations={
-                "severity": "high" if default_tier == "flagship" else "medium",
-                "default_tier": default_tier,
-                "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
-            },
-        )
-        shard_count = 0
-        verdict = arbiter_result.get("verdict")
-        if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
-            record_uptier_retry(ctx, stage_key)
-            envelope = run_prompt_envelope(
-                stage_key,
-                prompt_rel,
-                messages=volley,
-                ctx=ctx,
-                task_kind="primary",
-                bump_tier=True,
-            )
-            artifacts = envelope.get("artifacts") or {}
-            schema_errors = validate_stage_artifacts(stage_key, artifacts)
-        elif verdict == "retry_uptier":
-            envelope.setdefault("follow_up_investigations", [])
-            envelope["follow_up_investigations"].append(
-                arbiter_result.get("suggested_investigation")
-                or {
-                    "kind": "uptier_exhausted",
-                    "question": f"{stage_key}: uptier budget exhausted for this run.",
-                    "blocking": True,
-                }
-            )
-            envelope["status"] = "blocked"
-        elif verdict == "decompose" and stage_key in DECOMPOSE_ELIGIBLE:
-            envelope, shard_count = run_shards_then_collate(
-                ctx,
-                stage_key=stage_key,
-                prompt_rel=prompt_rel,
-                stage_input=stage_input,
-                shard_plan=arbiter_result.get("shard_plan") or [],
-            )
-            artifacts = envelope.get("artifacts") or {}
-            schema_errors = validate_stage_artifacts(stage_key, artifacts)
-        elif verdict == "decompose":
-            envelope.setdefault("follow_up_investigations", [])
-            envelope["follow_up_investigations"].append(
-                arbiter_result.get("suggested_investigation")
-                or {
-                    "kind": "decompose_ineligible",
-                    "question": f"{stage_key} is not shard/collate eligible; use investigation queue.",
-                    "blocking": True,
-                }
-            )
-            envelope["status"] = "blocked"
-        elif verdict == "enqueue_investigation":
-            envelope.setdefault("follow_up_investigations", [])
-            suggested = arbiter_result.get("suggested_investigation")
-            if suggested:
-                envelope["follow_up_investigations"].append(suggested)
-            envelope["status"] = "blocked"
-
-        record_stage_attempt(
+        finalize_stage_attempt(
             ctx,
             stage_key,
             attempt,
             envelope,
-            context_volley=volley,
-            task_kind="primary",
-            arbiter_result=arbiter_result,
-            shard_count=shard_count,
-            truncation_flags=truncation_flags_for_volley(volley),
+            volley,
+            arbiter_result,
+            schema_errors,
+            shard_count,
+            persist_artifacts=persist_artifacts,
+            sync_fn=sync_fn,
         )
         last_envelope = envelope
-
-        if schema_errors:
-            ctx.log(
-                f"Stage {stage_key}: artifact validation warnings: {schema_errors[:3]}",
-                level="warning",
-                stage=stage_key,
-            )
-        if artifacts:
-            persist_artifacts(ctx, artifacts)
-        if sync_fn:
-            sync_fn(ctx, artifacts)
-
-        apply_envelope_to_memory(ctx, stage_key, envelope)
         status = envelope.get("status", "complete")
-
         blocking_needs = [
             n
             for n in envelope.get("needs") or []
@@ -213,102 +94,34 @@ def run_flow_llm_stage(
     *,
     output_rel: str | None = None,
 ) -> dict[str, Any]:
-    """Flow stages: single envelope call with analysis memory padding."""
+    """Flow stages: single envelope call with analysis memory padding and full routing."""
     ensure_analysis_workspace(ctx)
     stage_input = build_stage_input(ctx)
-    volley = build_message_volley(ctx, stage_key, stage_input)
-    envelope = run_prompt_envelope(
+    envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
+        ctx,
         stage_key,
         prompt_rel,
-        messages=volley,
-        ctx=ctx,
-        task_kind="primary",
+        stage_input,
+        attempt=1,
     )
-    artifacts = envelope.get("artifacts") or {}
-    schema_errors = validate_stage_artifacts(stage_key, artifacts)
-    if schema_errors:
-        volley_retry = [
-            *volley,
-            {"role": "user", "content": format_validation_feedback(schema_errors)},
-        ]
-        envelope = run_prompt_envelope(
-            stage_key,
-            prompt_rel,
-            messages=volley_retry,
-            ctx=ctx,
-            task_kind="primary",
-        )
-        artifacts = envelope.get("artifacts") or {}
-        schema_errors = validate_stage_artifacts(stage_key, artifacts)
-        if schema_errors:
-            ctx.log(
-                f"Stage {stage_key}: artifact validation warnings: {schema_errors[:3]}",
-                level="warning",
-                stage=stage_key,
-            )
-        volley = volley_retry
-    default_tier = resolve_model(stage_key, "primary").tier
-    arbiter_result = run_llm_arbiter(
-        stage_key=stage_key,
-        attempt_number=1,
-        envelope=envelope,
-        schema_errors=schema_errors,
-        context_chars=sum(len(m.get("content", "")) for m in volley),
-        truncation_flags=truncation_flags_for_volley(volley),
-        stage_expectations={
-            "severity": "high" if default_tier == "flagship" else "medium",
-            "default_tier": default_tier,
-            "decompose_eligible": False,
-        },
-    )
-    verdict = arbiter_result.get("verdict")
-    if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
-        record_uptier_retry(ctx, stage_key)
-        envelope = run_prompt_envelope(
-            stage_key,
-            prompt_rel,
-            messages=volley,
-            ctx=ctx,
-            task_kind="primary",
-            bump_tier=True,
-        )
-        artifacts = envelope.get("artifacts") or {}
-    elif verdict == "retry_uptier":
-        envelope.setdefault("follow_up_investigations", [])
-        envelope["follow_up_investigations"].append(
-            arbiter_result.get("suggested_investigation")
-            or {
-                "kind": "uptier_exhausted",
-                "question": f"{stage_key}: uptier budget exhausted for this run.",
-                "blocking": True,
-            }
-        )
-        envelope["status"] = "blocked"
-        artifacts = envelope.get("artifacts") or {}
-    elif verdict == "enqueue_investigation":
-        envelope.setdefault("follow_up_investigations", [])
-        suggested = arbiter_result.get("suggested_investigation")
-        if suggested:
-            envelope["follow_up_investigations"].append(suggested)
-        envelope["status"] = "blocked"
-        artifacts = envelope.get("artifacts") or {}
-    record_stage_attempt(
+    finalize_stage_attempt(
         ctx,
         stage_key,
         1,
         envelope,
-        context_volley=volley,
-        task_kind="primary",
-        arbiter_result=arbiter_result,
-        truncation_flags=truncation_flags_for_volley(volley),
+        volley,
+        arbiter_result,
+        schema_errors,
+        shard_count,
+        persist_artifacts=persist_artifacts,
     )
-    if artifacts:
-        persist_artifacts(ctx, artifacts)
-    elif output_rel and envelope.get("artifacts") is None:
+    artifacts = envelope.get("artifacts") or {}
+    if not artifacts and output_rel and envelope.get("artifacts") is None:
+        from interview_mux.analysis_memory import should_persist_artifacts
+
         legacy = {k: v for k, v in envelope.items() if k not in ("status", "needs", "memory_updates")}
-        if legacy:
+        if legacy and should_persist_artifacts(arbiter_result, {"artifacts": legacy, "status": envelope.get("status")}, schema_errors):
             persist_artifacts(ctx, legacy)
-    apply_envelope_to_memory(ctx, stage_key, envelope)
     return envelope
 
 

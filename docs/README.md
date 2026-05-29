@@ -16,12 +16,14 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
-| [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (planned) |
+| [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (shipped, BUILD-082) |
+| [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) | **Remaining** Agent commands (top-down backlog) |
+| [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) | Manual release-candidate checklist |
 | [build-out/](./build-out/) | **Full build-out suite:** [implementation guide](./build-out/implementation-guide.md), [application flow](./build-out/full-application-flow.md), [stage registry](./build-out/stage-registry.md), [ticket specs](./build-out/ticket-specs.md), [tickets](./build-out/README.md), [steps forward](./build-out/steps-forward.md) (includes **Cursor Agent prompts**), [repository map](./build-out/repository-map.md) |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |
 | [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md) | ASSETS input picker, executions, resume after `run.sh` |
 | [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) | Pinned Python/system/API versions, anchor lock, `pip-audit`, Context7 |
-| [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (**spec**) |
+| [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (BUILD-073) |
 | [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) | Per-stage model tier matrix |
 | [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) | ElevenLabs REST SFX + isolation + GUI journey |
 | [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) | `prompt_influence` tuning table |
@@ -50,4 +52,4 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 
 Shared stages run first via `tools/run_analysis.py`. Flow work runs via `tools/run_flow.py`.
 
-**Implementation status:** Analysis and selection are largely implemented; full podcast mix (VO + SFX + beds in `master.wav`) is specified in [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) and [build-out/README.md](./build-out/README.md). v1 Flow 1 export is reordered speech until Wave 5 / assembly wiring ships.
+**Implementation status:** Shared analysis, Flow 1/2 mix (`mix_flow1` / `mix_flow2` — VO + SFX in `master.wav`), Flow 3 publishing, and `source_acoustic_profile` (BUILD-082) are shipped. Stage ids: [stage-registry.md](./build-out/stage-registry.md). Release sign-off: [definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) · [build-out/README.md](./build-out/README.md).

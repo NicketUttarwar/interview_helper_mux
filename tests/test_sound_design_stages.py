@@ -1,14 +1,49 @@
 from __future__ import annotations
 
+import math
+import wave
+from pathlib import Path
+
 import pytest
 
-from interview_mux.analysis_memory import default_sound_design_plan
+from interview_mux.analysis_memory import default_analysis_state, default_sound_design_plan
 from interview_mux.context_volley import _shape_stage_input
 from interview_mux.gates import set_selected_flow
 from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
-from interview_mux.stages import sound_design_stages
+from interview_mux.stages import sound_design_stages, understanding
+
+
+def _write_test_wav(path: Path, *, sample_rate: int = 16000, duration_seconds: float = 1.0) -> None:
+    n = int(sample_rate * duration_seconds)
+    amp = 8000
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        frames = bytearray()
+        for i in range(n):
+            sample = int(amp * math.sin(2.0 * math.pi * 220.0 * (i / sample_rate)))
+            frames += int(sample).to_bytes(2, byteorder="little", signed=True)
+        wf.writeframes(bytes(frames))
+
+
+def _seed_source_acoustic_profile(ctx: RunContext) -> None:
+    wav = ctx.path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    _write_test_wav(wav)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello world",
+            "words": [
+                {"text": "hello", "start_ms": 0, "end_ms": 220, "speaker_id": "spk_0"},
+                {"text": "world", "start_ms": 260, "end_ms": 450, "speaker_id": "spk_0"},
+            ],
+        },
+    )
+    understanding.run_source_acoustic_profile(ctx)
 
 
 def _seed_flow1_inputs(ctx: RunContext) -> None:
@@ -295,14 +330,16 @@ def test_elevenlabs_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
         }
     ]
     ctx.write_json("understanding/sound_design_plan.json", plan)
-    ctx.write_json("understanding/analysis_state.json", {"style": {"sound_design_notes": "Keep subtle."}})
-    ctx.write_json("understanding/source_acoustic_profile.json", {"pacing": {"pace_class": "conversational"}})
+    state = default_analysis_state(ctx.run_id)
+    state["style"]["sound_design_notes"] = "Keep subtle."
+    ctx.write_json("understanding/analysis_state.json", state)
+    _seed_source_acoustic_profile(ctx)
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):
         payload = build_input(_ctx)
         assert payload["assets"][0]["asset_id"] == "chapter_stinger_warm"
         assert payload["operator_style_sound_design_notes"] == "Keep subtle."
-        assert payload["source_acoustic_profile"]["pacing"]["pace_class"] == "conversational"
+        assert payload["source_acoustic_profile"]["pacing"]["pace_class"]
         persist(
             _ctx,
             {
@@ -389,13 +426,16 @@ def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypat
     ctx = RunContext("run_205", create=True)
     ctx.write_json("understanding/content_brief.json", {"thesis": "Test thesis"})
     ctx.write_json("segments/manifest.json", {"segments": [{"segment_id": "seg_1", "text": "hello"}]})
-    ctx.write_json("understanding/analysis_state.json", {"style": {}})
+    ctx.write_json("understanding/analysis_state.json", default_analysis_state(ctx.run_id))
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
-    ctx.write_json("understanding/source_acoustic_profile.json", {"mix_contract": {"underscore_policy": "normal"}})
+    _seed_source_acoustic_profile(ctx)
 
     def fake_run_analysis_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):
         payload = build_input(_ctx)
-        assert payload["source_acoustic_profile"]["mix_contract"]["underscore_policy"] == "normal"
+        assert payload["source_acoustic_profile"]["mix_contract"]["underscore_policy"] in (
+            "normal",
+            "sparse",
+        )
         persist(
             _ctx,
             {

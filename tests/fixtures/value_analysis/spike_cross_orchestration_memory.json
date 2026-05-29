@@ -1,0 +1,72 @@
+{
+  "section": "cross-orchestration-memory",
+  "section_fit": 4,
+  "candidates": [
+    {
+      "id": "acoustic_anomaly_investigations",
+      "label": "Acoustic anomaly + text ambiguity investigation queue (H-ORC-02)",
+      "scores": {
+        "LEX-A": 3,
+        "LEX-B": 4,
+        "LEX-C": 3,
+        "COM-A": 5,
+        "COM-B": 4,
+        "COM-C": 4,
+        "CRE-A": 5,
+        "CRE-B": 5,
+        "CRE-C": 5,
+        "MEC-A": 4,
+        "MEC-B": 4,
+        "MEC-C": 3,
+        "MEC-D": 4,
+        "MOO-A": 4,
+        "MOO-B": 4,
+        "MOO-C": 4
+      }
+    },
+    {
+      "id": "analysis_state_baseline",
+      "label": "analysis_state.json + text-only investigation queue (current path)",
+      "scores": {
+        "LEX-A": 3,
+        "LEX-B": 3,
+        "LEX-C": 3,
+        "COM-A": 4,
+        "COM-B": 3,
+        "COM-C": 4,
+        "CRE-A": 4,
+        "CRE-B": 4,
+        "CRE-C": 4,
+        "MEC-A": 2,
+        "MEC-B": 5,
+        "MEC-C": 5,
+        "MEC-D": 5,
+        "MOO-A": 2,
+        "MOO-B": 5,
+        "MOO-C": 3
+      }
+    },
+    {
+      "id": "prompt_only_pattern",
+      "label": "No external tool; prompt-only editorial pattern",
+      "scores": {
+        "LEX-A": 3,
+        "LEX-B": 3,
+        "LEX-C": 3,
+        "COM-A": 3,
+        "COM-B": 3,
+        "COM-C": 3,
+        "CRE-A": 3,
+        "CRE-B": 4,
+        "CRE-C": 4,
+        "MEC-A": 1,
+        "MEC-B": 5,
+        "MEC-C": 5,
+        "MEC-D": 5,
+        "MOO-A": 1,
+        "MOO-B": 5,
+        "MOO-C": 2
+      }
+    }
+  ]
+}

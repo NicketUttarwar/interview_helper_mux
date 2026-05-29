@@ -4,26 +4,29 @@ Combine speech, interviewer VO pickup, transitions, and ElevenLabs SFX into `ass
 
 **North star:** [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md)
 
-## Mix engine (BUILD-065)
+## Mix engine (BUILD-065, shipped)
 
 Module: `src/interview_mux/sound_design.py` — `mix_flow1` / `mix_flow2`.
 
-| Stage | Pipeline id (until BUILD-066) | Output |
-|-------|------------------------------|--------|
-| Flow 1 mix | `mux_flow1` (alias) / `mix_flow1` | `flow_1_master/assembly.wav` — EDL speech + VO + SDP overlays (beds, stingers, ducking) |
-| Flow 2 mix | `mux_flow2` (alias) / `mix_flow2` | `flow_2_highlights/assembly.wav` — highlights + cold open + shared `between_clips` transition |
+| Stage | Pipeline id | Output |
+|-------|-------------|--------|
+| Flow 1 mix | **`mix_flow1`** (canonical) | `flow_1_master/assembly.wav` — EDL speech + VO + SDP overlays (beds, stingers, ducking) |
+| Flow 2 mix | **`mix_flow2`** (canonical) | `flow_2_highlights/assembly.wav` — highlights + cold open + shared `between_clips` transition |
+| Legacy alias | `mux_flow1` / `mux_flow2` | Same artifact; **single-stage rerun only** — not in `FLOW1_ORDER` / `FLOW2_ORDER` |
 
 `master_flow*` loudness-normalizes `assembly.wav` → `master.wav` (SFX remain audible).
 
-**Listen check:** After `mux_flow1` / `master_flow1`, confirm beds/stingers in `master.wav` — not speech-only concat.
+**Listen check:** After `mix_flow1` / `master_flow1`, confirm beds/stingers in `master.wav`.
 
 ## Assembly wiring (BUILD-067–069)
 
 | Ticket | Behavior |
 |--------|----------|
 | BUILD-067 | **Shipped:** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors |
-| BUILD-068 | `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
+| BUILD-068 | **Shipped:** `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
 | BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
+
+Stage ids and mix tables: [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
 ## Sound design inputs (BUILD-060–064)
 
@@ -57,6 +60,13 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 ## Tools
 
 **ffmpeg**, **pydub**, **ElevenLabs REST** `POST /v1/sound-generation` (`elevenlabs_rest.py`) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md)
+
+**QA (Flow 1):**
+
+```bash
+python tools/verify_edl.py --run-id <exec_id>
+python tools/validate_narrative.py --run-id <exec_id> [--require-selection]
+```
 
 ## Modules
 

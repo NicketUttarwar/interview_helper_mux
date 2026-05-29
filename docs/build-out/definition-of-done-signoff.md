@@ -1,0 +1,174 @@
+# Definition of done — manual sign-off
+
+**Purpose:** Release-candidate checklist for operators and maintainers. Automated `pytest` is optional; complete this doc (and [smoke-test.md](../workflows/smoke-test.md)) before calling the repository “done.”
+
+**Code anchors:** `src/interview_mux/pipeline.py` · `src/interview_mux/web/stages.py` · [stage-registry.md](./stage-registry.md)
+
+**Related:** [implementation-guide.md](./implementation-guide.md#definition-of-done-entire-app) · [steps-forward.md](./steps-forward.md#definition-of-done-repository-wide) · [repository-map.md](./repository-map.md)
+
+---
+
+## How to use
+
+1. Fresh machine or clean venv: follow [smoke-test.md](../workflows/smoke-test.md) prerequisites.
+2. Work through each section below; check `[x]` only when verified on a real `exec_*` run.
+3. Record `run_id`, date, and operator initials in **Sign-off record** at the bottom.
+4. After sign-off, update [implementation-guide.md](./implementation-guide.md) and [steps-forward.md](./steps-forward.md) “fresh clone / smoke” checkboxes if all three flows passed.
+
+---
+
+## 1. ASSETS end-to-end (picker, `exec_*`, resume)
+
+| Step | Action | Pass criteria |
+|------|--------|---------------|
+| 1.1 | Place a `.wav` under `ASSETS/input/` | File appears on home **Input audio** list (`GET /api/assets`) |
+| 1.2 | `./scripts/run.sh` → pick file → **New execution** | New folder `ASSETS/executions/exec_NNN_<timestamp>/` with `run_meta.json` (`input_audio_path` set) |
+| 1.3 | Run at least through `ingest` | `ingest/normalized.wav`, `gui_log.jsonl` lines via `RunContext.log()` only |
+| 1.4 | Stop server (`Ctrl+C`), `./scripts/run.sh` again | Home shows **Previous executions** |
+| 1.5 | Open same `exec_*` | Stage markers, artifacts, and log tail restore; `ASSETS/.gui/active_execution.json` matches |
+
+**No `INPUT_AUDIO_PATH` required** for GUI-created runs. Headless fallback: `secrets.env` / `--run-id` per [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
+
+- [ ] 1.1–1.5 passed  
+- [ ] `run_id` used: ____________________
+
+---
+
+## 2. G2 — all three flows (CLI + GUI)
+
+**Code:** `gates.set_selected_flow` accepts `flow1` \| `flow2` \| `flow3` (`src/interview_mux/gates.py`); CLI `tools/run_flow.py` and GUI `POST /api/runs/{run_id}/execute` with `mode: flow1|flow2|flow3` (`src/interview_mux/cli.py`, `src/interview_mux/web/server.py`, `web/runner.py`).
+
+Complete shared analysis through G1 (or confirm G1 not required for your fixture) before flow work.
+
+### Flow 1
+
+| Path | Steps | Pass |
+|------|-------|------|
+| GUI | G2 → choose **Full master podcast** → run flow (or step through stages) | `run_meta.selected_flow` = `flow1`; flow stages visible in workspace |
+| CLI | `python tools/run_flow.py --flow flow1 --run-id <exec_id>` | Reaches `flow_1_master/master.wav` without unhandled exit |
+
+- [ ] Flow 1 GUI  
+- [ ] Flow 1 CLI  
+
+### Flow 2
+
+Use a run with G2 = `flow2` (new execution or change flow in GUI before flow stages).
+
+| Path | Steps | Pass |
+|------|-------|------|
+| GUI | G2 → **Highlight reel** → run flow | `selected_flow` = `flow2` |
+| CLI | `python tools/run_flow.py --flow flow2 --run-id <exec_id>` | `flow_2_highlights/master.wav` exists |
+
+- [ ] Flow 2 GUI  
+- [ ] Flow 2 CLI  
+
+### Flow 3
+
+| Path | Steps | Pass |
+|------|-------|------|
+| GUI | G2 → **Show description** → run flow | `flow_3_description/show_description.md` present; no `master.wav` |
+| CLI | `python tools/run_flow.py --flow flow3 --run-id <exec_id>` | JSON + markdown export; ~150–250 words |
+
+- [ ] Flow 3 GUI  
+- [ ] Flow 3 CLI  
+
+---
+
+## 3. Flow 1 / 2 master — VO + SFX mix (listen)
+
+**Not** speech-only concat. Canonical stages: `mix_flow1` / `mix_flow2` → `master_flow1` / `master_flow2` (`pipeline.py` `FLOW1_ORDER` / `FLOW2_ORDER`).
+
+| Check | How |
+|-------|-----|
+| Artifacts | `flow_1_master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `elevenlabs_sfx_*` |
+| Listen | `master.wav`: VO bridges (if G1 lines existed), beds/stingers audible — not dry speech-only |
+| Metrics | `python tools/verify_master.py <path-to-master.wav>` exits 0 (Flow 1: −16 LUFS ±1; Flow 2: −14 LUFS ±1) |
+
+Optional: `assembly_preview.wav` (speech + VO, no ElevenLabs) listened **before** SFX spend.
+
+- [ ] Flow 1 listen + `verify_master`  
+- [ ] Flow 2 listen + `verify_master`  
+
+---
+
+## 4. Pre-clean — offered at checkpoints, never auto
+
+**Code:** `audio_preclean` runs only when operator accepts an offer (`run_meta.audio_preclean.enabled`); `POST /api/runs/{run_id}/preclean-offer` (`src/interview_mux/web/server.py`). Checkpoints: [operator-gates.md](../workflows/operator-gates.md#quality-improvement-offers-not-gates), [gui-surface-map.md](../workflows/gui-surface-map.md#quality-offers-pre-clean).
+
+| Checkpoint | Scope (typical) | Verify |
+|------------|-----------------|--------|
+| Before ingest | `full_source` | Card appears; **Dismiss** → ingest uses original; no `preclean/isolated.wav` unless accepted |
+| After transcript review | `full_source` | Offer logged; dismiss does not block analysis |
+| G1 VO pickup | `vo_pickup` | Accept → re-run `audio_preclean` + `vo_ingest`; dismiss → continue with raw pickups |
+| Before mix (flow) | per roadmap | Offer only; never silent auto-run |
+
+- [ ] At least one checkpoint: offer shown, dismiss works  
+- [ ] At least one accept (optional): `preclean/lineage.json` + expected scope in `run_meta.json`  
+- [ ] Confirmed: pipeline never enables pre-clean without explicit accept  
+
+---
+
+## 5. Stage registry ↔ `pipeline.py` ↔ `web/stages.py`
+
+**Automated parity (run from repo root):**
+
+```bash
+source .venv/bin/activate
+python -c "
+import sys; sys.path.insert(0, 'src')
+from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.web.stages import EXECUTABLE_ORDER
+for name, pipe in [('analysis', ANALYSIS_ORDER), ('flow1', FLOW1_ORDER), ('flow2', FLOW2_ORDER), ('flow3', FLOW3_ORDER)]:
+    web = EXECUTABLE_ORDER[name]
+    assert list(pipe) == list(web), (name, set(pipe)^set(web))
+print('parity OK')
+"
+```
+
+| Source | Role |
+|--------|------|
+| `pipeline.py` | `ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER`, `FLOW3_ORDER` — execution order |
+| `web/stages.py` | `EXECUTABLE_ORDER` — GUI stage list metadata |
+| [stage-registry.md](./stage-registry.md) | Human index; gates + legacy aliases documented |
+
+Gates in GUI but not in `ANALYSIS_ORDER` (expected): `transcript_review`, `analysis_profile`, `g1_vo_pickup`, `g2_flow_select`. Legacy rerun ids: `mux_flow1`, `mux_flow2`, `podcast_sfx_brief`, `sfx_brief`.
+
+- [ ] Parity script exits OK  
+- [ ] Spot-check: new shipped stage has a row in [stage-registry.md](./stage-registry.md)  
+
+---
+
+## 6. Smoke-test.md — all three flows
+
+Follow [smoke-test.md](../workflows/smoke-test.md) end-to-end on one fixture interview (long enough for G1 optional, short enough for CI time).
+
+| Section | Key artifacts / commands |
+|---------|---------------------------|
+| Prerequisites | `bootstrap_venv.sh`, `check_prerequisites.sh`, secrets + AWS |
+| GUI path | Picker + resume (§ ASSETS above) |
+| Analysis CLI | `run_analysis.py`, `analysis_complete.json` |
+| Flow 1 | `run_flow.py --flow flow1`, `verify_master.py` on `flow_1_master/master.wav` |
+| Flow 2 | `run_flow.py --flow flow2`, `verify_master` on `flow_2_highlights/master.wav` |
+| Flow 3 | `run_flow.py --flow flow3`, `show_description.md`, no master WAV |
+
+**Note:** Automated `pytest tests/` is optional for release sign-off; use this doc + smoke-test for release candidate.
+
+- [ ] smoke-test.md prerequisites  
+- [ ] smoke-test.md analysis section  
+- [ ] smoke-test.md Flow 1 section  
+- [ ] smoke-test.md Flow 2 section  
+- [ ] smoke-test.md Flow 3 section  
+
+---
+
+## Sign-off record
+
+| Field | Value |
+|-------|--------|
+| Date | |
+| Operator | |
+| `exec_*` (flow1/2/3) | |
+| Git commit (optional) | |
+| Notes | |
+
+**Maintainer:** When all sections are checked, mark fresh-clone items in [implementation-guide.md](./implementation-guide.md) and [steps-forward.md](./steps-forward.md), and link this file from [AGENTS.md](../../AGENTS.md) / [INDEX.md](../INDEX.md).

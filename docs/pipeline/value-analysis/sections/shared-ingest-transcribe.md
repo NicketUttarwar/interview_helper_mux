@@ -43,7 +43,14 @@ Ingest normalizes audio; AWS Transcribe (CLI) produces word-level transcript and
 - Listener Likert on **trust** windows flagged top vs bottom decile.
 - Operator marks “mis-attributed speaker” segments with/without multitrack hints.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-ING-03 NISQA-class quality trajectories — [spike-results § shared-ingest](../spike-results-and-winners.md#shared-ingest-transcribe). Fixture: `tests/fixtures/value_analysis/spike_shared_ingest_transcribe.json`. Metric: [value-metrics-library §2 — MOS-like predictor](../value-metrics-library.md#2-model-proxies-allowed-with-caveats).
+
+**Park (T0 spike):** H-ING-01 SSL idea-density — [spike-results § H-ING-01 T0](../spike-results-and-winners.md#h-ing-01-t0-spike--ssl-idea-density). Command 8 gate not met (fixture sprint did not recommend SSL); no `torch`/`transformers` merged.
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [moonshot-model-families.md](../moonshot-model-families.md) — Families 1–3, 6
+- [spike-results-and-winners.md](../spike-results-and-winners.md#shared-ingest-transcribe)

@@ -37,7 +37,12 @@ Keep long interviews **coherent across passes**: investigations, memory, and rer
 - Trace: investigations fired with/without acoustic trigger; operator rates helpfulness.
 - Long interview fixture (90m+) with planted contradiction.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-ORC-02 acoustic anomaly + text ambiguity investigation queue — [spike-results § orchestration](../spike-results-and-winners.md#cross-orchestration-memory). Fixture: `tests/fixtures/value_analysis/spike_cross_orchestration_memory.json`. Tool direction: [tools-not-in-repo § Lever E — anomaly triggers](../tools-not-in-repo-landscape.md#lever-e--long-run-coherence-memory).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [long-interview-chunking.md](../../../workflows/long-interview-chunking.md)
+- [spike-results-and-winners.md](../spike-results-and-winners.md#cross-orchestration-memory)

@@ -3,16 +3,16 @@ from __future__ import annotations
 import pytest
 
 from interview_mux import pipeline
+from interview_mux.analysis_memory import default_analysis_state
 from interview_mux.gates import set_selected_flow
 from run_fixtures import ctx_from_fixture
 
 
 def test_run_flow1_blocks_when_profile_unverified(tmp_path):
     ctx = ctx_from_fixture(tmp_path)
-    ctx.write_json(
-        "understanding/analysis_state.json",
-        {"meta": {"operator_verified": False}, "themes": []},
-    )
+    state = default_analysis_state(ctx.run_id)
+    state["meta"]["operator_verified"] = False
+    ctx.write_json("understanding/analysis_state.json", state)
     with pytest.raises(SystemExit, match="Profile gate"):
         pipeline.run_flow1(ctx)
 

@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from interview_mux.model_registry import next_tier, resolve_model
+from interview_mux.model_registry import DEFAULT_TIER_MODELS, next_tier, resolve_model
 
 
 def test_resolve_model_primary_uses_stage_tier():
     resolved = resolve_model("missing_framing", "primary")
-    assert resolved.tier in {"flagship", "explicit"}
-    assert resolved.model_id
+    assert resolved.tier == "flagship"
+    assert resolved.model_id == DEFAULT_TIER_MODELS["flagship"]
 
 
 def test_resolve_model_arbiter_always_economy():
     resolved = resolve_model("missing_framing", "arbiter")
     assert resolved.tier == "economy"
+    assert resolved.model_id == DEFAULT_TIER_MODELS["economy"]
 
 
 def test_next_tier_caps_at_flagship():
@@ -22,11 +23,40 @@ def test_next_tier_caps_at_flagship():
 
 def test_resolve_model_collate_floor_for_high_severity():
     resolved = resolve_model("missing_framing", "collate")
-    assert resolved.tier in {"flagship", "explicit", "standard"}
+    assert resolved.tier == "flagship"
     assert resolved.model_id
 
 
-def test_flat_stage_override_wins_for_primary():
-    resolved = resolve_model("speaker_roles", "primary")
-    assert resolved.tier == "explicit"
-    assert resolved.model_id == "gpt-4o-mini"
+def test_tiers_resolve_to_distinct_models():
+    economy = resolve_model("speaker_roles", "primary")
+    standard = resolve_model("boundary_detection", "primary")
+    flagship = resolve_model("missing_framing", "primary")
+    assert economy.model_id != flagship.model_id
+    assert standard.model_id != flagship.model_id
+
+
+def test_bump_tier_bypasses_flat_stage_override(monkeypatch):
+    from interview_mux import model_registry
+
+    def fake_merged_config():
+        return {
+            "models": {
+                "tiers": {
+                    "economy": "gpt-4o-mini",
+                    "standard": "gpt-4o",
+                    "flagship": "o3",
+                },
+                "stages": {"missing_framing": {"tier": "standard"}},
+                "missing_framing": "gpt-4o",
+            },
+            "secrets": {},
+        }
+
+    monkeypatch.setattr(model_registry, "merged_config", fake_merged_config)
+    first = resolve_model("missing_framing", "primary")
+    assert first.tier == "explicit"
+    assert first.model_id == "gpt-4o"
+
+    bumped = resolve_model("missing_framing", "primary", bump_tier=True)
+    assert bumped.tier == "flagship"
+    assert bumped.model_id == "o3"

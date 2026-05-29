@@ -85,7 +85,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 - [ ] No operator-facing `print()` without `ctx.log()` mirror
 - [ ] `GET …/log` returns tail of `gui_log.jsonl`
 
-### BUILD-017 — Gates G0–G2 (partial for G2)
+### BUILD-017 — Gates G0–G2
 
 - [x] G0 blocks analysis after `transcript_review_build` until review complete
 - [x] G1 blocks flow until `vo_pickup` satisfied for `delivery: record`
@@ -366,6 +366,20 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 - [x] `understanding/source_acoustic_profile.json` per [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md)
 - [x] Consumed by BUILD-061 palettes and BUILD-064 craft
+
+### BUILD-084 — Quality-first LLM harness
+
+- [x] Merge/persist gating on arbiter verdict (`should_merge_envelope`, `should_persist_artifacts`)
+- [x] Collate volley: one assistant turn per shard (`context_volley._build_collate_volley`)
+- [x] Unified routing (`llm_stage_routing.py`) for analysis + flow stages
+- [x] Expanded `DECOMPOSE_ELIGIBLE` + deterministic `shard_plan` (`llm_shard_plans.py`)
+- [x] Within-attempt volley retries (`max_volley_retries`)
+- [x] Envelope pre-arbiter validation (`validate_envelope`)
+- [x] `nle_edits.schema.json` + validators; investigation queue on write
+- [x] Optional specialists (`analysis.specialists.enabled`, `llm_specialists.py`)
+- [x] Value-analysis orchestration investigations (H-ORC-02)
+- [x] GUI `GET /api/runs/{id}/llm-routing` + `#llm-routing-panel`
+- [x] Tests: `test_build073_llm_routing.py`, `test_llm_harness_084.py`
 
 ---
 

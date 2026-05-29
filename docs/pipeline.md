@@ -4,7 +4,7 @@
 
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
-**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. **v1 gap:** Flow 1 mux is speech-only concat; SFX/VO/transitions artifacts are produced but not yet mixed. Flow 3 ships show-description copy via `publishing_flow3.py` (no audio mux). See [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. Flow 1/2 mix via `mix_flow1` / `mix_flow2` (speech + VO + SDP overlays in `master.wav`). Flow 3 ships show-description copy via `publishing_flow3.py` (no audio mux). Stage ids and status: [stage-registry.md](./build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
 
 ```mermaid
 flowchart TB
@@ -72,11 +72,12 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 2. **Narrative arc plan** — setup → payoff, chapters, ordering constraints
 3. **Full master ranking** — optimal segment order (not chronological default)
 4. **Transitions** — interviewer bridges
-5. **Podcast SFX brief** — subtle stingers and beds *(v1; see [coherent sound design](./cross-cutting/sound-design.md))*
-6. **ElevenLabs SFX** — generate `sfx/*.wav`
-7. **Assembly preview** *(planned)* — speech + VO listen before SFX spend
-8. **Mux assembly** — speech + VO + SFX *(v1: speech-only concat; target: BUILD-065 mix)*
-9. **Master** — −16 LUFS *(target: measured QA per [evaluation-metrics](./cross-cutting/evaluation-metrics.md))*
+5. **Sound design plan (Flow 1)** — SDP `assets` + `flow_plans.flow1.cues` — [sound-design.md](./cross-cutting/sound-design.md)
+6. **EDL** — speech + VO + gap placements (`edl_flow1`)
+7. **Assembly preview** — speech + VO listen before ElevenLabs spend (`assembly_preview.wav`)
+8. **ElevenLabs prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
+9. **Mix** — `mix_flow1` → `assembly.wav` (speech + VO + beds + stingers)
+10. **Master** — `master_flow1` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
 
 ### Success criteria
 
@@ -93,10 +94,10 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 ### Stage sequence (after G2)
 
 1. **Highlight selection**
-2. **SFX brief** (montage)
-3. **ElevenLabs SFX**
-4. **Micro-assembly**
-5. **Master** — −14 LUFS
+2. **Sound design plan (Flow 2)** — SDP `assets` + `flow_plans.flow2.cues`
+3. **ElevenLabs prompt craft + SFX** — montage assets
+4. **Mix** — `mix_flow2` → `assembly.wav` (cold open + shared between-clip transition)
+5. **Master** — `master_flow2` → −14 LUFS
 
 ---
 
@@ -107,7 +108,7 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 ### Stage sequence (after G2)
 
 1. **Podcast show description** — flagship LLM with rich user/assistant context volley (content brief, profile, manifest slice, optional gap summaries)
-2. **Export** *(planned)* — `show_description.md` plain text alongside JSON
+2. **Export** — `show_description.md` plain text alongside JSON
 
 ### Success criteria
 

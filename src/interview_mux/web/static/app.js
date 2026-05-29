@@ -371,6 +371,7 @@ async function selectStage(stageId) {
   $("#stage-description").textContent = stage.description;
   updateStatusBar(state.run);
   await renderGateActions(stage);
+  await renderLlmRoutingPanel(stage);
   updateProfilePanelVisibility(stage);
   populateArtifactSelect(stage);
   if (stage.id === "analysis_profile") loadAnalysisProfile();
@@ -382,6 +383,41 @@ function updateProfilePanelVisibility(stage) {
     stage?.id === "analysis_profile" ||
     (state.run?.stages?.find((s) => s.id === "analysis_profile")?.status !== "locked");
   panel.classList.toggle("hidden", !show);
+}
+
+async function renderLlmRoutingPanel(stage) {
+  const el = $("#llm-routing-panel");
+  if (!el || !state.runId) return;
+  el.innerHTML = "";
+  el.classList.add("hidden");
+  const llmStages = new Set([
+    "speaker_roles",
+    "content_context",
+    "boundary_detection",
+    "segment_classification",
+    "missing_framing",
+    "optimal_questions",
+    "topic_coverage_audit",
+    "narrative_arc_plan",
+    "full_master_ranking",
+    "highlight_selection",
+    "transitions",
+    "podcast_show_description",
+  ]);
+  if (!llmStages.has(stage.id)) return;
+  try {
+    const data = await api(`/api/runs/${state.runId}/llm-routing`);
+    const rows = (data.attempts || []).filter((a) => a.stage === stage.id);
+    if (!rows.length) return;
+    el.classList.remove("hidden");
+    const lines = rows.map(
+      (r) =>
+        `<li><code>${r.task_kind || "primary"}</code> verdict=<strong>${r.verdict || "—"}</strong> shards=${r.shard_count || 0} trunc=${(r.truncation_flags || []).join(",") || "none"}</li>`,
+    );
+    el.innerHTML = `<p class="hint"><strong>LLM routing</strong></p><ul class="llm-routing-list">${lines.join("")}</ul>`;
+  } catch {
+    /* panel optional */
+  }
 }
 
 async function renderGateActions(stage) {
@@ -505,6 +541,7 @@ async function renderGateActions(stage) {
   if (stage.id === "elevenlabs_prompt_craft") {
     el.classList.remove("hidden");
     await renderElevenLabsPromptReviewPanel(el);
+    await renderElevenLabsPostListenPanel(el, stage);
     return;
   }
 
@@ -524,6 +561,7 @@ async function renderGateActions(stage) {
       });
       return;
     }
+    await renderElevenLabsPostListenPanel(el, stage);
   }
 
   await renderPrecleanOffer(stage, el);
@@ -684,6 +722,113 @@ async function renderElevenLabsPromptReviewPanel(host) {
     await refreshRun();
     await selectStage("elevenlabs_prompt_craft");
   });
+}
+
+function latestElevenLabsListenByAsset(listenResults) {
+  const map = new Map();
+  for (const row of listenResults || []) {
+    if (row?.asset_id) map.set(row.asset_id, row);
+  }
+  return map;
+}
+
+function collectElevenLabsGeneratedAssets(stage) {
+  const paths = new Map();
+  for (const a of state.run?.elevenlabs_generated_assets || []) {
+    if (a?.asset_id) {
+      paths.set(a.asset_id, a.path || `sound_design/assets/${a.asset_id}.wav`);
+    }
+  }
+  for (const p of stage?.audio_outputs_present || []) {
+    if (!/\.wav$/i.test(p)) continue;
+    const base = p.split("/").pop().replace(/\.wav$/i, "");
+    if (!paths.has(base)) paths.set(base, p);
+  }
+  return [...paths.entries()].map(([asset_id, path]) => ({ asset_id, path }));
+}
+
+async function submitElevenLabsListenResult(assetId, result, note) {
+  const body = { asset_id: assetId, result };
+  if (note?.trim()) body.note = note.trim();
+  await api(`/api/runs/${state.runId}/elevenlabs-prompts/listen-result`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  showToast(`Post-listen: ${assetId} → ${result}`);
+  await refreshRun();
+  await pollLog();
+}
+
+async function renderElevenLabsPostListenPanel(host, stage) {
+  const assets = collectElevenLabsGeneratedAssets(stage);
+  if (!assets.length) return;
+
+  host.classList.remove("hidden");
+  const listenResults = state.run?.meta?.elevenlabs_listen_results || [];
+  const latest = latestElevenLabsListenByAsset(listenResults);
+
+  const wrap = document.createElement("div");
+  wrap.className = "quality-offer-card el-post-listen-card";
+  wrap.innerHTML = `<h4>Post-listen QA (advisory)</h4>
+    <p class="muted">Listen to each generated asset, then record pass or fail. Optional note is stored in <code>run_meta.json</code> and the log panel.</p>`;
+
+  for (const { asset_id, path } of assets) {
+    const prev = latest.get(asset_id);
+    const prevHtml = prev
+      ? `Last: <strong>${escapeHtml(prev.result)}</strong> at ${formatTs(prev.at)}${
+          prev.note ? ` — ${escapeHtml(prev.note)}` : ""
+        }`
+      : "Not reviewed yet";
+    const card = document.createElement("div");
+    card.className = "vo-card el-post-listen-row";
+    card.innerHTML = `
+      <h4>${escapeHtml(asset_id)}</h4>
+      <p class="muted"><code>${escapeHtml(path)}</code> · <span class="el-post-listen-status">${prevHtml}</span></p>
+      <div class="stage-audio-actions flow-choice">
+        <button type="button" class="btn ghost sm btn-el-listen">Listen</button>
+        <button type="button" class="btn primary sm btn-el-pass">Pass</button>
+        <button type="button" class="btn ghost sm btn-el-fail">Fail</button>
+      </div>
+      <label class="tr-label">Note (optional)</label>
+      <input type="text" class="input el-post-listen-note" placeholder="e.g. vocals in tail" />
+    `;
+    card.querySelector(".btn-el-listen")?.addEventListener("click", () => {
+      const player = $("#audio-player");
+      const url = `/api/runs/${state.runId}/audio?path=${encodeURIComponent(path)}`;
+      player.src = url;
+      player.setAttribute("data-src", url);
+      player.currentTime = 0;
+      player.play().catch(() => {});
+    });
+    card.querySelector(".btn-el-pass")?.addEventListener("click", async () => {
+      const note = card.querySelector(".el-post-listen-note")?.value || "";
+      await submitElevenLabsListenResult(asset_id, "pass", note);
+      await renderGateActions(stage);
+    });
+    card.querySelector(".btn-el-fail")?.addEventListener("click", async () => {
+      const note = card.querySelector(".el-post-listen-note")?.value || "";
+      await submitElevenLabsListenResult(asset_id, "fail", note);
+      await renderGateActions(stage);
+    });
+    wrap.appendChild(card);
+  }
+
+  if (listenResults.length) {
+    const hist = document.createElement("div");
+    hist.className = "el-post-listen-history";
+    hist.innerHTML = `<h4 class="muted">Listen history (read-only)</h4>
+      <ul class="muted">${[...listenResults]
+        .reverse()
+        .map((e) => {
+          const note = e.note ? ` — ${escapeHtml(e.note)}` : "";
+          return `<li>${formatTs(e.at)} · <strong>${escapeHtml(e.asset_id)}</strong> · ${escapeHtml(e.result)}${note}</li>`;
+        })
+        .join("")}</ul>`;
+    wrap.appendChild(hist);
+  }
+
+  host.appendChild(wrap);
 }
 
 function collectElevenLabsPromptEdits(originalRows, host) {

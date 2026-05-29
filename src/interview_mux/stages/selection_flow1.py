@@ -8,6 +8,7 @@ from interview_mux.nle_state import (
     nle_has_operator_edits,
     segments_by_id_with_nle,
 )
+from interview_mux.gates import check_narrative_qc
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
@@ -24,6 +25,8 @@ def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
 
 
 def run_full_master_ranking(ctx: RunContext) -> None:
+    check_narrative_qc(ctx, stage="full_master_ranking", require_selection=False)
+
     def build_input(c: RunContext) -> dict:
         manifest = c.read_json("segments/manifest.json")
         nle = load_nle(c)

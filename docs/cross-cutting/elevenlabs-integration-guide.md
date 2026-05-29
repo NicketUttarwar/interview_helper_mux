@@ -12,21 +12,21 @@
 
 ---
 
-## v1 vs target (read first)
+## Shipped vs optional follow-ups (read first)
 
-| Capability | v1 (shipped in code) | Target (BUILD-060+, spec) |
-|------------|----------------------|---------------------------|
-| SFX generation | `sfx_elevenlabs.py` → **REST** `/v1/sound-generation`; v1 often one WAV per brief line | One WAV per `asset_id`; crafted prompt + variable `duration_seconds` |
-| SFX inputs | `podcast_sfx_brief.json` / `sfx_brief.json` | `sound_design_plan.json` + `elevenlabs_prompts.json` |
-| SFX outputs | `flow_1_master/sfx/*.wav`, `flow_2_highlights/sfx/*.wav` | `sound_design/assets/{asset_id}.wav` |
-| Flow 1 mux | **Speech-only** — generated SFX may exist but not in `master.wav` | Speech + VO + beds + stingers (BUILD-065/067) |
-| Flow 2 mux | SFX concat by index (imperfect) | Cold open + shared transition asset + ranks |
-| Audio isolation | Shipped (BUILD-019) | `audio_preclean` stage; same API key |
-| Prompt craft | None (brief → API directly) | OpenAI `elevenlabs_prompt_craft` → ElevenLabs |
-| Post-gen analysis | None | Documented workflow (this guide § Post-generation) |
-| G1.5 approval | Spec only | Optional block before generation spend |
+| Capability | Shipped in code | Optional follow-ups |
+|------------|----------------|---------------------|
+| SFX generation | `sfx_elevenlabs.py` → REST `/v1/sound-generation`; one WAV per `asset_id` after `elevenlabs_prompt_craft` | Deeper craft iteration loops |
+| SFX inputs | `sound_design_plan.json` + `elevenlabs_prompts.json` (SDP path); legacy `podcast_sfx_brief` / `sfx_brief` ids remain for single-stage rerun | — |
+| SFX outputs | `sound_design/assets/{asset_id}.wav` + flow `sfx/` copies | — |
+| Flow 1 mix | `mix_flow1` → `master_flow1`: speech + VO + beds + stingers in `master.wav` (BUILD-065–067) | Extended EDL narrative validators |
+| Flow 2 mix | `mix_flow2` → `master_flow2`: montage + SDP transitions (BUILD-065–066) | Cold-open polish refinements |
+| Audio isolation | `audio_preclean` (BUILD-019); GUI offers (BUILD-072) | — |
+| Prompt craft | `elevenlabs_prompt_craft` before REST generate | G1.5 optional approve gate (`g1_5_require_prompt_approval`) |
+| Post-gen analysis | Operator listen workflow (this guide § Post-generation) | Richer post-listen GUI (remaining build commands) |
+| G1.5 approval | Config-gated optional block before generation spend | — |
 
-Do not tell operators that `master.wav` is a full podcast mix until assembly wiring ships.
+Operators should expect Flow 1/2 `master.wav` to include VO and SFX when SDP + generation stages completed. Use `assembly_preview.wav` to hear speech + VO before ElevenLabs spend.
 
 ---
 
@@ -343,18 +343,18 @@ Maps **sidebar panels**, **artifacts**, and **`gui_log.jsonl`** for ElevenLabs w
 
 v1 does **not** include G1.5 or crafted-prompt panels; generation uses brief `description` (or `sound_design/elevenlabs_prompts.json` if present).
 
-### Target (BUILD-060+ / G1.5)
+### Target (BUILD-060+ / G1.5) — shipped panels
 
-| Step | Where in GUI (planned) | Artifact | `gui_log.jsonl` (suggested) |
-|------|------------------------|----------|----------------------------|
-| Palettes / plan | Analysis or flow stages + JSON editor | `understanding/sound_design_plan.json` | `sound_design_plan_written` |
-| Craft review | **Sound design — Prompt review** panel (G1.5) | `sound_design/elevenlabs_prompts.json` | `elevenlabs_prompts_pending_approval` |
-| Approve G1.5 | Same panel → **Approve** | — | `elevenlabs_prompts_approved` `detail: { approved_by, asset_ids }` |
-| Edit + regen craft | JSON editor or inline prompt fields | Updated `elevenlabs_prompts.json` | `elevenlabs_prompts_edited` `detail: { asset_id }` |
-| Generate | **Generate SFX** (blocked until approved if config requires) | `sound_design/assets/{asset_id}.wav` | `ElevenLabs SFX generated` `detail: { asset_id, duration_seconds, prompt_influence, api: rest }` |
-| Post-listen QA | Timeline + **assembly preview** + regression checklist | Preview + assets | `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` `detail: { asset_id, reason }` |
-| Regen after fail | Prompt review → **Regen asset** | New WAV | `elevenlabs_regen` `detail: { asset_id, attempt }` |
-| Influence tweak | Prompt review → influence field | Same prompt, new influence | `elevenlabs_influence_adjusted` `detail: { asset_id, from, to }` |
+| Step | Where in GUI | Artifact | `gui_log.jsonl` (typical) |
+|------|----------------|----------|----------------------------|
+| Palettes / plan | Flow stages + JSON artifact editor | `understanding/sound_design_plan.json` | `sound_design_plan_written` |
+| Craft review | Stage **`elevenlabs_prompt_craft`** — inline prompt review | `sound_design/elevenlabs_prompts.json` | `elevenlabs_prompts_pending_approval` |
+| Approve G1.5 | Same panel → **Approve prompts** | `run_meta.json` → `elevenlabs_prompt_review` | `elevenlabs_prompts_approved` `detail: { approved_by, asset_ids }` |
+| Edit + regen craft | Inline fields → **Save edits** (resets approval) | Updated `elevenlabs_prompts.json` | `ElevenLabs prompts edited in review panel; approval reset.` |
+| Generate | **`elevenlabs_sfx_flow1`** / **`elevenlabs_sfx_flow2`** (blocked when `g1_5_require_prompt_approval` and not approved) | `sound_design/assets/{asset_id}.wav` | `ElevenLabs SFX generated` `detail: { asset_id, …, api: rest }` |
+| Post-listen QA | **Post-listen QA (advisory)** on craft + SFX panels — **Listen** → **Pass** / **Fail** + optional note | `run_meta.json` → `elevenlabs_listen_results[]` | `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` `detail: { asset_id, note? }` |
+| Regen after fail | Re-run craft or SFX stage (manual) | New WAV | `elevenlabs_regen` (manual log) `detail: { asset_id, attempt }` |
+| Influence tweak | Craft panel `prompt_influence` field → save | Same prompt, new influence | (optional manual note) |
 
 ### Post-listen actions (operator)
 

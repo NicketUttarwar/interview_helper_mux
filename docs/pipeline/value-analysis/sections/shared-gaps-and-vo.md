@@ -37,7 +37,12 @@ LLM `missing_framing` and `optimal_questions`; outputs include `gap_report.json`
 - Retell scores with/without proposed VO line.
 - Comprehension risk sheet per segment window.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-GAP-01 blind comprehension-risk scoring — [spike-results § gaps](../spike-results-and-winners.md#shared-gaps-and-vo). Fixture: `tests/fixtures/value_analysis/spike_shared_gaps_and_vo.json`. Metric: [value-metrics-library §1.2 — Retell protocol](../value-metrics-library.md#12-retell-protocol-com-a-com-b).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [interviewer-gap/README.md](../../interviewer-gap/README.md)
+- [spike-results-and-winners.md](../spike-results-and-winners.md#shared-gaps-and-vo)

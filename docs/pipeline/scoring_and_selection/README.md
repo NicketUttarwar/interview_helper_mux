@@ -16,7 +16,9 @@ Branches after operator gate G2.
 
 **Before extended Flow 1:** Operator should verify interview profile (`meta.operator_verified`) — see [operator-gates.md](../../workflows/operator-gates.md).
 
-**After ranking (planned):** `assembly_preview.wav` for listen-before-SFX — BUILD-069 in [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+**After ranking:** `assembly_preview.wav` for listen-before-SFX — see [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+
+**Narrative QC:** `python tools/validate_narrative.py --run-id <exec_id>` — topic coverage + non-empty chapters (`interview_mux/narrative_qc.py`). Pipeline warns before `full_master_ranking` / `edl_flow1`; `narrative_qc.strict: true` blocks.
 
 **NLE (BUILD-068):** GUI timeline edits in `segments/nle_edits.json` affect `selection.json` on `full_master_ranking` and `edl_flow1` re-run.
 
@@ -33,6 +35,7 @@ Branches after operator gate G2.
 | Ticket | Output | Prompt |
 |--------|--------|--------|
 | BUILD-045 | `show_description.json` | podcast-show-description |
+| BUILD-046 | `show_description.md` | — (export) |
 
 **Goals:** ~200-word third-person blurb; rich context volley; flagship model. No selection or mux.
 
@@ -43,7 +46,7 @@ See [publishing/README.md](../publishing/README.md).
 - `analysis_flow1_extended.py`
 - `selection_flow1.py`
 - `selection_flow2.py`
-- `publishing_flow3.py` *(planned)*
+- `publishing_flow3.py`
 
 ---
 

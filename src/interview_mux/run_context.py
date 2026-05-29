@@ -65,6 +65,14 @@ class RunContext:
         return self.run_dir.joinpath(*parts)
 
     def write_json(self, rel: str, data: Any) -> Path:
+        if isinstance(data, dict):
+            from interview_mux.prompt_validation import validate_artifact_write
+
+            errors = validate_artifact_write(rel, data)
+            if errors:
+                raise ValueError(
+                    f"{rel}: schema validation failed — " + "; ".join(errors[:6])
+                )
         p = self.path(rel)
         fs_write_json(p, data)
         return p

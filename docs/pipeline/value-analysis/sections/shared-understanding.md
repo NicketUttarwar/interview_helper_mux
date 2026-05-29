@@ -37,7 +37,12 @@ LLM stages `speaker_roles` and `content_context` consume transcript + memory env
 - Beat table: LLM-only vs LLM+acoustic; listener rates emotional truth.
 - Role confusion matrix with/without overlap features.
 
+## 7. Spike winner (fixture sprint)
+
+**Promote:** H-UND-01/03 LLM beats + prosodic clustering validation — [spike-results § understanding](../spike-results-and-winners.md#shared-understanding). Fixture: `tests/fixtures/value_analysis/spike_shared_understanding.json`. Tool direction: [tools-not-in-repo § Lever A — prosody/affect](../tools-not-in-repo-landscape.md#lever-a--find-the-emotional-authentic-peak).
+
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)
 - [moonshot-model-families.md](../moonshot-model-families.md) — Family 1
+- [spike-results-and-winners.md](../spike-results-and-winners.md#shared-understanding)

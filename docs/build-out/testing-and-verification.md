@@ -127,7 +127,7 @@ python tools/verify_master.py <run>/flow_2_highlights/master.wav
 
 ---
 
-## Wave 3c — Flow 3 (when BUILD-080 ships)
+## Wave 3c — Flow 3 (shipped, BUILD-080)
 
 ```bash
 python tools/run_flow.py --flow flow3 --run-id <id>

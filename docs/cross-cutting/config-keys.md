@@ -18,53 +18,41 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
+| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures; default `false` (warn only) |
+| `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true`, blocks persisting invalid show description; default `false` (warn only) |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py` | Master switch for optional R&D tooling (default off) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
 | `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
-| `models.<stage_key>` | `get_model()` → OpenAI calls (**v1**) | Wrong model: cost/quality drift; unknown name → API errors |
+| `value_analysis.auto_extract_after_content_context` | `understanding.run_content_context` | When master + this flag on, writes `understanding/value_features.json` after successful `content_context` (default off) |
+| `models.<stage_key>` | `get_model()` → OpenAI calls | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).
 
-**Optional secrets (fallback, v1):** `OPENAI_MODEL` used when a stage key is missing from `models` map.
+**Optional secrets (fallback):** `OPENAI_MODEL` used when a stage key is missing from tier resolution.
 
 ---
 
-## `models` — v1 (current runtime)
+## `models` — runtime (BUILD-073)
 
-Flat map: each `models.<stage_key>` is a **string** OpenAI API model ID. Resolved by `get_model(stage_key)` in `src/interview_mux/config.py` with fallback to `OPENAI_MODEL` then `gpt-4o-mini`.
+Resolved by `get_model(stage_key)` in `src/interview_mux/config.py`:
 
-Tier guidance (target defaults): [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID registry: [model-routing.md](./model-routing.md#model-tier-registry).
+1. If `models.<stage_key>` is a **string** → use that API ID directly (per-stage override).
+2. Else `model_registry.resolve_model(stage_key, task_kind)` using `models.tiers` + `models.stages`.
+3. Fallback: `OPENAI_MODEL` secret, then `gpt-4o-mini`.
 
----
+Flat string overrides in `app.defaults.json` remain the escape hatch when you need an explicit API ID for one stage.
 
-## `models` — proposed (not yet implemented)
-
-**Status: spec only.** Smart routing per [llm-orchestration.md](./llm-orchestration.md).
-
-```json
-"models": {
-  "tiers": {
-    "economy": "<api-id>",
-    "standard": "<api-id>",
-    "flagship": "<api-id>"
-  },
-  "stages": {
-    "missing_framing": { "tier": "flagship", "severity": "high" },
-    "segment_classification": { "tier": "standard", "severity": "medium" }
-  },
-  "missing_framing": "gpt-4o"
-}
-```
+Tier guidance: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID registry: [model-routing.md](./model-routing.md#model-tier-registry).
 
 | Key | Purpose |
 |-----|---------|
 | `models.tiers.<economy\|standard\|flagship>` | Maps tier alias → API ID |
 | `models.stages.<stage_key>.tier` | Default tier for `task_kind=primary` |
-| `models.stages.<stage_key>.severity` | `low` \| `medium` \| `high` — drives collate floor |
+| `models.stages.<stage_key>.severity` | `low` \| `medium` \| `high` — drives collate floor (when set) |
 | `models.<stage_key>` (string) | **Override:** explicit API ID wins over tier lookup |
 
-**Optional secrets (BUILD-073):**
+**Optional secrets (tier overrides):**
 
 | Key | Effect |
 |-----|--------|
@@ -74,6 +62,12 @@ Tier guidance (target defaults): [llm-stage-model-matrix.md](./llm-stage-model-m
 | `OPENAI_MODEL` | Fallback when stage missing (unchanged) |
 
 `task_kind` (`primary`, `arbiter`, `shard`, `collate`) is **not** a config key — resolved in code per [llm-orchestration.md](./llm-orchestration.md).
+
+---
+
+## Legacy note — flat-only config
+
+Older docs described only a flat `models.<stage_key>` map. That still works, but **`models.tiers` + `models.stages` are the preferred shape** in `config/app.defaults.json`.
 
 ---
 
@@ -103,6 +97,32 @@ Consumed by `context_volley` shaping. See [long-interview-chunking.md](../workfl
 | `max_gap_evaluations` | Some segments never evaluated in one pass |
 | `max_stage_data_chars` | Huge payloads rejected or truncated by model host |
 | `interviewer_sample_lines` | Transitions stage lacks tone reference |
+
+---
+
+## `analysis.specialists.enabled`
+
+When `true`, runs economy-tier specialist passes after `missing_framing`, `segment_classification`, and `topic_coverage_audit`; enqueues investigations when thresholds are met. Default `false`.
+
+---
+
+## `analysis.prompt_examples.enabled`
+
+When `true` (default), appends compact good/bad examples from `docs/prompts/_shared/examples/` into system prompts for `missing_framing`, `segment_classification`, and `topic_coverage_audit`.
+
+---
+
+## Stage enrichment inputs (`stage_enrichment.py`)
+
+Optional compact keys in shaped `stage_input` (when artifacts exist):
+
+| Key | Stages | Source |
+|-----|--------|--------|
+| `pause_ladder_hints` | `boundary_detection` | Transcript word gaps |
+| `emphasis_regions` | `topic_coverage_audit`, `narrative_arc_plan` | `source_acoustic_profile` + segments |
+| `quotability_signals` | `highlight_selection` | RMS peaks + text heuristics |
+| `value_features_summary` | Flow + boundary stages | `understanding/value_features.json` (opt-in extract) |
+| `comprehension_risks` | `missing_framing` | Specialist pass output (when enabled) |
 
 ---
 

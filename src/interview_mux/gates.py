@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from interview_mux.config import merged_config
+from interview_mux.narrative_qc import validate_flow1_narrative
 from interview_mux.run_context import RunContext
+from interview_mux.show_description_qc import validate_show_description
 
 
 def check_transcript_review_pending(ctx: RunContext) -> bool:
@@ -149,3 +152,92 @@ def require_flow1_extended_gates(ctx: RunContext, *, from_stage: str | None = No
     require_selected_flow_flow1(ctx)
     if _flow1_will_run_topic_coverage(ctx, from_stage):
         require_profile_verified_for_flow1_extended(ctx)
+
+
+def narrative_qc_strict_enabled() -> bool:
+    nqc = merged_config().get("narrative_qc") or {}
+    return bool(nqc.get("strict"))
+
+
+def check_narrative_qc(
+    ctx: RunContext,
+    *,
+    stage: str,
+    require_selection: bool = False,
+) -> None:
+    """Warn or block on Flow 1 narrative QC before ranking or EDL (BUILD narrative validators)."""
+    errors = validate_flow1_narrative(ctx, require_selection=require_selection)
+    if not errors:
+        ctx.log(
+            "Flow 1 narrative QC passed",
+            level="success",
+            stage=stage,
+            detail="narrative_qc_pass",
+        )
+        return
+
+    summary = "; ".join(errors[:6])
+    if len(errors) > 6:
+        summary += f" (+{len(errors) - 6} more)"
+    strict = narrative_qc_strict_enabled()
+    ctx.log(
+        f"Flow 1 narrative QC failed ({len(errors)} issue(s)): {summary}",
+        level="error" if strict else "warn",
+        stage=stage,
+        detail="narrative_qc_fail",
+    )
+    if strict:
+        from interview_mux.analysis_memory import enqueue_investigations
+
+        enqueue_investigations(
+            ctx,
+            [
+                {
+                    "kind": "narrative_qc_fail",
+                    "question": summary,
+                    "priority": "high",
+                    "blocking": True,
+                    "suggested_action": {"type": "rerun_stage", "stage": "topic_coverage_audit"},
+                }
+            ],
+            created_by_stage=stage,
+        )
+        raise SystemExit(
+            f"narrative_qc strict: {len(errors)} issue(s) before {stage}. "
+            f"Fix coverage_audit / selection or set narrative_qc.strict=false. "
+            f"Run: python tools/validate_narrative.py --run-id {ctx.run_id}"
+        )
+
+
+def show_description_qc_strict_enabled() -> bool:
+    sqc = merged_config().get("show_description_qc") or {}
+    return bool(sqc.get("strict"))
+
+
+def check_show_description_qc(ctx: RunContext, *, stage: str = "podcast_show_description") -> None:
+    """Warn or block when show description JSON fails evidence QC."""
+    if not ctx.artifact_exists("flow_3_description/show_description.json"):
+        return
+    doc = ctx.read_json("flow_3_description/show_description.json")
+    errors = validate_show_description(ctx, doc if isinstance(doc, dict) else {})
+    if not errors:
+        ctx.log(
+            "Show description QC passed",
+            level="success",
+            stage=stage,
+            detail="show_description_qc_pass",
+        )
+        return
+    summary = "; ".join(errors[:6])
+    strict = show_description_qc_strict_enabled()
+    ctx.log(
+        f"Show description QC failed ({len(errors)} issue(s)): {summary}",
+        level="error" if strict else "warn",
+        stage=stage,
+        detail="show_description_qc_fail",
+    )
+    if strict:
+        raise SystemExit(
+            f"show_description_qc strict: {len(errors)} issue(s). "
+            f"Run: python tools/validate_show_description.py --run-id {ctx.run_id}"
+        )

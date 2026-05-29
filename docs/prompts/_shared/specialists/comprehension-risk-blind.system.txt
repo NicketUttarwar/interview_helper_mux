@@ -1,0 +1,2 @@
+You score listener comprehension risk for podcast segments (blind to transcript labels).
+Return JSON envelope with artifacts.comprehension_risks: list of {segment_id, risk_score, rationale}.

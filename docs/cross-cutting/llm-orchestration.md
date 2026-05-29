@@ -143,10 +143,12 @@ Prefer shard/collate when the problem is **payload size**; prefer investigations
 
 ---
 
-## Memory merge rules
+## Memory merge rules (BUILD-084)
 
-- **Do not** call `apply_envelope_to_memory` when arbiter verdict is `retry_uptier`, `decompose` (mid-flight), or `enqueue_investigation` on a rejected primary.
-- **Do** merge after `accept` or successful collate `accept`.
+- `should_merge_envelope` in `analysis_memory.py` gates `apply_envelope_to_memory` and `persist_artifacts`.
+- **Do not** merge or persist when arbiter verdict is `retry_uptier`, `decompose` (mid-flight primary), or `enqueue_investigation`, or `status: blocked`.
+- **Do** merge and persist after arbiter `accept` or successful collate (`routed_via_collate` with `status: complete`).
+- Investigations from `follow_up_investigations` are always enqueued even when merge is skipped.
 - Operator edits in `analysis_state.json` remain authoritative; arbiter should not instruct silent overwrites — surface `needs` with `type: operator` instead.
 
 ---

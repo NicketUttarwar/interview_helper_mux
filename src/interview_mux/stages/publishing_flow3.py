@@ -4,6 +4,8 @@ import re
 
 from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.run_context import RunContext
+from interview_mux.config import merged_config
+from interview_mux.show_description_qc import validate_show_description
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -16,6 +18,11 @@ def _warn_if_profile_unverified(ctx: RunContext) -> None:
             level="warning",
             stage="podcast_show_description",
         )
+
+
+def _show_description_qc_strict_enabled() -> bool:
+    sqc = merged_config().get("show_description_qc") or {}
+    return bool(sqc.get("strict"))
 
 
 def run_podcast_show_description(ctx: RunContext) -> None:
@@ -48,6 +55,20 @@ def run_podcast_show_description(ctx: RunContext) -> None:
         return out
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        errors = validate_show_description(c, artifacts)
+        if errors:
+            summary = "; ".join(errors[:4])
+            c.log(
+                f"Show description QC failed ({len(errors)} issue(s)): {summary}",
+                level="error" if _show_description_qc_strict_enabled() else "warn",
+                stage="podcast_show_description",
+                detail="show_description_qc_fail",
+            )
+            if _show_description_qc_strict_enabled():
+                raise RuntimeError(
+                    f"show_description_qc strict: {len(errors)} issue(s). "
+                    f"Run: python tools/validate_show_description.py --run-id {c.run_id}"
+                )
         c.write_json("flow_3_description/show_description.json", artifacts)
 
     ctx.log(

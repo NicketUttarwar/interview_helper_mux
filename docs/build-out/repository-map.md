@@ -15,9 +15,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `SETUP.md` | Bootstrap, secrets, first run | BUILD-000 |
 | `ASSETS/` | Operator media (gitignored): `input/`, `executions/`, `.gui/` — [assets-and-executions.md](../cross-cutting/assets-and-executions.md) | [capture](../pipeline/capture/README.md) |
 | `config/` | `app.defaults.json`, `secrets/secrets.env` | BUILD-011 · [config-keys](../cross-cutting/config-keys.md) |
-| `docs/` | Authoritative specs and prompts | Waves 0–6 |
+| `docs/` | Authoritative specs and prompts | Waves 0–7 |
 | `src/interview_mux/` | Python package | Waves 1–5, 7 |
-| `tools/` | CLI wrappers (`run_analysis`, `run_flow`, checks) | BUILD-028, 051–052 |
+| `tools/` | CLI wrappers (`run_analysis`, `run_flow`, QA checks, value-analysis) | BUILD-028, 051–052 |
 | `scripts/` | `bootstrap_venv.sh`, `run.sh` | BUILD-010 |
 | `tests/` | pytest (prompt validation, transcript review, shell) | BUILD-054–055 |
 | `.cursor/rules/` | IDE policy (logging, Context7) | — |
@@ -36,8 +36,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `file_store.py` | Locked JSON read/write | BUILD-012 |
 | `session_log.py` | `gui_log.jsonl` append/read | BUILD-016 |
 | `gui_session.py` | Active run / server session under `ASSETS/.gui` | BUILD-014 |
-| `gates.py` | G0/G1/G2 checks, `selected_flow`, profile gate before Flow 1 extended | BUILD-017, 081 |
-| `pipeline.py` | Stage orders, `run_analysis`, `run_flow1/2` | BUILD-028, 035–036, 043–044 |
+| `gates.py` | G0/G1/G2 checks, profile gate, narrative QC enforcement | BUILD-017, 081 |
+| `narrative_qc.py` | Flow 1 topic/chapter validation (`validate_flow1_narrative`) | BUILD-067 |
+| `pipeline.py` | Stage orders, `run_analysis`, `run_flow1/2/3` | BUILD-028, 035–036, 043–044, 080 |
 | `analysis_orchestrator.py` | Investigation queue drain after LLM stages | BUILD-018 |
 | `analysis_memory.py` | `analysis_state.json`, profile, queue | BUILD-018 |
 | `context_volley.py` | LLM message volleys per stage | BUILD-013 |
@@ -52,14 +53,18 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `ingest.py` | `ingest` | BUILD-020 |
 | `transcribe_aws.py` | `transcribe` | BUILD-021 |
 | `transcript_review.py` | `transcript_review_build`, `transcript_review` | BUILD-018 |
-| `understanding.py` | `speaker_roles`, `content_context` | BUILD-022 |
+| `understanding.py` | `source_acoustic_profile`, `speaker_roles`, `content_context` | BUILD-022, 023, 082 |
 | `segmentation.py` | `boundary_detection`, `segment_classification` | BUILD-023–024 |
 | `gaps.py` | `missing_framing`, `optimal_questions`, `vo_ingest` | BUILD-025–027 |
 | `llm_runner.py` | OpenAI calls (`task_kind`, tier meta) | BUILD-013, 073 |
 | `analysis_stage.py` | Shared LLM stage runner + arbiter | BUILD-013, 073 |
 | `model_registry.py` | Tier → API ID resolution | BUILD-073 |
 | `llm_arbiter.py` | Post-primary verdict | BUILD-073 |
-| `llm_subtasks.py` | Shard/collate decompose | BUILD-073 |
+| `llm_subtasks.py` | Shard/collate decompose | BUILD-073, 084 |
+| `llm_stage_routing.py` | Unified primary→arbiter→decompose routing | BUILD-084 |
+| `llm_shard_plans.py` | `DECOMPOSE_ELIGIBLE` + deterministic shard plans | BUILD-084 |
+| `llm_specialists.py` | Optional post-stage specialist passes | BUILD-084 |
+| `llm_routing_debug.py` | Stage attempt summaries for GUI | BUILD-084 |
 | `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
 | `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
 | `selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
@@ -81,6 +86,17 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `stages.py` | Stage metadata for UI | BUILD-014 |
 | `static/` | `index.html`, `app.js`, `styles.css` | BUILD-014 |
 
+### Value analysis (`src/interview_mux/value_analysis/`)
+
+| Module | Responsibility |
+|--------|----------------|
+| `config.py` | `value_analysis.*` flag helpers |
+| `extract.py` | `extract_and_write_value_features`, optional hook after `content_context` |
+| `features_transcript.py` / `features_audio.py` | Metrics → `understanding/value_features.json` |
+| `spike_score.py` | Spike scorecard aggregation |
+
+**Default:** off (`value_analysis.enabled: false`). Not in `pipeline.py` orders.
+
 **GUI ↔ docs:** [gui-surface-map.md](../workflows/gui-surface-map.md) · [api-reference.md](../workflows/api-reference.md)
 
 ---
@@ -95,6 +111,10 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
 | `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
 | `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` | BUILD-052, BUILD-070 |
+| `tools/validate_narrative.py` | Flow 1 topic coverage + chapter checks | BUILD-067 |
+| `tools/verify_edl.py` | EDL schema validation for `flow_1_master/edl.json` | BUILD-067 |
+| `tools/extract_value_features.py` | Opt-in value metrics artifact | value-analysis |
+| `tools/run_value_spike.py` | Spike scorecard aggregation | value-analysis |
 | `src/interview_mux/master_qc.py` | Measurement + threshold checks (shared by CLI and GUI) | BUILD-070 |
 | `src/interview_mux/mastering_bus.py` | pyloudnorm assembly-bus LUFS before limiter | BUILD-071 |
 
@@ -127,13 +147,15 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 ---
 
-## Known doc ↔ code gaps (track in [steps-forward.md](./steps-forward.md))
+## Doc ↔ code gaps
 
-| Topic | Docs say | Code today |
-|-------|----------|------------|
-| ASSETS-first input | GUI asset list + executions under `ASSETS/executions/`; resume via `GET /api/session` + `PUT /api/session/active` | **Shipped** — GUI + `RunContext` exec_* ids; CLI `--run-id exec_*` opens existing execution; headless fallback still uses `input_audio_path` / `INPUT_AUDIO_PATH` |
-| Full podcast mix | VO + SFX in `master.wav` | **Shipped (BUILD-065–066)** — `mix_flow1`/`mix_flow2` canonical in `pipeline.py` + GUI; `mux_flow*` legacy single-stage alias |
-| Smart LLM routing | `model_registry`, `llm_arbiter`, `llm_subtasks` | done (BUILD-073) |
-| Pre-clean offers | Multiple checkpoints | **done** — BUILD-019 stage + BUILD-072 GUI checkpoints |
+**Status (Command 9):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix_flow1`/`mix_flow2`), G2 flow3, pre-clean offers, and smart LLM routing are shipped in code.
 
-When you close a gap, update this table and the ticket status in [README.md](./README.md).
+| Topic | Verification |
+|-------|----------------|
+| ASSETS-first input | `GET /api/assets`, `POST /api/runs`, `PUT /api/session/active` — `web/server.py`; runs under `ASSETS/executions/exec_*` |
+| Full podcast mix | `mix_flow1` / `mix_flow2` in `pipeline.py`; listen + `verify_master.py` — [definition-of-done-signoff.md](./definition-of-done-signoff.md) §3 |
+| Pre-clean offers | `POST …/preclean-offer`; never auto — `web/server.py`, `stages/audio_preclean.py` |
+| Stage parity | `pipeline.py` orders = `web/stages.py` `EXECUTABLE_ORDER` — signoff §5 |
+
+When you introduce a new gap, add a row here and a command in [remaining-build-commands.md](./remaining-build-commands.md). Manual release checklist: [definition-of-done-signoff.md](./definition-of-done-signoff.md).

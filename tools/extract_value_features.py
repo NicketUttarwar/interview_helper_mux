@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -16,19 +15,8 @@ if str(SRC) not in sys.path:
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.value_analysis.config import value_analysis_enabled
-from interview_mux.value_analysis.features_audio import extract_audio_features
-from interview_mux.value_analysis.features_transcript import (
-    VALUE_FEATURES_PATH,
-    extract_transcript_features,
-)
-
-
-def _load_existing(ctx: RunContext, run_id: str) -> dict[str, Any]:
-    if ctx.artifact_exists(VALUE_FEATURES_PATH):
-        data = ctx.read_json(VALUE_FEATURES_PATH)
-        if isinstance(data, dict):
-            return data
-    return {"version": 1, "run_id": run_id, "profiles": {}}
+from interview_mux.value_analysis.extract import extract_and_write_value_features
+from interview_mux.value_analysis.features_transcript import VALUE_FEATURES_PATH
 
 
 def main() -> int:
@@ -52,21 +40,17 @@ def main() -> int:
         print(f"Run not found: {args.run_id}", file=sys.stderr)
         return 1
 
-    out = _load_existing(ctx, args.run_id)
-    out["version"] = 1
-    out["run_id"] = args.run_id
-    profiles = out.setdefault("profiles", {})
-    if not isinstance(profiles, dict):
-        profiles = {}
-        out["profiles"] = profiles
+    if args.profile == "all":
+        profiles = ("transcript", "audio")
+    else:
+        profiles = (args.profile,)
 
-    if args.profile in ("transcript", "all"):
-        profiles["transcript"] = extract_transcript_features(ctx, cfg=cfg)
-    if args.profile in ("audio", "all"):
-        profiles["audio"] = extract_audio_features(ctx, cfg=cfg)
+    written = extract_and_write_value_features(ctx, cfg=cfg, profiles=profiles)
+    if not written:
+        print("No profiles extracted (check value_analysis sub-flags).", file=sys.stderr)
+        return 0
 
-    ctx.write_json(VALUE_FEATURES_PATH, out)
-    print(f"Wrote {ctx.path(VALUE_FEATURES_PATH)}")
+    print(f"Wrote {ctx.path(VALUE_FEATURES_PATH)} (profiles: {', '.join(written)})")
     return 0
 
 

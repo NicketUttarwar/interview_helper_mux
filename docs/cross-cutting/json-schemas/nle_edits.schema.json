@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NleEdits",
+  "type": "object",
+  "properties": {
+    "playhead_ms": { "type": "number" },
+    "zoom": { "type": "number" },
+    "sequence_order": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "segment_overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "excluded": { "type": "boolean" },
+          "mark_redo": { "type": "boolean" },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "split_into": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "label": { "type": "string" },
+          "parent_id": { "type": "string" }
+        }
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  }
+}

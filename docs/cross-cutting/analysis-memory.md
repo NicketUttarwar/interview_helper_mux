@@ -38,7 +38,7 @@ Not the whole memory file. `context_volley.py` selects prior conclusions, profil
 - Stage artifacts (`content_brief.json`, etc.) remain the canonical output for assembly; sync helpers copy key fields into memory.
 - Operator edits to `analysis_state.json` are **not** overwritten silently — conflicting model updates should surface as `needs` with `type: operator`.
 
-**Target (spec only):** Do **not** merge memory when the LLM arbiter rejects a primary response (`retry_uptier`, mid-flight `decompose`, or `enqueue_investigation`). Merge only after `accept` or successful collate — [llm-orchestration.md](./llm-orchestration.md).
+**Arbiter merge (BUILD-073):** Do **not** merge memory when the LLM arbiter rejects a primary response (`retry_uptier`, mid-flight `decompose`, or `enqueue_investigation`). Merge only after `accept` or successful collate — [llm-orchestration.md](./llm-orchestration.md).
 
 ## Per-interview customization
 

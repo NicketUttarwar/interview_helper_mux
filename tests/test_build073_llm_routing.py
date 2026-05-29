@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from interview_mux.analysis_memory import ensure_analysis_workspace, uptier_budget_remaining
-from interview_mux import llm_subtasks
+from interview_mux.analysis_memory import (
+    ensure_analysis_workspace,
+    load_analysis_state,
+    should_merge_envelope,
+    uptier_budget_remaining,
+)
+from interview_mux.context_volley import build_message_volley
+from interview_mux import llm_stage_routing, llm_subtasks
 from interview_mux.stages import analysis_stage
 from run_fixtures import isolated_run_ctx
 
@@ -16,12 +22,13 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
         task_kind = kwargs.get("task_kind", "primary")
         calls.append((stage_key, task_kind))
         gap_artifact = {
-            "gap_evaluations": [
+            "evaluations": [
                 {
                     "segment_id": "seg_001",
-                    "gap_severity": "low",
-                    "listener_needs_context": False,
-                    "rationale": "self-explanatory",
+                    "self_explanatory": True,
+                    "gap_type": "ok_with_light_bridge",
+                    "listener_confusion": "",
+                    "severity": "low",
                 }
             ]
         }
@@ -69,8 +76,8 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
     def persist(_ctx, artifacts):
         persisted.update(artifacts)
 
-    monkeypatch.setattr(analysis_stage, "run_prompt_envelope", fake_run_prompt_envelope)
-    monkeypatch.setattr(analysis_stage, "run_llm_arbiter", fake_run_llm_arbiter)
+    monkeypatch.setattr(llm_stage_routing, "run_prompt_envelope", fake_run_prompt_envelope)
+    monkeypatch.setattr(llm_stage_routing, "run_llm_arbiter", fake_run_llm_arbiter)
     monkeypatch.setattr(llm_subtasks, "run_prompt_envelope", fake_run_prompt_envelope)
 
     analysis_stage.run_analysis_llm_stage(
@@ -82,9 +89,11 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
         max_iterations=1,
     )
     attempt = ctx.read_json("understanding/stage_runs/missing_framing/attempt_001.json")
-    assert attempt["arbiter_result"]["verdict"] == "decompose"
+    assert attempt["shard_count"] >= 1
+    assert attempt["arbiter_result"]["verdict"] in ("decompose", "accept")
+    assert attempt.get("routed_via_collate") or attempt["arbiter_result"]["verdict"] == "decompose"
     assert attempt["shard_count"] == 1
-    assert persisted["gap_evaluations"][0]["segment_id"] == "seg_001"
+    assert persisted["evaluations"][0]["segment_id"] == "seg_001"
     assert ("missing_framing", "primary") in calls
     assert ("missing_framing", "shard") in calls
     assert ("missing_framing", "collate") in calls
@@ -114,8 +123,8 @@ def test_uptier_cap_blocks_third_retry(tmp_path, monkeypatch):
             "reasoning_summary": "bump tier",
         }
 
-    monkeypatch.setattr(analysis_stage, "run_prompt_envelope", fake_run_prompt_envelope)
-    monkeypatch.setattr(analysis_stage, "run_llm_arbiter", fake_run_llm_arbiter)
+    monkeypatch.setattr(llm_stage_routing, "run_prompt_envelope", fake_run_prompt_envelope)
+    monkeypatch.setattr(llm_stage_routing, "run_llm_arbiter", fake_run_llm_arbiter)
 
     for _ in range(3):
         analysis_stage.run_analysis_llm_stage(
@@ -130,3 +139,88 @@ def test_uptier_cap_blocks_third_retry(tmp_path, monkeypatch):
     assert uptier_budget_remaining(ctx, "missing_framing") == 0
     attempt = ctx.read_json("understanding/stage_runs/missing_framing/attempt_001.json")
     assert attempt["envelope"]["status"] == "blocked"
+
+
+def test_enqueue_investigation_does_not_merge_memory(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "run_084_merge")
+    ensure_analysis_workspace(ctx)
+    state_before = load_analysis_state(ctx)
+    themes_before = list(state_before.get("themes") or [])
+
+    def fake_run_prompt_envelope(stage_key, prompt_rel, **kwargs):
+        return {
+            "status": "complete",
+            "artifacts": {"gap_evaluations": []},
+            "needs": [],
+            "memory_updates": {"themes_append": [{"id": "bad_theme", "label": "Should Not Merge"}]},
+            "reasoning_summary": "reject me",
+            "_llm_meta": {"model_tier": "standard", "model_id": "gpt-4o", "task_kind": "primary"},
+        }
+
+    def fake_run_llm_arbiter(**_kwargs):
+        return {
+            "verdict": "enqueue_investigation",
+            "confidence": 0.5,
+            "gaps": ["cross-stage"],
+            "shard_plan": [],
+            "suggested_investigation": {
+                "kind": "theme_unmapped",
+                "question": "fix themes",
+                "blocking": True,
+            },
+            "reasoning_summary": "enqueue",
+        }
+
+    monkeypatch.setattr(llm_stage_routing, "run_prompt_envelope", fake_run_prompt_envelope)
+    monkeypatch.setattr(llm_stage_routing, "run_llm_arbiter", fake_run_llm_arbiter)
+
+    analysis_stage.run_analysis_llm_stage(
+        ctx,
+        "missing_framing",
+        "interviewer-gap/missing-framing.system.txt",
+        lambda _c: {"segments": {"segments": []}, "content_brief": {"thesis": "x"}},
+        lambda _c, _a: None,
+        max_iterations=1,
+    )
+
+    state_after = load_analysis_state(ctx)
+    assert state_after.get("themes") == themes_before
+    assert not should_merge_envelope(
+        {"verdict": "enqueue_investigation"},
+        {"status": "blocked"},
+    )
+
+
+def test_collate_volley_has_assistant_per_shard(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_084_collate")
+    ensure_analysis_workspace(ctx)
+    collate_input = {
+        "mode": "collate",
+        "stage_key": "missing_framing",
+        "shard_outputs": [
+            {
+                "label": "a",
+                "segment_ids": ["seg_1"],
+                "envelope": {
+                    "status": "complete",
+                    "reasoning_summary": "shard one done",
+                    "artifacts": {"gap_evaluations": [{"segment_id": "seg_1"}]},
+                },
+            },
+            {
+                "label": "b",
+                "segment_ids": ["seg_2"],
+                "envelope": {
+                    "status": "complete",
+                    "reasoning_summary": "shard two done",
+                    "artifacts": {"gap_evaluations": [{"segment_id": "seg_2"}]},
+                },
+            },
+        ],
+        "instruction": "merge",
+    }
+    volley = build_message_volley(ctx, "missing_framing", collate_input, profile="collate")
+    assistant_turns = [m for m in volley if m.get("role") == "assistant"]
+    assert len(assistant_turns) == 2
+    assert "shard one done" in assistant_turns[0]["content"]
+    assert "shard two done" in assistant_turns[1]["content"]

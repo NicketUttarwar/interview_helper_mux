@@ -78,11 +78,11 @@ Markdown “good vs bad” references under [`_shared/examples/`](./_shared/exam
 
 Orchestrator: inner retries per stage + investigation queue drain. Target: + arbiter per primary call — [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
-1. `understanding/speaker-roles`
+1. `understanding/speaker-roles` *(after `source_acoustic_profile` in pipeline)*
 2. `understanding/content-context`
 3. `segmentation/boundary-detection`
 4. `segmentation/segment-classification`
-5. *(planned)* `sound_design/theme-palettes` — after classification
+5. `sound_design/theme-palettes` — `sound_design_palettes` after classification
 6. `interviewer-gap/missing-framing`
 7. `interviewer-gap/optimal-questions`
 
@@ -94,13 +94,13 @@ Orchestrator: inner retries per stage + investigation queue drain. Target: + arb
 
 Flow stages use the same envelope; read memory but single pass (no inner loop).
 
-**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → podcast-sfx-brief *(v1)*
+**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_flow1` → assembly preview → `elevenlabs_prompt_craft` → generate → **`mix_flow1`** → master
 
-**Flow 2:** highlight-selection → sfx-brief *(v1)*
+**Flow 2:** highlight-selection → `sound_design/plan-flow2` → `elevenlabs_prompt_craft` → generate → **`mix_flow2`** → master
 
-**Flow 3:** podcast-show-description *(spec; BUILD-045)*
+**Flow 3:** `publishing/podcast-show-description` → `export_show_description`
 
-**Planned (BUILD-060+):** palettes → `sound_design/plan-flow*` → `elevenlabs_prompt_craft` → generate per `asset_id` → post-analysis → mix — [sound-design.md](../cross-cutting/sound-design.md), [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md)
+Legacy v1 brief stages (`podcast-sfx-brief`, `sfx-brief`) and `mux_flow*` remain for single-stage rerun only. Default path: [sound-design.md](../cross-cutting/sound-design.md) · [stage-registry.md](../build-out/stage-registry.md).
 
 ## Conventions
 

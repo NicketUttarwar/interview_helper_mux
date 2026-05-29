@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import (
+    compact_value_features_summary,
+    emphasis_regions_for_segments,
+)
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
 def run_topic_coverage(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
             "segments": c.read_json("segments/manifest.json"),
+            "emphasis_regions": emphasis_regions_for_segments(c),
         }
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         c.write_json("flow_1_master/coverage_audit.json", artifacts)
@@ -21,16 +31,22 @@ def run_topic_coverage(ctx: RunContext) -> None:
         build_input,
         persist,
     )
+    maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", build_input(ctx))
     ctx.mark_done("topic_coverage_audit")
 
 
 def run_narrative_arc(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("flow_1_master/coverage_audit.json"),
             "segments": c.read_json("segments/manifest.json"),
+            "emphasis_regions": emphasis_regions_for_segments(c),
         }
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         c.write_json("flow_1_master/narrative_plan.json", artifacts)

@@ -44,7 +44,7 @@ def default_analysis_state(run_id: str) -> dict[str, Any]:
         "meta": {
             "created_at": _now(),
             "last_updated_at": _now(),
-            "last_updated_stage": None,
+            "last_updated_stage": "",
             "analysis_pass": 1,
             "operator_verified": False,
         },
@@ -111,6 +111,7 @@ def default_orchestration() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "max_iterations_per_stage": int(cfg.get("max_iterations_per_stage", 3)),
         "max_queue_drains_per_stage": int(cfg.get("max_queue_drains_per_stage", 5)),
+        "max_volley_retries": int(cfg.get("max_volley_retries", 2)),
         "stage_attempts": {},
         "last_completion_check": None,
     }
@@ -134,6 +135,22 @@ def default_sound_design_plan() -> dict[str, Any]:
     }
 
 
+def _build_context_index_from_plans(run_id: str) -> dict[str, Any]:
+    from interview_mux.context_volley import STAGE_PLANS
+
+    idx = default_context_index(run_id)
+    stage_plans: dict[str, Any] = {}
+    for key, plan in STAGE_PLANS.items():
+        stage_plans[key] = {
+            "prior_stages": list(plan.prior_stages),
+            "profile_keys": list(plan.profile_keys),
+            "investigation_kinds": sorted(plan.investigation_kinds),
+            "max_investigations": plan.max_investigations,
+        }
+    idx["stage_plans"] = stage_plans
+    return idx
+
+
 def ensure_analysis_workspace(ctx: RunContext) -> None:
     """Create memory files if missing (call before first LLM analysis stage)."""
     if not ctx.artifact_exists(ANALYSIS_STATE_PATH):
@@ -141,7 +158,7 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
     if not ctx.artifact_exists(INVESTIGATION_QUEUE_PATH):
         ctx.write_json(INVESTIGATION_QUEUE_PATH, default_investigation_queue())
     if not ctx.artifact_exists(CONTEXT_INDEX_PATH):
-        ctx.write_json(CONTEXT_INDEX_PATH, default_context_index(ctx.run_id))
+        ctx.write_json(CONTEXT_INDEX_PATH, _build_context_index_from_plans(ctx.run_id))
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
         ctx.write_json(ORCHESTRATION_PATH, default_orchestration())
     if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
@@ -174,6 +191,11 @@ def load_queue(ctx: RunContext) -> dict[str, Any]:
 
 
 def save_queue(ctx: RunContext, queue: dict[str, Any]) -> None:
+    from interview_mux.prompt_validation import validate_investigation_queue
+
+    errors = validate_investigation_queue(queue)
+    if errors:
+        ctx.log(f"investigation_queue schema warnings: {errors[:2]}", level="warning", stage="memory")
     ctx.write_json(INVESTIGATION_QUEUE_PATH, queue)
 
 
@@ -191,10 +213,23 @@ def _next_inv_id(queue: dict[str, Any]) -> str:
     return f"inv_{n:03d}"
 
 
-def merge_memory_updates(state: dict[str, Any], updates: dict[str, Any] | None) -> dict[str, Any]:
+def merge_memory_updates(
+    state: dict[str, Any],
+    updates: dict[str, Any] | None,
+    *,
+    skip_operator_conflicts: bool = False,
+) -> dict[str, Any]:
     if not updates:
         return state
     out = copy.deepcopy(state)
+    if skip_operator_conflicts:
+        updates = {
+            k: v
+            for k, v in updates.items()
+            if k not in ("narrative_patch", "style_patch", "themes_append", "major_questions_append")
+        }
+        if not updates:
+            return out
 
     def _append_unique(lst: list, item: Any, id_key: str = "id") -> None:
         if not item:
@@ -348,26 +383,102 @@ def build_analysis_context_payload(
     return {"stage": stage_key, "message_volley": volley}
 
 
+def should_merge_envelope(
+    arbiter_result: dict[str, Any] | None,
+    envelope: dict[str, Any],
+    *,
+    routed_via_collate: bool = False,
+) -> bool:
+    """Merge memory only after arbiter accept or successful collate."""
+    status = envelope.get("status", "complete")
+    if status == "blocked":
+        return False
+    if routed_via_collate and status == "complete":
+        blocking = [
+            n
+            for n in envelope.get("needs") or []
+            if n.get("blocking") and n.get("type") != "operator"
+        ]
+        return not blocking
+    if not arbiter_result:
+        return status == "complete"
+    verdict = str(arbiter_result.get("verdict", "")).strip()
+    if verdict == "accept":
+        return status == "complete"
+    if verdict == "decompose":
+        return False
+    if verdict in ("enqueue_investigation", "retry_uptier"):
+        return False
+    return status == "complete"
+
+
+def should_persist_artifacts(
+    arbiter_result: dict[str, Any] | None,
+    envelope: dict[str, Any],
+    schema_errors: list[str],
+    *,
+    routed_via_collate: bool = False,
+) -> bool:
+    """Persist stage artifacts only when merge is allowed and schema is clean."""
+    if schema_errors:
+        return False
+    artifacts = envelope.get("artifacts") or {}
+    if not artifacts:
+        return False
+    return should_merge_envelope(
+        arbiter_result,
+        envelope,
+        routed_via_collate=routed_via_collate,
+    )
+
+
 def apply_envelope_to_memory(
     ctx: RunContext,
     stage_key: str,
     envelope: dict[str, Any],
+    *,
+    arbiter_result: dict[str, Any] | None = None,
+    merge_memory: bool = True,
+    routed_via_collate: bool = False,
 ) -> dict[str, Any]:
     state = load_analysis_state(ctx)
-    state = merge_memory_updates(state, envelope.get("memory_updates"))
-    if envelope.get("reasoning_summary"):
-        state.setdefault("meta", {})
-        passes = state["meta"].get("stage_summaries") or {}
-        passes[stage_key] = envelope["reasoning_summary"]
-        state["meta"]["stage_summaries"] = passes
+    do_merge = merge_memory and should_merge_envelope(
+        arbiter_result,
+        envelope,
+        routed_via_collate=routed_via_collate,
+    )
+    operator_needs = [n for n in envelope.get("needs") or [] if n.get("type") == "operator"]
+    if do_merge:
+        state = merge_memory_updates(
+            state,
+            envelope.get("memory_updates"),
+            skip_operator_conflicts=bool(operator_needs)
+            or bool((state.get("meta") or {}).get("operator_verified")),
+        )
+        if envelope.get("reasoning_summary"):
+            state.setdefault("meta", {})
+            passes = state["meta"].get("stage_summaries") or {}
+            passes[stage_key] = envelope["reasoning_summary"]
+            state["meta"]["stage_summaries"] = passes
+            accepted = state["meta"].setdefault("last_accepted_attempt", {})
+            if isinstance(accepted, dict):
+                orch_path = ctx.path("understanding", "analysis_orchestration.json")
+                attempt_n = 1
+                if orch_path.is_file():
+                    attempt_n = int(
+                        (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
+                            stage_key, 1
+                        )
+                    )
+                accepted[stage_key] = attempt_n
+
+        conf = envelope.get("confidence")
+        if isinstance(conf, (int, float)):
+            state.setdefault("confidence", {})
+            state["confidence"]["overall"] = float(conf)
 
     follow = envelope.get("follow_up_investigations") or []
     enqueue_investigations(ctx, follow, created_by_stage=stage_key)
-
-    conf = envelope.get("confidence")
-    if isinstance(conf, (int, float)):
-        state.setdefault("confidence", {})
-        state["confidence"]["overall"] = float(conf)
 
     save_analysis_state(ctx, state, stage=stage_key)
     return state
@@ -479,10 +590,17 @@ def record_stage_attempt(
     arbiter_result: dict[str, Any] | None = None,
     shard_count: int = 0,
     truncation_flags: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     base = ctx.path("understanding", "stage_runs", stage_key)
     base.mkdir(parents=True, exist_ok=True)
-    path = base / f"attempt_{attempt:03d}.json"
+    suffix = "" if task_kind in ("primary", "collate") or task_kind.startswith("shard_") else f"_{task_kind}"
+    if task_kind.startswith("shard_"):
+        path = base / f"attempt_{attempt:03d}_{task_kind}.json"
+    elif task_kind == "collate":
+        path = base / f"attempt_{attempt:03d}_collate.json"
+    else:
+        path = base / f"attempt_{attempt:03d}{suffix}.json"
     from interview_mux.file_store import write_json
     from interview_mux.context_volley import volley_char_estimate
 
@@ -502,6 +620,7 @@ def record_stage_attempt(
             "shard_count": shard_count,
             "truncation_flags": truncation_flags or [],
             "envelope": envelope,
+            **(extra or {}),
         },
     )
     orch = ctx.read_json(ORCHESTRATION_PATH) if ctx.artifact_exists(ORCHESTRATION_PATH) else default_orchestration()

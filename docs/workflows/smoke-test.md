@@ -2,6 +2,8 @@
 
 End-to-end validation checklist for a new machine.
 
+**Release candidate:** Automated `pytest tests/` is optional; use [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md) together with this doc for manual sign-off before calling the repo done.
+
 ## Prerequisites
 
 Install from the **anchor lock** (exact pins in repo-root `requirements.lock`; doc mirror: [anchored-requirements.lock](../cross-cutting/anchored-requirements.lock)). Policy: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
@@ -38,7 +40,7 @@ python tools/run_analysis.py --run-id exec_001_20260523T120000Z
 
 Use the `run_id` from the GUI step above. For headless-only setups, `INPUT_AUDIO_PATH` in `secrets.env` remains a fallback — not required when the run was created via the GUI asset picker.
 
-**Future (after smart routing implementation):** spot-check `understanding/stage_runs/<stage>/attempt_001.json` for `arbiter_result.verdict: accept` on at least one LLM stage; long-interview fixture should show `shard_count` > 0 when decompose fires — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Optional spot-check:** `understanding/stage_runs/<stage>/attempt_001.json` may include `arbiter_result.verdict: accept` and `shard_count` > 0 when decompose fires — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
@@ -59,7 +61,7 @@ python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
 python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1_master/master.wav
 ```
 
-**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. Full VO+SFX mix quality is separate (BUILD-065/067 listen tests).
+**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. Also run `validate_narrative.py` and `verify_edl.py` on Flow 1 runs; listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
 
 ## Flow 2
 

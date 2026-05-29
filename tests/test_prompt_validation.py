@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS, validate_stage_artifacts
+from interview_mux.prompt_validation import (
+    STAGE_ARTIFACT_SCHEMAS,
+    validate_edl_flow1,
+    validate_stage_artifacts,
+)
 
 
 def _stage_artifacts_fixture() -> dict[str, dict]:
@@ -153,6 +157,25 @@ def test_validate_sound_design_plan_flow2_artifact_ok():
         },
     }
     assert validate_stage_artifacts("sound_design_plan_flow2", artifacts) == []
+
+
+def test_validate_edl_flow1_minimal_ok():
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_a"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 0,
+                "source_end_ms": 1000,
+                "timeline_start_ms": 0,
+                "duration_ms": 1000,
+            }
+        ],
+        "timeline_duration_ms": 1000,
+    }
+    assert validate_edl_flow1(edl) == []
 
 
 def test_validate_highlights_requires_diversity_bonus():

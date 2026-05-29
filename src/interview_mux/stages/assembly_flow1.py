@@ -4,12 +4,14 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+from interview_mux.gates import check_narrative_qc
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     load_nle,
     nle_has_operator_edits,
     segments_by_id_with_nle,
 )
+from interview_mux.prompt_validation import validate_edl_flow1
 from interview_mux.run_context import RunContext
 
 
@@ -233,6 +235,8 @@ def build_flow1_edl(
 
 
 def run_edl(ctx: RunContext) -> None:
+    check_narrative_qc(ctx, stage="edl_flow1", require_selection=True)
+
     selection = ctx.read_json("flow_1_master/selection.json")
     nle = load_nle(ctx)
     by_id = _segment_by_id(ctx)
@@ -292,6 +296,17 @@ def run_edl(ctx: RunContext) -> None:
         level="success",
         stage="edl_flow1",
     )
+    edl_errors = validate_edl_flow1(edl)
+    if edl_errors:
+        for err in edl_errors:
+            ctx.log(
+                f"flow_1_master/edl.json: {err}",
+                level="error",
+                stage="edl_flow1",
+            )
+        raise SystemExit(
+            f"edl_flow1: edl.json failed schema validation ({len(edl_errors)} error(s))"
+        )
     ctx.write_json("flow_1_master/edl.json", edl)
     ctx.mark_done("edl_flow1")
 

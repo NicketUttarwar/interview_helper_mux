@@ -149,15 +149,17 @@ Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **G1.5 prompt review** (optional) | `elevenlabs_prompt_craft` | `GET/PUT …/elevenlabs-prompts`, `POST …/elevenlabs-prompts/approve` | `gui_log.jsonl` (`elevenlabs_prompt_craft`) | `sound_design/elevenlabs_prompts.json`, `run_meta.json` → `elevenlabs_prompt_review` |
+| **Post-listen QA** (advisory) | `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2` | `POST …/elevenlabs-prompts/listen-result`; `GET …/runs/{id}` → `elevenlabs_generated_assets` | `elevenlabs_post_listen_pass` / `elevenlabs_post_listen_fail` | `run_meta.json` → `elevenlabs_listen_results[]` |
 | **Generate SFX** blocked when G1.5 required | `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
 
-Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before ElevenLabs spend. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
+Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before ElevenLabs spend. Post-listen pass/fail does **not** block generation or mix unless product adds a hard gate later. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
 
-| Shipped | Planned |
-|---------|---------|
-| G1.5 inline panel (edit prompts, `prompt_influence`, approve, SDP warnings) | post-listen pass/fail helpers in GUI |
-| Schema validation on PUT; `can_generate` blocks SFX stages | — |
-| Log: `elevenlabs_prompts_approved`, edit resets approval | — |
+| Shipped |
+|---------|
+| G1.5 inline panel (edit prompts, `prompt_influence`, approve, SDP warnings) |
+| Post-listen panel: Listen → Pass/Fail + optional note; read-only listen history |
+| Schema validation on PUT; `can_generate` blocks SFX stages when G1.5 required |
+| Log: `elevenlabs_prompts_approved`, edit resets approval; post-listen pass/fail events |
 
 ---
 
@@ -167,7 +169,7 @@ Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or overr
 |------|---------|
 | `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, `context_volley`, schema validation errors — for **debugging model I/O**. |
 
-**Target fields (spec only, not yet in v1 JSON):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Routing fields (BUILD-073):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` may appear in `attempt_*.json` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 Operators rarely need this; engineers and support do.
 

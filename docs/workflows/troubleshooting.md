@@ -89,6 +89,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Duplicate `segment_id` in order | Model error | `flow_1_master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
 | Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
 | Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
+| `validate_narrative.py` fails | Brief topic unmapped or empty chapter | `coverage_audit.json`, `selection.json` | Fix audit/ranking; or set `narrative_qc.strict: false` to warn-only |
+| `verify_edl.py` fails | Invalid EDL events or bounds | `flow_1_master/edl.json` error paths | Re-run `edl_flow1` after fixing selection/transitions/VO paths |
 
 ---
 
@@ -106,19 +108,20 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | Blurb uses "we" / "you" | First/second person leak | `flow_3_description/show_description.json` → `description_markdown` | Re-run `podcast_show_description`; see [examples](../prompts/_shared/examples/podcast-show-description.examples.md) |
-| Too short or too long | Word count out of band | `word_count` field | Re-run stage; adjust `show_description_*_words` in config when BUILD-045 ships |
+| Too short or too long | Word count out of band | `word_count` field | Re-run stage; adjust `show_description_*_words` in [config-keys.md](../cross-cutting/config-keys.md) |
 | Generic hype, no specifics | Thin volley or weak brief | `content_brief.json`, `analysis_state.json`, `stage_runs/podcast_show_description/` | Verify profile; `--from-stage content_context` |
 | Invented facts | Model drift | `evidence_segment_ids`, transcript | Re-run with verified profile; tighten prompt guardrails |
 
 ---
 
-## Audio / mux (v1 vs target)
+## Audio / mix
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| No VO in `master.wav` | v1 Flow 1 speech-only mux | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expected until BUILD-067/065; verify artifacts exist for later mix |
-| SFX feels random | v1 one-shot per cue | `podcast_sfx_brief.json`, [sound-design.md](../cross-cutting/sound-design.md) | Track Wave 5 SDP; enable G1.5 (`g1_5_require_prompt_approval: true`) for pre-spend prompt approval |
-| Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | BUILD-071 mastering measurement — [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| No VO in `master.wav` | Missing `vo_pickup/` files, EDL gap placements, or mix skipped | `flow_1_master/edl.json`, `vo_pickup/`, `.stage_done/mix_flow1` | Match WAV filenames to `gap_report`; `--from-stage edl_flow1` then `assembly_preview`; re-run `mix_flow1` — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
+| SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/elevenlabs_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
+| SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `elevenlabs_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
+| Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 
 ---
 
@@ -140,8 +143,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| SFX unused in master | v1 speech-only mux | [assembly_and_mux](../pipeline/assembly_and_mux/README.md) | Expected until BUILD-065/067 |
-| Random / trailer feel | v1 raw brief → API | `podcast_sfx_brief.json` | Wave 5: SDP + craft; tune [prompt_influence](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
+| SFX unused in master | Missing assets or mix not run | SDP `assets[]`, `sound_design/assets/`, `.stage_done/mix_flow*` | Re-run craft → generate → `mix_flow1` / `mix_flow2`; check cue `asset_id` references — [stage-registry](../build-out/stage-registry.md) |
+| Random / trailer feel | Weak craft or legacy v1 brief path | SDP + `elevenlabs_prompts.json` | Default: SDP + craft; tune [prompt_influence](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
 | Wrong timbre after regen | Variance or influence | `elevenlabs_prompts.json` | [Regression appendix](../prompts/_shared/examples/elevenlabs-prompt-regression.md); rewrite prompt |
 | Voice in generated bed | Weak craft | `elevenlabs_prompts.json` | Regen; strengthen `negative_prompt`; block policy strings |
 | Bed buries speech | Level / duck too hot | SDP cues `level_db`, `duck_under_speech_db` | Post-gen: lower bed −4 dB or duck +4 dB — [sound-design.md](../cross-cutting/sound-design.md) |
@@ -152,7 +155,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 ### Spend controls
 
-- Run **assembly_preview** before SFX when available (BUILD-069).
+- Run **assembly_preview** before SFX spend.
 - Enable **G1.5** (`g1_5_require_prompt_approval: true`) for high-cost runs.
 - Target architecture: one call per `asset_id`, not per cue.
 

@@ -34,12 +34,12 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) — schema gaps, fixes, guards
 - [cross-cutting/json-schemas/README.md](./cross-cutting/json-schemas/README.md) — schema index + conventions
 - [cross-cutting/model-routing.md](./cross-cutting/model-routing.md) — tier registry (API IDs in one place)
-- [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) — arbiter, shard/collate, task_kind (**spec**)
+- [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) — smart LLM routing: arbiter, tiers, shard/collate (BUILD-073)
 - [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) — per-stage tier and severity
 - [cross-cutting/llm-orchestration-implementation-handoff.md](./cross-cutting/llm-orchestration-implementation-handoff.md) — future code mapping
 - [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
-- [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (planned, BUILD-060+)
-- [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) — per-interview acoustic/pacing profile from source audio (planned)
+- [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (shipped; [Wave 5 done](./build-out/README.md#wave-5--coherent-sound-design-done))
+- [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) — per-interview acoustic/pacing profile from source audio (shipped, BUILD-082)
 - [cross-cutting/evaluation-metrics.md](./cross-cutting/evaluation-metrics.md)
 - [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) — `app.defaults.json` + secrets merge
 - [cross-cutting/json-schemas/](./cross-cutting/json-schemas/)
@@ -79,6 +79,9 @@ Flat hub for **interview_helper_mux**.
 ## Agent build-out
 
 - [build-out/implementation-guide.md](./build-out/implementation-guide.md) — **master plan**: all phases, waves, definition of done
+- [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — manual release-candidate checklist (pytest optional)
+- [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) — **remaining** Agent commands (top-down backlog)
+- [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — manual release-candidate checklist (pytest optional)
 - [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator + system journey
 - [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id, module, artifact, status
 - [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance criteria per BUILD ticket

@@ -2,19 +2,23 @@
 
 Prioritized backlog for making the **whole repository** coherent: code, GUI, docs, and operator journey. Each item links to build-out tickets and north-star docs.
 
+**What to do next (Agent work):** [remaining-build-commands.md](./remaining-build-commands.md) — open commands only; do not re-run shipped BUILD prompts from this file.
+
 **Holistic build-out guide:** [implementation-guide.md](./implementation-guide.md) (all phases) · [full-application-flow.md](./full-application-flow.md) (operator journey) · [ticket-specs.md](./ticket-specs.md) (acceptance per BUILD id) · [stage-registry.md](./stage-registry.md) (every stage).
 
-**Status key:** **Now** = unblock operators or agents this week · **Next** = quality/mix wave · **Later** = R&D or optional track
+**Status key:** **Now** = unblock operators or agents this week · **Next** = quality/mix wave · **Later** = R&D or optional track · ~~struck~~ = **shipped** (historical reference)
 
 ---
 
 ## Cursor Agent — how to use this page
 
+**For new work:** use [remaining-build-commands.md](./remaining-build-commands.md) (one command per chat). This page keeps **historical** step prompts for reference.
+
 1. Open **Agent mode** in Cursor (not Ask mode).
-2. Run **one backlog step (#0–#20) per agent chat** unless the step says to split BUILD ids.
-3. Copy the **Agent prompt** block for that step into the chat. Use `@` to attach the listed docs (e.g. `@docs/build-out/ticket-specs.md`).
-4. Let the agent implement, then run the **Verify** shell block in the integrated terminal (or ask the agent to run it).
-5. Before starting the next step: update docs per [doc-maintenance.md](./doc-maintenance.md); mark tickets in [README.md](./README.md) and [ticket-specs.md](./ticket-specs.md).
+2. Copy a command from [remaining-build-commands.md](./remaining-build-commands.md) — not the struck steps below unless you need context.
+3. Use `@` to attach the listed docs (e.g. `@docs/build-out/ticket-specs.md`).
+4. Use **Done when** checks from that command (pytest optional per remaining-build-commands).
+5. Before starting the next command: update docs per [doc-maintenance.md](./doc-maintenance.md); mark tickets in [README.md](./README.md) and [ticket-specs.md](./ticket-specs.md).
 
 **Always-on rules:** `.cursor/rules/interview-helper-mux.mdc` · navigation: [AGENTS.md](../../AGENTS.md)
 
@@ -47,14 +51,14 @@ Use step-specific **Verify** blocks below when they apply.
 
 | # | Goal | Tickets | Touch |
 |---|------|---------|-------|
-| 0 | **ASSETS-first operator model** — docs + code aligned: GUI picks WAV from `ASSETS/` (not `INPUT_AUDIO_PATH`); full state under `ASSETS/executions/exec_*`; resume via home **Previous executions** after `./scripts/run.sh` | BUILD-014, 012, 057 | [assets-and-executions.md](../cross-cutting/assets-and-executions.md), `run_context.py`, `web/server.py`, CLI `--run-id exec_*` |
-| ~~1~~ | ~~**Finish anchor lock**~~ — **done** (`requirements.lock`, `pip-audit` gate, lock-only bootstrap) | BUILD-010 | `scripts/`, `tools/check_prerequisites.sh`, [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
-| 2 | **Flow 3 end-to-end** — `publishing_flow3.py`, `FLOW3_ORDER` in `pipeline.py`, CLI/GUI/runner | BUILD-045, 046, **080** | `src/`, [publishing/README.md](../pipeline/publishing/README.md), [smoke-test.md](../workflows/smoke-test.md) |
-| 3 | **Align API docs with server** — mark `flow3` execute/G2 as shipped only after #2; until then GUI copy = flow1 \| flow2 only | BUILD-080 | [api-reference.md](../workflows/api-reference.md), [gui-surface-map.md](../workflows/gui-surface-map.md) |
-| ~~4~~ | ~~**Profile gate before Flow 1 extended**~~ — **done** (blocks `topic_coverage_audit` when `meta.operator_verified` false and `selected_flow: flow1`) | BUILD-081 | `gates.py`, GUI, [operator-gates.md](../workflows/operator-gates.md) |
+| ~~0~~ | ~~**ASSETS-first operator model**~~ — **done** | BUILD-014, 012, 057 | [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
+| ~~1~~ | ~~**Finish anchor lock**~~ — **done** | BUILD-010 | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
+| ~~2~~ | ~~**Flow 3 end-to-end**~~ — **done** | BUILD-045, 046, **080** | [publishing/README.md](../pipeline/publishing/README.md) |
+| ~~3~~ | ~~**Align API docs with server**~~ — **done** (flow3 at G2 + execute) | BUILD-080 | [api-reference.md](../workflows/api-reference.md) |
+| ~~4~~ | ~~**Profile gate before Flow 1 extended**~~ — **done** | BUILD-081 | [operator-gates.md](../workflows/operator-gates.md) |
 | 5 | **Keep operator checklists current** — any new stage/offer updates [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) in the same PR | — | workflows |
 
-### Step #0 — ASSETS-first operator model
+### Step #0 — ASSETS-first operator model — **shipped**
 
 **Agent prompt** (paste into Cursor Agent):
 
@@ -132,7 +136,7 @@ test -f requirements.lock && head -5 requirements.lock
 
 ---
 
-### Step #2 — Flow 3 end-to-end (BUILD-045, 046, 080)
+### Step #2 — Flow 3 end-to-end (BUILD-045, 046, 080) — **shipped**
 
 **Agent prompt:**
 
@@ -178,7 +182,7 @@ pytest tests/
 
 ---
 
-### Step #3 — Align API docs with server (after #2)
+### Step #3 — Align API docs with server (after #2) — **shipped**
 
 **Agent prompt:**
 
@@ -212,7 +216,7 @@ grep -E "flow3|flow_3" docs/workflows/api-reference.md docs/workflows/gui-surfac
 
 ---
 
-### Step #4 — Profile gate before Flow 1 extended (BUILD-081)
+### Step #4 — Profile gate before Flow 1 extended (BUILD-081) — **shipped**
 
 **Agent prompt:**
 
@@ -280,11 +284,11 @@ Aligned with [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadm
 
 | # | Goal | Tickets |
 |---|------|---------|
-| 6 | Gap report → EDL (VO placements, timeline offsets) | BUILD-067 |
-| 7 | Apply `nle_edits.json` before ranking / EDL | BUILD-068 |
-| 8 | `assembly_preview.wav` (speech + VO, no SFX) | BUILD-069 |
+| ~~6~~ | ~~Gap report → EDL (VO placements, timeline offsets)~~ — **done** | BUILD-067 |
+| ~~7~~ | ~~Apply `nle_edits.json` before ranking / EDL~~ — **done** | BUILD-068 |
+| ~~8~~ | ~~`assembly_preview.wav` (speech + VO, no SFX)~~ — **done** | BUILD-069 |
 
-### Step #6 — Gap report → EDL (BUILD-067)
+### Step #6 — Gap report → EDL (BUILD-067) — **shipped**
 
 **Agent prompt:**
 
@@ -317,7 +321,7 @@ python -c "import json; p='ASSETS/executions/${EXEC_ID}/flow_1_master/edl.json';
 
 ---
 
-### Step #7 — NLE → selection/EDL (BUILD-068)
+### Step #7 — NLE → selection/EDL (BUILD-068) — **shipped**
 
 **Agent prompt:**
 
@@ -349,7 +353,7 @@ python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage full_mast
 
 ---
 
-### Step #8 — Assembly preview (BUILD-069)
+### Step #8 — Assembly preview (BUILD-069) — **shipped**
 
 **Agent prompt:**
 
@@ -384,12 +388,12 @@ ffprobe -hide_banner "ASSETS/executions/${EXEC_ID}/flow_1_master/assembly_previe
 
 | # | Goal | Tickets |
 |---|------|---------|
-| 9 | Sound Design Plan schema + palettes | BUILD-060–061 |
-| 10 | Flow 1/2 plan stages + ElevenLabs craft | BUILD-062–064 |
-| 11 | Real mix engine (beds, stingers, ducking) | BUILD-065–066 |
-| 12 | Source-derived sonic profile (optional input to SDP) | [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) + BUILD-082 *(new)* |
+| ~~9~~ | ~~Sound Design Plan schema + palettes~~ — **done** | BUILD-060–061 |
+| ~~10~~ | ~~Flow 1/2 plan stages + ElevenLabs craft~~ — **done** | BUILD-062–064 |
+| ~~11~~ | ~~Real mix engine (beds, stingers, ducking)~~ — **done** | BUILD-065–066 |
+| ~~12~~ | ~~Source-derived sonic profile~~ — **done** | BUILD-082 |
 
-### Step #9 — SDP schema + palettes (BUILD-060, then BUILD-061)
+### Step #9 — SDP schema + palettes (BUILD-060, then BUILD-061) — **shipped**
 
 Use **two agent sessions** — one per BUILD id.
 
@@ -448,7 +452,7 @@ test -f "ASSETS/executions/${EXEC_ID}/understanding/sound_design_plan.json"
 
 ---
 
-### Step #10 — Flow plans + ElevenLabs craft (BUILD-062, 063, 064)
+### Step #10 — Flow plans + ElevenLabs craft (BUILD-062, 063, 064) — **shipped**
 
 Use **three agent sessions** unless you explicitly want one combined PR.
 
@@ -494,7 +498,7 @@ ls "ASSETS/executions/${EXEC_ID}/flow_1_master/sfx/" 2>/dev/null || ls "ASSETS/e
 
 ---
 
-### Step #11 — Mix engine + pipeline wire-up (BUILD-065, then BUILD-066)
+### Step #11 — Mix engine + pipeline wire-up (BUILD-065, then BUILD-066) — **shipped**
 
 **Agent prompt — BUILD-065:**
 
@@ -536,7 +540,7 @@ python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master
 
 ---
 
-### Step #12 — Source acoustic profile (BUILD-082)
+### Step #12 — Source acoustic profile (BUILD-082) — **shipped**
 
 **Agent prompt:**
 
@@ -568,10 +572,10 @@ test -f "ASSETS/executions/${EXEC_ID}/understanding/source_acoustic_profile.json
 
 | # | Goal | Tickets |
 |---|------|---------|
-| 13 | `verify_master` LUFS / true peak | BUILD-070 |
-| 14 | Measured loudness on assembly bus | BUILD-071 |
+| ~~13~~ | ~~`verify_master` LUFS / true peak~~ — **done** | BUILD-070 |
+| ~~14~~ | ~~Measured loudness on assembly bus~~ — **done** | BUILD-071 |
 
-### Step #13 — verify_master LUFS/peak (BUILD-070)
+### Step #13 — verify_master LUFS/peak (BUILD-070) — **shipped**
 
 **Agent prompt:**
 
@@ -599,7 +603,7 @@ echo exit_code=$?
 
 ---
 
-### Step #14 — Mastering measurement (BUILD-071)
+### Step #14 — Mastering measurement (BUILD-071) — **shipped**
 
 **Agent prompt:**
 
@@ -629,10 +633,10 @@ python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master
 
 | # | Goal | Tickets |
 |---|------|---------|
-| 15 | `audio_preclean` stage (ElevenLabs isolation) | BUILD-019 |
-| 16 | GUI offers at documented checkpoints + pickup-only scope | BUILD-072 |
+| ~~15~~ | ~~`audio_preclean` stage (ElevenLabs isolation)~~ — **done** | BUILD-019 |
+| ~~16~~ | ~~GUI offers at documented checkpoints + pickup-only scope~~ — **done** | BUILD-072 |
 
-### Step #15 — audio_preclean stage (BUILD-019)
+### Step #15 — audio_preclean stage (BUILD-019) — **shipped**
 
 **Agent prompt:**
 
@@ -662,7 +666,7 @@ python tools/run_analysis.py --run-id "$EXEC_ID" --from-stage audio_preclean
 
 ---
 
-### Step #16 — Pre-clean GUI offers (BUILD-072)
+### Step #16 — Pre-clean GUI offers (BUILD-072) — **shipped**
 
 **Agent prompt:**
 
@@ -694,12 +698,12 @@ source .venv/bin/activate
 
 | # | Goal | Tickets / docs |
 |---|------|----------------|
-| 17 | Smart LLM routing (arbiter, tiers, shard/collate) | BUILD-073 · [llm-orchestration-implementation-handoff.md](../cross-cutting/llm-orchestration-implementation-handoff.md) |
-| 18 | Expand pytest coverage (gates, pipeline smoke, schema fixtures) | BUILD-054–055 |
-| 19 | Value-analysis spikes (optional) | [value-analysis/README.md](../pipeline/value-analysis/README.md) · [future-proofing.md](../roadmap/future-proofing.md) |
-| 20 | G1.5 SFX prompt review panel | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) · BUILD-066 |
+| ~~17~~ | ~~Smart LLM routing (arbiter, tiers, shard/collate)~~ — **done** | BUILD-073 |
+| ~~18~~ | ~~Expand pytest coverage~~ — **done** | BUILD-054–055 |
+| ~~19~~ | ~~Value-analysis spikes (optional)~~ — **done** (tooling + docs) | [value-analysis/README.md](../pipeline/value-analysis/README.md) |
+| ~~20~~ | ~~G1.5 SFX prompt review panel~~ — **done** | BUILD-066 |
 
-### Step #17 — Smart LLM routing (BUILD-073)
+### Step #17 — Smart LLM routing (BUILD-073) — **shipped**
 
 **Agent prompt:**
 
@@ -829,19 +833,21 @@ flowchart TB
   N1 --> N7
 ```
 
-**Suggested agent order:** #0 → #1 → #2 → #3 → #4 → (#6→#7→#8) → (#9→#10→#11) → #12 optional → #13→#14 → #15→#16 → #17–#20 as staffed.
+**Suggested agent order (historical):** all core steps above are shipped. Use [remaining-build-commands.md](./remaining-build-commands.md) for open work.
 
 ---
 
 ## Definition of done (repository-wide)
 
-- [ ] Operator can run end-to-end without setting `INPUT_AUDIO_PATH`: drop WAV in `ASSETS/`, `./scripts/run.sh`, pick input, resume prior `exec_*` after relaunch ([assets-and-executions.md](../cross-cutting/assets-and-executions.md))
-- [ ] Fresh clone: `SETUP.md` → bootstrap → `check_prerequisites` → smoke-test passes for flow1 **and** flow2 **and** flow3 on a fixture run
-- [ ] `docs/build-out/repository-map.md` has no stale “code today” rows
+- [x] Operator can run end-to-end without setting `INPUT_AUDIO_PATH`: drop WAV in `ASSETS/`, `./scripts/run.sh`, pick input, resume prior `exec_*` after relaunch ([assets-and-executions.md](../cross-cutting/assets-and-executions.md); `web/server.py`, `RunContext`)
+- [ ] Fresh clone: `SETUP.md` → bootstrap → `check_prerequisites` → smoke-test passes for flow1 **and** flow2 **and** flow3 on a fixture run — manual: [definition-of-done-signoff.md](./definition-of-done-signoff.md)
+- [x] `docs/build-out/repository-map.md` has no stale “code today” rows (gap table cleared; ASSETS, mix, pre-clean, LLM routing shipped)
 - [ ] Every pipeline stage README links to a ticket and matches `pipeline.py` stage ids
 - [ ] GUI panels in [gui-surface-map.md](../workflows/gui-surface-map.md) match `web/stages.py` and live routes in `server.py`
 - [ ] Prompts under `docs/prompts/` match `llm_runner` / `analysis_stage` stage keys
 - [ ] Operator-visible strings only via `gui_log.jsonl` / `gui_job.json` (see `.cursor/rules/interview-helper-mux.mdc`)
+
+**Open work:** [remaining-build-commands.md](./remaining-build-commands.md) (schema validation, post-listen GUI, optional value-features auto-extract, etc.).
 
 ### Full-repo smoke (after major milestones)
 
@@ -868,6 +874,7 @@ pytest tests/
 
 ## Related
 
+- **[remaining-build-commands.md](./remaining-build-commands.md)** — **use this for new Agent work** (excludes shipped BUILD commands; no pytest verify)
 - [implementation-guide.md](./implementation-guide.md) — phased build plan for entire app
 - [build-out/README.md](./README.md) — full ticket table
 - [ticket-specs.md](./ticket-specs.md) — acceptance criteria
@@ -894,446 +901,10 @@ pytest tests/
 
 
 
-## Appendix — copy/paste Agent command queue (current status)
+## Appendix — archived Agent command queue
 
-Use this when you want a straight sequence of **one command per Cursor Agent chat** based on current shipped/planned status in `docs/build-out/README.md`.
+**Superseded.** BUILD-060–073, 019, 072, 081, 082, and core Waves 5–7 are shipped in code. Do **not** copy Commands 1–15 from this appendix.
 
-Assumption used for this queue:
-- Already shipped: BUILD-010, 012, 014, 045, 046, 057, 080, 067, 068, 069.
-- Remaining focus: BUILD-060-066, 070-072, 019, 073, plus optional #18-#20.
+**Use instead:** [remaining-build-commands.md](./remaining-build-commands.md) — Commands 2–9 for remaining doc hub, schema validation, post-listen GUI, and optional R&D.
 
-How to run:
-1. Open a new Cursor Agent chat.
-2. Copy one command block below and send it.
-3. Let the agent implement + run verify.
-4. Repeat with the next command.
-
-### Command 1 — BUILD-081 profile gate (finish "Now")
-
-```text
-Implement BUILD-081 only — profile gate before Flow 1 extended stages.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-081)
-@docs/workflows/operator-gates.md
-@src/interview_mux/gates.py
-@docs/build-out/stage-registry.md (topic_coverage_audit)
-
-Constraints:
-- Block or warn before topic_coverage_audit when meta.operator_verified is false in analysis_state.json
-- Use ctx.log() for operator-visible message
-- Update GUI gate panel if applicable
-- Ensure this applies only for selected_flow=flow1
-
-Update:
-@docs/workflows/operator-gates.md
-@docs/workflows/operator-stage-checklists.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-@docs/build-out/repository-map.md
-
-Verify:
-source .venv/bin/activate
-pytest tests/ -q
-# Manual: operator_verified=false should block/warn topic_coverage_audit and log via gui_log.jsonl
-```
-
-### Command 2 — BUILD-068 apply NLE edits before ranking/EDL
-
-```text
-Implement BUILD-068 only — apply nle_edits.json before ranking or EDL build.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-068)
-@docs/pipeline/audio_editing/README.md
-@src/interview_mux/nle_state.py
-@src/interview_mux/stages/selection_flow1.py
-
-Deliver:
-- segments/nle_edits.json exclude/split/reorder reflected in selection.json and/or edl_flow1
-- GUI NLE API consumption stays aligned
-- ctx.log() entry when edits are applied
-
-Update:
-@docs/workflows/gui-surface-map.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-@docs/build-out/repository-map.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage full_master_ranking
-```
-
-### Command 3 — BUILD-060 SDP schema + init
-
-```text
-Implement BUILD-060 only — Sound Design Plan schema + empty plan init.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-060)
-@docs/cross-cutting/sound-design.md
-@docs/cross-cutting/json-schemas/
-@docs/prompts/sound_design/README.md
-
-Deliver:
-- sound_design_plan.schema.json
-- initialize understanding/sound_design_plan.json at documented shared-analysis point
-- schema validation wired
-
-Update:
-@docs/cross-cutting/json-schema-coverage.md
-@docs/cross-cutting/artifact-layout.md
-@docs/build-out/stage-registry.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-pytest tests/test_prompt_validation.py -q
-```
-
-### Command 4 — BUILD-061 sound_design_palettes stage
-
-```text
-Implement BUILD-061 only — sound_design_palettes stage after segment_classification.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-061)
-@docs/build-out/stage-registry.md
-@docs/prompts/sound_design/
-@src/interview_mux/pipeline.py (ANALYSIS_ORDER)
-
-Deliver:
-- sound_design_palettes writes palettes/coherence into SDP
-- prompt sourced from docs/prompts/sound_design/
-- schema-validated output
-
-Update:
-@src/interview_mux/web/stages.py
-@docs/workflows/operator-stage-checklists.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_analysis.py --run-id "$EXEC_ID" --from-stage sound_design_palettes
-test -f "ASSETS/executions/${EXEC_ID}/understanding/sound_design_plan.json"
-```
-
-### Command 5 — BUILD-062 sound_design_plan_flow1
-
-```text
-Implement BUILD-062 only — sound_design_plan_flow1 after G2 flow1 selection.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-062)
-@docs/cross-cutting/sound-design.md
-@src/interview_mux/pipeline.py (FLOW1_ORDER)
-
-Constraints:
-- Require selected_flow=flow1
-- cues reference reusable asset_id values
-
-Update:
-@docs/build-out/stage-registry.md
-@docs/workflows/operator-stage-checklists.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage sound_design_plan_flow1
-```
-
-### Command 6 — BUILD-063 sound_design_plan_flow2
-
-```text
-Implement BUILD-063 only — sound_design_plan_flow2 after G2 flow2 selection.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-063)
-@docs/cross-cutting/sound-design.md
-@src/interview_mux/pipeline.py (FLOW2_ORDER)
-
-Update:
-@docs/build-out/stage-registry.md
-@docs/workflows/operator-stage-checklists.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow2 --run-id "$EXEC_ID" --from-stage sound_design_plan_flow2
-```
-
-### Command 7 — BUILD-064 ElevenLabs craft + generate
-
-```text
-Implement BUILD-064 only — ElevenLabs prompt craft + generate (one WAV per asset_id).
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-064)
-@docs/cross-cutting/elevenlabs-integration-guide.md
-@src/interview_mux/elevenlabs_rest.py
-@docs/prompts/sound_design/
-
-Constraints:
-- REST via elevenlabs_rest only (no SDK)
-- OpenAI craft -> elevenlabs_prompts.json
-- respect duration_seconds from plan
-
-Update:
-@docs/workflows/api-reference.md
-@docs/workflows/gui-surface-map.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage sound_design_plan_flow1
-ls "ASSETS/executions/${EXEC_ID}/flow_1_master/sfx/" 2>/dev/null || ls "ASSETS/executions/${EXEC_ID}/flow_1_master/"
-```
-
-### Command 8 — BUILD-065 mix engine
-
-```text
-Implement BUILD-065 only — mix_flow1 / mix_flow2 replacing v1 speech-only mux.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-065)
-@docs/cross-cutting/sound-design.md
-@src/interview_mux/stages/assembly_flow1.py
-@src/interview_mux/stages/assembly_flow2.py
-
-Deliver:
-- VO + beds + stingers + ducking
-- master.wav audibly includes SFX
-- ctx.log() milestones
-
-Update:
-@docs/pipeline/assembly_and_mux/README.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-@docs/build-out/repository-map.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID"
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
-```
-
-### Command 9 — BUILD-066 pipeline + GUI sound-design wire-up
-
-```text
-Implement BUILD-066 only — pipeline + GUI wire-up for sound-design stages.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-066)
-@src/interview_mux/pipeline.py
-@src/interview_mux/web/stages.py
-@docs/workflows/gui-surface-map.md
-
-Deliver:
-- stage order updated
-- replace/alias/remove v1 brief stages in default path as specified
-- optional G1.5 SFX prompt review panel hook points
-
-Update:
-@docs/workflows/api-reference.md
-@docs/workflows/gui-surface-map.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-pytest tests/ -q
-./scripts/run.sh
-```
-
-### Command 10 — BUILD-082 source acoustic profile
-
-```text
-Implement BUILD-082 only — source_acoustic_profile stage.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-082)
-@docs/cross-cutting/source-derived-sonic-mix-profile.md
-@docs/build-out/stage-registry.md
-
-Deliver:
-- understanding/source_acoustic_profile.json
-- consumed by sound_design_palettes and ElevenLabs craft per spec
-
-Update:
-@src/interview_mux/pipeline.py
-@src/interview_mux/web/stages.py
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_analysis.py --run-id "$EXEC_ID" --from-stage source_acoustic_profile
-test -f "ASSETS/executions/${EXEC_ID}/understanding/source_acoustic_profile.json"
-```
-
-### Command 11 — BUILD-070 verify_master LUFS/true peak
-
-```text
-Implement BUILD-070 only — verify_master LUFS and true peak enforcement.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-070)
-@docs/cross-cutting/evaluation-metrics.md
-@tools/verify_master.py
-
-Deliver:
-- integrated loudness + true peak checks
-- CLI non-zero exit on fail
-- GUI surfaces result if applicable
-
-Update:
-@docs/workflows/smoke-test.md
-@docs/build-out/testing-and-verification.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
-echo exit_code=$?
-```
-
-### Command 12 — BUILD-071 mastering measurement
-
-```text
-Implement BUILD-071 only — measured loudness on assembly bus before final limiter.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-071)
-@src/interview_mux/stages/mastering.py
-@docs/cross-cutting/evaluation-metrics.md
-
-Deliver:
-- two-pass or pyloudnorm measurement on assembly bus per spec
-- integrated with BUILD-070 thresholds
-
-Update:
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-@docs/build-out/testing-and-verification.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage master_flow1
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
-```
-
-### Command 13 — BUILD-019 audio_preclean stage
-
-```text
-Implement BUILD-019 only — audio_preclean stage (ElevenLabs isolation, optional).
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-019)
-@docs/pipeline/audio_preclean/README.md
-@docs/cross-cutting/elevenlabs-integration-guide.md
-@src/interview_mux/elevenlabs_rest.py
-
-Constraints:
-- never auto-enable pre-clean
-- operator must accept quality offer
-- REST only
-
-Update:
-@src/interview_mux/pipeline.py
-@src/interview_mux/web/stages.py
-@docs/workflows/operator-gates.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_analysis.py --run-id "$EXEC_ID" --from-stage audio_preclean
-```
-
-### Command 14 — BUILD-072 pre-clean GUI offers
-
-```text
-Implement BUILD-072 only — GUI pre-clean quality offers at documented checkpoints.
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-072)
-@docs/cross-cutting/podcast-quality-roadmap.md
-@docs/workflows/operator-gates.md
-@src/interview_mux/web/server.py
-
-Deliver:
-- GUI prompts at roadmap checkpoints
-- pickup-only scope flag in run_meta.json
-- ctx.log() for offer/accept/dismiss
-
-Constraints:
-- never auto-run pre-clean
-
-Update:
-@docs/workflows/operator-gates.md
-@docs/workflows/gui-surface-map.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-./scripts/run.sh
-# Manual: trigger offer and verify gui_log.jsonl + run_meta scope flag
-```
-
-### Command 15 — BUILD-073 smart LLM routing
-
-```text
-Implement BUILD-073 only — smart LLM routing (model_registry, llm_arbiter, shard/collate).
-
-Read first:
-@docs/build-out/ticket-specs.md (BUILD-073)
-@docs/cross-cutting/llm-orchestration-implementation-handoff.md
-@docs/cross-cutting/llm-orchestration.md
-@docs/prompts/_shared/llm-arbiter-contract.md
-@src/interview_mux/stages/llm_runner.py
-
-Deliver:
-- arbiter verdict recorded in stage_runs/*/attempt_*.json
-- shard/collate path for long fixture when decompose fires
-
-Update:
-@docs/cross-cutting/model-routing.md
-@docs/prompts/analysis-stage-matrix.md
-@docs/build-out/README.md
-@docs/build-out/ticket-specs.md
-
-Verify:
-source .venv/bin/activate
-pytest tests/ -q
-export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_analysis.py --run-id "$EXEC_ID" --from-stage speaker_roles
-python -c "import glob; fs=glob.glob('ASSETS/executions/${EXEC_ID}/understanding/stage_runs/*/attempt_*.json'); print(len(fs), fs[:1])"
-```
-
-### Optional commands (staffing-dependent)
-
-```text
-Optional A — backlog #18: expand pytest coverage (BUILD-054/055 extension). [done — test_pipeline flow1/2/3+analysis, test_gates, test_g1_5_prompt_review, run_fixtures.py]
-Optional B — backlog #19: value-analysis spike docs/prototype only (no default pipeline wire-up). [docs exist — see docs/pipeline/value-analysis/]
-Optional C — backlog #20: G1.5 SFX prompt review panel (BUILD-066 partial UX pass). [done — app.js + API; test_g1_5_prompt_review.py]
-```
-
-Verify optional A: `pytest tests/ -q` (107+ tests, no live AWS/OpenAI).
+Historical prompts for steps #0–#20 remain in the body of this file (marked **shipped**).

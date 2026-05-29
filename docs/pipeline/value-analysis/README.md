@@ -27,6 +27,7 @@ Optional R&D CLIs — **not** registered in [`pipeline.py`](../../src/interview_
 | `value_analysis.spike_scoring` | `true` | Allows `tools/run_value_spike.py` when master is on |
 | `value_analysis.transcript_features` | `true` | Transcript profile in `extract_value_features` |
 | `value_analysis.audio_features` | `false` | Audio profile (`ingest/normalized.wav`) in extractor |
+| `value_analysis.auto_extract_after_content_context` | `false` | After successful `content_context`, write `understanding/value_features.json` when master + this flag on |
 
 **Spike scoring** — aggregate scorecard JSON (LEX / COM / CRE rubric):
 
@@ -40,9 +41,13 @@ python tools/run_value_spike.py \
 **Feature extraction** — merge profiles into `understanding/value_features.json` ([schema](../../cross-cutting/json-schemas/value_features.schema.json)):
 
 ```bash
-python tools/extract_value_features.py --run-id run_201 --profile all
-python tools/extract_value_features.py --run-id run_301 --profile transcript
+python tools/extract_value_features.py --run-id exec_001_20260523T120000Z --profile all
+python tools/extract_value_features.py --run-id exec_001_20260523T120000Z --profile transcript
 ```
+
+Module: `src/interview_mux/value_analysis/extract.py` (`extract_and_write_value_features`, `maybe_auto_extract_value_features`).
+
+With `value_analysis.enabled` and `auto_extract_after_content_context` set locally, a normal `content_context` run also writes the artifact (no separate CLI).
 
 Record spike outcomes in [spike-results-and-winners.md](./spike-results-and-winners.md).
 
