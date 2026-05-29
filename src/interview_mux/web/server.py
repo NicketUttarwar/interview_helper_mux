@@ -37,6 +37,8 @@ from interview_mux.gates import (
     set_selected_flow,
 )
 from interview_mux.stages import transcript_review
+from interview_mux.api_providers import list_providers
+from interview_mux.gui_api_consent import load_persisted_consents, save_persisted_consent
 from interview_mux.gui_session import (
     clear_active_execution,
     get_active_execution,
@@ -69,12 +71,28 @@ class ExecuteBody(BaseModel):
     mode: str = Field(description="stage | analysis | flow1 | flow2 | flow3")
     stage: str | None = None
     from_stage: str | None = None
+    api_consents: dict[str, bool] | None = None
+
+
+class ApiConsentBody(BaseModel):
+    provider: str
+    granted: bool
 
 
 class ArtifactBody(BaseModel):
     path: str
     data: Any
     invalidate_from: str | None = None
+
+
+class ArtifactTextBody(BaseModel):
+    path: str
+    text: str
+    invalidate_from: str | None = None
+
+
+class HandoffAckBody(BaseModel):
+    stage_id: str
 
 
 class ResetBody(BaseModel):
@@ -167,7 +185,28 @@ def create_app() -> FastAPI:
             "web_port": cfg.get("web_port", 8765),
             "repo_root": str(root),
             "value_analysis_enabled": value_analysis_enabled(cfg),
+            "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
         }
+
+    @app.get("/api/session/api-consent")
+    def get_api_consent() -> dict[str, Any]:
+        persisted = load_persisted_consents()
+        return {
+            "providers": list_providers(),
+            "grants": persisted,
+        }
+
+    @app.post("/api/session/api-consent")
+    def post_api_consent(body: ApiConsentBody) -> dict[str, Any]:
+        cfg = merged_config()
+        persist = (cfg.get("web") or {}).get("api_consent_persist", True)
+        grants = persisted = load_persisted_consents()
+        if persist:
+            grants = save_persisted_consent(body.provider, body.granted)
+        else:
+            grants = dict(persisted)
+            grants[body.provider] = body.granted
+        return {"ok": True, "provider": body.provider, "granted": body.granted, "grants": grants}
 
     @app.get("/api/session")
     def get_session() -> dict[str, Any]:
@@ -236,6 +275,9 @@ def create_app() -> FastAPI:
                 done = sum(1 for s in stages if s["status"] == "done")
                 r["progress"] = {"done": done, "total": len(stages)}
                 r["last_stage"] = next((s["title"] for s in reversed(stages) if s["status"] == "done"), None)
+                log_entries = read_log(ctx.run_dir, tail=1)
+                if log_entries:
+                    r["last_log"] = log_entries[-1]
             except Exception:
                 r["progress"] = {"done": 0, "total": 0}
         return {"runs": runs}
@@ -258,6 +300,29 @@ def create_app() -> FastAPI:
             "execution_number": ctx.read_json("run_meta.json").get("execution_number"),
         }
 
+    @app.get("/api/runs/{run_id}/summary")
+    def get_run_summary(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        summary = RunContext.summarize_run(run_id)
+        flow = get_selected_flow(ctx)
+        stages = _build_stage_list(
+            ctx,
+            flow,
+            check_g1_vo(ctx),
+            check_transcript_review_pending(ctx),
+            is_operator_profile_verified(ctx),
+            check_profile_gate_pending(ctx),
+        )
+        done = sum(1 for s in stages if s["status"] == "done")
+        log_entries = read_log(ctx.run_dir, tail=1)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        return {
+            **summary,
+            "progress": {"done": done, "total": len(stages)},
+            "last_log": log_entries[-1] if log_entries else None,
+            "handoff_ack": meta.get("handoff_ack") or {},
+        }
+
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -270,9 +335,11 @@ def create_app() -> FastAPI:
         stages = _build_stage_list(
             ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending
         )
+        handoff_ack = meta.get("handoff_ack") or {}
         return {
             "run_id": run_id,
             "meta": meta,
+            "handoff_ack": handoff_ack,
             "elevenlabs_generated_assets": _discover_generated_sfx_assets(ctx),
             "selected_flow": flow,
             "transcript_review_pending": tr_pending,
@@ -446,12 +513,28 @@ def create_app() -> FastAPI:
             return read_json(full)
         return {"path": path, "text": full.read_text(encoding="utf-8")}
 
+    @app.put("/api/runs/{run_id}/artifact/text")
+    def put_artifact_text(run_id: str, body: ArtifactTextBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        _assert_artifact_path(body.path)
+        if body.path.endswith(".json"):
+            raise HTTPException(400, "Use PUT /artifact with JSON body for .json files.")
+        if not _is_editable_text_path(body.path):
+            raise HTTPException(400, f"Path not editable via GUI: {body.path}")
+        full = ctx.path(body.path)
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(body.text, encoding="utf-8")
+        ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage="artifact_editor")
+        if body.invalidate_from:
+            runner.invalidate_from(run_id, body.invalidate_from)
+        return {"ok": True, "path": body.path}
+
     @app.put("/api/runs/{run_id}/artifact")
     def put_artifact(run_id: str, body: ArtifactBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         _assert_artifact_path(body.path)
         if not body.path.endswith(".json"):
-            raise HTTPException(400, "Only JSON artifacts can be edited via this endpoint.")
+            raise HTTPException(400, "Use PUT /artifact/text for non-JSON text files.")
         if isinstance(body.data, dict):
             schema_errors = validate_artifact_write(body.path, body.data)
             if schema_errors:
@@ -624,6 +707,22 @@ def create_app() -> FastAPI:
         )
         return {"ok": True, "entry": entry, "elevenlabs_listen_results": results}
 
+    @app.post("/api/runs/{run_id}/handoff-ack")
+    def handoff_ack(run_id: str, body: HandoffAckBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        ack = dict(meta.get("handoff_ack") or {})
+        ack[body.stage_id] = datetime.now(timezone.utc).isoformat()
+        meta["handoff_ack"] = ack
+        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        ctx.write_json("run_meta.json", meta)
+        ctx.log(
+            f"Handoff acknowledged for {body.stage_id} — ready for next step.",
+            level="success",
+            stage=body.stage_id,
+        )
+        return {"ok": True, "handoff_ack": ack}
+
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
         _ctx(run_id)
@@ -636,6 +735,7 @@ def create_app() -> FastAPI:
             stage=body.stage,
             flow=body.mode if body.mode in ("flow1", "flow2", "flow3") else None,
             from_stage=body.from_stage or body.stage,
+            api_consents=body.api_consents,
         )
 
     @app.get("/api/runs/{run_id}/job")
@@ -837,6 +937,17 @@ def _resolve_repo_path(rel: str) -> Path:
 def _assert_artifact_path(path: str) -> None:
     if ".." in path or path.startswith("/"):
         raise HTTPException(400, "Invalid artifact path.")
+
+
+def _is_editable_text_path(path: str) -> bool:
+    if path.endswith(".json"):
+        return True
+    if not (path.endswith(".md") or path.endswith(".txt")):
+        return False
+    for info in STAGE_BY_ID.values():
+        if path in info.editable or path in info.artifacts:
+            return True
+    return False
 
 
 def _build_stage_list(

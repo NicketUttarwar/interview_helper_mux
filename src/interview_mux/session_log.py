@@ -14,7 +14,22 @@ def log_path(run_dir: Path) -> Path:
     return run_dir / "gui_log.jsonl"
 
 
-def append_log(run_dir: Path, message: str, *, level: str = "info", stage: str | None = None, detail: str | None = None) -> dict[str, Any]:
+def _serialize_detail(detail: str | dict[str, Any] | None) -> str | None:
+    if detail is None:
+        return None
+    if isinstance(detail, dict):
+        return json.dumps(detail, ensure_ascii=False)
+    return detail
+
+
+def append_log(
+    run_dir: Path,
+    message: str,
+    *,
+    level: str = "info",
+    stage: str | None = None,
+    detail: str | dict[str, Any] | None = None,
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "level": level,
@@ -22,8 +37,9 @@ def append_log(run_dir: Path, message: str, *, level: str = "info", stage: str |
     }
     if stage:
         entry["stage"] = stage
-    if detail:
-        entry["detail"] = detail
+    serialized = _serialize_detail(detail)
+    if serialized:
+        entry["detail"] = serialized
     path = log_path(run_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(entry, ensure_ascii=False) + "\n"

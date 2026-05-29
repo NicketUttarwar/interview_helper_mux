@@ -12,13 +12,34 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 ---
 
+## Operator console layout (workspace)
+
+| Zone | Element | Behavior |
+|------|---------|----------|
+| Header | Status grid | Execution, stage, job, updated — always visible |
+| Header | **Mute alerts** / **Revoke API** | `localStorage.gui_mute_alerts`; clears `sessionStorage` API grants |
+| Header | Checkpoint banner | Shown when `job.status` is `gate` / `needs_operator` or any stage is `action_required` |
+| Header | API consent strip | Chips for OpenAI / AWS / ElevenLabs grant state (`GET/POST /api/session/api-consent`) |
+| Center | Checkpoint panel | **Continue to next step** (enabled when gate satisfied or handoff acknowledged) |
+| Center | Gate actions | G0/G1/G2/profile/preclean/QC panels (unchanged behavior) |
+| Center | **Outputs from this step** | Handoff file list from `detail.handoff` in log or `artifacts_present`; **Acknowledge & continue** → `POST …/handoff-ack` |
+| Center | File editor | JSON + `.md` / `.txt` via `PUT …/artifact` and `PUT …/artifact/text` |
+| Footer (sticky) | Operator log | `gui_log.jsonl` tail — polls every 2s |
+
+**Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
+
+**API consent:** Before `POST …/execute`, GUI prompts once per provider per browser session; optional persist to `ASSETS/.gui/api_consent.json`. Backend `runner.start` rejects execute when required providers are not granted (`job.status: needs_operator`).
+
+---
+
 ## Home screen (no `run_id`)
 
 | User-visible | API | Log / session | Artifact / disk |
 |--------------|-----|---------------|-----------------|
 | **Input audio** list + Refresh | `GET /api/assets` | — | Scans `ASSETS/`; skips `executions/`, `.gui/` |
 | Start execution on a file | `POST /api/runs` body `{ input_audio_path }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
-| **Previous executions** list + Refresh | `GET /api/runs` | — | Summaries from each `run_meta.json` |
+| **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %; each run folder is immutable |
+| Recent log (active run) | `GET /api/session` → `log` | `gui_log.jsonl` | Last 5 lines on home when a run is active |
 | Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace |
 
 After resume or create, the UI navigates to the **workspace** view (`GET /api/runs/{id}`).
@@ -32,7 +53,7 @@ After resume or create, the UI navigates to the **workspace** view (`GET /api/ru
 | `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
 | `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`). |
 
-**Where the UI shows them:** Run screen **log panel** loads `GET /api/runs/{id}` → `log_tail` and polls `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (same payload nested under `job` on run fetch).
+**Where the UI shows them:** Sticky **Operator log** dock (footer) loads `GET /api/runs/{id}` → `log_tail` and polls `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Stage completion writes `detail` JSON with `handoff` paths via `RunContext.log_handoff()` / `mark_done()`.
 
 ---
 

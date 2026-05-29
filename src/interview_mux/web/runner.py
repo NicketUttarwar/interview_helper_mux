@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from threading import Lock, Thread
 from typing import Any
 
+from interview_mux.api_providers import (
+    PROVIDERS,
+    missing_consents,
+    providers_for_stages,
+    stage_api_providers,
+)
 from interview_mux.config import merged_config
+from interview_mux.gui_api_consent import load_persisted_consents, merge_consents
 from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
@@ -56,6 +63,54 @@ class JobRunner:
         status = self.get_job(run_id).get("status")
         return status in ("running", "running_with_warnings")
 
+    def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
+        return merge_consents(load_persisted_consents(), api_consents)
+
+    def _stages_for_execute(
+        self, ctx: RunContext, *, mode: str, stage: str | None, from_stage: str | None
+    ) -> list[str]:
+        if mode == "stage" and stage:
+            return [stage]
+        if mode == "analysis":
+            order = list(ANALYSIS_ORDER)
+            start = from_stage or stage
+            if start and start in order:
+                order = order[order.index(start) :]
+            return [s for s in order if not ctx.is_done(s)]
+        flow_orders = {"flow1": FLOW1_ORDER, "flow2": FLOW2_ORDER, "flow3": FLOW3_ORDER}
+        if mode in flow_orders:
+            order = list(flow_orders[mode])
+            start = from_stage or stage
+            if start and start in order:
+                order = order[order.index(start) :]
+            return [s for s in order if not ctx.is_done(s)]
+        return []
+
+    def _check_api_consent(
+        self,
+        ctx: RunContext,
+        *,
+        mode: str,
+        stage: str | None,
+        from_stage: str | None,
+        api_consents: dict[str, bool] | None,
+    ) -> str | None:
+        """Return error message when required providers are not consented."""
+        consents = self._resolve_consents(api_consents)
+        stage_ids = self._stages_for_execute(ctx, mode=mode, stage=stage, from_stage=from_stage)
+        missing: list[str] = []
+        for sid in stage_ids:
+            for pid in missing_consents(sid, consents):
+                if pid not in missing:
+                    missing.append(pid)
+        if not missing:
+            return None
+        labels = [PROVIDERS[p].label for p in missing if p in PROVIDERS]
+        return (
+            f"API consent required before running: {', '.join(labels or missing)}. "
+            "Grant access in the GUI, then try again."
+        )
+
     def start(
         self,
         run_id: str,
@@ -64,10 +119,45 @@ class JobRunner:
         stage: str | None = None,
         flow: str | None = None,
         from_stage: str | None = None,
+        api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
         if not lock.acquire(blocking=False):
             return {"ok": False, "error": "A job is already running for this run."}
+
+        ctx_pre = RunContext(run_id, create=False)
+        consent_err = self._check_api_consent(
+            ctx_pre,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            api_consents=api_consents,
+        )
+        if consent_err:
+            ctx_pre.log(consent_err, level="action", stage=stage or mode)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": stage,
+                    "message": consent_err,
+                    "missing_api_providers": [
+                        p
+                        for sid in self._stages_for_execute(
+                            ctx_pre, mode=mode, stage=stage, from_stage=from_stage
+                        )
+                        for p in missing_consents(sid, self._resolve_consents(api_consents))
+                    ],
+                },
+            )
+            lock.release()
+            return {
+                "ok": False,
+                "error": consent_err,
+                "needs_api_consent": True,
+                "needs_operator": True,
+            }
 
         def _run() -> None:
             ctx = RunContext(run_id, create=False)

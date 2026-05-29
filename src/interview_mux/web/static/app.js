@@ -17,7 +17,15 @@ const state = {
   transcriptReview: null,
   transcriptReviewIndex: 0,
   shownPrecleanOffers: new Set(),
+  apiConsent: { providers: [], grants: {} },
+  pendingExecute: null,
+  lastNotifiedTs: null,
+  lastActionRequiredId: null,
+  jobStatusPrev: null,
+  artifactIsJson: true,
 };
+
+const API_CONSENT_PREFIX = "api_consent_";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -66,8 +74,219 @@ function showView(name) {
   $("#view-workspace").classList.toggle("hidden", name !== "workspace");
 }
 
+function isAlertsMuted() {
+  return localStorage.getItem("gui_mute_alerts") === "1";
+}
+
+function setAlertsMuted(muted) {
+  localStorage.setItem("gui_mute_alerts", muted ? "1" : "0");
+  const btn = $("#btn-mute-alerts");
+  if (btn) {
+    btn.textContent = muted ? "Unmute alerts" : "Mute alerts";
+    btn.classList.toggle("muted-active", muted);
+  }
+}
+
+function playAttentionPing() {
+  if (isAlertsMuted()) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.value = 0.12;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {
+    /* Web Audio unavailable */
+  }
+}
+
+function getBrowserApiGrants() {
+  const grants = {};
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    if (key?.startsWith(API_CONSENT_PREFIX)) {
+      grants[key.slice(API_CONSENT_PREFIX.length)] = sessionStorage.getItem(key) === "1";
+    }
+  }
+  return grants;
+}
+
+function setBrowserApiGrant(provider, granted) {
+  sessionStorage.setItem(`${API_CONSENT_PREFIX}${provider}`, granted ? "1" : "0");
+}
+
+function mergedApiGrants() {
+  return { ...state.apiConsent.grants, ...getBrowserApiGrants() };
+}
+
+function isProviderGranted(provider) {
+  return Boolean(mergedApiGrants()[provider]);
+}
+
+async function loadApiConsent() {
+  const data = await api("/api/session/api-consent");
+  state.apiConsent.providers = data.providers || [];
+  state.apiConsent.grants = { ...(data.grants || {}), ...getBrowserApiGrants() };
+  renderApiConsentStrip();
+}
+
+function renderApiConsentStrip() {
+  const strip = $("#api-consent-strip");
+  if (!strip) return;
+  const providers = state.apiConsent.providers || [];
+  if (!providers.length) {
+    strip.innerHTML = "";
+    return;
+  }
+  strip.innerHTML = `<span class="muted">API access:</span>${providers
+    .map((p) => {
+      const ok = isProviderGranted(p.id);
+      return `<span class="api-consent-chip ${ok ? "granted" : "pending"}">${escapeHtml(p.label)} ${ok ? "✓" : "—"}</span>`;
+    })
+    .join("")}`;
+}
+
+function revokeAllApiConsents() {
+  for (const p of state.apiConsent.providers || []) {
+    setBrowserApiGrant(p.id, false);
+  }
+  state.apiConsent.grants = {};
+  renderApiConsentStrip();
+  showToast("API access revoked for this browser session.");
+}
+
+function providersForExecute(body) {
+  const stages = state.run?.stages || [];
+  if (body.mode === "stage" && body.stage) {
+    const s = stages.find((x) => x.id === body.stage);
+    return s?.api_providers || [];
+  }
+  if (body.mode === "analysis") {
+    const set = new Set();
+    for (const s of stages) {
+      if (s.phase === "analysis" && s.status === "pending" && s.api_providers) {
+        s.api_providers.forEach((p) => set.add(p));
+      }
+    }
+    return [...set];
+  }
+  const flowPhase = body.mode === "flow1" ? "flow1" : body.mode === "flow2" ? "flow2" : body.mode === "flow3" ? "flow3" : null;
+  if (flowPhase) {
+    const set = new Set();
+    for (const s of stages) {
+      if (s.phase === flowPhase && s.status === "pending" && s.api_providers) {
+        s.api_providers.forEach((p) => set.add(p));
+      }
+    }
+    return [...set];
+  }
+  return [];
+}
+
+function missingProvidersForExecute(body) {
+  return providersForExecute(body).filter((p) => !isProviderGranted(p));
+}
+
+function showApiConsentModal(providerId) {
+  return new Promise((resolve) => {
+    const info = (state.apiConsent.providers || []).find((p) => p.id === providerId);
+    const modal = $("#api-consent-modal");
+    $("#api-consent-modal-title").textContent = info ? `Allow ${info.label}?` : "Allow external API?";
+    $("#api-consent-modal-desc").textContent = info?.description || "";
+    $("#api-consent-modal-cost").textContent = info?.cost_hint || "";
+    modal.classList.remove("hidden");
+    const onAllow = async () => {
+      modal.classList.add("hidden");
+      cleanup();
+      setBrowserApiGrant(providerId, true);
+      try {
+        await api("/api/session/api-consent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: providerId, granted: true }),
+        });
+      } catch {
+        /* sessionStorage is enough for this tab */
+      }
+      state.apiConsent.grants[providerId] = true;
+      renderApiConsentStrip();
+      resolve(true);
+    };
+    const onDeny = () => {
+      modal.classList.add("hidden");
+      cleanup();
+      resolve(false);
+    };
+    const cleanup = () => {
+      $("#btn-api-consent-allow").removeEventListener("click", onAllow);
+      $("#btn-api-consent-deny").removeEventListener("click", onDeny);
+    };
+    $("#btn-api-consent-allow").addEventListener("click", onAllow);
+    $("#btn-api-consent-deny").addEventListener("click", onDeny);
+  });
+}
+
+async function ensureApiConsentForExecute(body) {
+  const missing = missingProvidersForExecute(body);
+  for (const pid of missing) {
+    const ok = await showApiConsentModal(pid);
+    if (!ok) return false;
+  }
+  return true;
+}
+
+function buildApiConsentsPayload() {
+  const grants = mergedApiGrants();
+  const out = {};
+  for (const [k, v] of Object.entries(grants)) {
+    if (v) out[k] = true;
+  }
+  return out;
+}
+
+function parseLogDetail(detail) {
+  if (!detail) return null;
+  if (typeof detail === "object") return detail;
+  try {
+    return JSON.parse(detail);
+  } catch {
+    return null;
+  }
+}
+
+function hasActionRequiredStage() {
+  return (state.run?.stages || []).some((s) => s.status === "action_required");
+}
+
+function getHandoffPaths(stage) {
+  const fromLog = findLatestHandoffForStage(stage.id);
+  if (fromLog?.length) return fromLog;
+  return [...(stage.artifacts_present || []), ...(stage.artifacts || [])].filter(
+    (p, i, arr) => p && !p.endsWith("/") && arr.indexOf(p) === i,
+  );
+}
+
+function findLatestHandoffForStage(stageId) {
+  const entries = state.run?.log_tail || [];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.stage !== stageId) continue;
+    const d = parseLogDetail(e.detail);
+    if (d?.handoff?.length) return d.handoff;
+  }
+  return null;
+}
+
 async function init() {
   state.config = await api("/api/config");
+  setAlertsMuted(isAlertsMuted());
+  await loadApiConsent();
   bindEvents();
   const session = await api("/api/session");
   if (session.log?.length) renderLog(session.log);
@@ -84,6 +303,12 @@ function bindEvents() {
   $("#btn-refresh-assets").addEventListener("click", refreshHome);
   $("#btn-refresh-runs").addEventListener("click", refreshHome);
   $("#btn-home").addEventListener("click", goHome);
+  $("#btn-mute-alerts")?.addEventListener("click", () => {
+    setAlertsMuted(!isAlertsMuted());
+  });
+  $("#btn-revoke-api")?.addEventListener("click", revokeAllApiConsents);
+  $("#btn-checkpoint-continue")?.addEventListener("click", onCheckpointContinue);
+  $("#btn-handoff-ack")?.addEventListener("click", acknowledgeHandoff);
   $("#btn-run-next").addEventListener("click", runNextStage);
   $("#btn-run-analysis").addEventListener("click", () => executeJob({ mode: "analysis" }));
   $("#btn-reset-stage").addEventListener("click", redoFromStage);
@@ -116,9 +341,27 @@ async function goHome() {
 }
 
 async function refreshHome() {
-  const [assets, runs] = await Promise.all([api("/api/assets"), api("/api/runs")]);
+  const [assets, runs, session] = await Promise.all([
+    api("/api/assets"),
+    api("/api/runs"),
+    api("/api/session").catch(() => ({})),
+  ]);
   renderAssets(assets.files);
   renderRuns(runs.runs);
+  const preview = $("#home-log-preview");
+  const tailEl = $("#home-log-tail");
+  if (session.log?.length && preview && tailEl) {
+    preview.classList.remove("hidden");
+    const tail = session.log.slice(-5);
+    tailEl.innerHTML = tail
+      .map(
+        (e) =>
+          `<div class="log-entry level-${e.level || "info"}"><span class="log-ts">${formatTs(e.ts)}</span> <span class="log-msg">${escapeHtml(e.message)}</span></div>`,
+      )
+      .join("");
+  } else if (preview) {
+    preview.classList.add("hidden");
+  }
 }
 
 function renderAssets(files) {
@@ -160,6 +403,9 @@ function renderRuns(runs) {
   el.innerHTML = runs
     .map((r) => {
       const prog = r.progress ? `${r.progress.done}/${r.progress.total} stages` : "";
+      const pct =
+        r.progress?.total > 0 ? Math.round((100 * r.progress.done) / r.progress.total) : 0;
+      const lastLog = r.last_log?.message ? escapeHtml(r.last_log.message).slice(0, 120) : "";
       const outs = (r.outputs || []).map((o) => o.split("/").pop()).join(", ");
       return `
     <div class="run-item" data-run="${r.run_id}">
@@ -167,7 +413,8 @@ function renderRuns(runs) {
         <strong>#${r.execution_number ?? "?"} · ${r.run_id}</strong>
         <div class="asset-meta">${formatTs(r.updated_at || r.created_at)}</div>
         <div class="asset-meta">${r.input_audio_path || ""}</div>
-        <div class="asset-meta">${prog}${r.selected_flow ? ` · ${r.selected_flow}` : ""}${outs ? ` · out: ${outs}` : ""}</div>
+        <div class="asset-meta">${prog} (${pct}%)${r.selected_flow ? ` · ${r.selected_flow}` : ""}${outs ? ` · out: ${outs}` : ""}</div>
+        ${lastLog ? `<div class="asset-meta muted">Last: ${lastLog}</div>` : ""}
       </div>
       <button class="btn primary sm" type="button">Resume</button>
     </div>`;
@@ -228,6 +475,32 @@ async function refreshRun() {
 
   updateStatusBar(state.run);
   updateJobUI(state.run.job);
+  renderCheckpointBanner();
+}
+
+function renderCheckpointBanner() {
+  const banner = $("#checkpoint-banner");
+  if (!banner) return;
+  const job = state.run?.job;
+  const actionStage = state.run?.stages?.find((s) => s.status === "action_required");
+  if (job?.status === "gate" || job?.status === "needs_operator") {
+    banner.textContent = job.message || "Your action is required before the pipeline can continue.";
+    banner.classList.remove("hidden");
+    if (state.jobStatusPrev !== job.status) playAttentionPing();
+    return;
+  }
+  if (actionStage) {
+    banner.textContent = `Checkpoint: ${actionStage.title} — complete the steps below, then continue.`;
+    banner.classList.remove("hidden");
+    if (state.lastActionRequiredId !== actionStage.id) {
+      state.lastActionRequiredId = actionStage.id;
+      playAttentionPing();
+    }
+    return;
+  }
+  banner.classList.add("hidden");
+  banner.textContent = "";
+  state.lastActionRequiredId = null;
 }
 
 function updateStatusBar(run) {
@@ -261,13 +534,21 @@ function renderLog(entries) {
       <span class="log-ts">${formatTs(e.ts)}</span>
       ${e.stage ? `<span class="log-stage">[${e.stage}]</span>` : ""}
       <span class="log-msg">${escapeHtml(e.message)}</span>
-      ${e.detail ? `<div class="log-detail">${escapeHtml(e.detail)}</div>` : ""}
+      ${e.detail ? `<div class="log-detail">${escapeHtml(typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail))}</div>` : ""}
     </div>`
     )
     .join("");
+  const prevCount = state.logCount;
   state.logCount = entries.length;
   el.scrollTop = el.scrollHeight;
   updateAlerts(entries);
+  if (entries.length > prevCount) {
+    const newest = entries[entries.length - 1];
+    if (newest.level === "action" && newest.ts !== state.lastNotifiedTs) {
+      state.lastNotifiedTs = newest.ts;
+      playAttentionPing();
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -324,6 +605,14 @@ async function pollLog() {
     const data = await api(`/api/runs/${state.runId}/log?tail=200`);
     if (data.entries?.length !== state.logCount) {
       renderLog(data.entries);
+      if (state.run) {
+        state.run.log_tail = data.entries;
+        const stage = state.run.stages?.find((s) => s.id === state.selectedStageId);
+        if (stage) {
+          renderHandoffPanel(stage);
+          updateCheckpointContinue(stage);
+        }
+      }
     }
   } catch {
     /* ignore */
@@ -373,9 +662,136 @@ async function selectStage(stageId) {
   updateStatusBar(state.run);
   await renderGateActions(stage);
   await renderLlmRoutingPanel(stage);
+  renderCheckpoint(stage);
+  renderHandoffPanel(stage);
   updateProfilePanelVisibility(stage);
   populateArtifactSelect(stage);
   if (stage.id === "analysis_profile") loadAnalysisProfile();
+}
+
+function renderCheckpoint(stage) {
+  const panel = $("#checkpoint-panel");
+  if (!panel) return;
+  const needsPanel =
+    stage.status === "action_required" ||
+    state.run?.job?.status === "gate" ||
+    state.run?.job?.status === "needs_operator" ||
+    (stage.status === "done" && getHandoffPaths(stage).length && !state.run?.handoff_ack?.[stage.id]);
+  panel.classList.toggle("hidden", !needsPanel);
+  updateCheckpointContinue(stage);
+}
+
+function updateCheckpointContinue(stage) {
+  const btn = $("#btn-checkpoint-continue");
+  const summary = $("#checkpoint-summary");
+  if (!btn || !summary) return;
+  let enabled = false;
+  let text = "";
+
+  if (state.run?.job?.status === "needs_operator" && state.run.job.message?.includes("API consent")) {
+    text = state.run.job.message;
+  } else if (state.run?.job?.status === "gate") {
+    text = state.run.job.message || "Complete the checkpoint below.";
+  } else if (stage.status === "action_required") {
+    text = `${stage.title}: complete the required actions below.`;
+    if (stage.id === "g1_vo_pickup") enabled = Boolean(state.run?.g1_clear);
+    else if (stage.id === "analysis_profile") enabled = Boolean(state.run?.profile_verified);
+    else if (stage.id === "transcript_review") {
+      text += " Use Complete transcript review when finished.";
+    } else if (stage.id === "g2_flow_select") {
+      text += " Choose a flow below.";
+    }
+  } else if (stage.status === "done") {
+    const paths = getHandoffPaths(stage);
+    if (paths.length && !state.run?.handoff_ack?.[stage.id]) {
+      text = "Review output files in the handoff panel. Edit if needed, then acknowledge to continue.";
+      enabled = true;
+    }
+  }
+
+  summary.textContent = text;
+  btn.disabled = !enabled;
+}
+
+async function onCheckpointContinue() {
+  const stage = state.run?.stages?.find((s) => s.id === state.selectedStageId);
+  if (!stage) return;
+  if (stage.status === "done" && getHandoffPaths(stage).length) {
+    await acknowledgeHandoff();
+    return;
+  }
+  if (stage.id === "g1_vo_pickup" && state.run?.g1_clear) {
+    selectStage("g2_flow_select");
+    return;
+  }
+  await runNextStage();
+}
+
+async function acknowledgeHandoff() {
+  if (!state.selectedStageId || !state.runId) return;
+  await api(`/api/runs/${state.runId}/handoff-ack`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage_id: state.selectedStageId }),
+  });
+  showToast("Handoff acknowledged.");
+  await refreshRun();
+}
+
+function renderHandoffPanel(stage) {
+  const panel = $("#handoff-panel");
+  const list = $("#handoff-list");
+  if (!panel || !list) return;
+  const paths = getHandoffPaths(stage);
+  const audit = findLatestHandoffAudit(stage.id);
+  if (!paths.length && !audit) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const editableSet = new Set(stage.editable || []);
+  list.innerHTML = paths
+    .map((p) => {
+      const ed = editableSet.has(p) ? '<span class="hint">editable</span>' : "";
+      return `<li class="handoff-item"><code>${escapeHtml(p)}</code> ${ed}
+        <span class="handoff-actions">
+          <button type="button" class="btn ghost sm btn-handoff-open" data-path="${p.replace(/"/g, "&quot;")}">Open</button>
+          <button type="button" class="btn ghost sm btn-handoff-copy" data-path="${p.replace(/"/g, "&quot;")}">Copy path</button>
+        </span></li>`;
+    })
+    .join("");
+  if (audit) {
+    list.innerHTML += `<li class="handoff-item muted">LLM audit: <code>${escapeHtml(audit)}</code></li>`;
+  }
+  list.querySelectorAll(".btn-handoff-open").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const path = btn.dataset.path;
+      const sel = $("#artifact-select");
+      if ([...sel.options].some((o) => o.value === path)) {
+        sel.value = path;
+        loadSelectedArtifact();
+      } else {
+        showToast(`Add ${path} to editor after stage lists it.`);
+      }
+    });
+  });
+  list.querySelectorAll(".btn-handoff-copy").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      navigator.clipboard?.writeText(btn.dataset.path);
+      showToast("Path copied.");
+    });
+  });
+}
+
+function findLatestHandoffAudit(stageId) {
+  const entries = state.run?.log_tail || [];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.stage !== stageId) continue;
+    const d = parseLogDetail(e.detail);
+    if (d?.audit_path) return d.audit_path;
+  }
+  return null;
 }
 
 function updateProfilePanelVisibility(stage) {
@@ -424,11 +840,9 @@ async function renderLlmRoutingPanel(stage) {
 async function renderGateActions(stage) {
   const el = $("#gate-actions");
   el.innerHTML = "";
-  el.classList.add("hidden");
 
   const audioOutputs = stage.audio_outputs_present || [];
   if (audioOutputs.length) {
-    el.classList.remove("hidden");
     const listen = document.createElement("div");
     listen.className = "stage-audio-actions";
     listen.innerHTML = `<p class="hint"><strong>Listen</strong> stage output audio:</p>`;
@@ -451,7 +865,6 @@ async function renderGateActions(stage) {
   }
 
   if (stage.id === "analysis_profile") {
-    el.classList.remove("hidden");
     const verified = stage.status === "done";
     const flow1Block =
       state.run?.selected_flow === "flow1" && state.run?.profile_gate_pending;
@@ -473,26 +886,22 @@ async function renderGateActions(stage) {
     stage.status === "locked" &&
     state.run?.profile_gate_pending
   ) {
-    el.classList.remove("hidden");
     el.innerHTML = `<p class="hint"><strong>Profile gate:</strong> verify the interview profile before Flow 1 extended analysis. Open <strong>Interview profile</strong> in the stage list, edit themes and style, then click <strong>Mark profile verified</strong>.</p>`;
     return;
   }
 
   if (stage.id === "transcript_review" && stage.status === "action_required") {
-    el.classList.remove("hidden");
     renderTranscriptReviewPanel(el);
     return;
   }
 
   if (stage.id === "g1_vo_pickup" && stage.status === "done") {
-    el.classList.remove("hidden");
     el.innerHTML = `<p class="hint">All pickup lines recorded. Optional: clean new VO files before ingest, or continue to flow selection.</p>`;
     await renderPrecleanOffer(stage, el);
     return;
   }
 
   if (stage.id === "g1_vo_pickup" && stage.status === "action_required") {
-    el.classList.remove("hidden");
     el.innerHTML = `<p class="hint">Record or upload pickup lines. Saved to <code>ASSETS/executions/…/vo_pickup/</code></p>`;
     (state.timeline?.vo_lines || [])
       .filter((l) => l.delivery === "record")
@@ -522,7 +931,6 @@ async function renderGateActions(stage) {
   }
 
   if (stage.id === "g2_flow_select" && stage.status === "action_required") {
-    el.classList.remove("hidden");
     el.innerHTML = `<p class="hint">Choose deliverable flow.</p>
       <div class="flow-choice">
         <button class="btn primary" data-flow="flow1" type="button">Flow 1 — Full podcast</button>
@@ -546,7 +954,6 @@ async function renderGateActions(stage) {
   }
 
   if (stage.id === "source_acoustic_profile") {
-    el.classList.remove("hidden");
     const btn = document.createElement("button");
     btn.className = "btn sm primary";
     btn.type = "button";
@@ -570,12 +977,10 @@ async function renderGateActions(stage) {
   }
 
   if (stage.id === "content_context" && (state.config?.value_analysis_enabled || state.run?.meta?.qc_summaries)) {
-    el.classList.remove("hidden");
     await renderValueFeaturesPanel(el);
   }
 
   if (stage.id === "elevenlabs_prompt_craft") {
-    el.classList.remove("hidden");
     await renderElevenLabsPromptReviewPanel(el);
     await renderElevenLabsPostListenPanel(el, stage);
     return;
@@ -584,7 +989,6 @@ async function renderGateActions(stage) {
   if (stage.id === "elevenlabs_sfx_flow1" || stage.id === "elevenlabs_sfx_flow2") {
     const review = await api(`/api/runs/${state.runId}/elevenlabs-prompts`).catch(() => null);
     if (review?.review_required && review?.can_generate === false) {
-      el.classList.remove("hidden");
       el.innerHTML = `<div class="quality-offer-card">
         <p class="hint"><strong>G1.5 required:</strong> review and approve ElevenLabs prompts before generation.</p>
         <p class="muted">Open <strong>ElevenLabs prompt craft</strong> to edit prompts, tune influence, and approve.</p>
@@ -1236,23 +1640,34 @@ function wireVoControls(el) {
   el.querySelectorAll(".btn-stop-record").forEach((btn) => btn.addEventListener("click", () => stopVoRecording(btn)));
 }
 
+function isJsonArtifactPath(path) {
+  return path.endsWith(".json");
+}
+
 function populateArtifactSelect(stage) {
   const sel = $("#artifact-select");
-  const paths = [...new Set([...(stage.editable || []), ...(stage.artifacts || [])])].filter((p) => p.endsWith(".json"));
+  const paths = [...new Set([...(stage.editable || []), ...(stage.artifacts || [])])].filter(
+    (p) => p && !p.endsWith("/") && (isJsonArtifactPath(p) || p.endsWith(".md") || p.endsWith(".txt")),
+  );
   sel.innerHTML = paths.map((p) => `<option value="${p}">${p}</option>`).join("");
   if (paths.length) loadSelectedArtifact();
   else {
     $("#artifact-editor").value = "";
-    $("#artifact-save-status").textContent = "No JSON artifacts for this stage yet.";
+    $("#artifact-save-status").textContent = "No editable artifacts for this stage yet.";
   }
 }
 
 async function loadSelectedArtifact() {
   const path = $("#artifact-select").value;
   if (!path) return;
+  state.artifactIsJson = isJsonArtifactPath(path);
   try {
     const data = await api(`/api/runs/${state.runId}/artifact?path=${encodeURIComponent(path)}`);
-    $("#artifact-editor").value = JSON.stringify(data, null, 2);
+    if (state.artifactIsJson) {
+      $("#artifact-editor").value = JSON.stringify(data, null, 2);
+    } else {
+      $("#artifact-editor").value = data.text ?? "";
+    }
     $("#artifact-save-status").textContent = `Loaded ${path}`;
   } catch {
     $("#artifact-editor").value = "";
@@ -1409,19 +1824,27 @@ async function verifyAnalysisProfile() {
 async function saveArtifact() {
   const path = $("#artifact-select").value;
   if (!path) return;
-  let data;
-  try {
-    data = JSON.parse($("#artifact-editor").value);
-  } catch {
-    showToast("Invalid JSON");
-    return;
-  }
   const invalidate = confirm("Save to disk? Downstream stages may need re-run.") ? state.selectedStageId : null;
-  await api(`/api/runs/${state.runId}/artifact`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, data, invalidate_from: invalidate }),
-  });
+  if (state.artifactIsJson) {
+    let data;
+    try {
+      data = JSON.parse($("#artifact-editor").value);
+    } catch {
+      showToast("Invalid JSON");
+      return;
+    }
+    await api(`/api/runs/${state.runId}/artifact`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, data, invalidate_from: invalidate }),
+    });
+  } else {
+    await api(`/api/runs/${state.runId}/artifact/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, text: $("#artifact-editor").value, invalidate_from: invalidate }),
+    });
+  }
   showToast("Saved");
   await refreshRun();
 }
@@ -1672,6 +2095,13 @@ function stopVoRecording() {
 }
 
 async function runNextStage() {
+  if (hasActionRequiredStage()) {
+    const blocked = state.run.stages.find((s) => s.status === "action_required");
+    showToast(`Complete checkpoint: ${blocked?.title || "action required"} before running.`);
+    if (blocked) selectStage(blocked.id);
+    playAttentionPing();
+    return;
+  }
   const next = findNextRunnableStage();
   if (!next) {
     showToast("No runnable stage — check gates or flow.");
@@ -1693,13 +2123,19 @@ function findNextRunnableStage() {
 }
 
 async function executeJob(body) {
+  if (!(await ensureApiConsentForExecute(body))) {
+    showToast("API access not granted — execution cancelled.");
+    return;
+  }
+  const payload = { ...body, api_consents: buildApiConsentsPayload() };
   const res = await api(`/api/runs/${state.runId}/execute`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) {
+  if (res.ok === false) {
     showToast(res.error || "Failed to start");
+    if (res.needs_api_consent) await refreshRun();
     return;
   }
   startJobPoll();
@@ -1761,9 +2197,18 @@ function updatePrecleanWarningsBanner(job) {
 function updateJobUI(job) {
   const running =
     job?.status === "running" || job?.status === "running_with_warnings";
-  $("#btn-run-next").disabled = running;
-  $("#btn-run-analysis").disabled = running;
+  const blocked = hasActionRequiredStage();
+  $("#btn-run-next").disabled = running || blocked;
+  $("#btn-run-analysis").disabled = running || blocked;
   updatePrecleanWarningsBanner(job);
+  if (
+    (job?.status === "gate" || job?.status === "needs_operator") &&
+    state.jobStatusPrev !== job?.status
+  ) {
+    playAttentionPing();
+    renderCheckpointBanner();
+  }
+  state.jobStatusPrev = job?.status ?? null;
   const el = $("#status-job");
   if (job?.status === "running_with_warnings") {
     el.textContent = `Running (warnings) ${job.stage || job.mode}`;
@@ -1771,7 +2216,7 @@ function updateJobUI(job) {
   } else if (running) {
     el.textContent = `Running ${job.stage || job.mode}`;
     el.className = "status-value running";
-  } else if (job?.status === "gate") {
+  } else if (job?.status === "gate" || job?.status === "needs_operator") {
     el.textContent = "Action required";
     el.className = "status-value action";
   } else if (job?.status === "error") {

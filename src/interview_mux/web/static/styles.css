@@ -826,5 +826,183 @@ code {
 .run-item:hover { border-color: var(--accent); }
 
 .view {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+}
+
+/* Operator console shell */
+.operator-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.operator-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   max-width: none;
+  padding: 0;
+  margin: 0;
+}
+
+.workspace-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.25rem 1rem;
+}
+
+.operator-log-dock {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  max-width: none;
+}
+
+.operator-log-dock .prompt-log {
+  height: 160px;
+}
+
+.prompt-log-compact {
+  height: 100px;
+}
+
+.home-log-preview {
+  margin-bottom: 1rem;
+}
+
+.checkpoint-banner {
+  max-width: 1400px;
+  margin: 0.5rem auto 0;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 18%, var(--surface-2));
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.checkpoint-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 2px solid var(--warning);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+
+.checkpoint-panel.hidden {
+  display: none !important;
+}
+
+.checkpoint-head h3 {
+  margin: 0 0 0.35rem;
+  color: var(--warning);
+}
+
+.checkpoint-footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.api-consent-strip {
+  max-width: 1400px;
+  margin: 0.5rem auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.api-consent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.api-consent-chip.granted {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.api-consent-chip.pending {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.handoff-panel {
+  border-color: var(--accent);
+}
+
+.handoff-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.handoff-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.handoff-item .handoff-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-card {
+  max-width: 480px;
+  width: 100%;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+#btn-mute-alerts.muted-active {
+  color: var(--warning);
+  border-color: var(--warning);
 }

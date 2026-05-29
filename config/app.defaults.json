@@ -73,8 +73,11 @@
     "request_timeout_sec": 120,
     "max_retries": 3
   },
-  "_comment_web": "GUI server port",
+  "_comment_web": "GUI server port and operator console",
   "web_port": 8765,
+  "web": {
+    "api_consent_persist": true
+  },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
   "analysis": {
     "max_iterations_per_stage": 3,

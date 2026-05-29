@@ -400,6 +400,32 @@ STAGE_BY_ID: dict[str, StageInfo] = {
     )
 }
 
+# External API providers required before execute (GUI session consent).
+STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
+    "audio_preclean": ("elevenlabs",),
+    "transcribe": ("aws",),
+    "speaker_roles": ("openai",),
+    "content_context": ("openai",),
+    "boundary_detection": ("openai",),
+    "segment_classification": ("openai",),
+    "sound_design_palettes": ("openai",),
+    "missing_framing": ("openai",),
+    "optimal_questions": ("openai",),
+    "topic_coverage_audit": ("openai",),
+    "narrative_arc_plan": ("openai",),
+    "full_master_ranking": ("openai",),
+    "transitions": ("openai",),
+    "sound_design_plan_flow1": ("openai",),
+    "sound_design_plan_flow2": ("openai",),
+    "elevenlabs_prompt_craft": ("openai",),
+    "elevenlabs_sfx_flow1": ("elevenlabs",),
+    "elevenlabs_sfx_flow2": ("elevenlabs",),
+    "highlight_selection": ("openai",),
+    "podcast_show_description": ("openai",),
+    "podcast_sfx_brief": ("openai",),
+    "sfx_brief": ("openai",),
+}
+
 EXECUTABLE_ORDER: dict[str, list[str]] = {
     "analysis": [s.id for s in ANALYSIS_STAGES],
     "flow1": [s.id for s in FLOW1_STAGES],
@@ -447,4 +473,5 @@ def _stage_dict(s: StageInfo) -> dict[str, Any]:
         "artifacts": list(s.artifacts),
         "editable": list(s.editable),
         "audio_outputs": list(s.audio_outputs),
+        "api_providers": list(STAGE_API_PROVIDERS.get(s.id, ())),
     }

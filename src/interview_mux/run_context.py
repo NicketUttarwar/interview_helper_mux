@@ -102,19 +102,56 @@ class RunContext:
             stage="setup",
         )
 
-    def log(self, message: str, *, level: str = "info", stage: str | None = None, detail: str | None = None) -> None:
+    def log(
+        self,
+        message: str,
+        *,
+        level: str = "info",
+        stage: str | None = None,
+        detail: str | dict[str, Any] | None = None,
+    ) -> None:
         append_log(self.run_dir, message, level=level, stage=stage, detail=detail)
+
+    def log_handoff(self, stage_id: str, paths: list[str], *, audit_path: str | None = None) -> None:
+        """Operator-visible file handoff after a stage completes."""
+        from interview_mux.web.stages import STAGE_BY_ID
+
+        present = [p for p in paths if self.artifact_exists(p)]
+        info = STAGE_BY_ID.get(stage_id)
+        title = info.title if info else stage_id
+        payload: dict[str, Any] = {"handoff": present or paths}
+        if audit_path and self.artifact_exists(audit_path):
+            payload["audit_path"] = audit_path
+        self.log(
+            f"{title} complete — review outputs before continuing",
+            level="success",
+            stage=stage_id,
+            detail=payload,
+        )
         meta_path = self.path("run_meta.json")
         if meta_path.is_file():
             meta = self.read_json("run_meta.json")
             meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             self.write_json("run_meta.json", meta)
 
+    def _latest_stage_audit(self, stage: str) -> str | None:
+        audit_dir = self.path("understanding", "stage_runs", stage)
+        if not audit_dir.is_dir():
+            return None
+        attempts = sorted(audit_dir.glob("attempt_*.json"))
+        if not attempts:
+            return None
+        return str(attempts[-1].relative_to(self.run_dir)).replace("\\", "/")
+
     def mark_done(self, stage: str) -> None:
         marker = self.path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
-        self.log(f"Stage complete: {stage}", level="success", stage=stage)
+        from interview_mux.web.stages import STAGE_BY_ID
+
+        info = STAGE_BY_ID.get(stage)
+        paths = list(info.artifacts) if info else []
+        self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
 
     def is_done(self, stage: str) -> bool:
         return self.path(".stage_done", stage).is_file()

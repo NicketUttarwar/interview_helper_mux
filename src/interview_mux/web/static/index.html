@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app">
+  <div id="app" class="operator-app">
     <header class="status-header">
       <div class="status-grid">
         <div class="status-cell">
@@ -27,170 +27,215 @@
           <span id="status-updated" class="status-value muted">—</span>
         </div>
         <div class="status-cell actions">
+          <button id="btn-mute-alerts" class="btn ghost sm" type="button" title="Mute attention sounds">Mute alerts</button>
+          <button id="btn-revoke-api" class="btn ghost sm" type="button" title="Revoke all API consents">Revoke API</button>
           <button id="btn-home" class="btn ghost sm" type="button">Executions</button>
           <span id="alert-badge" class="alert-badge hidden">0</span>
         </div>
       </div>
+      <div id="checkpoint-banner" class="checkpoint-banner hidden" role="status"></div>
+      <div id="api-consent-strip" class="api-consent-strip" aria-label="API access"></div>
       <div id="preclean-warnings-banner" class="preclean-warnings-banner hidden" role="status"></div>
     </header>
 
-    <section class="prompt-log-panel">
-      <section class="panel prompt-log-inner">
-      <div class="panel-head">
-        <h3>Prompt log</h3>
-        <span class="hint">Live status for every step — persisted to disk, survives refresh</span>
-      </div>
-      <div id="prompt-log" class="prompt-log" role="log" aria-live="polite"></div>
-      </section>
-    </section>
-
     <div id="alert-strip" class="alert-strip hidden"></div>
 
-    <main id="view-home" class="view">
-      <section class="panel hero">
-        <h2>Executions &amp; source audio</h2>
-        <p class="lead">
-          Input and output live under <code>ASSETS/</code>. Each execution is numbered sequentially with a timestamp
-          (<code>exec_001_20260523T120000Z</code>). Resume any previous run to pick up exactly where you left off.
-        </p>
-      </section>
+    <div class="operator-body">
+      <main id="view-home" class="view">
+        <section class="panel hero">
+          <h2>Executions &amp; source audio</h2>
+          <p class="lead">
+            Input and output live under <code>ASSETS/</code>. Each execution is an immutable folder
+            (<code>exec_001_20260523T120000Z</code>). Starting a new execution never overwrites a previous one —
+            resume any run from <strong>Previous executions</strong>.
+          </p>
+        </section>
 
-      <div class="grid two-col">
-        <section class="panel">
+        <section id="home-log-preview" class="panel home-log-preview hidden">
           <div class="panel-head">
-            <h3>Input audio</h3>
-            <button id="btn-refresh-assets" class="btn ghost sm" type="button">Refresh</button>
+            <h3>Recent log (active execution)</h3>
           </div>
-          <div id="assets-list" class="asset-list"></div>
+          <div id="home-log-tail" class="prompt-log prompt-log-compact" role="log"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Previous executions</h3>
-            <button id="btn-refresh-runs" class="btn ghost sm" type="button">Refresh</button>
-          </div>
-          <div id="runs-list" class="runs-list"></div>
-        </section>
-      </div>
-    </main>
-
-    <main id="view-workspace" class="view hidden">
-      <div class="workspace-layout">
-        <aside class="sidebar panel">
-          <h3>Pipeline</h3>
-          <p id="input-label" class="input-label"></p>
-          <ol id="stage-list" class="stage-list"></ol>
-          <div class="sidebar-actions">
-            <button id="btn-run-next" class="btn primary block" type="button">Run next stage</button>
-            <button id="btn-run-analysis" class="btn ghost block" type="button">Run all analysis</button>
-            <button id="btn-reset-stage" class="btn danger ghost block" type="button">Redo from selected stage</button>
-          </div>
-        </aside>
-
-        <section class="main-panel">
-          <div id="stage-detail" class="panel stage-detail">
-            <h2 id="stage-title">Select a stage</h2>
-            <p id="stage-description" class="lead"></p>
-            <div id="gate-actions" class="gate-actions hidden"></div>
-            <div id="llm-routing-panel" class="llm-routing-panel hidden"></div>
-          </div>
-
-          <div class="panel nle-panel">
+        <div class="grid two-col">
+          <section class="panel">
             <div class="panel-head">
-              <h3>Non-linear editor</h3>
-              <div class="nle-toolbar">
-                <label class="zoom-label">Zoom <input id="nle-zoom" type="range" min="1" max="8" value="1" /></label>
-                <button id="btn-split" class="btn sm ghost" type="button">Split at playhead</button>
-                <button id="btn-mark-redo" class="btn sm ghost" type="button">Mark redo</button>
-                <button id="btn-exclude" class="btn sm ghost" type="button">Exclude segment</button>
-                <button id="btn-save-nle" class="btn sm primary" type="button">Save timeline</button>
+              <h3>Input audio</h3>
+              <button id="btn-refresh-assets" class="btn ghost sm" type="button">Refresh</button>
+            </div>
+            <div id="assets-list" class="asset-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Previous executions</h3>
+              <button id="btn-refresh-runs" class="btn ghost sm" type="button">Refresh</button>
+            </div>
+            <div id="runs-list" class="runs-list"></div>
+          </section>
+        </div>
+      </main>
+
+      <main id="view-workspace" class="view hidden workspace-shell">
+        <div class="workspace-scroll">
+          <div class="workspace-layout">
+            <aside class="sidebar panel">
+              <h3>Pipeline</h3>
+              <p id="input-label" class="input-label"></p>
+              <ol id="stage-list" class="stage-list"></ol>
+              <div class="sidebar-actions">
+                <button id="btn-run-next" class="btn primary block" type="button">Run next stage</button>
+                <button id="btn-run-analysis" class="btn ghost block" type="button">Run all analysis</button>
+                <button id="btn-reset-stage" class="btn danger ghost block" type="button">Redo from selected stage</button>
               </div>
-            </div>
-            <p id="timeline-meta" class="muted"></p>
-            <div class="nle-tracks">
-              <div class="track-label">Speech</div>
-              <div id="timeline-scroll" class="timeline-scroll">
-                <div id="timeline-ruler" class="timeline-ruler"></div>
-                <div id="timeline-track" class="timeline-track"></div>
-                <div id="playhead" class="playhead"></div>
+            </aside>
+
+            <section class="main-panel">
+              <div id="stage-detail" class="panel stage-detail">
+                <h2 id="stage-title">Select a stage</h2>
+                <p id="stage-description" class="lead"></p>
+                <div id="checkpoint-panel" class="checkpoint-panel hidden">
+                  <div class="checkpoint-head">
+                    <h3>Human checkpoint</h3>
+                    <p id="checkpoint-summary" class="hint"></p>
+                  </div>
+                  <div class="checkpoint-footer">
+                    <button id="btn-checkpoint-continue" class="btn primary" type="button" disabled>
+                      Continue to next step
+                    </button>
+                  </div>
+                </div>
+                <div id="gate-actions" class="gate-actions"></div>
+                <div id="llm-routing-panel" class="llm-routing-panel hidden"></div>
               </div>
-              <div class="track-label">VO pickup</div>
-              <div id="vo-track" class="vo-track"></div>
-            </div>
-            <audio id="audio-player" controls class="audio-player"></audio>
-          </div>
 
-          <div id="profile-panel" class="panel profile-panel hidden">
-            <div class="panel-head">
-              <h3>Interview profile</h3>
-              <span id="profile-verified-badge" class="profile-badge hidden">Verified</span>
-            </div>
-            <p class="hint">
-              Per-interview themes, major questions, and style. Saved to
-              <code>understanding/analysis_state.json</code>. Edit here or in the JSON editor below.
-            </p>
-            <div class="profile-grid">
-              <label class="profile-field">
-                <span>Episode title</span>
-                <input id="profile-title" type="text" placeholder="Optional title" />
-              </label>
-              <label class="profile-field full">
-                <span>One-line summary</span>
-                <input id="profile-summary" type="text" placeholder="What this interview is about" />
-              </label>
-              <label class="profile-field full">
-                <span>Thesis</span>
-                <textarea id="profile-thesis" rows="2" placeholder="Main takeaway"></textarea>
-              </label>
-              <label class="profile-field full">
-                <span>Major themes (one per line: <code>id | label | summary</code>)</span>
-                <textarea id="profile-themes" rows="6" spellcheck="false"></textarea>
-              </label>
-              <label class="profile-field full">
-                <span>Major questions (one per line)</span>
-                <textarea id="profile-questions" rows="4" spellcheck="false"></textarea>
-              </label>
-              <label class="profile-field">
-                <span>Tone</span>
-                <input id="profile-tone" type="text" />
-              </label>
-              <label class="profile-field">
-                <span>Pacing</span>
-                <input id="profile-pacing" type="text" />
-              </label>
-              <label class="profile-field">
-                <span>Interviewer style</span>
-                <input id="profile-int-style" type="text" />
-              </label>
-              <label class="profile-field">
-                <span>Interviewee style</span>
-                <input id="profile-ee-style" type="text" />
-              </label>
-              <label class="profile-field full">
-                <span>Operator notes</span>
-                <textarea id="profile-notes" rows="2"></textarea>
-              </label>
-            </div>
-            <div class="profile-actions">
-              <button id="btn-save-profile" class="btn primary sm" type="button">Save profile</button>
-              <button id="btn-verify-profile" class="btn ghost sm" type="button">Mark verified</button>
-              <button id="btn-reload-profile" class="btn ghost sm" type="button">Reload</button>
-            </div>
-            <p id="profile-status" class="save-status"></p>
-          </div>
+              <div id="handoff-panel" class="panel handoff-panel hidden">
+                <div class="panel-head">
+                  <h3>Outputs from this step</h3>
+                  <button id="btn-handoff-ack" class="btn ghost sm" type="button">Acknowledge &amp; continue</button>
+                </div>
+                <ul id="handoff-list" class="handoff-list"></ul>
+              </div>
 
-          <div class="panel artifacts-panel">
-            <div class="panel-head">
-              <h3>AI output &amp; edits</h3>
-              <select id="artifact-select" class="select"></select>
-              <button id="btn-save-artifact" class="btn primary sm" type="button">Save to file</button>
-            </div>
-            <textarea id="artifact-editor" class="artifact-editor" spellcheck="false"></textarea>
-            <p id="artifact-save-status" class="save-status"></p>
+              <div class="panel nle-panel">
+                <div class="panel-head">
+                  <h3>Non-linear editor</h3>
+                  <div class="nle-toolbar">
+                    <label class="zoom-label">Zoom <input id="nle-zoom" type="range" min="1" max="8" value="1" /></label>
+                    <button id="btn-split" class="btn sm ghost" type="button">Split at playhead</button>
+                    <button id="btn-mark-redo" class="btn sm ghost" type="button">Mark redo</button>
+                    <button id="btn-exclude" class="btn sm ghost" type="button">Exclude segment</button>
+                    <button id="btn-save-nle" class="btn sm primary" type="button">Save timeline</button>
+                  </div>
+                </div>
+                <p id="timeline-meta" class="muted"></p>
+                <div class="nle-tracks">
+                  <div class="track-label">Speech</div>
+                  <div id="timeline-scroll" class="timeline-scroll">
+                    <div id="timeline-ruler" class="timeline-ruler"></div>
+                    <div id="timeline-track" class="timeline-track"></div>
+                    <div id="playhead" class="playhead"></div>
+                  </div>
+                  <div class="track-label">VO pickup</div>
+                  <div id="vo-track" class="vo-track"></div>
+                </div>
+                <audio id="audio-player" controls class="audio-player"></audio>
+              </div>
+
+              <div id="profile-panel" class="panel profile-panel hidden">
+                <div class="panel-head">
+                  <h3>Interview profile</h3>
+                  <span id="profile-verified-badge" class="profile-badge hidden">Verified</span>
+                </div>
+                <p class="hint">
+                  Per-interview themes, major questions, and style. Saved to
+                  <code>understanding/analysis_state.json</code>. Edit here or in the file editor below.
+                </p>
+                <div class="profile-grid">
+                  <label class="profile-field">
+                    <span>Episode title</span>
+                    <input id="profile-title" type="text" placeholder="Optional title" />
+                  </label>
+                  <label class="profile-field full">
+                    <span>One-line summary</span>
+                    <input id="profile-summary" type="text" placeholder="What this interview is about" />
+                  </label>
+                  <label class="profile-field full">
+                    <span>Thesis</span>
+                    <textarea id="profile-thesis" rows="2" placeholder="Main takeaway"></textarea>
+                  </label>
+                  <label class="profile-field full">
+                    <span>Major themes (one per line: <code>id | label | summary</code>)</span>
+                    <textarea id="profile-themes" rows="6" spellcheck="false"></textarea>
+                  </label>
+                  <label class="profile-field full">
+                    <span>Major questions (one per line)</span>
+                    <textarea id="profile-questions" rows="4" spellcheck="false"></textarea>
+                  </label>
+                  <label class="profile-field">
+                    <span>Tone</span>
+                    <input id="profile-tone" type="text" />
+                  </label>
+                  <label class="profile-field">
+                    <span>Pacing</span>
+                    <input id="profile-pacing" type="text" />
+                  </label>
+                  <label class="profile-field">
+                    <span>Interviewer style</span>
+                    <input id="profile-int-style" type="text" />
+                  </label>
+                  <label class="profile-field">
+                    <span>Interviewee style</span>
+                    <input id="profile-ee-style" type="text" />
+                  </label>
+                  <label class="profile-field full">
+                    <span>Operator notes</span>
+                    <textarea id="profile-notes" rows="2"></textarea>
+                  </label>
+                </div>
+                <div class="profile-actions">
+                  <button id="btn-save-profile" class="btn primary sm" type="button">Save profile</button>
+                  <button id="btn-verify-profile" class="btn ghost sm" type="button">Mark verified</button>
+                  <button id="btn-reload-profile" class="btn ghost sm" type="button">Reload</button>
+                </div>
+                <p id="profile-status" class="save-status"></p>
+              </div>
+
+              <div class="panel artifacts-panel">
+                <div class="panel-head">
+                  <h3>File editor</h3>
+                  <select id="artifact-select" class="select"></select>
+                  <button id="btn-save-artifact" class="btn primary sm" type="button">Save to file</button>
+                </div>
+                <textarea id="artifact-editor" class="artifact-editor" spellcheck="false"></textarea>
+                <p id="artifact-save-status" class="save-status"></p>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
+      </main>
+    </div>
+
+    <footer class="operator-log-dock panel">
+      <div class="panel-head">
+        <h3>Operator log</h3>
+        <span class="hint">Live status — persisted to <code>gui_log.jsonl</code></span>
       </div>
-    </main>
+      <div id="prompt-log" class="prompt-log" role="log" aria-live="polite"></div>
+    </footer>
+
+    <div id="api-consent-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card panel">
+        <h3 id="api-consent-modal-title">Allow external API</h3>
+        <p id="api-consent-modal-desc" class="lead"></p>
+        <p id="api-consent-modal-cost" class="muted"></p>
+        <div class="modal-actions">
+          <button id="btn-api-consent-deny" class="btn ghost" type="button">Not now</button>
+          <button id="btn-api-consent-allow" class="btn primary" type="button">Allow for this session</button>
+        </div>
+      </div>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
   </div>

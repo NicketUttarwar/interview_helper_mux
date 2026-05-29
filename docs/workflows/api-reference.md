@@ -32,13 +32,15 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/health` | — | — | `{"status": "ok"}` | — |
-| `GET` | `/api/config` | — | — | `assets_root`, `executions_root`, `data_root`, `web_port`, `repo_root` | — |
+| `GET` | `/api/config` | — | — | `assets_root`, `executions_root`, `data_root`, `web_port`, `repo_root`, `api_consent_persist` | — |
+| `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
+| `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
 | `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
 | `PUT` | `/api/session/active` | — | **ActiveBody** | Result of `set_active_execution` | **404** if `run_id` not found |
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
 Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
-| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `meta` summary fields, `progress`, `last_stage` when resolvable | Per-run errors swallowed → `progress: {0,0}` |
+| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry) | Per-run errors swallowed → `progress: {0,0}` |
 | `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number` | **404** if `input_audio_path` file missing |
 
 ### `CreateRunBody`
@@ -61,7 +63,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
-| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta` (includes `elevenlabs_listen_results[]`), `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]`, `log_tail` | **404** |
+| `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
+| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]` (each may include `api_providers[]`), `log_tail` | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
 | `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments`, `vo_lines`, `nle`, `normalized_audio` | **404** |
@@ -71,6 +74,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `POST` | `/api/runs/{run_id}/nle/split` | — | **SplitBody** | `ok`, `nle` | **404** |
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
 | `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** if not `.json`, **404** |
+| `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
+| `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
 | `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
@@ -79,7 +84,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `POST` | `/api/runs/{run_id}/elevenlabs-prompts/listen-result` | — | **ElevenLabsListenResultBody** (`asset_id`, `result`: `pass`\|`fail`, optional `note`) | `ok`, `entry`, `elevenlabs_listen_results[]`; appends `run_meta.elevenlabs_listen_results`; logs `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` | **400** invalid body |
 
 **G1.5 (optional):** When `g1_5_require_prompt_approval` is true in merged config, `can_generate` is false until approve; `elevenlabs_sfx_flow*` stages raise at runtime if unapproved. Review UI is on stage `elevenlabs_prompt_craft`. **Post-listen** Pass/Fail is advisory (`POST …/listen-result`); panels on `elevenlabs_prompt_craft` and `elevenlabs_sfx_flow*` — see [gui-surface-map.md](./gui-surface-map.md#elevenlabs-operator-journey-sfx--g15).
-| `POST` | `/api/runs/{run_id}/execute` | — | **ExecuteBody** | `ok`, `run_id`, `mode` (immediate ack; work runs in thread) | **409** job already running, **404** |
+| `POST` | `/api/runs/{run_id}/execute` | — | **ExecuteBody** | `ok`, `run_id`, `mode` (immediate ack; work runs in thread); or `ok: false`, `needs_api_consent` if providers not granted | **409** job already running, **404** |
 | `GET` | `/api/runs/{run_id}/job` | — | — | `gui_job.json` payload or `{status: idle, run_id}` | — |
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
 | `PUT` | `/api/runs/{run_id}/transcript-review/{chunk_id}` | — | **TranscriptChunkBody** | From `save_chunk_correction` | **404** no queue |
@@ -99,8 +104,11 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** \| **`flow3`** |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
+| `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
 
-**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `complete`, `error`, `gate`, `idle`.
+**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `idle`.
+
+**Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
 
 **ElevenLabs SFX stages (`elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2`):** one REST `POST /v1/sound-generation` per unique SDP `asset_id`; canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `duration_seconds` sent to ElevenLabs always comes from the plan asset, not operator-edited craft rows. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
 
