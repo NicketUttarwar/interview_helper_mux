@@ -35,6 +35,7 @@ from interview_mux.stages import segmentation
 from interview_mux.stages import selection_flow1
 from interview_mux.stages import selection_flow2
 from interview_mux.stages import sound_design_stages
+from interview_mux.stages import sound_design_vo_finalize
 from interview_mux.stages import sfx_elevenlabs
 from interview_mux.stages import transcribe_aws
 from interview_mux.stages import transcript_review
@@ -61,6 +62,7 @@ FLOW1_ORDER = [
     "full_master_ranking",
     "transitions",
     "sound_design_plan_flow1",
+    "sound_design_vo_finalize",
     "edl_flow1",
     "assembly_preview",
     "elevenlabs_prompt_craft",
@@ -109,6 +111,7 @@ def _flow1_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "full_master_ranking": selection_flow1.run_full_master_ranking,
         "transitions": selection_flow1.run_transitions,
         "sound_design_plan_flow1": lambda: sound_design_stages.run_sound_design_plan_flow1(ctx),
+        "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
         "edl_flow1": assembly_flow1.run_edl,
         "assembly_preview": assembly_flow1.run_preview,
         "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
@@ -279,6 +282,7 @@ def run_flow1(ctx: RunContext, *, from_stage: str | None = None) -> None:
         ("full_master_ranking", selection_flow1.run_full_master_ranking),
         ("transitions", selection_flow1.run_transitions),
         ("sound_design_plan_flow1", lambda: sound_design_stages.run_sound_design_plan_flow1(ctx)),
+        ("sound_design_vo_finalize", lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx)),
         ("edl_flow1", assembly_flow1.run_edl),
         ("assembly_preview", assembly_flow1.run_preview),
         ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),

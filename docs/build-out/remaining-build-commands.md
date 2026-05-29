@@ -1,5 +1,7 @@
 # Remaining build commands — Cursor Agent queue
 
+> **Gap closure (sections #2 / #5):** Shipped — see [gap-closure-agent-commands.md](./gap-closure-agent-commands.md) for the historical 16-command sequence and architecture notes.
+
 **Purpose:** Copy-paste **one command per Agent chat** for work that is **not yet shipped**. All core BUILD tickets (Waves 1–7, including 060–073, 080–082) are **done in code** — this file replaces the appendix in [steps-forward.md](./steps-forward.md) for what is left.
 
 **Supersedes:** Do not re-run BUILD prompts from `steps-forward.md` Appendix Commands 1–15 or backlog steps marked **shipped** / ~~done~~ in [README.md](./README.md).

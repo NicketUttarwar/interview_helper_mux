@@ -121,7 +121,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 | Stage id | Status | Ticket | Notes |
 |----------|--------|--------|-------|
-| `sound_design_vo_finalize` | planned | BUILD-066 | Optional VO bridge cue adjustments |
+| `sound_design_vo_finalize` | shipped | BUILD-066 / gap-closure | VO bridge cue duration finalize from vo_pickup WAVs |
 | `_arbiter` | shipped (meta) | BUILD-073 | Meta-stage; not in operator UI — [llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md) |
 
 ---

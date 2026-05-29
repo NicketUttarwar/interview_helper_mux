@@ -29,10 +29,14 @@ def load_nle(ctx: RunContext) -> dict[str, Any]:
 
 
 def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
+    from interview_mux.config import merged_config
     from interview_mux.prompt_validation import validate_nle_edits
 
     errors = validate_nle_edits(data)
     if errors:
+        strict = bool((merged_config().get("nle_edits") or {}).get("strict"))
+        if strict:
+            raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
         ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="nle")
     write_json(ctx.path(NLE_REL), data)
 

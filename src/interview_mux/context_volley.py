@@ -722,6 +722,16 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
     vf = raw.get("value_features_summary")
     if vf:
         out["value_features_summary"] = vf
+    if stage_key in ("missing_framing", "optimal_questions") and raw.get("value_features_summary"):
+        out["value_features_summary"] = raw["value_features_summary"]
+    if stage_key in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+        sap = raw.get("source_acoustic_profile")
+        if isinstance(sap, dict):
+            out["source_acoustic_profile"] = sap
+    if stage_key in ("podcast_sfx_brief", "sfx_brief"):
+        sap = raw.get("source_acoustic_profile")
+        if isinstance(sap, dict):
+            out["source_acoustic_profile"] = sap
     return out
 
 
@@ -791,35 +801,23 @@ def _compact_selection(sel: Any, stage_key: str) -> Any:
 
 def _compact_source_acoustic_profile(profile: Any) -> dict[str, Any] | None:
     """Slice pacing + mix contract for palette stage volley (~500 token budget)."""
+    from interview_mux.acoustic_profile import compact_for_volley
+
     if not isinstance(profile, dict):
         return None
-    pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
+    out = compact_for_volley(profile)
+    if not out:
+        return None
     energy = profile.get("energy") if isinstance(profile.get("energy"), dict) else {}
-    mix = profile.get("mix_contract") if isinstance(profile.get("mix_contract"), dict) else {}
     tokens = profile.get("prompt_tokens") if isinstance(profile.get("prompt_tokens"), dict) else {}
-    out: dict[str, Any] = {}
-    if pacing.get("pace_class"):
-        out["pace_class"] = pacing["pace_class"]
+    pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     if pacing.get("speech_active_ratio") is not None:
         out["speech_active_ratio"] = pacing["speech_active_ratio"]
     if energy.get("room_timbre_hint"):
         out["room_timbre_hint"] = energy["room_timbre_hint"]
-    if mix:
-        out["mix_contract"] = {
-            k: mix[k]
-            for k in (
-                "underscore_policy",
-                "stinger_max_per_minute",
-                "duck_under_speech_db",
-                "rhythmic_presence_default",
-            )
-            if k in mix
-        }
     if tokens:
         out["prompt_tokens"] = {
-            k: tokens[k]
-            for k in ("bed", "stinger", "avoid", "density")
-            if tokens.get(k)
+            k: tokens[k] for k in ("bed_style", "stinger_style", "mix_summary") if k in tokens
         }
     return out or None
 

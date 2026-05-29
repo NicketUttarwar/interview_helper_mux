@@ -113,6 +113,10 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sfx_elevenlabs, "require_secret", lambda _k: "test-key")
     monkeypatch.setattr(sfx_elevenlabs, "generate_sound_effect", fake_generate)
+    monkeypatch.setattr(
+        "interview_mux.g15_prompt_review.g15_required",
+        lambda *_a, **_k: False,
+    )
 
     sfx_elevenlabs.run_sfx_generation(ctx, profile="podcast")
 

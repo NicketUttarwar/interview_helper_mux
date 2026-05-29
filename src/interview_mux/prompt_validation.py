@@ -153,6 +153,11 @@ def validate_ingest_checksums(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("ingest_checksums.schema.json"))
 
 
+def validate_transcript_review_queue(data: dict[str, Any]) -> list[str]:
+    """Validate `transcript/review_queue.json`."""
+    return _validate_dict(data, _load_root_schema("transcript_review.schema.json"))
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
@@ -161,6 +166,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/analysis_state.json": validate_analysis_state,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
+    "transcript/review_queue.json": validate_transcript_review_queue,
     "segments/nle_edits.json": validate_nle_edits,
     "understanding/investigation_queue.json": validate_investigation_queue,
 }

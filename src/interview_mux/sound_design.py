@@ -9,14 +9,33 @@ from typing import Any
 
 from pydub import AudioSegment
 
+from interview_mux.acoustic_profile import load_profile, mix_contract
+from interview_mux.audio_timeline import append_with_crossfade
+from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 
 DEFAULT_FRAME_RATE = 48_000
 MIN_DUCK_DB = 14.0
 
 
+def _mix_cfg() -> dict[str, Any]:
+    return merged_config().get("mix") or {}
+
+
 def mix_flow1(ctx: RunContext) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
+    contract = mix_contract(ctx)
+    profile = load_profile(ctx)
+    pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
+    ctx.log(
+        (
+            f"mix_flow1: mix_contract pace={pace.get('pace_class', 'unknown')} "
+            f"underscore={contract.get('underscore_policy')} duck={contract.get('duck_under_speech_db')}db"
+        ),
+        level="info",
+        stage="mix_flow1",
+    )
+    crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
     ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
     edl = ctx.read_json("flow_1_master/edl.json")
     source = load_audio(ctx.path("ingest", "normalized.wav"))
@@ -53,7 +72,10 @@ def mix_flow1(ctx: RunContext) -> Path:
             vo_count += 1
         else:
             continue
-        base += audio
+        if len(base) == 0:
+            base = audio
+        else:
+            base = append_with_crossfade(base, audio, crossfade_ms)
 
     if missing_vo:
         ctx.log(
@@ -65,13 +87,16 @@ def mix_flow1(ctx: RunContext) -> Path:
     ctx.log(
         (
             f"mix_flow1: base timeline {len(base)} ms — "
-            f"speech={speech_count}, vo={vo_count}, segments={len(segment_timing)}"
+            f"speech={speech_count}, vo={vo_count}, segments={len(segment_timing)}, "
+            f"crossfade_ms={crossfade_ms}"
         ),
         level="info",
         stage="mix_flow1",
     )
 
-    overlays, overlay_stats = build_flow1_overlays(ctx, segment_timing=segment_timing, timeline_ms=len(base))
+    overlays, overlay_stats = build_flow1_overlays(
+        ctx, segment_timing=segment_timing, timeline_ms=len(base), contract=contract
+    )
     mix = base
     for cue in overlays:
         clip_audio = cue["audio"]
@@ -103,6 +128,8 @@ def mix_flow1(ctx: RunContext) -> Path:
 
 def mix_flow2(ctx: RunContext) -> Path:
     """Build Flow 2 montage assembly: highlights + SDP cold open / transitions / outro."""
+    contract = mix_contract(ctx)
+    crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow2", 120))
     ctx.log("mix_flow2: loading selection and segment manifest", level="info", stage="mix_flow2")
     selection = ctx.read_json("flow_2_highlights/selection.json")
     manifest = ctx.read_json("segments/manifest.json")
@@ -117,8 +144,10 @@ def mix_flow2(ctx: RunContext) -> Path:
     mix = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     missing_assets: list[str] = []
 
-    if cue_plan.get("before_timeline"):
+    if cue_plan.get("before_timeline") and contract.get("underscore_policy") != "skip":
         mix += cue_plan["before_timeline"][0].apply_gain(-14.0).fade_in(30).fade_out(80)
+    elif cue_plan.get("before_timeline"):
+        ctx.log("mix_flow2: cold_open skipped (underscore_policy=skip)", level="info", stage="mix_flow2")
 
     sfx_dir = ctx.path("flow_2_highlights", "sfx")
     legacy_sfx = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
@@ -134,7 +163,11 @@ def mix_flow2(ctx: RunContext) -> Path:
         if start_ms is None or end_ms is None:
             continue
         rendered += 1
-        mix += source[int(start_ms) : int(end_ms)]
+        slice_audio = source[int(start_ms) : int(end_ms)]
+        if len(mix) == 0:
+            mix = slice_audio
+        else:
+            mix = append_with_crossfade(mix, slice_audio, crossfade_ms)
         rank = int(hl.get("rank") or (i + 1))
         if i + 1 < len(highlights):
             next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
@@ -164,7 +197,8 @@ def mix_flow2(ctx: RunContext) -> Path:
     ctx.log(
         (
             f"mix_flow2: montage {len(mix)} ms — highlights={rendered}, "
-            f"transitions={transition_count}, cold_open={bool(cue_plan.get('before_timeline'))}, "
+            f"transitions={transition_count}, crossfade_ms={crossfade_ms}, "
+            f"cold_open={bool(cue_plan.get('before_timeline'))}, "
             f"outro={bool(cue_plan.get('after_timeline'))}"
         ),
         level="info",
@@ -188,8 +222,10 @@ def build_flow1_overlays(
     *,
     segment_timing: dict[str, tuple[int, int]],
     timeline_ms: int,
+    contract: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    overlays = flow1_overlays_from_sdp(ctx, segment_timing=segment_timing)
+    contract = contract or mix_contract(ctx)
+    overlays = flow1_overlays_from_sdp(ctx, segment_timing=segment_timing, contract=contract)
     stats = count_overlay_roles(overlays)
     if overlays:
         stats["missing_assets"] = 0
@@ -201,8 +237,15 @@ def build_flow1_overlays(
 
 
 def flow1_overlays_from_sdp(
-    ctx: RunContext, *, segment_timing: dict[str, tuple[int, int]]
+    ctx: RunContext,
+    *,
+    segment_timing: dict[str, tuple[int, int]],
+    contract: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    contract = contract or mix_contract(ctx)
+    if contract.get("underscore_policy") == "skip":
+        ctx.log("mix_flow1: underscore_skipped — no bed overlays", level="info", stage="mix_flow1")
+        return []
     plan = load_sound_design_plan(ctx)
     if not plan:
         return []
@@ -214,6 +257,12 @@ def flow1_overlays_from_sdp(
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
     }
     out: list[dict[str, Any]] = []
+    stinger_cap = int(contract.get("stinger_max_per_minute", 4))
+    timeline_minutes = max(1, max((end for _s, end in segment_timing.values()), default=60000) // 60000)
+    max_stingers = stinger_cap * timeline_minutes
+    stinger_count = 0
+    duck_default = float(contract.get("duck_under_speech_db", 16.0))
+
     for cue in cues:
         if not isinstance(cue, dict):
             continue
@@ -242,11 +291,21 @@ def flow1_overlays_from_sdp(
             dur = max(0, end_ms - start_ms)
             if dur <= 0:
                 continue
-            duck_db = max(MIN_DUCK_DB, float(cue.get("duck_under_speech_db", 16.0)))
+            duck_db = max(MIN_DUCK_DB, float(cue.get("duck_under_speech_db", duck_default)))
             bed = loop_to_duration(base, dur)
             bed = bed.apply_gain(level_db - duck_db).fade_in(120).fade_out(150)
             out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
             continue
+
+        if asset.get("role") == "chapter_stinger":
+            if stinger_count >= max_stingers:
+                ctx.log(
+                    f"mix_flow1: stinger cap reached ({max_stingers}/timeline) — dropped {asset_id}",
+                    level="warn",
+                    stage="mix_flow1",
+                )
+                continue
+            stinger_count += 1
 
         cue_audio = base.apply_gain(level_db).fade_in(50).fade_out(130)
         pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)

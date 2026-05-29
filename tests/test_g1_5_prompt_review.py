@@ -31,7 +31,8 @@ def test_elevenlabs_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
     assert res.status_code == 200
     body = res.json()
     assert body["prompts"][0]["asset_id"] == "sting_a"
-    assert body["can_generate"] is True
+    assert body["review_required"] is True
+    assert body["can_generate"] is False
     assert body["listen_results"] == []
     assert body["generated_assets"] == []
 
@@ -66,6 +67,9 @@ def test_elevenlabs_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
     assert meta["elevenlabs_prompt_review"]["approved_by"] == "pytest"
     log_text = (ctx.run_dir / "gui_log.jsonl").read_text(encoding="utf-8")
     assert "elevenlabs_prompts_approved" in log_text
+
+    res = client.get(f"/api/runs/{ctx.run_id}/elevenlabs-prompts")
+    assert res.json()["can_generate"] is True
 
 
 def test_elevenlabs_listen_result_appends_meta_and_logs(tmp_path, monkeypatch) -> None:

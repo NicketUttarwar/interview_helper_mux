@@ -5,6 +5,7 @@ from pathlib import Path
 
 from interview_mux.config import merged_config
 from interview_mux.narrative_qc import validate_flow1_narrative
+from interview_mux.operator_quality import record_qc_summary
 from interview_mux.run_context import RunContext
 from interview_mux.show_description_qc import validate_show_description
 
@@ -95,6 +96,7 @@ _FLOW1_ORDER = (
     "full_master_ranking",
     "transitions",
     "sound_design_plan_flow1",
+    "sound_design_vo_finalize",
     "edl_flow1",
     "assembly_preview",
     "elevenlabs_prompt_craft",
@@ -167,6 +169,7 @@ def check_narrative_qc(
 ) -> None:
     """Warn or block on Flow 1 narrative QC before ranking or EDL (BUILD narrative validators)."""
     errors = validate_flow1_narrative(ctx, require_selection=require_selection)
+    strict = narrative_qc_strict_enabled()
     if not errors:
         ctx.log(
             "Flow 1 narrative QC passed",
@@ -174,17 +177,26 @@ def check_narrative_qc(
             stage=stage,
             detail="narrative_qc_pass",
         )
+        record_qc_summary(
+            ctx,
+            "narrative_qc",
+            {"passed": True, "errors": [], "strict": strict, "at_stage": stage},
+        )
         return
 
     summary = "; ".join(errors[:6])
     if len(errors) > 6:
         summary += f" (+{len(errors) - 6} more)"
-    strict = narrative_qc_strict_enabled()
     ctx.log(
         f"Flow 1 narrative QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if strict else "warn",
         stage=stage,
         detail="narrative_qc_fail",
+    )
+    record_qc_summary(
+        ctx,
+        "narrative_qc",
+        {"passed": False, "errors": errors[:12], "strict": strict, "at_stage": stage},
     )
     if strict:
         from interview_mux.analysis_memory import enqueue_investigations
@@ -220,6 +232,7 @@ def check_show_description_qc(ctx: RunContext, *, stage: str = "podcast_show_des
         return
     doc = ctx.read_json("flow_3_description/show_description.json")
     errors = validate_show_description(ctx, doc if isinstance(doc, dict) else {})
+    strict = show_description_qc_strict_enabled()
     if not errors:
         ctx.log(
             "Show description QC passed",
@@ -227,14 +240,23 @@ def check_show_description_qc(ctx: RunContext, *, stage: str = "podcast_show_des
             stage=stage,
             detail="show_description_qc_pass",
         )
+        record_qc_summary(
+            ctx,
+            "show_description_qc",
+            {"passed": True, "errors": [], "strict": strict, "at_stage": stage},
+        )
         return
     summary = "; ".join(errors[:6])
-    strict = show_description_qc_strict_enabled()
     ctx.log(
         f"Show description QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if strict else "warn",
         stage=stage,
         detail="show_description_qc_fail",
+    )
+    record_qc_summary(
+        ctx,
+        "show_description_qc",
+        {"passed": False, "errors": errors[:12], "strict": strict, "at_stage": stage},
     )
     if strict:
         raise SystemExit(

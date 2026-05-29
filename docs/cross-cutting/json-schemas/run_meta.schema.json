@@ -13,7 +13,8 @@
     "selected_at": { "type": "string" },
     "audio_preclean": { "type": "object" },
     "elevenlabs_prompt_review": { "type": "object" },
-    "elevenlabs_listen_results": { "type": "array" }
+    "elevenlabs_listen_results": { "type": "array" },
+    "qc_summaries": { "type": "object" }
   },
   "additionalProperties": true
 }

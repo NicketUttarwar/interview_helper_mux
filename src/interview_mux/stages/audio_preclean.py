@@ -55,6 +55,12 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         return out_path
 
     api_key = require_secret("ELEVENLABS_API_KEY")
+    if source.stat().st_size > _max_upload_from_config():
+        ctx.log(
+            f"elevenlabs_chunked_isolation: source exceeds upload limit — chunking",
+            level="info",
+            stage="audio_preclean",
+        )
     isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,11 +213,43 @@ def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
     return True
 
 
+def _max_upload_from_config() -> int:
+    from interview_mux.elevenlabs_rest import _max_upload_bytes
+
+    return _max_upload_bytes()
+
+
 def _read_isolation_bytes(*, api_key: str, source: Path) -> bytes:
-    try:
-        return isolate_audio(api_key=api_key, audio_bytes=source.read_bytes(), filename=source.name)
-    except ElevenLabsApiError as exc:
-        raise RuntimeError(f"Audio pre-clean failed via ElevenLabs REST: {exc}") from exc
+    from interview_mux.audio_timeline import chunk_wav_by_max_bytes, concat_clips_with_crossfade
+    from interview_mux.config import merged_config
+    from interview_mux.elevenlabs_rest import _max_upload_bytes
+    from interview_mux.sound_design import load_audio
+
+    max_bytes = _max_upload_bytes()
+    raw = source.read_bytes()
+    if len(raw) <= max_bytes:
+        try:
+            return isolate_audio(api_key=api_key, audio_bytes=raw, filename=source.name)
+        except ElevenLabsApiError as exc:
+            raise RuntimeError(f"Audio pre-clean failed via ElevenLabs REST: {exc}") from exc
+
+    work = source.parent / "_preclean_chunks"
+    chunks = chunk_wav_by_max_bytes(source, max_bytes, work_dir=work)
+    isolated_segments: list = []
+    for i, chunk_path in enumerate(chunks):
+        chunk_bytes = chunk_path.read_bytes()
+        try:
+            iso = isolate_audio(api_key=api_key, audio_bytes=chunk_bytes, filename=chunk_path.name)
+        except ElevenLabsApiError as exc:
+            raise RuntimeError(f"Audio pre-clean chunk {i} failed: {exc}") from exc
+        tmp = work / f"isolated_{i:03d}.wav"
+        _write_audio_as_wav(tmp, iso)
+        isolated_segments.append(load_audio(tmp))
+    crossfade = int((merged_config().get("mix") or {}).get("crossfade_ms_assembly_preview", 80))
+    merged = concat_clips_with_crossfade(isolated_segments, crossfade)
+    out_tmp = work / "merged_isolated.wav"
+    merged.export(str(out_tmp), format="wav")
+    return out_tmp.read_bytes()
 
 
 def _write_audio_as_wav(path: Path, data: bytes) -> None:

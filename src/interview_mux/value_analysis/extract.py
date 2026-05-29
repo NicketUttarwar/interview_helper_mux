@@ -106,6 +106,10 @@ def maybe_enqueue_orchestration_investigations(
     transcript = profiles.get("transcript") if isinstance(profiles, dict) else {}
     flags = transcript.get("quality_trajectory_flags") if isinstance(transcript, dict) else []
     if not flags:
+        from interview_mux.stage_enrichment import quality_trajectory_flags
+
+        flags = quality_trajectory_flags(ctx)
+    if not flags:
         return 0
 
     from interview_mux.analysis_memory import enqueue_investigations

@@ -28,15 +28,35 @@ class ElevenLabsApiError(RuntimeError):
         self.body = body
 
 
+def _elevenlabs_cfg() -> dict[str, Any]:
+    from interview_mux.config import merged_config
+
+    return merged_config().get("elevenlabs") or {}
+
+
+def _max_upload_bytes() -> int:
+    return int(_elevenlabs_cfg().get("max_upload_bytes", 52_428_800))
+
+
+def _request_timeout_sec() -> int:
+    return int(_elevenlabs_cfg().get("request_timeout_sec", 120))
+
+
+def _default_max_retries() -> int:
+    return int(_elevenlabs_cfg().get("max_retries", 3))
+
+
 def generate_sound_effect(
     *,
     api_key: str,
     text: str,
     duration_seconds: float,
     prompt_influence: float | None = None,
-    max_retries: int = 3,
+    max_retries: int | None = None,
 ) -> bytes:
     """POST /v1/sound-generation — returns raw audio bytes from response body."""
+    if max_retries is None:
+        max_retries = _default_max_retries()
     payload: dict[str, Any] = {
         "text": text,
         "duration_seconds": duration_seconds,
@@ -57,9 +77,16 @@ def isolate_audio(
     api_key: str,
     audio_bytes: bytes,
     filename: str = "audio.wav",
-    max_retries: int = 3,
+    max_retries: int | None = None,
 ) -> bytes:
     """POST /v1/audio-isolation (multipart) — returns isolated audio bytes."""
+    if max_retries is None:
+        max_retries = _default_max_retries()
+    if len(audio_bytes) > _max_upload_bytes():
+        raise ElevenLabsApiError(
+            f"Audio upload {len(audio_bytes)} bytes exceeds elevenlabs.max_upload_bytes "
+            f"({_max_upload_bytes()}); use chunked pre-clean or shorten source."
+        )
     boundary = "----interviewmuxboundary7MA4YWxkTrZu0gW"
     body = _multipart_body(
         boundary=boundary,
@@ -115,7 +142,7 @@ def _request_bytes(
         attempt += 1
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=_request_timeout_sec()) as resp:
                 data = resp.read()
                 if not data:
                     raise ElevenLabsApiError("empty response body", status=resp.status)

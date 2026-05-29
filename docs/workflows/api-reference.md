@@ -196,6 +196,12 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 
 ---
 
+## Acoustic profile recompute
+
+`POST /api/runs/{run_id}/recompute-acoustic-profile` — re-runs `source_acoustic_profile` from current ingest/transcript. Response: `{ "profile": {…}, "derived_from": {…} }`. Logs `acoustic_profile_recomputed` to `gui_log.jsonl`.
+
+---
+
 ## `GET /api/runs/{run_id}` — `stages[]` entries
 
 Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable `artifacts_present` + `audio_outputs_present` (present files that can be played via `GET /api/runs/{run_id}/audio`).

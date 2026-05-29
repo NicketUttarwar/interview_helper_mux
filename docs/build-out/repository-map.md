@@ -45,6 +45,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `prompt_validation.py` | JSON schema validation for stage outputs | BUILD-001 |
 | `elevenlabs_rest.py` | REST SFX (no SDK) | BUILD-034, 042 |
 | `nle_state.py` | `segments/nle_edits.json` | BUILD-068 (ranking + EDL) |
+| `acoustic_profile.py` | Shared SAP load, `mix_contract`, volley compact helpers | gap-closure GC-F1 |
+| `audio_timeline.py` | WAV duration, crossfade concat, chunk-by-bytes | gap-closure GC-F1 |
+| `operator_quality.py` | Preclean checkpoints, `qc_summaries` on `run_meta` | gap-closure GC-F1/F3 |
 
 ### Stages (`src/interview_mux/stages/`)
 
@@ -76,6 +79,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `audio_preclean.py` | ElevenLabs isolation (optional) | BUILD-019 |
 | `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
 | `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `elevenlabs_prompt_craft` | BUILD-061–064 |
+| `sound_design_vo_finalize.py` | `sound_design_vo_finalize` — VO bridge measured durations | gap-closure GC-A3 |
 
 ### Web GUI (`src/interview_mux/web/`)
 

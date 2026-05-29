@@ -76,6 +76,7 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | `after_profile_or_segmentation` | `analysis_profile`, `segment_classification` | `full_source` | same |
 | `g1_vo_pickup` | `g1_vo_pickup` (all lines recorded) | **`vo_pickup`** | same |
 | `before_flow_mix` | `mix_flow1`, `mix_flow2`, `mux_flow1`, `mux_flow2` | `normalized_rebuild` | same |
+| `before_sfx_spend` | `assembly_preview` | `full_source` | same |
 | `before_master_export` | `master_flow1`, `master_flow2` | `normalized_rebuild` | same |
 
 **`action` values:** `offer` (card shown), `accept`, `dismiss`. Persisted under `run_meta.json` → `audio_preclean` (`enabled`, `scope`, `offered_at`, `decisions`). Log lines use `RunContext.log()` → `gui_log.jsonl`.
@@ -124,6 +125,7 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: 
 | 1 | Segment ordering | `full_master_ranking` | `flow_1_master/selection.json` |
 | 1 | Transitions | `transitions` | `flow_1_master/transitions.json` |
 | 1 | Sound design plan | `sound_design_plan_flow1` | `understanding/sound_design_plan.json` |
+| 1 | VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
 | 1 | EDL | `edl_flow1` | `flow_1_master/edl.json` |
 | 1 | Assembly preview | `assembly_preview` | `flow_1_master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
 | 1 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
@@ -151,6 +153,21 @@ Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs
 | **G1.5 prompt review** (optional) | `elevenlabs_prompt_craft` | `GET/PUT …/elevenlabs-prompts`, `POST …/elevenlabs-prompts/approve` | `gui_log.jsonl` (`elevenlabs_prompt_craft`) | `sound_design/elevenlabs_prompts.json`, `run_meta.json` → `elevenlabs_prompt_review` |
 | **Post-listen QA** (advisory) | `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2` | `POST …/elevenlabs-prompts/listen-result`; `GET …/runs/{id}` → `elevenlabs_generated_assets` | `elevenlabs_post_listen_pass` / `elevenlabs_post_listen_fail` | `run_meta.json` → `elevenlabs_listen_results[]` |
 | **Generate SFX** blocked when G1.5 required | `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+
+### QC summary cards (gap-closure)
+
+When `run_meta.qc_summaries` is populated by narrative/show QC gates:
+
+| Stage panel | Card key | Source |
+|-------------|----------|--------|
+| `full_master_ranking`, `edl_flow1` | `narrative_qc` | `gates.check_narrative_qc` |
+| `podcast_show_description` | `show_description_qc` | `gates.check_show_description_qc` |
+
+### Source acoustic profile
+
+| User-visible | Stage `id` | API | Notes |
+|--------------|------------|-----|-------|
+| Recompute profile | `source_acoustic_profile` | `POST …/recompute-acoustic-profile` | Re-runs DSP profile from ingest/transcript |
 
 Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before ElevenLabs spend. Post-listen pass/fail does **not** block generation or mix unless product adds a hard gate later. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
 

@@ -764,9 +764,35 @@ code {
   outline: 2px dashed var(--warning);
 }
 
-.segment-block.excluded {
+.segment-block.excluded,
+.segment-block.nle-excluded {
   opacity: 0.35;
   text-decoration: line-through;
+}
+
+.qc-summary-card {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.qc-summary-card.qc-pass { border-color: var(--success); }
+.qc-summary-card.qc-fail { border-color: var(--danger); }
+
+.nle-rerun-banner {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-2));
+}
+
+.nle-rerun-banner .btn-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .run-main { flex: 1; min-width: 0; }

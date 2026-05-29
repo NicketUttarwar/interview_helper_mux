@@ -202,6 +202,14 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         ("understanding/sound_design_plan.json",),
     ),
     StageInfo(
+        "sound_design_vo_finalize",
+        "VO bridge finalize",
+        "Measure vo_pickup WAV durations and adjust VO bridge cues in the sound design plan.",
+        "flow1",
+        ("understanding/sound_design_plan.json", "vo_pickup/"),
+        ("understanding/sound_design_plan.json",),
+    ),
+    StageInfo(
         "edl_flow1",
         "Edit decision list",
         "Build the EDL combining speech order, VO pickup placements, and transition anchors.",

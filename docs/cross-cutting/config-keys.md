@@ -18,9 +18,9 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
-| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures; default `false` (warn only) |
+| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
 | `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true`, blocks persisting invalid show description; default `false` (warn only) |
-| `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py` | Master switch for optional R&D tooling (default off) |
+| `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
 | `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
@@ -166,6 +166,34 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `ELEVENLABS_API_KEY` | SFX + isolation fail — see [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
+
+---
+
+## `mix` — crossfade and preclean gate (gap-closure)
+
+| Key | Used by | If wrong |
+|-----|---------|----------|
+| `mix.crossfade_ms_flow1` / `mix.crossfade_ms_flow2` | `sound_design.py` speech/overlay concat | Harsh or overly long crossfades |
+| `mix.crossfade_ms_assembly_preview` | `assembly_flow1.run_preview` | Preview clip seams audible or mushy |
+| `mix.require_preclean_acknowledgment` | `web/runner.py`, GUI preclean offers | When `true`, single-stage runs block until checkpoint acknowledged in `run_meta.audio_preclean.offered_at` |
+
+---
+
+## `nle_edits`
+
+| Key | Used by | If wrong |
+|-----|---------|----------|
+| `nle_edits.strict` | `nle_state.save_nle`, GUI NLE PUT | When `true`, invalid `segments/nle_edits.json` raises HTTP 400 instead of warn-only |
+
+---
+
+## `elevenlabs`
+
+| Key | Used by | If wrong |
+|-----|---------|----------|
+| `elevenlabs.timeout_seconds` | `elevenlabs_rest.py` REST calls | Hung or premature timeout on isolation/SFX |
+| `elevenlabs.max_retries` | `elevenlabs_rest.py` | Too few retries → flaky generation; too many → slow failures |
+| `elevenlabs.max_upload_bytes` | `elevenlabs_rest.py`, `audio_preclean.py` chunk policy | Oversized WAV rejected or chunked before POST |
 
 ---
 

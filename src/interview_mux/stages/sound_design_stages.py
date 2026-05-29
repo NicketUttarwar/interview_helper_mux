@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from interview_mux.acoustic_profile import compact_for_volley, load_profile
 from interview_mux.analysis_memory import default_sound_design_plan
 from interview_mux.prompt_validation import (
     validate_sound_design_plan as _sdp_schema_errors,
@@ -57,7 +58,7 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
     require_selected_flow_flow1(ctx)
 
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "sound_design_plan": _load_sound_design_plan(c),
             "selection": c.read_json("flow_1_master/selection.json"),
             "narrative_plan": c.read_json("flow_1_master/narrative_plan.json"),
@@ -65,6 +66,10 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
             "gap_report": c.read_json("understanding/gap_report.json"),
             "segments": c.read_json("segments/manifest.json"),
         }
+        profile = load_profile(c)
+        if profile:
+            payload["source_acoustic_profile"] = compact_for_volley(profile)
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)
@@ -96,11 +101,15 @@ def run_sound_design_plan_flow2(ctx: RunContext) -> None:
     require_selected_flow_flow2(ctx)
 
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "sound_design_plan": _load_sound_design_plan(c),
             "selection": c.read_json("flow_2_highlights/selection.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
+        profile = load_profile(c)
+        if profile:
+            payload["source_acoustic_profile"] = compact_for_volley(profile)
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)

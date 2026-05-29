@@ -203,11 +203,11 @@ flowchart TB
 
 | Stage | Profile slice | Status |
 |-------|----------------|--------|
-| `content_context` | `pace_class` + one-line pacing summary | planned |
-| `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`_compact_source_acoustic_profile` in `context_volley.py`) |
-| `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | planned |
+| `content_context` | `pace_class` + one-line pacing summary | shipped (`pacing_one_liner` in `understanding.py`) |
+| `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`acoustic_profile.compact_for_volley` via `context_volley.py`) |
+| `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | shipped (`compact_for_volley` in plan stage `build_input`) |
 | `elevenlabs_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
-| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | planned |
+| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | shipped (`selection_flow1.run_podcast_sfx_brief`) |
 
 Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 

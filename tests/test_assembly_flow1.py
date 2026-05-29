@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import wave
 from pathlib import Path
 
 from interview_mux.run_context import RunContext
@@ -84,7 +86,8 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
     assert len(edl["gap_placements"]) == 2
 
 
-def test_run_edl_applies_nle_to_selection_and_edl() -> None:
+def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
+    monkeypatch.setattr(assembly_flow1, "check_narrative_qc", lambda *_a, **_k: None)
     ctx = RunContext("run_206", create=True)
     ctx.write_json(
         "segments/manifest.json",
@@ -146,6 +149,18 @@ def test_edl_skips_non_record_delivery() -> None:
     assert len(edl["clips"]) == 1
 
 
+def _minimal_wav_bytes(*, duration_ms: int = 100) -> bytes:
+    buf = io.BytesIO()
+    rate = 48000
+    frames = max(1, int(rate * duration_ms / 1000))
+    with wave.open(buf, "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(b"\x00\x00" * frames)
+    return buf.getvalue()
+
+
 def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
     run_dir = tmp_path / "run_001"
     (run_dir / "ingest").mkdir(parents=True, exist_ok=True)
@@ -196,7 +211,7 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
         ffmpeg_calls.append(cmd)
         out = Path(cmd[-1])
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        out.write_bytes(_minimal_wav_bytes())
         return None
 
     monkeypatch.setattr(assembly_flow1.subprocess, "run", fake_run)
@@ -209,4 +224,4 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
     assert ctx.done == ["assembly_preview"]
     assert any(stage == "assembly_preview" and level == "success" for level, stage, _ in ctx.logs)
     assert any(stage == "assembly_preview" and level == "warning" for level, stage, _ in ctx.logs)
-    assert len(ffmpeg_calls) == 3
+    assert len(ffmpeg_calls) == 2

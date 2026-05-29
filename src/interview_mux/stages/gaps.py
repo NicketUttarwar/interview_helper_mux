@@ -4,6 +4,7 @@ import json
 
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
 
 
@@ -24,6 +25,9 @@ def run_missing_framing(ctx: RunContext) -> None:
                     payload["comprehension_risks"] = risks
             except Exception:
                 pass
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
@@ -43,11 +47,15 @@ def run_missing_framing(ctx: RunContext) -> None:
 
 def run_optimal_questions(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
             "segments": c.read_json("segments/manifest.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         lines = artifacts.get("interviewer_lines") or []

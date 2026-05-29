@@ -330,9 +330,38 @@ def create_app() -> FastAPI:
     @app.put("/api/runs/{run_id}/nle")
     def put_nle(run_id: str, body: NleBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        save_nle(ctx, body.data)
+        try:
+            save_nle(ctx, body.data)
+        except ValueError as exc:
+            raise HTTPException(400, {"errors": [str(exc)]}) from exc
         ctx.log("NLE timeline state saved to disk.", level="info", stage="nle")
         return {"ok": True}
+
+    @app.post("/api/runs/{run_id}/recompute-acoustic-profile")
+    def recompute_acoustic_profile(run_id: str) -> dict[str, Any]:
+        from interview_mux.stages.understanding import run_source_acoustic_profile
+
+        ctx = _ctx(run_id)
+        prior = ctx.read_json("understanding/source_acoustic_profile.json") if ctx.artifact_exists(
+            "understanding/source_acoustic_profile.json"
+        ) else {}
+        prior_pace = (prior.get("pacing") or {}).get("pace_class") if isinstance(prior, dict) else None
+        run_source_acoustic_profile(ctx)
+        profile = ctx.read_json("understanding/source_acoustic_profile.json")
+        new_pace = (profile.get("pacing") or {}).get("pace_class") if isinstance(profile, dict) else None
+        ctx.log(
+            "Acoustic profile recomputed from current ingest/transcript.",
+            level="success",
+            stage="source_acoustic_profile",
+            detail="acoustic_profile_recomputed",
+        )
+        if prior_pace and new_pace and prior_pace != new_pace:
+            ctx.log(
+                f"pace_class changed {prior_pace} → {new_pace}; consider re-running sound_design_palettes.",
+                level="info",
+                stage="source_acoustic_profile",
+            )
+        return {"ok": True, "profile": profile, "derived_from": profile.get("derived_from")}
 
     @app.patch("/api/runs/{run_id}/nle/segment")
     def patch_nle_segment(run_id: str, body: NleSegmentBody) -> dict[str, Any]:
@@ -408,6 +437,7 @@ def create_app() -> FastAPI:
             "after_g0",
             "after_profile_or_segmentation",
             "g1_vo_pickup",
+            "before_sfx_spend",
             "before_flow_mix",
             "before_master_export",
         }

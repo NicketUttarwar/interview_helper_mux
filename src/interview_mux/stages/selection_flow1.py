@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from interview_mux.context_volley import interviewer_sample_lines
+from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     apply_segments_with_nle,
@@ -99,11 +99,20 @@ def run_transitions(ctx: RunContext) -> None:
 
 def run_podcast_sfx_brief(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "selection": c.read_json("flow_1_master/selection.json"),
             "transitions": c.read_json("flow_1_master/transitions.json"),
             "narrative_plan": c.read_json("flow_1_master/narrative_plan.json"),
         }
+        profile = load_profile(c)
+        if profile:
+            compact = compact_for_volley(profile)
+            payload["source_acoustic_profile"] = compact
+            payload["pace_class"] = compact.get("pace_class") or pacing_one_liner(profile)
+            mix = compact.get("mix_contract") if isinstance(compact.get("mix_contract"), dict) else {}
+            if mix.get("underscore_policy"):
+                payload["underscore_policy"] = mix["underscore_policy"]
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         c.write_json("flow_1_master/podcast_sfx_brief.json", artifacts)

@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 
+from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.run_context import RunContext
 from interview_mux.value_analysis.extract import (
@@ -52,6 +53,9 @@ def run_content_context(ctx: RunContext) -> None:
         quality = transcript_quality_for_ctx(c)
         if quality:
             payload["transcript_quality"] = quality
+        profile = load_profile(c)
+        if profile:
+            payload["source_acoustic_pacing"] = pacing_one_liner(profile)
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:

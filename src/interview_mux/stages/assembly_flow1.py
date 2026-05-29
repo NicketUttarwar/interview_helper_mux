@@ -401,34 +401,15 @@ def run_preview(ctx: RunContext) -> Path:
             "assembly_preview: no renderable speech/VO clips found in edl_flow1 output."
         )
 
-    concat_list = work / "concat.txt"
-    concat_list.write_text(
-        "".join(f"file '{p.resolve()}'\n" for p in clip_paths),
-        encoding="utf-8",
-    )
+    from interview_mux.audio_timeline import concat_clips_with_crossfade
+    from interview_mux.config import merged_config
+    from interview_mux.sound_design import load_audio
+
+    crossfade_ms = int((merged_config().get("mix") or {}).get("crossfade_ms_assembly_preview", 80))
+    clips = [load_audio(p) for p in clip_paths]
+    preview_audio = concat_clips_with_crossfade(clips, crossfade_ms)
     preview = ctx.path("flow_1_master", "assembly_preview.wav")
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_list),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "48000",
-            "-c:a",
-            "pcm_s16le",
-            str(preview),
-        ],
-        check=True,
-        capture_output=True,
-    )
+    preview_audio.export(str(preview), format="wav")
     if skipped_missing:
         ctx.log(
             f"assembly_preview: skipped {len(skipped_missing)} missing VO pickup clip(s): {sorted(set(skipped_missing))}",
@@ -436,7 +417,7 @@ def run_preview(ctx: RunContext) -> Path:
             stage="assembly_preview",
         )
     ctx.log(
-        "Assembly preview ready (speech + VO, no SFX) — listen before ElevenLabs spend.",
+        f"Assembly preview ready (speech + VO, crossfade_ms={crossfade_ms}, clips={len(clips)}) — listen before ElevenLabs spend.",
         level="success",
         stage="assembly_preview",
         detail=str(preview),

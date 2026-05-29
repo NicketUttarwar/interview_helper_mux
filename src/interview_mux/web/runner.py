@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from threading import Lock, Thread
 from typing import Any
 
+from interview_mux.config import merged_config
 from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
+from interview_mux.operator_quality import preclean_acknowledged, stage_requires_preclean_ack
 from interview_mux.pipeline import (
     ANALYSIS_ORDER,
     FLOW1_ORDER,
@@ -143,7 +145,36 @@ class JobRunner:
         Thread(target=_run, daemon=True).start()
         return {"ok": True, "run_id": run_id, "mode": mode}
 
+    def _check_preclean_gate(self, ctx: RunContext, stage: str, *, mode: str) -> None:
+        checkpoint = stage_requires_preclean_ack(stage)
+        if not checkpoint:
+            return
+        mix_cfg = merged_config().get("mix") or {}
+        if not mix_cfg.get("require_preclean_acknowledgment", True):
+            return
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if preclean_acknowledged(meta, checkpoint):
+            return
+        if mode.startswith("flow"):
+            ctx.log(
+                f"Pre-clean offer ({checkpoint}) not acknowledged — continuing full-flow run.",
+                level="warning",
+                stage=stage,
+            )
+            return
+        msg = (
+            f"Complete the pre-clean quality offer for checkpoint '{checkpoint}' "
+            f"on the {stage} stage panel before auto-running this stage."
+        )
+        ctx.log(msg, level="action", stage=stage)
+        self._write_job(
+            ctx,
+            {"status": "needs_operator", "mode": mode, "stage": stage, "message": msg},
+        )
+        raise RuntimeError(msg)
+
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
+        self._check_preclean_gate(ctx, stage, mode="stage")
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)

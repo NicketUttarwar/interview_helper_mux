@@ -533,7 +533,34 @@ async function renderGateActions(stage) {
     });
   }
 
-  if (stage.id === "content_context" && state.config?.value_analysis_enabled) {
+  if (stage.id === "assembly_preview") {
+    await renderPrecleanOffer(stage, el);
+  }
+
+  if (stage.id === "source_acoustic_profile") {
+    el.classList.remove("hidden");
+    const btn = document.createElement("button");
+    btn.className = "btn sm primary";
+    btn.type = "button";
+    btn.textContent = "Recompute profile";
+    btn.onclick = async () => {
+      if (!confirm("Recompute acoustic profile from current ingest/transcript?")) return;
+      await api(`/api/runs/${state.runId}/recompute-acoustic-profile`, { method: "POST" });
+      showToast("Acoustic profile recomputed.");
+      await refreshRun();
+    };
+    el.appendChild(btn);
+  }
+
+  if (stage.id === "full_master_ranking" || stage.id === "edl_flow1") {
+    renderQcSummaryCard(el, "narrative_qc");
+  }
+
+  if (stage.id === "podcast_show_description") {
+    renderQcSummaryCard(el, "show_description_qc");
+  }
+
+  if (stage.id === "content_context" && (state.config?.value_analysis_enabled || state.run?.meta?.qc_summaries)) {
     el.classList.remove("hidden");
     await renderValueFeaturesPanel(el);
   }
@@ -569,6 +596,32 @@ async function renderGateActions(stage) {
 
 const VALUE_FEATURES_PATH = "understanding/value_features.json";
 
+function renderQcSummaryCard(host, key) {
+  const summary = state.run?.meta?.qc_summaries?.[key];
+  if (!summary) return;
+  const card = document.createElement("div");
+  card.className = `qc-summary-card ${summary.passed ? "qc-pass" : "qc-fail"}`;
+  const label = key === "narrative_qc" ? "Flow 1 narrative QC" : "Show description QC";
+  const errText =
+    Array.isArray(summary.errors) && summary.errors.length
+      ? `<ul>${summary.errors.slice(0, 4).map((e) => `<li>${e}</li>`).join("")}</ul>`
+      : "";
+  card.innerHTML = `<h4>${label}</h4><p>${summary.passed ? "Pass" : "Fail"}${summary.strict ? " (strict)" : ""}</p>${errText}`;
+  host.appendChild(card);
+}
+
+function nleHasOperatorEdits(nle) {
+  if (!nle || typeof nle !== "object") return false;
+  const order = nle.sequence_order;
+  if (Array.isArray(order) && order.length) return true;
+  const overrides = nle.segment_overrides;
+  if (!overrides || typeof overrides !== "object") return false;
+  return Object.values(overrides).some((ov) => {
+    if (!ov || typeof ov !== "object") return false;
+    return ov.excluded || ov.mark_redo || ov.start_ms != null || ov.end_ms != null || ov.split_into;
+  });
+}
+
 function formatValueMetric(value) {
   if (value == null || value === "") return "—";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3);
@@ -587,8 +640,8 @@ function formatValueTags(tags) {
 async function renderValueFeaturesPanel(host) {
   const card = document.createElement("div");
   card.className = "quality-offer-card value-features-card";
-  card.innerHTML = `<h4>Value features (R&amp;D)</h4>
-    <p class="muted">Read-only tooling summary — not consumed by the default pipeline.</p>`;
+  card.innerHTML = `<h4>Value features</h4>
+    <p class="muted">Deterministic metrics when value_analysis is enabled.</p>`;
   host.appendChild(card);
 
   let data;
@@ -917,6 +970,13 @@ function resolvePrecleanOffer(stage) {
       checkpoint: "before_flow_mix",
       scope: "normalized_rebuild",
       prompt: "Clean normalized interview audio before final assembly/mix?",
+    };
+  }
+  if (stage.id === "assembly_preview") {
+    return {
+      checkpoint: "before_sfx_spend",
+      scope: "full_source",
+      prompt: "Clean source before ElevenLabs SFX spend?",
     };
   }
   if (stage.id === "master_flow1" || stage.id === "master_flow2") {
@@ -1276,6 +1336,29 @@ function renderTimeline() {
   const { segments, duration_ms, normalized_audio, vo_lines } = state.timeline;
   meta.textContent = `${segments.length} segments · ${formatMs(duration_ms)} · zoom ${state.zoom}x`;
 
+  let banner = $("#nle-rerun-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "nle-rerun-banner";
+    meta.after(banner);
+  }
+  banner.innerHTML = "";
+  if (nleHasOperatorEdits(state.nle)) {
+    banner.className = "nle-rerun-banner";
+    banner.innerHTML = `<p>Timeline edits detected — re-run ranking or rebuild EDL to apply.</p>
+      <div class="btn-row">
+        <button type="button" class="btn sm primary" data-rerun="full_master_ranking">Re-run ranking</button>
+        <button type="button" class="btn sm ghost" data-rerun="edl_flow1">Rebuild EDL</button>
+      </div>`;
+    banner.querySelectorAll("[data-rerun]").forEach((btn) => {
+      btn.onclick = () => executeJob({ mode: "stage", stage: btn.dataset.rerun });
+    });
+  } else {
+    banner.className = "hidden";
+  }
+
+  const overrides = state.nle?.segment_overrides || {};
+
   const audioPath = normalized_audio
     ? `/api/runs/${state.runId}/audio?path=${encodeURIComponent(normalized_audio)}`
     : `/api/runs/${state.runId}/source-audio`;
@@ -1308,12 +1391,20 @@ function renderTimeline() {
     const role = seg.speaker_role || "unknown";
     const cls = type === "aside" ? "aside" : role === "interviewer" ? "interviewer" : "interviewee";
     const block = document.createElement("div");
-    block.className = `segment-block ${cls}${seg._mark_redo ? " mark-redo" : ""}${seg._excluded ? " excluded" : ""}`;
+    block.className = `segment-block ${cls}${seg._mark_redo ? " mark-redo" : ""}${seg._excluded ? " excluded nle-excluded" : ""}`;
     block.draggable = true;
     block.dataset.segId = segId;
     block.style.left = `${left}%`;
     block.style.width = `${width}%`;
-    block.title = seg.text?.slice(0, 160) || segId;
+    const ov = overrides[segId] || overrides[seg.segment_id] || {};
+    const splitHint = ov.split_into?.length
+      ? ` · split → ${ov.split_into.join(", ")}`
+      : ov.split_into
+        ? ""
+        : "";
+    const trimHint =
+      ov.start_ms != null && ov.end_ms != null ? ` · trim ${formatMs(ov.start_ms)}–${formatMs(ov.end_ms)}` : "";
+    block.title = `${seg.text?.slice(0, 120) || segId}${splitHint}${trimHint}`;
     block.innerHTML = `<div class="seg-label">${segId}</div><div>${formatMs(seg.start_ms)}</div>`;
     block.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1419,12 +1510,18 @@ async function saveNle(showMsg = true) {
     playhead_ms: Math.round(state.playheadMs),
     zoom: state.zoom,
   };
-  await api(`/api/runs/${state.runId}/nle`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data }),
-  });
-  if (showMsg) showToast("Timeline saved");
+  try {
+    await api(`/api/runs/${state.runId}/nle`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data }),
+    });
+    if (showMsg) showToast("Timeline saved");
+  } catch (err) {
+    const msg = err?.message || "NLE save failed";
+    showToast(msg.slice(0, 120));
+    throw err;
+  }
 }
 
 const voRecorder = { media: null, chunks: [] };

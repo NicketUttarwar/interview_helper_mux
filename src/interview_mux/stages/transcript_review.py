@@ -52,6 +52,16 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         "chunk_count": len(ranked),
         "chunks": ranked,
     }
+    from interview_mux.prompt_validation import validate_transcript_review_queue
+
+    q_errors = validate_transcript_review_queue(queue)
+    if q_errors:
+        ctx.log(
+            f"transcript_review_build: review_queue schema failed: {q_errors[:3]}",
+            level="error",
+            stage="transcript_review_build",
+        )
+        raise SystemExit(f"review_queue validation failed: {q_errors[0]}")
     ctx.write_json("transcript/review_queue.json", queue)
 
     corrections_path = ctx.path("transcript/corrections.json")

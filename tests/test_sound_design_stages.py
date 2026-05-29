@@ -410,7 +410,7 @@ def test_sound_design_palettes_volley_includes_source_acoustic_profile():
             "pacing": {"pace_class": "conversational", "speech_active_ratio": 0.7},
             "energy": {"room_timbre_hint": "dry_close_mic"},
             "mix_contract": {"underscore_policy": "sparse", "stinger_max_per_minute": 1},
-            "prompt_tokens": {"bed": "soft room tone", "avoid": "trailer whoosh"},
+            "prompt_tokens": {"bed_style": "soft room tone", "avoid": "trailer whoosh"},
         },
     }
     shaped = _shape_stage_input("sound_design_palettes", raw)
@@ -418,7 +418,7 @@ def test_sound_design_palettes_volley_includes_source_acoustic_profile():
     assert sap["pace_class"] == "conversational"
     assert sap["room_timbre_hint"] == "dry_close_mic"
     assert sap["mix_contract"]["underscore_policy"] == "sparse"
-    assert sap["prompt_tokens"]["bed"] == "soft room tone"
+    assert sap["prompt_tokens"]["bed_style"] == "soft room tone"
 
 
 def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypatch):
