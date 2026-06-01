@@ -34,6 +34,18 @@ cp config/templates/secrets.env.example config/secrets/secrets.env
 
 Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md).
 
+### Optional: local LLM (Apple Silicon)
+
+To pre-download an on-device framing model into the same `.venv` (plan — not yet wired to the pipeline):
+
+```bash
+source .venv/bin/activate
+python scripts/download_local_llm.py --install-deps --model mlx-community/Llama-3.2-3B-Instruct-4bit
+python scripts/download_local_llm.py --verify
+```
+
+Spec: [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md).
+
 ## 3. Media
 
 Place source audio under:

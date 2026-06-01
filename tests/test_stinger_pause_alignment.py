@@ -10,15 +10,16 @@ from interview_mux.sound_design import (
     flow1_overlays_from_sdp,
     resolve_stinger_position_ms,
 )
+from run_fixtures import minimal_source_acoustic_profile, sound_design_plan_with
 
 
 def _profile(*, prefer: bool = True, min_pause: int = 400) -> dict:
-    return {
-        "placement_hints": {
+    return minimal_source_acoustic_profile(
+        placement_hints={
             "prefer_stinger_after_pause_tail": prefer,
             "stinger_min_pause_after_speech_ms": min_pause,
         }
-    }
+    )
 
 
 def _segment(seg_id: str, start_ms: int, end_ms: int) -> dict:
@@ -104,16 +105,16 @@ def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkey
     )
     ctx.write_json(
         "understanding/sound_design_plan.json",
-        {
-            "version": 1,
-            "assets": [
+        sound_design_plan_with(
+            assets=[
                 {
                     "asset_id": "chapter_stinger_warm",
                     "role": "chapter_stinger",
+                    "description": "warm chapter stinger",
                     "duration_seconds": 0.4,
                 }
             ],
-            "flow_plans": {
+            flow_plans={
                 "flow1": {
                     "cues": [
                         {
@@ -126,8 +127,8 @@ def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkey
                     ],
                 }
             },
-            "generated": {"chapter_stinger_warm": "sound_design/assets/chapter_stinger_warm.wav"},
-        },
+            generated={"chapter_stinger_warm": "sound_design/assets/chapter_stinger_warm.wav"},
+        ),
     )
 
     segment_timing = {"seg_a": (1000, 3200)}

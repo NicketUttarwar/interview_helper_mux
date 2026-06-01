@@ -31,6 +31,7 @@ def run_shards_then_collate(
             messages=volley,
             ctx=ctx,
             task_kind="shard",
+            call_attempt=parent_attempt,
         )
         shard_outputs.append(
             {
@@ -64,6 +65,7 @@ def run_shards_then_collate(
         messages=collate_volley,
         ctx=ctx,
         task_kind="collate",
+        call_attempt=parent_attempt,
     )
     record_stage_attempt(
         ctx,

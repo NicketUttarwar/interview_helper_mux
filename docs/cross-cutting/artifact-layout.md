@@ -70,6 +70,9 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
 | `understanding/context_index.json` | context padding index |
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
+| `understanding/llm_calls/index.jsonl` | Index of every OpenAI call (label, path) — [llm-call-record-framework.md](./llm-call-record-framework.md) |
+| `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.json` | Full request/response + volley per API call |
+| `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.md` | Optional copy-paste markdown sidecar |
 | `understanding/speakers.json` | speaker roles (LLM) |
 | `understanding/content_brief.json` | content context |
 | `understanding/sound_design_plan.json` | shared analysis init (BUILD-060 baseline) |

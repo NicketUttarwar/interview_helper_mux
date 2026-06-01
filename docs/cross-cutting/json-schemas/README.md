@@ -8,7 +8,7 @@ Schemas in this folder define **machine-checkable contracts** for interview mux 
 
 | Location | Contents |
 |----------|----------|
-| `*.schema.json` (this directory) | Shared objects: envelope, analysis state, segment, transcript review queue, investigation queue, `gap_report`, sound design plan, `run_meta`, `ingest_checksums`, `transcript_corrections`, `value_features` |
+| `*.schema.json` (this directory) | Shared objects: envelope, analysis state, segment, transcript review queue, investigation queue, `gap_report`, sound design plan, `run_meta`, `ingest_checksums`, `transcript_corrections`, `value_features`, **`llm_call_record`** |
 | `artifacts/*.schema.json` | LLM stage **artifacts** validated by `interview_mux.prompt_validation` |
 
 ## Coverage and gaps

@@ -45,6 +45,68 @@ def ctx_from_fixture(tmp_path: Path, *, run_id: str = "exec_smoke_fixture") -> R
     return ctx
 
 
+def minimal_source_acoustic_profile(**patch: Any) -> dict[str, Any]:
+    """Schema-valid SAP for tests that write via RunContext.write_json."""
+    base: dict[str, Any] = {
+        "schema_version": 1,
+        "derived_from": {
+            "normalized_wav": "ingest/normalized.wav",
+            "transcript": "transcript/full.json",
+            "computed_at": "2026-01-01T00:00:00+00:00",
+            "stage": "source_acoustic_profile",
+        },
+        "pacing": {
+            "global_wpm": 142,
+            "wpm_by_quartile": [130, 140, 145, 150],
+            "pause_p50_ms": 680,
+            "pace_class": "conversational",
+        },
+        "energy": {"room_timbre_hint": "dry_close_mic_warm_low_mid"},
+        "mix_contract": {"underscore_policy": "normal", "duck_under_speech_db": 16},
+        "prompt_tokens": {
+            "bed": "loopable ambient bed, no melody hook",
+            "stinger": "soft mid-register rise under 1.5s",
+            "avoid": "trailer whoosh, drum loop",
+            "density": "normal beds; pace=conversational",
+        },
+        "placement_hints": {
+            "stinger_density": "low",
+            "prefer_stinger_after_pause_tail": True,
+            "stinger_min_pause_after_speech_ms": 400,
+        },
+        "operator_overrides": {},
+    }
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            base[key] = {**base[key], **value}
+        else:
+            base[key] = value
+    return base
+
+
+def sound_design_plan_with(**patch: Any) -> dict[str, Any]:
+    """Schema-valid sound_design_plan.json starting from defaults."""
+    from interview_mux.analysis_memory import default_sound_design_plan
+
+    plan = default_sound_design_plan()
+    for key, value in patch.items():
+        if key == "flow_plans" and isinstance(value, dict):
+            flow_plans = dict(plan.get("flow_plans") or {})
+            for flow_key, flow_val in value.items():
+                if isinstance(flow_val, dict) and isinstance(flow_plans.get(flow_key), dict):
+                    flow_plans[flow_key] = {**flow_plans[flow_key], **flow_val}
+                else:
+                    flow_plans[flow_key] = flow_val
+            plan["flow_plans"] = flow_plans
+        elif key == "assets" and isinstance(value, list):
+            plan["assets"] = value
+        elif key == "generated" and isinstance(value, dict):
+            plan["generated"] = {**(plan.get("generated") or {}), **value}
+        else:
+            plan[key] = value
+    return plan
+
+
 def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
     """Route FastAPI handlers to an isolated RunContext."""
     from fastapi import HTTPException

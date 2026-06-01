@@ -222,7 +222,12 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     raise ValueError(f"Unknown stage: {stage}")
 
 
-def run_analysis(ctx: RunContext, *, from_stage: str | None = None) -> None:
+def run_analysis(
+    ctx: RunContext,
+    *,
+    from_stage: str | None = None,
+    until_stage: str | None = None,
+) -> None:
     if from_stage:
         ctx.clear_from(from_stage, ANALYSIS_ORDER)
 
@@ -243,6 +248,8 @@ def run_analysis(ctx: RunContext, *, from_stage: str | None = None) -> None:
         fn()
         if name in ANALYSIS_LLM_STAGES:
             drain_investigation_queue(ctx, llm_runners)
+        if until_stage and name == until_stage:
+            break
         if name == "transcript_review_build" and check_transcript_review_pending(ctx):
             raise SystemExit(
                 "Analysis paused for transcript review. Correct STT in the GUI, "
@@ -253,6 +260,9 @@ def run_analysis(ctx: RunContext, *, from_stage: str | None = None) -> None:
         raise SystemExit(
             "Transcript review incomplete. Finish STT corrections in the GUI before downstream stages."
         )
+
+    if until_stage and until_stage != "optimal_questions":
+        return
 
     completion = post_analysis_finalize(ctx)
     missing = check_g1_vo(ctx)
@@ -275,6 +285,7 @@ def run_flow1(
     ctx: RunContext,
     *,
     from_stage: str | None = None,
+    until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
     require_g1_clear(ctx)
@@ -296,13 +307,14 @@ def run_flow1(
         ("mix_flow1", assembly_flow1.run_mix_flow1),
         ("master_flow1", mastering.run_master_flow1),
     ]
-    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
+    _run_steps(ctx, steps, from_stage, until_stage=until_stage, preclean_hook=preclean_hook)
 
 
 def run_flow2(
     ctx: RunContext,
     *,
     from_stage: str | None = None,
+    until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
     require_g1_clear(ctx)
@@ -318,13 +330,14 @@ def run_flow2(
         ("mix_flow2", assembly_flow2.run_mix_flow2),
         ("master_flow2", mastering.run_master_flow2),
     ]
-    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
+    _run_steps(ctx, steps, from_stage, until_stage=until_stage, preclean_hook=preclean_hook)
 
 
 def run_flow3(
     ctx: RunContext,
     *,
     from_stage: str | None = None,
+    until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
     require_g1_clear(ctx)
@@ -340,7 +353,7 @@ def run_flow3(
         ("podcast_show_description", publishing_flow3.run_podcast_show_description),
         ("export_show_description", publishing_flow3.run_export_show_description),
     ]
-    _run_steps(ctx, steps, from_stage, preclean_hook=preclean_hook)
+    _run_steps(ctx, steps, from_stage, until_stage=until_stage, preclean_hook=preclean_hook)
     ctx.log(
         "Flow 3 complete — copy ready for podcast directories.",
         level="success",
@@ -354,6 +367,7 @@ def _run_steps(
     steps: list,
     from_stage: str | None,
     *,
+    until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
     start = 0
@@ -368,3 +382,5 @@ def _run_steps(
         if preclean_hook is not None:
             preclean_hook(name)
         fn()
+        if until_stage and name == until_stage:
+            break

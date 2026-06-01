@@ -29,6 +29,7 @@ from interview_mux.pipeline import (
     run_single_stage,
 )
 from interview_mux.stages import transcript_review
+from interview_mux.journey_orchestrator import refresh_journey_meta
 from interview_mux.run_context import RunContext
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
@@ -67,22 +68,46 @@ class JobRunner:
         return merge_consents(load_persisted_consents(), api_consents)
 
     def _stages_for_execute(
-        self, ctx: RunContext, *, mode: str, stage: str | None, from_stage: str | None
+        self,
+        ctx: RunContext,
+        *,
+        mode: str,
+        stage: str | None,
+        from_stage: str | None,
+        until_stage: str | None = None,
     ) -> list[str]:
         if mode == "stage" and stage:
             return [stage]
-        if mode == "analysis":
+        if mode in ("analysis", "analysis_until_g0"):
             order = list(ANALYSIS_ORDER)
             start = from_stage or stage
             if start and start in order:
                 order = order[order.index(start) :]
-            return [s for s in order if not ctx.is_done(s)]
-        flow_orders = {"flow1": FLOW1_ORDER, "flow2": FLOW2_ORDER, "flow3": FLOW3_ORDER}
+            if until_stage and until_stage in order:
+                order = order[: order.index(until_stage) + 1]
+            elif mode == "analysis_until_g0":
+                if "transcript_review_build" in order:
+                    order = order[: order.index("transcript_review_build") + 1]
+            pending = [s for s in order if not ctx.is_done(s)]
+            return pending
+        flow_orders = {
+            "flow1": FLOW1_ORDER,
+            "flow2": FLOW2_ORDER,
+            "flow3": FLOW3_ORDER,
+            "flow1_until_preview": FLOW1_ORDER,
+            "flow1_polish": FLOW1_ORDER,
+        }
         if mode in flow_orders:
             order = list(flow_orders[mode])
             start = from_stage or stage
             if start and start in order:
                 order = order[order.index(start) :]
+            if until_stage and until_stage in order:
+                order = order[: order.index(until_stage) + 1]
+            elif mode == "flow1_until_preview" and "assembly_preview" in order:
+                order = order[: order.index("assembly_preview") + 1]
+            elif mode == "flow1_polish" and "elevenlabs_prompt_craft" in order:
+                order = order[order.index("elevenlabs_prompt_craft") :]
             return [s for s in order if not ctx.is_done(s)]
         return []
 
@@ -93,11 +118,18 @@ class JobRunner:
         mode: str,
         stage: str | None,
         from_stage: str | None,
+        until_stage: str | None = None,
         api_consents: dict[str, bool] | None,
     ) -> str | None:
         """Return error message when required providers are not consented."""
         consents = self._resolve_consents(api_consents)
-        stage_ids = self._stages_for_execute(ctx, mode=mode, stage=stage, from_stage=from_stage)
+        stage_ids = self._stages_for_execute(
+            ctx,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            until_stage=until_stage,
+        )
         missing: list[str] = []
         for sid in stage_ids:
             for pid in missing_consents(sid, consents):
@@ -119,6 +151,7 @@ class JobRunner:
         stage: str | None = None,
         flow: str | None = None,
         from_stage: str | None = None,
+        until_stage: str | None = None,
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
@@ -131,6 +164,7 @@ class JobRunner:
             mode=mode,
             stage=stage,
             from_stage=from_stage,
+            until_stage=until_stage,
             api_consents=api_consents,
         )
         if consent_err:
@@ -145,7 +179,11 @@ class JobRunner:
                     "missing_api_providers": [
                         p
                         for sid in self._stages_for_execute(
-                            ctx_pre, mode=mode, stage=stage, from_stage=from_stage
+                            ctx_pre,
+                            mode=mode,
+                            stage=stage,
+                            from_stage=from_stage,
+                            until_stage=until_stage,
                         )
                         for p in missing_consents(sid, self._resolve_consents(api_consents))
                     ],
@@ -174,27 +212,43 @@ class JobRunner:
                     transcript_review.mark_transcript_review_complete(ctx)
                 elif mode == "stage" and stage:
                     self._execute_single_stage(ctx, stage, from_stage)
-                elif mode == "analysis":
-                    ctx.log("Running full shared analysis pipeline…", level="info", stage="analysis")
-                    run_analysis(ctx, from_stage=from_stage or stage)
-                elif mode == "flow1":
+                elif mode in ("analysis", "analysis_until_g0"):
+                    ctx.log("Running shared analysis pipeline…", level="info", stage="analysis")
+                    us = until_stage
+                    if mode == "analysis_until_g0" and not us:
+                        us = "transcript_review_build"
+                    run_analysis(ctx, from_stage=from_stage or stage, until_stage=us)
+                    refresh_journey_meta(ctx)
+                elif mode in ("flow1", "flow1_until_preview", "flow1_polish"):
                     set_selected_flow(ctx, "flow1")
                     ctx.log("Running Flow 1 — full master podcast pipeline…", level="info", stage="flow1")
+                    us = until_stage
+                    fs = from_stage or stage
+                    if mode == "flow1_until_preview" and not us:
+                        us = "assembly_preview"
+                    if mode == "flow1_polish" and not fs:
+                        fs = "elevenlabs_prompt_craft"
                     run_flow1(
                         ctx,
-                        from_stage=from_stage or stage,
+                        from_stage=fs,
+                        until_stage=us,
                         preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow1"),
                     )
-                    self._run_master_qa(ctx, flow="flow1", rel_path="flow_1_master/master.wav")
+                    refresh_journey_meta(ctx)
+                    if mode == "flow1" and not us:
+                        self._run_master_qa(ctx, flow="flow1", rel_path="flow_1_master/master.wav")
                 elif mode == "flow2":
                     set_selected_flow(ctx, "flow2")
                     ctx.log("Running Flow 2 — highlight reel pipeline…", level="info", stage="flow2")
                     run_flow2(
                         ctx,
                         from_stage=from_stage or stage,
+                        until_stage=until_stage,
                         preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow2"),
                     )
-                    self._run_master_qa(ctx, flow="flow2", rel_path="flow_2_highlights/master.wav")
+                    refresh_journey_meta(ctx)
+                    if not until_stage:
+                        self._run_master_qa(ctx, flow="flow2", rel_path="flow_2_highlights/master.wav")
                 elif mode == "flow3":
                     set_selected_flow(ctx, "flow3")
                     ctx.log(
@@ -205,12 +259,15 @@ class JobRunner:
                     run_flow3(
                         ctx,
                         from_stage=from_stage or stage,
+                        until_stage=until_stage,
                         preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow3"),
                     )
+                    refresh_journey_meta(ctx)
                 else:
                     raise ValueError(f"Unknown mode: {mode}")
                 done_msg = f"Finished: {info.title if info else label}"
                 ctx.log(done_msg, level="success", stage=label)
+                refresh_journey_meta(ctx)
                 self._write_job(
                     ctx,
                     {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
@@ -218,6 +275,7 @@ class JobRunner:
             except SystemExit as exc:
                 gate_msg = str(exc) or "Operator gate — action required."
                 ctx.log(gate_msg, level="action", stage=label, detail="Complete the gate in the GUI to continue.")
+                refresh_journey_meta(ctx)
                 self._write_job(
                     ctx,
                     {

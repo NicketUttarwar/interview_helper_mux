@@ -153,7 +153,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         max_investigations=0,
     ),
     "elevenlabs_prompt_craft": StageContextPlan(
-        task_line="Craft one ElevenLabs sound-generation prompt per planned asset_id.",
+        task_line="Craft one ElevenLabs Music v2 prompt per planned asset_id.",
         prior_stages=("sound_design_plan_flow1", "sound_design_plan_flow2"),
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,

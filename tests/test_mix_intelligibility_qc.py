@@ -9,6 +9,7 @@ from interview_mux import master_qc
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import mix_flow1
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from run_fixtures import init_run_meta_for_test, sound_design_plan_with
 
 
 def _tone(freq: int, duration_ms: int, gain_db: float = 0.0) -> AudioSegment:
@@ -25,10 +26,16 @@ def _write_wav(path: Path, seg: AudioSegment) -> None:
 
 
 def _bed_plan(*, segment_id: str, level_db: float, duck_db: float) -> dict:
-    return {
-        "version": 1,
-        "assets": [{"asset_id": "speech_band_bed", "role": "ambient_bed", "duration_seconds": 2.0}],
-        "flow_plans": {
+    return sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "speech_band_bed",
+                "role": "ambient_bed",
+                "description": "speech-band test bed",
+                "duration_seconds": 2.0,
+            }
+        ],
+        flow_plans={
             "flow1": {
                 "cues": [
                     {
@@ -42,8 +49,8 @@ def _bed_plan(*, segment_id: str, level_db: float, duck_db: float) -> dict:
                 ],
             }
         },
-        "generated": {"speech_band_bed": "sound_design/assets/speech_band_bed.wav"},
-    }
+        generated={"speech_band_bed": "sound_design/assets/speech_band_bed.wav"},
+    )
 
 
 def test_analyze_mix_intelligibility_fails_on_silent_speech_and_loud_bed() -> None:
@@ -100,6 +107,7 @@ def test_mix_flow1_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypat
         lambda: {"enabled": True, "silent_speech_mix_ceiling_dbfs": -32},
     )
     ctx = RunContext("run_intelligibility_fail", create=True)
+    init_run_meta_for_test(ctx)
 
     speech = AudioSegment.silent(duration=1500, frame_rate=48000)
     bed = _tone(2000, 800, gain_db=0.0)
@@ -141,6 +149,7 @@ def test_mix_intelligibility_qc_skipped_when_disabled(tmp_path: Path, monkeypatc
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(master_qc, "intelligibility_qc_config", lambda: {"enabled": False})
     ctx = RunContext("run_intelligibility_skip", create=True)
+    init_run_meta_for_test(ctx)
 
     speech = AudioSegment.silent(duration=1500, frame_rate=48000)
     bed = _tone(2000, 800, gain_db=0.0)

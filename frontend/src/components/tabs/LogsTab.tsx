@@ -1,12 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
-import type { LogLevel } from "../../types";
+import type { JourneyLogKind, LogLevel } from "../../types";
+import { useJourney } from "../../hooks/useJourney";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
 
+const JOURNEY_KINDS: JourneyLogKind[] = [
+  "gate",
+  "quality",
+  "preview",
+  "sfx",
+  "qc",
+  "milestone",
+  "execute",
+];
+
+function entryJourneyKind(detail: unknown): string | null {
+  if (detail && typeof detail === "object" && "journey_kind" in detail) {
+    return String((detail as { journey_kind: string }).journey_kind);
+  }
+  return null;
+}
+
 export function LogsTab() {
-  const { logEntries, runId, run } = useApp();
+  const { logEntries, runId, run, config } = useApp();
+  const { blocking, nextAction } = useJourney(run);
+  const journeyFilterDefault = config?.journey_ui?.journey_log_filter !== false;
+  const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -26,6 +47,14 @@ export function LogsTab() {
 
   const filtered = useMemo(() => {
     return logEntries.filter((e) => {
+      if (journeyFilter) {
+        const kind = entryJourneyKind(e.detail);
+        const isGate = e.level === "action";
+        if (!kind && !isGate && e.level === "info") return false;
+        if (kind && !JOURNEY_KINDS.includes(kind as JourneyLogKind) && !isGate) {
+          return false;
+        }
+      }
       if (levelFilter !== "all" && e.level !== levelFilter) return false;
       if (stageFilter !== "all" && e.stage !== stageFilter) return false;
       if (search.trim()) {
@@ -35,7 +64,7 @@ export function LogsTab() {
       }
       return true;
     });
-  }, [logEntries, levelFilter, stageFilter, search]);
+  }, [logEntries, levelFilter, stageFilter, search, journeyFilter]);
 
   const displayed = useMemo(() => {
     if (tailSize === "all") return filtered;
@@ -65,7 +94,22 @@ export function LogsTab() {
             {runId ? run?.run_id : "No run"} · persisted to <code>gui_log.jsonl</code>
           </span>
         </div>
+        {blocking?.blocked && blocking.message ? (
+          <div className="journey-blocking-banner" role="status">
+            <strong>Blocked:</strong> {blocking.message}
+          </div>
+        ) : nextAction ? (
+          <p className="journey-next-action logs-next">{nextAction}</p>
+        ) : null}
         <div className="logs-filters">
+          <label className="logs-filter logs-filter-check">
+            <input
+              type="checkbox"
+              checked={journeyFilter}
+              onChange={(e) => setJourneyFilter(e.target.checked)}
+            />
+            Journey view
+          </label>
           <label className="logs-filter">
             Level
             <select

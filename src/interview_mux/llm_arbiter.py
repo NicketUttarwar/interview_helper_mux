@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
 
 ARBITER_PROMPT = "_shared/arbiter.system.txt"
@@ -10,6 +11,7 @@ ARBITER_PROMPT = "_shared/arbiter.system.txt"
 
 def run_llm_arbiter(
     *,
+    ctx: RunContext | None = None,
     stage_key: str,
     attempt_number: int,
     envelope: dict[str, Any],
@@ -32,9 +34,12 @@ def run_llm_arbiter(
             "_arbiter",
             ARBITER_PROMPT,
             user_content=_compact_json(payload),
+            ctx=ctx,
             include_preamble=False,
             task_kind="arbiter",
             response_format={"type": "json_object"},
+            call_attempt=attempt_number,
+            record_stage_key=stage_key,
         )
     except (ValueError, json.JSONDecodeError):
         return {

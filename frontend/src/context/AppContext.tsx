@@ -72,7 +72,7 @@ interface AppContextValue {
   closeActionModal: () => void;
   clearSession: () => Promise<void>;
   refreshHome: () => Promise<void>;
-  startRun: (inputPath: string) => Promise<void>;
+  startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
   openRun: (runId: string, opts?: { quiet?: boolean }) => Promise<void>;
   refreshRun: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
@@ -491,12 +491,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const startRun = useCallback(
-    async (inputPath: string) => {
+    async (inputPath: string, flowIntent?: string) => {
       try {
+        const body: Record<string, string> = { input_audio_path: inputPath };
+        if (flowIntent) body.flow_intent = flowIntent;
         const res = await api<{ run_id: string }>("/api/runs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input_audio_path: inputPath }),
+          body: JSON.stringify(body),
         });
         appendClientLog(`Created execution ${res.run_id}`, "success");
         await openRun(res.run_id);

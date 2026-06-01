@@ -107,12 +107,17 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
 
     calls: list[float] = []
 
-    def fake_generate(*, api_key, text, duration_seconds, prompt_influence=None, max_retries=3):
+    def fake_generate(*, api_key, prompt, duration_seconds, prompt_influence=None, max_retries=3):
         calls.append(duration_seconds)
         return b"RIFF" + b"\x00" * 32
 
     monkeypatch.setattr(sfx_elevenlabs, "require_secret", lambda _k: "test-key")
-    monkeypatch.setattr(sfx_elevenlabs, "generate_sound_effect", fake_generate)
+    monkeypatch.setattr(sfx_elevenlabs, "generate_music", fake_generate)
+    monkeypatch.setattr(
+        sfx_elevenlabs,
+        "_trim_wav_to_duration",
+        lambda *_a, **_k: None,
+    )
     monkeypatch.setattr(
         "interview_mux.g15_prompt_review.g15_required",
         lambda *_a, **_k: False,

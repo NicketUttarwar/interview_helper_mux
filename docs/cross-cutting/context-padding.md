@@ -4,6 +4,8 @@ OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user
 
 **Smart routing (spec):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls. v1 uses `full` only.
 
+**Local framing (plan):** [local-llm-tier.md](./local-llm-tier.md) — optional MLX pass to compress priors into ≤2 volley turns before OpenAI.
+
 ## Message structure
 
 | Turn | Role | Contents |
@@ -83,6 +85,8 @@ Limits in `config/app.defaults.json` → `analysis.context`:
 ## Audit
 
 Each attempt stores the volley in `understanding/stage_runs/<stage>/attempt_NNN.json` under `context_volley` and `context_chars`.
+
+**Per API call (full audit):** [llm-call-record-framework.md](./llm-call-record-framework.md) — `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.json` with labeled request, response, and `volley.turns` for copy-paste / rebuild.
 
 ## Long interviews
 

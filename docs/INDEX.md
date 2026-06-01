@@ -2,6 +2,15 @@
 
 Flat hub for **interview_helper_mux**.
 
+## Operator (start here)
+
+- [workflows/operator-journey.md](./workflows/operator-journey.md) — **primary** happy path (Prepare → Ship)
+- [workflows/operator-gates.md](./workflows/operator-gates.md) — G0, G1, G2, quality offers
+- [workflows/operator-sound-and-mix.md](./workflows/operator-sound-and-mix.md) — SAP → SDP → preview → mix
+- [workflows/troubleshooting.md](./workflows/troubleshooting.md)
+- [workflows/legacy-and-compat.md](./workflows/legacy-and-compat.md) — CLI, legacy stages, `data/run_*`
+- [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md)
+
 ## Roadmap — future-proofing
 
 - [roadmap/future-proofing.md](./roadmap/future-proofing.md) — **guardrails** + compact idea directions for future analysis/features (audio-only)
@@ -37,6 +46,9 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) — smart LLM routing: arbiter, tiers, shard/collate (BUILD-073)
 - [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) — per-stage tier and severity
 - [cross-cutting/llm-orchestration-implementation-handoff.md](./cross-cutting/llm-orchestration-implementation-handoff.md) — future code mapping
+- [cross-cutting/llm-call-record-framework.md](./cross-cutting/llm-call-record-framework.md) — labeled storage for every OpenAI call + volley reconstruction
+- [cross-cutting/local-llm-tier.md](./cross-cutting/local-llm-tier.md) — on-device MLX framing to shrink OpenAI volleys (plan)
+- [cross-cutting/local-llm-implementation-handoff.md](./cross-cutting/local-llm-implementation-handoff.md) — local LLM wiring checklist
 - [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (shipped; [Wave 5 done](./build-out/README.md#wave-5--coherent-sound-design-done))
 - [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) — per-interview acoustic/pacing profile from source audio (shipped, BUILD-082)
@@ -76,12 +88,12 @@ Flat hub for **interview_helper_mux**.
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)
 - [workflows/smoke-test.md](./workflows/smoke-test.md)
 
-## Agent build-out
+## Builder and agent
 
-- [build-out/implementation-guide.md](./build-out/implementation-guide.md) — **master plan**: all phases, waves, definition of done
-- [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — manual release-candidate checklist (pytest optional)
-- [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) — **remaining** Agent commands (top-down backlog)
-- [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — manual release-candidate checklist (pytest optional)
+- [../AGENTS.md](../AGENTS.md) — agent read order
+- [build-out/implementation-guide.md](./build-out/implementation-guide.md) — master plan
+- [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) — remaining Agent commands
+- [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — release-candidate checklist
 - [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator + system journey
 - [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id, module, artifact, status
 - [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance criteria per BUILD ticket
@@ -90,3 +102,9 @@ Flat hub for **interview_helper_mux**.
 - [build-out/repository-map.md](./build-out/repository-map.md) — repo layout ↔ modules ↔ docs
 - [build-out/testing-and-verification.md](./build-out/testing-and-verification.md) — verify each wave
 - [build-out/doc-maintenance.md](./build-out/doc-maintenance.md) — docs to update per PR
+
+## R&D (optional, off default path)
+
+- [pipeline/value-analysis/README.md](./pipeline/value-analysis/README.md)
+- [build-out/gap-closure-agent-commands.md](./build-out/gap-closure-agent-commands.md) — historical
+- [build-out/steps-forward.md](./build-out/steps-forward.md) — historical Agent prompts

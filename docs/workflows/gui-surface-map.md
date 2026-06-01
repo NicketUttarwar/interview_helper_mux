@@ -245,6 +245,7 @@ Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or overr
 | Path | Purpose |
 |------|---------|
 | `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, `context_volley`, schema validation errors — for **debugging model I/O**. |
+| `understanding/llm_calls/` | **Per API call** labeled JSON + optional `.md` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md); **GUI:** Pipeline → **LLM calls** tab; export via `tools/export_llm_calls.py` |
 
 **Routing fields (BUILD-073):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` may appear in `attempt_*.json` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 

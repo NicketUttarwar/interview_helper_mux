@@ -11,6 +11,14 @@
     "updated_at": { "type": "string" },
     "selected_flow": { "enum": ["flow1", "flow2", "flow3"] },
     "selected_at": { "type": "string" },
+    "flow_intent": { "enum": ["flow1", "flow2", "flow3"] },
+    "flow_intent_at": { "type": "string" },
+    "operator_phase": {
+      "enum": ["prepare", "understand", "complete", "create", "polish", "ship"]
+    },
+    "operator_phase_updated_at": { "type": "string" },
+    "journey_milestones": { "type": "object" },
+    "preview_listened_at": { "type": "string" },
     "audio_preclean": { "type": "object" },
     "elevenlabs_prompt_review": { "type": "object" },
     "elevenlabs_listen_results": { "type": "array" },

@@ -1365,6 +1365,360 @@ code {
   margin-top: var(--space-4);
 }
 
+/* LLM calls browser (Pipeline → LLM calls) */
+.llm-calls-panel {
+  max-width: 100%;
+}
+
+.llm-calls-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.llm-calls-header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.llm-calls-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.llm-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.llm-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.llm-search-label {
+  flex: 1;
+  min-width: 180px;
+}
+
+.llm-search-label input {
+  width: 100%;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+}
+
+.llm-count {
+  margin-left: auto;
+  align-self: center;
+}
+
+.llm-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.llm-tree-stage,
+.llm-tree-attempt,
+.llm-tree-call {
+  border-left: 2px solid var(--border);
+  margin-left: 0.5rem;
+}
+
+.llm-tree-stage-head,
+.llm-tree-attempt-head,
+.llm-tree-call-head,
+.llm-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+  font: inherit;
+  border-radius: 6px;
+}
+
+.llm-tree-stage-head:hover,
+.llm-tree-attempt-head:hover,
+.llm-tree-call-head:hover,
+.llm-collapsible-toggle:hover {
+  background: var(--surface-2);
+}
+
+.llm-tree-stage-head {
+  margin-left: 0;
+  border-left: none;
+  font-size: 0.95rem;
+}
+
+.llm-tree-attempt {
+  margin-left: 1rem;
+}
+
+.llm-tree-call {
+  margin-left: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.llm-tree-call.importance-high {
+  border-left-color: var(--accent);
+}
+
+.llm-tree-call.importance-medium {
+  border-left-color: var(--warning);
+}
+
+.llm-chevron {
+  font-size: 0.65rem;
+  color: var(--muted);
+  width: 1rem;
+  flex-shrink: 0;
+}
+
+.llm-call-seq {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.llm-call-task {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.llm-importance {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.llm-importance.importance-high {
+  color: var(--accent);
+}
+
+.llm-importance.importance-medium {
+  color: var(--warning);
+}
+
+.llm-call-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.llm-call-editor {
+  padding: 0.5rem 0.75rem 0.75rem 1.75rem;
+}
+
+.llm-call-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.llm-collapsible {
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.llm-collapsible-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--surface-2);
+}
+
+.llm-collapsible-body {
+  padding: 0.5rem;
+}
+
+.llm-collapsible-title {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.llm-badge {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: 0.35rem;
+}
+
+.llm-turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.llm-envelope-preview {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  max-height: 200px;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem;
+  background: #0c0e14;
+  border-radius: 6px;
+}
+
+.llm-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.pipeline-main .llm-calls-panel {
+  min-height: 320px;
+}
+
+.journey-phase-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.journey-phase-chip {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.journey-phase-chip.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.journey-phase-chip.done {
+  opacity: 0.85;
+}
+
+.journey-blocking-banner,
+.journey-next-action {
+  margin: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(255, 180, 60, 0.12);
+  border: 1px solid rgba(255, 180, 60, 0.35);
+  font-size: 0.9rem;
+}
+
+.stage-phase-group {
+  margin-bottom: 0.75rem;
+}
+
+.stage-phase-group.current-phase .stage-phase-heading {
+  color: var(--accent);
+}
+
+.stage-phase-heading {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.25rem 0 0.35rem;
+  color: var(--muted);
+}
+
+.flow-intent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.flow-intent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  text-align: left;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.flow-intent-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.deliverable-card {
+  margin-top: 0.75rem;
+}
+
+.deliverable-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.deliverable-ok {
+  color: var(--success);
+}
+
+.deliverable-warn {
+  color: var(--warning);
+}
+
+.audio-quality-drawer {
+  margin: 0.5rem 0.75rem;
+}
+
+.story-board .story-headline {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.sap-strip {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0.5rem 0;
+}
+
 @media (max-width: 640px) {
   .app-tab span:not(.app-tab-badge) {
     font-size: 0.8rem;

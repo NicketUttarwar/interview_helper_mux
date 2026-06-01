@@ -67,8 +67,10 @@
     "audio_features": true,
     "auto_extract_after_content_context": true
   },
-  "_comment_elevenlabs": "Upload limits, timeouts, chunk policy",
+  "_comment_elevenlabs": "Music v2 compose, isolation upload limits, timeouts",
   "elevenlabs": {
+    "music_model_id": "music_v2",
+    "force_instrumental": true,
     "max_upload_bytes": 52428800,
     "request_timeout_sec": 120,
     "max_retries": 3
@@ -78,11 +80,26 @@
   "web": {
     "api_consent_persist": true
   },
+  "_comment_journey_ui": "Operator journey kernel — phase sidebar, story board, unified quality drawer",
+  "journey_ui": {
+    "enabled": true,
+    "intent_at_start": true,
+    "phase_sidebar": true,
+    "story_board": true,
+    "unified_preclean_drawer": true,
+    "express_flow1": true,
+    "journey_log_filter": true,
+    "require_preview_listen": false
+  },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
   "analysis": {
     "max_iterations_per_stage": 3,
     "max_queue_drains_per_stage": 5,
     "max_volley_retries": 2,
+    "llm_call_records": {
+      "enabled": true,
+      "write_markdown_sidecar": true
+    },
     "specialists": {
       "enabled": false,
       "pilot_stages": ["full_master_ranking"]

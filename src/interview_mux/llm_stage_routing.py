@@ -77,6 +77,7 @@ def _run_primary_with_volley_retries(
     volley: list[dict[str, str]],
     *,
     bump_tier: bool = False,
+    call_attempt: int = 1,
 ) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
     envelope = run_prompt_envelope(
         stage_key,
@@ -85,6 +86,7 @@ def _run_primary_with_volley_retries(
         ctx=ctx,
         task_kind="primary",
         bump_tier=bump_tier,
+        call_attempt=call_attempt,
     )
     artifacts = envelope.get("artifacts") or {}
     schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -102,6 +104,7 @@ def _run_primary_with_volley_retries(
             ctx=ctx,
             task_kind="primary",
             bump_tier=bump_tier,
+            call_attempt=call_attempt,
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -122,6 +125,7 @@ def _run_primary_with_volley_retries(
             ctx=ctx,
             task_kind="primary",
             bump_tier=bump_tier,
+            call_attempt=call_attempt,
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -173,7 +177,7 @@ def run_llm_stage_with_routing(
     """
     volley = build_message_volley(ctx, stage_key, stage_input)
     envelope, volley, schema_errors = _run_primary_with_volley_retries(
-        ctx, stage_key, prompt_rel, volley, bump_tier=bump_tier
+        ctx, stage_key, prompt_rel, volley, bump_tier=bump_tier, call_attempt=attempt
     )
     truncation_flags = truncation_flags_for_volley(volley)
 
@@ -195,6 +199,7 @@ def run_llm_stage_with_routing(
 
     default_tier = resolve_model(stage_key, "primary").tier
     arbiter_result = run_llm_arbiter(
+        ctx=ctx,
         stage_key=stage_key,
         attempt_number=attempt,
         envelope=envelope,
@@ -216,10 +221,11 @@ def run_llm_stage_with_routing(
     if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
         record_uptier_retry(ctx, stage_key)
         envelope, volley, schema_errors = _run_primary_with_volley_retries(
-            ctx, stage_key, prompt_rel, volley, bump_tier=True
+            ctx, stage_key, prompt_rel, volley, bump_tier=True, call_attempt=attempt
         )
         truncation_flags = truncation_flags_for_volley(volley)
         arbiter_result = run_llm_arbiter(
+            ctx=ctx,
             stage_key=stage_key,
             attempt_number=attempt,
             envelope=envelope,

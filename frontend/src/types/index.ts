@@ -5,7 +5,7 @@ export interface LogEntry {
   level?: LogLevel;
   message: string;
   stage?: string;
-  detail?: string | Record<string, unknown>;
+  detail?: string | Record<string, unknown> & { journey_kind?: JourneyLogKind };
 }
 
 export interface ApiProvider {
@@ -23,6 +23,16 @@ export interface AppConfig {
   repo_root: string;
   value_analysis_enabled?: boolean;
   api_consent_persist?: boolean;
+  journey_ui?: {
+    enabled?: boolean;
+    intent_at_start?: boolean;
+    phase_sidebar?: boolean;
+    story_board?: boolean;
+    unified_preclean_drawer?: boolean;
+    express_flow1?: boolean;
+    journey_log_filter?: boolean;
+    require_preview_listen?: boolean;
+  };
 }
 
 export interface AssetFile {
@@ -46,11 +56,64 @@ export interface RunSummary {
 
 export type StageStatus = "done" | "pending" | "action_required" | "locked";
 
+export type OperatorPhase =
+  | "prepare"
+  | "understand"
+  | "complete"
+  | "create"
+  | "polish"
+  | "ship";
+
+export type JourneyLogKind =
+  | "gate"
+  | "quality"
+  | "preview"
+  | "sfx"
+  | "qc"
+  | "milestone"
+  | "execute";
+
+export interface JourneyBlocking {
+  blocked?: boolean;
+  reason?: string | null;
+  message?: string;
+  stage_id?: string | null;
+}
+
+export interface JourneyExecuteHint {
+  mode: string;
+  label: string;
+  from_stage?: string;
+  until_stage?: string;
+}
+
+export interface JourneyState {
+  phase: OperatorPhase;
+  milestones: Record<string, boolean>;
+  flow_intent?: string | null;
+  selected_flow?: string | null;
+  next_action: string;
+  blocking: JourneyBlocking;
+  recommended_preclean?: string | null;
+  preclean_checkpoints?: string[];
+  execute_hint?: JourneyExecuteHint | null;
+  deliverable?: {
+    kind: string;
+    paths: Record<string, string>;
+    qc_passed?: boolean | null;
+    lufs?: number | null;
+  };
+  phase_progress?: Record<string, { done: number; total: number }>;
+  open_investigations?: number;
+  sound_labels?: string[];
+}
+
 export interface StageInfo {
   id: string;
   title: string;
   description: string;
   phase?: string;
+  operator_phase?: OperatorPhase;
   status: StageStatus;
   artifacts?: string[];
   editable?: string[];
@@ -74,6 +137,10 @@ export interface RunData {
   handoff_ack?: Record<string, string>;
   elevenlabs_generated_assets?: Array<{ asset_id: string; path: string }>;
   selected_flow?: string;
+  flow_intent?: string;
+  display_flow?: string;
+  journey?: JourneyState;
+  blocking?: JourneyBlocking;
   transcript_review_pending?: boolean;
   transcript_review_clear?: boolean;
   profile_verified?: boolean;
@@ -91,6 +158,10 @@ export interface RunMeta {
   input_audio_path?: string;
   updated_at?: string;
   selected_flow?: string;
+  flow_intent?: string;
+  operator_phase?: OperatorPhase;
+  journey_milestones?: Record<string, boolean>;
+  preview_listened_at?: string;
   audio_preclean?: {
     offered_at?: string[];
     enabled?: boolean;
@@ -227,9 +298,18 @@ export interface LlmRoutingAttempt {
 }
 
 export interface ExecuteBody {
-  mode: "stage" | "analysis" | "flow1" | "flow2" | "flow3";
+  mode:
+    | "stage"
+    | "analysis"
+    | "analysis_until_g0"
+    | "flow1"
+    | "flow1_until_preview"
+    | "flow1_polish"
+    | "flow2"
+    | "flow3";
   stage?: string;
   from_stage?: string;
+  until_stage?: string;
   api_consents?: Record<string, boolean>;
 }
 
@@ -240,7 +320,92 @@ export interface PrecleanOffer {
 }
 
 export type AppTab = "start" | "executions" | "pipeline" | "logs";
-export type PipelineSubTab = "stage" | "timeline" | "profile" | "files";
+export type PipelineSubTab =
+  | "stage"
+  | "story"
+  | "timeline"
+  | "profile"
+  | "files"
+  | "llm_calls";
+
+export interface StoryBoardData {
+  analysis_state: AnalysisState;
+  investigation_queue: Record<string, unknown>;
+  content_brief: Record<string, unknown>;
+  narrative_plan?: Record<string, unknown> | null;
+  source_acoustic_profile?: Record<string, unknown> | null;
+  value_features?: Record<string, unknown> | null;
+  operator_verified?: boolean;
+}
+
+export interface AudioQualityState {
+  audio_preclean?: Record<string, unknown>;
+  checkpoints: Array<{ id: string; acknowledged: boolean }>;
+  recommended?: string | null;
+}
+
+export interface LlmCallSummary {
+  path: string;
+  call_id?: string;
+  label?: string;
+  stage_key?: string;
+  attempt?: number;
+  sequence?: number;
+  task_kind?: string;
+  importance?: "high" | "medium" | "low";
+  provider?: string;
+  model_id?: string;
+  model_tier?: string;
+  recorded_at?: string;
+  context_chars?: number;
+  truncation_flags?: string[];
+  turn_count?: number;
+  has_system?: boolean;
+  load_error?: boolean;
+}
+
+export interface LlmCallVolleyTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface LlmCallRecord {
+  schema_version?: number;
+  call_id?: string;
+  label?: string;
+  stage_key?: string;
+  attempt?: number;
+  sequence?: number;
+  task_kind?: string;
+  importance?: string;
+  model_id?: string;
+  model_tier?: string;
+  recorded_at?: string;
+  volley?: {
+    system_prompt?: string;
+    turns?: LlmCallVolleyTurn[];
+  };
+  response?: {
+    raw_content?: string;
+    parsed_envelope?: Record<string, unknown>;
+  };
+  request?: { messages?: LlmCallVolleyTurn[] };
+  truncation_flags?: string[];
+  context_chars?: number;
+  links?: Record<string, string>;
+  _gui?: {
+    path?: string;
+    openai_messages?: LlmCallVolleyTurn[];
+  };
+}
+
+export interface LlmCallsIndex {
+  run_id: string;
+  call_count: number;
+  calls: LlmCallSummary[];
+  tree: Record<string, Record<string, LlmCallSummary[]>>;
+  stages: string[];
+}
 
 /** @deprecated use AppTab */
 export type ViewName = "home" | "workspace";

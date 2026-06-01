@@ -18,6 +18,9 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
+| `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
+| `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `flow_intent` | Early planning before G2 |
+| `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `preview_listened_at` milestone |
 | `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
 | `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true`, blocks persisting invalid show description; default `false` (warn only) |
@@ -66,9 +69,39 @@ Tier guidance: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID 
 
 ---
 
+## `local_llm` (planned)
+
+On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md). **Not in `app.defaults.json` until BUILD ships.**
+
+| Key | Default (planned) | If wrong |
+|-----|-------------------|----------|
+| `local_llm.enabled` | `false` | No local pass; OpenAI-only (current behavior) |
+| `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Wrong/missing weights → import or load failure |
+| `local_llm.models_dir` | `.venv/share/interview_mux/local_llm/models` | Download script and runner disagree on path |
+| `local_llm.max_volley_turns` | `2` | OpenAI volley bloat; higher API cost |
+| `local_llm.max_tokens` | `768` | Truncated framer JSON → forced escalation |
+| `local_llm.escalate_on_parse_error` | `true` | `false` risks skipping OpenAI on bad local output |
+
+Weights: `python scripts/download_local_llm.py` (see [SETUP.md](../../SETUP.md)).
+
+---
+
 ## Legacy note — flat-only config
 
 Older docs described only a flat `models.<stage_key>` map. That still works, but **`models.tiers` + `models.stages` are the preferred shape** in `config/app.defaults.json`.
+
+---
+
+## `analysis.llm_call_records`
+
+Every OpenAI call via `run_prompt_envelope` (when `ctx` is set). Spec: [llm-call-record-framework.md](./llm-call-record-framework.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `enabled` | `true` | No per-call files; only `stage_runs` attempt summaries |
+| `write_markdown_sidecar` | `true` | No `.md` copy-paste files next to JSON records |
+
+Export: `python tools/export_llm_calls.py --run-id <exec_*>`.
 
 ---
 
@@ -192,7 +225,9 @@ Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Dee
 
 | Key | Used by | If wrong |
 |-----|---------|----------|
-| `elevenlabs.timeout_seconds` | `elevenlabs_rest.py` REST calls | Hung or premature timeout on isolation/SFX |
+| `elevenlabs.music_model_id` | `elevenlabs_rest.generate_music` | Wrong model (use `music_v2` for current sound-design path) |
+| `elevenlabs.force_instrumental` | `elevenlabs_rest.generate_music` | `false` may yield vocals in beds/stingers |
+| `elevenlabs.request_timeout_sec` | `elevenlabs_rest.py` REST calls | Hung or premature timeout on isolation/Music compose |
 | `elevenlabs.max_retries` | `elevenlabs_rest.py` | Too few retries → flaky generation; too many → slow failures |
 | `elevenlabs.max_upload_bytes` | `elevenlabs_rest.py`, `audio_preclean.py` chunk policy | Oversized WAV rejected or chunked before POST |
 

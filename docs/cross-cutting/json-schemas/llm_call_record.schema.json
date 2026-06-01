@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://interview-helper-mux.local/schemas/llm_call_record.schema.json",
+  "title": "LLM call record",
+  "description": "One labeled OpenAI (or local) Chat Completions exchange for audit, copy-paste, and volley reconstruction.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "call_id",
+    "label",
+    "provider",
+    "recorded_at",
+    "run_id",
+    "stage_key",
+    "attempt",
+    "sequence",
+    "task_kind",
+    "importance",
+    "request",
+    "response",
+    "volley"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "call_id": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "enum": ["openai", "local_mlx"] },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "run_id": { "type": "string" },
+    "stage_key": { "type": "string" },
+    "prompt_key": { "type": "string" },
+    "prompt_ref": { "type": "string" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "task_kind": { "type": "string" },
+    "importance": { "type": "string", "enum": ["high", "medium", "low"] },
+    "model_id": { "type": "string" },
+    "model_tier": { "type": "string" },
+    "request": {
+      "type": "object",
+      "required": ["messages"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "content"],
+            "properties": {
+              "role": { "type": "string", "enum": ["system", "user", "assistant"] },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "temperature": { "type": "number" },
+        "response_format": { "type": "object" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["raw_content"],
+      "properties": {
+        "raw_content": { "type": "string" },
+        "parsed_envelope": { "type": "object" }
+      }
+    },
+    "volley": {
+      "type": "object",
+      "required": ["turns"],
+      "properties": {
+        "system_prompt": { "type": "string" },
+        "turns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "content"],
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "assistant"] },
+              "content": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "context_chars": { "type": "integer", "minimum": 0 },
+    "truncation_flags": { "type": "array", "items": { "type": "string" } },
+    "links": {
+      "type": "object",
+      "properties": {
+        "attempt_artifact": { "type": "string" },
+        "relative_path": { "type": "string" }
+      }
+    }
+  }
+}

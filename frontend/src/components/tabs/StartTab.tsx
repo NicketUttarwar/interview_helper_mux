@@ -1,18 +1,59 @@
+import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { formatBytes } from "../../utils";
 
+type FlowIntent = "flow1" | "flow2" | "flow3";
+
+const INTENT_CARDS: { id: FlowIntent; title: string; blurb: string }[] = [
+  {
+    id: "flow1",
+    title: "Full master podcast",
+    blurb: "Complete episode with VO bridges, sound design, and mastered WAV.",
+  },
+  {
+    id: "flow2",
+    title: "Highlight reel",
+    blurb: "Up to five clips, montage SFX, ~60s–3min mastered WAV.",
+  },
+  {
+    id: "flow3",
+    title: "Show description only",
+    blurb: "Third-person blurb for directories — no audio mux.",
+  },
+];
+
 export function StartTab() {
-  const { assets, selectedAsset, setSelectedAsset, refreshHome, startRun } = useApp();
+  const { assets, selectedAsset, setSelectedAsset, refreshHome, startRun, config } = useApp();
+  const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
+  const intentEnabled = config?.journey_ui?.intent_at_start !== false;
 
   return (
     <main className="view tab-view">
       <section className="panel hero">
         <h2>Source audio</h2>
         <p className="lead">
-          Input files live under <code>ASSETS/</code>. Pick a file and start a new
-          immutable execution folder (<code>exec_001_…</code>).
+          Input files live under <code>ASSETS/</code>. Pick what you are making, then start a new
+          execution (<code>exec_001_…</code>).
         </p>
       </section>
+      {intentEnabled ? (
+        <section className="panel">
+          <h3>What are you making?</h3>
+          <div className="flow-intent-cards">
+            {INTENT_CARDS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`flow-intent-card${flowIntent === c.id ? " selected" : ""}`}
+                onClick={() => setFlowIntent(c.id)}
+              >
+                <strong>{c.title}</strong>
+                <span>{c.blurb}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="panel">
         <div className="panel-head">
           <h3>Input audio</h3>
@@ -48,7 +89,7 @@ export function StartTab() {
                   className="btn primary sm btn-start"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void startRun(f.path);
+                    void startRun(f.path, intentEnabled ? flowIntent : undefined);
                   }}
                 >
                   New execution

@@ -8,6 +8,7 @@ from pydub.generators import Sine
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import mix_flow1, mix_flow2
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from run_fixtures import sound_design_plan_with
 
 
 def _tone(freq: int, duration_ms: int, gain_db: float = 0.0) -> AudioSegment:
@@ -44,18 +45,17 @@ def test_mix_flow1_overlays_stinger_above_speech(tmp_path: Path, monkeypatch) ->
     ctx.write_json("flow_1_master/edl.json", edl)
     ctx.write_json(
         "understanding/sound_design_plan.json",
-        {
-            "version": 1,
-            "assets": [
+        sound_design_plan_with(
+            assets=[
                 {
                     "asset_id": "chapter_stinger_warm",
                     "role": "chapter_stinger",
+                    "description": "warm chapter stinger",
                     "duration_seconds": 0.4,
                 }
             ],
-            "flow_plans": {
+            flow_plans={
                 "flow1": {
-                    "profile": "podcast",
                     "cues": [
                         {
                             "cue_id": "sting_1",
@@ -67,8 +67,8 @@ def test_mix_flow1_overlays_stinger_above_speech(tmp_path: Path, monkeypatch) ->
                     ],
                 }
             },
-            "generated": {"chapter_stinger_warm": "sound_design/assets/chapter_stinger_warm.wav"},
-        },
+            generated={"chapter_stinger_warm": "sound_design/assets/chapter_stinger_warm.wav"},
+        ),
     )
 
     logs: list[str] = []
@@ -110,10 +110,16 @@ def test_mix_flow1_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
     ctx.write_json("flow_1_master/edl.json", edl)
     ctx.write_json(
         "understanding/sound_design_plan.json",
-        {
-            "version": 1,
-            "assets": [{"asset_id": "ambient_bed", "role": "ambient_bed", "duration_seconds": 2.0}],
-            "flow_plans": {
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "ambient_bed",
+                    "role": "ambient_bed",
+                    "description": "quiet ambient bed",
+                    "duration_seconds": 2.0,
+                }
+            ],
+            flow_plans={
                 "flow1": {
                     "cues": [
                         {
@@ -127,8 +133,8 @@ def test_mix_flow1_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
                     ],
                 }
             },
-            "generated": {"ambient_bed": "sound_design/assets/ambient_bed.wav"},
-        },
+            generated={"ambient_bed": "sound_design/assets/ambient_bed.wav"},
+        ),
     )
 
     assembly = mix_flow1(ctx)
@@ -175,13 +181,22 @@ def test_mix_flow2_shared_transition_between_clips(tmp_path: Path, monkeypatch) 
     )
     ctx.write_json(
         "understanding/sound_design_plan.json",
-        {
-            "version": 1,
-            "assets": [
-                {"asset_id": "montage_transition_glue", "role": "transition_stinger", "duration_seconds": 0.3},
-                {"asset_id": "cold_open_pulse", "role": "cold_open", "duration_seconds": 0.25},
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "montage_transition_glue",
+                    "role": "transition_stinger",
+                    "description": "montage transition",
+                    "duration_seconds": 0.3,
+                },
+                {
+                    "asset_id": "cold_open_pulse",
+                    "role": "cold_open",
+                    "description": "cold open pulse",
+                    "duration_seconds": 0.25,
+                },
             ],
-            "flow_plans": {
+            flow_plans={
                 "flow2": {
                     "cues": [
                         {"cue_id": "open", "asset_id": "cold_open_pulse", "placement": "before_timeline"},
@@ -195,11 +210,11 @@ def test_mix_flow2_shared_transition_between_clips(tmp_path: Path, monkeypatch) 
                     ],
                 }
             },
-            "generated": {
+            generated={
                 "montage_transition_glue": "sound_design/assets/montage_transition_glue.wav",
                 "cold_open_pulse": "sound_design/assets/cold_open_pulse.wav",
             },
-        },
+        ),
     )
 
     assembly = mix_flow2(ctx)

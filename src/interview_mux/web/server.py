@@ -49,6 +49,14 @@ from interview_mux.nle_state import apply_segments_with_nle, load_nle, save_nle,
 from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log, read_log
+from interview_mux.journey_orchestrator import (
+    build_journey_snapshot,
+    mark_preview_listened,
+    refresh_journey_meta,
+    set_flow_intent,
+)
+from interview_mux.journey_state import get_flow_intent, stage_operator_phase
+from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import runner
 from interview_mux.web.stages import STAGE_BY_ID, all_stages_for_run
 
@@ -61,16 +69,27 @@ SKIP_ASSET_PARTS = {"executions", ".gui"}
 class CreateRunBody(BaseModel):
     input_audio_path: str
     run_id: str | None = None
+    flow_intent: str | None = Field(default=None, pattern="^(flow1|flow2|flow3)$")
 
 
 class FlowBody(BaseModel):
     flow: str = Field(pattern="^(flow1|flow2|flow3)$")
 
 
+class InvestigationPatchBody(BaseModel):
+    status: str = "resolved"
+
+
 class ExecuteBody(BaseModel):
-    mode: str = Field(description="stage | analysis | flow1 | flow2 | flow3")
+    mode: str = Field(
+        description=(
+            "stage | analysis | analysis_until_g0 | flow1 | flow1_until_preview | "
+            "flow1_polish | flow2 | flow3"
+        )
+    )
     stage: str | None = None
     from_stage: str | None = None
+    until_stage: str | None = None
     api_consents: dict[str, bool] | None = None
 
 
@@ -123,6 +142,22 @@ class LogBody(BaseModel):
     message: str
     level: str = "info"
     stage: str | None = None
+
+
+class LlmCallVolleyTurn(BaseModel):
+    role: str
+    content: str = ""
+
+
+class LlmCallVolleyBody(BaseModel):
+    system_prompt: str = ""
+    turns: list[LlmCallVolleyTurn] = Field(default_factory=list)
+
+
+class LlmCallRecordUpdateBody(BaseModel):
+    path: str
+    volley: LlmCallVolleyBody | None = None
+    raw_response: str | None = None
 
 
 class TranscriptChunkBody(BaseModel):
@@ -186,6 +221,7 @@ def create_app() -> FastAPI:
             "repo_root": str(root),
             "value_analysis_enabled": value_analysis_enabled(cfg),
             "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
+            "journey_ui": (cfg.get("journey_ui") or {"enabled": True}),
         }
 
     @app.get("/api/session/api-consent")
@@ -292,7 +328,10 @@ def create_app() -> FastAPI:
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
         ctx = RunContext(body.run_id, create=True)
         ctx.init_run_meta(body.input_audio_path)
+        if body.flow_intent:
+            set_flow_intent(ctx, body.flow_intent)
         ensure_analysis_workspace(ctx)
+        refresh_journey_meta(ctx)
         set_active_execution(ctx.run_id)
         return {
             "run_id": ctx.run_id,
@@ -336,12 +375,17 @@ def create_app() -> FastAPI:
             ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending
         )
         handoff_ack = meta.get("handoff_ack") or {}
+        job = runner.get_job(run_id)
+        journey = build_journey_snapshot(ctx, job=job, stages=stages)
+        intent = get_flow_intent(ctx)
+        display_flow = flow or intent
         return {
             "run_id": run_id,
             "meta": meta,
             "handoff_ack": handoff_ack,
             "elevenlabs_generated_assets": _discover_generated_sfx_assets(ctx),
             "selected_flow": flow,
+            "flow_intent": intent,
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
             "profile_verified": profile_verified,
@@ -349,9 +393,12 @@ def create_app() -> FastAPI:
             "g1_missing": g1_missing,
             "g1_clear": not g1_missing,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
-            "job": runner.get_job(run_id),
+            "job": job,
+            "journey": journey,
+            "blocking": journey.get("blocking"),
             "stages": stages,
             "log_tail": read_log(ctx.run_dir, tail=100),
+            "display_flow": display_flow,
         }
 
     @app.get("/api/runs/{run_id}/log")
@@ -502,6 +549,55 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         return {"attempts": list_stage_routing_attempts(ctx)}
 
+    @app.get("/api/runs/{run_id}/llm-calls")
+    def get_llm_calls(run_id: str) -> dict[str, Any]:
+        from interview_mux.llm_calls_gui import list_llm_calls_summary
+
+        ctx = _ctx(run_id)
+        return list_llm_calls_summary(ctx)
+
+    @app.get("/api/runs/{run_id}/llm-calls/record")
+    def get_llm_call_record(run_id: str, path: str) -> dict[str, Any]:
+        from interview_mux.llm_calls_gui import get_llm_call_record as load_record
+
+        ctx = _ctx(run_id)
+        try:
+            return load_record(ctx, path)
+        except FileNotFoundError:
+            raise HTTPException(404, f"LLM call record not found: {path}") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.put("/api/runs/{run_id}/llm-calls/record")
+    def put_llm_call_record(run_id: str, body: LlmCallRecordUpdateBody) -> dict[str, Any]:
+        from interview_mux.llm_calls_gui import update_llm_call_record
+
+        ctx = _ctx(run_id)
+        volley_dict: dict[str, Any] | None = None
+        if body.volley is not None:
+            volley_dict = {
+                "system_prompt": body.volley.system_prompt,
+                "turns": [t.model_dump() for t in body.volley.turns],
+            }
+        try:
+            doc = update_llm_call_record(
+                ctx,
+                body.path,
+                volley=volley_dict,
+                raw_response=body.raw_response,
+            )
+        except FileNotFoundError:
+            raise HTTPException(404, f"LLM call record not found: {body.path}") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        ctx.log(
+            f"Updated LLM call record {body.path} from GUI.",
+            level="info",
+            stage="llm_calls_editor",
+            detail=json.dumps({"path": body.path}),
+        )
+        return {"ok": True, "record": doc}
+
     @app.get("/api/runs/{run_id}/artifact")
     def get_artifact(run_id: str, path: str) -> Any:
         ctx = _ctx(run_id)
@@ -567,6 +663,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         set_selected_flow(ctx, body.flow)
         ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
+        refresh_journey_meta(ctx)
         return {"ok": True, "selected_flow": body.flow}
 
     @app.post("/api/runs/{run_id}/preclean-offer")
@@ -729,12 +826,14 @@ def create_app() -> FastAPI:
         if runner.is_running(run_id):
             raise HTTPException(409, "A job is already running for this run.")
         set_active_execution(run_id)
+        flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
         return runner.start(
             run_id,
             mode=body.mode,
             stage=body.stage,
-            flow=body.mode if body.mode in ("flow1", "flow2", "flow3") else None,
+            flow=body.mode if body.mode in flow_modes else None,
             from_stage=body.from_stage or body.stage,
+            until_stage=body.until_stage,
             api_consents=body.api_consents,
         )
 
@@ -809,7 +908,104 @@ def create_app() -> FastAPI:
         ensure_analysis_workspace(ctx)
         mark_operator_verified(ctx, True)
         ctx.log("Interview profile marked verified.", level="success", stage="analysis_profile")
+        refresh_journey_meta(ctx)
         return {"ok": True, "operator_verified": True}
+
+    @app.get("/api/runs/{run_id}/story-board")
+    def get_story_board(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        ensure_analysis_workspace(ctx)
+        state = load_analysis_state(ctx)
+        queue = (
+            ctx.read_json("understanding/investigation_queue.json")
+            if ctx.artifact_exists("understanding/investigation_queue.json")
+            else {}
+        )
+        brief = (
+            ctx.read_json("understanding/content_brief.json")
+            if ctx.artifact_exists("understanding/content_brief.json")
+            else {}
+        )
+        narrative = (
+            ctx.read_json("flow_1_master/narrative_plan.json")
+            if ctx.artifact_exists("flow_1_master/narrative_plan.json")
+            else None
+        )
+        sap = (
+            ctx.read_json("understanding/source_acoustic_profile.json")
+            if ctx.artifact_exists("understanding/source_acoustic_profile.json")
+            else None
+        )
+        value_features = (
+            ctx.read_json("understanding/value_features.json")
+            if ctx.artifact_exists("understanding/value_features.json")
+            else None
+        )
+        return {
+            "analysis_state": state,
+            "investigation_queue": queue,
+            "content_brief": brief,
+            "narrative_plan": narrative,
+            "source_acoustic_profile": sap,
+            "value_features": value_features,
+            "operator_verified": (state.get("meta") or {}).get("operator_verified", False),
+        }
+
+    @app.patch("/api/runs/{run_id}/investigation-queue/{item_id}")
+    def patch_investigation_item(
+        run_id: str, item_id: str, body: InvestigationPatchBody
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        path = "understanding/investigation_queue.json"
+        if not ctx.artifact_exists(path):
+            raise HTTPException(404, "Investigation queue not found")
+        queue = ctx.read_json(path)
+        items = queue.get("items") or queue.get("investigations") or []
+        if not isinstance(items, list):
+            raise HTTPException(400, "Invalid investigation queue")
+        found = False
+        for it in items:
+            if isinstance(it, dict) and str(it.get("id")) == item_id:
+                it["status"] = body.status
+                found = True
+                break
+        if not found:
+            raise HTTPException(404, f"Investigation item not found: {item_id}")
+        queue["items"] = items
+        ctx.write_json(path, queue)
+        ctx.log(
+            f"Investigation {item_id} marked {body.status}.",
+            level="success",
+            stage="analysis_profile",
+        )
+        refresh_journey_meta(ctx)
+        return {"ok": True, "investigation_queue": queue}
+
+    @app.get("/api/runs/{run_id}/audio-quality")
+    def get_audio_quality(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        preclean = meta.get("audio_preclean") if isinstance(meta.get("audio_preclean"), dict) else {}
+        journey = build_journey_snapshot(ctx)
+        checkpoints = []
+        for cp in sorted(journey.get("preclean_checkpoints") or []):
+            checkpoints.append(
+                {
+                    "id": cp,
+                    "acknowledged": preclean_acknowledged(meta, cp),
+                }
+            )
+        return {
+            "audio_preclean": preclean,
+            "checkpoints": checkpoints,
+            "recommended": journey.get("recommended_preclean"),
+        }
+
+    @app.post("/api/runs/{run_id}/milestones/preview-listened")
+    def post_preview_listened(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        mark_preview_listened(ctx)
+        return {"ok": True, "journey": build_journey_snapshot(ctx)}
 
     @app.post("/api/runs/{run_id}/transcript-review/complete")
     def complete_transcript_review(run_id: str, body: TranscriptReviewCompleteBody) -> dict[str, Any]:
@@ -824,6 +1020,7 @@ def create_app() -> FastAPI:
                 f"{pending} clip(s) not marked reviewed. Save each chunk or pass accept_unreviewed=true.",
             )
         transcript_review.mark_transcript_review_complete(ctx)
+        refresh_journey_meta(ctx)
         return {"ok": True, "transcript_review_clear": True}
 
     @app.post("/api/runs/{run_id}/vo/{line_id}")
@@ -896,7 +1093,7 @@ def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
         cleared.extend(_done_markers_from(ctx, FLOW1_ORDER, "sound_design_plan_flow1"))
     elif flow == "flow2":
         cleared.extend(_done_markers_from(ctx, FLOW2_ORDER, "sound_design_plan_flow2"))
-    runner.invalidate_from(ctx.run_id, from_stage)
+    ctx.clear_from(from_stage, ANALYSIS_ORDER)
     if flow == "flow1":
         ctx.clear_from("sound_design_plan_flow1", FLOW1_ORDER)
     elif flow == "flow2":
@@ -988,6 +1185,8 @@ def _build_stage_list(
                 s["status"] = "done"
             elif ctx.artifact_exists("analysis_complete.json"):
                 s["status"] = "action_required"
+            elif get_flow_intent(ctx):
+                s["status"] = "pending"
             else:
                 s["status"] = "locked"
         elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase in ("flow1", "flow2", "flow3"):
@@ -1012,7 +1211,29 @@ def _build_stage_list(
         if info:
             s["artifacts_present"] = [a for a in info.artifacts if ctx.artifact_exists(a)]
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
-    return stages
+        s["operator_phase"] = stage_operator_phase(sid)
+    return _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
+
+
+def _filter_stages_for_intent(
+    ctx: RunContext,
+    stages: list[dict[str, Any]],
+    flow: str | None,
+) -> list[dict[str, Any]]:
+    """Collapse irrelevant flow stages when flow_intent is set early."""
+    if not flow:
+        return stages
+    if flow != "flow3":
+        return stages
+    hide_phases = {"flow1", "flow2"}
+    out: list[dict[str, Any]] = []
+    for s in stages:
+        sid = s.get("id") or ""
+        info = STAGE_BY_ID.get(sid)
+        if info and info.phase in hide_phases:
+            continue
+        out.append(s)
+    return out
 
 
 def _record_preclean_offer(

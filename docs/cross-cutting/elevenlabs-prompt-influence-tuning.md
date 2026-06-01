@@ -1,60 +1,32 @@
-# ElevenLabs `prompt_influence` tuning guide
+# ElevenLabs prompt influence tuning (Music v2)
 
-**API field:** `prompt_influence` on `POST https://api.elevenlabs.io/v1/sound-generation` (path anchor: [anchored-toolchain.md](./anchored-toolchain.md#external-http-apis-version-surfaces)) (0.0–1.0 typical range; higher = stricter adherence to prompt text).
+**Craft field:** `prompt_influence` on each row in `sound_design/elevenlabs_prompts.json` (0.0–1.0 typical range; higher = stricter adherence to prompt text).
 
-**REST-only:** Implement via [elevenlabs_rest.py](../../src/interview_mux/elevenlabs_rest.py) — not the ElevenLabs Python SDK.
+**API:** ElevenLabs **Music v2** (`POST https://api.elevenlabs.io/v1/music`, `model_id`: `music_v2`) does **not** expose `prompt_influence`. The repo maps craft values to prompt prose in `interview_mux.elevenlabs_rest.apply_prompt_influence_to_text` before the REST call.
 
-**Defaults by role:** [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) § Service A.
-
----
-
-## Decision table
-
-| Symptom (what you hear) | Likely cause | `prompt_influence` | Next action |
-|-------------------------|--------------|-------------------|-------------|
-| Output ignores key exclusions (vocals, beat, trailer whoosh) | Model drifting off prompt | **Raise** +0.05–0.10 (cap ~0.50) | Regen same prompt; if still fails → **rewrite** prompt with stronger exclusions in prose + `negative_prompt` |
-| Output is thin, noisy, or “generic room tone” only | Over-constrained | **Lower** −0.05–0.10 (floor ~0.20) | Regen; if still dull → **rewrite** with richer spectral/space detail (not shorter prompt) |
-| Metallic / harsh highs on stinger | Prompt too bright or influence too high on noise words | **Lower** −0.05 | **Rewrite** — soften “bright”, “shimmer”, add “warm, no harsh sibilance” |
-| Bed masks speech (even when ducked) | Too much midrange energy in generation | **Lower** −0.03 | **Rewrite** bed — “energy below 6 kHz”; post-gen lower `level_db` |
-| Muddy / boomy bed | Too much low end in output | **Lower** −0.05 | **Rewrite** — “no rumble below 80 Hz”; regen once |
-| Stinger too long / riser keeps going | Duration drift | Keep influence | **Regen** with `duration_seconds` −0.2; tighten temporal shape in prompt |
-| Stinger too short / clipped | Duration drift | Keep influence | **Regen** with `duration_seconds` +0.2 |
-| Voice-like formants in bed | Policy failure | **Raise** +0.10 | **Rewrite** + discard take; block if repeats |
-| Cartoon / comedy color | Wrong adjectives | Keep influence | **Rewrite** prompt + palette `avoid`; regen |
-| Same prompt, different runs wildly different | Normal variance | Keep influence | Regen up to **2** times; then **rewrite** one section (space or exclusions) |
-| Loop seam click on bed | Loop language ignored | **Raise** +0.05 | **Rewrite** “seamless loop, no click at wrap”; regen |
-| Montage transition feels like new song each cut | Melodic hook | **Raise** +0.05 | **Rewrite** — “no melody hook, non-tonal spectral glide” |
-| Cold open fights clip 1 | Level + spectral clash | **Lower** −0.05 on open | Post-gen overlap −8 dB / 400 ms; optional regen |
+Path anchor: [anchored-toolchain.md](./anchored-toolchain.md#external-http-apis-version-surfaces).
 
 ---
 
-## Regen vs rewrite prompt
+## Mapping (shipped)
 
-| Action | When | Cost |
-|--------|------|------|
-| **Regen** | Prompt is correct; random variance or duration slightly off | 1 API call |
-| **Rewrite prompt** | Systematic wrong color, policy risk, or repeated regen failures | 1 craft LLM call + 1 API call |
-| **Change plan** | Wrong role or asset boundaries (bed on wrong segments) | Edit SDP cues, not influence |
+| Craft `prompt_influence` | Prompt suffix behavior |
+|--------------------------|------------------------|
+| ≥ 0.40 | Adds “follow precisely / minimal improvisation” guidance |
+| ≤ 0.25 | Adds “allow subtle variation” guidance |
+| 0.26–0.39 | No suffix (prompt text only) |
 
-**Cap:** Max **2** regens per `asset_id` per plan hash, then mandatory rewrite or operator sign-off.
-
----
-
-## Starting points (prescriptive)
-
-| Role | Start `prompt_influence` | Adjust first |
-|------|-------------------------|--------------|
-| `ambient_bed` | 0.30 | Lower if dull; raise if exclusions ignored |
-| `chapter_stinger` | 0.38 | Lower if harsh; raise if whoosh appears |
-| `transition_stinger` | 0.40 | Lower if metallic; raise if melodic hook |
-| `cold_open` | 0.42 | Lower if fights speech overlap |
-| `vo_bridge` | 0.32 | Raise if any voice-like content |
-| `accent_foley` | 0.35 | Raise if gesture splits into multiple events |
+Role defaults in `sfx_elevenlabs._ROLE_INFLUENCE` still apply when craft rows omit `prompt_influence`.
 
 ---
 
-## Related
+## Symptom → action
 
-- [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden fixtures
-- [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md) — craft prose patterns
-- [troubleshooting.md](../workflows/troubleshooting.md) — HTTP / quota failures
+| Symptom | Try first | Then |
+|---------|-----------|------|
+| Output ignores prompt details | Raise craft `prompt_influence` to 0.40+ | Rewrite `elevenlabs_prompt`; tighten `negative_prompt` |
+| Output feels stiff / repetitive | Lower to 0.25 or below | Shorten prompt; reduce conflicting adjectives |
+| Timbral wrong but follows words | Rewrite prompt (influence won’t fix timbre) | Regen asset; adjust SDP role/duration |
+| Vocals in bed | Ensure `force_instrumental: true` in config; strengthen “no vocals” in prompt | Regen |
+
+See [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) and [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md).

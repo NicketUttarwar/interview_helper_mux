@@ -226,7 +226,7 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 For each unique `asset_id` referenced by active flow cues:
 
 1. Run prompt craft (if not cached in `elevenlabs_prompts.json`).
-2. `POST https://api.elevenlabs.io/v1/sound-generation` via `interview_mux.elevenlabs_rest.generate_sound_effect` (`text`, `duration_seconds`, `prompt_influence`).
+2. `POST https://api.elevenlabs.io/v1/music` via `interview_mux.elevenlabs_rest.generate_music` (`prompt`, `music_length_ms`, `model_id`: `music_v2`, `force_instrumental`; craft `prompt_influence` mapped to prompt prose).
 3. Write `sound_design/assets/{asset_id}.wav` (normalize to mono 48 kHz WAV if API returns MPEG).
 
 **Tuning / QA:** [elevenlabs-prompt-influence-tuning.md](./elevenlabs-prompt-influence-tuning.md) · [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md)

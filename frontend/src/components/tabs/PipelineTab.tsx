@@ -5,12 +5,17 @@ import { StageDetail } from "../workspace/StageDetail";
 import { NlePanel } from "../workspace/NlePanel";
 import { ProfilePanel } from "../workspace/ProfilePanel";
 import { ArtifactEditor } from "../workspace/ArtifactEditor";
+import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
+import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
+import { JourneyShell } from "../journey/JourneyShell";
 
 const SUB_TABS: { id: PipelineSubTab; label: string }[] = [
   { id: "stage", label: "Stage" },
+  { id: "story", label: "Story" },
   { id: "timeline", label: "Timeline" },
-  { id: "profile", label: "Profile" },
+  { id: "profile", label: "Profile (JSON)" },
   { id: "files", label: "Files" },
+  { id: "llm_calls", label: "Engineering" },
 ];
 
 export function PipelineTab() {
@@ -42,6 +47,7 @@ export function PipelineTab() {
   return (
     <main className="view workspace-shell pipeline-tab">
       <div className="workspace-scroll">
+        <JourneyShell>
         <div className="workspace-layout">
           <Sidebar />
           <section className="main-panel pipeline-main">
@@ -65,11 +71,14 @@ export function PipelineTab() {
               ) : null}
             </div>
             {pipelineSubTab === "stage" ? <StageDetail /> : null}
+            {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
             {pipelineSubTab === "timeline" ? <NlePanel /> : null}
             {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
             {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
+            {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
           </section>
         </div>
+        </JourneyShell>
       </div>
     </main>
   );

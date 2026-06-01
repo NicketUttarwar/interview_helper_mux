@@ -69,6 +69,9 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]` (each may include `api_providers[]`), `log_tail` | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
+| `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
+| `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |
+| `PUT` | `/api/runs/{run_id}/llm-calls/record` | — | **LlmCallRecordUpdateBody** `{path, volley?, raw_response?}` | `ok`, `record` | **404**, **400** |
 | `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments`, `vo_lines`, `nle`, `normalized_audio` | **404** |
 | `GET` | `/api/runs/{run_id}/nle` | — | — | NLE JSON object | **404** |
 | `PUT` | `/api/runs/{run_id}/nle` | — | **NleBody** | `ok: true` | **404** |
@@ -112,7 +115,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
 
-**ElevenLabs SFX stages (`elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2`):** one REST `POST /v1/sound-generation` per unique SDP `asset_id`; canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `duration_seconds` sent to ElevenLabs always comes from the plan asset, not operator-edited craft rows. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
+**ElevenLabs sound-design stages (`elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2`):** one REST `POST /v1/music` per unique SDP `asset_id` (`model_id`: `music_v2`, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
 
 **Mix stages (`mix_flow1` / `mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `FLOW1_ORDER` / `FLOW2_ORDER`.
 

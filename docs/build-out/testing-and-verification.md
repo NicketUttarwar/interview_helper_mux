@@ -53,6 +53,7 @@ pytest tests/
 | `test_transcript_review_schema.py` | `validate_transcript_review_queue` fail-fast |
 | `test_runner_preclean_gate.py` | `record_qc_summary` merge, runner preclean gate, strict NLE |
 | `test_elevenlabs_chunk_policy.py` | ElevenLabs upload byte limit contract |
+| `test_elevenlabs_music.py` | Music v2 compose payload, duration clamp, prompt-influence prose |
 | `test_audio_preclean.py` | Pre-clean enable/skip, vo_pickup scope, chunked isolation path |
 | `test_gap_closure_smoke.py` | Smoke fixture validators + qc_summaries on fixture run dir |
 | `test_source_acoustic_profile.py` | SAP stage output shape |

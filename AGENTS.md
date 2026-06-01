@@ -11,11 +11,12 @@
 5. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — full backlog + historical Agent prompts (#0–#20)
 6. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
 7. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
-8. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end operator + system journey
-9. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs
-10. [docs/build-out/README.md](docs/build-out/README.md) — ticket index (Waves 0–7)
-10. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master
-11. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + quality offers
+8. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) — **operator** happy path (Prepare → Ship; journey kernel)
+9. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end system + CLI journey
+10. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs
+11. [docs/build-out/README.md](docs/build-out/README.md) — ticket index (Waves 0–7)
+12. [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — v1 vs target master
+13. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) — gates + quality offers
 12. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — per-stage verification (extend when you add stages)
 13. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI ↔ API ↔ logs ↔ artifacts
 14. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
@@ -33,6 +34,17 @@
 - [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md)
 - [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md)
 - [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md)
+
+## LLM call records (audit / copy-paste)
+
+- [docs/cross-cutting/llm-call-record-framework.md](docs/cross-cutting/llm-call-record-framework.md) — labels, paths, volley reconstruction
+- `python tools/export_llm_calls.py --run-id <exec_*>` — export markdown/jsonl for review
+
+## Local LLM (optional, plan)
+
+- [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md) — MLX on M1, minimal volleys, OpenAI escalation
+- [docs/cross-cutting/local-llm-implementation-handoff.md](docs/cross-cutting/local-llm-implementation-handoff.md) — implementation checklist
+- `python scripts/download_local_llm.py --install-deps` — weights under `.venv/share/interview_mux/local_llm/`
 
 ## Building code in Cursor
 

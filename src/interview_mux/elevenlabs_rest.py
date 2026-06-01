@@ -15,8 +15,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
-SOUND_GENERATION_PATH = "/sound-generation"
+MUSIC_COMPOSE_PATH = "/music"
 AUDIO_ISOLATION_PATH = "/audio-isolation"
+
+# ElevenLabs Music API duration bounds (milliseconds).
+MUSIC_LENGTH_MIN_MS = 3_000
+MUSIC_LENGTH_MAX_MS = 600_000
+DEFAULT_MUSIC_MODEL_ID = "music_v2"
 
 _DEFAULT_BACKOFF_SECONDS = (5.0, 15.0, 45.0)
 
@@ -46,6 +51,77 @@ def _default_max_retries() -> int:
     return int(_elevenlabs_cfg().get("max_retries", 3))
 
 
+def music_model_id() -> str:
+    """Configured ElevenLabs Music model (default ``music_v2``)."""
+    return str(_elevenlabs_cfg().get("music_model_id", DEFAULT_MUSIC_MODEL_ID))
+
+
+def _music_model_id() -> str:
+    return music_model_id()
+
+
+def _force_instrumental_default() -> bool:
+    return bool(_elevenlabs_cfg().get("force_instrumental", True))
+
+
+def clamp_music_length_ms(duration_seconds: float) -> int:
+    """Map plan duration to ElevenLabs Music API `music_length_ms` (3s–600s)."""
+    ms = int(round(float(duration_seconds) * 1000))
+    return max(MUSIC_LENGTH_MIN_MS, min(MUSIC_LENGTH_MAX_MS, ms))
+
+
+def apply_prompt_influence_to_text(text: str, prompt_influence: float | None) -> str:
+    """Music v2 has no `prompt_influence` field — encode adherence in prompt prose."""
+    if prompt_influence is None:
+        return text
+    if prompt_influence >= 0.4:
+        return (
+            f"{text}\n\nFollow the description precisely with minimal improvisation; "
+            "stay close to the specified texture, length, and mix role."
+        )
+    if prompt_influence <= 0.25:
+        return (
+            f"{text}\n\nAllow subtle variation while preserving the overall character "
+            "and podcast-safe mix role."
+        )
+    return text
+
+
+def generate_music(
+    *,
+    api_key: str,
+    prompt: str,
+    duration_seconds: float,
+    model_id: str | None = None,
+    force_instrumental: bool | None = None,
+    prompt_influence: float | None = None,
+    max_retries: int | None = None,
+) -> bytes:
+    """POST /v1/music — ElevenLabs Music (default model music_v2).
+
+    Returns raw audio bytes from the response body. Requested `duration_seconds` below
+    3s still uses a 3000ms API minimum; callers trim output when shorter beds/stingers
+    are required.
+    """
+    if max_retries is None:
+        max_retries = _default_max_retries()
+    text = apply_prompt_influence_to_text(prompt, prompt_influence)
+    payload: dict[str, Any] = {
+        "prompt": text,
+        "music_length_ms": clamp_music_length_ms(duration_seconds),
+        "model_id": model_id or _music_model_id(),
+        "force_instrumental": (
+            _force_instrumental_default() if force_instrumental is None else force_instrumental
+        ),
+    }
+    return _post_json_audio(
+        api_key=api_key,
+        path=MUSIC_COMPOSE_PATH,
+        payload=payload,
+        max_retries=max_retries,
+    )
+
+
 def generate_sound_effect(
     *,
     api_key: str,
@@ -54,20 +130,12 @@ def generate_sound_effect(
     prompt_influence: float | None = None,
     max_retries: int | None = None,
 ) -> bytes:
-    """POST /v1/sound-generation — returns raw audio bytes from response body."""
-    if max_retries is None:
-        max_retries = _default_max_retries()
-    payload: dict[str, Any] = {
-        "text": text,
-        "duration_seconds": duration_seconds,
-    }
-    if prompt_influence is not None:
-        payload["prompt_influence"] = prompt_influence
-
-    return _post_json_audio(
+    """Generate podcast sound-design audio via ElevenLabs Music v2 (POST /v1/music)."""
+    return generate_music(
         api_key=api_key,
-        path=SOUND_GENERATION_PATH,
-        payload=payload,
+        prompt=text,
+        duration_seconds=duration_seconds,
+        prompt_influence=prompt_influence,
         max_retries=max_retries,
     )
 

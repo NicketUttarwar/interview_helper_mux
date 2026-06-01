@@ -63,8 +63,8 @@ TRANSCRIPT_REVIEW_GATE = StageInfo(
 
 ANALYSIS_PROFILE_STAGE = StageInfo(
     "analysis_profile",
-    "Interview profile",
-    "Per-interview themes, major questions, tone, and style. Edit and verify before or after analysis — changes feed every AI stage.",
+    "Lock story for podcast edit",
+    "Themes, major questions, tone, and pacing. Verify when ready — feeds ranking, narrative QC, and sound design.",
     "gate",
     (
         "understanding/analysis_state.json",
@@ -340,9 +340,8 @@ FLOW3_STAGES: tuple[StageInfo, ...] = (
 
 G2_STAGE = StageInfo(
     "g2_flow_select",
-    "Choose output (G2)",
-    "Pick Flow 1 (full master podcast), Flow 2 (highlight reel), or Flow 3 (show description). "
-    "This choice determines the remaining pipeline stages.",
+    "Confirm output (G2)",
+    "Confirm full master podcast, highlight reel, or show description. Matches your intent from the start screen.",
     "gate",
     ("run_meta.json",),
     ("run_meta.json",),

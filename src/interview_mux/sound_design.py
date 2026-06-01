@@ -517,6 +517,10 @@ def _pause_tail_before_segment(
         if gap >= min_pause_ms and end_i >= seg_start - min_pause_ms:
             return end_i
 
+    before_seg = [w for w in words if int(w.get("end_ms", 0)) <= seg_start]
+    if before_seg:
+        return int(before_seg[-1]["end_ms"])
+
     return _last_pause_tail_ms(
         words,
         min_pause_ms=min_pause_ms,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from interview_mux.context_volley import _shape_stage_input
 from interview_mux.run_context import RunContext
 from interview_mux.stages import selection_flow2
+from run_fixtures import minimal_source_acoustic_profile
 
 
 def test_sfx_brief_build_input_wires_source_acoustic_profile(tmp_path, monkeypatch):
@@ -12,11 +13,16 @@ def test_sfx_brief_build_input_wires_source_acoustic_profile(tmp_path, monkeypat
     ctx.write_json("understanding/content_brief.json", {"thesis": "Test"})
     ctx.write_json(
         "understanding/source_acoustic_profile.json",
-        {
-            "pacing": {"pace_class": "conversational", "global_wpm": 142, "pause_p50_ms": 680},
-            "mix_contract": {"underscore_policy": "sparse", "duck_under_speech_db": 18},
-            "placement_hints": {"stinger_density": "low"},
-        },
+        minimal_source_acoustic_profile(
+            pacing={
+                "pace_class": "conversational",
+                "global_wpm": 142,
+                "wpm_by_quartile": [130, 140, 145, 150],
+                "pause_p50_ms": 680,
+            },
+            mix_contract={"underscore_policy": "sparse", "duck_under_speech_db": 18},
+            placement_hints={"stinger_density": "low"},
+        ),
     )
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):

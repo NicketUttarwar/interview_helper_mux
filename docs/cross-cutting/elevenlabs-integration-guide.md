@@ -1,10 +1,10 @@
 # ElevenLabs integration guide (canonical)
 
 **Status:** Authoritative docs for all ElevenLabs usage in **interview_helper_mux**.  
-**Scope:** Text-to-Sound Effects (SFX), Audio Isolation (pre-clean), prompt craft, spend controls, and post-generation integration.  
+**Scope:** **ElevenLabs Music v2** (sound-design beds/stingers via `POST /v1/music`), Audio Isolation (pre-clean), prompt craft, spend controls, and post-generation integration.  
 **Transport:** **REST API only** in application code (`interview_mux.elevenlabs_rest`) — do not use the ElevenLabs Python SDK in pipeline stages.  
 **API anchor:** `https://api.elevenlabs.io/v1` — [anchored-toolchain.md](./anchored-toolchain.md#external-http-apis-version-surfaces). Implement with **Context7** vendor docs for this path, not the SDK.  
-**Not in scope:** TTS, voice cloning, dubbing, music generation, or other ElevenLabs product lines unless the product explicitly expands.
+**Not in scope:** TTS, voice cloning, dubbing, legacy `POST /v1/sound-generation`, or other ElevenLabs product lines unless the product explicitly expands.
 
 **Also see:** [prompt-influence tuning](./elevenlabs-prompt-influence-tuning.md) · [prompt regression fixtures](../prompts/_shared/examples/elevenlabs-prompt-regression.md)
 
@@ -16,7 +16,7 @@
 
 | Capability | Shipped in code | Optional follow-ups |
 |------------|----------------|---------------------|
-| SFX generation | `sfx_elevenlabs.py` → REST `/v1/sound-generation`; one WAV per `asset_id` after `elevenlabs_prompt_craft` | Deeper craft iteration loops |
+| Sound-design generation | `sfx_elevenlabs.py` → REST `POST /v1/music` (`model_id`: `music_v2`); one WAV per `asset_id` after `elevenlabs_prompt_craft` | Composition-plan craft, inpainting |
 | SFX inputs | `sound_design_plan.json` + `elevenlabs_prompts.json` (SDP path); legacy `podcast_sfx_brief` / `sfx_brief` ids remain for single-stage rerun | — |
 | SFX outputs | `sound_design/assets/{asset_id}.wav` + flow `sfx/` copies | — |
 | Flow 1 mix | `mix_flow1` → `master_flow1`: speech + VO + beds + stingers in `master.wav` (BUILD-065–067) | Extended EDL narrative validators |
@@ -36,14 +36,14 @@ ElevenLabs is used for **two** capabilities in this repo:
 
 | Service | Product name | Primary use | Pipeline stage(s) | Auth |
 |---------|--------------|-------------|-------------------|------|
-| **A** | Text-to-Sound Effects | Podcast beds, stingers, transitions, accents | `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2`; target: `sound_design_generate_flow*` | `ELEVENLABS_API_KEY` |
+| **A** | Music v2 (`POST /v1/music`) | Podcast beds, stingers, transitions, accents (instrumental) | `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2` | `ELEVENLABS_API_KEY` |
 | **B** | Audio Isolation | Speech-focused denoise before STT / VO / mix | `audio_preclean` | Same key |
 
 Both share one secret. See [config-keys.md](./config-keys.md).
 
-### Service A — Text-to-Sound Effects
+### Service A — Music v2 (sound design)
 
-**Purpose:** Generate non-vocal sound textures (ambience, stingers, whooshes, foley accents) from natural-language prompts.
+**Purpose:** Generate non-vocal podcast sound-design assets (ambience, stingers, whooshes, foley accents) from natural-language prompts using ElevenLabs **Music v2** (`model_id`: `music_v2`, default in `config/app.defaults.json`).
 
 **When to use (prescriptive):**
 
@@ -61,7 +61,7 @@ Both share one secret. See [config-keys.md](./config-keys.md).
 **REST (reference):**
 
 ```http
-POST https://api.elevenlabs.io/v1/sound-generation
+POST https://api.elevenlabs.io/v1/music
 xi-api-key: <ELEVENLABS_API_KEY>
 Content-Type: application/json
 ```
@@ -70,22 +70,27 @@ Request body (typical):
 
 ```json
 {
-  "text": "<elevenlabs_prompt>",
-  "duration_seconds": 6.0,
-  "prompt_influence": 0.3
+  "prompt": "<elevenlabs_prompt>",
+  "music_length_ms": 6000,
+  "model_id": "music_v2",
+  "force_instrumental": true
 }
 ```
+
+- `music_length_ms` is derived from SDP `duration_seconds` (clamped to 3 000–600 000 ms). Assets shorter than 3 s are generated at the API minimum, then **trimmed** to plan length in `sfx_elevenlabs.py`.
+- `prompt_influence` from craft rows is **not** an API field on Music v2; `elevenlabs_rest.apply_prompt_influence_to_text` maps high/low values to prompt prose (see [elevenlabs-prompt-influence-tuning.md](./elevenlabs-prompt-influence-tuning.md)).
+- Config: `elevenlabs.music_model_id` (default `music_v2`), `elevenlabs.force_instrumental` (default `true`).
 
 Response: audio bytes (typically MPEG); `sfx_elevenlabs.py` normalizes to mono 48 kHz WAV via `ffmpeg` when needed.
 
 **Implementation (repo):**
 
 ```python
-from interview_mux.elevenlabs_rest import generate_sound_effect
+from interview_mux.elevenlabs_rest import generate_music
 
-audio_bytes = generate_sound_effect(
+audio_bytes = generate_music(
     api_key=api_key,
-    text=elevenlabs_prompt,
+    prompt=elevenlabs_prompt,
     duration_seconds=duration_seconds,
     prompt_influence=0.30,
 )
@@ -93,7 +98,7 @@ audio_bytes = generate_sound_effect(
 
 Module: [`src/interview_mux/elevenlabs_rest.py`](../../src/interview_mux/elevenlabs_rest.py). Stage: [`src/interview_mux/stages/sfx_elevenlabs.py`](../../src/interview_mux/stages/sfx_elevenlabs.py).
 
-**Do not use** `elevenlabs` Python SDK or `text_to_sound_effects.convert` in new code — legacy SDK path removed.
+**Do not use** `elevenlabs` Python SDK, `POST /v1/sound-generation`, or `text_to_sound_effects.convert` in new code.
 
 **Prescriptive defaults:**
 
@@ -108,12 +113,14 @@ Module: [`src/interview_mux/elevenlabs_rest.py`](../../src/interview_mux/elevenl
 
 **Craft → API mapping (target):**
 
-| SDP / craft field | Sent to ElevenLabs |
-|-------------------|-------------------|
-| `elevenlabs_prompt` | `text` |
-| `duration_seconds` | `duration_seconds` |
-| `negative_prompt` | Append to `text` as “Avoid: …” if API has no separate field; also validate before call |
+| SDP / craft field | Sent to ElevenLabs Music v2 |
+|-------------------|------------------------------|
+| `elevenlabs_prompt` | `prompt` |
+| `duration_seconds` | `music_length_ms` (= seconds × 1000, min 3000) |
+| `prompt_influence` | Prose suffix via `apply_prompt_influence_to_text` (not a JSON field) |
+| `negative_prompt` | Append to `prompt` as “Avoid: …”; also validate before call |
 | `sonic_identity` | Woven into craft prompt, not a separate API param |
+| (config) | `model_id` ← `elevenlabs.music_model_id`; `force_instrumental` ← config |
 
 **Outputs:**
 
@@ -203,7 +210,7 @@ flowchart TB
   subgraph targetsfx [Target BUILD-060+]
     SDP[sound_design_plan] --> CRAFT[elevenlabs_prompt_craft_OpenAI]
     G15{G1_5_optional}
-    CRAFT --> GEN[REST_sound_generation]
+    CRAFT --> GEN[REST_music_v2_compose]
     GEN --> ASSETS[sound_design_assets]
     ASSETS --> POST[post_generation_analysis]
     POST --> MIX[mix_flow1_or_flow2]
@@ -345,7 +352,7 @@ Maps **sidebar panels**, **artifacts**, and **`gui_log.jsonl`** for ElevenLabs w
 |------|----------------|----------------|---------------------------|
 | 1. Brief exists | Flow sidebar → **SFX brief** stage (`podcast_sfx_brief` / `sfx_brief`) | `flow_*/*_sfx_brief.json` | `stage` = brief stage on complete |
 | 2. Review brief (optional) | **JSON artifact editor** — open brief path | `GET/PUT /api/runs/{id}/artifact?path=…` | `message` on manual save |
-| 3. Generate SFX | Sidebar → **Generate SFX** (`elevenlabs_sfx_flow1` or `_flow2`) | `POST …/execute` `mode: flow1` or `stage: elevenlabs_sfx_*` | `ElevenLabs SFX generated sfx_NNN.wav` with `detail.api: rest`, `detail.path: /v1/sound-generation` |
+| 3. Generate SFX | Sidebar → **Generate SFX** (`elevenlabs_sfx_flow1` or `_flow2`) | `POST …/execute` `mode: flow1` or `stage: elevenlabs_sfx_*` | `ElevenLabs Music generated …` with `detail.api: rest`, `detail.path: /v1/music`, `detail.model_id: music_v2` |
 | 4. API failure | Same; log panel | Placeholder silence | `ElevenLabs SFX failed for …; wrote silence placeholder` |
 | 5. Listen (informal) | **Play clip** / external DAW | `flow_*_*/sfx/*.wav` | Optional `POST …/log` note |
 
@@ -359,7 +366,7 @@ v1 does **not** include G1.5 or crafted-prompt panels; generation uses brief `de
 | Craft review | Stage **`elevenlabs_prompt_craft`** — inline prompt review | `sound_design/elevenlabs_prompts.json` | `elevenlabs_prompts_pending_approval` |
 | Approve G1.5 | Same panel → **Approve prompts** | `run_meta.json` → `elevenlabs_prompt_review` | `elevenlabs_prompts_approved` `detail: { approved_by, asset_ids }` |
 | Edit + regen craft | Inline fields → **Save edits** (resets approval) | Updated `elevenlabs_prompts.json` | `ElevenLabs prompts edited in review panel; approval reset.` |
-| Generate | **`elevenlabs_sfx_flow1`** / **`elevenlabs_sfx_flow2`** (blocked when `g1_5_require_prompt_approval` and not approved) | `sound_design/assets/{asset_id}.wav` | `ElevenLabs SFX generated` `detail: { asset_id, …, api: rest }` |
+| Generate | **`elevenlabs_sfx_flow1`** / **`elevenlabs_sfx_flow2`** (blocked when `g1_5_require_prompt_approval` and not approved) | `sound_design/assets/{asset_id}.wav` | `ElevenLabs Music generated` `detail: { asset_id, model_id: music_v2, path: /v1/music, … }` |
 | Post-listen QA | **Post-listen QA (advisory)** on craft + SFX panels — **Listen** → **Pass** / **Fail** + optional note | `run_meta.json` → `elevenlabs_listen_results[]` | `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` `detail: { asset_id, note? }` |
 | Regen after fail | Re-run craft or SFX stage (manual) | New WAV | `elevenlabs_regen` (manual log) `detail: { asset_id, attempt }` |
 | Influence tweak | Craft panel `prompt_influence` field → save | Same prompt, new influence | (optional manual note) |

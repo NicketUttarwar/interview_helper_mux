@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from interview_mux.assets_audio import ensure_wav_asset, repo_relative_path
 from interview_mux.config import merged_config, repo_root
 from interview_mux.file_store import read_json as fs_read_json
 from interview_mux.file_store import write_json as fs_write_json
@@ -92,15 +93,19 @@ class RunContext:
         meta["updated_at"] = now
         meta["execution_number"] = int(seq) if seq else None
         meta["execution_id"] = self.run_id
-        meta["input_audio_path"] = input_audio_path
+        resolved_input = self._resolve_input_audio_ref(input_audio_path)
+        wav_input = ensure_wav_asset(resolved_input)
+        stored_input = repo_relative_path(self.root, wav_input)
+        meta["input_audio_path"] = stored_input
         meta["storage_root"] = str(self.run_dir.relative_to(self.root))
         self.write_json("run_meta.json", meta)
-        append_log(
-            self.run_dir,
-            f"Execution {self.run_id} initialized with input {input_audio_path}",
-            level="info",
-            stage="setup",
-        )
+        log_msg = f"Execution {self.run_id} initialized with input {stored_input}"
+        if wav_input != resolved_input.resolve():
+            log_msg = (
+                f"Execution {self.run_id} initialized with input {stored_input} "
+                f"(converted from {input_audio_path})"
+            )
+        append_log(self.run_dir, log_msg, level="info", stage="setup")
 
     def log(
         self,
@@ -166,20 +171,23 @@ class RunContext:
                 marker.unlink()
         self.log(f"Invalidated stages from {stage} onward — ready to re-run.", level="warning", stage=stage)
 
+    def _resolve_input_audio_ref(self, input_audio_path: str) -> Path:
+        raw = Path(input_audio_path)
+        if not raw.is_absolute():
+            raw = self.root / raw
+        return raw
+
     def input_audio(self) -> Path:
         meta_path = self.path("run_meta.json")
         if meta_path.is_file():
             meta = self.read_json("run_meta.json")
             if meta.get("input_audio_path"):
-                raw = Path(meta["input_audio_path"])
-                if not raw.is_absolute():
-                    raw = self.root / raw
-                return raw
+                return ensure_wav_asset(self._resolve_input_audio_ref(meta["input_audio_path"]))
         cfg = merged_config()
         raw = Path(cfg["input_audio_path"])
         if not raw.is_absolute():
             raw = self.root / raw
-        return raw
+        return ensure_wav_asset(raw)
 
     def artifact_exists(self, rel: str) -> bool:
         return self.path(rel).is_file()

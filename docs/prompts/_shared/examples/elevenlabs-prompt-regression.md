@@ -4,7 +4,7 @@ Golden `elevenlabs_prompt` fixtures for **listening QA** and craft-stage regress
 
 **Pair with:** [sound-design.examples.md](./sound-design.examples.md) (patterns), [elevenlabs-prompt-influence-tuning.md](../../../cross-cutting/elevenlabs-prompt-influence-tuning.md) (when output drifts).
 
-**API:** All generation calls use **REST** `POST /v1/sound-generation` — [elevenlabs-integration-guide.md](../../../cross-cutting/elevenlabs-integration-guide.md).
+**API:** All generation calls use **REST** `POST /v1/music` with `model_id`: `music_v2` — [elevenlabs-integration-guide.md](../../../cross-cutting/elevenlabs-integration-guide.md).
 
 ---
 

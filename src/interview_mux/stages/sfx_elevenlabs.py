@@ -7,7 +7,12 @@ from pathlib import Path
 
 from interview_mux.config import require_secret
 from interview_mux.g15_prompt_review import require_elevenlabs_generation
-from interview_mux.elevenlabs_rest import ElevenLabsApiError, generate_sound_effect
+from interview_mux.elevenlabs_rest import (
+    ElevenLabsApiError,
+    clamp_music_length_ms,
+    generate_music,
+    music_model_id,
+)
 from interview_mux.run_context import RunContext
 
 logger = logging.getLogger(__name__)
@@ -23,7 +28,7 @@ _ROLE_INFLUENCE: dict[str, float] = {
 
 
 def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
-    """Generate SFX wav files from sound design assets using ElevenLabs REST API."""
+    """Generate sound-design WAVs via ElevenLabs Music v2 (POST /v1/music)."""
     if profile == "podcast":
         brief_path = "flow_1_master/podcast_sfx_brief.json"
         out_rel = "flow_1_master/sfx"
@@ -48,23 +53,26 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         prompt_row = crafted.get(asset_id) if crafted else None
         text, duration_seconds, influence = _resolve_generation_params(item, prompt_row)
         try:
-            audio = generate_sound_effect(
+            audio = generate_music(
                 api_key=api_key,
-                text=text,
+                prompt=text,
                 duration_seconds=duration_seconds,
                 prompt_influence=influence,
             )
             _write_audio_as_wav(out_file, audio)
+            _trim_wav_to_duration(out_file, duration_seconds)
             ctx.log(
                 "info",
-                f"ElevenLabs SFX generated {asset_id}.wav",
+                f"ElevenLabs Music generated {asset_id}.wav",
                 stage=stage,
                 detail={
                     "asset_id": asset_id,
                     "duration_seconds": duration_seconds,
+                    "music_length_ms": clamp_music_length_ms(duration_seconds),
                     "prompt_influence": influence,
                     "api": "rest",
-                    "path": "/v1/sound-generation",
+                    "path": "/v1/music",
+                    "model_id": music_model_id(),
                     "artifact": f"sound_design/assets/{asset_id}.wav",
                 },
             )
@@ -254,6 +262,33 @@ def _write_audio_as_wav(path: Path, data: bytes) -> None:
         )
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
+    """Trim API output when plan duration is below Music API 3s minimum."""
+    target_sec = float(duration_seconds)
+    api_min_sec = clamp_music_length_ms(target_sec) / 1000.0
+    if target_sec >= api_min_sec - 0.05:
+        return
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(path),
+            "-t",
+            str(target_sec),
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            str(path.with_suffix(".trim.wav")),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    trimmed = path.with_suffix(".trim.wav")
+    trimmed.replace(path)
 
 
 def _write_silent_wav(path: Path, duration_ms: int = 1500) -> None:

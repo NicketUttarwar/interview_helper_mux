@@ -14,9 +14,17 @@ export function FlowSelectPanel() {
     await refreshRun();
   };
 
+  const intent = run?.flow_intent || run?.meta?.flow_intent;
+
   return (
     <>
-      <p className="hint">Choose deliverable flow.</p>
+      {intent ? (
+        <p className="hint">
+          Your intent from start: <strong>{intent}</strong> — confirm below.
+        </p>
+      ) : (
+        <p className="hint">Confirm your deliverable.</p>
+      )}
       <div className="flow-choice">
         <button type="button" className="btn primary" onClick={() => void selectFlow("flow1")}>
           Flow 1 — Full podcast

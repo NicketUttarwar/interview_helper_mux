@@ -117,7 +117,7 @@ Install on macOS (example): `brew install ffmpeg awscli` — then confirm versio
 | Service | Anchored surface | Client in repo |
 |---------|------------------|----------------|
 | **OpenAI** | Chat Completions; model IDs in [model-routing.md](./model-routing.md#model-tier-registry) | `openai` SDK → `llm_runner.py` |
-| **ElevenLabs** | `https://api.elevenlabs.io/v1` — `POST /sound-generation`, `POST /audio-isolation` | `elevenlabs_rest.py` |
+| **ElevenLabs** | `https://api.elevenlabs.io/v1` — `POST /music` (`model_id`: `music_v2`), `POST /audio-isolation` | `elevenlabs_rest.py` |
 | **AWS Transcribe** | Batch jobs via `aws transcribe` CLI; S3 via `aws s3` | `transcribe_aws.py` |
 
 Do not bump ElevenLabs path to `/v2` without updating `ELEVENLABS_API_BASE` and [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) in the same change.

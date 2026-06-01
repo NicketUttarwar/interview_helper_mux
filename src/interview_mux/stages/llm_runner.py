@@ -167,6 +167,8 @@ def run_prompt_envelope(
     bump_tier: bool = False,
     explicit_tier: str | None = None,
     response_format: dict[str, str] | None = None,
+    call_attempt: int | None = None,
+    record_stage_key: str | None = None,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -214,11 +216,35 @@ def run_prompt_envelope(
     resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or ""
     envelope = normalize_envelope(_extract_json(content))
+    tier = resolved.tier if resolved else ("explicit" if model else "economy")
     envelope["_llm_meta"] = {
         "model_id": chosen,
-        "model_tier": resolved.tier if resolved else ("explicit" if model else "economy"),
+        "model_tier": tier,
         "task_kind": task_kind,
     }
+    if ctx:
+        from interview_mux.context_volley import truncation_flags_for_volley
+        from interview_mux.llm_call_record import llm_call_records_enabled, record_llm_call
+
+        if llm_call_records_enabled():
+            volley_for_flags = messages or []
+            record_llm_call(
+                ctx,
+                stage_key=stage_key,
+                record_stage_key=record_stage_key,
+                prompt_ref=prompt_rel,
+                request_messages=chat_messages,
+                raw_response=content,
+                parsed_envelope=envelope,
+                task_kind=task_kind,
+                model_id=chosen,
+                model_tier=tier,
+                provider="openai",
+                call_attempt=call_attempt,
+                temperature=kwargs.get("temperature"),
+                response_format=fmt,
+                truncation_flags=truncation_flags_for_volley(volley_for_flags),
+            )
     if ctx:
         turns = len(messages) if messages else 1
         chars = sum(len(m.get("content", "")) for m in (messages or []))
