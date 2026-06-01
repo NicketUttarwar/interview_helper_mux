@@ -43,8 +43,9 @@ export function Sidebar() {
     redoFromStage,
     jobRunning,
     config,
+    openActionModal,
   } = useApp();
-  const { phase, runExecuteHint, isBlocked } = useJourney(run);
+  const { phase, runExecuteHint, isBlocked, blocking } = useJourney(run);
   const journeyEnabled = config?.journey_ui?.enabled !== false;
 
   const grouped = useMemo(
@@ -54,13 +55,40 @@ export function Sidebar() {
 
   if (!run) return null;
 
-  const blocked = run.stages.some((s) => s.status === "action_required");
+  const actionRequired = run.stages.some((s) => s.status === "action_required");
+  const needsOperator = run.stages.some((s) => s.status === "action_required") || isBlocked;
   const running = jobRunning;
 
+  const openCheckpoint = () => {
+    const target =
+      run.stages.find((s) => s.status === "action_required") ||
+      (blocking?.stage_id
+        ? run.stages.find((s) => s.id === blocking.stage_id)
+        : undefined);
+    if (target) void selectStage(target.id);
+    openActionModal();
+  };
+
   const runPhaseCta = () => {
+    if (needsOperator) {
+      openCheckpoint();
+      return;
+    }
     if (!runExecuteHint) return;
     void executeJob(runExecuteHint.body);
   };
+
+  const sidebarHint = running
+    ? "Pipeline is running — wait for it to finish or check Logs."
+    : needsOperator
+      ? blocking?.message || "Complete the open checkpoint before running more stages."
+      : null;
+
+  const primaryLabel = running
+    ? "Running…"
+    : needsOperator
+      ? "Open required step"
+      : runExecuteHint?.label || null;
 
   return (
     <aside className="sidebar panel">
@@ -118,28 +146,36 @@ export function Sidebar() {
         </ol>
       )}
       <div className="sidebar-actions">
-        {journeyEnabled && runExecuteHint ? (
+        {journeyEnabled && primaryLabel ? (
           <button
             type="button"
             className="btn primary block"
-            disabled={running || isBlocked}
+            disabled={running}
             onClick={runPhaseCta}
           >
-            {runExecuteHint.label}
+            {primaryLabel}
           </button>
         ) : null}
         <button
           type="button"
           className="btn primary block"
-          disabled={running || blocked}
-          onClick={() => void runNextStage()}
+          disabled={running}
+          onClick={() => {
+            if (needsOperator) openCheckpoint();
+            else void runNextStage();
+          }}
         >
-          Run next stage
+          {needsOperator ? "Continue checkpoint" : "Run next stage"}
         </button>
         <button
           type="button"
           className="btn ghost block"
-          disabled={running || blocked}
+          disabled={running || actionRequired}
+          title={
+            actionRequired
+              ? "Finish the open checkpoint first"
+              : "Run all pending analysis stages"
+          }
           onClick={() => void executeJob({ mode: "analysis" })}
         >
           Run all analysis
@@ -147,10 +183,12 @@ export function Sidebar() {
         <button
           type="button"
           className="btn danger ghost block"
+          disabled={running}
           onClick={() => void redoFromStage()}
         >
           Redo from selected stage
         </button>
+        {sidebarHint ? <p className="sidebar-hint hint">{sidebarHint}</p> : null}
       </div>
     </aside>
   );

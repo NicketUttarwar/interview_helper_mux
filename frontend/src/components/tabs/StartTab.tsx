@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { formatBytes } from "../../utils";
+import { WorkflowGuide } from "../WorkflowGuide";
 
 type FlowIntent = "flow1" | "flow2" | "flow3";
 
@@ -29,6 +30,7 @@ export function StartTab() {
 
   return (
     <main className="view tab-view">
+      <WorkflowGuide />
       <section className="panel hero">
         <h2>Source audio</h2>
         <p className="lead">

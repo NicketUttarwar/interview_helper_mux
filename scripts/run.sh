@@ -38,4 +38,21 @@ if [[ "${1:-}" == "--cli" ]]; then
   exec python -m interview_mux "$@"
 fi
 
+if [[ "${MUX_FRESH_SESSION:-1}" == "1" ]]; then
+  GUI_DIR="$("$VENV/bin/python" - <<'PY'
+from interview_mux.config import merged_config, repo_root
+cfg = merged_config()
+print((repo_root() / cfg.get("assets_root", "ASSETS") / ".gui").as_posix())
+PY
+)"
+  echo "Resetting GUI session state for a fresh launch ..."
+  rm -f \
+    "$GUI_DIR/active_execution.json" \
+    "$GUI_DIR/server_session.json" \
+    "$GUI_DIR/api_consent.json" \
+    "$GUI_DIR/active_execution.json.lock" \
+    "$GUI_DIR/server_session.json.lock" \
+    "$GUI_DIR/api_consent.json.lock"
+fi
+
 exec python -m interview_mux serve "$@"

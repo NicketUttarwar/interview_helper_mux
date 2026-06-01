@@ -948,6 +948,219 @@ code {
   color: var(--warning);
 }
 
+.api-consent-chip.clickable {
+  cursor: pointer;
+  font: inherit;
+}
+
+.api-consent-chip.clickable:hover {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-2));
+  border-color: var(--warning);
+}
+
+.api-access-bar {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.api-access-bar.compact .api-access-hint {
+  display: none;
+}
+
+.api-access-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-right: 0.5rem;
+}
+
+.api-access-bar .api-consent-strip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  max-width: none;
+}
+
+.api-access-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+}
+
+.status-header-wrap {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.execution-status-banner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0.65rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.execution-status-banner.running {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.execution-status-banner.blocked,
+.execution-status-banner.consent {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+}
+
+.execution-status-banner.error {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.execution-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.execution-status-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.journey-guidance-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.journey-blocking-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+}
+
+.sidebar-hint {
+  margin: 0.35rem 0 0;
+}
+
+.workflow-guide {
+  margin-bottom: 1.25rem;
+}
+
+.workflow-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.workflow-steps li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.workflow-step-num {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.workflow-tip {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.api-consent-gate {
+  margin-bottom: 1rem;
+  border-color: var(--warning);
+}
+
+.api-consent-gate-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.api-consent-gate-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stage-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stage-status-pill {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.stage-status-pill.done {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.stage-status-pill.action_required {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.stage-next-hint {
+  margin: 0.75rem 0;
+}
+
+.modal-continue-hint {
+  margin: 0.5rem 0 0;
+  text-align: right;
+  width: 100%;
+}
+
 .handoff-panel {
   border-color: var(--accent);
 }

@@ -18,8 +18,9 @@ interface JourneyShellProps {
 }
 
 export function JourneyShell({ children }: JourneyShellProps) {
-  const { run, config } = useApp();
-  const { phase, nextAction, blocking, phaseProgress } = useJourney(run);
+  const { run, config, executeJob, openActionModal, jobRunning } = useApp();
+  const { phase, nextAction, blocking, phaseProgress, runExecuteHint, isBlocked } =
+    useJourney(run);
   const enabled = config?.journey_ui?.enabled !== false;
 
   if (!run || !enabled) {
@@ -44,13 +45,30 @@ export function JourneyShell({ children }: JourneyShellProps) {
           );
         })}
       </div>
-      {blocking?.blocked && blocking.message ? (
-        <div className="journey-blocking-banner" role="status">
-          {blocking.message}
-        </div>
-      ) : nextAction ? (
-        <p className="journey-next-action">{nextAction}</p>
-      ) : null}
+      <div className="journey-guidance-row">
+        {blocking?.blocked && blocking.message ? (
+          <div className="journey-blocking-banner" role="status">
+            <span>{blocking.message}</span>
+            <button type="button" className="btn primary sm" onClick={openActionModal}>
+              Open checkpoint
+            </button>
+          </div>
+        ) : nextAction ? (
+          <p className="journey-next-action">
+            <strong>Next:</strong> {nextAction}
+          </p>
+        ) : null}
+        {runExecuteHint && !isBlocked ? (
+          <button
+            type="button"
+            className="btn primary sm journey-run-cta"
+            disabled={jobRunning}
+            onClick={() => void executeJob(runExecuteHint.body)}
+          >
+            {runExecuteHint.label}
+          </button>
+        ) : null}
+      </div>
       <AudioQualityDrawer />
       {children}
       <DeliverableCard />

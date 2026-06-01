@@ -128,6 +128,7 @@ export interface JobState {
   stage?: string;
   message?: string;
   updated_at?: string;
+  missing_api_providers?: string[];
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
 }
 

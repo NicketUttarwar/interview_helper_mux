@@ -13,6 +13,10 @@ export function ApiConsentModal() {
         <h3>{info ? `Allow ${info.label}?` : "Allow external API?"}</h3>
         <p className="lead">{info?.description || ""}</p>
         <p className="muted">{info?.cost_hint || ""}</p>
+        <p className="hint">
+          You will be asked again in a new browser session. Use Menu → Revoke API access
+          to reset.
+        </p>
         <div className="modal-actions">
           <button
             type="button"

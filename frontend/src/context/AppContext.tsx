@@ -84,6 +84,8 @@ interface AppContextValue {
   setAlertsMuted: (muted: boolean) => void;
   revokeAllApiConsents: () => void;
   resolveApiConsent: (granted: boolean) => Promise<void>;
+  promptApiConsent: (providerId: string) => Promise<boolean>;
+  grantAllPendingApiConsents: () => Promise<boolean>;
   appendClientLog: (message: string, level?: string) => void;
   loadTranscriptReview: () => Promise<TranscriptReviewState | null>;
   setTranscriptReview: (data: TranscriptReviewState | null) => void;
@@ -92,6 +94,7 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+const GUI_SERVER_STARTED_AT_KEY = "gui_server_started_at";
 
 export function useApp(): AppContextValue {
   const ctx = useContext(AppContext);
@@ -113,6 +116,15 @@ function getBrowserApiGrants(): Record<string, boolean> {
 
 function setBrowserApiGrant(provider: string, granted: boolean): void {
   sessionStorage.setItem(`${API_CONSENT_PREFIX}${provider}`, granted ? "1" : "0");
+}
+
+function clearBrowserApiGrants(): void {
+  const keys: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    if (key?.startsWith(API_CONSENT_PREFIX)) keys.push(key);
+  }
+  for (const key of keys) sessionStorage.removeItem(key);
 }
 
 function playAttentionPing(muted: boolean): void {
@@ -364,6 +376,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [pendingConsentProvider],
   );
 
+  const promptApiConsent = useCallback(
+    (providerId: string) => showApiConsentModal(providerId),
+    [showApiConsentModal],
+  );
+
+  const grantAllPendingApiConsents = useCallback(async (): Promise<boolean> => {
+    const grants = mergedApiGrants();
+    for (const p of apiProviders) {
+      if (grants[p.id]) continue;
+      const ok = await showApiConsentModal(p.id);
+      if (!ok) {
+        showToast("API access not granted — some steps will stay blocked.");
+        return false;
+      }
+    }
+    showToast("API access granted for this session.");
+    return true;
+  }, [apiProviders, mergedApiGrants, showApiConsentModal, showToast]);
+
   const ensureApiConsentForExecute = useCallback(
     async (body: ExecuteBody): Promise<boolean> => {
       if (!run) return false;
@@ -402,7 +433,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       if (res.ok === false) {
         showToast(res.error || "Failed to start");
-        if (res.needs_api_consent) await refreshRun();
+        if (res.needs_api_consent) {
+          const refreshed = await api<RunData>(`/api/runs/${runId}`);
+          const missing = refreshed.job?.missing_api_providers || [];
+          const grants = mergedApiGrants();
+          for (const pid of missing) {
+            if (!grants[pid]) {
+              const ok = await showApiConsentModal(pid);
+              if (!ok) break;
+            }
+          }
+          await refreshRun();
+        }
         return;
       }
       startJobPoll();
@@ -414,6 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast,
       refreshRun,
       startJobPoll,
+      showApiConsentModal,
     ],
   );
 
@@ -600,12 +643,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const cfg = await api<AppConfig>("/api/config");
       setConfig(cfg);
-      await loadApiConsent();
-      await refreshHome();
       const session = await api<{
+        server?: { started_at?: string };
         active?: { run_id?: string; selected_stage_id?: string };
         log?: LogEntry[];
       }>("/api/session");
+      const startedAt = session.server?.started_at;
+      if (startedAt && localStorage.getItem(GUI_SERVER_STARTED_AT_KEY) !== startedAt) {
+        clearBrowserApiGrants();
+        localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
+      }
+      await loadApiConsent();
+      await refreshHome();
       if (session.log?.length) renderLogWithAlerts(session.log);
       if (session.active?.run_id) {
         setSelectedStageId(session.active.selected_stage_id || null);
@@ -712,6 +761,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAlertsMuted,
     revokeAllApiConsents,
     resolveApiConsent,
+    promptApiConsent,
+    grantAllPendingApiConsents,
     appendClientLog,
     loadTranscriptReview,
     setTranscriptReview,

@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { useJourney } from "../../hooks/useJourney";
 import { LLM_STAGES } from "../../utils";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
-  const { run, selectedStage, openActionModal, pendingActionCount } = useApp();
+  const {
+    run,
+    selectedStage,
+    openActionModal,
+    pendingActionCount,
+    executeJob,
+    jobRunning,
+  } = useApp();
+  const { nextAction, runExecuteHint, isBlocked } = useJourney(run);
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
 
   useEffect(() => {
@@ -33,10 +42,39 @@ export function StageDetail() {
     );
   }
 
+  const statusLabel =
+    selectedStage.status === "done"
+      ? "Complete"
+      : selectedStage.status === "action_required"
+        ? "Needs your input"
+        : selectedStage.status === "locked"
+          ? "Locked"
+          : "Pending";
+
   return (
     <div className="panel stage-detail stage-detail-slim">
-      <h2>{selectedStage.title}</h2>
+      <div className="stage-detail-head">
+        <h2>{selectedStage.title}</h2>
+        <span className={`stage-status-pill ${selectedStage.status}`}>{statusLabel}</span>
+      </div>
       <p className="lead">{selectedStage.description}</p>
+
+      {nextAction && !isBlocked ? (
+        <p className="hint stage-next-hint">
+          <strong>Up next:</strong> {nextAction}
+        </p>
+      ) : null}
+
+      {runExecuteHint && !isBlocked ? (
+        <button
+          type="button"
+          className="btn primary sm"
+          disabled={jobRunning}
+          onClick={() => void executeJob(runExecuteHint.body)}
+        >
+          {runExecuteHint.label}
+        </button>
+      ) : null}
 
       {pendingActionCount > 0 ? (
         <div className="stage-action-cta">
