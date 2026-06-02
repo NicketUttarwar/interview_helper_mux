@@ -11,7 +11,7 @@ export function useJourney(run: RunData | null) {
 
   const runExecuteHint = useMemo(() => {
     const hint = journey?.execute_hint;
-    if (!hint) return null;
+    if (!hint || hint.action === "checkpoint" || !hint.mode) return null;
     const body: ExecuteBody = {
       mode: hint.mode as ExecuteBody["mode"],
       from_stage: hint.from_stage,
@@ -34,7 +34,8 @@ export function useJourney(run: RunData | null) {
   };
 }
 
-export function buildExecuteFromHint(hint: JourneyExecuteHint): ExecuteBody {
+export function buildExecuteFromHint(hint: JourneyExecuteHint): ExecuteBody | null {
+  if (hint.action === "checkpoint" || !hint.mode) return null;
   return {
     mode: hint.mode as ExecuteBody["mode"],
     from_stage: hint.from_stage,

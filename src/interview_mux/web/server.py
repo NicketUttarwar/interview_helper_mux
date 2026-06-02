@@ -58,7 +58,7 @@ from interview_mux.journey_orchestrator import (
 from interview_mux.journey_state import get_flow_intent, stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import runner
-from interview_mux.web.stages import STAGE_BY_ID, all_stages_for_run
+from interview_mux.web.stages import LLM_ROUTING_STAGE_IDS, STAGE_BY_ID, all_stages_for_run
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -222,6 +222,7 @@ def create_app() -> FastAPI:
             "value_analysis_enabled": value_analysis_enabled(cfg),
             "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
             "journey_ui": (cfg.get("journey_ui") or {"enabled": True}),
+            "llm_routing_stage_ids": sorted(LLM_ROUTING_STAGE_IDS),
         }
 
     @app.get("/api/session/api-consent")

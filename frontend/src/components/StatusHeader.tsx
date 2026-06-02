@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { formatTs } from "../utils";
 import { ApiAccessBar } from "./ApiAccessBar";
-import { ExecutionStatusBanner } from "./ExecutionStatusBanner";
+import { stageTitleForId } from "../utils/checkpoint";
 
 export function StatusHeader() {
   const {
@@ -22,25 +22,26 @@ export function StatusHeader() {
 
   const jobLabel = useMemo(() => {
     const job = run?.job;
-    if (jobRunning || job?.status === "running_with_warnings") {
+    const runningStage =
+      stageTitleForId(run?.stages, job?.stage) ||
+      job?.stage?.replace(/_/g, " ") ||
+      job?.mode;
+    if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
       return {
-        text: `Running ${job?.stage || job?.mode || ""}`.trim(),
+        text: runningStage ? `Running: ${runningStage}` : "Running",
         cls: "running",
       };
     }
-    if (job?.status === "running") {
-      return { text: `Running ${job.stage || job.mode}`, cls: "running" };
-    }
     if (job?.status === "gate" || job?.status === "needs_operator") {
-      return { text: "Action required", cls: "action" };
+      return { text: "Needs you", cls: "action" };
     }
     if (job?.status === "error") {
-      return { text: "Error", cls: "error" };
+      return { text: "Failed", cls: "error" };
     }
-    return {
-      text: job?.status === "complete" ? "Complete" : "Idle",
-      cls: "idle",
-    };
+    if (job?.status === "complete") {
+      return { text: "Complete", cls: "idle" };
+    }
+    return { text: "Idle", cls: "idle" };
   }, [run, jobRunning]);
 
   const precleanWarnings = run?.job?.preclean_warnings;
@@ -60,8 +61,12 @@ export function StatusHeader() {
             </span>
           </div>
           <div className="status-cell">
-            <span className="status-label">Stage</span>
-            <span className="status-value">{selectedStage?.title || "—"}</span>
+            <span className="status-label">Focus</span>
+            <span className="status-value">
+              {(jobRunning || run?.job?.status === "running") && run?.job?.stage
+                ? stageTitleForId(run.stages, run.job.stage) || selectedStage?.title
+                : selectedStage?.title || "—"}
+            </span>
           </div>
           <div className="status-cell">
             <span className="status-label">Job</span>
@@ -127,8 +132,6 @@ export function StatusHeader() {
           </div>
         ) : null}
       </div>
-
-      <ExecutionStatusBanner />
     </header>
   );
 }

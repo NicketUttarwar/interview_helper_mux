@@ -33,6 +33,8 @@ export interface AppConfig {
     journey_log_filter?: boolean;
     require_preview_listen?: boolean;
   };
+  /** Stage ids that may show LLM routing summary — from web/stages.py */
+  llm_routing_stage_ids?: string[];
 }
 
 export interface AssetFile {
@@ -81,10 +83,12 @@ export interface JourneyBlocking {
 }
 
 export interface JourneyExecuteHint {
-  mode: string;
+  action?: "execute" | "checkpoint";
+  mode?: string;
   label: string;
   from_stage?: string;
   until_stage?: string;
+  stage_id?: string;
 }
 
 export interface JourneyState {

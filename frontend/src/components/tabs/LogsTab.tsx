@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
+import {
+  formatLogDetailBlock,
+  logJourneyKind,
+  stageTitleById,
+} from "../../utils/logDisplay";
 import type { JourneyLogKind, LogLevel } from "../../types";
-import { useJourney } from "../../hooks/useJourney";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
 
@@ -25,7 +29,6 @@ function entryJourneyKind(detail: unknown): string | null {
 
 export function LogsTab() {
   const { logEntries, runId, run, config } = useApp();
-  const { blocking, nextAction } = useJourney(run);
   const journeyFilterDefault = config?.journey_ui?.journey_log_filter !== false;
   const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
   const [levelFilter, setLevelFilter] = useState<string>("all");
@@ -37,13 +40,18 @@ export function LogsTab() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
 
-  const stages = useMemo(() => {
-    const set = new Set<string>();
+  const stageFilterOptions = useMemo(() => {
+    const ids = new Set<string>();
     for (const e of logEntries) {
-      if (e.stage) set.add(e.stage);
+      if (e.stage) ids.add(e.stage);
     }
-    return [...set].sort();
-  }, [logEntries]);
+    for (const s of run?.stages || []) {
+      ids.add(s.id);
+    }
+    return [...ids]
+      .sort()
+      .map((id) => ({ id, title: stageTitleById(run?.stages, id) }));
+  }, [logEntries, run?.stages]);
 
   const filtered = useMemo(() => {
     return logEntries.filter((e) => {
@@ -94,13 +102,9 @@ export function LogsTab() {
             {runId ? run?.run_id : "No run"} · persisted to <code>gui_log.jsonl</code>
           </span>
         </div>
-        {blocking?.blocked && blocking.message ? (
-          <div className="journey-blocking-banner" role="status">
-            <strong>Blocked:</strong> {blocking.message}
-          </div>
-        ) : nextAction ? (
-          <p className="journey-next-action logs-next">{nextAction}</p>
-        ) : null}
+        <p className="hint logs-command-hint">
+          Current action is in the command bar above. Use filters below to inspect history.
+        </p>
         <div className="logs-filters">
           <label className="logs-filter logs-filter-check">
             <input
@@ -132,10 +136,10 @@ export function LogsTab() {
               value={stageFilter}
               onChange={(e) => setStageFilter(e.target.value)}
             >
-              <option value="all">All</option>
-              {stages.map((s) => (
-                <option key={s} value={s}>
-                  {s}
+              <option value="all">All stages</option>
+              {stageFilterOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title}
                 </option>
               ))}
             </select>
@@ -192,11 +196,26 @@ export function LogsTab() {
           {!displayed.length ? (
             <p className="log-empty">No log entries match your filters.</p>
           ) : (
-            displayed.map((e, i) => (
+            displayed.map((e, i) => {
+              const journeyKind = logJourneyKind(e.detail);
+              const detailBlock = formatLogDetailBlock(e.detail);
+              return (
               <div key={`${e.ts}-${i}`} className={`log-entry level-${e.level || "info"}`}>
-                <span className="log-ts">{formatTs(e.ts)}</span>
-                {e.stage ? <span className="log-stage">[{e.stage}]</span> : null}
-                <span className="log-msg">{escapeHtml(e.message)}</span>
+                <div className="log-entry-main">
+                  <span className="log-ts">{formatTs(e.ts)}</span>
+                  <span className={`log-level-badge level-${e.level || "info"}`}>
+                    {e.level || "info"}
+                  </span>
+                  {e.stage ? (
+                    <span className="log-stage" title={e.stage}>
+                      {stageTitleById(run?.stages, e.stage)}
+                    </span>
+                  ) : null}
+                  {journeyKind ? (
+                    <span className="log-journey-badge">{journeyKind}</span>
+                  ) : null}
+                  <span className="log-msg">{escapeHtml(e.message)}</span>
+                </div>
                 {e.detail ? (
                   <>
                     <button
@@ -204,21 +223,18 @@ export function LogsTab() {
                       className="btn ghost sm log-detail-toggle"
                       onClick={() => toggleExpand(i)}
                     >
-                      {expanded.has(i) ? "Hide detail" : "Detail"}
+                      {expanded.has(i) ? "Hide detail" : "Show detail"}
                     </button>
                     {expanded.has(i) ? (
-                      <div className="log-detail">
-                        {escapeHtml(
-                          typeof e.detail === "string"
-                            ? e.detail
-                            : JSON.stringify(e.detail, null, 2),
-                        )}
-                      </div>
+                      <pre className={`log-detail${detailBlock.isJson ? " log-detail-json" : ""}`}>
+                        {escapeHtml(detailBlock.text)}
+                      </pre>
                     ) : null}
                   </>
                 ) : null}
               </div>
-            ))
+            );
+            })
           )}
         </div>
       </section>

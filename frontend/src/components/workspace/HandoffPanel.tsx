@@ -5,7 +5,7 @@ import { findLatestHandoffAudit } from "../../utils/handoff";
 import { escapeHtml } from "../../utils";
 
 export function HandoffPanel() {
-  const { run, selectedStage, acknowledgeHandoff } = useApp();
+  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor } = useApp();
 
   const { paths, audit, visible } = useMemo(() => {
     if (!run || !selectedStage) return { paths: [], audit: null, visible: false };
@@ -39,11 +39,7 @@ export function HandoffPanel() {
               <button
                 type="button"
                 className="btn ghost sm"
-                onClick={() => {
-                  window.dispatchEvent(
-                    new CustomEvent("handoff-open", { detail: { path: p } }),
-                  );
-                }}
+                onClick={() => openArtifactInEditor(p)}
               >
                 Open
               </button>

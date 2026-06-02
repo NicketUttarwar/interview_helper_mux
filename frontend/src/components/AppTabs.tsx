@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { AppTab } from "../types";
 import { useApp } from "../context/AppContext";
 
@@ -9,7 +10,18 @@ const TABS: { id: AppTab; label: string }[] = [
 ];
 
 export function AppTabs() {
-  const { activeTab, setActiveTab, pendingActionCount } = useApp();
+  const { activeTab, setActiveTab, pendingActionCount, logEntries } = useApp();
+  const errorCount = useMemo(
+    () => logEntries.filter((e) => e.level === "error").length,
+    [logEntries],
+  );
+  const [ackedErrors, setAckedErrors] = useState(0);
+
+  useEffect(() => {
+    if (activeTab === "logs") setAckedErrors(errorCount);
+  }, [activeTab, errorCount]);
+
+  const unseenErrors = Math.max(0, errorCount - ackedErrors);
 
   return (
     <nav className="app-tabs" aria-label="Main navigation">
@@ -24,6 +36,11 @@ export function AppTabs() {
           {tab.label}
           {tab.id === "pipeline" && pendingActionCount > 0 ? (
             <span className="app-tab-badge">{pendingActionCount}</span>
+          ) : null}
+          {tab.id === "logs" && unseenErrors > 0 ? (
+            <span className="app-tab-badge app-tab-badge-error" title="Errors in log">
+              {unseenErrors}
+            </span>
           ) : null}
         </button>
       ))}

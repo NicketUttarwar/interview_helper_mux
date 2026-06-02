@@ -27,6 +27,7 @@ import type {
 import {
   actionSummaryText,
   countPendingActions,
+  findHandoffStage,
   getHandoffPathsLocal,
 } from "../utils/checkpoint";
 import { API_CONSENT_PREFIX, mapGateToStage } from "../utils";
@@ -65,6 +66,7 @@ interface AppContextValue {
   menuOpen: boolean;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
+  openArtifactInEditor: (path: string) => void;
   setSelectedAsset: (path: string | null) => void;
   setMenuOpen: (open: boolean) => void;
   showToast: (msg: string) => void;
@@ -216,6 +218,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setActiveTab = useCallback((tab: AppTab) => {
     setActiveTabState(tab);
+  }, []);
+
+  const openArtifactInEditor = useCallback((path: string) => {
+    setPipelineSubTab("files");
+    window.dispatchEvent(new CustomEvent("handoff-open", { detail: { path } }));
   }, []);
 
   const openActionModal = useCallback(() => {
@@ -564,15 +571,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [stopJobPoll, refreshHome]);
 
   const acknowledgeHandoff = useCallback(async () => {
-    if (!selectedStageId || !runId) return;
+    if (!runId) return;
+    const stageId =
+      selectedStageId || (run ? findHandoffStage(run)?.id : null) || null;
+    if (!stageId) return;
     await api(`/api/runs/${runId}/handoff-ack`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage_id: selectedStageId }),
+      body: JSON.stringify({ stage_id: stageId }),
     });
     showToast("Handoff acknowledged.");
     await refreshRun();
-  }, [selectedStageId, runId, showToast, refreshRun]);
+  }, [selectedStageId, runId, run, showToast, refreshRun]);
 
   const runNextStage = useCallback(async () => {
     if (!run) return;
@@ -742,6 +752,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     menuOpen,
     setActiveTab,
     setPipelineSubTab,
+    openArtifactInEditor,
     setSelectedAsset,
     setMenuOpen,
     showToast,

@@ -66,12 +66,15 @@ export function ArtifactEditor() {
   useEffect(() => {
     const handler = (e: Event) => {
       const path = (e as CustomEvent<{ path: string }>).detail?.path;
-      if (path && paths.includes(path)) setSelectedPath(path);
-      else if (path) showToast(`Add ${path} to editor after stage lists it.`);
+      if (!path) return;
+      if (!paths.includes(path)) {
+        setPaths((prev) => [...prev, path]);
+      }
+      setSelectedPath(path);
     };
     window.addEventListener("handoff-open", handler);
     return () => window.removeEventListener("handoff-open", handler);
-  }, [paths, showToast]);
+  }, [paths]);
 
   const saveArtifact = async () => {
     if (!run || !selectedPath || !selectedStage) return;

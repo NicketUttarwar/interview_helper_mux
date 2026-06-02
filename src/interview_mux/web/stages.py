@@ -432,6 +432,15 @@ EXECUTABLE_ORDER: dict[str, list[str]] = {
     "flow3": [s.id for s in FLOW3_STAGES],
 }
 
+# Stages that may surface LLM routing attempts in the GUI (OpenAI-backed or analysis loop).
+LLM_ROUTING_STAGE_IDS: frozenset[str] = frozenset(
+    {
+        *STAGE_API_PROVIDERS.keys(),
+        "sound_design_vo_finalize",
+        "export_show_description",
+    }
+)
+
 
 def stage_status(ctx_done: Any, stage_id: str) -> str:
     if stage_id == "g1_vo_pickup":

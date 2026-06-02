@@ -1,8 +1,9 @@
 import { useApp } from "../context/AppContext";
 import { escapeHtml, formatTs } from "../utils";
+import { stageTitleById } from "../utils/logDisplay";
 
 export function LogStrip() {
-  const { logEntries, setActiveTab } = useApp();
+  const { logEntries, run, setActiveTab } = useApp();
   const tail = logEntries.slice(-3);
   const actionCount = logEntries.filter((e) =>
     ["action", "warning", "error"].includes(e.level || ""),
@@ -32,7 +33,13 @@ export function LogStrip() {
         ) : (
           tail.map((e, i) => (
             <div key={`${e.ts}-${i}`} className={`log-entry level-${e.level || "info"}`}>
+              <span className={`log-level-dot level-${e.level || "info"}`} aria-hidden />
               <span className="log-ts">{formatTs(e.ts)}</span>
+              {e.stage ? (
+                <span className="log-stage-mini">
+                  {stageTitleById(run?.stages, e.stage)}
+                </span>
+              ) : null}
               <span className="log-msg">{escapeHtml(e.message)}</span>
             </div>
           ))

@@ -24,22 +24,23 @@ from interview_mux.journey_state import (
 from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS, preclean_acknowledged
 from interview_mux.run_context import RunContext
 
-# Canonical next_action strings — must match docs/workflows/operator-journey.md appendix.
-NEXT_ACTION_PREPARE_G0 = "Review lowest-confidence transcript clips in order"
-NEXT_ACTION_PREPARE_RUN = "Run ingest and transcription, then complete transcript review"
-NEXT_ACTION_UNDERSTAND_RUN = "Run content understanding and segmentation"
-NEXT_ACTION_UNDERSTAND_PROFILE = "Lock story for podcast edit in Story Board"
+# Canonical operator strings — must match docs/workflows/operator-journey.md appendix.
+# Keep scannable; execute_hint.label is the primary CTA when not blocked.
+NEXT_ACTION_PREPARE_G0 = "Review STT clips (low confidence first)"
+NEXT_ACTION_PREPARE_RUN = "Prepare transcript for review"
+NEXT_ACTION_UNDERSTAND_RUN = "Run understanding analysis"
+NEXT_ACTION_UNDERSTAND_PROFILE = "Lock story in Story Board"
 NEXT_ACTION_UNDERSTAND_INVESTIGATIONS = "Resolve open questions in Story Board"
-NEXT_ACTION_COMPLETE_G1 = "Record missing pickup lines for gap-fill"
-NEXT_ACTION_COMPLETE_G2 = "Confirm your output: full master, reel, or show description"
-NEXT_ACTION_CREATE_FLOW1 = "Build episode order and listen to assembly preview"
-NEXT_ACTION_CREATE_FLOW2 = "Select highlight clips for the reel"
-NEXT_ACTION_CREATE_FLOW3 = "Generate podcast show description"
-NEXT_ACTION_POLISH_PREVIEW = "Listen to assembly preview, then approve sound design"
-NEXT_ACTION_POLISH_SFX = "Add sound and mix the episode"
-NEXT_ACTION_SHIP_MASTER = "Export and verify your master"
-NEXT_ACTION_SHIP_DESC = "Copy your show description for distribution"
-NEXT_ACTION_DONE = "Your deliverable is ready — listen or export"
+NEXT_ACTION_COMPLETE_G1 = "Record pickup lines"
+NEXT_ACTION_COMPLETE_G2 = "Confirm output type"
+NEXT_ACTION_CREATE_FLOW1 = "Build episode order → preview"
+NEXT_ACTION_CREATE_FLOW2 = "Select highlight clips"
+NEXT_ACTION_CREATE_FLOW3 = "Generate show description"
+NEXT_ACTION_POLISH_PREVIEW = "Listen to preview, then approve sound"
+NEXT_ACTION_POLISH_SFX = "Add sound and mix"
+NEXT_ACTION_SHIP_MASTER = "Export master"
+NEXT_ACTION_SHIP_DESC = "Export show description"
+NEXT_ACTION_DONE = "Deliverable ready — listen or export"
 
 SOUND_LABELS = ("pace_class", "bed_density", "stinger_policy")
 
@@ -190,44 +191,62 @@ def execute_hint(
     selected_flow: str | None,
     milestones: dict[str, bool],
 ) -> dict[str, Any] | None:
+    """Primary CTA for GUI command bar. action=checkpoint opens operator modal."""
     flow = selected_flow or flow_intent or "flow1"
 
     if phase == "prepare":
         if not milestones.get("g0_complete"):
             return {
+                "action": "execute",
                 "mode": "analysis",
                 "until_stage": "transcript_review_build",
-                "label": "Prepare transcript for review",
+                "label": NEXT_ACTION_PREPARE_RUN,
             }
         return {
+            "action": "execute",
             "mode": "analysis",
             "from_stage": "speaker_roles",
-            "label": "Continue shared analysis",
+            "label": NEXT_ACTION_UNDERSTAND_RUN,
         }
 
     if phase == "understand":
         return {
+            "action": "execute",
             "mode": "analysis",
             "from_stage": "speaker_roles",
-            "label": "Run understanding analysis",
+            "label": NEXT_ACTION_UNDERSTAND_RUN,
         }
 
     if phase == "complete":
+        if not milestones.get("g1_complete"):
+            return {
+                "action": "checkpoint",
+                "stage_id": "g1_vo_pickup",
+                "label": NEXT_ACTION_COMPLETE_G1,
+            }
+        if not milestones.get("g2_complete"):
+            return {
+                "action": "checkpoint",
+                "stage_id": "g2_flow_select",
+                "label": NEXT_ACTION_COMPLETE_G2,
+            }
         return None
 
     if phase == "create":
         if flow == "flow3":
-            return {"mode": "flow3", "label": "Generate show description"}
+            return {"action": "execute", "mode": "flow3", "label": NEXT_ACTION_CREATE_FLOW3}
         if flow == "flow2":
             return {
+                "action": "execute",
                 "mode": "flow2",
                 "until_stage": "highlight_selection",
-                "label": "Select highlight clips",
+                "label": NEXT_ACTION_CREATE_FLOW2,
             }
         return {
+            "action": "execute",
             "mode": "flow1",
             "until_stage": "assembly_preview",
-            "label": "Build episode order → preview",
+            "label": NEXT_ACTION_CREATE_FLOW1,
         }
 
     if phase == "polish":
@@ -235,22 +254,39 @@ def execute_hint(
             return None
         if flow == "flow2":
             return {
+                "action": "execute",
                 "mode": "flow2",
                 "from_stage": "elevenlabs_prompt_craft",
-                "label": "Add sound and export reel",
+                "label": NEXT_ACTION_POLISH_SFX,
             }
         return {
+            "action": "execute",
             "mode": "flow1",
             "from_stage": "elevenlabs_prompt_craft",
-            "label": "Add sound and export",
+            "label": NEXT_ACTION_POLISH_SFX,
         }
 
     if phase == "ship":
         if flow == "flow3":
-            return {"mode": "flow3", "from_stage": "export_show_description", "label": "Export show description"}
+            return {
+                "action": "execute",
+                "mode": "flow3",
+                "from_stage": "export_show_description",
+                "label": NEXT_ACTION_SHIP_DESC,
+            }
         if flow == "flow2":
-            return {"mode": "flow2", "from_stage": "master_flow2", "label": "Export highlight master"}
-        return {"mode": "flow1", "from_stage": "master_flow1", "label": "Export podcast master"}
+            return {
+                "action": "execute",
+                "mode": "flow2",
+                "from_stage": "master_flow2",
+                "label": NEXT_ACTION_SHIP_MASTER,
+            }
+        return {
+            "action": "execute",
+            "mode": "flow1",
+            "from_stage": "master_flow1",
+            "label": NEXT_ACTION_SHIP_MASTER,
+        }
 
     return None
 
@@ -360,10 +396,13 @@ def build_journey_snapshot(
     flow_intent = get_flow_intent(ctx)
     selected_flow = get_selected_flow_meta(ctx)
     blocking = _blocking(ctx, job=job, milestones=milestones)
-    next_action = blocking["message"] if blocking.get("blocked") else _next_action(
-        phase, flow_intent, milestones, ctx
-    )
     hint = execute_hint(phase, flow_intent, selected_flow, milestones)
+    if blocking.get("blocked"):
+        next_action = blocking["message"]
+    elif hint and hint.get("label"):
+        next_action = str(hint["label"])
+    else:
+        next_action = _next_action(phase, flow_intent, milestones, ctx)
     return {
         "phase": phase,
         "milestones": milestones,

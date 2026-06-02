@@ -16,6 +16,16 @@ export function getHandoffPathsLocal(
   );
 }
 
+export function findHandoffStage(run: RunData | null): StageInfo | null {
+  if (!run) return null;
+  for (const s of run.stages) {
+    if (s.status !== "done") continue;
+    const paths = getHandoffPathsLocal(s, run.log_tail);
+    if (paths.length > 0 && !run.handoff_ack?.[s.id]) return s;
+  }
+  return null;
+}
+
 export function countPendingActions(run: RunData | null): number {
   if (!run) return 0;
   let n = 0;
@@ -34,18 +44,14 @@ export function actionSummaryText(run: RunData | null): string | null {
   const job = run.job;
   const actionStage = run.stages.find((s) => s.status === "action_required");
   if (job?.status === "gate" || job?.status === "needs_operator") {
-    return job.message || "Your action is required before the pipeline can continue.";
+    return job.message || "Action required before the pipeline can continue.";
   }
   if (actionStage) {
-    return `Checkpoint: ${actionStage.title} — complete the required steps.`;
+    return `${actionStage.title} — complete the required steps.`;
   }
-  const handoffStage = run.stages.find((s) => {
-    if (s.status !== "done") return false;
-    const paths = getHandoffPathsLocal(s, run.log_tail);
-    return paths.length > 0 && !run.handoff_ack?.[s.id];
-  });
+  const handoffStage = findHandoffStage(run);
   if (handoffStage) {
-    return `Review outputs from ${handoffStage.title} and acknowledge to continue.`;
+    return `Review outputs from ${handoffStage.title}.`;
   }
   return null;
 }
@@ -67,4 +73,12 @@ export function checkpointContinueEnabled(
     return paths.length > 0 && !run.handoff_ack?.[stage.id];
   }
   return false;
+}
+
+export function stageTitleForId(
+  stages: StageInfo[] | undefined,
+  stageId: string | undefined | null,
+): string | null {
+  if (!stageId || !stages) return null;
+  return stages.find((s) => s.id === stageId)?.title ?? stageId;
 }

@@ -16,7 +16,8 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | Compact status bar | Execution, stage, job, updated — single row |
+| Header | Compact status bar | Execution, focus stage, job (human labels), updated |
+| Header | **Command bar** | All tabs: running / blocked / handoff / next CTA from `journey` |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
@@ -62,7 +63,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Sub-tab | Content | When visible |
 |---------|---------|--------------|
-| **Stage** | Stage title, description, LLM routing summary, checkpoint CTA | Always when `run_id` set |
+| **Stage** | Title, description, **artifact checklist** (`artifacts_present` / expected), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
 | **Timeline** | NLE waveform / segment editor | After segment classification (empty state otherwise) |
 | **Profile** | Analysis profile form | When profile stage exists / unlocked |
 | **Files** | JSON / text artifact editor | When stage has editable artifacts |
@@ -101,7 +102,7 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | User-visible / area | API | Log file | Artifact |
 |----------------------|-----|----------|----------|
 | Health | `GET /api/health` | — | — |
-| Paths / port for UI | `GET /api/config` | — | reads `config` + repo |
+| Paths / port for UI | `GET /api/config` | — | reads `config` + repo; includes `llm_routing_stage_ids` from `web/stages.py` |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
 | Set active run / stage focus | `PUT /api/session/active` | — | may touch session store under `.gui` (implementation detail) |
 | Browse input audio | `GET /api/assets` | — | scans `ASSETS/` (skips `executions`, `.gui`) — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |

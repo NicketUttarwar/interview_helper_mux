@@ -35,9 +35,8 @@ export function GateActions({ stage }: Props) {
     return (
       <div className="gate-actions">
         <p className="hint">
-          <strong>Profile gate:</strong> verify the interview profile before Flow 1
-          extended analysis. Open <strong>Interview profile</strong> in the stage list,
-          edit themes and style, then click <strong>Mark profile verified</strong>.
+          Verify the interview profile before Flow 1 extended stages — edit themes in
+          Story Board, then <strong>Mark profile verified</strong>.
         </p>
       </div>
     );

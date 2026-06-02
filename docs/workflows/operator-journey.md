@@ -92,21 +92,23 @@ Must match `journey_orchestrator.py` constants (tested in `tests/test_journey_or
 
 | Constant | Text |
 |----------|------|
-| NEXT_ACTION_PREPARE_G0 | Review lowest-confidence transcript clips in order |
-| NEXT_ACTION_PREPARE_RUN | Run ingest and transcription, then complete transcript review |
-| NEXT_ACTION_UNDERSTAND_RUN | Run content understanding and segmentation |
-| NEXT_ACTION_UNDERSTAND_PROFILE | Lock story for podcast edit in Story Board |
+| NEXT_ACTION_PREPARE_G0 | Review STT clips (low confidence first) |
+| NEXT_ACTION_PREPARE_RUN | Prepare transcript for review |
+| NEXT_ACTION_UNDERSTAND_RUN | Run understanding analysis |
+| NEXT_ACTION_UNDERSTAND_PROFILE | Lock story in Story Board |
 | NEXT_ACTION_UNDERSTAND_INVESTIGATIONS | Resolve open questions in Story Board |
-| NEXT_ACTION_COMPLETE_G1 | Record missing pickup lines for gap-fill |
-| NEXT_ACTION_COMPLETE_G2 | Confirm your output: full master, reel, or show description |
-| NEXT_ACTION_CREATE_FLOW1 | Build episode order and listen to assembly preview |
-| NEXT_ACTION_CREATE_FLOW2 | Select highlight clips for the reel |
-| NEXT_ACTION_CREATE_FLOW3 | Generate podcast show description |
-| NEXT_ACTION_POLISH_PREVIEW | Listen to assembly preview, then approve sound design |
-| NEXT_ACTION_POLISH_SFX | Add sound and mix the episode |
-| NEXT_ACTION_SHIP_MASTER | Export and verify your master |
-| NEXT_ACTION_SHIP_DESC | Copy your show description for distribution |
-| NEXT_ACTION_DONE | Your deliverable is ready — listen or export |
+| NEXT_ACTION_COMPLETE_G1 | Record pickup lines |
+| NEXT_ACTION_COMPLETE_G2 | Confirm output type |
+| NEXT_ACTION_CREATE_FLOW1 | Build episode order → preview |
+| NEXT_ACTION_CREATE_FLOW2 | Select highlight clips |
+| NEXT_ACTION_CREATE_FLOW3 | Generate show description |
+| NEXT_ACTION_POLISH_PREVIEW | Listen to preview, then approve sound |
+| NEXT_ACTION_POLISH_SFX | Add sound and mix |
+| NEXT_ACTION_SHIP_MASTER | Export master |
+| NEXT_ACTION_SHIP_DESC | Export show description |
+| NEXT_ACTION_DONE | Deliverable ready — listen or export |
+
+When not blocked, `journey.next_action` matches `execute_hint.label` (single primary CTA string). GUI **command bar** (all tabs) shows status + primary button.
 
 ## Journey log kinds
 
