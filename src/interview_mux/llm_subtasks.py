@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.analysis_memory import record_stage_attempt
-from interview_mux.context_volley import build_message_volley, truncation_flags_for_volley
+from interview_mux.context_volley import truncation_flags_for_volley
+from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE
 from interview_mux.prompt_validation import validate_stage_artifacts
 from interview_mux.run_context import RunContext
@@ -24,7 +25,9 @@ def run_shards_then_collate(
     shard_outputs: list[dict[str, Any]] = []
     for shard_idx, shard in enumerate(shard_plan[:8], start=1):
         shard_input = _slice_stage_input(stage_key, stage_input, shard)
-        volley = build_message_volley(ctx, stage_key, shard_input, profile="shard")
+        volley, _ = prepare_volley_for_llm(
+            ctx, stage_key, shard_input, profile="shard", task_kind="shard"
+        )
         env = run_prompt_envelope(
             stage_key,
             prompt_rel,
@@ -58,7 +61,9 @@ def run_shards_then_collate(
         "shard_outputs": shard_outputs,
         "instruction": "Merge shard outputs into one final stage envelope.",
     }
-    collate_volley = build_message_volley(ctx, stage_key, collate_input, profile="collate")
+    collate_volley, _ = prepare_volley_for_llm(
+        ctx, stage_key, collate_input, profile="collate", task_kind="collate"
+    )
     collate_env = run_prompt_envelope(
         stage_key,
         prompt_rel,

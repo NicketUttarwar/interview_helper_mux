@@ -240,6 +240,7 @@ __marimo__/
 
 
 
+# Heavy operator media + local MLX weights (ASSETS/local_llm/models/, hf_cache/, selection.json)
 ASSETS/
 ASSETS/*
 !ASSETS/.gitkeep

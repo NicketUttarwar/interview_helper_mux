@@ -111,4 +111,17 @@ print("pip-audit: no unaccepted HIGH/CRITICAL findings")
 PY
 fi
 
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
+  if ! python -c "import mlx_lm" 2>/dev/null; then
+    echo "WARN: local_llm is on by default but mlx-lm is not installed — re-run ./scripts/bootstrap_venv.sh"
+  else
+    if ! command -v llmfit >/dev/null 2>&1; then
+      echo "WARN: llmfit not on PATH — install: brew install AlexsJones/llmfit/llmfit (or see SETUP.md § Local LLM)"
+    fi
+    if [[ ! -d ASSETS/local_llm/models ]] || [[ -z "$(ls -A ASSETS/local_llm/models 2>/dev/null)" ]]; then
+      echo "WARN: local LLM weights not found under ASSETS/local_llm/models — run: python scripts/select_local_llm.py --download"
+    fi
+  fi
+fi
+
 echo "Prerequisites OK."

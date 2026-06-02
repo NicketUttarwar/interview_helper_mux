@@ -69,20 +69,29 @@ Tier guidance: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID 
 
 ---
 
-## `local_llm` (planned)
+## `local_llm`
 
-On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md). **Not in `app.defaults.json` until BUILD ships.**
+On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md). Shipped in `config/app.defaults.json` (`enabled: true` by default on macOS).
 
-| Key | Default (planned) | If wrong |
-|-----|-------------------|----------|
-| `local_llm.enabled` | `false` | No local pass; OpenAI-only (current behavior) |
-| `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Wrong/missing weights → import or load failure |
-| `local_llm.models_dir` | `.venv/share/interview_mux/local_llm/models` | Download script and runner disagree on path |
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `local_llm.enabled` | `true` | No local pass when `false`; OpenAI-only volleys |
+| `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Fallback when no `selection.json`; override via secrets |
+| `local_llm.models_dir` | `ASSETS/local_llm/models` | Download script and runner disagree on path |
 | `local_llm.max_volley_turns` | `2` | OpenAI volley bloat; higher API cost |
 | `local_llm.max_tokens` | `768` | Truncated framer JSON → forced escalation |
 | `local_llm.escalate_on_parse_error` | `true` | `false` risks skipping OpenAI on bad local output |
 
-Weights: `python scripts/download_local_llm.py` (see [SETUP.md](../../SETUP.md)).
+**Secrets (optional):**
+
+| Key | Effect |
+|-----|--------|
+| `LOCAL_LLM_MODEL_ID` | Highest-priority HF repo id for local tier |
+| `LOCAL_LLM_REFRESH` | Set to `1` during bootstrap to force llmfit re-selection |
+
+**llmfit selection:** `ASSETS/local_llm/selection.json` (written by `scripts/select_local_llm.py`). Picks largest context among `mlx-community/*` models with fit `perfect`/`good` and quality ≥ 45 (`MIN_QUALITY_SCORE` in `local_llm_selection.py`).
+
+Setup: `python scripts/select_local_llm.py --download` (see [SETUP.md](../../SETUP.md)).
 
 ---
 

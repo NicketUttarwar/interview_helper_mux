@@ -1,54 +1,142 @@
 # interview_helper_mux
 
-Turn a long-form interview recording into **three possible deliverables** (operator picks one after shared analysis):
+Turn a long-form interview recording into **one of three deliverables** (operator commits at gate G2 after shared analysis):
 
-1. **Full master podcast** — reordered speech, VO bridges, cohesive SFX mix, mastered WAV
-2. **Highlight reel** — up to five clips with montage SFX, mastered WAV
-3. **Podcast show description** — ~200-word third-person blurb (text export; no audio mux)
+| Flow | Deliverable | Primary artifact |
+|------|-------------|------------------|
+| **flow1** | Full master podcast | Reordered speech, VO bridges, cohesive SFX mix → `flow_1_master/master.wav` |
+| **flow2** | Highlight reel | Up to five clips with montage SFX → `flow_2_highlights/master.wav` |
+| **flow3** | Podcast show description | ~200-word third-person blurb (text only; no audio mux) → `flow_3_description/show_description.md` |
+
+Shared **analysis** runs first: optional pre-clean → ingest → AWS Transcribe → transcript review (G0) → understanding → segmentation → interviewer gaps (G1) → then flow-specific stages (sound design, assembly, mix, master).
+
+**Operator surface:** FastAPI + React journey GUI on `http://127.0.0.1:8765` (default). Happy path: [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).
+
+---
 
 ## Quick start
 
-See **[SETUP.md](SETUP.md)** for bootstrap, secrets, and first run.
+Full bootstrap, secrets, local LLM, and first run: **[SETUP.md](SETUP.md)**.
 
 ```bash
 ./scripts/bootstrap_venv.sh && source .venv/bin/activate
+./tools/check_prerequisites.sh
+cp config/templates/secrets.env.example config/secrets/secrets.env   # edit keys
 ./scripts/run.sh
 ```
+
+Place source audio under `ASSETS/input/` (any `.wav`; pick from GUI **Input audio** after launch).
+
+---
+
+## Run modes
+
+| Mode | Command |
+|------|---------|
+| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, builds React static bundle if missing, resets GUI session files (unless `MUX_FRESH_SESSION=0`), serves on `web_port` (default **8765**) |
+| **Serve only** | `source .venv/bin/activate && python -m interview_mux serve` or `interview-mux serve` |
+| **Headless pipeline** | `./scripts/run.sh --cli` then `interview-mux` / `python -m interview_mux` with `--flow`, `--run-id`, `--analysis-only`, etc. |
+| **Stage CLIs** | `python tools/run_analysis.py --run-id <exec_*>` · `python tools/run_flow.py --flow flow1\|flow2\|flow3 --run-id <exec_*>` |
+
+GUI runs and artifacts live under `ASSETS/executions/exec_*` and resume after restart — [docs/cross-cutting/assets-and-executions.md](docs/cross-cutting/assets-and-executions.md).
+
+---
+
+## Repository layout
+
+```text
+ASSETS/              # Operator media (gitignored): input/, executions/, .gui/, local_llm/
+config/              # app.defaults.json + secrets/secrets.env (gitignored)
+docs/                # Authoritative specs, prompts, build-out, workflows
+src/interview_mux/   # Python package: pipeline stages, web API, value_analysis, local LLM
+frontend/            # React + TypeScript GUI (Vite → src/interview_mux/web/static/)
+tools/               # Headless CLIs and QC validators (see table below)
+scripts/             # bootstrap_venv.sh, build_gui.sh, run.sh, local LLM selectors
+tests/               # pytest
+CURSOR_EXECUTE/      # Optional: batch-run Agent command markdown (see CURSOR_EXECUTE/README.md)
+```
+
+Stage ids and modules: [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) · code orders: `src/interview_mux/pipeline.py`.
+
+---
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/bootstrap_venv.sh` | Create `.venv`, install `requirements.lock`, editable package; on macOS also MLX + local LLM weights via `select_local_llm.py` |
+| `scripts/run.sh` | Venv + deps + GUI build if needed → `python -m interview_mux serve` (`--cli` for headless) |
+| `scripts/build_gui.sh` | `npm run build` in `frontend/` → `src/interview_mux/web/static/` |
+| `scripts/select_local_llm.py` | llmfit hardware pick + optional `--download` / `--verify` |
+| `scripts/download_local_llm.py` | Direct Hugging Face MLX weight download |
+
+---
+
+## Tools (CLI)
+
+| Tool | Purpose |
+|------|---------|
+| `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, Python, `import interview_mux`, `pip-audit` on lock |
+| `tools/run_analysis.py` | Shared analysis pipeline for an `exec_*` run |
+| `tools/run_flow.py` | Flow 1, 2, or 3 after G2 (`--flow flow1\|flow2\|flow3`) |
+| `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` |
+| `tools/validate_narrative.py` | Flow 1 topic/chapter narrative QC |
+| `tools/verify_edl.py` | EDL schema validation (`flow_1_master/edl.json`) |
+| `tools/validate_edl.py` | EDL validation (alternate entry) |
+| `tools/validate_nle.py` | `segments/nle_edits.json` validation |
+| `tools/validate_show_description.py` | Flow 3 show-description QC |
+| `tools/extract_value_features.py` | Deterministic value metrics → `understanding/value_features.json` |
+| `tools/run_value_spike.py` | Spike scorecard aggregation (R&D) |
+| `tools/export_llm_calls.py` | Export labeled LLM call records for audit (`--run-id`, markdown/jsonl) |
+
+Equivalent Typer entry point: `interview-mux` (`analysis`, `flow`, `serve`, `run`).
+
+---
+
+## Configuration
+
+| File | Role |
+|------|------|
+| `config/app.defaults.json` | Paths, model tiers, mix/QC flags, `journey_ui`, `local_llm`, `value_analysis`, `web_port` |
+| `config/secrets/secrets.env` | API keys and per-machine overrides (from `config/templates/secrets.env.example`) |
+
+Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md).
+
+**Defaults worth knowing:** `local_llm.enabled: true` (macOS bootstrap installs weights; non-macOS falls back to OpenAI-only volleys). `value_analysis.enabled: true` in shipped defaults (GUI panel + optional auto-extract after `content_context`). Strict QC: `narrative_qc`, `edl_qc`, `show_description_qc`, `nle_edits` — see config file.
+
+---
+
+## Implementation status
+
+| Area | Status |
+|------|--------|
+| Waves 0–7 (analysis, G0–G2, flows 1–3, sound design, EDL/assembly, mastering, pre-clean, smart LLM routing BUILD-073/084, source acoustic profile) | **Shipped** in code |
+| Journey UI (phase sidebar, story board, preclean drawer, express flow1) | **Shipped** (`journey_ui` in config) |
+| Gap-closure track GC-00–GC-D1 | **Shipped** — [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) |
+| Open work | Mostly **documentation** sweeps and manual release sign-off — [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (Commands 2–9) |
+
+**v1 honesty:** Mix quality and operator polish still trail the target in [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md). Listen-test every `master.wav`; run `verify_master.py`, `validate_narrative.py`, and `verify_edl.py` before calling a run done. Release checklist: [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md).
+
+---
 
 ## Documentation
 
 | Resource | Link |
 |----------|------|
+| **Setup** | [SETUP.md](SETUP.md) |
 | Doc hub | [docs/INDEX.md](docs/INDEX.md) |
-| **Full build-out guide** | [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) |
-| Application flow (E2E) | [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) |
-| Stage registry | [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) |
-| Ticket acceptance | [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) |
+| Operator journey | [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) |
+| Gates (G0, G1, G2, G1.5) | [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) |
+| GUI ↔ API | [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) · [api-reference.md](docs/workflows/api-reference.md) |
 | Pipeline overview | [docs/pipeline.md](docs/pipeline.md) |
-| Agent guide | [AGENTS.md](AGENTS.md) |
-| Build-out tickets | [docs/build-out/README.md](docs/build-out/README.md) |
+| Stage registry | [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) |
+| Full application flow | [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) |
+| Build-out guide | [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) |
+| Remaining Agent commands | [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) |
 | Repo map | [docs/build-out/repository-map.md](docs/build-out/repository-map.md) |
-| Steps forward | [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) |
-| Remaining build commands | [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) |
-| Release sign-off | [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) |
-| Operator gates | [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) |
-| GUI ↔ API | [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) |
-
-## Layout
-
-```text
-ASSETS/          # input audio + per-run executions (gitignored)
-config/          # defaults + secrets
-docs/            # authoritative specs and prompts
-src/interview_mux/   # Python package (pipeline + Web GUI)
-frontend/            # React + TypeScript GUI (Vite → web/static/)
-tools/             # run_analysis, run_flow, verify_master, validate_narrative, verify_edl, value-analysis CLIs
-scripts/         # bootstrap, run.sh
-tests/           # pytest
-```
-
-## Implementation status
-
-Shared **analysis** (ingest → transcribe → review → understanding → gaps), **Flow 1/2** mix paths (`mix_flow1` / `mix_flow2` → mastered WAV), **Flow 3** publishing copy, and a **FastAPI Web GUI** are shipped. Stage ids: [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md). Release sign-off: [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md).
-
-**v1 honesty:** Mix quality and operator polish still trail the target in [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md) — listen-test every `master.wav`; use `tools/verify_master.py`, `tools/validate_narrative.py`, and `tools/verify_edl.py` before calling a run done.
+| Ticket acceptance | [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) |
+| Agent guide | [AGENTS.md](AGENTS.md) |
+| Smoke test | [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md) |
+| Troubleshooting | [docs/workflows/troubleshooting.md](docs/workflows/troubleshooting.md) |
+| Local LLM tier | [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md) |
+| Value analysis (R&D) | [docs/pipeline/value-analysis/README.md](docs/pipeline/value-analysis/README.md) |

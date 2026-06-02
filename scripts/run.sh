@@ -38,6 +38,17 @@ if [[ "${1:-}" == "--cli" ]]; then
   exec python -m interview_mux "$@"
 fi
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  "$VENV/bin/python" - <<'PY' || true
+from interview_mux.local_llm_config import local_llm_enabled, resolve_model_path
+if local_llm_enabled() and not resolve_model_path().is_dir():
+    print(
+        "Note: local LLM weights missing — run: python scripts/select_local_llm.py --download",
+        flush=True,
+    )
+PY
+fi
+
 if [[ "${MUX_FRESH_SESSION:-1}" == "1" ]]; then
   GUI_DIR="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config, repo_root

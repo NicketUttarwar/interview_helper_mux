@@ -40,11 +40,11 @@
 - [docs/cross-cutting/llm-call-record-framework.md](docs/cross-cutting/llm-call-record-framework.md) — labels, paths, volley reconstruction
 - `python tools/export_llm_calls.py --run-id <exec_*>` — export markdown/jsonl for review
 
-## Local LLM (optional, plan)
+## Local LLM (default on; `local_llm.enabled`)
 
-- [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md) — MLX on M1, minimal volleys, OpenAI escalation
+- [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md) — MLX volley framing before OpenAI; fail-safe escalation
 - [docs/cross-cutting/local-llm-implementation-handoff.md](docs/cross-cutting/local-llm-implementation-handoff.md) — implementation checklist
-- `python scripts/download_local_llm.py --install-deps` — weights under `.venv/share/interview_mux/local_llm/`
+- `python scripts/select_local_llm.py --download` — llmfit hardware pick + weights under `ASSETS/local_llm/models/`
 
 ## Building code in Cursor
 

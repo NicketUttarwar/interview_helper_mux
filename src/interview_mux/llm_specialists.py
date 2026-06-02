@@ -7,7 +7,7 @@ from typing import Any
 
 from interview_mux.analysis_memory import enqueue_investigations
 from interview_mux.config import merged_config
-from interview_mux.context_volley import build_message_volley
+from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
 
@@ -121,7 +121,9 @@ def run_specialist(
     prompt_rel = SPECIALIST_PROMPTS.get(specialist_key)
     if not prompt_rel:
         raise ValueError(f"Unknown specialist: {specialist_key}")
-    volley = build_message_volley(ctx, parent_stage, stage_input, profile="shard")
+    volley, _ = prepare_volley_for_llm(
+        ctx, parent_stage, stage_input, profile="shard", task_kind="specialist"
+    )
     return run_prompt_envelope(
         f"{parent_stage}__{specialist_key}",
         prompt_rel,

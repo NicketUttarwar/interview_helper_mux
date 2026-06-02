@@ -44,6 +44,24 @@ HIGH_SEVERITY_STAGES = {
     "sound_design_plan_flow2",
 }
 
+LOW_SEVERITY_STAGES = {
+    "speaker_roles",
+    "transitions",
+    "podcast_sfx_brief",
+    "sfx_brief",
+    "sound_design_palettes",
+    "elevenlabs_prompt_craft",
+}
+
+
+def stage_severity(stage_key: str) -> str:
+    """Editorial impact tier for local LLM escalation (low | medium | high)."""
+    if stage_key in HIGH_SEVERITY_STAGES:
+        return "high"
+    if stage_key in LOW_SEVERITY_STAGES:
+        return "low"
+    return "medium"
+
 
 @dataclass(frozen=True)
 class ResolvedModel:

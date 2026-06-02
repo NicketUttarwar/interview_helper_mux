@@ -18,6 +18,11 @@ pyloudnorm==0.2.0
 pydub==0.25.1
 soundfile==0.13.1
 
+# Local LLM (Apple Silicon only — optional; pipeline falls back to OpenAI when missing)
+mlx-lm>=0.21.0; sys_platform == "darwin"
+mlx>=0.22.0; sys_platform == "darwin"
+huggingface_hub>=0.26.0,<1
+
 # Dev / setup gate
 pytest>=8,<9
 pip-audit>=2.7,<3

@@ -13,10 +13,9 @@ from interview_mux.analysis_memory import (
     uptier_budget_remaining,
 )
 from interview_mux.config import merged_config
-from interview_mux.context_volley import (
-    build_message_volley,
-    truncation_flags_for_volley,
-)
+from interview_mux.context_volley import truncation_flags_for_volley
+from interview_mux.local_llm_config import skip_openai_when_local_satisfied
+from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley_for_llm
 from interview_mux.llm_arbiter import run_llm_arbiter
 from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, build_deterministic_shard_plan
 from interview_mux.llm_subtasks import run_shards_then_collate
@@ -68,6 +67,55 @@ def _extend_volley_for_retry(
             lines.append(f"- [{need.get('type')}] {need.get('reason', need.get('question', ''))}")
         extended.append({"role": "user", "content": "\n".join(lines)})
     return extended
+
+
+def _run_primary_with_openai_fallback(
+    ctx: RunContext,
+    stage_key: str,
+    prompt_rel: str,
+    volley: list[dict[str, str]],
+    *,
+    local_framing: LocalFramingResult | None = None,
+    bump_tier: bool = False,
+    call_attempt: int = 1,
+) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
+    """
+    Run OpenAI primary (always, unless explicitly configured to skip when local satisfied).
+    Local framing only compresses the volley; OpenAI remains the source of stage envelopes.
+    """
+    if (
+        local_framing
+        and local_framing.used_local
+        and not local_framing.escalate
+        and skip_openai_when_local_satisfied()
+    ):
+        ctx.log(
+            f"Local LLM satisfied {stage_key} without OpenAI primary (pilot mode).",
+            level="warning",
+            stage=stage_key,
+        )
+        return (
+            {
+                "status": "complete",
+                "artifacts": {},
+                "memory_updates": {},
+                "needs": [],
+                "follow_up_investigations": [],
+                "reasoning_summary": local_framing.reason or "local-only pilot",
+                "_llm_meta": {"model_tier": "local", "model_id": local_framing.model_id or "local_mlx", "task_kind": "primary"},
+                "_local_only_pilot": True,
+            },
+            volley,
+            ["local_only_pilot_no_artifacts"],
+        )
+    return _run_primary_with_volley_retries(
+        ctx,
+        stage_key,
+        prompt_rel,
+        volley,
+        bump_tier=bump_tier,
+        call_attempt=call_attempt,
+    )
 
 
 def _run_primary_with_volley_retries(
@@ -175,9 +223,17 @@ def run_llm_stage_with_routing(
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
-    volley = build_message_volley(ctx, stage_key, stage_input)
-    envelope, volley, schema_errors = _run_primary_with_volley_retries(
-        ctx, stage_key, prompt_rel, volley, bump_tier=bump_tier, call_attempt=attempt
+    volley, local_framing = prepare_volley_for_llm(
+        ctx, stage_key, stage_input, profile="full", task_kind="primary"
+    )
+    envelope, volley, schema_errors = _run_primary_with_openai_fallback(
+        ctx,
+        stage_key,
+        prompt_rel,
+        volley,
+        local_framing=local_framing,
+        bump_tier=bump_tier,
+        call_attempt=attempt,
     )
     truncation_flags = truncation_flags_for_volley(volley)
 
@@ -220,8 +276,17 @@ def run_llm_stage_with_routing(
 
     if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
         record_uptier_retry(ctx, stage_key)
-        envelope, volley, schema_errors = _run_primary_with_volley_retries(
-            ctx, stage_key, prompt_rel, volley, bump_tier=True, call_attempt=attempt
+        volley, local_framing = prepare_volley_for_llm(
+            ctx, stage_key, stage_input, profile="full", task_kind="primary"
+        )
+        envelope, volley, schema_errors = _run_primary_with_openai_fallback(
+            ctx,
+            stage_key,
+            prompt_rel,
+            volley,
+            local_framing=local_framing,
+            bump_tier=True,
+            call_attempt=attempt,
         )
         truncation_flags = truncation_flags_for_volley(volley)
         arbiter_result = run_llm_arbiter(
@@ -305,6 +370,7 @@ def run_llm_stage_with_routing(
     envelope["_routing_meta"] = {
         "routed_via_collate": routed_via_collate,
         "shard_plan_source": shard_plan_source,
+        "local_llm": local_framing.to_attempt_meta() if local_framing else None,
     }
     return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
@@ -337,6 +403,7 @@ def finalize_stage_attempt(
         extra={
             "shard_plan_source": routing.get("shard_plan_source"),
             "routed_via_collate": routed_via_collate,
+            "local_llm": routing.get("local_llm"),
         },
     )
     artifacts = envelope.get("artifacts") or {}

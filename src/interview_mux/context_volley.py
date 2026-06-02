@@ -373,6 +373,33 @@ def truncation_flags_for_volley(messages: list[dict[str, str]]) -> list[str]:
     return flags
 
 
+def apply_local_framing_to_volley(
+    base_volley: list[dict[str, str]],
+    framed_turns: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """
+    Replace middle turns (prior conclusions, profile, investigations) with local-framed turns.
+    Keeps the first user turn (task) and last user turn (stage evidence) when present.
+    """
+    if not framed_turns or not base_volley:
+        return base_volley
+    clean: list[dict[str, str]] = []
+    for turn in framed_turns:
+        role = str(turn.get("role", "")).strip().lower()
+        content = str(turn.get("content", "")).strip()
+        if role in ("user", "assistant") and content:
+            clean.append({"role": role, "content": content})
+    if not clean:
+        return base_volley
+    if len(base_volley) == 1:
+        return [*base_volley, *clean]
+    first = base_volley[0]
+    last = base_volley[-1]
+    if first.get("role") == "user" and last.get("role") == "user" and len(base_volley) >= 2:
+        return [first, *clean, last]
+    return [first, *clean, *base_volley[1:]]
+
+
 def _summary_from_accepted_attempt(
     ctx: RunContext,
     stage: str,

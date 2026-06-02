@@ -1,6 +1,6 @@
 # Local LLM tier (on-device framing)
 
-**Status: plan (not wired into pipeline)** — use this doc + [local-llm-implementation-handoff.md](./local-llm-implementation-handoff.md) + `scripts/download_local_llm.py` to implement.
+**Status: implemented (runtime)** — **on by default** (`local_llm.enabled: true`). macOS bootstrap downloads weights; see [local-llm-implementation-handoff.md](./local-llm-implementation-handoff.md) and `scripts/download_local_llm.py`.
 
 **Related:**
 
@@ -35,27 +35,39 @@ Insert a **local LLM tier** between **artifact shaping** and **OpenAI**:
 | Machine | Apple M1, **16 GB** unified memory |
 | Runtime | **MLX** via `mlx-lm` (Apple Silicon, in `.venv`) |
 | Model format | **4-bit** MLX weights from `mlx-community/*` on Hugging Face |
-| Weights path | `.venv/share/interview_mux/local_llm/models/<model_id>/` (gitignored with `.venv`) |
-| HF cache | `.venv/share/interview_mux/local_llm/hf_cache/` (keeps hub blobs inside venv tree) |
+| Weights path | `ASSETS/local_llm/models/<slug>/` (gitignored under `ASSETS/`) |
+| HF cache | `ASSETS/local_llm/hf_cache/` |
+| Selection manifest | `ASSETS/local_llm/selection.json` (llmfit hardware-aware pick) |
 
-### Recommended models (pick one default)
+### Hardware-aware selection (llmfit)
+
+On macOS, [llmfit](https://github.com/AlexsJones/llmfit) scans RAM/GPU and recommends MLX models. This repo runs:
+
+```bash
+llmfit recommend --json --force-runtime mlx --limit 50
+```
+
+`scripts/select_local_llm.py` keeps `mlx-community/*` models with fit **perfect** or **good**, quality ≥ **45**, and picks the **largest context window** (tie-break: quality, then score). Writes `ASSETS/local_llm/selection.json` and downloads weights.
+
+```bash
+brew install AlexsJones/llmfit/llmfit
+source .venv/bin/activate
+python scripts/select_local_llm.py --download --verify
+```
+
+Override: `LOCAL_LLM_MODEL_ID` in `config/secrets/secrets.env`, or `python scripts/select_local_llm.py --refresh --download`.
+
+**Fallback** when llmfit has no eligible candidates: `mlx-community/Llama-3.2-3B-Instruct-4bit`.
+
+### Manual model picks (optional)
 
 | Model (HF repo) | Approx RAM | Role |
 |-----------------|------------|------|
-| `mlx-community/Llama-3.2-3B-Instruct-4bit` | ~2 GB | **Default** — fast volley framing, escalation gate |
-| `mlx-community/Mistral-7B-Instruct-v0.3-4bit` | ~4–5 GB | Higher quality summaries; still fits 16 GB with headroom |
+| `mlx-community/Llama-3.2-3B-Instruct-4bit` | ~2 GB | Fallback / small machines |
+| `mlx-community/Mistral-7B-Instruct-v0.3-4bit` | ~4–5 GB | Higher quality summaries |
 | `mlx-community/Qwen2.5-7B-Instruct-4bit` | ~4–5 GB | Alternative 7B instruct |
 
 Do **not** run full-precision 7B or 13B+ models on 16 GB. Prefer **4-bit** MLX builds only.
-
-Download:
-
-```bash
-source .venv/bin/activate
-python scripts/download_local_llm.py --model mlx-community/Llama-3.2-3B-Instruct-4bit
-# Optional heavier default:
-# python scripts/download_local_llm.py --model mlx-community/Mistral-7B-Instruct-v0.3-4bit
-```
 
 ---
 
@@ -130,7 +142,7 @@ Add under `local_llm` in `config/app.defaults.json` when implementing — see [c
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `local_llm.enabled` | `false` | Master switch |
+| `local_llm.enabled` | `true` | Master switch |
 | `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | HF repo or path under venv share |
 | `local_llm.models_dir` | (venv share path) | Override weights directory |
 | `local_llm.max_volley_turns` | `2` | Hard cap on injected turns |
