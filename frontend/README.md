@@ -11,7 +11,7 @@ React + TypeScript operator console for the FastAPI backend.
 
 ```bash
 cd frontend
-npm install
+npm ci           # from package-lock.json (see SETUP.md if Rollup arch errors)
 npm run dev      # Vite dev server; proxies /api → http://127.0.0.1:8765
 npm run build    # Production bundle into src/interview_mux/web/static/
 ```

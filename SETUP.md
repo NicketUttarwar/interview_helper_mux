@@ -9,13 +9,13 @@ Complete this guide **before** `./scripts/run.sh`. The run script creates or ref
 | Step | Required? | Command / action |
 |------|-----------|------------------|
 | System tools (Python, ffmpeg, AWS CLI) | Yes | See [Requirements](#requirements) |
-| Node.js 20+ (`npm`) | Yes (GUI) | `node -v` · `npm -v` — used by `scripts/build_gui.sh` (also invoked from `run.sh` if static bundle missing) |
+| Node.js 20+ (`npm`, **native arch**) | Yes (GUI) | `node -v` · `npm -v` · `node -p process.arch` must match `uname -m` (see [GUI dependencies](#gui-dependencies-nodejs)) |
 | Python venv + lock | Yes | `./scripts/bootstrap_venv.sh` → `source .venv/bin/activate` |
 | Prerequisite gate | Yes | `./tools/check_prerequisites.sh` |
 | Secrets | Yes | `cp config/templates/secrets.env.example config/secrets/secrets.env` and edit |
 | AWS auth | Yes (Transcribe) | `aws sts get-caller-identity` |
 | Source WAV | Yes (first run) | `ASSETS/input/<name>.wav` (or resume a prior `exec_*`) |
-| Pre-build GUI (optional) | No | `./scripts/build_gui.sh` — saves time on first `run.sh` |
+| GUI dependencies + build | Yes | `cd frontend && npm ci` then `./scripts/build_gui.sh` (or let `run.sh` build on first launch) |
 | Local MLX LLM (Apple Silicon) | Recommended on macOS | Installed by `bootstrap_venv.sh` — [Local LLM](#local-llm-apple-silicon-default-on) |
 | Value-analysis flags | No | Shipped defaults are on — [Value analysis](#value-analysis) |
 
@@ -38,11 +38,15 @@ Pinned Python versions and CVE policy: [docs/cross-cutting/anchored-toolchain.md
 
 ```bash
 brew install python@3.12 ffmpeg awscli node@20
-# Ensure node/npm are on PATH (Homebrew may print a brew link hint)
+brew link --overwrite node@20   # if Homebrew printed a link hint
+# Ensure node/npm are on PATH (native arm64 on Apple Silicon — see GUI section)
+node -p process.arch   # arm64 when uname -m is arm64
 aws configure   # or SSO — must pass: aws sts get-caller-identity
 ```
 
 Linux: use your distro packages for `python3.12`, `ffmpeg`, `awscli`, and Node 20+.
+
+On **Apple Silicon**, Node must be **arm64** (`node -p process.arch` → `arm64`). An x64 Node binary (Rosetta) installs the wrong Rollup native addon and breaks `npm run build`.
 
 ---
 
@@ -61,15 +65,46 @@ source .venv/bin/activate
 - `check_prerequisites.sh` verifies ffmpeg, ffprobe, aws, Python, `import interview_mux`, and runs `pip-audit` on the lock (fails on unaccepted **HIGH** / **CRITICAL** findings; override via `PIP_AUDIT_IGNORE_VULNS` / `PIP_AUDIT_FAIL_LEVEL` per anchored-toolchain).
 - On macOS with `local_llm` enabled, prerequisites **warn** (non-fatal) if `llmfit`, `mlx-lm`, or weights under `ASSETS/local_llm/models/` are missing.
 
-### Optional: pre-build the GUI
+### GUI dependencies (Node.js)
 
-`./scripts/run.sh` builds the GUI automatically if `src/interview_mux/web/static/index.html` is missing. To build ahead of time:
+Vite/Rollup ship **platform-specific** optional npm packages (for example `@rollup/rollup-darwin-arm64` on Apple Silicon). They are installed for **Node’s CPU architecture**, not the shell’s. A stale `frontend/node_modules` tree from another machine or arch, or npm’s optional-deps bug, causes `Cannot find module @rollup/rollup-darwin-arm64`.
+
+**Verify before installing:**
 
 ```bash
+node -v && npm -v
+uname -m
+node -p process.arch    # must match host: arm64↔arm64, x86_64↔x64
+```
+
+**Install (from repo root):**
+
+```bash
+cd frontend
+npm ci                  # uses package-lock.json; reproducible
+cd ..
 ./scripts/build_gui.sh
 ```
 
-Requires `npm` and installs `frontend/node_modules` on first run.
+`./scripts/build_gui.sh` runs `npm ci` automatically when `node_modules` is missing or Rollup fails to load; it also checks Node arch vs `uname -m`.
+
+`./scripts/run.sh` invokes the same script when `src/interview_mux/web/static/index.html` is missing.
+
+**If Rollup still errors** (wrong-arch tree or corrupted optional deps):
+
+```bash
+cd frontend
+rm -rf node_modules
+npm ci
+cd ..
+./scripts/build_gui.sh
+```
+
+| Symptom | Fix |
+|---------|-----|
+| `@rollup/rollup-darwin-arm64` not found, host is arm64 | `rm -rf frontend/node_modules && cd frontend && npm ci` |
+| `process.arch` is `x64` but `uname -m` is `arm64` | Prefer native arm64 Node (`brew install node@20`); x64 Node needs `@rollup/rollup-darwin-x64` in `node_modules`, not `-arm64` |
+| `npm ci` fails on lock mismatch | Regenerate lock on your machine: `cd frontend && npm install` (commit updated `package-lock.json` only if intentional) |
 
 ---
 
