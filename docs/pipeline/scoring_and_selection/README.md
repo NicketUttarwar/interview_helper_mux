@@ -20,6 +20,8 @@ Branches after operator gate G2.
 
 **Narrative QC:** `python tools/validate_narrative.py --run-id <exec_id>` — topic coverage + non-empty chapters (`interview_mux/narrative_qc.py`). Pipeline warns before `full_master_ranking` / `edl_flow1`; `narrative_qc.strict: true` blocks.
 
+**Extended EDL narrative QC:** `edl_narrative_audit` runs after `sound_design_vo_finalize` with local LLM volley framing and flagship model review. `edl_flow1` then runs deterministic final-EDL checks (`interview_mux/edl_narrative_qc.py`) for selection parity, coverage survival, chapter continuity, ordering constraints, transition anchors, and gap placements. CLI: `python tools/validate_narrative.py --run-id <exec_id> --include-edl`.
+
 **NLE (BUILD-068):** GUI timeline edits in `segments/nle_edits.json` affect `selection.json` on `full_master_ranking` and `edl_flow1` re-run.
 
 ## Flow 2

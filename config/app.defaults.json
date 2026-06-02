@@ -27,6 +27,7 @@
       "topic_coverage_audit": { "tier": "flagship" },
       "narrative_arc_plan": { "tier": "flagship" },
       "full_master_ranking": { "tier": "flagship" },
+      "edl_narrative_audit": { "tier": "flagship" },
       "highlight_selection": { "tier": "flagship" },
       "podcast_show_description": { "tier": "flagship" },
       "transitions": { "tier": "economy" },
@@ -51,6 +52,9 @@
     "strict": true
   },
   "edl_qc": {
+    "strict": true
+  },
+  "edl_narrative_qc": {
     "strict": true
   },
   "show_description_qc": {

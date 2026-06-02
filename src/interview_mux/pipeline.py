@@ -28,6 +28,7 @@ from interview_mux.stages import analysis_flow1_extended
 from interview_mux.stages import assembly_flow1
 from interview_mux.stages import assembly_flow2
 from interview_mux.stages import audio_preclean
+from interview_mux.stages import edl_narrative_audit
 from interview_mux.stages import gaps
 from interview_mux.stages import ingest
 from interview_mux.stages import mastering
@@ -64,6 +65,7 @@ FLOW1_ORDER = [
     "transitions",
     "sound_design_plan_flow1",
     "sound_design_vo_finalize",
+    "edl_narrative_audit",
     "edl_flow1",
     "assembly_preview",
     "elevenlabs_prompt_craft",
@@ -113,6 +115,7 @@ def _flow1_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "transitions": selection_flow1.run_transitions,
         "sound_design_plan_flow1": lambda: sound_design_stages.run_sound_design_plan_flow1(ctx),
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
+        "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
         "edl_flow1": assembly_flow1.run_edl,
         "assembly_preview": assembly_flow1.run_preview,
         "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
@@ -300,6 +303,7 @@ def run_flow1(
         ("transitions", selection_flow1.run_transitions),
         ("sound_design_plan_flow1", lambda: sound_design_stages.run_sound_design_plan_flow1(ctx)),
         ("sound_design_vo_finalize", lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx)),
+        ("edl_narrative_audit", lambda: edl_narrative_audit.run_edl_narrative_audit(ctx)),
         ("edl_flow1", assembly_flow1.run_edl),
         ("assembly_preview", assembly_flow1.run_preview),
         ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),

@@ -23,6 +23,8 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `preview_listened_at` milestone |
 | `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
+| `edl_qc.strict` | `gates.check_edl_qc`, `assembly_flow1`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
+| `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly_flow1`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl_flow1` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
 | `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true`, blocks persisting invalid show description; default `false` (warn only) |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |

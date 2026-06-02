@@ -27,6 +27,7 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | topic_coverage_audit | selection/topic-coverage-audit | flagship | full / shard / collate |
 | narrative_arc_plan | selection/narrative-arc-plan | flagship | full |
 | full_master_ranking | selection/full-master-ranking | flagship | full / shard / collate |
+| edl_narrative_audit | selection/edl-narrative-audit | flagship | full |
 | transitions | assembly/transitions | economy | full |
 | podcast_sfx_brief | assembly/podcast-sfx-brief | economy | full |
 | sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |

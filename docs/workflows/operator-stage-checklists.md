@@ -158,7 +158,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
 | `sound_design_plan_flow1` | G2 `selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.flow1.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan_flow1`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
 | `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl_flow1` |
-| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present | `--from-stage edl_flow1`; fix `vo_pickup/` filenames — [artifact-layout](../cross-cutting/artifact-layout.md) |
+| `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
+| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl_flow1`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
 | `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO only (no SFX spend yet) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
 | **before_sfx_spend** (quality offer) | After preview listen, Accept/Dismiss pre-clean offer on `assembly_preview` panel if shown; checkpoint logged in `run_meta.audio_preclean.offered_at` | Accept → invalidate ingest path and re-run from `audio_preclean`; Dismiss → proceed to craft/generate — [operator-gates.md](./operator-gates.md#quality-improvement-offers-not-gates) |
 | `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
@@ -282,7 +283,7 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 | `full_master_ranking`, `edl_flow1` | Yes | `narrative_qc` | `gates.check_narrative_qc` |
 | `podcast_show_description` | Yes | `show_description_qc` | `gates.check_show_description_qc` |
 
-**Log-only summaries** (no GUI card yet — inspect `run_meta.json` or `gui_log.jsonl`):
+**Log-only summaries** (inspect `run_meta.json` or `gui_log.jsonl`):
 
 | Key | Written at | Source |
 |-----|------------|--------|
@@ -295,6 +296,7 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 |-----|------------------|
 | `narrative_qc` | Fix `coverage_audit.json` / `selection.json`; `python tools/validate_narrative.py --run-id <id>`; or `narrative_qc.strict: false` |
 | `edl_qc` | Fix `flow_1_master/edl.json`; `python tools/validate_edl.py --run-id <id>`; `--from-stage edl_flow1`; or `edl_qc.strict: false` |
+| `edl_narrative_qc` | Fix coverage/order/transition/gap placement issue; `python tools/validate_narrative.py --run-id <id> --include-edl`; re-run `edl_narrative_audit` or `edl_flow1`; or `edl_narrative_qc.strict: false` |
 | `show_description_qc` | Fix JSON evidence / word count; re-run stage; or `show_description_qc.strict: false` |
 | `mix_intelligibility` | Lower bed levels / increase duck; re-run mix; or disable `mix.intelligibility_qc.enabled` |
 

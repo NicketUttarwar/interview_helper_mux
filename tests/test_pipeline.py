@@ -70,6 +70,11 @@ def test_run_flow1_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
         _stub_stage(called, "sound_design_vo_finalize"),
     )
     monkeypatch.setattr(
+        pipeline.edl_narrative_audit,
+        "run_edl_narrative_audit",
+        _stub_stage(called, "edl_narrative_audit"),
+    )
+    monkeypatch.setattr(
         pipeline.assembly_flow1,
         "run_edl",
         _stub_stage(called, "edl_flow1"),
@@ -109,6 +114,7 @@ def test_run_flow1_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
         "transitions",
         "sound_design_plan_flow1",
         "sound_design_vo_finalize",
+        "edl_narrative_audit",
         "edl_flow1",
         "assembly_preview",
         "elevenlabs_prompt_craft",

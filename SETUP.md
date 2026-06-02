@@ -114,7 +114,7 @@ Merged config: `config/app.defaults.json` + `config/secrets/secrets.env`. Notabl
 | `journey_ui.enabled` | `true` | Phase sidebar, story board, unified preclean drawer |
 | `value_analysis.enabled` | `true` | GUI panel + tools; set `false` to disable |
 | `value_analysis.auto_extract_after_content_context` | `true` | Writes `understanding/value_features.json` after `content_context` |
-| `narrative_qc.strict` / `edl_qc.strict` / `show_description_qc.strict` | `true` | Block or warn per stage validators |
+| `narrative_qc.strict` / `edl_qc.strict` / `edl_narrative_qc.strict` / `show_description_qc.strict` | `true` | Block or warn per stage validators |
 
 ---
 
@@ -283,14 +283,14 @@ Flow 3 produces text only. Flow 1/2 produce `master.wav` under `flow_1_master/` 
 
 ```bash
 python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
-python tools/validate_narrative.py --run-id <exec_id>
-python tools/verify_edl.py --run-id <exec_id>
+python tools/validate_narrative.py --run-id <exec_id> --include-edl
+python tools/verify_edl.py --run-id <exec_id>   # schema-only EDL diagnostic
 python tools/validate_nle.py --run-id <exec_id>
 python tools/validate_show_description.py --run-id <exec_id>   # flow3
 python tools/export_llm_calls.py --run-id <exec_id> -o /tmp/llm_calls.md
 ```
 
-When `narrative_qc.strict` / `edl_qc.strict` are true (shipped default), pipeline stages enforce the same rules; CLIs are for preflight and debugging.
+When `narrative_qc.strict` / `edl_qc.strict` / `edl_narrative_qc.strict` are true (shipped default), pipeline stages enforce the same rules; CLIs are for preflight and debugging.
 
 ---
 

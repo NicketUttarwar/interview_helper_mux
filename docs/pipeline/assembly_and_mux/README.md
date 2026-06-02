@@ -25,6 +25,7 @@ Module: `src/interview_mux/sound_design.py` — `mix_flow1` / `mix_flow2`.
 | BUILD-067 | **Shipped:** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors |
 | BUILD-068 | **Shipped:** `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
 | BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
+| EDL narrative QC | **Shipped:** `edl_narrative_audit` + `edl_narrative_qc` verify final EDL narrative semantics before write |
 
 Stage ids and mix tables: [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
@@ -64,14 +65,17 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 **QA (Flow 1):**
 
 ```bash
-python tools/verify_edl.py --run-id <exec_id>
-python tools/validate_narrative.py --run-id <exec_id> [--require-selection]
+python tools/verify_edl.py --run-id <exec_id>                         # schema only
+python tools/validate_edl.py --run-id <exec_id>                       # timeline/mechanical QC
+python tools/validate_narrative.py --run-id <exec_id> --include-edl   # upstream + EDL narrative QC
 ```
 
 ## Modules
 
 - `sound_design.py` — mix engine (`mix_flow1`, `mix_flow2`)
 - `assembly_flow1.py` — `edl_flow1`, `run_mux` → `mix_flow1`, `assembly_preview`
+- `edl_narrative_qc.py` — final EDL narrative semantics
+- `stages/edl_narrative_audit.py` — local-volley + flagship semantic audit before EDL
 - `assembly_flow2.py` — `run_micro_assembly` → `mix_flow2`
 - `sfx_elevenlabs.py`, `sound_design_stages.py`
 

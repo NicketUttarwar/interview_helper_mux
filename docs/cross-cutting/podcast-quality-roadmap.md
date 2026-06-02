@@ -8,14 +8,14 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 
 | Layer | v1 (shipped) | Target |
 |-------|--------------|--------|
-| Analysis | Content brief, segments, gaps, Flow 1 ranking; profile gate before extended Flow 1 (BUILD-081); **narrative QC** (`validate_narrative.py`) | Same + richer narrative validators |
+| Analysis | Content brief, segments, gaps, Flow 1 ranking; profile gate before extended Flow 1 (BUILD-081); **narrative QC** (`validate_narrative.py`) | Same pattern as validators expand |
 | VO pickup (G1) | Record lines to `vo_pickup/`; optional **pickup-scoped pre-clean** (`vo_pickup` scope, BUILD-019 + BUILD-072) | Same |
-| Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix_flow1`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL | Narrative validators on EDL |
+| Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix_flow1`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL; **extended EDL narrative QC** after flagship `edl_narrative_audit` | Deeper operator edit UX |
 | Assembly Flow 2 | **`mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
 | Flow 3 publishing | Third-person show description JSON + markdown (BUILD-045–046, 080) | Same |
 | SFX | SDP + **`elevenlabs_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
 | NLE GUI | Saves `segments/nle_edits.json`; **feeds ranking + EDL** (BUILD-068) | Richer operator edit UX |
-| Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks) | Extended EDL narrative checks (future) |
+| Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks); EDL timeline QC (`validate_edl`); extended EDL narrative QC (`validate_narrative --include-edl`) | Extended listen-study metrics |
 | Pre-clean | **`audio_preclean`** + **GUI offers** at roadmap checkpoints (never auto-enabled) | Same pattern at any new checkpoint |
 
 **Shipped mix path:** Flow 1/2 `master.wav` is built via `mix_flow1`/`mix_flow2` (BUILD-065–066), not speech-only concat. Legacy `mux_flow*` remains a single-stage rerun alias only.
@@ -42,6 +42,12 @@ See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./el
 
 - `verify_master.py`: integrated LUFS, true peak, duration rules per [evaluation-metrics.md](./evaluation-metrics.md).
 - Measured loudness on assembly bus; GUI surfaces failures.
+
+### Wave C2 — Extended EDL narrative checks — **done**
+
+- `edl_narrative_audit`: local LLM frames the volley, then flagship routing reviews final Flow 1 narrative readiness before EDL build.
+- `edl_narrative_qc`: deterministic strict gate on final `edl.json` semantics — coverage survives NLE, chapters remain coherent, ordering constraints hold, transitions align, and gap placements match VO clips.
+- CLI: `python tools/validate_narrative.py --run-id <exec_id> --include-edl` runs upstream narrative, EDL timeline, and EDL narrative checks together.
 
 ### Wave D — Audio pre-clean (BUILD-019 + BUILD-072) — **done**
 

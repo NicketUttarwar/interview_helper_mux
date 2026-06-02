@@ -69,6 +69,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `llm_shard_plans.py` | `DECOMPOSE_ELIGIBLE` + deterministic shard plans | BUILD-084 |
 | `llm_specialists.py` | Optional post-stage specialist passes | BUILD-084 |
 | `llm_routing_debug.py` | Stage attempt summaries for GUI | BUILD-084 |
+| `edl_narrative_qc.py` | Final Flow 1 EDL narrative semantics | EDL narrative QC |
 | `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
 | `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
 | `selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
@@ -79,6 +80,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `mastering.py` | `master_flow1`, `master_flow2` | BUILD-036, 050 |
 | `audio_preclean.py` | ElevenLabs isolation (optional) | BUILD-019 |
 | `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
+| `edl_narrative_audit.py` | `edl_narrative_audit` flagship Flow 1 audit | EDL narrative QC |
 | `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `elevenlabs_prompt_craft` | BUILD-061–064 |
 | `sound_design_vo_finalize.py` | `sound_design_vo_finalize` — VO bridge measured durations | gap-closure GC-A3 |
 
@@ -100,7 +102,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `features_transcript.py` / `features_audio.py` | Metrics → `understanding/value_features.json` |
 | `spike_score.py` | Spike scorecard aggregation |
 
-**Default:** off (`value_analysis.enabled: false`). Not in `pipeline.py` orders.
+**Default:** on in shipped config (`value_analysis.enabled: true`, auto-extract after `content_context`); still not a separate `pipeline.py` stage.
 
 **GUI ↔ docs:** [gui-surface-map.md](../workflows/gui-surface-map.md) · [api-reference.md](../workflows/api-reference.md)
 
@@ -117,7 +119,8 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
 | `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
 | `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` | BUILD-052, BUILD-070 |
-| `tools/validate_narrative.py` | Flow 1 topic coverage + chapter checks | BUILD-067 |
+| `tools/validate_narrative.py` | Flow 1 topic/chapter checks; `--include-edl` adds timeline + EDL narrative checks | BUILD-067 + EDL narrative QC |
+| `tools/validate_edl.py` | EDL timeline/mechanical validation for `flow_1_master/edl.json` | BUILD-067 |
 | `tools/verify_edl.py` | EDL schema validation for `flow_1_master/edl.json` | BUILD-067 |
 | `tools/extract_value_features.py` | Opt-in value metrics artifact | value-analysis |
 | `tools/run_value_spike.py` | Spike scorecard aggregation | value-analysis |

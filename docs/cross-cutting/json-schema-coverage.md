@@ -59,6 +59,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | Validator | Artifact path | Wired on write? |
 |-----------|---------------|-----------------|
 | `validate_edl_flow1` | `flow_1_master/edl.json` | Yes (`edl_flow1` + `write_json`) |
+| `validate_edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
 | `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
 | `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
 | `validate_run_meta` | `run_meta.json` | Yes |
@@ -105,10 +106,11 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
+| `flow_1_master/edl_narrative_audit.json` | `edl_narrative_audit_artifact.schema.json` | Yes (`edl_narrative_audit`) |
 | `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | Yes (`edl_flow1` + `tools/verify_edl.py`) |
 | `flow_3_description/show_description.json` | Via `show_description_artifact` | Flow 3 LLM stage |
-| `segments/nle_edits.json` | **No** | **No** |
-| `transcript/review_queue.json` | `transcript_review.schema.json` | No (unless wired) |
+| `segments/nle_edits.json` | `nle_edits.schema.json` | Yes (`save_nle` + `write_json`) |
+| `transcript/review_queue.json` | `transcript_review.schema.json` | Yes (`write_json`) |
 
 ## Related
 

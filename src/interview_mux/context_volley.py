@@ -140,6 +140,19 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
     ),
+    "edl_narrative_audit": StageContextPlan(
+        task_line="Audit whether the planned Flow 1 EDL preserves narrative arc, coverage, transitions, and VO gap clarity.",
+        prior_stages=(
+            "full_master_ranking",
+            "narrative_arc_plan",
+            "topic_coverage_audit",
+            "transitions",
+            "missing_framing",
+            "sound_design_plan_flow1",
+        ),
+        profile_keys=("style", "themes", "narrative", "major_questions"),
+        max_investigations=1,
+    ),
     "sound_design_plan_flow2": StageContextPlan(
         task_line="Plan reusable Flow 2 montage assets and cue placements between highlights.",
         prior_stages=("highlight_selection",),

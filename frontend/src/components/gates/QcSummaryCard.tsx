@@ -5,8 +5,12 @@ export function QcSummaryCard({ qcKey }: { qcKey: string }) {
   const summary = run?.meta?.qc_summaries?.[qcKey];
   if (!summary) return null;
 
-  const label =
-    qcKey === "narrative_qc" ? "Flow 1 narrative QC" : "Show description QC";
+  const labels: Record<string, string> = {
+    narrative_qc: "Flow 1 narrative QC",
+    edl_narrative_qc: "Flow 1 EDL narrative QC",
+    show_description_qc: "Show description QC",
+  };
+  const label = labels[qcKey] || qcKey;
 
   return (
     <div className={`qc-summary-card ${summary.passed ? "qc-pass" : "qc-fail"}`}>

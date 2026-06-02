@@ -63,7 +63,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Flow 1 — full master podcast
 
-**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_flow1` → `assembly_preview` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow1` → `mix_flow1` → `master_flow1`
+**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_narrative_audit` → `edl_flow1` → `assembly_preview` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow1` → `mix_flow1` → `master_flow1`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -73,6 +73,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `transitions` | shipped | `selection_flow1.py` | BUILD-032 | `flow_1_master/transitions.json` | `assembly/transitions` |
 | `sound_design_plan_flow1` | shipped | `sound_design_stages.py` | BUILD-062 | SDP `assets` + `flow_plans.flow1.cues` | `sound_design/plan-flow1` |
 | `sound_design_vo_finalize` | shipped | `sound_design_vo_finalize.py` | BUILD-066 / gap-closure | SDP `flow_plans.flow1.cues[]` — `measured_duration_ms` from `vo_pickup/` WAVs | — |
+| `edl_narrative_audit` | shipped | `edl_narrative_audit.py` | EDL narrative QC | `flow_1_master/edl_narrative_audit.json` | `selection/edl-narrative-audit` |
 | `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` — speech + `vo_pickup` + transition events | — |
 | `assembly_preview` | shipped | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` (speech + VO, no SFX) | — |
 | `elevenlabs_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/elevenlabs_prompts.json` | craft per `asset_id` |
@@ -82,7 +83,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `podcast_sfx_brief` | shipped (v1 legacy) | `selection_flow1.py` | BUILD-033 | `flow_1_master/podcast_sfx_brief.json` | `assembly/podcast-sfx-brief` — **not in `FLOW1_ORDER`** |
 | `mux_flow1` | shipped (legacy alias) | `assembly_flow1.run_mux` | BUILD-066 | Same as `mix_flow1`; single-stage rerun only | — |
 
-**Narrative QC (config-driven):** `narrative_qc.py` warns or blocks (when `narrative_qc.strict: true`) before `full_master_ranking` and `edl_flow1`. CLI: `tools/validate_narrative.py`.
+**Narrative QC (config-driven):** `narrative_qc.py` warns or blocks (when `narrative_qc.strict: true`) before `full_master_ranking` and `edl_flow1`. `edl_narrative_qc.py` validates final EDL narrative semantics before `edl.json` is written (`edl_narrative_qc.strict`). CLI: `tools/validate_narrative.py --include-edl`.
 
 **README:** [scoring_and_selection](../pipeline/scoring_and_selection/README.md) · [audio_editing](../pipeline/audio_editing/README.md) · [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [mastering_and_export](../pipeline/mastering_and_export/README.md)
 
@@ -147,7 +148,7 @@ Update this table when closing gaps:
 | Item | Code | Docs / GUI |
 |------|------|------------|
 | EDL schema validator | `validate_edl_flow1` in `edl_flow1` + `tools/verify_edl.py` | Wired (BUILD-067) |
-| Narrative QC | `narrative_qc.py` + `tools/validate_narrative.py` | Wired; `narrative_qc.strict` in config |
+| Narrative QC | `narrative_qc.py`, `edl_narrative_qc.py` + `tools/validate_narrative.py --include-edl` | Wired; `narrative_qc.strict` and `edl_narrative_qc.strict` in config |
 | Value analysis auto-extract | `value_analysis/extract.py` | Opt-in via `value_analysis.auto_extract_after_content_context` |
 
 See [repository-map.md](./repository-map.md#known-doc--code-gaps-track-in-steps-forwardmd).

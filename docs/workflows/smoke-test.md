@@ -58,10 +58,11 @@ If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_inges
 
 ```bash
 python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
+python tools/validate_narrative.py --run-id exec_001_20260523T120000Z --include-edl
 python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1_master/master.wav
 ```
 
-**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. Also run `validate_narrative.py` and `verify_edl.py` on Flow 1 runs; listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
+**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. `validate_narrative.py --include-edl` covers upstream narrative, EDL timeline, and EDL narrative QC; run `verify_edl.py` if you need schema-only diagnostics. Listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
 
 ## Flow 2
 

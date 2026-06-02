@@ -73,11 +73,12 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 3. **Full master ranking** — optimal segment order (not chronological default)
 4. **Transitions** — interviewer bridges
 5. **Sound design plan (Flow 1)** — SDP `assets` + `flow_plans.flow1.cues` — [sound-design.md](./cross-cutting/sound-design.md)
-6. **EDL** — speech + VO + gap placements (`edl_flow1`)
-7. **Assembly preview** — speech + VO listen before ElevenLabs spend (`assembly_preview.wav`)
-8. **ElevenLabs prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
-9. **Mix** — `mix_flow1` → `assembly.wav` (speech + VO + beds + stingers)
-10. **Master** — `master_flow1` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
+6. **EDL narrative audit** — local-volley + flagship review of final timeline readiness (`edl_narrative_audit`)
+7. **EDL** — speech + VO + gap placements with extended narrative QC (`edl_flow1`)
+8. **Assembly preview** — speech + VO listen before ElevenLabs spend (`assembly_preview.wav`)
+9. **ElevenLabs prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
+10. **Mix** — `mix_flow1` → `assembly.wav` (speech + VO + beds + stingers)
+11. **Master** — `master_flow1` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
 
 ### Success criteria
 

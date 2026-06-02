@@ -92,6 +92,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `narrative_plan.json` | narrative arc plan |
 | `selection.json` | ordered segments, chapters |
 | `transitions.json` | interviewer bridges |
+| `edl_narrative_audit.json` | flagship semantic audit before final EDL ([edl_narrative_audit_artifact.schema.json](./json-schemas/artifacts/edl_narrative_audit_artifact.schema.json)) |
 | `podcast_sfx_brief.json` | subtle SFX spec (v1 legacy brief) |
 | `sound_design/assets/{asset_id}.wav` | ElevenLabs generated (canonical SDP path) |
 | `sfx/*.wav` | legacy per-flow SFX folder when SDP assets absent |

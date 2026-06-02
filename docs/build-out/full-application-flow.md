@@ -84,7 +84,7 @@ flowchart TB
 | 11 | **G2:** Choose flow1, flow2, or flow3 | `set_selected_flow` | `run_meta.selected_flow` |
 | 12 | Execute flow | Flow-specific stages | `flow_*/*` outputs |
 | 13 | Listen / export | — | `master.wav` or `show_description.md` |
-| 14 | QA | `verify_master.py`, `validate_narrative.py`, `verify_edl.py` *(Flow 1)* | pass/fail in log |
+| 14 | QA | `verify_master.py`, `validate_narrative.py --include-edl`, `verify_edl.py` *(Flow 1 schema)* | pass/fail in log |
 
 **Mandatory gates:** G0, G1 (when gaps require record), G2. Details: [operator-gates.md](../workflows/operator-gates.md).
 
@@ -101,8 +101,9 @@ flowchart TB
 | `python tools/run_analysis.py [--run-id] [--from-stage]` | Shared analysis | [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md) |
 | `python tools/run_flow.py --flow flow1\|flow2\|flow3` | After G2 | [smoke-test.md](../workflows/smoke-test.md) |
 | `python tools/verify_master.py <wav>` | After flow1/2 master | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
-| `python tools/validate_narrative.py --run-id <id>` | Flow 1 topic/chapter QC | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
-| `python tools/verify_edl.py --run-id <id>` | Flow 1 EDL validation | [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md) |
+| `python tools/validate_narrative.py --run-id <id> --include-edl` | Flow 1 upstream + EDL narrative QC | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| `python tools/validate_edl.py --run-id <id>` | Flow 1 EDL timeline validation | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| `python tools/verify_edl.py --run-id <id>` | Flow 1 EDL schema validation | [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md) |
 | `python -m interview_mux serve` | Web GUI | [gui-surface-map.md](../workflows/gui-surface-map.md) |
 
 **GUI equivalent:** `POST /api/runs/{id}/execute` with `mode`: `analysis` \| `flow1` \| `flow2` \| `flow3` \| `stage`.
@@ -138,12 +139,14 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 3. `full_master_ranking`
 4. `transitions`
 5. `sound_design_plan_flow1`
-6. `edl_flow1`
-7. `assembly_preview`
-8. `elevenlabs_prompt_craft`
-9. `elevenlabs_sfx_flow1`
-10. `mix_flow1`
-11. `master_flow1`
+6. `sound_design_vo_finalize`
+7. `edl_narrative_audit`
+8. `edl_flow1`
+9. `assembly_preview`
+10. `elevenlabs_prompt_craft`
+11. `elevenlabs_sfx_flow1`
+12. `mix_flow1`
+13. `master_flow1`
 
 **v1 legacy:** `podcast_sfx_brief` and `mux_flow1` remain available as single-stage reruns but are not in `FLOW1_ORDER`.
 
@@ -206,10 +209,10 @@ Full tree: [artifact-layout.md](../cross-cutting/artifact-layout.md).
 |------------|---------|---------------------|
 | Three flows runnable | flow1, flow2, flow3 (`run_flow1/2/3`, BUILD-080) | — |
 | G2 API | flow1 \| flow2 \| flow3 (`gates.py`, `server.py`) | — |
-| Flow 1 master | VO + SFX mix via `mix_flow1` (BUILD-065–067) | Extended EDL narrative validators beyond `validate_narrative` |
+| Flow 1 master | VO + SFX mix via `mix_flow1` (BUILD-065–067) plus extended EDL narrative validators | — |
 | Flow 2 montage | `mix_flow2` + SDP transitions (BUILD-065–066) | Cold-open polish |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071) | — |
-| Narrative QC | Topic + chapter checks (`validate_narrative`, BUILD-067) | Stricter EDL narrative rules |
+| Narrative QC | Topic + chapter checks plus final EDL semantics (`validate_narrative --include-edl`) | — |
 | LLM routing | Tier registry + arbiter + shard/collate (BUILD-073) | — |
 | Pre-clean | `audio_preclean` + GUI offers (BUILD-019, 072); never auto | New checkpoint wiring only |
 

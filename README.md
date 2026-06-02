@@ -80,9 +80,9 @@ Stage ids and modules: [docs/build-out/stage-registry.md](docs/build-out/stage-r
 | `tools/run_analysis.py` | Shared analysis pipeline for an `exec_*` run |
 | `tools/run_flow.py` | Flow 1, 2, or 3 after G2 (`--flow flow1\|flow2\|flow3`) |
 | `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` |
-| `tools/validate_narrative.py` | Flow 1 topic/chapter narrative QC |
+| `tools/validate_narrative.py` | Flow 1 topic/chapter narrative QC; `--include-edl` adds timeline + EDL narrative QC |
 | `tools/verify_edl.py` | EDL schema validation (`flow_1_master/edl.json`) |
-| `tools/validate_edl.py` | EDL validation (alternate entry) |
+| `tools/validate_edl.py` | EDL timeline/mechanical validation |
 | `tools/validate_nle.py` | `segments/nle_edits.json` validation |
 | `tools/validate_show_description.py` | Flow 3 show-description QC |
 | `tools/extract_value_features.py` | Deterministic value metrics → `understanding/value_features.json` |
@@ -102,7 +102,7 @@ Equivalent Typer entry point: `interview-mux` (`analysis`, `flow`, `serve`, `run
 
 Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md).
 
-**Defaults worth knowing:** `local_llm.enabled: true` (macOS bootstrap installs weights; non-macOS falls back to OpenAI-only volleys). `value_analysis.enabled: true` in shipped defaults (GUI panel + optional auto-extract after `content_context`). Strict QC: `narrative_qc`, `edl_qc`, `show_description_qc`, `nle_edits` — see config file.
+**Defaults worth knowing:** `local_llm.enabled: true` (macOS bootstrap installs weights; non-macOS falls back to OpenAI-only volleys). `value_analysis.enabled: true` in shipped defaults (GUI panel + optional auto-extract after `content_context`). Strict QC: `narrative_qc`, `edl_qc`, `edl_narrative_qc`, `show_description_qc`, `nle_edits` — see config file.
 
 LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared analysis envelope; model tiers and OpenAI API IDs are centralized in [docs/cross-cutting/model-routing.md](docs/cross-cutting/model-routing.md) and [docs/cross-cutting/llm-stage-model-matrix.md](docs/cross-cutting/llm-stage-model-matrix.md).
 
@@ -112,12 +112,12 @@ LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared anal
 
 | Area | Status |
 |------|--------|
-| Waves 0–7 (analysis, G0–G2, flows 1–3, sound design, EDL/assembly, mastering, pre-clean, smart LLM routing BUILD-073/084, source acoustic profile) | **Shipped** in code |
+| Waves 0–7 (analysis, G0–G2, flows 1–3, sound design, EDL/assembly, extended EDL narrative QC, mastering, pre-clean, smart LLM routing BUILD-073/084, source acoustic profile) | **Shipped** in code |
 | Journey UI (phase sidebar, story board, preclean drawer, express flow1) | **Shipped** (`journey_ui` in config) |
 | Gap-closure track GC-00–GC-D1 | **Shipped** — [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) |
 | Open work | Mostly **documentation** sweeps and manual release sign-off — [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (Commands 2–9) |
 
-**v1 honesty:** Mix quality and operator polish still trail the target in [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md). Listen-test every `master.wav`; run `verify_master.py`, `validate_narrative.py`, and `verify_edl.py` before calling a run done. Release checklist: [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md).
+**v1 honesty:** Mix quality and operator polish still trail the target in [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md). Listen-test every `master.wav`; run `verify_master.py`, `validate_narrative.py --include-edl`, and `verify_edl.py` before calling a run done. Release checklist: [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md).
 
 ---
 

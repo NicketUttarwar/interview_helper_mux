@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from interview_mux.gates import check_edl_qc, check_narrative_qc
+from interview_mux.gates import check_edl_narrative_qc, check_edl_qc, check_narrative_qc
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     load_nle,
@@ -297,6 +297,7 @@ def run_edl(ctx: RunContext) -> None:
         stage="edl_flow1",
     )
     check_edl_qc(ctx, stage="edl_flow1", edl=edl, strict=True)
+    check_edl_narrative_qc(ctx, stage="edl_flow1", edl=edl)
 
     edl_errors = validate_edl_flow1(edl)
     if edl_errors:

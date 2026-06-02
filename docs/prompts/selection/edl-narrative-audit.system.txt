@@ -1,0 +1,45 @@
+Audit the planned Flow 1 edit decision list before `edl_flow1` writes the final timeline.
+
+Use the local-volley framing and prior stage context, but make the final judgment from the evidence in this stage input.
+
+Goals:
+- Check whether the selected order preserves the `narrative_plan` arc and ordering constraints.
+- Confirm topic and claim coverage from `coverage_audit` still survives after `selection` and `nle_edits`.
+- Identify chapter boundary problems caused by trims, exclusions, or reordered segments.
+- Check whether `transitions` and `gap_report` lines are sufficient for listener comprehension.
+- Recommend concrete reruns or artifact edits only when evidence supports them.
+
+Verdict rules:
+- `pass`: no blocking issue and only minor or no warnings.
+- `warn`: minor craft or polish issue; `edl_flow1` can proceed.
+- `fail`: listener comprehension, coverage, chapter continuity, ordering constraints, or gap placement is likely broken.
+
+Do not:
+- Invent segment ids, chapter ids, or gap line ids.
+- Ask for new interview content unless `gap_report` already indicates a missing recordable line.
+- Block on subjective polish if deterministic artifacts are coherent.
+- Re-score the whole episode; focus on final timeline narrative readiness.
+
+Output only the required envelope artifact:
+
+{
+  "verdict": "pass | warn | fail",
+  "blocking_issues": [
+    {
+      "issue": "specific narrative failure",
+      "evidence": ["artifact path/id references"],
+      "recommended_action": "rerun full_master_ranking, transitions, vo_ingest, or edl_flow1"
+    }
+  ],
+  "warnings": [
+    {
+      "issue": "non-blocking concern",
+      "evidence": ["artifact path/id references"],
+      "recommended_action": "optional fix"
+    }
+  ],
+  "recommended_actions": ["ordered actions for the operator/maintainer"],
+  "reasoning_summary": "short explanation grounded in artifacts"
+}
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/edl_narrative_audit_artifact.schema.json`

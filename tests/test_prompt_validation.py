@@ -178,6 +178,17 @@ def test_validate_edl_flow1_minimal_ok():
     assert validate_edl_flow1(edl) == []
 
 
+def test_validate_edl_narrative_audit_artifact_ok():
+    artifacts = {
+        "verdict": "pass",
+        "blocking_issues": [],
+        "warnings": [],
+        "recommended_actions": [],
+        "reasoning_summary": "Timeline preserves the planned arc.",
+    }
+    assert validate_stage_artifacts("edl_narrative_audit", artifacts) == []
+
+
 SAP_PROMPT_FILES = [
     Path("docs/prompts/sound_design/plan-flow1.system.txt"),
     Path("docs/prompts/sound_design/plan-flow2.system.txt"),

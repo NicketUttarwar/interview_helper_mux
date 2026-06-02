@@ -39,6 +39,7 @@
 | `topic_coverage_audit` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | coverage holes vs brief; truncation | [topic-coverage-audit.system.txt](../prompts/selection/topic-coverage-audit.system.txt) |
 | `narrative_arc_plan` | high | flagship | primary, arbiter | full | no | chapter cap violations | [narrative-arc-plan.system.txt](../prompts/selection/narrative-arc-plan.system.txt) |
 | `full_master_ranking` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — chapter/theme batches | incoherent order vs arc; truncation | [full-master-ranking.system.txt](../prompts/selection/full-master-ranking.system.txt) |
+| `edl_narrative_audit` | high | flagship | primary, arbiter | full | no | final timeline breaks coverage, chapter continuity, gap clarity, or ordering constraints | [edl-narrative-audit.system.txt](../prompts/selection/edl-narrative-audit.system.txt) |
 | `transitions` | low | economy | primary, arbiter | full | no | tone mismatch only | [transitions.system.txt](../prompts/assembly/transitions.system.txt) |
 | `podcast_sfx_brief` | low | economy | primary, arbiter | full | no | — | [podcast-sfx-brief.system.txt](../prompts/assembly/podcast-sfx-brief.system.txt) |
 

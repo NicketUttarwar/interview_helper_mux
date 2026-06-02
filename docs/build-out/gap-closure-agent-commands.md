@@ -485,7 +485,7 @@ Deliver:
 
 No LLM. Skip gracefully (mark done) when no vo_pickup files.
 
-Position in FLOW1_ORDER: ... sound_design_plan_flow1 → sound_design_vo_finalize → edl_flow1 ...
+Position in FLOW1_ORDER after EDL narrative QC shipped: ... sound_design_plan_flow1 → sound_design_vo_finalize → edl_narrative_audit → edl_flow1 ...
 ```
 
 **Done when:** Stage registered in `pipeline.py` + `web/stages.py`; test file written. *(pytest deferred to final verification.)*

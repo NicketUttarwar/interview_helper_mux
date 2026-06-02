@@ -89,6 +89,7 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
 def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
     monkeypatch.setattr(assembly_flow1, "check_narrative_qc", lambda *_a, **_k: None)
     monkeypatch.setattr(assembly_flow1, "check_edl_qc", lambda *_a, **_k: None)
+    monkeypatch.setattr(assembly_flow1, "check_edl_narrative_qc", lambda *_a, **_k: None)
     ctx = RunContext("run_206", create=True)
     ctx.write_json(
         "segments/manifest.json",

@@ -24,7 +24,7 @@ BUILD-032 (Flow 1 transitions JSON), BUILD-035 (EDL), BUILD-043 (Flow 2 clips), 
 
 | Path | Description |
 |------|-------------|
-| `flow_1_master/edl.json` | Continuous timeline — speech, VO, placements (validated by `verify_edl.py`) |
+| `flow_1_master/edl.json` | Continuous timeline — speech, VO, placements (schema: `verify_edl.py`; timeline: `validate_edl.py`; narrative: `validate_narrative.py --include-edl`) |
 | `flow_1_master/assembly_preview.wav` | Speech + VO only (BUILD-069, shipped) |
 | `flow_1_master/assembly.wav` | Pre-master mix (`mix_flow1`) |
 | Clip extracts in temp dir | Flow 2 |
@@ -43,7 +43,7 @@ Before final concat/mix, operator may accept [pre-clean](../audio_preclean/READM
 
 `assembly_flow1.py`, `assembly_flow2.py` — see [assembly_and_mux](../assembly_and_mux/README.md)
 
-**QA:** `tools/verify_edl.py`, `tools/validate_narrative.py` — [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md)
+**QA:** `tools/verify_edl.py`, `tools/validate_edl.py`, `tools/validate_narrative.py --include-edl` — [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md)
 
 ---
 

@@ -96,7 +96,7 @@ Orchestrator: inner retries per stage + investigation queue drain. Target: + arb
 
 Flow stages use the same envelope; read memory but single pass (no inner loop).
 
-**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_flow1` → assembly preview → `elevenlabs_prompt_craft` → generate → **`mix_flow1`** → master
+**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_narrative_audit` → `edl_flow1` → assembly preview → `elevenlabs_prompt_craft` → generate → **`mix_flow1`** → master
 
 **Flow 2:** highlight-selection → `sound_design/plan-flow2` → `elevenlabs_prompt_craft` → generate → **`mix_flow2`** → master
 

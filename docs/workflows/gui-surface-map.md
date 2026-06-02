@@ -217,11 +217,12 @@ Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs
 
 ### QC summary cards (gap-closure)
 
-When `run_meta.qc_summaries` is populated by narrative/show QC gates:
+When `run_meta.qc_summaries` is populated by narrative/EDL/show QC gates:
 
 | Stage panel | Card key | Source |
 |-------------|----------|--------|
 | `full_master_ranking`, `edl_flow1` | `narrative_qc` | `gates.check_narrative_qc` |
+| `edl_narrative_audit`, `edl_flow1` | `edl_narrative_qc` | `gates.check_edl_narrative_qc` |
 | `podcast_show_description` | `show_description_qc` | `gates.check_show_description_qc` |
 
 ### Source acoustic profile

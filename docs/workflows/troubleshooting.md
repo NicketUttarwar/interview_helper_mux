@@ -90,7 +90,9 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
 | Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
 | `validate_narrative.py` fails | Brief topic unmapped or empty chapter | `coverage_audit.json`, `selection.json` | Fix audit/ranking; or set `narrative_qc.strict: false` to warn-only |
-| `verify_edl.py` fails | Invalid EDL events or bounds | `flow_1_master/edl.json` error paths | Re-run `edl_flow1` after fixing selection/transitions/VO paths |
+| `validate_narrative.py --include-edl` fails | Final EDL breaks coverage, chapter continuity, ordering constraints, transition anchors, or gap placements | `edl_narrative_audit.json`, `selection.json`, `narrative_plan.json`, `transitions.json`, `edl.json` | Fix recommended artifact; usually re-run `full_master_ranking`, `transitions`, `vo_ingest`, or `edl_flow1` |
+| `validate_edl.py` fails | Invalid EDL timeline events or bounds | `flow_1_master/edl.json` event paths | Re-run `edl_flow1` after fixing selection/transitions/VO paths |
+| `verify_edl.py` fails | EDL JSON schema shape invalid | `flow_1_master/edl.json` schema paths | Fix EDL writer or malformed manual edit; re-run `edl_flow1` |
 
 ---
 

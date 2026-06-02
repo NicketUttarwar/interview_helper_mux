@@ -67,6 +67,7 @@ pytest tests/
 | `test_llm_specialists.py` | Specialists pilot (`full_master_ranking`) |
 | `test_acoustic_profile_overrides.py` | SAP GUI `operator_overrides` API |
 | `test_edl_qc.py` | EDL-level QC + `validate_edl` tooling |
+| `test_edl_narrative_qc.py` | Final EDL narrative semantics + strict `edl_narrative_qc` gate |
 
 **Fixture:** `tests/fixtures/runs/gap_closure_smoke/` — minimal `run_meta.json`, `source_acoustic_profile.json`, valid/invalid `nle_edits.json`, invalid `review_queue.json`.
 

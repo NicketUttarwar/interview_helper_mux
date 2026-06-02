@@ -19,7 +19,7 @@
 | Sound-design generation | `sfx_elevenlabs.py` → REST `POST /v1/music` (`model_id`: `music_v2`); one WAV per `asset_id` after `elevenlabs_prompt_craft` | Composition-plan craft, inpainting |
 | SFX inputs | `sound_design_plan.json` + `elevenlabs_prompts.json` (SDP path); legacy `podcast_sfx_brief` / `sfx_brief` ids remain for single-stage rerun | — |
 | SFX outputs | `sound_design/assets/{asset_id}.wav` + flow `sfx/` copies | — |
-| Flow 1 mix | `mix_flow1` → `master_flow1`: speech + VO + beds + stingers in `master.wav` (BUILD-065–067) | Extended EDL narrative validators |
+| Flow 1 mix | `mix_flow1` → `master_flow1`: speech + VO + beds + stingers in `master.wav` (BUILD-065–067) | Extended EDL narrative QC runs before `edl.json` is written |
 | Flow 2 mix | `mix_flow2` → `master_flow2`: montage + SDP transitions (BUILD-065–066) | Cold-open polish refinements |
 | Audio isolation | `audio_preclean` (BUILD-019); GUI offers (BUILD-072) | — |
 | Prompt craft | `elevenlabs_prompt_craft` before REST generate | G1.5 optional approve gate (`g1_5_require_prompt_approval`) |

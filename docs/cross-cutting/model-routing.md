@@ -55,6 +55,7 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `topic_coverage_audit` | flagship | high |
 | `narrative_arc_plan` | flagship | high |
 | `full_master_ranking` | flagship | high |
+| `edl_narrative_audit` | flagship | high |
 | `highlight_selection` | flagship | high |
 | `podcast_show_description` | flagship | high |
 | `transitions` | economy | low |
@@ -117,6 +118,7 @@ Default **flagship** on first pass for:
 
 - Gap detection (`missing_framing`) and optimal questions
 - Flow 1 coverage audit, narrative plan, full master ranking
+- Flow 1 EDL narrative audit (`edl_narrative_audit`)
 - Flow 2 highlight selection
 - Flow 3 podcast show description (`podcast_show_description`)
 - Sound-design plan stages (`sound_design_plan_flow1`, `sound_design_plan_flow2`)

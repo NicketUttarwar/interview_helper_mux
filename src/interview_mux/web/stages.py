@@ -210,6 +210,18 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         ("understanding/sound_design_plan.json",),
     ),
     StageInfo(
+        "edl_narrative_audit",
+        "EDL narrative audit",
+        "Flagship review of final Flow 1 narrative readiness before EDL construction.",
+        "flow1",
+        (
+            "flow_1_master/selection.json",
+            "flow_1_master/narrative_plan.json",
+            "flow_1_master/transitions.json",
+        ),
+        ("flow_1_master/edl_narrative_audit.json",),
+    ),
+    StageInfo(
         "edl_flow1",
         "Edit decision list",
         "Build the EDL combining speech order, VO pickup placements, and transition anchors.",

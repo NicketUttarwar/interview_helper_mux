@@ -110,6 +110,13 @@
       "seg_001"
     ]
   },
+  "edl_narrative_audit": {
+    "verdict": "pass",
+    "blocking_issues": [],
+    "warnings": [],
+    "recommended_actions": [],
+    "reasoning_summary": "The selected order preserves the planned setup-to-payoff arc."
+  },
   "highlight_selection": {
     "highlights": [
       {

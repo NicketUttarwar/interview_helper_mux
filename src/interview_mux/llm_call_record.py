@@ -40,6 +40,7 @@ def _phase_for_stage(stage_key: str) -> str:
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "edl_narrative_audit",
         "transitions",
         "podcast_sfx_brief",
         "sound_design_palettes",

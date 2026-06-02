@@ -23,6 +23,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "topic_coverage_audit": "coverage_audit_artifact.schema.json",
     "narrative_arc_plan": "narrative_plan_artifact.schema.json",
     "full_master_ranking": "master_selection_artifact.schema.json",
+    "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json",
     "highlight_selection": "highlights_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
@@ -128,6 +129,11 @@ def validate_master_selection(selection: dict[str, Any]) -> list[str]:
     return _validate_dict(selection, _load_schema("master_selection_artifact.schema.json"))
 
 
+def validate_edl_narrative_audit(audit: dict[str, Any]) -> list[str]:
+    """Validate `flow_1_master/edl_narrative_audit.json`."""
+    return _validate_dict(audit, _load_schema("edl_narrative_audit_artifact.schema.json"))
+
+
 def validate_edl_flow1(edl: dict[str, Any]) -> list[str]:
     """Validate `flow_1_master/edl.json` against artifacts/edl_flow1.schema.json."""
     return _validate_dict(edl, _load_schema("edl_flow1.schema.json"))
@@ -167,6 +173,7 @@ def validate_transcript_review_queue(data: dict[str, Any]) -> list[str]:
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "flow_1_master/edl.json": validate_edl_flow1,
+    "flow_1_master/edl_narrative_audit.json": validate_edl_narrative_audit,
     "flow_1_master/selection.json": validate_master_selection,
     "understanding/source_acoustic_profile.json": validate_source_acoustic_profile,
     "understanding/analysis_state.json": validate_analysis_state,

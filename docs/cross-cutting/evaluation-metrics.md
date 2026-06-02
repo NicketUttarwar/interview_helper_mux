@@ -41,6 +41,20 @@
 
 **Enforcement:** `interview_mux.narrative_qc.validate_flow1_narrative` checks topic mappings against `coverage_audit.json` and non-empty `selection.json` chapters. CLI (`tools/validate_narrative.py --run-id <exec_id>`) exits non-zero on fail. Pipeline warns before `full_master_ranking` and `edl_flow1` (`gui_log.jsonl`, `detail: narrative_qc_pass|narrative_qc_fail`); set `narrative_qc.strict: true` in config to block.
 
+## Flow 1 EDL narrative
+
+| Check | Rule |
+|-------|------|
+| Selection parity | EDL speech clips match final `selection.ordered_segment_ids`; excluded segments do not appear |
+| Coverage survival | Covered topics and claims still have represented speech clips after NLE / EDL build |
+| Chapter continuity | Each selection chapter appears in the EDL without unrelated clips splitting it |
+| Ordering constraints | `narrative_plan.ordering_constraints` are respected in final speech order |
+| Transitions | `transitions.json` adjacent pairs map to transition clips in `edl.json` |
+| Gap placements | `gap_report` record lines targeting selected segments have VO clips / `gap_placements` or documented missing-VO warnings |
+| Flagship audit | `edl_narrative_audit.json` has no blocking issues |
+
+**Enforcement:** `interview_mux.edl_narrative_qc.validate_flow1_edl_narrative` runs from `edl_flow1` after EDL construction and before `edl.json` is written. `edl_narrative_qc.strict: true` blocks on failures and records `run_meta.qc_summaries.edl_narrative_qc`. CLI: `tools/validate_narrative.py --run-id <exec_id> --include-edl`.
+
 ### Flow 3 show description
 
 **Enforcement:** `interview_mux.show_description_qc.validate_show_description` checks `evidence_segment_ids`, hook/body alignment, word count tolerance, and key-claim coverage. CLI: `tools/validate_show_description.py --run-id <exec_id>`. Pipeline warns on persist (`show_description_qc_fail`); set `show_description_qc.strict: true` to block bad artifacts.

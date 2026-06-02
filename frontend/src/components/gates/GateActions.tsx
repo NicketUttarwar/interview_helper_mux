@@ -92,6 +92,10 @@ export function GateActions({ stage }: Props) {
         <QcSummaryCard qcKey="narrative_qc" />
       ) : null}
 
+      {stage.id === "edl_flow1" || stage.id === "edl_narrative_audit" ? (
+        <QcSummaryCard qcKey="edl_narrative_qc" />
+      ) : null}
+
       {stage.id === "podcast_show_description" ? (
         <QcSummaryCard qcKey="show_description_qc" />
       ) : null}
