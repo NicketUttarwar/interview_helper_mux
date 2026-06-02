@@ -18,6 +18,10 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _e2e_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
 @app.command("run")
 def run_cmd(
     input_audio: str = typer.Option("ASSETS/input/interview.wav", "--input"),
@@ -31,7 +35,7 @@ def run_cmd(
 ) -> None:
     root = _repo_root()
     session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_path = Path(log_dir) if log_dir else root / "E2E_RUN" / "logs" / f"session_{session_id}"
+    log_path = Path(log_dir) if log_dir else _e2e_root() / "logs" / f"session_{session_id}"
 
     flow_tuple = tuple(f.strip() for f in flows.split(",") if f.strip())
     cfg = SessionConfig(

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "e2e-runner"
 version = "0.1.0"
-description = "Autonomous journey-driven E2E runner for interview_helper_mux"
+description = "Autonomous journey-driven E2E runner (tests/e2e)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -23,4 +23,5 @@ dev = ["pytest>=8,<9"]
 e2e-runner = "e2e_runner.cli:app"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["e2e_runner*"]

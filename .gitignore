@@ -245,3 +245,9 @@ ASSETS/
 ASSETS/*
 !ASSETS/.gitkeep
 ASSETS/_pytest/
+
+# E2E runner isolated venv + session logs (reports/ is committed via .gitkeep)
+tests/e2e/.venv/
+tests/e2e/logs/*
+!tests/e2e/logs/.gitkeep
+tests/e2e/e2e_runner.egg-info/

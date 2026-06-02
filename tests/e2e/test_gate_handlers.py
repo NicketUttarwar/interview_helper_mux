@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock
 
-E2E_SRC = Path(__file__).resolve().parents[1] / "E2E_RUN" / "src"
-if str(E2E_SRC) not in sys.path:
-    sys.path.insert(0, str(E2E_SRC))
-
-from e2e_runner.gate_handlers import build_execute_body, resolve_blocking  # noqa: E402
-from e2e_runner.stall_detector import StallDetector  # noqa: E402
-from e2e_runner.wav_stub import minimal_wav_bytes  # noqa: E402
+from e2e_runner.gate_handlers import build_execute_body, resolve_blocking
+from e2e_runner.stall_detector import StallDetector
+from e2e_runner.wav_stub import minimal_wav_bytes
 
 
 def test_build_execute_body_from_hint():

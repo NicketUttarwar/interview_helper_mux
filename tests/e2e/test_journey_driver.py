@@ -2,15 +2,8 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-E2E_SRC = Path(__file__).resolve().parents[1] / "E2E_RUN" / "src"
-if str(E2E_SRC) not in sys.path:
-    sys.path.insert(0, str(E2E_SRC))
-
-from e2e_runner.journey_driver import decide_next_step, fingerprint  # noqa: E402
-from e2e_runner.types import StepKind  # noqa: E402
+from e2e_runner.journey_driver import decide_next_step, fingerprint
+from e2e_runner.types import StepKind
 
 
 def _base_run(**overrides):

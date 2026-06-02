@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Autonomous full-application E2E runner — repo root entry point.
+# Implementation: tests/e2e/
 set -euo pipefail
 IFS=$'\n\t'
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-E2E_ROOT="${ROOT}/E2E_RUN"
+E2E_ROOT="${ROOT}/tests/e2e"
 SESSION_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_DIR="${E2E_ROOT}/logs/session_${SESSION_ID}"
 
@@ -31,7 +32,7 @@ fi
 "${ROOT}/tools/check_prerequisites.sh"
 
 if [[ ! -x "${E2E_ROOT}/.venv/bin/python" ]]; then
-  echo "E2E_RUN: creating isolated venv..."
+  echo "tests/e2e: creating isolated venv..."
   bash "${E2E_ROOT}/bootstrap_venv.sh"
 fi
 
@@ -41,9 +42,9 @@ source "${E2E_ROOT}/.venv/bin/activate"
 if [[ -d "${ROOT}/.venv" ]]; then
   # shellcheck source=/dev/null
   source "${ROOT}/.venv/bin/activate"
-  pytest "${ROOT}/tests/" -q \
-    --ignore="${ROOT}/tests/test_e2e_live.py" \
-    -k "not e2e_live" \
+  pytest "${ROOT}/tests/e2e/" -q \
+    --ignore="${ROOT}/tests/e2e/test_live.py" \
+    -k "not live" \
     || true
 fi
 
@@ -64,7 +65,7 @@ fi
 python -m e2e_runner run --log-dir "$LOG_DIR" "$@"
 EXIT=$?
 
-REPORT="${ROOT}/docs/e2e-reports/${SESSION_ID}_final-report.md"
+REPORT="${E2E_ROOT}/reports/${SESSION_ID}_final-report.md"
 if [[ -f "$REPORT" ]]; then
   echo ""
   echo "Final report: $REPORT"

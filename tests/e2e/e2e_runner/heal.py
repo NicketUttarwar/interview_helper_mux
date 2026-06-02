@@ -56,7 +56,7 @@ def run_heal(
         from cursor_sdk import Agent, LocalAgentOptions
     except ImportError:
         transcript_path.write_text(
-            "Heal skipped: cursor-sdk not installed in E2E_RUN venv\n",
+            "Heal skipped: cursor-sdk not installed in tests/e2e venv\n",
             encoding="utf-8",
         )
         return HealResult(

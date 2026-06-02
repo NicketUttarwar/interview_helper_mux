@@ -9,11 +9,11 @@ if [[ ! -x "$PY" ]]; then
 fi
 
 if [[ -z "${PY:-}" || ! -x "$PY" ]]; then
-  printf '\n\033[1;31mFATAL — E2E_RUN bootstrap: Python 3.12+ not found\033[0m\n\n' >&2
+  printf '\n\033[1;31mFATAL — tests/e2e bootstrap: Python 3.12+ not found\033[0m\n\n' >&2
   exit 5
 fi
 
-printf 'E2E_RUN bootstrap: using %s\n' "$PY"
+printf 'tests/e2e bootstrap: using %s\n' "$PY"
 "$PY" -m venv "$EXEC_ROOT/.venv"
 # shellcheck source=/dev/null
 source "$EXEC_ROOT/.venv/bin/activate"
@@ -21,4 +21,4 @@ pip install -U pip setuptools wheel
 pip install -r "$EXEC_ROOT/requirements.txt"
 pip install -e "$EXEC_ROOT"
 python -m playwright install chromium
-printf '\nE2E_RUN venv ready: %s/.venv\n' "$EXEC_ROOT"
+printf '\ntests/e2e venv ready: %s/.venv\n' "$EXEC_ROOT"

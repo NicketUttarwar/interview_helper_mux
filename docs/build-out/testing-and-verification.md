@@ -13,7 +13,7 @@ How to verify each build-out wave before marking tickets **done**. Complements [
 | **Stage integration** | One stage writes expected artifacts | Per BUILD ticket |
 | **Flow integration** | Full flow1, flow2, or flow3 | Per wave |
 | **Operator smoke** | GUI + CLI happy path | Release / definition of done |
-| **Autonomous E2E** | `./scripts/e2e.sh` — all flows + heal + final report | Release / nightly |
+| **Autonomous E2E** | `./scripts/e2e.sh` — [tests/e2e/README.md](../../tests/e2e/README.md) | Release / nightly |
 | **Quality QA** | LUFS, listen tests, SFX coherence | Wave 5–6 |
 
 ---
@@ -213,6 +213,6 @@ python tools/run_flow.py --flow flow3 --run-id <id>
 ## Related
 
 - [smoke-test.md](../workflows/smoke-test.md) — end-to-end operator checklist
-- [e2e-automation.md](../workflows/e2e-automation.md) — autonomous `./scripts/e2e.sh` runner
+- [tests/e2e/README.md](../../tests/e2e/README.md) — autonomous `./scripts/e2e.sh` runner
 - [troubleshooting.md](../workflows/troubleshooting.md) — failure symptoms
 - [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) — master pass/fail thresholds

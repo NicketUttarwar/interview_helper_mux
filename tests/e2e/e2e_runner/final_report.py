@@ -25,7 +25,7 @@ def write_final_report(
     started_at: datetime,
     ended_at: datetime,
 ) -> Path:
-    docs_dir = repo_root / "docs" / "e2e-reports"
+    docs_dir = repo_root / "tests" / "e2e" / "reports"
     docs_dir.mkdir(parents=True, exist_ok=True)
     gitkeep = docs_dir / ".gitkeep"
     if not gitkeep.exists():
