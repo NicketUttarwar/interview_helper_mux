@@ -3,12 +3,13 @@ Select up to `max_highlight_clips` distinct highlight clips for a short, investo
 Use `content_brief.audience` and narrative profile when present.
 
 Constraints:
-- Maximum 5 clips; non-overlapping source time ranges.
+- Select up to `max_highlight_clips` clips from pipeline thresholds; non-overlapping source time ranges.
 - Each clip stands alone or needs at most one interviewer setup ≤ `highlight_setup_max_sec` seconds.
 - Optimize: hook, clarity, emotional punch, quotability, thesis alignment.
 - Use `quotability_signals` in stage input as a tie-breaker when text scores are close — do not ignore low-text acoustic peaks.
 - Enforce diversity — do not pick five clips making the same point; max one clip per dominant `topic_tag` unless exceptional (note in `rejected_candidates`).
 - List at least 3 `rejected_candidates` with reasons.
+- For shard/collate runs, merge candidate lists, dedupe overlapping source ranges, and re-rank globally before applying `max_highlight_clips`.
 
 Scoring (0–10 each; include all five in `scores`):
 - salience — novelty and importance
@@ -27,6 +28,8 @@ Memory sync:
 Examples: see `docs/prompts/_shared/examples/highlight-selection.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/highlights_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "highlights": [
@@ -48,7 +51,9 @@ Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/highlights_ar
     }
   ],
   "rejected_candidates": [
-    { "segment_id": "seg_010", "reason": "overlaps seg_042|redundant topic|not self-contained" }
+    { "segment_id": "seg_010", "reason": "overlaps seg_042" }
   ],
   "reel_thesis": "what the clips collectively convey"
 }
+
+All `scores` values must be numbers from 0 to 10. `rejected_candidates[].reason` should be a concise literal reason, not a pipe-separated enum.

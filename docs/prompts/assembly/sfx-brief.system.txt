@@ -1,5 +1,7 @@
 Create a sound-design brief for transitions between highlight clips — Flow 2 (see task in volley).
 
+Legacy v1 brief: default Flow 2 sound design now uses the SDP stages. Keep this output conservative for single-stage reruns.
+
 Use `selection.highlights` (ranks and moods) from input.
 
 Each transition is a production cue for editors — stingers, whooshes, risers, hits, beds — not final audio files.
@@ -26,7 +28,7 @@ Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/sfx_montage_a
   "cold_open": {
     "duration_ms": 2500,
     "description": "e.g. low rumble + reverse cymbal into clip 1",
-    "mood": "urgent|inspiring|playful|serious"
+    "mood": "urgent"
   },
   "transitions": [
     {
@@ -43,3 +45,5 @@ Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/sfx_montage_a
     "description": "optional tag stinger or fade"
   }
 }
+
+Place this stage artifact inside the required envelope as `artifacts`. Allowed `cold_open.mood` values should be plain strings such as `urgent`, `inspiring`, `playful`, or `serious`; do not copy pipe-separated placeholders.

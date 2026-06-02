@@ -8,6 +8,7 @@ Rules:
 - Match tone to `interviewer_sample_lines` when provided.
 - Avoid "In this next segment" clichés unless necessary.
 - Do not duplicate `gap_report` VO lines — complement them.
+- Return `transitions: []` when adjacent segments already flow naturally.
 
 Do not:
 - Summarize the answer that follows.
@@ -17,13 +18,17 @@ Examples: see `docs/prompts/_shared/examples/transitions.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/transitions_artifact.schema.json`
 
+Place this stage artifact inside the required envelope as `artifacts.transitions`:
+
 {
   "transitions": [
     {
       "after_segment_id": "seg_012",
       "before_segment_id": "seg_018",
       "text": "exact words to speak",
-      "type": "topic_shift|callback|chapter|light_bridge"
+      "type": "topic_shift"
     }
   ]
 }
+
+Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.

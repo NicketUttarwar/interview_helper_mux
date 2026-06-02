@@ -35,32 +35,55 @@ When stage data reveals a fixable pipeline issue, add `follow_up_investigations`
 
 ## Response envelope (required)
 
-Respond with JSON only. Top-level shape must validate against `docs/cross-cutting/json-schemas/analysis_envelope.schema.json`. Stage JSON goes in `artifacts` per the stage prompt (artifact schemas under `docs/cross-cutting/json-schemas/artifacts/`).
+Respond with one JSON object only. The JSON root MUST be the analysis envelope below; never return only the inner stage artifact object. Top-level shape must validate against `docs/cross-cutting/json-schemas/analysis_envelope.schema.json`. Stage JSON goes in `artifacts` per the stage prompt (artifact schemas under `docs/cross-cutting/json-schemas/artifacts/`).
+
+Allowed enum values:
+- `status`: `complete`, `partial`, `needs_input`, `blocked`
+- `needs[].type`: `rerun_stage`, `operator`, `transcript_excerpt`, `human_fact`
+- `follow_up_investigations[].kind`: `theme_unmapped`, `segment_ambiguity`, `gap_unresolved`
+- priority fields: `high`, `medium`, `low`
+
+Canonical envelope shape:
 
 {
-  "status": "complete|partial|needs_input|blocked",
-  "artifacts": { },
+  "status": "complete",
+  "artifacts": {
+    "stage_specific_key": []
+  },
   "memory_updates": {
-    "themes_append": [{ "id": "theme_x", "label": "", "summary": "", "segment_ids": [], "confidence": 0.0, "sources": ["stage_name"] }],
-    "major_questions_append": [{ "question": "", "segment_ids": [], "priority": "high|medium|low" }],
+    "themes_append": [
+      { "id": "theme_x", "label": "", "summary": "", "segment_ids": [], "confidence": 0.0, "sources": ["stage_name"] }
+    ],
+    "major_questions_append": [
+      { "question": "", "segment_ids": [], "priority": "medium" }
+    ],
     "style_patch": { "tone": "", "pacing": "", "format_notes": "", "interviewer_style": "", "interviewee_style": "" },
     "narrative_patch": { "thesis": "", "audience": "" },
     "entities_append": [],
-    "hypotheses_append": [{ "id": "hyp_1", "statement": "", "status": "open|confirmed|rejected", "evidence_segment_ids": [] }],
+    "hypotheses_append": [
+      { "id": "hyp_1", "statement": "", "status": "open", "evidence_segment_ids": [] }
+    ],
     "confidence_patch": { "overall": 0.0, "content": 0.0 },
     "segment_summary_patch": {},
     "gaps_summary_patch": {}
   },
   "needs": [
-    { "type": "rerun_stage|operator|transcript_excerpt", "stage": "stage_key", "reason": "", "blocking": false, "params": {} }
+    { "type": "rerun_stage", "stage": "stage_key", "reason": "", "blocking": false, "params": {} }
   ],
   "follow_up_investigations": [
-    { "kind": "theme_unmapped|segment_ambiguity|gap_unresolved", "question": "", "priority": "high|medium|low", "blocking": false, "suggested_action": { "type": "rerun_stage", "stage": "" }, "target": {} }
+    {
+      "kind": "theme_unmapped",
+      "question": "",
+      "priority": "medium",
+      "blocking": false,
+      "suggested_action": { "type": "rerun_stage", "stage": "segment_classification" },
+      "target": {}
+    }
   ],
   "confidence": 0.0,
   "reasoning_summary": "2-5 sentences for the next stage (no chain-of-thought dump)"
 }
 
-Put stage-specific output inside `artifacts` exactly as the stage prompt specifies.
+Put stage-specific output inside `artifacts` exactly as the stage prompt specifies. Empty arrays/objects are fine when a field has no evidence.
 
 Never embed secrets. Keep interviewer lines short when this stage produces them.

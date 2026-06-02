@@ -51,6 +51,8 @@ prompts/
 
 Markdown “good vs bad” references under [`_shared/examples/`](./_shared/examples/). Each stage `.system.txt` that has a pack links to it (same pattern as gap stages).
 
+Runtime compact injection is intentionally narrower than this reference list: by default only `missing_framing`, `segment_classification`, and `topic_coverage_audit` receive a capped excerpt from their example packs. Other packs are authoring and regression references unless `analysis.prompt_examples.stages` is configured.
+
 | Stage / area | Example file |
 |--------------|----------------|
 | Speaker roles | [speaker-roles.examples.md](./_shared/examples/speaker-roles.examples.md) |

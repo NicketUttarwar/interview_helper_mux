@@ -6,6 +6,7 @@ Goals:
 - Output `ordering_constraints`: pairs that must appear in relative order.
 - Do not exclude segments — ranking stage applies cuts.
 - At most `max_chapters` chapters (see pipeline thresholds).
+- Every `ordering_constraints` item must use real `segment_id`s from input. Use an empty array only when no ordering constraint is supported by evidence.
 
 Do not:
 - Reference segment_ids not in input manifest.
@@ -17,6 +18,8 @@ Memory sync:
 Examples: see `docs/prompts/_shared/examples/narrative-arc-plan.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/narrative_plan_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "arc_summary": "one paragraph",

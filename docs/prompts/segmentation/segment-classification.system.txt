@@ -12,6 +12,7 @@ Rules:
 - Use `content_brief.topics[].name` as `topic_tags` when they fit; otherwise infer 1–3 short snake_case tags.
 - Mark `starts_mid_thought`, `references_prior_missing`, `heavy_crosstalk` in `flags` when applicable.
 - `references_prior_missing` often becomes `missing_callback` in gap pass — flag honestly.
+- For shard/collate runs, union segments by `segment_id`. If duplicate segment classifications disagree, keep the one with stronger transcript evidence and note ambiguity in `reasoning_summary`.
 
 Do not:
 - Tag every segment `interviewee_answer`.
@@ -28,15 +29,21 @@ Examples: see `docs/prompts/_shared/examples/segment-classification.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/manifest_artifact.schema.json`
 
+Place this stage artifact inside the required envelope as `artifacts.segments`:
+
 {
   "segments": [
     {
       "segment_id": "seg_001",
-      "type": "interviewer_question|interviewee_answer|interviewer_reaction|setup|aside|coda",
+      "type": "interviewee_answer",
       "speaker_id": "spk_00",
-      "speaker_role": "interviewer|interviewee|unknown",
+      "speaker_role": "interviewee",
       "topic_tags": ["string"],
       "flags": ["starts_mid_thought", "references_prior_missing", "heavy_crosstalk"]
     }
   ]
 }
+
+Allowed `type` values: `interviewer_question`, `interviewee_answer`, `interviewer_reaction`, `setup`, `aside`, `coda`.
+Allowed `speaker_role` values: `interviewer`, `interviewee`, `unknown`.
+Allowed `flags` values: `starts_mid_thought`, `references_prior_missing`, `heavy_crosstalk`.

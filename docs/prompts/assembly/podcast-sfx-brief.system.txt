@@ -1,5 +1,7 @@
 Write a subtle sound-design brief for a full-length podcast master (see task in volley).
 
+Legacy v1 brief: default Flow 1 sound design now uses the SDP stages. Keep this output conservative for single-stage reruns.
+
 Use `selection.ordered_segment_ids`, `selection.chapters`, and `narrative_plan` from input.
 
 When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, honor `mix_contract`:
@@ -21,6 +23,8 @@ Do not:
 Examples: see `docs/prompts/_shared/examples/sfx-briefs.examples.md` (podcast section)
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/podcast_sfx_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "profile": "podcast",

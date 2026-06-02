@@ -108,6 +108,29 @@ Temperature **0.0** for local calls. `max_tokens` low (e.g. 512–1024).
 
 ---
 
+## Prompt suitability audit (Llama 3.2 3B)
+
+Current secrets may override the local model to `mlx-community/Llama-3.2-3B-Instruct-4bit`. That model is suitable as a fail-safe volley framer, not as an artifact writer.
+
+The current `[local-volley-framer.system.txt](../prompts/_shared/local-volley-framer.system.txt)` contract is safe by default because Python forces OpenAI escalation on high-severity stages, truncation flags, operator-verified profiles, low confidence, parse failures, and empty local volleys. The default `skip_openai_primary_when_local_satisfied: false` also means OpenAI still performs the stage artifact call.
+
+Known prompt-fit risks for this small quantized model:
+
+- It has no few-shot JSON example, so markdown fences or malformed JSON are plausible.
+- Escalation wording is partly abstract; 3B-class models do better with deterministic rules keyed to input fields such as `severity` and `truncation_flags`.
+- `volley_turns` count is capped, but turn content length is not capped, so a local response can still bloat the OpenAI volley.
+- The local prompt is loaded without the analysis preamble, but the generic pipeline thresholds block is still appended by the shared loader; those thresholds are noise for local framing.
+- Local decoding should be deterministic for JSON reliability; docs expect temperature 0.0.
+
+Recommended follow-up when editing the local prompt/code:
+
+- Add one minimal JSON example with `escalate: true`, `confidence`, a short `reason`, and one assistant `volley_turn`.
+- Replace abstract escalation guidance with field-based rules: high severity or truncation always escalates; medium severity usually escalates; low severity may stay local only for compression.
+- Add short output budgets, such as `reason` under 120 characters and each turn content under 500-800 characters.
+- Consider enforcing content truncation in `parse_framer_response` and passing deterministic generation settings in `generate_local_chat`.
+
+---
+
 ## Escalation matrix (local → OpenAI)
 
 | Signal | Local outcome | OpenAI |

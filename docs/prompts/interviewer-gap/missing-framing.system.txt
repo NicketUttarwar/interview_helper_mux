@@ -11,13 +11,15 @@ Decision order (assign one **primary** `gap_type`):
 6. ok_with_light_bridge — minor jump; 3–8 word transition suffices
 
 Gap types (primary only; optional `secondary_gap_type` if needed):
-- missing_question | missing_setup | missing_callback | missing_definition | missing_followup | ok_with_light_bridge
+- `missing_question`, `missing_setup`, `missing_callback`, `missing_definition`, `missing_followup`, `ok_with_light_bridge`
 
 Rules:
 - Focus on `interviewee_answer` segments first.
 - When `comprehension_risks` appear in stage input (specialist pass), treat high `risk_score` segments as priority.
-- `self_explanatory: true` with `gap_type: ok_with_light_bridge` only for minor bridges.
+- `self_explanatory: true` may use `gap_type: ok_with_light_bridge` only for minor bridges; otherwise use `gap_type: null`.
+- `self_explanatory: false` must use one non-null primary `gap_type`.
 - Severity `high` when the clip would fail standalone for Flow 2.
+- For shard/collate runs, dedupe `evaluations` by `segment_id`, keep one primary `gap_type`, and prefer the higher `severity` when evidence conflicts. If capped by `max_gap_evaluations`, set envelope `status: partial`.
 
 Do not:
 - Propose interviewer lines (next stage).
@@ -33,15 +35,20 @@ Investigations:
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/gap_evaluations_artifact.schema.json`
 
+Place this stage artifact inside the required envelope as `artifacts.evaluations`:
+
 {
   "evaluations": [
     {
       "segment_id": "seg_042",
       "self_explanatory": false,
-      "gap_type": "missing_question|missing_setup|missing_callback|missing_definition|missing_followup|ok_with_light_bridge|null",
+      "gap_type": "missing_question",
       "secondary_gap_type": null,
       "listener_confusion": "one sentence describing the gap",
-      "severity": "low|medium|high"
+      "severity": "high"
     }
   ]
 }
+
+Allowed `gap_type` values: `missing_question`, `missing_setup`, `missing_callback`, `missing_definition`, `missing_followup`, `ok_with_light_bridge`, null.
+Allowed `severity` values: `low`, `medium`, `high`.

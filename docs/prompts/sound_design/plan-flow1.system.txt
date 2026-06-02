@@ -54,6 +54,16 @@ Each cue:
 - `level_db` — beds typically −26 to −30 under speech
 - `duck_under_speech_db` — 14–20 for beds; omit for stingers that do not overlap speech
 
+Minimal cue example:
+
+{
+  "cue_id": "flow1_ch_01_stinger",
+  "asset_id": "chapter_stinger",
+  "placement": "after_segment",
+  "after_segment_id": "seg_012",
+  "level_db": -12
+}
+
 **Chapter stingers:** One cue per chapter at `after_segment` on last segment of chapter (from selection + narrative_plan).
 
 **Beds:** Only on segments listed in palette `segment_ids`. Never under dense unintelligible STT without investigation flag.
@@ -77,6 +87,8 @@ Cue `level_db` and duck values are **initial hypotheses**. Post-generation analy
 `docs/prompts/_shared/examples/sound-design.examples.md` (Flow 1 plan section).
 
 ## Schema
+
+Place this stage artifact inside the required envelope as `artifacts`. Preserve input `coherence` and `palettes` when they are present.
 
 {
   "assets": [],

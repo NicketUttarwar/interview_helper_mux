@@ -1,5 +1,30 @@
 # segment-classification examples (reference)
 
+**Good — envelope-wrapped classification**
+
+```json
+{
+  "status": "complete",
+  "artifacts": {
+    "segments": [
+      {
+        "segment_id": "seg_001",
+        "type": "interviewer_question",
+        "speaker_id": "spk_00",
+        "speaker_role": "interviewer",
+        "topic_tags": ["go_to_market"],
+        "flags": []
+      }
+    ]
+  },
+  "memory_updates": {},
+  "needs": [],
+  "follow_up_investigations": [],
+  "confidence": 0.9,
+  "reasoning_summary": "The segment is a direct interviewer question mapped to the go-to-market topic."
+}
+```
+
 **Good — Q + A typed correctly**
 
 - `type: interviewer_question`, `speaker_role: interviewer`, `topic_tags: ["go_to_market"]`, `flags: []`.

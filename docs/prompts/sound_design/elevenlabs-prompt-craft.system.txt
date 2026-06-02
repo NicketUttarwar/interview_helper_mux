@@ -18,6 +18,7 @@ For each asset in input SDP, produce one crafted prompt row in `artifacts.prompt
 | `elevenlabs_prompt` | **80–220 words** for beds; **50–120 words** for stingers/transitions; see template below |
 | `duration_seconds` | From asset; beds 4.0–8.0; stingers 1.0–2.5; accents 0.6–1.5 |
 | `negative_prompt` | 15–40 words; always include: no vocals, no lyrics, no speech, no intelligible words |
+| `prompt_influence` | Optional number 0–1 only when input or operator review requires it |
 | `musical_intent` | Optional object for pitched assets — see musical block |
 
 ## Prompt template (use this order — do not skip sections)
@@ -101,6 +102,7 @@ Add role-specific bans (e.g. beds: `no pulse, no beat`).
 - Prompt under 40 words (too thin)
 - Bed prompt requests beat or tempo
 - Duration outside role bands
+- Required row keys are missing: `asset_id`, `elevenlabs_prompt`, `duration_seconds`, `negative_prompt`
 
 ## Do not
 
@@ -116,16 +118,17 @@ Add role-specific bans (e.g. beds: `no pulse, no beat`).
 
 ## Schema
 
+Place this stage artifact inside the required envelope as `artifacts.prompts`. Do not nest another `artifacts` object inside `artifacts`.
+
 {
-  "artifacts": {
-    "prompts": [
-      {
-        "asset_id": "",
-        "elevenlabs_prompt": "",
-        "duration_seconds": 0,
-        "negative_prompt": "",
-        "musical_intent": {}
-      }
-    ]
-  }
+  "prompts": [
+    {
+      "asset_id": "",
+      "elevenlabs_prompt": "",
+      "duration_seconds": 0,
+      "negative_prompt": "",
+      "prompt_influence": 0.5,
+      "musical_intent": {}
+    }
+  ]
 }

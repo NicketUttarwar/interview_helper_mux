@@ -23,7 +23,7 @@
         "segment_id": "seg_001",
         "start_ms": 0,
         "end_ms": 12000,
-        "proposed_split_reason": "Topic shift to customer story."
+        "proposed_split_reason": "topic_shift"
       }
     ]
   },
@@ -73,7 +73,7 @@
       {
         "segment_id": "seg_001",
         "self_explanatory": false,
-        "gap_type": "context",
+        "gap_type": "missing_setup",
         "severity": "medium"
       }
     ]
@@ -82,7 +82,7 @@
     "interviewer_lines": [
       {
         "line_id": "line_001",
-        "gap_type": "context",
+        "gap_type": "missing_setup",
         "text": "Can you briefly define the market conditions at that moment?",
         "targets_segment_id": "seg_001",
         "placement": "before",
@@ -135,7 +135,7 @@
         "after_segment_id": "seg_001",
         "before_segment_id": "seg_002",
         "text": "From that initial challenge, the team shifted toward clearer ICP focus.",
-        "type": "narrative_bridge"
+        "type": "topic_shift"
       }
     ]
   },

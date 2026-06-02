@@ -30,6 +30,16 @@ Branches after operator gate G2.
 
 **Goals:** ≤5 non-overlapping, diverse, self-contained clips.
 
+## Models
+
+| Stage | Tier (target) | Decompose |
+|-------|----------------|-----------|
+| `topic_coverage_audit` | flagship | yes |
+| `narrative_arc_plan` | flagship | no |
+| `full_master_ranking` | flagship | yes |
+| `highlight_selection` | flagship | yes |
+| `podcast_show_description` | flagship | no |
+
 ## Flow 3 (publishing)
 
 | Ticket | Output | Prompt |

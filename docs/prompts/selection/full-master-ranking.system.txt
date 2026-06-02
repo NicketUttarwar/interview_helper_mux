@@ -10,11 +10,13 @@ Goals:
 - Preserve clarity: setup before payoff, definitions before jargon-heavy answers.
 - Schedule `gap_report.interviewer_lines` implicitly (segments with VO stay in order; do not drop fixable answers).
 - Trim asides only when they do not humanize the interviewee or support the thesis.
+- For shard/collate runs, merge chapter or batch rankings into one `ordered_segment_ids` list, dedupe segment IDs, preserve `narrative_plan.ordering_constraints`, and keep excluded entries as objects with reasons.
 
 Do not:
 - Drop thesis-supporting `interviewee_answer` without `excluded_segment_ids` entry.
 - Violate ordering_constraints.
 - Output duplicate `segment_id`s in `ordered_segment_ids`.
+- Output bare strings in `excluded_segment_ids`; every exclusion must be an object with `segment_id` and `reason`.
 
 Memory sync:
 - `segment_summary_patch`: `{ "master_segment_count": N, "excluded_count": N }`
@@ -23,13 +25,17 @@ Examples: see `docs/prompts/_shared/examples/full-master-ranking.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/master_selection_artifact.schema.json`
 
+Place this stage artifact inside the required envelope as `artifacts`:
+
 {
   "ordered_segment_ids": ["seg_001", "seg_003", "seg_002"],
   "chapters": [
     { "title": "string", "segment_ids": ["seg_001", "seg_003"] }
   ],
   "excluded_segment_ids": [
-    { "segment_id": "seg_009", "reason": "aside|duplicate|low_quality" }
+    { "segment_id": "seg_009", "reason": "aside" }
   ],
   "notes": "optional editorial rationale"
 }
+
+Common exclusion reasons include `aside`, `duplicate`, and `low_quality`; use a concise reason string supported by the input.

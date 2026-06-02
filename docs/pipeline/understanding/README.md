@@ -48,10 +48,10 @@ See [analysis-memory.md](../../cross-cutting/analysis-memory.md).
 
 ## Models
 
-| Stage | Tier (target) |
-|-------|----------------|
-| `speaker_roles` | economy |
-| `content_context` | economy |
+| Stage | Tier (target) | Decompose |
+|-------|----------------|-----------|
+| `speaker_roles` | economy | no |
+| `content_context` | economy | yes |
 
 [llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md) · [model-routing.md](../../cross-cutting/model-routing.md)
 

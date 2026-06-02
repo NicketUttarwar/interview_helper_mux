@@ -60,8 +60,12 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `transitions` | economy | low |
 | `podcast_sfx_brief` | economy | low |
 | `sfx_brief` | economy | low |
+| `sound_design_palettes` | economy | low |
+| `sound_design_plan_flow1` | flagship | high |
+| `sound_design_plan_flow2` | flagship | high |
+| `elevenlabs_prompt_craft` | economy | low |
 
-Planned sound-design stages: economy for `sound_design_palettes` and `elevenlabs_prompt_craft`; flagship for `sound_design_plan_flow1` / `flow2` — [sound-design.md](./sound-design.md).
+Sound-design stage details: [sound-design.md](./sound-design.md).
 
 ---
 
@@ -115,7 +119,7 @@ Default **flagship** on first pass for:
 - Flow 1 coverage audit, narrative plan, full master ranking
 - Flow 2 highlight selection
 - Flow 3 podcast show description (`podcast_show_description`)
-- Planned sound-design plan stages
+- Sound-design plan stages (`sound_design_plan_flow1`, `sound_design_plan_flow2`)
 
 Keep **economy** for speaker/content pass, transitions, SFX briefs, ElevenLabs prompt craft, and all **arbiter** / **shard** sub-calls.
 

@@ -4,7 +4,7 @@ When a recording is **long or dense**, LLM stages may hit **token / character ca
 
 This document is the **policy** for operators and implementers: what to expect, what breaks, and how to recover **without** silently losing fidelity.
 
-**Shard → collate (BUILD-073, shipped):** when the arbiter returns `decompose` for eligible stages (`missing_framing`, `segment_classification`, `boundary_detection`), the runner shards evidence and collates — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Shard → collate (BUILD-073/084, shipped):** when the arbiter returns `decompose` for eligible stages (`content_context`, `boundary_detection`, `segment_classification`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `highlight_selection`), the runner shards evidence and collates — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 ---
 

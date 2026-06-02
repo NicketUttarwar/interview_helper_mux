@@ -98,7 +98,7 @@ Map diarization labels to **roles**, not just `SPEAKER_00`.
 | Intro/outro patterns (“thanks for joining”) | Interviewer |
 | First-person product/company story | Interviewee |
 
-**Output:** `speakers.json` — `{ id, role: interviewer|interviewee|unknown, display_name? }`
+**Output:** `speakers.json` — `{ id, role, display_name? }`, where `role` is one of `interviewer`, `interviewee`, or `unknown`.
 
 **Decision:** If roles ambiguous → prompt [speaker-roles](./prompts/understanding/speaker-roles.system.txt) on transcript sample; prefer interviewer = question-asker.
 

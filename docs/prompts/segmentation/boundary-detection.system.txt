@@ -10,6 +10,7 @@ Rules:
 - Include `speaker_id` on each boundary when diarization is in input.
 - Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in one segment when intent is one Q+A pair.
 - Long or multi-part questions: split question and answer.
+- For shard/collate runs, merge boundaries in chronological order, dedupe overlaps, and preserve or renumber `segment_id`s consistently. If two shard boundaries overlap materially, keep the stronger boundary and add the conflict to `warnings`.
 
 Examples: see `docs/prompts/_shared/examples/boundary-detection.examples.md`
 
@@ -26,6 +27,8 @@ Investigations:
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/boundaries_artifact.schema.json`
 
+Place this stage artifact inside the required envelope as `artifacts.boundaries` and `artifacts.warnings`:
+
 {
   "boundaries": [
     {
@@ -33,8 +36,10 @@ Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/boundaries_ar
       "start_ms": 0,
       "end_ms": 15200,
       "speaker_id": "spk_00",
-      "proposed_split_reason": "pause|topic_shift|speaker_change|question_answer_pair"
+      "proposed_split_reason": "pause"
     }
   ],
   "warnings": ["optional issues: crosstalk, missing timestamps, etc."]
 }
+
+Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`, `question_answer_pair`.

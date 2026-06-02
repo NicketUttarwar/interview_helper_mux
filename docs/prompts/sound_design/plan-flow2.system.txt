@@ -38,6 +38,17 @@ Placements: `before_timeline`, `between_clips`, `after_timeline`.
 
 - `from_clip_rank` and `to_clip_rank` — must exist in selection (integers 1..N)
 
+Minimal between-clips cue example:
+
+{
+  "cue_id": "flow2_between_1_2",
+  "asset_id": "transition_stinger",
+  "placement": "between_clips",
+  "from_clip_rank": 1,
+  "to_clip_rank": 2,
+  "level_db": -10
+}
+
 **Single clip edge case:** If only one highlight, plan cold_open + optional outro only — no between cues.
 
 **Montage energy:** Forward motion, not podcast chapter stingers. Shared transition = sonic glue.
@@ -57,6 +68,8 @@ Transition overlap length and crossfade ms are **not** fixed here — post-gener
 `docs/prompts/_shared/examples/sound-design.examples.md` (Flow 2 plan section).
 
 ## Schema
+
+Place this stage artifact inside the required envelope as `artifacts`. Preserve input `coherence` and `palettes` when they are present.
 
 {
   "assets": [],

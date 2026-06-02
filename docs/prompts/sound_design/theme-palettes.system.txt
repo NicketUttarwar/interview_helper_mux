@@ -31,7 +31,7 @@ Write a **sonic_identity** string (2–4 sentences) that an audio engineer could
 Also set:
 
 - `primary_mood` — one dominant emotional color for the interview
-- `density` — `sparse` | `moderate` | `dense` (default `sparse` for Flow 1)
+- `density` — one of `sparse`, `moderate`, `dense` (default `sparse` for Flow 1)
 
 ### palettes (1–4 items)
 
@@ -49,7 +49,7 @@ Each palette:
 
 **Grounding:** Do not invent themes without transcript support. Single-topic interviews → 1 palette is correct.
 
-**Verbosity:** `ambient_description` and `accent_description` must be **rich plain language** (4–8 sentences each if needed) — acoustic space, distance, material, weather, time of day, dynamics, what never appears.
+**Verbosity:** this runs on the economy OpenAI tier. Keep descriptions rich but compact: 2–4 specific sentences each, naming acoustic space, distance, material, dynamics, and what never appears.
 
 Example ambient_description depth (pattern, not copy-paste):
 
@@ -63,7 +63,7 @@ Example ambient_description depth (pattern, not copy-paste):
 
 ## Investigations
 
-Add `follow_up_investigations` if a brief topic has no segment_ids (kind: theme_unmapped).
+Add envelope-level `follow_up_investigations` if a brief topic has no segment_ids (kind: theme_unmapped). Do not put investigations inside this artifact.
 
 ## Examples
 
@@ -72,6 +72,8 @@ See `docs/prompts/_shared/examples/sound-design.examples.md` (palette section).
 ## Schema
 
 Stage output validates against `sound_design_palettes_artifact.schema.json`; merged SDP must satisfy `sound_design_plan.schema.json` (BUILD-060).
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "coherence": {

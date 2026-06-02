@@ -16,7 +16,7 @@ Ground every claim in supplied evidence (`content_brief`, `analysis_state`, segm
 - Populate `evidence_segment_ids` with real `segment_id` values from the manifest.
 - Every `themes_highlighted` entry and each `content_brief.key_claims[]` item must be supportable via those segments or explicit prose in `description_markdown`.
 - `hook_sentence` must match the opening of `description_markdown`.
-- `word_count` must match the markdown body (±15 words tolerance).
+- Count the words in `description_markdown`; `word_count` must match the markdown body (±15 words tolerance).
 
 Include, when supported by evidence:
 
@@ -43,11 +43,13 @@ Use `emotional_beats` and `key_claims` for color; prefer **specific** nouns and 
 
 ## Investigations
 
-- `show_description_thin_evidence` — if thesis or themes are weak after reading volley; suggest `content_context` or profile verification rerun
+- If thesis or themes are weak after reading volley, add a `needs` item with `type: rerun_stage`, `stage: content_context`, and a concise reason. Do not invent custom investigation kinds.
 
 Examples: see `docs/prompts/_shared/examples/podcast-show-description.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/show_description_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "title_suggestion": "optional 5–12 word episode title line (third person OK in title)",
@@ -57,6 +59,8 @@ Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/show_descript
   "themes_highlighted": ["string"],
   "audience_pitch": "one sentence — who should listen and why",
   "evidence_segment_ids": ["seg_..."],
-  "tone": "journalistic|conversational|investor|technical|human_interest",
+  "tone": "journalistic",
   "confidence": 0.0
 }
+
+Allowed `tone` values: `journalistic`, `conversational`, `investor`, `technical`, `human_interest`.

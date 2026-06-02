@@ -24,7 +24,7 @@
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `speaker_roles` | low | economy | primary, arbiter | full | no | systematic role inversion | [speaker-roles.system.txt](../prompts/understanding/speaker-roles.system.txt) |
-| `content_context` | medium | economy | primary, arbiter | full | no | low confidence; thesis contradicts transcript tail | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
+| `content_context` | medium | economy | primary, arbiter, shard, collate | full / shard / collate | yes — transcript chunks | low confidence; thesis contradicts transcript tail; truncation | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
 | `boundary_detection` | medium | standard | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | truncation; partial boundaries | [boundary-detection.system.txt](../prompts/segmentation/boundary-detection.system.txt) |
 | `segment_classification` | medium | standard | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `theme_unmapped`; max_segments hit | [segment-classification.system.txt](../prompts/segmentation/segment-classification.system.txt) |
 | `missing_framing` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `max_gap_evaluations`; partial gap coverage | [missing-framing.system.txt](../prompts/interviewer-gap/missing-framing.system.txt) |
@@ -36,9 +36,9 @@
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `topic_coverage_audit` | high | flagship | primary, arbiter | full | no | coverage holes vs brief | [topic-coverage-audit.system.txt](../prompts/selection/topic-coverage-audit.system.txt) |
+| `topic_coverage_audit` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | coverage holes vs brief; truncation | [topic-coverage-audit.system.txt](../prompts/selection/topic-coverage-audit.system.txt) |
 | `narrative_arc_plan` | high | flagship | primary, arbiter | full | no | chapter cap violations | [narrative-arc-plan.system.txt](../prompts/selection/narrative-arc-plan.system.txt) |
-| `full_master_ranking` | high | flagship | primary, arbiter | full | no (future: theme clusters) | incoherent order vs arc | [full-master-ranking.system.txt](../prompts/selection/full-master-ranking.system.txt) |
+| `full_master_ranking` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — chapter/theme batches | incoherent order vs arc; truncation | [full-master-ranking.system.txt](../prompts/selection/full-master-ranking.system.txt) |
 | `transitions` | low | economy | primary, arbiter | full | no | tone mismatch only | [transitions.system.txt](../prompts/assembly/transitions.system.txt) |
 | `podcast_sfx_brief` | low | economy | primary, arbiter | full | no | — | [podcast-sfx-brief.system.txt](../prompts/assembly/podcast-sfx-brief.system.txt) |
 
@@ -48,7 +48,7 @@
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `highlight_selection` | high | flagship | primary, arbiter | full | no | weak hook / over cap clips | [highlight-selection.system.txt](../prompts/selection/highlight-selection.system.txt) |
+| `highlight_selection` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — candidate batches | weak hook / over cap clips; truncation | [highlight-selection.system.txt](../prompts/selection/highlight-selection.system.txt) |
 | `sfx_brief` | low | economy | primary, arbiter | full | no | — | [sfx-brief.system.txt](../prompts/assembly/sfx-brief.system.txt) |
 
 ---
@@ -102,6 +102,10 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW
 | `boundary_detection` | Time ranges or segment index batches | `{ "label", "start_ms", "end_ms" }` or `segment_ids` |
 | `segment_classification` | Segment batches (~`max_segments_in_context` each) | `{ "label", "segment_ids" }` |
 | `missing_framing` | Gap evaluation batches (~`max_gap_evaluations` each) | `{ "label", "segment_ids" }` |
+| `content_context` | Transcript chunks | `{ "label", "start_ms", "end_ms" }` or `segment_ids` |
+| `topic_coverage_audit` | Segment batches | `{ "label", "segment_ids" }` |
+| `full_master_ranking` | Chapter or theme batches | `{ "label", "segment_ids" }` |
+| `highlight_selection` | Candidate batches | `{ "label", "segment_ids" }` |
 
 Max shards per attempt: **8** (see [llm-orchestration.md](./llm-orchestration.md)).
 

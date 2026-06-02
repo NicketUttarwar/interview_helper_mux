@@ -11,10 +11,10 @@ Context is a **selective user/assistant volley** (see [context-padding.md](../cr
 | Stage | Prompt | Tier | Volley | artifacts | Memory sync |
 |-------|--------|------|--------|-----------|-------------|
 | speaker_roles | understanding/speaker-roles | economy | full | speakers.json | speakers list |
-| content_context | understanding/content-context | economy | full | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
+| content_context | understanding/content-context | economy | full / shard / collate | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
 | boundary_detection | segmentation/boundary-detection | standard | full / shard / collate | boundaries.json | segment_summary_patch |
 | segment_classification | segmentation/segment-classification | standard | full / shard / collate | manifest.json | themes_append segment_ids |
-| sound_design_palettes | sound_design/theme-palettes | flagship | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
+| sound_design_palettes | sound_design/theme-palettes | economy | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
 | missing_framing | interviewer-gap/missing-framing | flagship | full / shard / collate | gap_evaluations.json | gaps_summary_patch |
 | optimal_questions | interviewer-gap/optimal-questions | flagship | full | gap_report.json | major_questions_append, gaps_summary_patch |
 
@@ -24,15 +24,15 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 
 | Stage | Prompt | Tier | Volley |
 |-------|--------|------|--------|
-| topic_coverage_audit | selection/topic-coverage-audit | flagship | full |
+| topic_coverage_audit | selection/topic-coverage-audit | flagship | full / shard / collate |
 | narrative_arc_plan | selection/narrative-arc-plan | flagship | full |
-| full_master_ranking | selection/full-master-ranking | flagship | full |
+| full_master_ranking | selection/full-master-ranking | flagship | full / shard / collate |
 | transitions | assembly/transitions | economy | full |
 | podcast_sfx_brief | assembly/podcast-sfx-brief | economy | full |
 | sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |
 | sound_design_plan_flow2 | sound_design/plan-flow2 | flagship | full |
 | elevenlabs_prompt_craft | sound_design/elevenlabs-prompt-craft | economy | full |
-| highlight_selection | selection/highlight-selection | flagship | full |
+| highlight_selection | selection/highlight-selection | flagship | full / shard / collate |
 | sfx_brief | assembly/sfx-brief | economy | full |
 
 ## Flow 3

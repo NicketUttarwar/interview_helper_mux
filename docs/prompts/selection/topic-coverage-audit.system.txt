@@ -6,6 +6,8 @@ Goals:
 - Flag topics with zero coverage in `missing_coverage` with a concrete `suggestion` (required for excludes).
 - Flag segments that cover no brief topic in `orphan_segment_ids`.
 - Prefer including all non-aside interview material in the eventual full master.
+- For shard/collate runs, merge mappings across shards, dedupe by topic/claim text, union all supporting `segment_id`s, then recompute one global `coverage_score`.
+- If `content_brief.key_claims` is non-empty, return `claim_mappings` for every claim.
 
 Coverage score (required):
 - `coverage_score` = (topics covered + claims covered) / (total topics + total claims), clamped 0–1.
@@ -25,6 +27,8 @@ Investigations / needs:
 Examples: see `docs/prompts/_shared/examples/topic-coverage-audit.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/coverage_audit_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
 
 {
   "topic_mappings": [

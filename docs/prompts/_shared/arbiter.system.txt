@@ -19,19 +19,24 @@ Given a compact summary of one primary stage response (envelope status, artifact
 4. If the issue is wrong themes or boundaries from an earlier stage, use enqueue_investigation with suggested_action.stage — not decompose.
 5. Be concise in reasoning_summary (one short paragraph).
 6. confidence is your certainty in the verdict (0.0 to 1.0).
+7. `gaps` is always an array. Use an empty array when no gaps remain.
+8. `shard_plan` is always an array. Use at most 8 batches.
+9. Do not copy enum lists with pipe characters into JSON values.
 
 ## Output
 
 Reply with JSON only:
 
 {
-  "verdict": "accept | retry_uptier | decompose | enqueue_investigation",
+  "verdict": "accept",
   "confidence": 0.0,
   "gaps": [],
   "shard_plan": [],
   "suggested_investigation": null,
   "reasoning_summary": ""
 }
+
+`verdict` must be exactly one of these literal strings: `accept`, `retry_uptier`, `decompose`, `enqueue_investigation`.
 
 When verdict is enqueue_investigation, set suggested_investigation to an object with kind, question, suggested_action (optional stage), and blocking (default true).
 

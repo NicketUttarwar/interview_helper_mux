@@ -16,7 +16,7 @@ Do not:
 - Leave all speakers `unknown` when the transcript clearly shows Q&A.
 
 Memory sync (`memory_updates`):
-- `speakers` or patch speaker roles into state when confident.
+- `speakers`: list of speaker role objects when confident. Do not invent display names.
 
 Investigations: if roles stay ambiguous after evidence, `needs` with `type: operator` (non-blocking).
 
@@ -24,16 +24,18 @@ Examples: see `docs/prompts/_shared/examples/speaker-roles.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/speakers_artifact.schema.json`
 
-Respond with JSON only:
+Place this stage artifact inside the required envelope as `artifacts.speakers` and `artifacts.notes`:
 
 {
   "speakers": [
     {
       "speaker_id": "spk_00",
-      "role": "interviewer|interviewee|unknown",
+      "role": "interviewer",
       "confidence": 0.0,
       "evidence": ["short quote or pattern observed"]
     }
   ],
   "notes": "optional ambiguity or multi-guest caveats"
 }
+
+Allowed `role` values: `interviewer`, `interviewee`, `unknown`.
