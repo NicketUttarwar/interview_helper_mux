@@ -65,7 +65,7 @@ Stage ids and modules: [docs/build-out/stage-registry.md](docs/build-out/stage-r
 | Script | Purpose |
 |--------|---------|
 | `scripts/bootstrap_venv.sh` | Create `.venv`, install `requirements.lock`, editable package; on macOS also MLX + local LLM weights via `select_local_llm.py` |
-| `scripts/run.sh` | Venv + deps + GUI build if needed → `python -m interview_mux serve` (`--cli` for headless) |
+| `scripts/run.sh` | Venv + deps + GUI build if needed → `python -m interview_mux serve` (`--cli` for headless). Bootstrap and pipeline **errors** print to **stderr** on the invoking terminal; full operator log stays in each run’s `gui_log.jsonl`. |
 | `scripts/build_gui.sh` | `npm run build` in `frontend/` → `src/interview_mux/web/static/` |
 | `scripts/select_local_llm.py` | llmfit hardware pick + optional `--download` / `--verify` |
 | `scripts/download_local_llm.py` | Direct Hugging Face MLX weight download |

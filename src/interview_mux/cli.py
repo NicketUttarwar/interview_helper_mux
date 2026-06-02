@@ -176,12 +176,15 @@ def serve_cmd(
 
         threading.Thread(target=_open, daemon=True).start()
 
+    from interview_mux.process_logging import configure_process_logging, serve_uvicorn_options
+
+    configure_process_logging()
     console.print(f"[bold green]Web GUI[/bold green] → {url}")
     import uvicorn
 
     from interview_mux.web.server import create_app
 
-    uvicorn.run(create_app(), host=host, port=chosen_port, log_level="info")
+    uvicorn.run(create_app(), host=host, port=chosen_port, **serve_uvicorn_options())
 
 
 @app.command("run")

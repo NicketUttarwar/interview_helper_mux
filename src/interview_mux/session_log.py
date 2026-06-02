@@ -46,6 +46,9 @@ def append_log(
     with FileLock(lock_path_for(path)):
         with path.open("a", encoding="utf-8") as f:
             f.write(line)
+    from interview_mux.process_logging import mirror_operator_entry
+
+    mirror_operator_entry(entry)
     return entry
 
 
