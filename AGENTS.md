@@ -57,4 +57,4 @@ Optional: automate markdown command queues with [CURSOR_EXECUTE/README.md](CURSO
 
 ## Testing (quick)
 
-See **Verify before finishing** in `.cursor/rules/interview-helper-mux.mdc`, per-step blocks in [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md), [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md), and [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) for release sign-off.
+See **Verify before finishing** in `.cursor/rules/interview-helper-mux.mdc`, per-step blocks in [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md), [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md), [docs/workflows/e2e-automation.md](docs/workflows/e2e-automation.md) (autonomous full-app E2E), and [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) for release sign-off.

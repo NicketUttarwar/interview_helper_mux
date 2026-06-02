@@ -77,12 +77,13 @@ export function OperatorActionModal() {
         </div>
 
         <div className="modal-actions modal-footer">
-          <button type="button" className="btn ghost" onClick={closeActionModal}>
+          <button type="button" className="btn ghost" data-testid="modal-close" onClick={closeActionModal}>
             Dismiss
           </button>
           <button
             type="button"
             className="btn primary"
+            data-testid="checkpoint-continue"
             disabled={!continueEnabled}
             onClick={() => void onCheckpointContinue()}
             title={

@@ -204,7 +204,7 @@ export function ProfilePanel() {
         <button type="button" className="btn primary sm" onClick={() => void saveProfile()}>
           Save profile
         </button>
-        <button type="button" className="btn ghost sm" onClick={() => void verifyProfile()}>
+        <button type="button" className="btn ghost sm" data-testid="mark-profile-verified" onClick={() => void verifyProfile()}>
           Mark verified
         </button>
         <button type="button" className="btn ghost sm" onClick={() => void loadProfile()}>

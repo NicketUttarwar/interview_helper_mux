@@ -49,7 +49,7 @@ export function JourneyShell({ children }: JourneyShellProps) {
         {blocking?.blocked && blocking.message ? (
           <div className="journey-blocking-banner" role="status">
             <span>{blocking.message}</span>
-            <button type="button" className="btn primary sm" onClick={openActionModal}>
+            <button type="button" className="btn primary sm" data-testid="open-checkpoint" onClick={openActionModal}>
               Open checkpoint
             </button>
           </div>
@@ -62,6 +62,7 @@ export function JourneyShell({ children }: JourneyShellProps) {
           <button
             type="button"
             className="btn primary sm journey-run-cta"
+            data-testid="journey-run-cta"
             disabled={jobRunning}
             onClick={() => void executeJob(runExecuteHint.body)}
           >

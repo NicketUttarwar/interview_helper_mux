@@ -163,6 +163,7 @@ export function TranscriptReviewPanel() {
         <button
           type="button"
           className="btn primary"
+          data-testid="complete-transcript-review"
           onClick={() => void complete(false)}
         >
           Complete transcript review

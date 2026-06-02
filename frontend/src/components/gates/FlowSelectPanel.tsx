@@ -26,13 +26,13 @@ export function FlowSelectPanel() {
         <p className="hint">Confirm your deliverable.</p>
       )}
       <div className="flow-choice">
-        <button type="button" className="btn primary" onClick={() => void selectFlow("flow1")}>
+        <button type="button" className="btn primary" data-testid="select-flow-flow1" onClick={() => void selectFlow("flow1")}>
           Flow 1 — Full podcast
         </button>
-        <button type="button" className="btn primary" onClick={() => void selectFlow("flow2")}>
+        <button type="button" className="btn primary" data-testid="select-flow-flow2" onClick={() => void selectFlow("flow2")}>
           Flow 2 — Highlight reel
         </button>
-        <button type="button" className="btn primary" onClick={() => void selectFlow("flow3")}>
+        <button type="button" className="btn primary" data-testid="select-flow-flow3" onClick={() => void selectFlow("flow3")}>
           Flow 3 — Show description
         </button>
       </div>

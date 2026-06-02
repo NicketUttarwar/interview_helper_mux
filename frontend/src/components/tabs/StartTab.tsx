@@ -47,6 +47,7 @@ export function StartTab() {
                 key={c.id}
                 type="button"
                 className={`flow-intent-card${flowIntent === c.id ? " selected" : ""}`}
+                data-testid={`flow-intent-${c.id}`}
                 onClick={() => setFlowIntent(c.id)}
               >
                 <strong>{c.title}</strong>
@@ -73,6 +74,7 @@ export function StartTab() {
               <div
                 key={f.path}
                 className={`asset-item${selectedAsset === f.path ? " selected" : ""}`}
+                data-testid={`start-asset-${f.name}`}
                 onClick={() => setSelectedAsset(f.path)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") setSelectedAsset(f.path);
@@ -89,6 +91,7 @@ export function StartTab() {
                 <button
                   type="button"
                   className="btn primary sm btn-start"
+                  data-testid="new-execution"
                   onClick={(e) => {
                     e.stopPropagation();
                     void startRun(f.path, intentEnabled ? flowIntent : undefined);
