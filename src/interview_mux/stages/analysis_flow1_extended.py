@@ -6,6 +6,7 @@ from interview_mux.stage_enrichment import (
     compact_value_features_summary,
     emphasis_regions_for_segments,
 )
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -21,8 +22,7 @@ def run_topic_coverage(ctx: RunContext) -> None:
             payload["value_features_summary"] = vf
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_1_master/coverage_audit.json", artifacts)
+    persist = make_stage_persist("flow_1_master/coverage_audit.json", "topic_coverage_audit")
 
     run_flow_llm_stage(
         ctx,
@@ -48,8 +48,7 @@ def run_narrative_arc(ctx: RunContext) -> None:
             payload["value_features_summary"] = vf
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_1_master/narrative_plan.json", artifacts)
+    persist = make_stage_persist("flow_1_master/narrative_plan.json", "narrative_arc_plan")
 
     run_flow_llm_stage(
         ctx,

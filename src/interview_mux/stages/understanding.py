@@ -16,6 +16,7 @@ from interview_mux.value_analysis.extract import (
     maybe_auto_extract_value_features,
     maybe_enqueue_orchestration_investigations,
 )
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import (
     run_analysis_llm_stage,
     sync_content_brief_to_state,
@@ -32,8 +33,7 @@ def run_speaker_roles(ctx: RunContext) -> None:
             "speakers": speakers,
         }
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("understanding/speakers.json", artifacts)
+    persist = make_stage_persist("understanding/speakers.json", "speaker_roles")
 
     run_analysis_llm_stage(
         ctx,
@@ -58,9 +58,7 @@ def run_content_context(ctx: RunContext) -> None:
             payload["source_acoustic_pacing"] = pacing_one_liner(profile)
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        brief = artifacts
-        c.write_json("understanding/content_brief.json", brief)
+    persist = make_stage_persist("understanding/content_brief.json", "content_context")
 
     run_analysis_llm_stage(
         ctx,

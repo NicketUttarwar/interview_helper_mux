@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { ExecuteBody, JourneyExecuteHint, RunData, StageInfo } from "../types";
 import {
   findHandoffStage,
+  isApiConsentJobPending,
   stageTitleForId,
 } from "../utils/checkpoint";
 
@@ -90,11 +91,6 @@ export function useOperatorCommand(
       job?.mode ||
       "pipeline";
 
-    const needsApiConsent =
-      job?.status === "needs_operator" &&
-      (job.message?.includes("API consent") ||
-        Boolean(job.missing_api_providers?.length));
-
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
       return {
         kind: "running",
@@ -108,11 +104,11 @@ export function useOperatorCommand(
       };
     }
 
-    if (needsApiConsent) {
-      const ungranted = (job.missing_api_providers || []).filter((id) => !apiGrants[id]);
+    if (isApiConsentJobPending(run, apiGrants)) {
+      const ungranted = (job?.missing_api_providers || []).filter((id) => !apiGrants[id]);
       return {
         kind: "consent",
-        statusLine: job.message || "Allow required APIs, then run again.",
+        statusLine: job?.message || "Allow required APIs, then run again.",
         primaryLabel: ungranted.length ? "Allow required APIs" : "Open checkpoint",
         primaryDisabled: false,
         secondaryLabel: hint ? `Retry: ${hint.label}` : null,

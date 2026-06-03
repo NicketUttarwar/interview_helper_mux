@@ -30,6 +30,7 @@ from interview_mux.pipeline import (
 )
 from interview_mux.stages import transcript_review
 from interview_mux.journey_orchestrator import refresh_journey_meta
+from interview_mux.custom_run_handoff import check_handoff_before_execute, pending_handoff_stage
 from interview_mux.run_context import RunContext
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
@@ -167,6 +168,26 @@ class JobRunner:
             until_stage=until_stage,
             api_consents=api_consents,
         )
+        handoff_err = check_handoff_before_execute(ctx_pre)
+        if handoff_err:
+            ctx_pre.log(handoff_err, level="action", stage=pending_handoff_stage(ctx_pre))
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": stage,
+                    "message": handoff_err,
+                },
+            )
+            lock.release()
+            return {
+                "ok": False,
+                "error": handoff_err,
+                "needs_operator": True,
+                "needs_handoff_review": True,
+            }
+
         if consent_err:
             ctx_pre.log(consent_err, level="action", stage=stage or mode)
             self._write_job(

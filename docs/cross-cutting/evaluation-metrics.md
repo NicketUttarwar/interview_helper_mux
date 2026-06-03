@@ -2,6 +2,8 @@
 
 **Measurement tools:** `ffprobe` (format/duration) and `ffmpeg` `loudnorm` filter `print_format=json` (`input_i`, `input_tp`) for integrated LUFS and true peak on finished masters (BUILD-070). `pyloudnorm` + `soundfile` measure integrated LUFS on the **assembly bus** before the final limiter (BUILD-071) — [anchored-toolchain.md](./anchored-toolchain.md).
 
+**Structured JSON artifacts:** LLM outputs are validated at the stage boundary (`validate_stage_artifacts`) and on every disk write (`validate_artifact_write`). Semantic completeness (themes, thesis, topics) drives GUI `partial` status and optional pipeline re-run — [artifact-generation-and-validation.md](./artifact-generation-and-validation.md), [json-schema-coverage.md](./json-schema-coverage.md).
+
 ## Transcription QC
 
 | Check | Pass heuristic |

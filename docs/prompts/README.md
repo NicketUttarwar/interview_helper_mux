@@ -4,7 +4,7 @@
 
 Prompts are organized by **pipeline stage**. Each `.system.txt` file is a stage template; runtime prepends [`_shared/analysis-preamble.system.txt`](./_shared/analysis-preamble.system.txt) for all LLM calls.
 
-User messages include **analysis memory** (`analysis_state_summary`, `open_investigations`) plus `stage_input`. See [analysis-memory.md](../cross-cutting/analysis-memory.md) and [analysis-stage-matrix.md](./analysis-stage-matrix.md).
+User messages include **analysis memory** (`analysis_state_summary`, `open_investigations`) plus `stage_input`. When an on-disk artifact already exists, `stage_input` also includes **`gap_fill_context`** (gaps to fill, skip_fields, existing snapshot) — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md). See [analysis-memory.md](../cross-cutting/analysis-memory.md) and [analysis-stage-matrix.md](./analysis-stage-matrix.md).
 
 **Smart routing (spec):** After each primary call, an economy-tier **arbiter** ([arbiter.system.txt](./_shared/arbiter.system.txt), [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md)) judges the envelope before memory merge. Shard/collate volleys use tighter profiles — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
@@ -14,7 +14,7 @@ User messages include **analysis memory** (`analysis_state_summary`, `open_inves
 prompts/
 ├── README.md
 ├── _shared/
-│   ├── analysis-preamble.system.txt    ← envelope + memory rules (all LLM stages)
+│   ├── analysis-preamble.system.txt    ← envelope + memory + gap-fill rules (all LLM stages)
 │   ├── arbiter.system.txt            ← economy-tier quality gate (spec; see llm-arbiter-contract.md)
 │   ├── llm-arbiter-contract.md         ← arbiter JSON verdict schema
 │   └── examples/                       ← good vs bad pattern packs (*.examples.md)

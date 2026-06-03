@@ -23,6 +23,7 @@ from interview_mux.gates import (
     require_transcript_review_clear,
     set_selected_flow,
 )
+from interview_mux.custom_run_handoff import active_pipeline_stage, pause_after_stage_if_needed
 from interview_mux.run_context import RunContext
 from interview_mux.stages import analysis_flow1_extended
 from interview_mux.stages import assembly_flow1
@@ -169,7 +170,12 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        fns[stage]()
+        token = active_pipeline_stage.set(stage)
+        try:
+            fns[stage]()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, stage)
         if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
             raise SystemExit(
                 "Transcript review required. Open the GUI to correct ranked clips, then complete review."
@@ -194,7 +200,12 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         fns = _flow1_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        fns[stage]()
+        token = active_pipeline_stage.set(stage)
+        try:
+            fns[stage]()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, stage)
         return
 
     if stage in FLOW2_ORDER:
@@ -203,7 +214,12 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         fns = _flow2_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        fns[stage]()
+        token = active_pipeline_stage.set(stage)
+        try:
+            fns[stage]()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, stage)
         return
 
     if stage in FLOW3_ORDER:
@@ -211,7 +227,12 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         fns = _flow3_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        fns[stage]()
+        token = active_pipeline_stage.set(stage)
+        try:
+            fns[stage]()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, stage)
         return
 
     if stage == "vo_ingest":
@@ -245,10 +266,24 @@ def run_analysis(
 
     pre_analysis_init(ctx)
 
+    from interview_mux.artifact_completeness import should_run_stage_for_artifact
+
     for name, fn in list(stages.items())[start_idx:]:
         if ctx.is_done(name) and from_stage != name:
-            continue
-        fn()
+            if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
+                ctx.log(
+                    f"Re-running {name}: artifact incomplete or invalid",
+                    level="info",
+                    stage=name,
+                )
+            else:
+                continue
+        token = active_pipeline_stage.set(name)
+        try:
+            fn()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, name)
         if name in ANALYSIS_LLM_STAGES:
             drain_investigation_queue(ctx, llm_runners)
         if until_stage and name == until_stage:
@@ -374,6 +409,9 @@ def _run_steps(
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
+    from interview_mux.artifact_completeness import should_run_stage_for_artifact
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
+
     start = 0
     if from_stage:
         names = [s[0] for s in steps]
@@ -382,9 +420,21 @@ def _run_steps(
         start = names.index(from_stage)
     for name, fn in steps[start:]:
         if ctx.is_done(name) and from_stage != name:
-            continue
+            if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
+                ctx.log(
+                    f"Re-running {name}: artifact incomplete or invalid",
+                    level="info",
+                    stage=name,
+                )
+            else:
+                continue
         if preclean_hook is not None:
             preclean_hook(name)
-        fn()
+        token = active_pipeline_stage.set(name)
+        try:
+            fn()
+        finally:
+            active_pipeline_stage.reset(token)
+        pause_after_stage_if_needed(ctx, name)
         if until_stage and name == until_stage:
             break

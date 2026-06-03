@@ -21,7 +21,7 @@ After shared analysis and **gate G2** when `run_meta.json` has `selected_flow: f
 | 1 | `podcast_show_description` | **flagship** | `flow_3_description/show_description.json` |
 | 2 | `export_show_description` | — | `flow_3_description/show_description.md` (plain text export) |
 
-Single LLM stage; export mirrors JSON → plain text on disk without a model call.
+Single LLM stage; export mirrors JSON → plain text on disk without a model call. `show_description.json` is validated on write and supports gap-fill when re-run — [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
 
 ## Module
 

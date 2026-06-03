@@ -19,11 +19,13 @@ BUILD-026, BUILD-027
 
 ## Outputs
 
-| Path | Description |
-|------|-------------|
-| `understanding/gap_evaluations.json` | Per-segment framing check |
-| `understanding/gap_report.json` | Aggregated fixes |
-| `understanding/interviewer_script.txt` | Human-readable script |
+| Path | Validated on write | Description |
+|------|-------------------|-------------|
+| `understanding/gap_evaluations.json` | Yes | Per-segment framing check |
+| `understanding/gap_report.json` | Yes | Aggregated fixes |
+| `understanding/interviewer_script.txt` | — | Human-readable script (not JSON schema) |
+
+Gap-fill and flagship generation: [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
 
 ## Operator gate
 

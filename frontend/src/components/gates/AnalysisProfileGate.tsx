@@ -1,21 +1,30 @@
+import { api } from "../../api/client";
 import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
-import { PrecleanOfferCard } from "./PrecleanOfferCard";
-import { resolvePrecleanOffer } from "../../utils/preclean";
 
 export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
-  const { run } = useApp();
-  const verified = stage.status === "done";
+  const { run, runId, refreshRun, showToast, setPipelineSubTab } = useApp();
+  const verified = stage.status === "done" || Boolean(run?.profile_verified);
   const flow1Block =
     run?.selected_flow === "flow1" && run?.profile_gate_pending;
-  const offer = resolvePrecleanOffer(stage);
+
+  const verifyProfile = async () => {
+    if (!runId) return;
+    try {
+      await api(`/api/runs/${runId}/analysis-profile/verify`, { method: "POST" });
+      showToast("Profile verified — you can continue.");
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not verify profile");
+    }
+  };
 
   return (
     <>
       <p className="hint">
         Review themes, major questions, and style in the{" "}
-        <strong>Interview profile</strong> panel below. Mark verified when the profile
-        matches your intent for this recording.
+        <strong>Interview profile</strong> tab (or Story Board). Mark verified when the
+        profile matches your intent for this recording.
       </p>
       <p className="muted">
         {verified
@@ -28,7 +37,25 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
           you mark the profile verified.
         </p>
       ) : null}
-      {offer ? <PrecleanOfferCard stage={stage} offer={offer} /> : null}
+      <div className="flow-choice profile-gate-actions">
+        {!verified ? (
+          <button
+            type="button"
+            className="btn primary sm"
+            data-testid="mark-profile-verified-modal"
+            onClick={() => void verifyProfile()}
+          >
+            Mark profile verified
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => setPipelineSubTab("profile")}
+        >
+          Open profile editor
+        </button>
+      </div>
     </>
   );
 }

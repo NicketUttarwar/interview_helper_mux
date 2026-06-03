@@ -34,11 +34,14 @@ source .venv/bin/activate
 
 ```bash
 pytest tests/
+python tools/codegen_zod_schemas.py   # after json-schemas/ edits
+cd frontend && npm run build          # Zod validators must compile
 ```
 
 | Test file | Covers |
 |-----------|--------|
 | `test_prompt_validation.py` | JSON schema validation; `fixtures/prompts/stage_artifacts.json` per stage key |
+| `test_artifact_completeness.py` | Gap-fill merge, `artifact_status`, `write_validated_artifact`, `should_run_stage_for_artifact` |
 | `test_transcript_review.py` | Review queue / correction merge |
 | `test_gates.py` | Profile gate, G1 VO, flow selection, transcript review pending |
 | `test_pipeline.py` | Flow 1/2/3 + analysis order smoke (stubbed stages, `fixtures/runs/base_smoke`) |

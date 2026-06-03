@@ -2,7 +2,7 @@
 
 **Status: implemented (BUILD-073)** — authoritative per-stage routing table. Runtime uses `models.tiers` + `models.stages` with optional per-stage string overrides; see [model-routing.md](./model-routing.md) and [config-keys.md](./config-keys.md).
 
-**Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
+**Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md) · **Artifacts:** [artifact-generation-and-validation.md](./artifact-generation-and-validation.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
 
 ---
 
@@ -23,10 +23,10 @@
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `speaker_roles` | low | economy | primary, arbiter | full | no | systematic role inversion | [speaker-roles.system.txt](../prompts/understanding/speaker-roles.system.txt) |
-| `content_context` | medium | economy | primary, arbiter, shard, collate | full / shard / collate | yes — transcript chunks | low confidence; thesis contradicts transcript tail; truncation | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
-| `boundary_detection` | medium | standard | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | truncation; partial boundaries | [boundary-detection.system.txt](../prompts/segmentation/boundary-detection.system.txt) |
-| `segment_classification` | medium | standard | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `theme_unmapped`; max_segments hit | [segment-classification.system.txt](../prompts/segmentation/segment-classification.system.txt) |
+| `speaker_roles` | low | **flagship** | primary, arbiter | full | no | systematic role inversion | [speaker-roles.system.txt](../prompts/understanding/speaker-roles.system.txt) |
+| `content_context` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — transcript chunks | low confidence; thesis contradicts transcript tail; truncation | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
+| `boundary_detection` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | truncation; partial boundaries | [boundary-detection.system.txt](../prompts/segmentation/boundary-detection.system.txt) |
+| `segment_classification` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `theme_unmapped`; max_segments hit | [segment-classification.system.txt](../prompts/segmentation/segment-classification.system.txt) |
 | `missing_framing` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `max_gap_evaluations`; partial gap coverage | [missing-framing.system.txt](../prompts/interviewer-gap/missing-framing.system.txt) |
 | `optimal_questions` | high | flagship | primary, arbiter | full | no | weak VO linkage to gaps | [optimal-questions.system.txt](../prompts/interviewer-gap/optimal-questions.system.txt) |
 
@@ -40,8 +40,8 @@
 | `narrative_arc_plan` | high | flagship | primary, arbiter | full | no | chapter cap violations | [narrative-arc-plan.system.txt](../prompts/selection/narrative-arc-plan.system.txt) |
 | `full_master_ranking` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — chapter/theme batches | incoherent order vs arc; truncation | [full-master-ranking.system.txt](../prompts/selection/full-master-ranking.system.txt) |
 | `edl_narrative_audit` | high | flagship | primary, arbiter | full | no | final timeline breaks coverage, chapter continuity, gap clarity, or ordering constraints | [edl-narrative-audit.system.txt](../prompts/selection/edl-narrative-audit.system.txt) |
-| `transitions` | low | economy | primary, arbiter | full | no | tone mismatch only | [transitions.system.txt](../prompts/assembly/transitions.system.txt) |
-| `podcast_sfx_brief` | low | economy | primary, arbiter | full | no | — | [podcast-sfx-brief.system.txt](../prompts/assembly/podcast-sfx-brief.system.txt) |
+| `transitions` | low | **flagship** | primary, arbiter | full | no | tone mismatch only | [transitions.system.txt](../prompts/assembly/transitions.system.txt) |
+| `podcast_sfx_brief` | low | **flagship** | primary, arbiter | full | no | — | [podcast-sfx-brief.system.txt](../prompts/assembly/podcast-sfx-brief.system.txt) |
 
 ---
 
@@ -50,7 +50,7 @@
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `highlight_selection` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — candidate batches | weak hook / over cap clips; truncation | [highlight-selection.system.txt](../prompts/selection/highlight-selection.system.txt) |
-| `sfx_brief` | low | economy | primary, arbiter | full | no | — | [sfx-brief.system.txt](../prompts/assembly/sfx-brief.system.txt) |
+| `sfx_brief` | low | **flagship** | primary, arbiter | full | no | — | [sfx-brief.system.txt](../prompts/assembly/sfx-brief.system.txt) |
 
 ---
 
@@ -70,10 +70,10 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `sound_design_palettes` | low | economy | primary, arbiter | full | no | — | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
+| `sound_design_palettes` | low | **flagship** | primary, arbiter | full | no | — | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
 | `sound_design_plan_flow1` | high | flagship | primary, arbiter | full | no | density / palette mismatch | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
 | `sound_design_plan_flow2` | high | flagship | primary, arbiter | full | no | — | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
-| `elevenlabs_prompt_craft` | low | economy | primary, arbiter | full | no | policy / voice bleed | [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt) |
+| `elevenlabs_prompt_craft` | low | **flagship** | primary, arbiter | full | no | policy / voice bleed | [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt) |
 
 ---
 

@@ -25,7 +25,7 @@ export function GateActions({ stage }: Props) {
 
   if (!run) return null;
 
-  const precleanOffer = resolvePrecleanOffer(stage);
+  const precleanOffer = resolvePrecleanOffer(stage, run.meta);
 
   if (
     stage.id === "topic_coverage_audit" &&
@@ -141,7 +141,7 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
     );
   }
 
-  const offer = resolvePrecleanOffer(stage);
+  const offer = resolvePrecleanOffer(stage, run?.meta);
   return (
     <div className="gate-actions">
       <ElevenLabsPostListenPanel stage={stage} />

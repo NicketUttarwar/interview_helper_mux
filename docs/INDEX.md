@@ -36,6 +36,7 @@ Flat hub for **interview_helper_mux**.
 - [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompts + must-not-hear QA
 - [cross-cutting/podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves, quality offers
 - [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) — per-interview profile, operator edits
+- [cross-cutting/artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod validation
 - [cross-cutting/context-padding.md](./cross-cutting/context-padding.md) — what each LLM call receives
 - [cross-cutting/segment-schema.md](./cross-cutting/segment-schema.md)
 - [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md) — **ASSETS/** source picker, executions, resume
@@ -47,7 +48,7 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) — per-stage tier and severity
 - [cross-cutting/llm-orchestration-implementation-handoff.md](./cross-cutting/llm-orchestration-implementation-handoff.md) — future code mapping
 - [cross-cutting/llm-call-record-framework.md](./cross-cutting/llm-call-record-framework.md) — labeled storage for every OpenAI call + volley reconstruction
-- [cross-cutting/local-llm-tier.md](./cross-cutting/local-llm-tier.md) — on-device MLX framing to shrink OpenAI volleys (plan)
+- [cross-cutting/local-llm-tier.md](./cross-cutting/local-llm-tier.md) — on-device MLX volley framing (structured artifacts still use OpenAI flagship)
 - [cross-cutting/local-llm-implementation-handoff.md](./cross-cutting/local-llm-implementation-handoff.md) — local LLM wiring checklist
 - [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (shipped; [Wave 5 done](./build-out/README.md#wave-5--coherent-sound-design-done))

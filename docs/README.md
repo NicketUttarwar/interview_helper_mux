@@ -16,6 +16,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |
+| [cross-cutting/artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md) | Flagship LLM artifacts, gap-fill, schema + Zod validation |
 | [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (shipped, BUILD-082) |
 | [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) | **Remaining** Agent commands (top-down backlog) |
 | [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) | Manual release-candidate checklist |

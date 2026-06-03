@@ -15,7 +15,7 @@ OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user
 | 2 | `assistant` | Prior stage conclusions (prose summaries only) |
 | 3+ | `user` | Operator profile slice — **only if** relevant fields exist |
 | 4+ | `user` | Open investigations — **only** blocking or stage-matched (max 1–3) |
-| last | `user` | Shaped JSON — evidence for **this stage only** |
+| last | `user` | Shaped JSON — evidence for **this stage only** (includes `gap_fill_context` when artifact exists or is partial — [artifact-generation-and-validation.md](./artifact-generation-and-validation.md)) |
 
 Prior conclusions come from `analysis_state.meta.stage_summaries` or one-line artifact digests. The next stage reads the previous stage’s `reasoning_summary` from the envelope, not the entire memory file.
 

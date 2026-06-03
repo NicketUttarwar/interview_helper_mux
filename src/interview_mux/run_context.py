@@ -65,7 +65,7 @@ class RunContext:
     def path(self, *parts: str) -> Path:
         return self.run_dir.joinpath(*parts)
 
-    def write_json(self, rel: str, data: Any) -> Path:
+    def write_json(self, rel: str, data: Any, *, stage_key: str | None = None) -> Path:
         if isinstance(data, dict):
             from interview_mux.prompt_validation import validate_artifact_write
 
@@ -76,6 +76,9 @@ class RunContext:
                 )
         p = self.path(rel)
         fs_write_json(p, data)
+        from interview_mux.custom_run_handoff import record_custom_run_write
+
+        record_custom_run_write(self, rel, stage_key=stage_key)
         return p
 
     def read_json(self, rel: str) -> Any:
@@ -119,8 +122,12 @@ class RunContext:
 
     def log_handoff(self, stage_id: str, paths: list[str], *, audit_path: str | None = None) -> None:
         """Operator-visible file handoff after a stage completes."""
+        from interview_mux.custom_run_handoff import filter_custom_run_handoff_paths
         from interview_mux.web.stages import STAGE_BY_ID
 
+        paths = filter_custom_run_handoff_paths(paths)
+        if not paths and not audit_path:
+            return
         present = [p for p in paths if self.artifact_exists(p)]
         info = STAGE_BY_ID.get(stage_id)
         title = info.title if info else stage_id
@@ -152,10 +159,20 @@ class RunContext:
         marker = self.path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
+        from interview_mux.custom_run_handoff import custom_run_paths_for_stage
         from interview_mux.web.stages import STAGE_BY_ID
 
-        info = STAGE_BY_ID.get(stage)
-        paths = list(info.artifacts) if info else []
+        meta = self.read_json("run_meta.json") if self.artifact_exists("run_meta.json") else {}
+        pending_writes = dict(meta.get("handoff_pending_writes") or {})
+        pending_writes.pop(stage, None)
+        if self.artifact_exists("run_meta.json"):
+            meta["handoff_pending_writes"] = pending_writes
+            self.write_json("run_meta.json", meta, stage_key=stage)
+
+        paths = custom_run_paths_for_stage(self, stage)
+        if not paths:
+            info = STAGE_BY_ID.get(stage)
+            paths = list(info.artifacts) if info else []
         self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
 
     def is_done(self, stage: str) -> bool:

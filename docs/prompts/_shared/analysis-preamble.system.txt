@@ -17,6 +17,16 @@ Update rolling memory incrementally via `memory_updates`. If operator profile wa
 
 Each stage prompt specifies which `memory_updates` fields to populate. Empty `memory_updates` when nothing new is learned.
 
+## Gap-fill (incremental artifacts)
+
+When `gap_fill_context` is present in the stage input:
+
+- `existing` — on-disk artifact (may be partial). Treat as authoritative for keys listed in `skip_fields`.
+- `gaps` — fields you must still produce or fix in `artifacts`.
+- Only output **patches** for `gaps`; do not repeat satisfied keys from `existing`.
+- If `gaps` is empty, return minimal `artifacts` (or empty) unless correcting a validation error.
+- Merged results are validated against the stage artifact schema before write.
+
 ## Investigations
 
 When stage data reveals a fixable pipeline issue, add `follow_up_investigations` (do not invent facts):

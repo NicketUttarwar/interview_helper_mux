@@ -182,7 +182,7 @@ def save_analysis_state(ctx: RunContext, state: dict[str, Any], *, stage: str | 
     state["meta"]["last_updated_at"] = _now()
     if stage:
         state["meta"]["last_updated_stage"] = stage
-    ctx.write_json(ANALYSIS_STATE_PATH, state)
+    ctx.write_json(ANALYSIS_STATE_PATH, state, stage_key=stage or "analysis_profile")
 
 
 def load_queue(ctx: RunContext) -> dict[str, Any]:
@@ -196,7 +196,7 @@ def save_queue(ctx: RunContext, queue: dict[str, Any]) -> None:
     errors = validate_investigation_queue(queue)
     if errors:
         ctx.log(f"investigation_queue schema warnings: {errors[:2]}", level="warning", stage="memory")
-    ctx.write_json(INVESTIGATION_QUEUE_PATH, queue)
+    ctx.write_json(INVESTIGATION_QUEUE_PATH, queue, stage_key="analysis_profile")
 
 
 def _next_inv_id(queue: dict[str, Any]) -> str:

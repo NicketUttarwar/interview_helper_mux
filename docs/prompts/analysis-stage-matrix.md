@@ -4,17 +4,19 @@ All LLM stages prepend [`_shared/analysis-preamble.system.txt`](./_shared/analys
 
 Context is a **selective user/assistant volley** (see [context-padding.md](../cross-cutting/context-padding.md)), not a blind dump of `analysis_state.json`.
 
-**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Orchestration (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md). **Pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
+**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Orchestration (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md). **Gap-fill + validation:** [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md). **Pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
+
+When `gap_fill_context` is present in stage input, prompts must emit patch-only `artifacts` for listed `gaps` (see preamble).
 
 ## Shared analysis
 
 | Stage | Prompt | Tier | Volley | artifacts | Memory sync |
 |-------|--------|------|--------|-----------|-------------|
-| speaker_roles | understanding/speaker-roles | economy | full | speakers.json | speakers list |
-| content_context | understanding/content-context | economy | full / shard / collate | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
-| boundary_detection | segmentation/boundary-detection | standard | full / shard / collate | boundaries.json | segment_summary_patch |
-| segment_classification | segmentation/segment-classification | standard | full / shard / collate | manifest.json | themes_append segment_ids |
-| sound_design_palettes | sound_design/theme-palettes | economy | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
+| speaker_roles | understanding/speaker-roles | flagship | full | speakers.json | speakers list |
+| content_context | understanding/content-context | flagship | full / shard / collate | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
+| boundary_detection | segmentation/boundary-detection | flagship | full / shard / collate | boundaries.json | segment_summary_patch |
+| segment_classification | segmentation/segment-classification | flagship | full / shard / collate | manifest.json | themes_append segment_ids |
+| sound_design_palettes | sound_design/theme-palettes | flagship | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
 | missing_framing | interviewer-gap/missing-framing | flagship | full / shard / collate | gap_evaluations.json | gaps_summary_patch |
 | optimal_questions | interviewer-gap/optimal-questions | flagship | full | gap_report.json | major_questions_append, gaps_summary_patch |
 
@@ -28,13 +30,13 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | narrative_arc_plan | selection/narrative-arc-plan | flagship | full |
 | full_master_ranking | selection/full-master-ranking | flagship | full / shard / collate |
 | edl_narrative_audit | selection/edl-narrative-audit | flagship | full |
-| transitions | assembly/transitions | economy | full |
-| podcast_sfx_brief | assembly/podcast-sfx-brief | economy | full |
+| transitions | assembly/transitions | flagship | full |
+| podcast_sfx_brief | assembly/podcast-sfx-brief | flagship | full |
 | sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |
 | sound_design_plan_flow2 | sound_design/plan-flow2 | flagship | full |
-| elevenlabs_prompt_craft | sound_design/elevenlabs-prompt-craft | economy | full |
+| elevenlabs_prompt_craft | sound_design/elevenlabs-prompt-craft | flagship | full |
 | highlight_selection | selection/highlight-selection | flagship | full / shard / collate |
-| sfx_brief | assembly/sfx-brief | economy | full |
+| sfx_brief | assembly/sfx-brief | flagship | full |
 
 ## Flow 3
 

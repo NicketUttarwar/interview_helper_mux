@@ -78,7 +78,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `PATCH` | `/api/runs/{run_id}/nle/segment` | — | **NleSegmentBody** | `ok`, `nle` | **404** |
 | `POST` | `/api/runs/{run_id}/nle/split` | — | **SplitBody** | `ok`, `nle` | **404** |
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
-| `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** if not `.json`, **404** |
+| `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** `schema_validation_failed` if path is in `ARTIFACT_WRITE_VALIDATORS` and data fails jsonschema, **400** if not `.json`, **404** |
+| `POST` | `/api/runs/{run_id}/fill-artifact-gaps` | — | **FillArtifactGapsBody** `{path, api_consents?}` | Same ack shape as `execute` — background `mode: stage` for producing stage | **400** unknown path, **409** job running, **404** |
 | `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
@@ -217,7 +218,15 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 
 ## `GET /api/runs/{run_id}` — `stages[]` entries
 
-Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable `artifacts_present` + `audio_outputs_present` (present files that can be played via `GET /api/runs/{run_id}/audio`).
+Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable:
+
+| Field | Description |
+|-------|-------------|
+| `artifacts_present` | Paths that exist on disk (legacy checklist) |
+| `artifacts_status` | Per artifact path: `pending` (missing), `partial` (exists but schema or semantic gaps), `complete` |
+| `audio_outputs_present` | Playable WAV paths via `GET /api/runs/{run_id}/audio` |
+
+Completeness rules and validation: [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
 
 Stage ids match `src/interview_mux/web/stages.py` (`STAGE_BY_ID`).
 

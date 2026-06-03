@@ -10,7 +10,7 @@ Shared analysis (`tools/run_analysis.py`) uses an orchestrator on top of the lin
 
 1. **Init** — create `analysis_state.json`, `investigation_queue.json`, `context_index.json` before first LLM stage.
 2. **Run stage** — build volley (`full` profile) → **primary** call at stage tier → schema validate → **arbiter** (economy) → verdict; up to `analysis.max_iterations_per_stage` (default 3) inner retries until `status: complete` and no blocking `needs`.
-3. **On accept** — merge `memory_updates`, persist artifacts, enqueue `follow_up_investigations`.
+3. **On accept** — merge `memory_updates`, persist artifacts via `write_validated_artifact` (merge + jsonschema), enqueue `follow_up_investigations`. Stage input includes `gap_fill_context` when artifacts are partial — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
 4. **On `retry_uptier`** — re-run primary at bumped tier (capped).
 5. **On `decompose`** — economy **shard** calls → **collate** → validate → merge if accept.
 6. **On `enqueue_investigation`** — queue only; do not merge rejected primary.

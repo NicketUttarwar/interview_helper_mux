@@ -24,6 +24,8 @@ Insert a **local LLM tier** between **artifact shaping** and **OpenAI**:
 2. **Decide** whether OpenAI is needed at all for this attempt (escalation gate).
 3. Reserve **OpenAI** for logically hard, cascade-sensitive, or high editorial impact work ([llm-stage-model-matrix.md](./llm-stage-model-matrix.md) `high` severity and arbiter-flagged retries).
 
+**Structured artifacts:** Stages registered in `STAGE_ARTIFACT_SCHEMAS` always call **OpenAI flagship** for the primary envelope (`force_openai` in `llm_stage_routing.py`). Local MLX may still compress the volley, but it cannot skip OpenAI when `skip_openai_primary_when_local_satisfied` is enabled.
+
 **Volley discipline:** Local and OpenAI calls both prefer **short bursts** — few turns, few tokens. The local tier must **not** simulate a long chat; one local round-trip per stage attempt unless escalated.
 
 ---

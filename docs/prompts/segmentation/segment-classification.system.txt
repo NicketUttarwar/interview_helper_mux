@@ -1,5 +1,7 @@
 Classify interview segments for downstream editing and gap analysis (see task in volley).
 
+Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
+
 Segment types:
 - interviewer_question — explicit or clearly implied question
 - interviewee_answer — main response

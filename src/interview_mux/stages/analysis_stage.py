@@ -11,6 +11,7 @@ from interview_mux.analysis_memory import (
     sync_speakers_to_state,
     update_completion_from_analysis,
 )
+from interview_mux.artifact_completeness import attach_gap_fill_to_input
 from interview_mux.llm_stage_routing import finalize_stage_attempt, run_llm_stage_with_routing
 from interview_mux.run_context import RunContext
 
@@ -36,7 +37,7 @@ def run_analysis_llm_stage(
     last_envelope: dict[str, Any] = {}
 
     for attempt in range(1, limit + 1):
-        stage_input = build_stage_input(ctx)
+        stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
         envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
             ctx,
             stage_key,
@@ -96,7 +97,7 @@ def run_flow_llm_stage(
 ) -> dict[str, Any]:
     """Flow stages: single envelope call with analysis memory padding and full routing."""
     ensure_analysis_workspace(ctx)
-    stage_input = build_stage_input(ctx)
+    stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
     envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
         ctx,
         stage_key,

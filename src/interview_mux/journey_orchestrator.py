@@ -22,6 +22,11 @@ from interview_mux.journey_state import (
     stage_operator_phase,
 )
 from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS, preclean_acknowledged
+from interview_mux.custom_run_handoff import (
+    handoff_between_stages_enabled,
+    handoff_review_message,
+    pending_handoff_stage,
+)
 from interview_mux.run_context import RunContext
 
 # Canonical operator strings — must match docs/workflows/operator-journey.md appendix.
@@ -160,6 +165,14 @@ def _blocking(
         reason = "analysis_profile"
         stage_id = "analysis_profile"
         message = NEXT_ACTION_UNDERSTAND_PROFILE
+
+    if not blocked and handoff_between_stages_enabled():
+        handoff_sid = pending_handoff_stage(ctx)
+        if handoff_sid:
+            blocked = True
+            reason = "handoff_review"
+            stage_id = handoff_sid
+            message = handoff_review_message(ctx, handoff_sid)
 
     flow = get_selected_flow_meta(ctx)
     if (

@@ -3,6 +3,7 @@ from __future__ import annotations
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary, quotability_signals
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -19,8 +20,7 @@ def run_highlight_selection(ctx: RunContext) -> None:
             payload["value_features_summary"] = vf
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_2_highlights/selection.json", artifacts)
+    persist = make_stage_persist("flow_2_highlights/selection.json", "highlight_selection")
 
     run_flow_llm_stage(
         ctx,
@@ -48,8 +48,7 @@ def run_sfx_brief(ctx: RunContext) -> None:
                 payload["underscore_policy"] = mix["underscore_policy"]
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_2_highlights/sfx_brief.json", artifacts)
+    persist = make_stage_persist("flow_2_highlights/sfx_brief.json", "sfx_brief")
 
     run_flow_llm_stage(
         ctx,

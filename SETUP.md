@@ -88,6 +88,15 @@ cd ..
 
 `./scripts/build_gui.sh` runs `npm ci` automatically when `node_modules` is missing or Rollup fails to load; it also checks Node arch vs `uname -m`.
 
+After changing JSON Schemas under `docs/cross-cutting/json-schemas/`, regenerate GUI validators and rebuild:
+
+```bash
+python tools/codegen_zod_schemas.py
+cd frontend && npm run build
+```
+
+Spec: [docs/cross-cutting/artifact-generation-and-validation.md](docs/cross-cutting/artifact-generation-and-validation.md).
+
 `./scripts/run.sh` invokes the same script when `src/interview_mux/web/static/index.html` is missing.
 
 **If Rollup still errors** (wrong-arch tree or corrupted optional deps):

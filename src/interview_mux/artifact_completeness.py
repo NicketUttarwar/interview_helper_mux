@@ -1,0 +1,323 @@
+"""Semantic completeness, gap-fill context, and incremental artifact merge."""
+
+from __future__ import annotations
+
+import copy
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from interview_mux.prompt_validation import (
+    STAGE_ARTIFACT_DISK_PATHS,
+    validate_artifact_write,
+    validate_stage_artifacts,
+)
+from interview_mux.run_context import RunContext
+
+GapRule = Callable[[dict[str, Any] | None], list[str]]
+
+
+@dataclass(frozen=True)
+class Gap:
+    path: str
+    reason: str
+
+
+def _non_empty_str(val: Any) -> bool:
+    return isinstance(val, str) and bool(val.strip())
+
+
+def _gaps_analysis_state(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["(root)"]
+    gaps: list[str] = []
+    if not (data.get("themes") or []):
+        gaps.append("themes")
+    narrative = data.get("narrative") or {}
+    if not _non_empty_str(narrative.get("thesis")):
+        gaps.append("narrative.thesis")
+    ident = data.get("interview_identity") or {}
+    if not _non_empty_str(ident.get("one_line_summary")):
+        gaps.append("interview_identity.one_line_summary")
+    return gaps
+
+
+def _gaps_content_brief(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["thesis", "topics"]
+    gaps: list[str] = []
+    if not _non_empty_str(data.get("thesis")):
+        gaps.append("thesis")
+    topics = data.get("topics") or []
+    if not topics:
+        gaps.append("topics")
+    else:
+        for i, t in enumerate(topics):
+            if isinstance(t, dict) and not _non_empty_str(t.get("summary")):
+                gaps.append(f"topics[{i}].summary")
+    return gaps
+
+
+def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["speakers"]
+    speakers = data.get("speakers") if "speakers" in data else data
+    if not isinstance(speakers, list) or not speakers:
+        return ["speakers"]
+    gaps: list[str] = []
+    for i, sp in enumerate(speakers):
+        if not isinstance(sp, dict):
+            gaps.append(f"speakers[{i}]")
+            continue
+        if not sp.get("role"):
+            gaps.append(f"speakers[{i}].role")
+    return gaps
+
+
+def _gaps_sound_design_plan(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["coherence"]
+    gaps: list[str] = []
+    coherence = data.get("coherence") or {}
+    if not _non_empty_str(coherence.get("sonic_identity")):
+        gaps.append("coherence.sonic_identity")
+    if not (data.get("palettes") or []):
+        gaps.append("palettes")
+    return gaps
+
+
+def _gaps_investigation_queue(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return []
+    return []
+
+
+def _gaps_generic_nonempty(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["(root)"]
+    return []
+
+
+def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["segments"]
+    segs = data.get("segments") or []
+    if not segs:
+        return ["segments"]
+    return []
+
+
+def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["gaps"]
+    if not (data.get("gaps") or data.get("items")):
+        return ["gaps"]
+    return []
+
+
+ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
+    "understanding/analysis_state.json": _gaps_analysis_state,
+    "understanding/content_brief.json": _gaps_content_brief,
+    "understanding/speakers.json": _gaps_speakers,
+    "understanding/sound_design_plan.json": _gaps_sound_design_plan,
+    "understanding/investigation_queue.json": _gaps_investigation_queue,
+    "understanding/gap_evaluations.json": _gaps_generic_nonempty,
+    "understanding/gap_report.json": _gaps_gap_report,
+    "segments/boundaries.json": _gaps_generic_nonempty,
+    "segments/manifest.json": _gaps_manifest,
+    "flow_1_master/coverage_audit.json": _gaps_generic_nonempty,
+    "flow_1_master/narrative_plan.json": _gaps_generic_nonempty,
+    "flow_1_master/selection.json": _gaps_generic_nonempty,
+    "flow_1_master/transitions.json": _gaps_generic_nonempty,
+    "flow_1_master/podcast_sfx_brief.json": _gaps_generic_nonempty,
+    "flow_2_highlights/selection.json": _gaps_generic_nonempty,
+    "flow_2_highlights/sfx_brief.json": _gaps_generic_nonempty,
+    "flow_3_description/show_description.json": _gaps_generic_nonempty,
+    "sound_design/elevenlabs_prompts.json": _gaps_generic_nonempty,
+}
+
+
+def compute_gaps(rel_path: str, data: dict[str, Any] | None) -> list[Gap]:
+    rule = ARTIFACT_COMPLETENESS_RULES.get(rel_path)
+    if not rule:
+        return []
+    return [Gap(path=p, reason="incomplete") for p in rule(data)]
+
+
+def artifact_status(rel_path: str, ctx: RunContext) -> str:
+    """pending | partial | complete"""
+    if not ctx.artifact_exists(rel_path):
+        return "pending"
+    raw = ctx.read_json(rel_path)
+    data = raw if isinstance(raw, dict) else None
+    schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
+    semantic = compute_gaps(rel_path, data)
+    if schema_errors or semantic:
+        return "partial"
+    return "complete"
+
+
+def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    out = copy.deepcopy(base)
+    for key, val in patch.items():
+        if val is None:
+            continue
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
+            out[key] = _deep_merge(out[key], val)
+        elif key in out and isinstance(out[key], list) and isinstance(val, list):
+            if not val:
+                continue
+            if key in ("themes", "major_questions", "entities", "hypotheses", "open_questions"):
+                from interview_mux.analysis_memory import merge_memory_updates
+
+                merged = merge_memory_updates({key: out[key]}, {key: val})
+                out[key] = merged[key]
+            else:
+                out[key] = val if patch.get(f"{key}_replace") else out[key] + [
+                    x for x in val if x not in out[key]
+                ]
+        else:
+            out[key] = copy.deepcopy(val)
+    return out
+
+
+def merge_artifact(
+    rel_path: str,
+    existing: dict[str, Any] | None,
+    patch: dict[str, Any],
+    *,
+    stage_key: str | None = None,
+    preserve_operator: bool = True,
+) -> dict[str, Any]:
+    if not existing:
+        return copy.deepcopy(patch)
+    if not patch:
+        return copy.deepcopy(existing)
+
+    if rel_path == "understanding/analysis_state.json" and preserve_operator:
+        verified = bool((existing.get("meta") or {}).get("operator_verified"))
+        if verified:
+            protected = ("themes", "major_questions", "narrative", "style")
+            patch = {k: v for k, v in patch.items() if k not in protected}
+
+    if rel_path == "segments/manifest.json" and "segments" in patch:
+        ex_segs = {s.get("segment_id"): s for s in (existing.get("segments") or []) if isinstance(s, dict)}
+        for seg in patch.get("segments") or []:
+            if isinstance(seg, dict) and seg.get("segment_id"):
+                sid = seg["segment_id"]
+                if sid in ex_segs:
+                    ex_segs[sid] = {**ex_segs[sid], **seg}
+                else:
+                    ex_segs[sid] = seg
+        return {**existing, "segments": list(ex_segs.values())}
+
+    if rel_path == "understanding/sound_design_plan.json":
+        return _deep_merge(existing, patch)
+
+    return _deep_merge(existing, patch)
+
+
+def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return None
+    existing: dict[str, Any] | None = None
+    if ctx.artifact_exists(rel):
+        raw = ctx.read_json(rel)
+        if isinstance(raw, dict):
+            existing = raw
+    gaps = compute_gaps(rel, existing)
+    schema_errors = validate_artifact_write(rel, existing) if existing else []
+    stage_errors = []
+    if existing and stage_key:
+        stage_errors = validate_stage_artifacts(stage_key, existing)
+
+    all_gaps = list({g.path for g in gaps})
+    for e in schema_errors + stage_errors:
+        all_gaps.append(e.split(":")[0] if ":" in e else e)
+
+    if not existing and not all_gaps:
+        all_gaps = ["(root)"]
+
+    skip_fields: list[str] = []
+    if existing:
+        rule = ARTIFACT_COMPLETENESS_RULES.get(rel)
+        if rule:
+            complete_paths = set()
+            probe = copy.deepcopy(existing)
+            for g in gaps:
+                pass
+            for key in list(existing.keys()):
+                trial = copy.deepcopy(existing)
+                if key in trial:
+                    del trial[key]
+                if rule(trial) == rule(existing):
+                    skip_fields.append(key)
+
+    if existing and not all_gaps:
+        return {
+            "artifact_path": rel,
+            "existing": existing,
+            "gaps": [],
+            "skip_fields": list(existing.keys()),
+            "instructions": "Artifact is complete; return empty artifacts unless correcting errors.",
+        }
+
+    return {
+        "artifact_path": rel,
+        "existing": existing,
+        "gaps": all_gaps[:24],
+        "skip_fields": skip_fields[:32],
+        "instructions": (
+            "Only fill listed gaps. Do not overwrite skip_fields or satisfied keys in existing. "
+            "Return patch-only artifacts when existing is non-null."
+        ),
+    }
+
+
+def attach_gap_fill_to_input(ctx: RunContext, stage_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    gfc = build_gap_fill_context(ctx, stage_key)
+    if gfc:
+        payload = {**payload, "gap_fill_context": gfc}
+    return payload
+
+
+def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return True
+    if not ctx.artifact_exists(rel):
+        return True
+    raw = ctx.read_json(rel)
+    if not isinstance(raw, dict):
+        return True
+    if validate_artifact_write(rel, raw):
+        return True
+    if compute_gaps(rel, raw):
+        return True
+    stage_errors = validate_stage_artifacts(stage_key, raw)
+    return bool(stage_errors)
+
+
+def stage_keys_for_artifact_path(rel_path: str) -> list[str]:
+    return [k for k, p in STAGE_ARTIFACT_DISK_PATHS.items() if p == rel_path]
+
+
+def make_stage_persist(
+    rel_path: str,
+    stage_key: str,
+    *,
+    transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+) -> Callable[[RunContext, dict[str, Any]], None]:
+    from interview_mux.artifact_writes import write_validated_artifact
+
+    def persist(ctx: RunContext, artifacts: dict[str, Any]) -> None:
+        data = transform(artifacts) if transform else artifacts
+        write_validated_artifact(
+            ctx,
+            rel_path,
+            data,
+            merge_from_disk=True,
+            stage_key=stage_key,
+        )
+
+    return persist

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
 
 
@@ -30,8 +32,7 @@ def run_missing_framing(ctx: RunContext) -> None:
             payload["value_features_summary"] = vf
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("understanding/gap_evaluations.json", artifacts)
+    persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
 
     run_analysis_llm_stage(
         ctx,
@@ -58,6 +59,8 @@ def run_optimal_questions(ctx: RunContext) -> None:
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.artifact_writes import write_validated_artifact
+
         lines = artifacts.get("interviewer_lines") or []
         for i, line in enumerate(lines):
             if "line_id" not in line:
@@ -66,7 +69,13 @@ def run_optimal_questions(ctx: RunContext) -> None:
                 line["placement"] = "before"
             if line.get("delivery") == "synthesize":
                 line["delivery"] = "record"
-        c.write_json("understanding/gap_report.json", artifacts)
+        write_validated_artifact(
+            c,
+            "understanding/gap_report.json",
+            artifacts,
+            merge_from_disk=True,
+            stage_key="optimal_questions",
+        )
         _write_interviewer_script(c, lines)
 
     run_analysis_llm_stage(

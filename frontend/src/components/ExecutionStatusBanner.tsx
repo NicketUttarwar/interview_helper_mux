@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useJourney } from "../hooks/useJourney";
+import { isApiConsentJobPending } from "../utils/checkpoint";
 
 /** What the pipeline is doing right now — running, blocked, or waiting on API consent. */
 export function ExecutionStatusBanner() {
@@ -14,15 +15,10 @@ export function ExecutionStatusBanner() {
   } = useApp();
   const { blocking, runExecuteHint } = useJourney(run);
 
-  const needsApiConsent = useMemo(() => {
-    const job = run?.job;
-    if (!job) return false;
-    const msg = job.message || "";
-    return (
-      job.status === "needs_operator" &&
-      (msg.includes("API consent") || Boolean(job.missing_api_providers?.length))
-    );
-  }, [run?.job]);
+  const needsApiConsent = useMemo(
+    () => isApiConsentJobPending(run, apiGrants),
+    [run, apiGrants],
+  );
 
   const missingProviders = run?.job?.missing_api_providers || [];
 

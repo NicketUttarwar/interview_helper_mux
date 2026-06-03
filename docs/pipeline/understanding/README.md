@@ -8,7 +8,7 @@ BUILD-022, BUILD-023, BUILD-082
 
 ## Tools
 
-**OpenAI** Chat Completions (envelope + memory padding) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
+**OpenAI** Chat Completions (envelope + memory padding) — **flagship** tier for `speaker_roles` and `content_context` — [model-routing.md](../../cross-cutting/model-routing.md) · [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md)
 
 ## Inputs
 
@@ -34,11 +34,13 @@ BUILD-022, BUILD-023, BUILD-082
 ## Operator workflow
 
 1. Run analysis stages (or full `run_analysis.py`)
-2. Open **Interview profile** in the GUI — review themes, major questions, style
-3. Edit JSON directly if preferred; click **Mark profile verified**
-4. Redo from a stage if LLM output should reflect your edits
+2. In **Stage outputs**, confirm `content_brief.json` and related files show **complete** (not pending/partial)
+3. Open **Interview profile** in the GUI — review themes, major questions, style
+4. Edit JSON in **Files** tab if needed (Zod + server validation on save)
+5. Click **Mark profile verified** when the profile is correct
+6. Use **Fill gaps** on partial artifacts or **Redo from selected stage** to refresh LLM output
 
-See [analysis-memory.md](../../cross-cutting/analysis-memory.md).
+See [analysis-memory.md](../../cross-cutting/analysis-memory.md) and [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
 
 ## Prompts
 
@@ -48,16 +50,18 @@ See [analysis-memory.md](../../cross-cutting/analysis-memory.md).
 
 ## Models
 
-| Stage | Tier (target) | Decompose |
-|-------|----------------|-----------|
-| `speaker_roles` | economy | no |
-| `content_context` | economy | yes |
+| Stage | Tier (default) | Decompose | On-disk artifact |
+|-------|----------------|-----------|------------------|
+| `speaker_roles` | flagship | no | `understanding/speakers.json` |
+| `content_context` | flagship | yes | `understanding/content_brief.json` (+ `memory_updates` → `analysis_state.json`) |
+
+Gap-fill: each stage input includes `gap_fill_context` when a prior partial file exists.
 
 [llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md) · [model-routing.md](../../cross-cutting/model-routing.md)
 
 ## Module
 
-`src/interview_mux/stages/understanding.py`, `analysis_memory.py`, `analysis_orchestrator.py`
+`src/interview_mux/stages/understanding.py`, `analysis_memory.py`, `analysis_orchestrator.py`, `artifact_completeness.py`, `artifact_writes.py`
 
 ---
 

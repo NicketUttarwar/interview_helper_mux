@@ -10,8 +10,9 @@ from interview_mux.nle_state import (
 )
 from interview_mux.gates import check_narrative_qc
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
-from interview_mux.prompt_validation import validate_master_selection
 from interview_mux.run_context import RunContext
+from interview_mux.artifact_writes import write_validated_artifact
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -64,10 +65,13 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 artifacts, nle, segments_by_id=by_id
             )
             _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
-        sel_errors = validate_master_selection(artifacts)
-        if sel_errors:
-            raise ValueError(f"Invalid selection: {sel_errors[0]}")
-        c.write_json("flow_1_master/selection.json", artifacts)
+        write_validated_artifact(
+            c,
+            "flow_1_master/selection.json",
+            artifacts,
+            merge_from_disk=True,
+            stage_key="full_master_ranking",
+        )
 
     run_flow_llm_stage(
         ctx,
@@ -90,8 +94,7 @@ def run_transitions(ctx: RunContext) -> None:
             "interviewer_sample_lines": interviewer_sample_lines(c),
         }
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_1_master/transitions.json", artifacts)
+    persist = make_stage_persist("flow_1_master/transitions.json", "transitions")
 
     run_flow_llm_stage(
         ctx,
@@ -120,8 +123,7 @@ def run_podcast_sfx_brief(ctx: RunContext) -> None:
                 payload["underscore_policy"] = mix["underscore_policy"]
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_1_master/podcast_sfx_brief.json", artifacts)
+    persist = make_stage_persist("flow_1_master/podcast_sfx_brief.json", "podcast_sfx_brief")
 
     run_flow_llm_stage(
         ctx,

@@ -6,6 +6,7 @@ from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.run_context import RunContext
 from interview_mux.config import merged_config
 from interview_mux.show_description_qc import validate_show_description
+from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -69,7 +70,13 @@ def run_podcast_show_description(ctx: RunContext) -> None:
                     f"show_description_qc strict: {len(errors)} issue(s). "
                     f"Run: python tools/validate_show_description.py --run-id {c.run_id}"
                 )
-        c.write_json("flow_3_description/show_description.json", artifacts)
+        write_validated_artifact(
+            c,
+            "flow_3_description/show_description.json",
+            artifacts,
+            merge_from_disk=True,
+            stage_key="podcast_show_description",
+        )
 
     ctx.log(
         "Generating podcast show description (third person, ~200 words)…",

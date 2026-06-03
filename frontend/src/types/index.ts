@@ -122,6 +122,7 @@ export interface StageInfo {
   artifacts?: string[];
   editable?: string[];
   artifacts_present?: string[];
+  artifacts_status?: Record<string, "pending" | "partial" | "complete">;
   audio_outputs_present?: string[];
   api_providers?: string[];
 }
@@ -171,6 +172,12 @@ export interface RunMeta {
     offered_at?: string[];
     enabled?: boolean;
     scope?: string;
+    decisions?: Array<{
+      checkpoint: string;
+      action: string;
+      scope?: string;
+      at?: string;
+    }>;
   };
   qc_summaries?: Record<
     string,

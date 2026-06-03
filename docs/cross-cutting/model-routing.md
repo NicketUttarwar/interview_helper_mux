@@ -46,10 +46,11 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
 | Stage key | Default tier | Severity |
 |-----------|--------------|----------|
-| `speaker_roles` | economy | low |
-| `content_context` | economy | medium |
-| `boundary_detection` | standard | medium |
-| `segment_classification` | standard | medium |
+| `speaker_roles` | flagship | low |
+| `content_context` | flagship | medium |
+| `boundary_detection` | flagship | medium |
+| `segment_classification` | flagship | medium |
+| `sound_design_palettes` | flagship | low |
 | `missing_framing` | flagship | high |
 | `optimal_questions` | flagship | high |
 | `topic_coverage_audit` | flagship | high |
@@ -58,13 +59,12 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `edl_narrative_audit` | flagship | high |
 | `highlight_selection` | flagship | high |
 | `podcast_show_description` | flagship | high |
-| `transitions` | economy | low |
-| `podcast_sfx_brief` | economy | low |
-| `sfx_brief` | economy | low |
-| `sound_design_palettes` | economy | low |
+| `transitions` | flagship | low |
+| `podcast_sfx_brief` | flagship | low |
+| `sfx_brief` | flagship | low |
 | `sound_design_plan_flow1` | flagship | high |
 | `sound_design_plan_flow2` | flagship | high |
-| `elevenlabs_prompt_craft` | economy | low |
+| `elevenlabs_prompt_craft` | flagship | low |
 
 Sound-design stage details: [sound-design.md](./sound-design.md).
 
@@ -81,8 +81,10 @@ Committed defaults still include flat stage strings for backward compatibility.
 
 | Stage key | v1 API ID (committed) | Maps to tier |
 |-----------|----------------------|--------------|
-| `speaker_roles`, `content_context`, `transitions`, `podcast_sfx_brief`, `sfx_brief` | economy registry ID | economy |
-| `boundary_detection`, `segment_classification`, `missing_framing`, `optimal_questions`, Flow 1/2 selection stages | standard registry ID | standard / flagship per matrix above |
+| All stages in `STAGE_ARTIFACT_SCHEMAS` (understanding, segmentation, gaps, flow JSON) | flagship registry ID (`o3`) | flagship |
+| `arbiter`, `shard` sub-calls | economy registry ID | economy |
+
+See `models.stages.*.tier` in committed `config/app.defaults.json`. Artifact generation spec: [artifact-generation-and-validation.md](./artifact-generation-and-validation.md).
 
 **Note:** Prefer `models.stages.<key>.tier` for routing. Flat `models.<stage_key>` string overrides remain an escape hatch; `retry_uptier` bypasses flat overrides so tier bumps take effect.
 

@@ -2,6 +2,8 @@ Produce the content brief from the transcript (see task in volley).
 
 Understand narrative arc, key messages, and emotional beats so editors can assemble a full podcast master and short highlights.
 
+Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
+
 Rules:
 - Base everything on the transcript; do not invent facts.
 - Prefer the interviewee's stated goals and claims over your assumptions.

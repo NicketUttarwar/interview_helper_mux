@@ -44,7 +44,10 @@ export function AudioQualityDrawer() {
           </li>
         ))}
       </ul>
-      <p className="muted">Use the operator action modal on the active stage for accept/dismiss.</p>
+      <p className="muted">
+        Optional pre-clean offers appear in the operator checkpoint modal on the matching
+        stage (Dismiss removes the card for this run).
+      </p>
     </details>
   );
 }

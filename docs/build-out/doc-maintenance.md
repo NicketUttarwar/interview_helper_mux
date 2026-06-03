@@ -13,12 +13,13 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | New / renamed pipeline stage | [stage-registry.md](./stage-registry.md), `pipeline.py` comment if needed, `docs/pipeline/<area>/README.md`, [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
 | Optional quality stage wiring (e.g. `audio_preclean`) | [operator-gates.md](../workflows/operator-gates.md) quality offers table, `web/stages.py`, and stage README under `docs/pipeline/` |
 | Stage I/O path change | [artifact-layout.md](../cross-cutting/artifact-layout.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), json-schemas if applicable |
+| LLM artifact generation / validation / gap-fill | [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md), `artifact_completeness.py`, `artifact_writes.py`, `tools/codegen_zod_schemas.py`, [gui-surface-map.md](../workflows/gui-surface-map.md) |
 | Shared analysis scaffolds (e.g. SDP init) | [artifact-layout.md](../cross-cutting/artifact-layout.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), `json-schemas/*.schema.json`, [stage-registry.md](./stage-registry.md) |
 | Sound design palette stage (BUILD-061) | `pipeline.py` (`ANALYSIS_ORDER`), `web/stages.py`, [stage-registry.md](./stage-registry.md), [operator-stage-checklists.md](../workflows/operator-stage-checklists.md), `artifacts/sound_design_palettes_artifact.schema.json` |
 | ASSETS / run discovery / resume | [assets-and-executions.md](../cross-cutting/assets-and-executions.md), [full-application-flow.md](./full-application-flow.md), [gui-surface-map.md](../workflows/gui-surface-map.md) |
 | New GUI panel or route | [gui-surface-map.md](../workflows/gui-surface-map.md), [api-reference.md](../workflows/api-reference.md), `web/stages.py` |
 | Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
-| LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/` |
+| LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/`; gap-fill line when stage writes artifacts |
 | Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |
 | Narrative QC / EDL validators | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), `tools/validate_narrative.py`, `tools/validate_edl.py`, `tools/verify_edl.py` |
 | Value analysis hook | [value-analysis/README.md](../pipeline/value-analysis/README.md), [config-keys.md](../cross-cutting/config-keys.md) |

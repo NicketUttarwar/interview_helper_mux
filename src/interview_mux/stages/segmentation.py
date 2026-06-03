@@ -4,6 +4,7 @@ from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import pause_ladder_hints
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
 
 
@@ -20,8 +21,7 @@ def run_boundaries(ctx: RunContext) -> None:
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
         return payload
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("segments/boundaries.json", artifacts)
+    persist = make_stage_persist("segments/boundaries.json", "boundary_detection")
 
     run_analysis_llm_stage(
         ctx,
@@ -42,11 +42,17 @@ def run_classification(ctx: RunContext) -> None:
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
 
-    def persist(c: RunContext, artifacts: dict) -> None:
+    def _manifest_transform(artifacts: dict) -> dict:
         segments = artifacts.get("segments") or artifacts
         if isinstance(segments, dict):
             segments = segments.get("segments", [])
-        c.write_json("segments/manifest.json", {"segments": segments})
+        return {"segments": segments}
+
+    persist = make_stage_persist(
+        "segments/manifest.json",
+        "segment_classification",
+        transform=_manifest_transform,
+    )
 
     run_analysis_llm_stage(
         ctx,

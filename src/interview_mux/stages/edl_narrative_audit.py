@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from interview_mux.run_context import RunContext
+from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -23,8 +24,7 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             "sound_design_plan": _optional_json(c, "understanding/sound_design_plan.json"),
         }
 
-    def persist(c: RunContext, artifacts: dict) -> None:
-        c.write_json("flow_1_master/edl_narrative_audit.json", artifacts)
+    persist = make_stage_persist("flow_1_master/edl_narrative_audit.json", "edl_narrative_audit")
 
     ctx.log(
         "Running EDL narrative audit with local volley framing before flagship review.",

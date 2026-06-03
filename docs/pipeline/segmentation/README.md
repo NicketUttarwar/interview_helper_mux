@@ -37,10 +37,12 @@ BUILD-024, BUILD-025
 
 ## Models
 
-| Stage | Tier (target) | Decompose |
-|-------|----------------|-----------|
-| `boundary_detection` | standard | yes |
-| `segment_classification` | standard | yes |
+| Stage | Tier (default) | Decompose | Validated on-disk path |
+|-------|----------------|-----------|------------------------|
+| `boundary_detection` | flagship | yes | `segments/boundaries.json` |
+| `segment_classification` | flagship | yes | `segments/manifest.json` |
+
+Gap-fill and schema validation: [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
 
 [llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md)
 

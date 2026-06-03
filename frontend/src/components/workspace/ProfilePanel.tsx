@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
+import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { useApp } from "../../context/AppContext";
 import {
   collectAnalysisProfileFromForm,
@@ -62,6 +63,11 @@ export function ProfilePanel() {
   const saveProfile = async () => {
     if (!run) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
+    const v = validateArtifactWrite("understanding/analysis_state.json", data);
+    if (!v.ok) {
+      showToast(`Profile schema errors: ${v.errors[0]}`);
+      return;
+    }
     const invalidate = (await confirm(
       "Save profile? Re-run downstream AI stages if needed.",
     ))

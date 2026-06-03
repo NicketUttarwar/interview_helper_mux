@@ -17,7 +17,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `config/` | `app.defaults.json`, `secrets/secrets.env` | BUILD-011 · [config-keys](../cross-cutting/config-keys.md) |
 | `docs/` | Authoritative specs and prompts | Waves 0–7 |
 | `src/interview_mux/` | Python package | Waves 1–5, 7 |
-| `frontend/` | React + TypeScript operator GUI (Vite → `web/static/`) | BUILD-014 |
+| `frontend/` | React + TypeScript operator GUI (Vite → `web/static/`); `src/schemas/` Zod from `tools/codegen_zod_schemas.py` | BUILD-014 |
 | `tools/` | CLI wrappers (`run_analysis`, `run_flow`, QA checks, value-analysis) | BUILD-028, 051–052 |
 | `scripts/` | `bootstrap_venv.sh`, `build_gui.sh`, `run.sh` | BUILD-010, 014 |
 | `tests/` | pytest (prompt validation, transcript review, shell) | BUILD-054–055 |
@@ -43,7 +43,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `analysis_orchestrator.py` | Investigation queue drain after LLM stages | BUILD-018 |
 | `analysis_memory.py` | `analysis_state.json`, profile, queue | BUILD-018 |
 | `context_volley.py` | LLM message volleys per stage | BUILD-013 |
-| `prompt_validation.py` | JSON schema validation for stage outputs | BUILD-001 |
+| `prompt_validation.py` | JSON schema validation; `ARTIFACT_WRITE_VALIDATORS`, `STAGE_ARTIFACT_DISK_PATHS` | BUILD-001 |
+| `artifact_completeness.py` | Gap-fill context, merge, `artifact_status`, incomplete re-run | artifact generation |
+| `artifact_writes.py` | `write_validated_artifact` — merge + validate before disk | artifact generation |
 | `elevenlabs_rest.py` | REST SFX (no SDK) | BUILD-034, 042 |
 | `nle_state.py` | `segments/nle_edits.json` | BUILD-068 (ranking + EDL) |
 | `acoustic_profile.py` | Shared SAP load, `mix_contract`, volley compact helpers | gap-closure GC-F1 |

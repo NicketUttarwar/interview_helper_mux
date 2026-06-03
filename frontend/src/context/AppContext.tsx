@@ -198,9 +198,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, selectedStageId],
   );
 
-  const pendingActionCount = useMemo(() => countPendingActions(run), [run]);
-  const actionSummary = useMemo(() => actionSummaryText(run), [run]);
-
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3500);
@@ -214,6 +211,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const isProviderGranted = useCallback(
     (provider: string) => Boolean(mergedApiGrants()[provider]),
     [mergedApiGrants],
+  );
+
+  const pendingActionCount = useMemo(
+    () => countPendingActions(run, mergedApiGrants()),
+    [run, mergedApiGrants],
+  );
+  const actionSummary = useMemo(
+    () => actionSummaryText(run, mergedApiGrants()),
+    [run, mergedApiGrants],
   );
 
   const setActiveTab = useCallback((tab: AppTab) => {
@@ -417,9 +423,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, isProviderGranted, showApiConsentModal],
   );
 
+  const selectStage = useCallback(
+    async (stageId: string) => {
+      setSelectedStageId(stageId);
+      if (runId) {
+        await api("/api/session/active", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ run_id: runId, selected_stage_id: stageId }),
+        }).catch(() => {});
+      }
+    },
+    [runId],
+  );
+
   const executeJob = useCallback(
     async (body: ExecuteBody) => {
       if (!runId) return;
+      const handoffStage = findHandoffStage(run);
+      if (handoffStage) {
+        showToast(
+          `Review outputs from ${handoffStage.title} before running the pipeline.`,
+        );
+        await selectStage(handoffStage.id);
+        openActionModal();
+        playAttentionPing(alertsMuted);
+        return;
+      }
       if (!(await ensureApiConsentForExecute(body))) {
         showToast("API access not granted — execution cancelled.");
         return;
@@ -458,27 +488,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [
       runId,
+      run,
+      alertsMuted,
       ensureApiConsentForExecute,
       mergedApiGrants,
       showToast,
       refreshRun,
       startJobPoll,
       showApiConsentModal,
+      selectStage,
+      openActionModal,
     ],
-  );
-
-  const selectStage = useCallback(
-    async (stageId: string) => {
-      setSelectedStageId(stageId);
-      if (runId) {
-        await api("/api/session/active", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ run_id: runId, selected_stage_id: stageId }),
-        }).catch(() => {});
-      }
-    },
-    [runId],
   );
 
   const openRun = useCallback(
@@ -586,6 +606,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const runNextStage = useCallback(async () => {
     if (!run) return;
+    const handoffStage = findHandoffStage(run);
+    if (handoffStage) {
+      showToast(
+        `Review outputs from ${handoffStage.title}, then acknowledge before the next stage.`,
+      );
+      await selectStage(handoffStage.id);
+      openActionModal();
+      playAttentionPing(alertsMuted);
+      return;
+    }
     if (hasActionRequiredStage(run.stages)) {
       const blocked = run.stages.find((s) => s.status === "action_required");
       showToast(
@@ -711,7 +741,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActionModalOpen(true);
       if (activeTab !== "logs") {
         const actionStage = run?.stages.find((s) => s.status === "action_required");
+        const handoffStage = run ? findHandoffStage(run) : null;
         if (actionStage) void selectStage(actionStage.id);
+        else if (handoffStage) void selectStage(handoffStage.id);
       }
     }
     if (pendingActionCount === 0) {

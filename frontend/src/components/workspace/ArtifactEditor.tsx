@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
 import type { StageInfo } from "../../types";
 
@@ -90,6 +91,12 @@ export function ArtifactEditor() {
           data = JSON.parse(editorValue);
         } catch {
           showToast("Invalid JSON");
+          return;
+        }
+        const v = validateArtifactWrite(selectedPath, data);
+        if (!v.ok) {
+          setStatus(`Schema errors:\n${v.errors.join("\n")}`);
+          showToast("Fix schema errors before saving");
           return;
         }
         await api(`/api/runs/${run.run_id}/artifact`, {

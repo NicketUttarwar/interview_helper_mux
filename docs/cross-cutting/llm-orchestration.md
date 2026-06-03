@@ -10,13 +10,14 @@
 - [context-padding.md](./context-padding.md) — message volley and profiles
 - [llm-orchestration-implementation-handoff.md](./llm-orchestration-implementation-handoff.md) — future code mapping
 - [prompts/_shared/llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
+- [artifact-generation-and-validation.md](./artifact-generation-and-validation.md) — gap-fill, on-disk validators, GUI Zod
 
 ---
 
 ## Goals
 
-1. **Right model for the job** — economy for low-risk and sub-calls; standard for cascade-sensitive work; flagship for high editorial impact.
-2. **Validate every primary response** — economy-tier LLM arbiter after schema check, before memory merge.
+1. **Right model for the job** — economy for arbiter and shards; **flagship** for all structured artifact primaries (`STAGE_ARTIFACT_SCHEMAS`).
+2. **Validate every primary response** — economy-tier LLM arbiter after schema check, before memory merge and `write_validated_artifact`.
 3. **Decompose when evidence is too large** — shard (economy) → collate (standard or flagship), instead of silent truncation.
 4. **Selective context** — full, shard, or collate volley profiles; not every call gets full prior-assistant banter.
 

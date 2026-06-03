@@ -22,6 +22,7 @@
 14. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
 15. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
 16. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — paths per run
+16b. [docs/cross-cutting/artifact-generation-and-validation.md](docs/cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod
 17. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — defaults + secrets keys
 18. [docs/build-out/doc-maintenance.md](docs/build-out/doc-maintenance.md) — docs to update per PR
 19. [docs/build-out/testing-and-verification.md](docs/build-out/testing-and-verification.md) — verify each wave

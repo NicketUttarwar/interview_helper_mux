@@ -54,7 +54,9 @@ These support docs, optional tooling, or future gates; they are **not** automati
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
-**On-disk artifact validation (BUILD-067 / Command 3):** `prompt_validation.validate_artifact_write` runs from `RunContext.write_json` for registered paths and from the GUI artifact PUT / analysis-profile endpoints. `edl_flow1` also validates before write and fails the stage with `ctx.log` path errors. CLI: `python tools/verify_edl.py --run-id <exec_id>`.
+**On-disk artifact validation (BUILD-067 + artifact generation):** `prompt_validation.validate_artifact_write` runs from `RunContext.write_json`, `write_validated_artifact`, and GUI `PUT /artifact` / analysis-profile. All LLM JSON paths in `STAGE_ARTIFACT_DISK_PATHS` are registered — see [artifact-generation-and-validation.md](./artifact-generation-and-validation.md). `edl_flow1` also validates before write. CLI: `python tools/verify_edl.py --run-id <exec_id>`.
+
+**Frontend Zod (GUI):** JSON Schema remains canonical in this folder. `python tools/codegen_zod_schemas.py` emits `frontend/src/schemas/generated/*.ts`; `validateArtifactWrite()` mirrors `ARTIFACT_WRITE_VALIDATORS` for pre-save UX. Regenerate after schema edits, then `cd frontend && npm run build`.
 
 | Validator | Artifact path | Wired on write? |
 |-----------|---------------|-----------------|
@@ -62,6 +64,20 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
 | `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
 | `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
+| `validate_content_brief` | `understanding/content_brief.json` | Yes |
+| `validate_speakers` | `understanding/speakers.json` | Yes |
+| `validate_boundaries` | `segments/boundaries.json` | Yes |
+| `validate_manifest` | `segments/manifest.json` | Yes |
+| `validate_gap_evaluations` | `understanding/gap_evaluations.json` | Yes |
+| `validate_gap_report` | `understanding/gap_report.json` | Yes |
+| `validate_coverage_audit` | `flow_1_master/coverage_audit.json` | Yes |
+| `validate_narrative_plan` | `flow_1_master/narrative_plan.json` | Yes |
+| `validate_transitions` | `flow_1_master/transitions.json` | Yes |
+| `validate_podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json` | Yes |
+| `validate_highlights_selection` | `flow_2_highlights/selection.json` | Yes |
+| `validate_sfx_montage_brief` | `flow_2_highlights/sfx_brief.json` | Yes |
+| `validate_show_description` | `flow_3_description/show_description.json` | Yes |
+| `validate_elevenlabs_prompts` | `sound_design/elevenlabs_prompts.json` | Yes |
 | `validate_run_meta` | `run_meta.json` | Yes |
 | `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
 | `validate_ingest_checksums` | `ingest/checksums.json` | Yes |

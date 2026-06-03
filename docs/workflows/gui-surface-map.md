@@ -63,10 +63,10 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Sub-tab | Content | When visible |
 |---------|---------|--------------|
-| **Stage** | Title, description, **artifact checklist** (`artifacts_present` / expected), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
+| **Stage** | Title, description, **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
 | **Timeline** | NLE waveform / segment editor | After segment classification (empty state otherwise) |
 | **Profile** | Analysis profile form | When profile stage exists / unlocked |
-| **Files** | JSON / text artifact editor | When stage has editable artifacts |
+| **Files** | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
 
 Gate/checkpoint panels render in the **operator action modal**, not inline on Stage.
 
@@ -93,7 +93,7 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
 | `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`). |
 
-**Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Stage completion writes `detail` JSON with `handoff` paths via `RunContext.log_handoff()` / `mark_done()`.
+**Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Custom-run descriptive JSON writes trigger **handoff** (`detail.handoff` paths via `mark_done()` / `custom_run_handoff`); batch runs pause until **Acknowledge & continue** (`POST …/handoff-ack`). Config: `journey_ui.require_handoff_between_stages`.
 
 ---
 
@@ -119,7 +119,8 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
 | Timeline (waveform, segments, VO lines) | *(view)* | `GET /api/runs/{id}/timeline` | — | `segments/manifest.json`, `segments/nle_edits.json` (via NLE), `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
 | NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`, `full_master_ranking`, `edl_flow1` on apply) | `segments/nle_edits.json`; re-run **`full_master_ranking`** or **`edl_flow1`** to affect `selection.json` / `edl.json` |
-| JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | any allowed JSON under run (e.g. `understanding/analysis_state.json`); optional invalidation |
+| JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | Editable JSON; Zod pre-save + server `validate_artifact_write`; optional `invalidate_from` — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
+| Fill artifact gaps | *(partial checklist row)* | `POST /api/runs/{id}/fill-artifact-gaps` `{path}` | `gui_log.jsonl` | Re-runs producing LLM stage when artifact is partial |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
 | Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |

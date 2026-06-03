@@ -21,6 +21,7 @@ from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, build_deterministi
 from interview_mux.llm_subtasks import run_shards_then_collate
 from interview_mux.model_registry import resolve_model
 from interview_mux.prompt_validation import (
+    STAGE_ARTIFACT_SCHEMAS,
     format_validation_feedback,
     validate_envelope,
     validate_stage_artifacts,
@@ -83,8 +84,10 @@ def _run_primary_with_openai_fallback(
     Run OpenAI primary (always, unless explicitly configured to skip when local satisfied).
     Local framing only compresses the volley; OpenAI remains the source of stage envelopes.
     """
+    force_openai = stage_key in STAGE_ARTIFACT_SCHEMAS
     if (
-        local_framing
+        not force_openai
+        and local_framing
         and local_framing.used_local
         and not local_framing.escalate
         and skip_openai_when_local_satisfied()

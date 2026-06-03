@@ -18,10 +18,11 @@
       "flagship": "o3"
     },
     "stages": {
-      "speaker_roles": { "tier": "economy" },
-      "content_context": { "tier": "economy" },
-      "boundary_detection": { "tier": "standard" },
-      "segment_classification": { "tier": "standard" },
+      "speaker_roles": { "tier": "flagship" },
+      "content_context": { "tier": "flagship" },
+      "boundary_detection": { "tier": "flagship" },
+      "segment_classification": { "tier": "flagship" },
+      "sound_design_palettes": { "tier": "flagship" },
       "missing_framing": { "tier": "flagship" },
       "optimal_questions": { "tier": "flagship" },
       "topic_coverage_audit": { "tier": "flagship" },
@@ -30,9 +31,12 @@
       "edl_narrative_audit": { "tier": "flagship" },
       "highlight_selection": { "tier": "flagship" },
       "podcast_show_description": { "tier": "flagship" },
-      "transitions": { "tier": "economy" },
-      "podcast_sfx_brief": { "tier": "economy" },
-      "sfx_brief": { "tier": "economy" }
+      "transitions": { "tier": "flagship" },
+      "podcast_sfx_brief": { "tier": "flagship" },
+      "sound_design_plan_flow1": { "tier": "flagship" },
+      "sound_design_plan_flow2": { "tier": "flagship" },
+      "elevenlabs_prompt_craft": { "tier": "flagship" },
+      "sfx_brief": { "tier": "flagship" }
     }
   },
   "_comment_mix_engine": "crossfade_ms_* and preclean acknowledgment for step-through runner",
@@ -93,7 +97,8 @@
     "unified_preclean_drawer": true,
     "express_flow1": true,
     "journey_log_filter": true,
-    "require_preview_listen": false
+    "require_preview_listen": false,
+    "require_handoff_between_stages": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
   "local_llm": {

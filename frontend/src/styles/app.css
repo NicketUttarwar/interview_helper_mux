@@ -1504,6 +1504,15 @@ code {
   color: var(--success);
 }
 
+.artifact-checklist-item.partial .artifact-status {
+  color: var(--warning, #e6a700);
+}
+
+.badge-partial {
+  font-size: 0.65rem;
+  color: var(--warning, #e6a700);
+}
+
 .artifact-path {
   flex: 1;
   min-width: 0;

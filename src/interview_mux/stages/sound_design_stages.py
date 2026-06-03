@@ -7,6 +7,7 @@ from interview_mux.prompt_validation import (
     validate_stage_artifacts,
 )
 from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
+from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
 
@@ -43,7 +44,9 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         if "palettes" in artifacts:
             sdp["palettes"] = artifacts["palettes"]
         _validate_sound_design_plan(sdp)
-        c.write_json(_SOUND_DESIGN_PLAN_REL, sdp)
+        write_validated_artifact(
+            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_palettes"
+        )
 
     run_analysis_llm_stage(
         ctx,
@@ -86,7 +89,9 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
 
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
-        c.write_json(_SOUND_DESIGN_PLAN_REL, sdp)
+        write_validated_artifact(
+            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow1"
+        )
 
     run_flow_llm_stage(
         ctx,
@@ -126,7 +131,9 @@ def run_sound_design_plan_flow2(ctx: RunContext) -> None:
 
         _validate_sound_design_plan(sdp)
         _validate_flow2_asset_links(sdp)
-        c.write_json(_SOUND_DESIGN_PLAN_REL, sdp)
+        write_validated_artifact(
+            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow2"
+        )
 
     run_flow_llm_stage(
         ctx,
@@ -165,7 +172,13 @@ def run_elevenlabs_prompt_craft(ctx: RunContext) -> None:
         schema_errors = validate_stage_artifacts("elevenlabs_prompt_craft", payload)
         if schema_errors:
             raise ValueError(f"Invalid ElevenLabs prompts artifact: {schema_errors[0]}")
-        c.write_json("sound_design/elevenlabs_prompts.json", payload)
+        write_validated_artifact(
+            c,
+            "sound_design/elevenlabs_prompts.json",
+            payload,
+            merge_from_disk=True,
+            stage_key="elevenlabs_prompt_craft",
+        )
 
     run_flow_llm_stage(
         ctx,

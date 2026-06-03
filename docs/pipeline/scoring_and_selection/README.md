@@ -1,6 +1,6 @@
 # Scoring and selection
 
-**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
+**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md) · validated artifact writes — [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md)
 
 Branches after operator gate G2.
 

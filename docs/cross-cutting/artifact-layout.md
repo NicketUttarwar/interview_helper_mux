@@ -4,7 +4,7 @@ All run artifacts live under `ASSETS/executions/exec_NNN_TIMESTAMP/` (filesystem
 
 **ASSETS model (source audio + resume):** [assets-and-executions.md](./assets-and-executions.md) — operators pick input WAVs from `ASSETS/` in the GUI; every execution folder holds full run state for relaunch via `./scripts/run.sh`.
 
-See also: [json-schema-coverage.md](./json-schema-coverage.md) and [json-schemas/README.md](./json-schemas/README.md) for which artifacts are schema-backed vs planned. **GUI:** [workflows/gui-surface-map.md](../workflows/gui-surface-map.md).
+See also: [json-schema-coverage.md](./json-schema-coverage.md) and [json-schemas/README.md](./json-schemas/README.md) for which artifacts are schema-backed vs planned. **Generation, gap-fill, validation:** [artifact-generation-and-validation.md](./artifact-generation-and-validation.md). **GUI:** [workflows/gui-surface-map.md](../workflows/gui-surface-map.md).
 
 ## ASSETS top level
 
@@ -51,7 +51,7 @@ ASSETS/executions/exec_001_20260523T120000Z/
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
 
-See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile** or stage JSON editor.
+See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile** or stage JSON editor. All LLM JSON paths listed here are validated on write (`ARTIFACT_WRITE_VALIDATORS`) and may show **partial** / **complete** in Stage outputs — [artifact-generation-and-validation.md](./artifact-generation-and-validation.md).
 
 ### Machine + stage artifacts
 

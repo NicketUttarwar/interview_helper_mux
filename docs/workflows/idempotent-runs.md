@@ -37,6 +37,7 @@ Legacy auto-increment `run_001`, `run_002`, … under `data/` remains for old ru
 | Transcribe failed | `--from-stage transcribe` |
 | STT corrections changed | `--from-stage transcript_review` (re-sign-off) or `transcript_review_build` to rebuild clips |
 | Changed prompts only | `--from-stage <llm_stage>` |
+| LLM artifact incomplete (GUI **partial**) | `POST …/fill-artifact-gaps` or `--from-stage <producer>` — pipeline may also auto re-run done stages when `should_run_stage_for_artifact` is true ([artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md)) |
 | New VO files added | `--from-stage vo_ingest` |
 | Switched flow | New `selected_flow` in `run_meta.json`; do not mix `flow_1_master/`, `flow_2_highlights/`, and `flow_3_description/` artifacts in one run without clearing |
 | Relaunch app mid-run | `./scripts/run.sh` → **Previous executions** → same `run_id`; then `--from-stage` or GUI execute as needed |

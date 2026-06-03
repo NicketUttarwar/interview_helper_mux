@@ -56,6 +56,17 @@ Primary file: `understanding/analysis_state.json`
 
 Also editable: `investigation_queue.json`, `content_brief.json`, `speakers.json`, `segments/manifest.json`.
 
+Saves validate against JSON Schema (server) and Zod (GUI). See [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
+
+## Fill incomplete LLM artifacts (gap-fill)
+
+When Stage outputs shows **partial** for a JSON file:
+
+1. **GUI:** Click **Fill gaps** on that row (`POST …/fill-artifact-gaps`).
+2. **CLI:** Re-run the producing stage, e.g. `python tools/run_analysis.py --run-id <id> --from-stage content_context`.
+
+The pipeline also re-runs a done LLM stage automatically when `should_run_stage_for_artifact()` is true (missing file, schema errors, or semantic gaps). Spec: [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
+
 ## NLE timeline edits
 
 `segments/nle_edits.json` — exclude, split, reorder in GUI.

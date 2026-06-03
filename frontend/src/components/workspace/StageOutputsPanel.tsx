@@ -1,24 +1,37 @@
 import { useMemo, useState } from "react";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml } from "../../utils";
 import type { StageInfo } from "../../types";
 
-function artifactRows(stage: StageInfo): { path: string; present: boolean; editable: boolean }[] {
+type ArtifactRowStatus = "pending" | "partial" | "complete";
+
+function artifactRows(stage: StageInfo): {
+  path: string;
+  status: ArtifactRowStatus;
+  editable: boolean;
+}[] {
   const expected = stage.artifacts || [];
   const presentSet = new Set(stage.artifacts_present || []);
+  const statusMap = stage.artifacts_status || {};
   const editableSet = new Set(stage.editable || []);
   const paths = [...new Set([...expected, ...Array.from(presentSet)])];
   return paths
     .filter((p) => p && !p.endsWith("/"))
-    .map((path) => ({
-      path,
-      present: presentSet.has(path),
-      editable: editableSet.has(path),
-    }));
+    .map((path) => {
+      const status: ArtifactRowStatus =
+        statusMap[path] ||
+        (presentSet.has(path) ? "complete" : "pending");
+      return {
+        path,
+        status,
+        editable: editableSet.has(path),
+      };
+    });
 }
 
 export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
-  const { runId, openArtifactInEditor, setPipelineSubTab } = useApp();
+  const { runId, openArtifactInEditor, setPipelineSubTab, refreshRun, showToast } = useApp();
   const [activeAudio, setActiveAudio] = useState<string | null>(null);
 
   const rows = useMemo(() => artifactRows(stage), [stage]);
@@ -53,18 +66,21 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
 
       {rows.length > 0 ? (
         <ul className="artifact-checklist">
-          {rows.map(({ path, present, editable }) => (
+          {rows.map(({ path, status, editable }) => (
             <li
               key={path}
-              className={`artifact-checklist-item${present ? " present" : " missing"}`}
+              className={`artifact-checklist-item${status === "pending" ? " missing" : " present"}${status === "partial" ? " partial" : ""}`}
             >
               <span className="artifact-status" aria-hidden>
-                {present ? "✓" : "○"}
+                {status === "complete" ? "✓" : status === "partial" ? "◐" : "○"}
               </span>
               <code className="artifact-path">{escapeHtml(path)}</code>
               {editable ? <span className="badge-editable">editable</span> : null}
+              {status === "partial" ? (
+                <span className="badge-partial">partial</span>
+              ) : null}
               <span className="artifact-checklist-actions">
-                {present ? (
+                {status !== "pending" ? (
                   <>
                     <button
                       type="button"
@@ -81,9 +97,32 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
                       Copy
                     </button>
                   </>
-                ) : (
+                ) : null}
+                {status === "partial" && runId ? (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => {
+                      void api(`/api/runs/${runId}/fill-artifact-gaps`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ path }),
+                      })
+                        .then(() => {
+                          showToast(`Filling gaps for ${path}…`);
+                          return refreshRun();
+                        })
+                        .catch((e) =>
+                          showToast(e instanceof Error ? e.message : "Fill gaps failed"),
+                        );
+                    }}
+                  >
+                    Fill gaps
+                  </button>
+                ) : null}
+                {status === "pending" ? (
                   <span className="hint sm">pending</span>
-                )}
+                ) : null}
               </span>
             </li>
           ))}

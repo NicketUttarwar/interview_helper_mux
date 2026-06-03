@@ -34,6 +34,29 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "podcast_show_description": "show_description_artifact.schema.json",
 }
 
+# stage_key -> on-disk relative path (under run dir)
+STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
+    "speaker_roles": "understanding/speakers.json",
+    "content_context": "understanding/content_brief.json",
+    "boundary_detection": "segments/boundaries.json",
+    "segment_classification": "segments/manifest.json",
+    "sound_design_palettes": "understanding/sound_design_plan.json",
+    "missing_framing": "understanding/gap_evaluations.json",
+    "optimal_questions": "understanding/gap_report.json",
+    "topic_coverage_audit": "flow_1_master/coverage_audit.json",
+    "narrative_arc_plan": "flow_1_master/narrative_plan.json",
+    "full_master_ranking": "flow_1_master/selection.json",
+    "edl_narrative_audit": "flow_1_master/edl_narrative_audit.json",
+    "highlight_selection": "flow_2_highlights/selection.json",
+    "transitions": "flow_1_master/transitions.json",
+    "podcast_sfx_brief": "flow_1_master/podcast_sfx_brief.json",
+    "sound_design_plan_flow1": "understanding/sound_design_plan.json",
+    "sound_design_plan_flow2": "understanding/sound_design_plan.json",
+    "elevenlabs_prompt_craft": "sound_design/elevenlabs_prompts.json",
+    "sfx_brief": "flow_2_highlights/sfx_brief.json",
+    "podcast_show_description": "flow_3_description/show_description.json",
+}
+
 
 def _schemas_dir() -> Path:
     return repo_root() / "docs" / "cross-cutting" / "json-schemas" / "artifacts"
@@ -169,15 +192,89 @@ def validate_transcript_review_queue(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("transcript_review.schema.json"))
 
 
+def _validate_by_artifact_schema(filename: str, data: dict[str, Any]) -> list[str]:
+    return _validate_dict(data, _load_schema(filename))
+
+
+def validate_content_brief(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("content_brief_artifact.schema.json", data)
+
+
+def validate_speakers(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("speakers_artifact.schema.json", data)
+
+
+def validate_boundaries(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("boundaries_artifact.schema.json", data)
+
+
+def validate_manifest(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("manifest_artifact.schema.json", data)
+
+
+def validate_gap_evaluations(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("gap_evaluations_artifact.schema.json", data)
+
+
+def validate_gap_report(data: dict[str, Any]) -> list[str]:
+    return _validate_dict(data, _load_root_schema("gap_report.schema.json"))
+
+
+def validate_coverage_audit(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("coverage_audit_artifact.schema.json", data)
+
+
+def validate_narrative_plan(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("narrative_plan_artifact.schema.json", data)
+
+
+def validate_transitions(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("transitions_artifact.schema.json", data)
+
+
+def validate_podcast_sfx_brief(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("podcast_sfx_artifact.schema.json", data)
+
+
+def validate_highlights_selection(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("highlights_artifact.schema.json", data)
+
+
+def validate_sfx_montage_brief(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("sfx_montage_artifact.schema.json", data)
+
+
+def validate_show_description(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("show_description_artifact.schema.json", data)
+
+
+def validate_elevenlabs_prompts(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("elevenlabs_prompts_artifact.schema.json", data)
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "flow_1_master/edl.json": validate_edl_flow1,
     "flow_1_master/edl_narrative_audit.json": validate_edl_narrative_audit,
     "flow_1_master/selection.json": validate_master_selection,
+    "flow_1_master/coverage_audit.json": validate_coverage_audit,
+    "flow_1_master/narrative_plan.json": validate_narrative_plan,
+    "flow_1_master/transitions.json": validate_transitions,
+    "flow_1_master/podcast_sfx_brief.json": validate_podcast_sfx_brief,
+    "flow_2_highlights/selection.json": validate_highlights_selection,
+    "flow_2_highlights/sfx_brief.json": validate_sfx_montage_brief,
+    "flow_3_description/show_description.json": validate_show_description,
     "understanding/source_acoustic_profile.json": validate_source_acoustic_profile,
     "understanding/analysis_state.json": validate_analysis_state,
     "understanding/sound_design_plan.json": validate_sound_design_plan,
+    "understanding/content_brief.json": validate_content_brief,
+    "understanding/speakers.json": validate_speakers,
+    "understanding/gap_evaluations.json": validate_gap_evaluations,
+    "understanding/gap_report.json": validate_gap_report,
+    "segments/boundaries.json": validate_boundaries,
+    "segments/manifest.json": validate_manifest,
+    "sound_design/elevenlabs_prompts.json": validate_elevenlabs_prompts,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
     "transcript/review_queue.json": validate_transcript_review_queue,

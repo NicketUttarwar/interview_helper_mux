@@ -16,6 +16,19 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 
 ---
 
+## LLM artifacts and validation
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Stage output **pending** | Stage not run or persist blocked | `.stage_done/<stage>`, `gui_log.jsonl`, `understanding/stage_runs/<stage>/attempt_*.json` | Run stage; fix arbiter reject or schema errors in attempt audit |
+| **partial** after stage marked done | Semantic gaps or invalid JSON on disk | File content vs [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) | **Fill gaps** in GUI or `--from-stage <producer>` |
+| GUI save fails / schema toast | Zod or server jsonschema | Editor status lines, response `errors[]` | Fix fields; compare to `docs/cross-cutting/json-schemas/` |
+| `content_brief.json` missing themes in profile | `memory_updates` not merged | Latest `content_context` attempt envelope | Re-run `content_context`; check arbiter `accept` |
+| Operator themes overwritten | Profile not verified | `analysis_state.json` `meta.operator_verified` | Mark verified; re-run from stage |
+| Pipeline re-runs same stage unexpectedly | Incomplete artifact guard | `artifact_completeness.should_run_stage_for_artifact` | Complete file or edit to valid shape |
+
+---
+
 ## Transcription (AWS)
 
 ### Symptom table (behavioral)

@@ -15,7 +15,7 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 | **Checkpoint banner** | Amber strip when your input is required |
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
 | **API consent** | Modal before first use of OpenAI, AWS Transcribe, or ElevenLabs in the session; per-provider grant; revocable via **Revoke API** |
-| **File handoff** | After each stage completes, **Outputs from this step** lists written files; edit in **File editor**, then **Acknowledge & continue** before running the next automated stage |
+| **File handoff (custom run)** | After each stage that writes **per-interview descriptive JSON** (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Outputs from this step** lists those files; edit in **File editor**, then **Acknowledge & continue** before the next automated stage. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
 
 See [gui-surface-map.md](./gui-surface-map.md) and [api-reference.md](./api-reference.md).
 

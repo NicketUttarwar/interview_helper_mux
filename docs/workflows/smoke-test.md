@@ -32,6 +32,16 @@ source .venv/bin/activate
 
 See [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
+## Artifact validation (optional)
+
+```bash
+pytest tests/test_artifact_completeness.py tests/test_prompt_validation.py -q
+python tools/codegen_zod_schemas.py
+cd frontend && npm run build
+```
+
+After analysis stages, GUI **Stage outputs** should show **complete** for `understanding/content_brief.json` and related JSON (not stuck on **partial**). Spec: [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
+
 ## Analysis (CLI)
 
 ```bash

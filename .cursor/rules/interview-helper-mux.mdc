@@ -37,7 +37,7 @@ Applies for the **entire** repository build-out (Waves 0–7). Details and accep
 | **Secrets** | Load from **`config/secrets/secrets.env`** — never commit, never hardcode. New keys → **`docs/cross-cutting/config-keys.md`**. |
 | **Media** | Default input **`./ASSETS/`** (gitignored). If missing, ask for full path. Runs under **`ASSETS/executions/exec_*`** or legacy **`data/run_*`**. |
 | **Prompts** | Load from **`docs/prompts/`**; stage keys must match **`pipeline.py`** / **`stage-registry.md`**. Do not drift copy without updating specs + examples. |
-| **Schemas** | Validate stage JSON with **`prompt_validation`** / schemas under **`docs/cross-cutting/json-schemas/`**. |
+| **Schemas** | Validate stage JSON with **`prompt_validation`** / schemas under **`docs/cross-cutting/json-schemas/`**; gap-fill + GUI Zod — **`docs/cross-cutting/artifact-generation-and-validation.md`**. |
 | **Scope** | **Audio + transcript text** only — no video/CV unless product explicitly expands. Optional R&D: **`docs/pipeline/value-analysis/`** — not the default delivery path. |
 
 ### What not to build

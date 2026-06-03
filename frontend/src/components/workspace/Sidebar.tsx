@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
 import { useJourney } from "../../hooks/useJourney";
+import { findHandoffStage } from "../../utils/checkpoint";
 import { stageDotClass } from "../../utils/preclean";
 import type { OperatorPhase, StageInfo } from "../../types";
 
@@ -55,8 +56,10 @@ export function Sidebar() {
 
   if (!run) return null;
 
+  const handoffPending = Boolean(findHandoffStage(run));
   const actionRequired = run.stages.some((s) => s.status === "action_required");
-  const needsOperator = run.stages.some((s) => s.status === "action_required") || isBlocked;
+  const needsOperator =
+    actionRequired || handoffPending || isBlocked;
   const running = jobRunning;
 
   const openCheckpoint = () => {
@@ -81,7 +84,10 @@ export function Sidebar() {
   const sidebarHint = running
     ? "Pipeline is running — wait for it to finish or check Logs."
     : needsOperator
-      ? blocking?.message || "Complete the open checkpoint before running more stages."
+      ? blocking?.message ||
+        (handoffPending
+          ? "Review custom run outputs and acknowledge before the next stage."
+          : "Complete the open checkpoint before running more stages.")
       : null;
 
   const primaryLabel = running

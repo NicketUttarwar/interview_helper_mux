@@ -93,6 +93,11 @@ class ExecuteBody(BaseModel):
     api_consents: dict[str, bool] | None = None
 
 
+class FillArtifactGapsBody(BaseModel):
+    path: str
+    api_consents: dict[str, bool] | None = None
+
+
 class ApiConsentBody(BaseModel):
     provider: str
     granted: bool
@@ -643,8 +648,11 @@ def create_app() -> FastAPI:
                         "errors": schema_errors,
                     },
                 )
-        write_json(ctx.path(body.path), body.data)
-        stage = body.invalidate_from or "artifact_editor"
+        from interview_mux.custom_run_handoff import stage_for_custom_run_path
+
+        stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
+        ctx.write_json(body.path, body.data, stage_key=stage_key)
+        stage = stage_key
         ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
         if body.path == "understanding/source_acoustic_profile.json" and isinstance(body.data, dict):
             overrides = body.data.get("operator_overrides")
@@ -812,6 +820,9 @@ def create_app() -> FastAPI:
         ack = dict(meta.get("handoff_ack") or {})
         ack[body.stage_id] = datetime.now(timezone.utc).isoformat()
         meta["handoff_ack"] = ack
+        pending = dict(meta.get("handoff_pending_writes") or {})
+        pending.pop(body.stage_id, None)
+        meta["handoff_pending_writes"] = pending
         meta["updated_at"] = datetime.now(timezone.utc).isoformat()
         ctx.write_json("run_meta.json", meta)
         ctx.log(
@@ -835,6 +846,32 @@ def create_app() -> FastAPI:
             flow=body.mode if body.mode in flow_modes else None,
             from_stage=body.from_stage or body.stage,
             until_stage=body.until_stage,
+            api_consents=body.api_consents,
+        )
+
+    @app.post("/api/runs/{run_id}/fill-artifact-gaps")
+    def fill_artifact_gaps(run_id: str, body: FillArtifactGapsBody) -> dict[str, Any]:
+        from interview_mux.artifact_completeness import stage_keys_for_artifact_path
+
+        ctx = _ctx(run_id)
+        _assert_artifact_path(body.path)
+        stage_ids = stage_keys_for_artifact_path(body.path)
+        if not stage_ids:
+            raise HTTPException(400, f"No LLM stage registered for artifact path: {body.path}")
+        if runner.is_running(run_id):
+            raise HTTPException(409, "A job is already running for this run.")
+        set_active_execution(run_id)
+        stage = stage_ids[0]
+        ctx.log(
+            f"Fill gaps requested for {body.path} — re-running stage {stage}",
+            level="info",
+            stage=stage,
+        )
+        return runner.start(
+            run_id,
+            mode="stage",
+            stage=stage,
+            from_stage=stage,
             api_consents=body.api_consents,
         )
 
@@ -1210,7 +1247,12 @@ def _build_stage_list(
             s["status"] = "done" if ctx.is_done(sid) else "pending"
         info = STAGE_BY_ID.get(sid)
         if info:
+            from interview_mux.artifact_completeness import artifact_status
+
             s["artifacts_present"] = [a for a in info.artifacts if ctx.artifact_exists(a)]
+            s["artifacts_status"] = {
+                a: artifact_status(a, ctx) for a in info.artifacts if a and not a.endswith("/")
+            }
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
         s["operator_phase"] = stage_operator_phase(sid)
     return _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
