@@ -1,7 +1,10 @@
 export class ApiError extends Error {
-  constructor(message: string) {
+  status: number;
+
+  constructor(message: string, status = 0) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -19,7 +22,7 @@ export async function api<T = unknown>(
       typeof err.detail === "string"
         ? err.detail
         : err.error || res.statusText;
-    throw new ApiError(detail);
+    throw new ApiError(detail, res.status);
   }
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json() as Promise<T>;

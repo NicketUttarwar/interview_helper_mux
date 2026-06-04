@@ -27,6 +27,13 @@ python tools/run_flow.py --run-id exec_001_20260523T120000Z --flow flow1 --from-
 
 Legacy auto-increment `run_001`, `run_002`, … under `data/` remains for old runs only.
 
+## Reuse outputs from a prior execution
+
+When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can offer to copy artifacts from another `exec_*` that used the **same** `input_audio_path`. Decisions live in `run_meta.stage_reuse`.
+
+- GUI: checkpoint modal — [stage-execution-reuse.md](./stage-execution-reuse.md)
+- CLI: `--reuse-from exec_001_…` (auto-accept) or `--no-reuse-offers` (non-TTY default)
+
 ## Safe partial runs
 
 | Scenario | Action |

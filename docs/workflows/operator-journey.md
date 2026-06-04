@@ -46,9 +46,9 @@ Go deeper: [analysis-memory.md](../cross-cutting/analysis-memory.md).
 
 1. **G1:** Record pickup lines to `vo_pickup/` when gap report requires `delivery: record`.
 2. Optional: clean **pickup VO only** at G1.
-3. **G2:** **Confirm output** — matches intent from Start (flow1 / flow2 / flow3).
+3. **G2:** **Confirm output** — pick flow1 / flow2 / flow3, or click **Use planned choice** if you set intent on the Start tab.
 
-`flow_intent` (Start) is planning; `selected_flow` (G2) commits execution.
+`flow_intent` (Start) is planning only; `selected_flow` (G2) commits execution.
 
 Go deeper: [interviewer-gap README](../pipeline/interviewer-gap/README.md).
 

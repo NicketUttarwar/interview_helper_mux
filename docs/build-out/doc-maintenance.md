@@ -18,6 +18,7 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | Sound design palette stage (BUILD-061) | `pipeline.py` (`ANALYSIS_ORDER`), `web/stages.py`, [stage-registry.md](./stage-registry.md), [operator-stage-checklists.md](../workflows/operator-stage-checklists.md), `artifacts/sound_design_palettes_artifact.schema.json` |
 | ASSETS / run discovery / resume | [assets-and-executions.md](../cross-cutting/assets-and-executions.md), [full-application-flow.md](./full-application-flow.md), [gui-surface-map.md](../workflows/gui-surface-map.md) |
 | New GUI panel or route | [gui-surface-map.md](../workflows/gui-surface-map.md), [api-reference.md](../workflows/api-reference.md), `web/stages.py` |
+| GUI UX / operator shell change | [gui-surface-map.md](../workflows/gui-surface-map.md), [operator-journey.md](../workflows/operator-journey.md), [operator-flow-audit.md](../workflows/operator-flow-audit.md), [troubleshooting.md](../workflows/troubleshooting.md) |
 | Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
 | LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/`; gap-fill line when stage writes artifacts |
 | Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |

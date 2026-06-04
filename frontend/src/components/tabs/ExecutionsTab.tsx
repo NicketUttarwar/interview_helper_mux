@@ -64,7 +64,14 @@ export function ExecutionsTab() {
                       <div className="asset-meta muted">Last: {lastLog}</div>
                     ) : null}
                   </div>
-                  <button type="button" className="btn primary sm">
+                  <button
+                    type="button"
+                    className="btn primary sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void openRun(r.run_id);
+                    }}
+                  >
                     {isActive ? "Open" : "Resume"}
                   </button>
                 </div>

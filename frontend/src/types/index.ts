@@ -32,6 +32,7 @@ export interface AppConfig {
     express_flow1?: boolean;
     journey_log_filter?: boolean;
     require_preview_listen?: boolean;
+    enable_stage_reuse_offers?: boolean;
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -127,6 +128,13 @@ export interface StageInfo {
   api_providers?: string[];
 }
 
+export interface ReuseCandidate {
+  run_id: string;
+  updated_at?: string | null;
+  execution_number?: number | null;
+  paths: string[];
+}
+
 export interface JobState {
   status?: string;
   mode?: string;
@@ -135,6 +143,8 @@ export interface JobState {
   updated_at?: string;
   missing_api_providers?: string[];
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
+  needs_stage_reuse?: boolean;
+  reuse_candidates?: ReuseCandidate[];
 }
 
 export interface RunData {
@@ -184,6 +194,14 @@ export interface RunMeta {
     { passed: boolean; strict?: boolean; errors?: string[] }
   >;
   elevenlabs_listen_results?: ElevenLabsListenResult[];
+  stage_reuse?: Record<
+    string,
+    {
+      action: string;
+      source_run_id?: string;
+      at?: string;
+    }
+  >;
 }
 
 export interface ElevenLabsListenResult {

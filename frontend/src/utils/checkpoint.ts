@@ -45,6 +45,50 @@ export function getHandoffPathsLocal(
   );
 }
 
+/** Stage id the operator should focus on for checkpoints, gates, handoffs, or job pause. */
+export function findPendingFocusStage(
+  run: RunData | null,
+  grants: Record<string, boolean> = {},
+): string | null {
+  if (!run) return null;
+  const actionStage = run.stages.find((s) => s.status === "action_required");
+  if (actionStage) return actionStage.id;
+  if (run.job?.status === "gate" && run.job.stage) return run.job.stage;
+  if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
+  if (
+    run.job?.status === "needs_operator" &&
+    !isApiConsentJobPending(run, grants) &&
+    run.job.stage
+  ) {
+    return run.job.stage;
+  }
+  const handoff = findHandoffStage(run);
+  if (handoff) return handoff.id;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id) return blocking.stage_id;
+  return null;
+}
+
+export function continueHintForStage(stageId: string): string {
+  switch (stageId) {
+    case "transcript_review":
+      return "Complete transcript review in the panel above (save clips or use Complete review).";
+    case "g1_vo_pickup":
+      return "Record or upload every pickup line listed above.";
+    case "analysis_profile":
+      return "Mark the interview profile verified in the panel above.";
+    case "g2_flow_select":
+      return "Select your deliverable flow below (or use your planned choice).";
+    case "elevenlabs_prompt_craft":
+      return "Approve ElevenLabs prompts and complete listen checks above.";
+    case "elevenlabs_sfx_flow1":
+    case "elevenlabs_sfx_flow2":
+      return "Listen to outputs and pass or fail the sound check above.";
+    default:
+      return "Complete the required steps above before continuing.";
+  }
+}
+
 export function findHandoffStage(run: RunData | null): StageInfo | null {
   if (!run) return null;
   for (const s of run.stages) {

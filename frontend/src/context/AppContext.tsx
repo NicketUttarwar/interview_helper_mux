@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type {
   ApiProvider,
   AppConfig,
@@ -28,6 +28,7 @@ import {
   actionSummaryText,
   countPendingActions,
   findHandoffStage,
+  findPendingFocusStage,
   getHandoffPathsLocal,
 } from "../utils/checkpoint";
 import { API_CONSENT_PREFIX, mapGateToStage } from "../utils";
@@ -64,6 +65,7 @@ interface AppContextValue {
   actionSummary: string | null;
   confirmMessage: string | null;
   menuOpen: boolean;
+  serverActiveRunId: string | null;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
   openArtifactInEditor: (path: string) => void;
@@ -178,6 +180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [serverActiveRunId, setServerActiveRunId] = useState<string | null>(null);
   const [shownPrecleanOffers, setShownPrecleanOffers] = useState<Set<string>>(
     () => new Set(),
   );
@@ -229,11 +232,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const openArtifactInEditor = useCallback((path: string) => {
     setPipelineSubTab("files");
     window.dispatchEvent(new CustomEvent("handoff-open", { detail: { path } }));
-  }, []);
-
-  const openActionModal = useCallback(() => {
-    userDismissedActionRef.current = false;
-    setActionModalOpen(true);
   }, []);
 
   const closeActionModal = useCallback(() => {
@@ -295,11 +293,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [assetsRes, runsRes, session] = await Promise.all([
       api<{ files: AssetFile[] }>("/api/assets"),
       api<{ runs: RunSummary[] }>("/api/runs"),
-      api<{ log?: LogEntry[] }>("/api/session").catch(() => ({ log: [] })),
+      api<{ log?: LogEntry[]; active?: { run_id?: string } | null }>(
+        "/api/session",
+      ).catch(() => ({ log: [] as LogEntry[], active: null as null })),
     ]);
     setAssets(assetsRes.files);
     setRuns(runsRes.runs);
     setHomeLog(session.log?.slice(-5) || []);
+    setServerActiveRunId(session.active?.run_id ?? null);
   }, []);
 
   const pollLog = useCallback(async () => {
@@ -437,6 +438,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [runId],
   );
 
+  const focusPendingStage = useCallback(async () => {
+    if (!run) return;
+    const stageId = findPendingFocusStage(run, mergedApiGrants());
+    if (stageId) await selectStage(stageId);
+  }, [run, mergedApiGrants, selectStage]);
+
+  const openActionModal = useCallback(() => {
+    userDismissedActionRef.current = false;
+    setActionModalOpen(true);
+    void focusPendingStage();
+  }, [focusPendingStage]);
+
   const executeJob = useCallback(
     async (body: ExecuteBody) => {
       if (!runId) return;
@@ -460,35 +473,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (v) api_consents[k] = true;
       }
       const payload = { ...body, api_consents };
-      const res = await api<{ ok?: boolean; error?: string; needs_api_consent?: boolean }>(
-        `/api/runs/${runId}/execute`,
-        {
+      const targetStage =
+        body.mode === "stage" && body.stage ? body.stage : null;
+      const reuseOffersEnabled =
+        config?.journey_ui?.enable_stage_reuse_offers !== false;
+      if (targetStage && reuseOffersEnabled) {
+        const offers = await api<{
+          eligible?: boolean;
+          pending_decision?: { action?: string } | null;
+          candidates?: unknown[];
+        }>(`/api/runs/${runId}/stages/${targetStage}/reuse-offers`).catch(
+          () => null,
+        );
+        if (
+          offers?.eligible &&
+          !offers.pending_decision &&
+          (offers.candidates?.length ?? 0) > 0
+        ) {
+          await selectStage(targetStage);
+          openActionModal();
+          showToast(
+            "A previous execution has outputs for this step — choose reuse or run fresh.",
+          );
+          playAttentionPing(alertsMuted);
+          return;
+        }
+      }
+
+      try {
+        const res = await api<{
+          ok?: boolean;
+          error?: string;
+          needs_api_consent?: boolean;
+          needs_stage_reuse?: boolean;
+          stage?: string;
+        }>(`/api/runs/${runId}/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-        },
-      );
-      if (res.ok === false) {
-        showToast(res.error || "Failed to start");
-        if (res.needs_api_consent) {
-          const refreshed = await api<RunData>(`/api/runs/${runId}`);
-          const missing = refreshed.job?.missing_api_providers || [];
-          const grants = mergedApiGrants();
-          for (const pid of missing) {
-            if (!grants[pid]) {
-              const ok = await showApiConsentModal(pid);
-              if (!ok) break;
-            }
+        });
+        if (res.ok === false) {
+          showToast(res.error || "Failed to start");
+          if (res.needs_stage_reuse && res.stage) {
+            await selectStage(res.stage);
+            openActionModal();
+            playAttentionPing(alertsMuted);
+            await refreshRun();
+            return;
           }
-          await refreshRun();
+          if (res.needs_api_consent) {
+            const refreshed = await api<RunData>(`/api/runs/${runId}`);
+            const missing = refreshed.job?.missing_api_providers || [];
+            const grantsNow = mergedApiGrants();
+            for (const pid of missing) {
+              if (!grantsNow[pid]) {
+                const ok = await showApiConsentModal(pid);
+                if (!ok) break;
+              }
+            }
+            await refreshRun();
+          }
+          return;
         }
-        return;
+        startJobPoll();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          showToast("A job is already running — watch Logs for progress.");
+          startJobPoll();
+          return;
+        }
+        showToast(e instanceof Error ? e.message : "Failed to start job");
       }
-      startJobPoll();
     },
     [
       runId,
       run,
+      config,
       alertsMuted,
       ensureApiConsentForExecute,
       mergedApiGrants,
@@ -581,10 +641,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearSession = useCallback(async () => {
     stopJobPoll();
+    try {
+      await api("/api/session/active", { method: "DELETE" });
+    } catch {
+      await api("/api/session/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: null }),
+      }).catch(() => {});
+    }
     setRunId(null);
     setRun(null);
     setTimeline(null);
     setSelectedStageId(null);
+    setServerActiveRunId(null);
     setActionModalOpen(false);
     setActiveTabState("start");
     await refreshHome();
@@ -593,7 +663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const acknowledgeHandoff = useCallback(async () => {
     if (!runId) return;
     const stageId =
-      selectedStageId || (run ? findHandoffStage(run)?.id : null) || null;
+      (run ? findHandoffStage(run)?.id : null) || selectedStageId || null;
     if (!stageId) return;
     await api(`/api/runs/${runId}/handoff-ack`, {
       method: "POST",
@@ -694,6 +764,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
       }
       await loadApiConsent();
+      setServerActiveRunId(session.active?.run_id ?? null);
       await refreshHome();
       if (session.log?.length) renderLogWithAlerts(session.log);
       if (session.active?.run_id) {
@@ -739,18 +810,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       !actionModalOpen
     ) {
       setActionModalOpen(true);
-      if (activeTab !== "logs") {
-        const actionStage = run?.stages.find((s) => s.status === "action_required");
-        const handoffStage = run ? findHandoffStage(run) : null;
-        if (actionStage) void selectStage(actionStage.id);
-        else if (handoffStage) void selectStage(handoffStage.id);
-      }
+      void focusPendingStage();
     }
     if (pendingActionCount === 0) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
     }
-  }, [pendingActionCount, actionModalOpen, activeTab, run, selectStage]);
+  }, [pendingActionCount, actionModalOpen, run, focusPendingStage]);
 
   useEffect(() => {
     if (activeTab === "executions") void refreshHome();
@@ -782,6 +848,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     actionSummary,
     confirmMessage,
     menuOpen,
+    serverActiveRunId,
     setActiveTab,
     setPipelineSubTab,
     openArtifactInEditor,

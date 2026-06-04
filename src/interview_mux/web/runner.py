@@ -32,6 +32,11 @@ from interview_mux.stages import transcript_review
 from interview_mux.journey_orchestrator import refresh_journey_meta
 from interview_mux.custom_run_handoff import check_handoff_before_execute, pending_handoff_stage
 from interview_mux.run_context import RunContext
+from interview_mux.stage_execution_reuse import (
+    StageReuseOfferPending,
+    check_stage_reuse_before_execute,
+    clear_stage_reuse_from,
+)
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 
@@ -168,6 +173,38 @@ class JobRunner:
             until_stage=until_stage,
             api_consents=api_consents,
         )
+        stage_ids = self._stages_for_execute(
+            ctx_pre,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            until_stage=until_stage,
+        )
+        reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
+        if reuse_pending:
+            msg = str(reuse_pending)
+            ctx_pre.log(msg, level="action", stage=reuse_pending.stage_id)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": reuse_pending.stage_id,
+                    "message": msg,
+                    "needs_stage_reuse": True,
+                    "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
+                },
+            )
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "needs_stage_reuse": True,
+                "stage": reuse_pending.stage_id,
+                "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
+            }
+
         handoff_err = check_handoff_before_execute(ctx_pre)
         if handoff_err:
             ctx_pre.log(handoff_err, level="action", stage=pending_handoff_stage(ctx_pre))
@@ -292,6 +329,21 @@ class JobRunner:
                 self._write_job(
                     ctx,
                     {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
+                )
+            except StageReuseOfferPending as exc:
+                gate_msg = str(exc)
+                ctx.log(gate_msg, level="action", stage=exc.stage_id)
+                refresh_journey_meta(ctx)
+                self._write_job(
+                    ctx,
+                    {
+                        "status": "needs_operator",
+                        "mode": mode,
+                        "stage": exc.stage_id,
+                        "message": gate_msg,
+                        "needs_stage_reuse": True,
+                        "reuse_candidates": [c.to_dict() for c in exc.candidates],
+                    },
                 )
             except SystemExit as exc:
                 gate_msg = str(exc) or "Operator gate — action required."
@@ -419,19 +471,32 @@ class JobRunner:
 
     def invalidate_from(self, run_id: str, stage_id: str) -> None:
         ctx = RunContext(run_id, create=False)
+        orders: list[list[str]] = []
         for order in EXECUTABLE_ORDER.values():
             if stage_id in order:
                 ctx.clear_from(stage_id, order)
+                orders.append(order)
                 break
         if stage_id in ANALYSIS_ORDER:
             ctx.clear_from(stage_id, ANALYSIS_ORDER)
+            orders.append(ANALYSIS_ORDER)
         flow = get_selected_flow(ctx)
         if flow == "flow1" and stage_id in FLOW1_ORDER:
             ctx.clear_from(stage_id, FLOW1_ORDER)
+            orders.append(FLOW1_ORDER)
         if flow == "flow2" and stage_id in FLOW2_ORDER:
             ctx.clear_from(stage_id, FLOW2_ORDER)
+            orders.append(FLOW2_ORDER)
         if flow == "flow3" and stage_id in FLOW3_ORDER:
             ctx.clear_from(stage_id, FLOW3_ORDER)
+            orders.append(FLOW3_ORDER)
+        seen: set[tuple[str, ...]] = set()
+        for order in orders:
+            key = tuple(order)
+            if key in seen:
+                continue
+            seen.add(key)
+            clear_stage_reuse_from(ctx, stage_id, order)
 
 
 runner = JobRunner()

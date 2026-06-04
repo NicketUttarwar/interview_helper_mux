@@ -1,7 +1,7 @@
 import { useApp } from "../../context/AppContext";
 
 export function QcSummaryCard({ qcKey }: { qcKey: string }) {
-  const { run } = useApp();
+  const { run, setActiveTab } = useApp();
   const summary = run?.meta?.qc_summaries?.[qcKey];
   if (!summary) return null;
 
@@ -25,6 +25,21 @@ export function QcSummaryCard({ qcKey }: { qcKey: string }) {
             <li key={i}>{e}</li>
           ))}
         </ul>
+      ) : null}
+      {!summary.passed ? (
+        <p className="hint">
+          Fix issues in the Logs tab, edit artifacts in Files if needed, then use{" "}
+          <strong>Redo from selected stage</strong> in the sidebar and re-run this step.
+        </p>
+      ) : null}
+      {!summary.passed ? (
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => setActiveTab("logs")}
+        >
+          View Logs
+        </button>
       ) : null}
     </div>
   );

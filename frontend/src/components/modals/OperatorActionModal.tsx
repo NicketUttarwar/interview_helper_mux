@@ -1,6 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { useApp } from "../../context/AppContext";
-import { getHandoffPathsLocal, checkpointContinueEnabled } from "../../utils/checkpoint";
+import {
+  continueHintForStage,
+  findPendingFocusStage,
+  getHandoffPathsLocal,
+  checkpointContinueEnabled,
+  stageTitleForId,
+} from "../../utils/checkpoint";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
 
@@ -33,11 +39,19 @@ export function OperatorActionModal() {
     return "Review outputs";
   }, [run]);
 
-  if (!run || !selectedStage) {
+  if (!run) return null;
+
+  if (!selectedStage) {
+    const focusId = findPendingFocusStage(run, apiGrants);
+    const focusTitle = stageTitleForId(run.stages, focusId);
     return (
       <div className="modal-overlay" role="dialog" aria-modal="true">
         <div className="modal-card panel">
-          <p className="empty-state">Select a stage in Pipeline to continue.</p>
+          <p className="empty-state">
+            {focusTitle
+              ? `Loading checkpoint: ${focusTitle}…`
+              : "Open Pipeline and select a stage, or wait for the checkpoint to load."}
+          </p>
           <div className="modal-actions">
             <button type="button" className="btn ghost" onClick={closeActionModal}>
               Close
@@ -87,8 +101,7 @@ export function OperatorActionModal() {
         </div>
         {!continueEnabled && selectedStage.status === "action_required" ? (
           <p className="hint modal-continue-hint">
-            Complete the steps above (save transcript, record VO, verify profile, etc.)
-            before continuing.
+            {continueHintForStage(selectedStage.id)}
           </p>
         ) : null}
       </div>

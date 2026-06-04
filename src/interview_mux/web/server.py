@@ -125,7 +125,7 @@ class ResetBody(BaseModel):
 
 
 class ActiveBody(BaseModel):
-    run_id: str
+    run_id: str | None = None
     selected_stage_id: str | None = None
 
 
@@ -189,6 +189,11 @@ class PrecleanOfferBody(BaseModel):
     checkpoint: str
     action: str = Field(pattern="^(offer|accept|dismiss)$")
     scope: str | None = None
+
+
+class StageReuseBody(BaseModel):
+    action: str = Field(pattern="^(accept|decline)$")
+    source_run_id: str | None = None
 
 
 class ElevenLabsPromptApproveBody(BaseModel):
@@ -268,8 +273,16 @@ def create_app() -> FastAPI:
 
     @app.put("/api/session/active")
     def put_active(body: ActiveBody) -> dict[str, Any]:
+        if not body.run_id:
+            clear_active_execution()
+            return {"ok": True, "active": None}
         _ctx(body.run_id)
         return set_active_execution(body.run_id, selected_stage_id=body.selected_stage_id)
+
+    @app.delete("/api/session/active")
+    def delete_active() -> dict[str, Any]:
+        clear_active_execution()
+        return {"ok": True, "active": None}
 
     @app.get("/api/assets")
     def list_assets(recursive: bool = True) -> dict[str, Any]:
@@ -704,6 +717,56 @@ def create_app() -> FastAPI:
             invalidate_after_preclean_accept(ctx, scope)
         return {"ok": True, "changed": changed, "audio_preclean": payload}
 
+    @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
+    def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.stage_execution_reuse import reuse_offer_payload
+
+        return reuse_offer_payload(ctx, stage_id)
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/reuse")
+    def post_stage_reuse(run_id: str, stage_id: str, body: StageReuseBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.stage_execution_reuse import (
+            apply_stage_reuse,
+            find_reuse_candidates,
+            prior_run_has_reusable_stage,
+            record_reuse_decision,
+        )
+
+        if body.action == "decline":
+            entry = record_reuse_decision(ctx, stage_id, action="decline")
+            return {"ok": True, "action": "decline", "stage_reuse": entry}
+
+        source_id = body.source_run_id
+        if not source_id:
+            raise HTTPException(400, "source_run_id is required when action is accept")
+        if not RunContext.exists(source_id):
+            raise HTTPException(404, f"Source run not found: {source_id}")
+        source = RunContext(source_id, create=False)
+        if not prior_run_has_reusable_stage(source, stage_id):
+            raise HTTPException(
+                400,
+                f"Run {source_id} does not have complete reusable outputs for {stage_id}",
+            )
+        allowed = {c.run_id for c in find_reuse_candidates(ctx, stage_id)}
+        if source_id not in allowed:
+            raise HTTPException(400, f"Run {source_id} is not an eligible reuse source for this stage")
+        entry = record_reuse_decision(ctx, stage_id, action="accept", source_run_id=source_id)
+        copied = apply_stage_reuse(ctx, stage_id, source_id)
+        refresh_journey_meta(ctx)
+        return {
+            "ok": True,
+            "action": "accept",
+            "stage_reuse": entry,
+            "copied": copied,
+            "stage_done": ctx.is_done(stage_id),
+        }
+
     @app.get("/api/runs/{run_id}/elevenlabs-prompts")
     def get_elevenlabs_prompts(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -874,6 +937,22 @@ def create_app() -> FastAPI:
             from_stage=stage,
             api_consents=body.api_consents,
         )
+
+    @app.post("/api/runs/{run_id}/extract-value-features")
+    def extract_value_features(run_id: str) -> dict[str, Any]:
+        from interview_mux.value_analysis.extract import extract_and_write_value_features
+
+        ctx = _ctx(run_id)
+        cfg = merged_config()
+        if not value_analysis_enabled(cfg):
+            raise HTTPException(400, "value_analysis is disabled in config")
+        written = extract_and_write_value_features(ctx, cfg=cfg)
+        ctx.log(
+            f"Value features extracted: {', '.join(written) if written else 'none'}",
+            level="info",
+            stage="content_context",
+        )
+        return {"ok": True, "profiles_written": written or []}
 
     @app.get("/api/runs/{run_id}/job")
     def get_job(run_id: str) -> dict[str, Any]:

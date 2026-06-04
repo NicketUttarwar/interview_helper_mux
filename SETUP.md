@@ -297,7 +297,7 @@ interview-mux serve
 
 Default URL: `http://127.0.0.1:8765` (`web_port` in config).
 
-Operator phases: **Prepare → Understand → Complete → Create → Ship** — [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).
+Operator phases: **Prepare → Understand → Complete → Create → Ship** — [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md). Tab layout, modals, and checkpoints: [docs/workflows/operator-flow-audit.md](docs/workflows/operator-flow-audit.md). **Clear session** (header menu) clears both browser state and server active run.
 
 ### CLI (headless)
 

@@ -5,6 +5,7 @@ Flat hub for **interview_helper_mux**.
 ## Operator (start here)
 
 - [workflows/operator-journey.md](./workflows/operator-journey.md) — **primary** happy path (Prepare → Ship)
+- [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) — full GUI flows, modals, resolved UX audit
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — G0, G1, G2, quality offers
 - [workflows/operator-sound-and-mix.md](./workflows/operator-sound-and-mix.md) — SAP → SDP → preview → mix
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)
@@ -83,7 +84,7 @@ Flat hub for **interview_helper_mux**.
 - [workflows/idempotent-runs.md](./workflows/idempotent-runs.md)
 - [workflows/feedback-loops-and-reruns.md](./workflows/feedback-loops-and-reruns.md)
 - [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md)
-- [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs ↔ artifacts
+- [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs ↔ artifacts (6 pipeline sub-tabs, status banner, session clear)
 - [workflows/api-reference.md](./workflows/api-reference.md) — FastAPI `/api/*` routes, bodies, errors
 - [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) — context caps policy
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)

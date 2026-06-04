@@ -157,6 +157,8 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 - [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs
 - [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) — context caps
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — gates + quality offers
+- [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) — GUI tabs, modals, checkpoints
+- [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API
 - [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md) — per-stage verification
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md) — symptom playbook
 - [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)

@@ -141,6 +141,12 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ---
 
+## Cross-run reuse
+
+Before each automated stage runs, `stage_execution_reuse.resolve_before_stage_run` may pause for operator choice when a prior execution (same source audio) already completed that stage. See [stage-execution-reuse.md](../workflows/stage-execution-reuse.md).
+
+---
+
 ## Drift watchlist
 
 Update this table when closing gaps:

@@ -6,6 +6,19 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 
 ---
 
+## GUI / operator shell
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Checkpoint modal shows wrong stage | Stale sidebar selection (fixed in current GUI) | Action modal title vs sidebar | Dismiss and reopen **Action**; modal auto-focuses blocking stage on all tabs |
+| Listen button does nothing | No global `.audio-player` in Stage view | Gate panel inline audio | Use **Listen** again (inline player); check Logs if play fails |
+| Record pickup fails silently | Mic permission denied | Browser site settings | Allow microphone; toast should appear on deny |
+| Clear session but Executions still highlights run | Expected — list is historical | `ASSETS/.gui/active_execution.json` | **Clear session** clears server active pointer; use **Resume server session** on empty Pipeline if needed |
+| Job already running toast | Concurrent `POST …/execute` | `gui_job.json` `status: running` | Wait for job poll; open **Logs** |
+| QC fail with no guidance | Strict narrative/EDL QC | `run_meta.qc_summaries` | Read errors in gate panel; **View Logs**; **Redo from selected stage** |
+
+---
+
 ## Pipeline / CLI
 
 | Symptom | Likely cause | Inspect | Action |

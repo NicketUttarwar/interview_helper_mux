@@ -13,6 +13,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [roadmap/README.md](./roadmap/README.md) | Roadmap folder pointer |
 | [pipeline/value-analysis/README.md](./pipeline/value-analysis/README.md) | Optional: spike rubrics / moonshots (see future-proofing first) |
 | [pipeline.md](./pipeline.md) | Pipeline, operator gates, three flows |
+| [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) | Full GUI tab/modal flows and resolved UX audit |
 | [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) | Per-interview profile files |

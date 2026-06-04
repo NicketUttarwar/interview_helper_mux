@@ -38,7 +38,8 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
 | `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
 | `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
-| `PUT` | `/api/session/active` | — | **ActiveBody** | Result of `set_active_execution` | **404** if `run_id` not found |
+| `PUT` | `/api/session/active` | — | **ActiveBody** | Result of `set_active_execution`, or `{ok, active: null}` when `run_id` omitted/null | **404** if `run_id` set but not found |
+| `DELETE` | `/api/session/active` | — | — | `{ok: true, active: null}` — clears active execution | — |
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
 Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
@@ -56,7 +57,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Field | Type | Required |
 |-------|------|----------|
-| `run_id` | string | yes |
+| `run_id` | string \| null | no — omit or null to clear active execution |
 | `selected_stage_id` | string \| null | no |
 
 ---
@@ -80,10 +81,13 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
 | `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** `schema_validation_failed` if path is in `ARTIFACT_WRITE_VALIDATORS` and data fails jsonschema, **400** if not `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/fill-artifact-gaps` | — | **FillArtifactGapsBody** `{path, api_consents?}` | Same ack shape as `execute` — background `mode: stage` for producing stage | **400** unknown path, **409** job running, **404** |
+| `POST` | `/api/runs/{run_id}/extract-value-features` | — | — | `{ok, profiles_written[]}` when `value_analysis.enabled` | **400** if disabled, **404** |
 | `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
+| `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `candidates[]`, `pending_decision` | **404** unknown stage |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/reuse` | — | **StageReuseBody** `{action, source_run_id?}` | `ok`, `stage_reuse`, `copied[]` on accept | **400** ineligible source, **404** |
 | `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
 | `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
 | `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `elevenlabs_prompts_approved` | **404** missing prompts artifact |
@@ -107,7 +111,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`flow1`** \| **`flow2`** \| **`flow3`** |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`flow1`** \| **`flow1_until_preview`** \| **`flow1_polish`** \| **`flow2`** \| **`flow3`** |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |

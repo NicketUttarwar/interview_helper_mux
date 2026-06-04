@@ -19,8 +19,17 @@ const SUB_TABS: { id: PipelineSubTab; label: string }[] = [
 ];
 
 export function PipelineTab() {
-  const { runId, run, pipelineSubTab, setPipelineSubTab, setActiveTab, openActionModal, pendingActionCount } =
-    useApp();
+  const {
+    runId,
+    run,
+    pipelineSubTab,
+    setPipelineSubTab,
+    setActiveTab,
+    openActionModal,
+    pendingActionCount,
+    serverActiveRunId,
+    openRun,
+  } = useApp();
 
   if (!runId || !run) {
     return (
@@ -32,6 +41,15 @@ export function PipelineTab() {
             <strong>Executions</strong>.
           </p>
           <div className="flow-choice">
+            {serverActiveRunId ? (
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => void openRun(serverActiveRunId)}
+              >
+                Resume server session ({serverActiveRunId})
+              </button>
+            ) : null}
             <button type="button" className="btn primary" onClick={() => setActiveTab("start")}>
               Go to Start
             </button>

@@ -115,7 +115,7 @@ Relaunching the app must be sufficient to resume without re-copying audio or re-
 | Operator visibility | `gui_log.jsonl`, `gui_job.json` |
 | Pipeline artifacts | `ingest/`, `transcript/`, `understanding/`, `segments/`, `flow_*`, `vo_pickup/`, … |
 | Gates | Transcript review queue, gap report, profile JSON (see [operator-gates.md](../workflows/operator-gates.md)) |
-| Optional UI focus | `ASSETS/.gui/active_execution.json` — restored on `GET /api/session` when valid |
+| Optional UI focus | `ASSETS/.gui/active_execution.json` — restored on `GET /api/session` when valid; **Clear session** in the GUI removes this file via `DELETE /api/session/active` |
 
 Deleting an `exec_*` folder is the only supported way to discard a run; there is no separate database.
 

@@ -107,7 +107,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | `understanding/analysis_state.json` | `meta.operator_verified: true` | GUI **Interview profile** → **Mark verified**; or edit JSON on disk — [artifact-layout](../cross-cutting/artifact-layout.md#shared-analysis-wave-2) |
 | Before `topic_coverage_audit` | `.stage_done/topic_coverage_audit` absent and profile verified, or re-run from a later Flow 1 stage | Pipeline blocks with `ctx.log` at `level=action`; check `gui_log.jsonl` — [operator-gates.md](./operator-gates.md#profile-gate--flow-1-extended-build-081) |
-| Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | Open **Interview profile** (`analysis_profile`); blocked stages show profile gate hint |
+| Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | **Story** or **Profile** sub-tabs, or profile-lock CTAs on `topic_coverage_audit` — [operator-flow-audit.md](./operator-flow-audit.md) |
 
 ---
 
@@ -141,7 +141,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `run_meta.json` | `selected_flow` is `flow1`, `flow2`, or `flow3`; `selected_at` set | GUI G2 or `python tools/run_flow.py --flow flow1` (or `flow2` / `flow3`) — [operator-gates.md](./operator-gates.md#g2--flow-selection) |
+| `run_meta.json` | `selected_flow` is `flow1`, `flow2`, or `flow3`; `selected_at` set | GUI G2 (**Use planned choice** if `flow_intent` set) or `python tools/run_flow.py --flow flow1` — [operator-gates.md](./operator-gates.md#g2--flow-selection) |
 | Flow match intent | `flow1` → expect `flow_1_master/`; `flow2` → `flow_2_highlights/`; `flow3` → `flow_3_description/` only (no audio) | Re-select G2; see [artifact-layout](../cross-cutting/artifact-layout.md) |
 
 ---

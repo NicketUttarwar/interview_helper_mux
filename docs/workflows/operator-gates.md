@@ -51,7 +51,7 @@ See [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
 **Prompt operator:**
 
-1. Open GUI **Interview profile** (or edit JSON on disk)
+1. Open **Story** or **Profile (JSON)** sub-tabs in Pipeline (or the profile-lock checkpoint CTAs when `topic_coverage_audit` is locked)
 2. Adjust **themes**, **major_questions**, **style** (tone, pacing, interviewer/interviewee style)
 3. Click **Mark profile verified** (`meta.operator_verified: true`)
 4. Re-run Flow 1 from **Topic coverage** or `python tools/run_flow.py --flow flow1`

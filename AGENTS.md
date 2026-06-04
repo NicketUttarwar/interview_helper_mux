@@ -12,6 +12,7 @@
 6. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
 7. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
 8. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) — **operator** happy path (Prepare → Ship; journey kernel)
+8b. [docs/workflows/operator-flow-audit.md](docs/workflows/operator-flow-audit.md) — full GUI tab/modal flow map + resolved UX issues
 9. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end system + CLI journey
 10. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs
 11. [docs/build-out/README.md](docs/build-out/README.md) — ticket index (Waves 0–7)
@@ -20,6 +21,7 @@
 12. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — per-stage verification (extend when you add stages)
 13. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI ↔ API ↔ logs ↔ artifacts
 14. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
+14b. [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md) — reuse prior exec_* stage outputs (same source audio)
 15. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
 16. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — paths per run
 16b. [docs/cross-cutting/artifact-generation-and-validation.md](docs/cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod

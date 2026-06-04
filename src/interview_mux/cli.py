@@ -8,6 +8,7 @@ from rich.console import Console
 from interview_mux.gates import check_g1_vo, set_selected_flow
 from interview_mux.pipeline import run_analysis, run_flow1, run_flow2, run_flow3
 from interview_mux.run_context import EXEC_ID_RE, LEGACY_RUN_RE, RunContext
+from interview_mux.stage_execution_reuse import configure_stage_reuse_cli
 
 app = typer.Typer(help="interview_helper_mux pipeline")
 console = Console()
@@ -50,6 +51,16 @@ def _open_run(run_id: str | None) -> RunContext:
     return RunContext(create=True)
 
 
+def _apply_cli_reuse_options(
+    *,
+    reuse_from: str | None = None,
+    no_reuse_offers: bool | None = None,
+) -> None:
+    if no_reuse_offers is None:
+        no_reuse_offers = not sys.stdin.isatty()
+    configure_stage_reuse_cli(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers)
+
+
 def run_pipeline(
     *,
     flow: str | None = None,
@@ -58,7 +69,10 @@ def run_pipeline(
     skip_analysis: bool = False,
     from_stage: str | None = None,
     flow_from_stage: str | None = None,
+    reuse_from: str | None = None,
+    no_reuse_offers: bool | None = None,
 ) -> RunContext:
+    _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers)
     ctx = _open_run(run_id)
     console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
 
@@ -117,7 +131,16 @@ def run_pipeline(
 def analysis_cmd(
     run_id: str | None = typer.Option(None, "--run-id"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
+    reuse_from: str | None = typer.Option(
+        None, "--reuse-from", help="Auto-accept reuse from this exec_* when eligible"
+    ),
+    no_reuse_offers: bool = typer.Option(
+        False,
+        "--no-reuse-offers",
+        help="Never pause for reuse offers (default when stdin is not a TTY)",
+    ),
 ) -> None:
+    _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers or None)
     ctx = _open_run(run_id)
     console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
     run_analysis(ctx, from_stage=from_stage)
@@ -129,7 +152,16 @@ def flow_cmd(
     flow: str = typer.Option(..., "--flow", help="flow1, flow2, or flow3"),
     run_id: str | None = typer.Option(None, "--run-id"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
+    reuse_from: str | None = typer.Option(
+        None, "--reuse-from", help="Auto-accept reuse from this exec_* when eligible"
+    ),
+    no_reuse_offers: bool = typer.Option(
+        False,
+        "--no-reuse-offers",
+        help="Never pause for reuse offers (default when stdin is not a TTY)",
+    ),
 ) -> None:
+    _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers or None)
     ctx = _open_run(run_id)
     set_selected_flow(ctx, flow)
     console.print(f"[bold]Flow[/bold] {flow} on {ctx.run_id}")

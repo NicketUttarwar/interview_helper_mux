@@ -3,7 +3,7 @@ import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
-  const { run, runId, refreshRun, selectStage, executeJob } = useApp();
+  const { run, runId, refreshRun, selectStage, executeJob, showToast } = useApp();
   const recorderRef = useRef<{ media: MediaRecorder | null; chunks: Blob[] }>({
     media: null,
     chunks: [],
@@ -41,7 +41,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
       media.start();
       setRecordingLine(lineId);
     } catch {
-      /* microphone unavailable */
+      showToast("Microphone access denied or unavailable.");
     }
   };
 

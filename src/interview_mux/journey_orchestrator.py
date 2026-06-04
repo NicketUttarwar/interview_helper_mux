@@ -127,6 +127,21 @@ def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, boo
     return None
 
 
+def _next_pending_stage_ids(ctx: RunContext) -> list[str]:
+    from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+    from interview_mux.gates import get_selected_flow
+
+    order: list[str] = list(ANALYSIS_ORDER)
+    flow = get_selected_flow(ctx)
+    if flow == "flow1":
+        order.extend(FLOW1_ORDER)
+    elif flow == "flow2":
+        order.extend(FLOW2_ORDER)
+    elif flow == "flow3":
+        order.extend(FLOW3_ORDER)
+    return [sid for sid in order if not ctx.is_done(sid)]
+
+
 def _blocking(
     ctx: RunContext,
     *,
@@ -142,7 +157,10 @@ def _blocking(
         blocked = True
         message = str(job.get("message") or "Operator action required")
         stage_id = job.get("stage")
-        reason = str(stage_id or job.get("status"))
+        if job.get("needs_stage_reuse"):
+            reason = "stage_reuse"
+        else:
+            reason = str(stage_id or job.get("status"))
 
     if check_transcript_review_pending(ctx):
         blocked = True
@@ -165,6 +183,30 @@ def _blocking(
         reason = "analysis_profile"
         stage_id = "analysis_profile"
         message = NEXT_ACTION_UNDERSTAND_PROFILE
+
+    if not blocked:
+        from interview_mux.stage_execution_reuse import (
+            find_reuse_candidates,
+            pending_reuse_stage,
+            stage_reuse_offers_enabled,
+        )
+        from interview_mux.web.stages import STAGE_BY_ID
+
+        if stage_reuse_offers_enabled():
+            for sid in _next_pending_stage_ids(ctx):
+                if pending_reuse_stage(ctx, sid):
+                    blocked = True
+                    reason = "stage_reuse"
+                    stage_id = sid
+                    info = STAGE_BY_ID.get(sid)
+                    title = info.title if info else sid
+                    candidates = find_reuse_candidates(ctx, sid)
+                    src = candidates[0].run_id if candidates else "a prior run"
+                    message = (
+                        f"{title} can reuse outputs from {src}. "
+                        "Choose reuse or run fresh before continuing."
+                    )
+                    break
 
     if not blocked and handoff_between_stages_enabled():
         handoff_sid = pending_handoff_stage(ctx)

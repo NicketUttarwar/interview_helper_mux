@@ -8,9 +8,10 @@ import {
 } from "../../utils";
 
 export function ValueFeaturesPanel() {
-  const { run } = useApp();
+  const { run, config, showToast } = useApp();
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [missing, setMissing] = useState(false);
+  const [extracting, setExtracting] = useState(false);
 
   useEffect(() => {
     if (!run) return;
@@ -63,13 +64,48 @@ export function ValueFeaturesPanel() {
       {missing ? (
         <>
           <p className="hint">
-            No <code>{VALUE_FEATURES_PATH}</code> yet. With{" "}
-            <code>value_analysis.enabled</code> in config, run:
+            No <code>{VALUE_FEATURES_PATH}</code> yet.
+            {config?.value_analysis_enabled
+              ? " Extract metrics from the GUI or CLI."
+              : " Enable value_analysis in config first."}
           </p>
-          <p className="hint">
+          {config?.value_analysis_enabled ? (
+            <button
+              type="button"
+              className="btn primary sm"
+              disabled={extracting}
+              onClick={() => {
+                if (!run) return;
+                setExtracting(true);
+                void api<{ ok?: boolean; profiles_written?: string[] }>(
+                  `/api/runs/${run.run_id}/extract-value-features`,
+                  { method: "POST" },
+                )
+                  .then((res) => {
+                    showToast(
+                      res.profiles_written?.length
+                        ? `Value features updated (${res.profiles_written.join(", ")}).`
+                        : "Value features extract finished.",
+                    );
+                    return api<Record<string, unknown>>(
+                      `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(VALUE_FEATURES_PATH)}`,
+                    );
+                  })
+                  .then(setData)
+                  .then(() => setMissing(false))
+                  .catch((e) =>
+                    showToast(e instanceof Error ? e.message : "Extract failed"),
+                  )
+                  .finally(() => setExtracting(false));
+              }}
+            >
+              Extract value features
+            </button>
+          ) : null}
+          <p className="hint muted">
+            CLI:{" "}
             <code>
-              python tools/extract_value_features.py --run-id {run?.run_id} --profile
-              all
+              python tools/extract_value_features.py --run-id {run?.run_id} --profile all
             </code>
           </p>
         </>

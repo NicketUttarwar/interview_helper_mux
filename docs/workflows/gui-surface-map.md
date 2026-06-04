@@ -18,22 +18,27 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 |------|---------|----------|
 | Header | Compact status bar | Execution, focus stage, job (human labels), updated |
 | Header | **Command bar** | All tabs: running / blocked / handoff / next CTA from `journey` |
+| Below command bar | **Execution status banner** | Running / API consent / blocked / last job error — complements command bar |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; refresh on tab focus |
-| **Pipeline** | Stage rail + sub-tabs | **Stage \| Timeline \| Profile \| Files** — primary operator flow |
+| **Pipeline** | Stage rail + sub-tabs | **Stage \| Story \| Timeline \| Profile (JSON) \| Files \| Engineering** — primary operator flow |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
 | Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
-| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers — auto-open on `action_required` |
+| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers, stage reuse — auto-open on `action_required`; **always** selects blocking stage (including on Logs tab) via `findPendingFocusStage` |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
 
 **API consent:** Before `POST …/execute`, GUI prompts once per provider per browser session; optional persist to `ASSETS/.gui/api_consent.json`. Backend `runner.start` rejects execute when required providers are not granted (`job.status: needs_operator`).
 
-**Clear session:** Explicit control in header menu — stops job poll and clears active run (replaces old “Executions” header link that called `goHome()`).
+**Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`.
+
+**Stage reuse:** When `journey_ui.enable_stage_reuse_offers` is true (default), modal offers reuse before execute; **Reuse** copies outputs then auto-advances via **Run next**; **Run fresh** declines then runs the stage.
+
+**Flow intent:** Optional at Start (`flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
 
 ---
 
@@ -64,9 +69,11 @@ Browsing executions while another run is active does **not** stop job/log pollin
 | Sub-tab | Content | When visible |
 |---------|---------|--------------|
 | **Stage** | Title, description, **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
+| **Story** | Story Board — themes, investigations, **Lock story for podcast edit** | When analysis workspace exists |
 | **Timeline** | NLE waveform / segment editor | After segment classification (empty state otherwise) |
 | **Profile** | Analysis profile form | When profile stage exists / unlocked |
 | **Files** | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
+| **Engineering** | LLM call record index and editor | Power-user audit path |
 
 Gate/checkpoint panels render in the **operator action modal**, not inline on Stage.
 
@@ -104,7 +111,8 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | Health | `GET /api/health` | — | — |
 | Paths / port for UI | `GET /api/config` | — | reads `config` + repo; includes `llm_routing_stage_ids` from `web/stages.py` |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
-| Set active run / stage focus | `PUT /api/session/active` | — | may touch session store under `.gui` (implementation detail) |
+| Set active run / stage focus | `PUT /api/session/active` `{ run_id?, selected_stage_id? }` | — | `ASSETS/.gui/active_execution.json`; null `run_id` clears |
+| Clear active run | `DELETE /api/session/active` | — | removes active execution pointer |
 | Browse input audio | `GET /api/assets` | — | scans `ASSETS/` (skips `executions`, `.gui`) — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
 | List runs | `GET /api/runs` | — | summarizes each `run_meta.json` under `executions_root` |
 | Create run from asset | `POST /api/runs` | `gui_log.jsonl` (`setup`) | creates `ASSETS/executions/exec_*`, `run_meta.json`, dirs |
