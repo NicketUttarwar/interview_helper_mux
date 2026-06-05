@@ -21,7 +21,7 @@ export function HandoffPanel() {
   return (
     <div className="panel handoff-panel">
       <div className="panel-head">
-        <h3>Outputs from this step</h3>
+        <h3>Review AI-generated outputs</h3>
         <button
           type="button"
           className="btn ghost sm"

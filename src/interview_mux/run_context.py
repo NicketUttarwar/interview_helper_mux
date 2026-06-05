@@ -65,7 +65,14 @@ class RunContext:
     def path(self, *parts: str) -> Path:
         return self.run_dir.joinpath(*parts)
 
-    def write_json(self, rel: str, data: Any, *, stage_key: str | None = None) -> Path:
+    def write_json(
+        self,
+        rel: str,
+        data: Any,
+        *,
+        stage_key: str | None = None,
+        skip_handoff: bool = False,
+    ) -> Path:
         if isinstance(data, dict):
             from interview_mux.prompt_validation import validate_artifact_write
 
@@ -76,9 +83,10 @@ class RunContext:
                 )
         p = self.path(rel)
         fs_write_json(p, data)
-        from interview_mux.custom_run_handoff import record_custom_run_write
+        if not skip_handoff:
+            from interview_mux.custom_run_handoff import record_custom_run_write
 
-        record_custom_run_write(self, rel, stage_key=stage_key)
+            record_custom_run_write(self, rel, stage_key=stage_key)
         return p
 
     def read_json(self, rel: str) -> Any:

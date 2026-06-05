@@ -30,11 +30,13 @@ Go deeper: [transcript-review.md](../pipeline/transcription/transcript-review.md
 
 ## Phase: Understand
 
-**Goal:** Shape what the interview is about.
+**Goal:** Let AI analyze the interview, then review populated outputs.
 
-1. Run **Run understanding analysis** (speaker roles through optimal questions).
-2. Open **Story** tab — edit themes, questions, tone; resolve open investigations.
-3. For **full master** intent: **Lock story for podcast edit** (profile verified).
+1. Run **Run understanding analysis** (speaker roles through optimal questions). The pipeline pauses after each LLM stage with **Review AI-generated outputs** — acknowledge before the next stage runs.
+2. After analysis completes, open **Story** or **Profile (JSON)** — review AI-generated themes, questions, and tone; edit only if needed.
+3. For **full master** (Flow 1): **Review AI story profile** — mark profile verified before extended Flow 1 stages.
+
+Empty scaffold JSON at run create is not shown for verification — checkpoints unlock only after artifacts are populated.
 
 Go deeper: [analysis-memory.md](../cross-cutting/analysis-memory.md).
 
@@ -95,7 +97,7 @@ Must match `journey_orchestrator.py` constants (tested in `tests/test_journey_or
 | NEXT_ACTION_PREPARE_G0 | Review STT clips (low confidence first) |
 | NEXT_ACTION_PREPARE_RUN | Prepare transcript for review |
 | NEXT_ACTION_UNDERSTAND_RUN | Run understanding analysis |
-| NEXT_ACTION_UNDERSTAND_PROFILE | Lock story in Story Board |
+| NEXT_ACTION_UNDERSTAND_PROFILE | Review AI story profile |
 | NEXT_ACTION_UNDERSTAND_INVESTIGATIONS | Resolve open questions in Story Board |
 | NEXT_ACTION_COMPLETE_G1 | Record pickup lines |
 | NEXT_ACTION_COMPLETE_G2 | Confirm output type |

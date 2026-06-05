@@ -124,6 +124,7 @@ export interface StageInfo {
   editable?: string[];
   artifacts_present?: string[];
   artifacts_status?: Record<string, "pending" | "partial" | "complete">;
+  handoff_paths?: string[];
   audio_outputs_present?: string[];
   api_providers?: string[];
 }
@@ -161,6 +162,7 @@ export interface RunData {
   transcript_review_clear?: boolean;
   profile_verified?: boolean;
   profile_gate_pending?: boolean;
+  profile_ready_for_review?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
   analysis_complete?: boolean;

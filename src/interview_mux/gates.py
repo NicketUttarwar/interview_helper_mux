@@ -89,6 +89,10 @@ def check_profile_gate_pending(ctx: RunContext) -> bool:
         return False
     if is_operator_profile_verified(ctx):
         return False
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+
+    if not analysis_profile_ready_for_review(ctx):
+        return False
     return not ctx.is_done("topic_coverage_audit")
 
 

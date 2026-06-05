@@ -34,7 +34,7 @@ from interview_mux.run_context import RunContext
 NEXT_ACTION_PREPARE_G0 = "Review STT clips (low confidence first)"
 NEXT_ACTION_PREPARE_RUN = "Prepare transcript for review"
 NEXT_ACTION_UNDERSTAND_RUN = "Run understanding analysis"
-NEXT_ACTION_UNDERSTAND_PROFILE = "Lock story in Story Board"
+NEXT_ACTION_UNDERSTAND_PROFILE = "Review AI story profile"
 NEXT_ACTION_UNDERSTAND_INVESTIGATIONS = "Resolve open questions in Story Board"
 NEXT_ACTION_COMPLETE_G1 = "Record pickup lines"
 NEXT_ACTION_COMPLETE_G2 = "Confirm output type"
@@ -68,7 +68,7 @@ def refresh_journey_meta(ctx: RunContext) -> dict[str, Any]:
     meta["operator_phase"] = phase
     meta["operator_phase_updated_at"] = datetime.now(timezone.utc).isoformat()
     meta["journey_milestones"] = milestones
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
     return meta
 
 
@@ -79,7 +79,7 @@ def emit_journey_milestone(ctx: RunContext, name: str) -> None:
         milestones = {}
     milestones[name] = True
     meta["journey_milestones"] = milestones
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
     log_journey(ctx, "milestone", f"Journey milestone: {name}", stage="journey")
 
 
@@ -357,9 +357,8 @@ def _next_action(
             return NEXT_ACTION_PREPARE_G0
         return NEXT_ACTION_PREPARE_RUN
     if phase == "understand":
-        if flow_intent == "flow1" and not milestones.get("profile_verified"):
-            if check_profile_gate_pending(ctx) or _open_investigation_count(ctx) == 0:
-                return NEXT_ACTION_UNDERSTAND_PROFILE
+        if check_profile_gate_pending(ctx):
+            return NEXT_ACTION_UNDERSTAND_PROFILE
         if _open_investigation_count(ctx) > 0:
             return NEXT_ACTION_UNDERSTAND_INVESTIGATIONS
         return NEXT_ACTION_UNDERSTAND_RUN

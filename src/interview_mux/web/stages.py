@@ -63,8 +63,8 @@ TRANSCRIPT_REVIEW_GATE = StageInfo(
 
 ANALYSIS_PROFILE_STAGE = StageInfo(
     "analysis_profile",
-    "Lock story for podcast edit",
-    "Themes, major questions, tone, and pacing. Verify when ready — feeds ranking, narrative QC, and sound design.",
+    "Review AI story profile",
+    "After understanding analysis, review AI-generated themes, major questions, tone, and pacing. Verify when ready — feeds ranking, narrative QC, and sound design.",
     "gate",
     (
         "understanding/analysis_state.json",

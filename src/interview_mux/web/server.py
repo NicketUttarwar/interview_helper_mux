@@ -435,6 +435,9 @@ def create_app() -> FastAPI:
         tr_pending = check_transcript_review_pending(ctx)
         profile_verified = is_operator_profile_verified(ctx)
         profile_gate_pending = check_profile_gate_pending(ctx)
+        from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+
+        profile_ready = analysis_profile_ready_for_review(ctx)
         stages = _build_stage_list(
             ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending
         )
@@ -454,6 +457,7 @@ def create_app() -> FastAPI:
             "transcript_review_clear": not tr_pending,
             "profile_verified": profile_verified,
             "profile_gate_pending": profile_gate_pending,
+            "profile_ready_for_review": profile_ready,
             "g1_missing": g1_missing,
             "g1_clear": not g1_missing,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
@@ -1431,10 +1435,14 @@ def _build_stage_list(
                 s["status"] = "done"
         elif sid == "analysis_profile":
             ensure_analysis_workspace(ctx)
-            verified = (ctx.read_json(ANALYSIS_STATE_PATH).get("meta") or {}).get(
-                "operator_verified"
-            )
-            s["status"] = "done" if verified else "action_required"
+            from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+
+            if profile_verified:
+                s["status"] = "done"
+            elif not analysis_profile_ready_for_review(ctx):
+                s["status"] = "locked"
+            else:
+                s["status"] = "action_required"
         elif sid == "g1_vo_pickup":
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 s["status"] = "locked"
@@ -1474,12 +1482,17 @@ def _build_stage_list(
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status
+            from interview_mux.custom_run_handoff import handoff_paths_for_stage
 
             s["artifacts_present"] = [a for a in info.artifacts if ctx.artifact_exists(a)]
             s["artifacts_status"] = {
                 a: artifact_status(a, ctx) for a in info.artifacts if a and not a.endswith("/")
             }
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
+            if ctx.is_done(sid):
+                handoff = handoff_paths_for_stage(ctx, sid)
+                if handoff:
+                    s["handoff_paths"] = handoff
         s["operator_phase"] = stage_operator_phase(sid)
     return _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
 

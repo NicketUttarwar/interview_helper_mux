@@ -153,14 +153,23 @@ def _build_context_index_from_plans(run_id: str) -> dict[str, Any]:
 
 def ensure_analysis_workspace(ctx: RunContext) -> None:
     """Create memory files if missing (call before first LLM analysis stage)."""
+    scaffold = {"skip_handoff": True}
     if not ctx.artifact_exists(ANALYSIS_STATE_PATH):
-        ctx.write_json(ANALYSIS_STATE_PATH, default_analysis_state(ctx.run_id))
+        ctx.write_json(
+            ANALYSIS_STATE_PATH,
+            default_analysis_state(ctx.run_id),
+            **scaffold,
+        )
     if not ctx.artifact_exists(INVESTIGATION_QUEUE_PATH):
-        ctx.write_json(INVESTIGATION_QUEUE_PATH, default_investigation_queue())
+        ctx.write_json(INVESTIGATION_QUEUE_PATH, default_investigation_queue(), **scaffold)
     if not ctx.artifact_exists(CONTEXT_INDEX_PATH):
-        ctx.write_json(CONTEXT_INDEX_PATH, _build_context_index_from_plans(ctx.run_id))
+        ctx.write_json(
+            CONTEXT_INDEX_PATH,
+            _build_context_index_from_plans(ctx.run_id),
+            **scaffold,
+        )
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
-        ctx.write_json(ORCHESTRATION_PATH, default_orchestration())
+        ctx.write_json(ORCHESTRATION_PATH, default_orchestration(), **scaffold)
     if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
         plan = default_sound_design_plan()
         sdp_errors = validate_sound_design_plan(plan)
@@ -168,7 +177,7 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
             raise RuntimeError(
                 "default_sound_design_plan() failed schema validation: " + "; ".join(sdp_errors)
             )
-        ctx.write_json(SOUND_DESIGN_PLAN_PATH, plan)
+        ctx.write_json(SOUND_DESIGN_PLAN_PATH, plan, **scaffold)
     (ctx.path("understanding", "stage_runs")).mkdir(parents=True, exist_ok=True)
 
 

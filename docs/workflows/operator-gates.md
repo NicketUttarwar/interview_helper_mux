@@ -15,7 +15,7 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 | **Checkpoint banner** | Amber strip when your input is required |
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
 | **API consent** | Modal before first use of OpenAI, AWS Transcribe, or ElevenLabs in the session; per-provider grant; revocable via **Revoke API** |
-| **File handoff (custom run)** | After each stage that writes **per-interview descriptive JSON** (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Outputs from this step** lists those files; edit in **File editor**, then **Acknowledge & continue** before the next automated stage. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
+| **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Review AI-generated outputs** lists those files; edit in **File editor** if needed, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
 
 See [gui-surface-map.md](./gui-surface-map.md) and [api-reference.md](./api-reference.md).
 
@@ -47,12 +47,12 @@ See [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
 **When:** Before `topic_coverage_audit` (first Flow 1 extended stage), when `run_meta.json` has `selected_flow: flow1`.
 
-**Trigger:** `understanding/analysis_state.json` → `meta.operator_verified` is not `true`, and `.stage_done/topic_coverage_audit` is missing.
+**Trigger:** Understanding analysis has completed (`optimal_questions` done and `analysis_state` populated), `meta.operator_verified` is not `true`, and `.stage_done/topic_coverage_audit` is missing. The profile gate stays **locked** until AI analysis populates the profile — not at run create.
 
 **Prompt operator:**
 
-1. Open **Story** or **Profile (JSON)** sub-tabs in Pipeline (or the profile-lock checkpoint CTAs when `topic_coverage_audit` is locked)
-2. Adjust **themes**, **major_questions**, **style** (tone, pacing, interviewer/interviewee style)
+1. Open **Story** or **Profile (JSON)** sub-tabs in Pipeline (or the profile checkpoint when `analysis_profile` is `action_required`)
+2. **Review** AI-generated **themes**, **major_questions**, **style** (tone, pacing, interviewer/interviewee style); edit only if needed
 3. Click **Mark profile verified** (`meta.operator_verified: true`)
 4. Re-run Flow 1 from **Topic coverage** or `python tools/run_flow.py --flow flow1`
 

@@ -156,6 +156,26 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     return "complete"
 
 
+def artifact_ready_for_review(rel_path: str, ctx: RunContext) -> bool:
+    """True when artifact exists and passes schema + semantic completeness."""
+    return artifact_status(rel_path, ctx) == "complete"
+
+
+def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
+    """True after understanding analysis populated the interview profile."""
+    if not ctx.is_done("optimal_questions"):
+        return False
+    if not ctx.artifact_exists("understanding/analysis_state.json"):
+        return False
+    raw = ctx.read_json("understanding/analysis_state.json")
+    if not isinstance(raw, dict):
+        return False
+    completion = raw.get("completion") or {}
+    if completion.get("analysis_ready"):
+        return True
+    return artifact_ready_for_review("understanding/analysis_state.json", ctx)
+
+
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     out = copy.deepcopy(base)
     for key, val in patch.items():

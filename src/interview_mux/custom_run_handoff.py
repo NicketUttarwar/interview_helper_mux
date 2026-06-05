@@ -92,7 +92,7 @@ def _write_meta(ctx: RunContext, meta: dict[str, Any]) -> None:
     from datetime import datetime, timezone
 
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
 
 
 def handoff_acknowledged(ctx: RunContext, stage_id: str) -> bool:
@@ -154,6 +154,13 @@ def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     return present or paths
 
 
+def handoff_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
+    """Custom-run paths for a stage that are complete and ready for operator review."""
+    from interview_mux.artifact_completeness import artifact_ready_for_review
+
+    return [p for p in custom_run_paths_for_stage(ctx, stage_id) if artifact_ready_for_review(p, ctx)]
+
+
 def pending_handoff_stage(ctx: RunContext) -> str | None:
     """Earliest completed stage (pipeline order) with unacknowledged custom-run handoff."""
     if not handoff_between_stages_enabled():
@@ -165,10 +172,8 @@ def pending_handoff_stage(ctx: RunContext) -> str | None:
             continue
         if handoff_acknowledged(ctx, sid):
             continue
-        paths = custom_run_paths_for_stage(ctx, sid)
-        if not paths:
-            continue
-        if any(ctx.artifact_exists(p) for p in paths):
+        paths = handoff_paths_for_stage(ctx, sid)
+        if paths:
             return sid
     return None
 
@@ -178,13 +183,13 @@ def handoff_review_message(ctx: RunContext, stage_id: str) -> str:
 
     info = STAGE_BY_ID.get(stage_id)
     title = info.title if info else stage_id
-    paths = custom_run_paths_for_stage(ctx, stage_id)
+    paths = handoff_paths_for_stage(ctx, stage_id)
     names = ", ".join(paths[:4])
     if len(paths) > 4:
         names += f", +{len(paths) - 4} more"
     return (
-        f"{title} updated the custom run profile ({names}). "
-        "Review outputs in the GUI, then acknowledge before the next stage."
+        f"{title} produced AI outputs ({names}). "
+        "Review in the GUI, then acknowledge before the next stage."
     )
 
 
@@ -194,7 +199,12 @@ def require_handoff_clear(ctx: RunContext) -> None:
     if not sid:
         return
     msg = handoff_review_message(ctx, sid)
-    ctx.log(msg, level="action", stage=sid, detail={"handoff": custom_run_paths_for_stage(ctx, sid)})
+    ctx.log(
+        msg,
+        level="action",
+        stage=sid,
+        detail={"handoff": handoff_paths_for_stage(ctx, sid)},
+    )
     raise SystemExit(msg)
 
 
@@ -208,8 +218,15 @@ def pause_after_stage_if_needed(ctx: RunContext, stage_name: str) -> None:
         return
     if handoff_acknowledged(ctx, stage_name):
         return
-    paths = custom_run_paths_for_stage(ctx, stage_name)
-    if not paths or not any(ctx.artifact_exists(p) for p in paths):
+    paths = handoff_paths_for_stage(ctx, stage_name)
+    if not paths:
+        raw_paths = custom_run_paths_for_stage(ctx, stage_name)
+        if raw_paths and any(ctx.artifact_exists(p) for p in raw_paths):
+            ctx.log(
+                f"{stage_name} outputs still partial — skipping handoff until artifacts are complete.",
+                level="warning",
+                stage=stage_name,
+            )
         return
     require_handoff_clear(ctx)
 

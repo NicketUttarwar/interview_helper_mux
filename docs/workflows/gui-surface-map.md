@@ -71,7 +71,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 | **Stage** | Title, description, **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
 | **Story** | Story Board — themes, investigations, **Lock story for podcast edit** | When analysis workspace exists |
 | **Timeline** | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification (empty state otherwise) |
-| **Profile** | Analysis profile form | When profile stage exists / unlocked |
+| **Profile** | Analysis profile form | When `profile_ready_for_review` or profile verified; **locked** with waiting message until understanding analysis completes |
 | **Files** | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
 | **Engineering** | LLM call record index and editor | Power-user audit path |
 
@@ -100,7 +100,7 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
 | `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`). |
 
-**Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Custom-run descriptive JSON writes trigger **handoff** (`detail.handoff` paths via `mark_done()` / `custom_run_handoff`); batch runs pause until **Acknowledge & continue** (`POST …/handoff-ack`). Config: `journey_ui.require_handoff_between_stages`.
+**Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Custom-run descriptive JSON writes trigger **handoff** only when artifacts are **complete** (`detail.handoff` / stage `handoff_paths`); batch runs pause until **Acknowledge & continue** (`POST …/handoff-ack`). Config: `journey_ui.require_handoff_between_stages`.
 
 ---
 
@@ -123,7 +123,7 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 
 | User-visible (sidebar / title from `stages.py`) | Stage `id` | Primary APIs | Log file | Primary artifacts (read/write) |
 |--------------------------------------------------|------------|--------------|----------|----------------------------------|
-| Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*` |
+| Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*`; `profile_ready_for_review`; per-stage `handoff_paths` (complete artifacts only) |
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
 | Timeline (source + assembly views, waveform, trim, transcript strip) | *(view)* | `GET /api/runs/{id}/timeline`, `GET …/assembly-timeline`, `GET …/waveform`, `GET …/transcript` | — | `segments/manifest.json`, `segments/nle_edits.json`, `flow_1_master/edl.json`, `ingest/waveform_peaks.json`, `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
 | NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/batch`, `POST …/nle/split`, `POST …/nle/snap-boundary` | `gui_log.jsonl` (`stage: nle`, cascade on **Apply timeline edits**) | `segments/nle_edits.json`; **`POST …/execute` `mode: nle_apply`** with optional `nle_apply_mode` (`trim_only` \| `structural` \| `full_refresh`) rebuilds selection (when structural), EDL, and `assembly_preview.wav` |
@@ -158,7 +158,7 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` | `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `.stage_done/transcript_review` |
-| **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`, editable JSON paths in response |
+| **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
 | **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
 

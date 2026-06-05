@@ -26,19 +26,33 @@ export function filterCustomRunHandoffPaths(paths: string[]): string[] {
   return paths.filter(isCustomRunArtifactPath);
 }
 
+function filterCompleteHandoffPaths(stage: StageInfo, paths: string[]): string[] {
+  const custom = filterCustomRunHandoffPaths(paths);
+  if (stage.handoff_paths?.length) {
+    const serverSet = new Set(stage.handoff_paths);
+    return custom.filter((p) => serverSet.has(p));
+  }
+  const statusMap = stage.artifacts_status || {};
+  return custom.filter((p) => statusMap[p] === "complete");
+}
+
 export function getHandoffPathsLocal(
   stage: StageInfo,
   logTail?: LogEntry[],
 ): string[] {
+  if (stage.handoff_paths?.length) {
+    return filterCustomRunHandoffPaths(stage.handoff_paths);
+  }
   for (let i = (logTail || []).length - 1; i >= 0; i--) {
     const e = logTail![i];
     if (e.stage !== stage.id) continue;
     const d = parseLogDetail(e.detail);
     if (Array.isArray(d?.handoff) && d.handoff.length) {
-      return filterCustomRunHandoffPaths(d.handoff as string[]);
+      return filterCompleteHandoffPaths(stage, d.handoff as string[]);
     }
   }
-  return filterCustomRunHandoffPaths(
+  return filterCompleteHandoffPaths(
+    stage,
     [...(stage.artifacts_present || []), ...(stage.artifacts || [])].filter(
       (p, i, arr) => Boolean(p) && !p.endsWith("/") && arr.indexOf(p) === i,
     ),
@@ -76,7 +90,7 @@ export function continueHintForStage(stageId: string): string {
     case "g1_vo_pickup":
       return "Record or upload every pickup line listed above.";
     case "analysis_profile":
-      return "Mark the interview profile verified in the panel above.";
+      return "Review the AI-generated profile above, then mark verified when it matches your intent.";
     case "g2_flow_select":
       return "Select your deliverable flow below (or use your planned choice).";
     case "elevenlabs_prompt_craft":
@@ -150,7 +164,7 @@ export function actionSummaryText(
   }
   const handoffStage = findHandoffStage(run);
   if (handoffStage) {
-    return `Review outputs from ${handoffStage.title}.`;
+    return `Review AI outputs from ${handoffStage.title}.`;
   }
   return null;
 }
@@ -165,7 +179,9 @@ export function checkpointContinueEnabled(
   }
   if (stage.status === "action_required") {
     if (stage.id === "g1_vo_pickup") return Boolean(run.g1_clear);
-    if (stage.id === "analysis_profile") return Boolean(run.profile_verified);
+    if (stage.id === "analysis_profile") {
+      return Boolean(run.profile_verified) && Boolean(run.profile_ready_for_review);
+    }
     return false;
   }
   if (stage.status === "done") {

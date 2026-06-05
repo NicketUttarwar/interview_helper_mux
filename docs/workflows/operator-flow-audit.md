@@ -45,7 +45,7 @@ See [operator-journey.md](./operator-journey.md) for CTA strings and milestones.
 |----|-------|------------|
 | 1 | Wrong/empty modal on Logs tab | Always `selectStage(findPendingFocusStage)` when modal opens |
 | 2 | Clear session left server active run | `DELETE /api/session/active` + local clear |
-| 3 | Profile lock hint only | CTAs: Open Story Board / Open profile |
+| 3 | Profile lock hint only | CTAs: Open Story Board / Open profile; profile gate **locked** until understanding analysis completes |
 | 4 | Status banner unused | Mounted in `AppShell` below command bar |
 | 5 | Listen silent no-op | Inline `<audio>` fallback + toast |
 | 6 | Mic errors swallowed | Toast on `getUserMedia` failure |

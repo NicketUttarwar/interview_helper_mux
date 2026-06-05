@@ -12,6 +12,22 @@ from interview_mux.custom_run_handoff import (
     require_handoff_clear,
 )
 from interview_mux.run_context import RunContext
+from run_fixtures import init_run_meta_for_test, patch_executions_root
+
+COMPLETE_SPEAKERS = {
+    "speakers": [
+        {
+            "speaker_id": "spk_0",
+            "role": "interviewer",
+            "confidence": 0.95,
+        },
+        {
+            "speaker_id": "spk_1",
+            "role": "interviewee",
+            "confidence": 0.92,
+        },
+    ]
+}
 
 
 def test_is_custom_run_artifact() -> None:
@@ -20,35 +36,38 @@ def test_is_custom_run_artifact() -> None:
 
 
 def test_record_custom_run_write_clears_ack(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "ASSETS" / "executions").mkdir(parents=True)
+    patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext(create=True)
-    ctx.init_run_meta("ASSETS/input/interview.wav")
+    init_run_meta_for_test(ctx)
     meta = ctx.read_json("run_meta.json")
     meta["handoff_ack"] = {"speaker_roles": "2026-01-01T00:00:00Z"}
-    ctx.write_json("run_meta.json", meta)
-    ctx.path("understanding/speakers.json").parent.mkdir(parents=True, exist_ok=True)
-    ctx.path("understanding/speakers.json").write_text("{}", encoding="utf-8")
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     record_custom_run_write(ctx, "understanding/speakers.json", stage_key="speaker_roles")
     assert not handoff_acknowledged(ctx, "speaker_roles")
 
 
-def test_pending_handoff_after_mark_done(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "ASSETS" / "executions").mkdir(parents=True)
+def test_pending_handoff_not_triggered_for_empty_artifact(tmp_path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext(create=True)
     ctx.path("understanding/speakers.json").parent.mkdir(parents=True, exist_ok=True)
     ctx.path("understanding/speakers.json").write_text("{}", encoding="utf-8")
+    ctx.mark_done("speaker_roles")
+    assert pending_handoff_stage(ctx) is None
+
+
+def test_pending_handoff_after_mark_done_with_complete_artifact(tmp_path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext(create=True)
+    ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")
     assert pending_handoff_stage(ctx) == "speaker_roles"
 
 
 def test_require_handoff_clear_raises(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "ASSETS" / "executions").mkdir(parents=True)
+    patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext(create=True)
-    ctx.path("understanding/speakers.json").parent.mkdir(parents=True, exist_ok=True)
-    ctx.path("understanding/speakers.json").write_text("{}", encoding="utf-8")
+    ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")
     with pytest.raises(SystemExit):
         require_handoff_clear(ctx)

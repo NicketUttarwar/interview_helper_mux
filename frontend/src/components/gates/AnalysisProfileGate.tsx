@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 
 export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
   const { run, runId, refreshRun, showToast, setPipelineSubTab } = useApp();
+  const ready = Boolean(run?.profile_ready_for_review);
   const verified = stage.status === "done" || Boolean(run?.profile_verified);
   const flow1Block =
     run?.selected_flow === "flow1" && run?.profile_gate_pending;
@@ -19,17 +20,26 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
     }
   };
 
+  if (!ready && !verified) {
+    return (
+      <p className="muted">
+        Understanding analysis has not finished yet. Run the analysis pipeline first —
+        profile verification unlocks after AI populates themes and story fields.
+      </p>
+    );
+  }
+
   return (
     <>
       <p className="hint">
-        Review themes, major questions, and style in the{" "}
-        <strong>Interview profile</strong> tab (or Story Board). Mark verified when the
-        profile matches your intent for this recording.
+        Review AI-generated themes, major questions, and style in the{" "}
+        <strong>Story</strong> tab or <strong>Profile (JSON)</strong>. Mark verified when
+        the profile matches your intent for this recording.
       </p>
       <p className="muted">
         {verified
           ? "Profile marked verified."
-          : "Not verified yet — AI stages still treat profile as draft."}
+          : "Not verified yet — you can still edit before verifying."}
       </p>
       {flow1Block ? (
         <p className="hint">

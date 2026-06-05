@@ -807,8 +807,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (
       pendingActionCount > 0 &&
       !userDismissedActionRef.current &&
-      !actionModalOpen
+      !actionModalOpen &&
+      run
     ) {
+      const focusId = findPendingFocusStage(run, mergedApiGrants());
+      const focusStage = focusId
+        ? run.stages.find((s) => s.id === focusId)
+        : undefined;
+      if (focusStage?.status === "locked") {
+        return;
+      }
       setActionModalOpen(true);
       void focusPendingStage();
     }
@@ -816,7 +824,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
     }
-  }, [pendingActionCount, actionModalOpen, run, focusPendingStage]);
+  }, [pendingActionCount, actionModalOpen, run, focusPendingStage, mergedApiGrants]);
 
   useEffect(() => {
     if (activeTab === "executions") void refreshHome();

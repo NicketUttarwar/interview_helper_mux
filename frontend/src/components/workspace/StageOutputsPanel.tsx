@@ -37,6 +37,7 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
   const rows = useMemo(() => artifactRows(stage), [stage]);
   const audioOutputs = stage.audio_outputs_present || [];
   const apiProviders = stage.api_providers || [];
+  const stageDone = stage.status === "done";
 
   const playUrl = (rel: string) =>
     runId ? `/api/runs/${runId}/audio?path=${encodeURIComponent(rel)}` : "";
@@ -66,7 +67,10 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
 
       {rows.length > 0 ? (
         <ul className="artifact-checklist">
-          {rows.map(({ path, status, editable }) => (
+          {rows.map(({ path, status, editable }) => {
+            const canOpen = status === "complete" || (stageDone && status === "partial");
+            const canFillGaps = stageDone && status === "partial" && Boolean(runId);
+            return (
             <li
               key={path}
               className={`artifact-checklist-item${status === "pending" ? " missing" : " present"}${status === "partial" ? " partial" : ""}`}
@@ -75,12 +79,15 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
                 {status === "complete" ? "✓" : status === "partial" ? "◐" : "○"}
               </span>
               <code className="artifact-path">{escapeHtml(path)}</code>
-              {editable ? <span className="badge-editable">editable</span> : null}
-              {status === "partial" ? (
+              {editable && canOpen ? <span className="badge-editable">editable</span> : null}
+              {status === "partial" && !stageDone ? (
+                <span className="hint sm">waiting for AI</span>
+              ) : null}
+              {status === "partial" && stageDone ? (
                 <span className="badge-partial">partial</span>
               ) : null}
               <span className="artifact-checklist-actions">
-                {status !== "pending" ? (
+                {canOpen ? (
                   <>
                     <button
                       type="button"
@@ -98,7 +105,7 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
                     </button>
                   </>
                 ) : null}
-                {status === "partial" && runId ? (
+                {canFillGaps ? (
                   <button
                     type="button"
                     className="btn ghost sm"
@@ -125,7 +132,8 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
                 ) : null}
               </span>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : null}
 

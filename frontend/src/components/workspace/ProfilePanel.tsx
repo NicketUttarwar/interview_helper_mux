@@ -55,10 +55,22 @@ export function ProfilePanel() {
   }, [run]);
 
   useEffect(() => {
-    if (show && selectedStage?.id === "analysis_profile") void loadProfile();
-  }, [show, selectedStage?.id, loadProfile]);
+    if (show && run?.profile_ready_for_review) void loadProfile();
+  }, [show, run?.profile_ready_for_review, loadProfile]);
 
   if (!show) return null;
+
+  if (!run?.profile_ready_for_review && !run?.profile_verified) {
+    return (
+      <div className="panel profile-panel">
+        <h3>Interview profile</h3>
+        <p className="muted">
+          AI is preparing the interview profile. Complete transcript review, run
+          understanding analysis, then review and verify the populated profile here.
+        </p>
+      </div>
+    );
+  }
 
   const saveProfile = async () => {
     if (!run) return;
@@ -113,9 +125,9 @@ export function ProfilePanel() {
         {verified ? <span className="profile-badge">Verified</span> : null}
       </div>
       <p className="hint">
-        Per-interview themes, major questions, and style. Saved to{" "}
-        <code>understanding/analysis_state.json</code>. Edit here or in the file
-        editor below.
+        AI-generated themes, major questions, and style. Saved to{" "}
+        <code>understanding/analysis_state.json</code>. Review here, edit if needed,
+        then mark verified.
       </p>
       <div className="profile-grid">
         <label className="profile-field">
