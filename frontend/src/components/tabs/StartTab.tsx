@@ -1,25 +1,25 @@
 import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { formatBytes } from "../../utils";
-import { WorkflowGuide } from "../WorkflowGuide";
+import { InfoTooltip } from "../InfoTooltip";
 
 type FlowIntent = "flow1" | "flow2" | "flow3";
 
-const INTENT_CARDS: { id: FlowIntent; title: string; blurb: string }[] = [
+const INTENT_CARDS: { id: FlowIntent; title: string; tooltip: string }[] = [
   {
     id: "flow1",
-    title: "Full master podcast",
-    blurb: "Complete episode with VO bridges, sound design, and mastered WAV.",
+    title: "Full podcast",
+    tooltip: "Complete episode with VO bridges, sound design, and mastered WAV.",
   },
   {
     id: "flow2",
-    title: "Highlight reel",
-    blurb: "Up to five clips, montage SFX, ~60s–3min mastered WAV.",
+    title: "Highlights",
+    tooltip: "Up to five clips with montage SFX (~60s–3min mastered WAV).",
   },
   {
     id: "flow3",
-    title: "Show description only",
-    blurb: "Third-person blurb for directories — no audio mux.",
+    title: "Description",
+    tooltip: "Third-person show blurb for directories — no audio output.",
   },
 ];
 
@@ -30,17 +30,18 @@ export function StartTab() {
 
   return (
     <main className="view tab-view">
-      <WorkflowGuide />
-      <section className="panel hero">
-        <h2>Source audio</h2>
-        <p className="lead">
-          Input files live under <code>ASSETS/</code>. Pick what you are making, then start a new
-          execution (<code>exec_001_…</code>).
-        </p>
+      <section className="panel hero hero-compact">
+        <h2>
+          New execution
+          <InfoTooltip text="Place .wav files in ASSETS/, pick your output type, then start." />
+        </h2>
       </section>
       {intentEnabled ? (
-        <section className="panel">
-          <h3>What are you making?</h3>
+        <section className="panel panel-compact">
+          <h3>
+            Output type
+            <InfoTooltip text="You can change this later at the Complete step (G2)." />
+          </h3>
           <div className="flow-intent-cards">
             {INTENT_CARDS.map((c) => (
               <button
@@ -48,27 +49,26 @@ export function StartTab() {
                 type="button"
                 className={`flow-intent-card${flowIntent === c.id ? " selected" : ""}`}
                 data-testid={`flow-intent-${c.id}`}
+                title={c.tooltip}
                 onClick={() => setFlowIntent(c.id)}
               >
                 <strong>{c.title}</strong>
-                <span>{c.blurb}</span>
+                <InfoTooltip text={c.tooltip} label={`About ${c.title}`} />
               </button>
             ))}
           </div>
         </section>
       ) : null}
-      <section className="panel">
+      <section className="panel panel-compact">
         <div className="panel-head">
-          <h3>Input audio</h3>
+          <h3>Source audio</h3>
           <button type="button" className="btn ghost sm" onClick={() => void refreshHome()}>
             Refresh
           </button>
         </div>
         <div className="asset-list">
           {!assets.length ? (
-            <p className="empty-state">
-              No input audio in ASSETS/ (outside executions/). Add .wav files and refresh.
-            </p>
+            <p className="empty-state">No audio in ASSETS/. Add .wav files and refresh.</p>
           ) : (
             assets.map((f) => (
               <div
@@ -84,9 +84,7 @@ export function StartTab() {
               >
                 <div>
                   <strong>{f.name}</strong>
-                  <div className="asset-meta">
-                    {f.path} · {formatBytes(f.size_bytes)}
-                  </div>
+                  <div className="asset-meta">{formatBytes(f.size_bytes)}</div>
                 </div>
                 <button
                   type="button"
@@ -97,7 +95,7 @@ export function StartTab() {
                     void startRun(f.path, intentEnabled ? flowIntent : undefined);
                   }}
                 >
-                  New execution
+                  Start
                 </button>
               </div>
             ))

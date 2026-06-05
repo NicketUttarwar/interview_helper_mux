@@ -7,7 +7,6 @@ import { stageTitleForId } from "../utils/checkpoint";
 export function StatusHeader() {
   const {
     run,
-    selectedStage,
     alertsMuted,
     setAlertsMuted,
     revokeAllApiConsents,
@@ -27,20 +26,13 @@ export function StatusHeader() {
       job?.stage?.replace(/_/g, " ") ||
       job?.mode;
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
-      return {
-        text: runningStage ? `Running: ${runningStage}` : "Running",
-        cls: "running",
-      };
+      return { text: runningStage ? `Running: ${runningStage}` : "Running", cls: "running" };
     }
     if (job?.status === "gate" || job?.status === "needs_operator") {
       return { text: "Needs you", cls: "action" };
     }
-    if (job?.status === "error") {
-      return { text: "Failed", cls: "error" };
-    }
-    if (job?.status === "complete") {
-      return { text: "Complete", cls: "idle" };
-    }
+    if (job?.status === "error") return { text: "Failed", cls: "error" };
+    if (job?.status === "complete") return { text: "Complete", cls: "idle" };
     return { text: "Idle", cls: "idle" };
   }, [run, jobRunning]);
 
@@ -51,25 +43,17 @@ export function StatusHeader() {
       <div className="status-header status-header-compact">
         <div className="status-grid status-grid-compact">
           <div className="status-cell">
-            <span className="status-label">Execution</span>
+            <span className="status-label">Run</span>
             <span className="status-value">
               {run
                 ? run.meta?.execution_number
-                  ? `#${run.meta.execution_number} · ${run.run_id}`
+                  ? `#${run.meta.execution_number}`
                   : run.run_id
-                : "None — start or resume from tabs below"}
+                : "None"}
             </span>
           </div>
           <div className="status-cell">
-            <span className="status-label">Focus</span>
-            <span className="status-value">
-              {(jobRunning || run?.job?.status === "running") && run?.job?.stage
-                ? stageTitleForId(run.stages, run.job.stage) || selectedStage?.title
-                : selectedStage?.title || "—"}
-            </span>
-          </div>
-          <div className="status-cell">
-            <span className="status-label">Job</span>
+            <span className="status-label">Status</span>
             <span className={`status-value ${jobLabel.cls}`}>{jobLabel.text}</span>
           </div>
           <div className="status-cell">

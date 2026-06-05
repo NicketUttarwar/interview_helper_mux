@@ -25,14 +25,14 @@ export function DeliverableCard() {
   };
 
   return (
-    <footer className="deliverable-card panel">
+    <footer id="workflow-deliverable" className="deliverable-card panel">
       <h4>Deliverable</h4>
       {previewPath && phase !== "ship" ? (
         <div className="deliverable-row">
           <span>Assembly preview</span>
           <audio controls src={playUrl(previewPath)} />
-          <button type="button" className="btn ghost" onClick={() => void onPreviewListened()}>
-            I&apos;ve listened — continue to sound
+          <button type="button" className="btn ghost sm" onClick={() => void onPreviewListened()}>
+            Continue to sound
           </button>
         </div>
       ) : null}

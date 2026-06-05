@@ -1,7 +1,6 @@
 import { useApp } from "../context/AppContext";
+import { WorkflowStepBar } from "./WorkflowStepBar";
 import { StatusHeader } from "./StatusHeader";
-import { OperatorCommandBar } from "./OperatorCommandBar";
-import { ExecutionStatusBanner } from "./ExecutionStatusBanner";
 import { AppTabs } from "./AppTabs";
 import { LogStrip } from "./LogStrip";
 import { StartTab } from "./tabs/StartTab";
@@ -15,9 +14,8 @@ export function AppShell() {
 
   return (
     <div className="operator-app">
+      <WorkflowStepBar />
       <StatusHeader />
-      <OperatorCommandBar />
-      <ExecutionStatusBanner />
       <AppTabs />
       <div className="operator-body app-tab-content">
         {activeTab === "start" ? <StartTab /> : null}

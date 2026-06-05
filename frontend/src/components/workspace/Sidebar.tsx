@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { useJourney } from "../../hooks/useJourney";
 import { findHandoffStage } from "../../utils/checkpoint";
@@ -16,11 +16,11 @@ const PHASE_ORDER: OperatorPhase[] = [
 
 const PHASE_TITLES: Record<OperatorPhase, string> = {
   prepare: "Prepare",
-  understand: "Understand",
+  understand: "Analyze",
   complete: "Complete",
-  create: "Create",
-  polish: "Polish",
-  ship: "Ship",
+  create: "Build",
+  polish: "Sound",
+  ship: "Export",
 };
 
 function groupStages(stages: StageInfo[]): Map<OperatorPhase, StageInfo[]> {
@@ -46,7 +46,8 @@ export function Sidebar() {
     config,
     openActionModal,
   } = useApp();
-  const { phase, runExecuteHint, isBlocked, blocking } = useJourney(run);
+  const { phase, isBlocked, blocking } = useJourney(run);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const journeyEnabled = config?.journey_ui?.enabled !== false;
 
   const grouped = useMemo(
@@ -58,8 +59,7 @@ export function Sidebar() {
 
   const handoffPending = Boolean(findHandoffStage(run));
   const actionRequired = run.stages.some((s) => s.status === "action_required");
-  const needsOperator =
-    actionRequired || handoffPending || isBlocked;
+  const needsOperator = actionRequired || handoffPending || isBlocked;
   const running = jobRunning;
 
   const openCheckpoint = () => {
@@ -72,34 +72,9 @@ export function Sidebar() {
     openActionModal();
   };
 
-  const runPhaseCta = () => {
-    if (needsOperator) {
-      openCheckpoint();
-      return;
-    }
-    if (!runExecuteHint) return;
-    void executeJob(runExecuteHint.body);
-  };
-
-  const sidebarHint = running
-    ? "Pipeline is running — wait for it to finish or check Logs."
-    : needsOperator
-      ? blocking?.message ||
-        (handoffPending
-          ? "Review custom run outputs and acknowledge before the next stage."
-          : "Complete the open checkpoint before running more stages.")
-      : null;
-
-  const primaryLabel = running
-    ? "Running…"
-    : needsOperator
-      ? "Open required step"
-      : runExecuteHint?.label || null;
-
   return (
     <aside className="sidebar panel">
-      <h3>Pipeline</h3>
-      <p className="input-label">{run.meta?.input_audio_path || ""}</p>
+      <h3>Stages</h3>
       {journeyEnabled ? (
         <div className="stage-list-grouped">
           {PHASE_ORDER.map((p) => {
@@ -152,49 +127,50 @@ export function Sidebar() {
         </ol>
       )}
       <div className="sidebar-actions">
-        {journeyEnabled && primaryLabel ? (
-          <button
-            type="button"
-            className="btn primary block"
-            disabled={running}
-            onClick={runPhaseCta}
-          >
-            {primaryLabel}
-          </button>
-        ) : null}
         <button
           type="button"
           className="btn primary block"
           disabled={running}
+          title={
+            needsOperator
+              ? blocking?.message || "Complete the open checkpoint first"
+              : "Run the next pipeline stage"
+          }
           onClick={() => {
             if (needsOperator) openCheckpoint();
             else void runNextStage();
           }}
         >
-          {needsOperator ? "Continue checkpoint" : "Run next stage"}
+          {running ? "Running…" : needsOperator ? "Open checkpoint" : "Run next"}
         </button>
         <button
           type="button"
-          className="btn ghost block"
-          disabled={running || actionRequired}
-          title={
-            actionRequired
-              ? "Finish the open checkpoint first"
-              : "Run all pending analysis stages"
-          }
-          onClick={() => void executeJob({ mode: "analysis" })}
+          className="btn ghost block sm sidebar-advanced-toggle"
+          onClick={() => setShowAdvanced((v) => !v)}
         >
-          Run all analysis
+          {showAdvanced ? "Hide advanced" : "Advanced"}
         </button>
-        <button
-          type="button"
-          className="btn danger ghost block"
-          disabled={running}
-          onClick={() => void redoFromStage()}
-        >
-          Redo from selected stage
-        </button>
-        {sidebarHint ? <p className="sidebar-hint hint">{sidebarHint}</p> : null}
+        {showAdvanced ? (
+          <div className="sidebar-advanced">
+            <button
+              type="button"
+              className="btn ghost block"
+              disabled={running || actionRequired}
+              title="Run all pending analysis stages"
+              onClick={() => void executeJob({ mode: "analysis" })}
+            >
+              Run all analysis
+            </button>
+            <button
+              type="button"
+              className="btn danger ghost block"
+              disabled={running}
+              onClick={() => void redoFromStage()}
+            >
+              Redo from selected
+            </button>
+          </div>
+        ) : null}
       </div>
     </aside>
   );

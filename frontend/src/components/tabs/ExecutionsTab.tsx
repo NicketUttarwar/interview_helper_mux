@@ -6,36 +6,25 @@ export function ExecutionsTab() {
 
   return (
     <main className="view tab-view">
-      <section className="panel hero">
-        <h2>Previous executions</h2>
-        <p className="lead">
-          Resume any run without stopping the active session. Switch to Pipeline to
-          continue the current execution.
-        </p>
-      </section>
-      <section className="panel">
+      <section className="panel panel-compact">
         <div className="panel-head">
-          <h3>Executions</h3>
+          <h2>Previous runs</h2>
           <button type="button" className="btn ghost sm" onClick={() => void refreshHome()}>
             Refresh
           </button>
         </div>
         <div className="runs-list">
           {!runs.length ? (
-            <p className="empty-state">No executions yet. Start one from the Start tab.</p>
+            <p className="empty-state">No runs yet.</p>
           ) : (
             runs.map((r) => {
               const prog = r.progress
-                ? `${r.progress.done}/${r.progress.total} stages`
-                : "";
-              const pct =
-                r.progress && r.progress.total > 0
-                  ? Math.round((100 * r.progress.done) / r.progress.total)
-                  : 0;
-              const lastLog = r.last_log?.message
-                ? escapeHtml(r.last_log.message).slice(0, 120)
+                ? `${r.progress.done}/${r.progress.total}`
                 : "";
               const isActive = r.run_id === runId;
+              const lastLog = r.last_log?.message
+                ? escapeHtml(r.last_log.message).slice(0, 80)
+                : "";
               return (
                 <div
                   key={r.run_id}
@@ -54,15 +43,10 @@ export function ExecutionsTab() {
                     </strong>
                     <div className="asset-meta">
                       {formatTs(r.updated_at || r.created_at)}
-                    </div>
-                    <div className="asset-meta">{r.input_audio_path || ""}</div>
-                    <div className="asset-meta">
-                      {prog} ({pct}%)
+                      {prog ? ` · ${prog} stages` : ""}
                       {r.selected_flow ? ` · ${r.selected_flow}` : ""}
                     </div>
-                    {lastLog ? (
-                      <div className="asset-meta muted">Last: {lastLog}</div>
-                    ) : null}
+                    {lastLog ? <div className="asset-meta muted">{lastLog}</div> : null}
                   </div>
                   <button
                     type="button"

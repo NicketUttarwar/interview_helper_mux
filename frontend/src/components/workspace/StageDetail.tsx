@@ -2,16 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { stageDescriptionParts } from "../../utils/stageDescription";
+import { InfoTooltip } from "../InfoTooltip";
 import { HandoffPanel } from "./HandoffPanel";
 import { StageOutputsPanel } from "./StageOutputsPanel";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
-  const { run, config, selectedStage, openActionModal, pendingActionCount } =
-    useApp();
+  const { run, config, selectedStage, openActionModal, pendingActionCount } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
-  const [showFullDescription, setShowFullDescription] = useState(false);
 
   const llmStageIds = useMemo(
     () => new Set(config?.llm_routing_stage_ids || []),
@@ -26,22 +25,19 @@ export function StageDetail() {
     [selectedStage],
   );
 
-  useEffect(() => {
-    setShowFullDescription(false);
-  }, [selectedStage?.id]);
+  const tooltipText = useMemo(() => {
+    if (!descParts.summary && !descParts.detail) return "";
+    return descParts.detail ? `${descParts.summary} ${descParts.detail}` : descParts.summary;
+  }, [descParts]);
 
   useEffect(() => {
     if (!run || !selectedStage || !llmStageIds.has(selectedStage.id)) {
       setLlmAttempts([]);
       return;
     }
-    void api<{ attempts: LlmRoutingAttempt[] }>(
-      `/api/runs/${run.run_id}/llm-routing`,
-    )
+    void api<{ attempts: LlmRoutingAttempt[] }>(`/api/runs/${run.run_id}/llm-routing`)
       .then((data) => {
-        setLlmAttempts(
-          (data.attempts || []).filter((a) => a.stage === selectedStage.id),
-        );
+        setLlmAttempts((data.attempts || []).filter((a) => a.stage === selectedStage.id));
       })
       .catch(() => setLlmAttempts([]));
   }, [run, selectedStage, llmStageIds]);
@@ -50,7 +46,6 @@ export function StageDetail() {
     return (
       <div className="panel stage-detail">
         <h2>Select a stage</h2>
-        <p className="hint">Choose a step in the sidebar — use the command bar for what to do next.</p>
       </div>
     );
   }
@@ -59,7 +54,7 @@ export function StageDetail() {
     selectedStage.status === "done"
       ? "Complete"
       : selectedStage.status === "action_required"
-        ? "Needs your input"
+        ? "Needs input"
         : selectedStage.status === "locked"
           ? "Locked"
           : "Pending";
@@ -70,26 +65,12 @@ export function StageDetail() {
   return (
     <div className="panel stage-detail">
       <div className="stage-detail-head">
-        <h2>{selectedStage.title}</h2>
+        <h2>
+          {selectedStage.title}
+          {tooltipText ? <InfoTooltip text={tooltipText} label="About this step" /> : null}
+        </h2>
         <span className={`stage-status-pill ${selectedStage.status}`}>{statusLabel}</span>
-        <span className="stage-id-hint muted">{selectedStage.id}</span>
       </div>
-
-      <p className="lead">{descParts.summary}</p>
-      {descParts.detail ? (
-        <>
-          {showFullDescription ? (
-            <p className="hint stage-description-detail">{descParts.detail}</p>
-          ) : null}
-          <button
-            type="button"
-            className="btn ghost sm stage-description-toggle"
-            onClick={() => setShowFullDescription((v) => !v)}
-          >
-            {showFullDescription ? "Less detail" : "More about this step"}
-          </button>
-        </>
-      ) : null}
 
       {selectedStage.status === "action_required" || pendingActionCount > 0 ? (
         <div className="stage-detail-actions">
@@ -107,10 +88,10 @@ export function StageDetail() {
         selectedStage.id === "transcript_review_build") &&
       selectedStage.artifacts_present?.includes("transcript/full.json") ? (
         <section className="stage-transcript-dock">
-          <h3 className="stage-outputs-title">Transcript editor</h3>
-          <p className="hint">
-            Word-level sync with source audio — click to seek, double-click to edit inline.
-          </p>
+          <h3 className="stage-outputs-title">
+            Transcript
+            <InfoTooltip text="Click words to seek audio. Double-click to edit." />
+          </h3>
           <TranscriptDockViewer />
         </section>
       ) : null}
@@ -133,17 +114,7 @@ export function StageDetail() {
                 <span className="muted">
                   {r.model_tier ? `${r.model_tier}` : ""}
                   {r.shard_count != null ? ` · shards ${r.shard_count}` : ""}
-                  {r.shard_plan_source ? ` · plan ${r.shard_plan_source}` : ""}
-                  {(r.truncation_flags || []).length
-                    ? ` · trunc ${(r.truncation_flags || []).join(", ")}`
-                    : ""}
-                  {(r.schema_errors || []).length
-                    ? ` · schema ${(r.schema_errors || []).length}`
-                    : ""}
                 </span>
-                {r.arbiter_reason ? (
-                  <p className="hint llm-routing-reason">{r.arbiter_reason}</p>
-                ) : null}
               </li>
             ))}
           </ul>
