@@ -39,6 +39,12 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
             raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
         ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="nle")
     write_json(ctx.path(NLE_REL), data)
+    from interview_mux.operator_snapshots import persist_operator_nle
+
+    persist_operator_nle(ctx, source="nle_save")
+
+
+MIN_TRIM_DURATION_MS = 300
 
 
 def nle_has_operator_edits(nle: dict[str, Any]) -> bool:
@@ -52,6 +58,86 @@ def nle_has_operator_edits(nle: dict[str, Any]) -> bool:
         if "start_ms" in ov or "end_ms" in ov or ov.get("split_into"):
             return True
     return False
+
+
+def nle_edit_categories(nle: dict[str, Any]) -> dict[str, bool]:
+    """Classify NLE edits for apply-cascade routing."""
+    overrides = nle.get("segment_overrides") or {}
+    order = nle.get("sequence_order") or []
+    structural = bool(order)
+    has_trim = False
+    for ov in overrides.values():
+        if ov.get("excluded") or ov.get("mark_redo") or ov.get("split_into"):
+            structural = True
+        if "start_ms" in ov or "end_ms" in ov:
+            has_trim = True
+    return {
+        "structural": structural,
+        "trim_only": has_trim and not structural,
+        "has_any": nle_has_operator_edits(nle),
+    }
+
+
+def manifest_segment_bounds(
+    ctx: RunContext,
+    segment_id: str,
+) -> tuple[int, int]:
+    manifest = ctx.read_json("segments/manifest.json")
+    for seg in manifest.get("segments") or []:
+        if seg.get("segment_id") == segment_id:
+            return int(seg["start_ms"]), int(seg["end_ms"])
+    nle = load_nle(ctx)
+    ov = (nle.get("segment_overrides") or {}).get(segment_id) or {}
+    if "start_ms" in ov and "end_ms" in ov:
+        return int(ov["start_ms"]), int(ov["end_ms"])
+    raise ValueError(f"Segment not found: {segment_id}")
+
+
+def clamp_trim_bounds(
+    *,
+    manifest_start: int,
+    manifest_end: int,
+    start_ms: int,
+    end_ms: int,
+    min_duration_ms: int = MIN_TRIM_DURATION_MS,
+) -> tuple[int, int]:
+    start = max(manifest_start, min(start_ms, manifest_end - min_duration_ms))
+    end = min(manifest_end, max(end_ms, manifest_start + min_duration_ms))
+    if end - start < min_duration_ms:
+        raise ValueError(f"Trim must be at least {min_duration_ms}ms.")
+    return start, end
+
+
+def snap_boundary_for_segment(
+    ctx: RunContext,
+    *,
+    segment_id: str,
+    ms: int,
+    edge: str,
+) -> int:
+    from interview_mux.audio_timeline import snap_cut_to_word_boundary
+    from interview_mux.config import merged_config
+
+    manifest_start, manifest_end = manifest_segment_bounds(ctx, segment_id)
+    if not ctx.artifact_exists("transcript/full.json"):
+        return ms
+    transcript = ctx.read_json("transcript/full.json")
+    words = [
+        w
+        for w in (transcript.get("words") or [])
+        if isinstance(w, dict)
+        and int(w.get("end_ms", 0)) > manifest_start
+        and int(w.get("start_ms", 0)) < manifest_end
+    ]
+    mix_cfg = (merged_config().get("mix") or {})
+    margin = int(mix_cfg.get("word_boundary_margin_ms", 50))
+    max_shift = int(mix_cfg.get("word_boundary_max_shift_ms", 400))
+    snapped = snap_cut_to_word_boundary(ms, words, margin_ms=margin, max_shift_ms=max_shift)
+    if edge == "start":
+        snapped = max(manifest_start, min(snapped, manifest_end - MIN_TRIM_DURATION_MS))
+    else:
+        snapped = max(manifest_start + MIN_TRIM_DURATION_MS, min(snapped, manifest_end))
+    return snapped
 
 
 def _excluded_entries(selection: dict[str, Any]) -> list[dict[str, str]]:

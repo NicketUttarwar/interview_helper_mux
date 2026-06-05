@@ -221,6 +221,9 @@ export interface TimelineSegment {
   text?: string;
   _mark_redo?: boolean;
   _excluded?: boolean;
+  _manifest_start_ms?: number;
+  _manifest_end_ms?: number;
+  topic_tags?: string[];
 }
 
 export interface VoLine {
@@ -237,6 +240,70 @@ export interface NleState {
   segment_overrides?: Record<string, Record<string, unknown>>;
   playhead_ms?: number;
   zoom?: number;
+  markers?: Array<Record<string, unknown>>;
+}
+
+export type TimelineMode = "source" | "assembly";
+
+export interface AssemblySpeechClip {
+  type: "speech";
+  segment_id: string;
+  timeline_start_ms: number;
+  duration_ms: number;
+  source_start_ms: number;
+  source_end_ms: number;
+  text?: string;
+  speaker_role?: string;
+  segment_type?: string;
+}
+
+export interface AssemblyVoClip {
+  type: "vo_pickup";
+  line_id: string;
+  targets_segment_id: string;
+  placement?: string;
+  timeline_start_ms: number;
+  duration_ms: number;
+  recorded_file?: string | null;
+  source_path?: string | null;
+}
+
+export interface AssemblyTransitionClip {
+  type: "transition";
+  after_segment_id?: string;
+  before_segment_id?: string;
+  timeline_start_ms: number;
+  duration_ms: number;
+  text?: string;
+}
+
+export type AssemblyClip = AssemblySpeechClip | AssemblyVoClip | AssemblyTransitionClip;
+
+export interface AssemblyChapter {
+  title: string;
+  anchor_segment_id: string;
+  timeline_start_ms: number;
+}
+
+export interface AssemblyTimelineData {
+  ready: boolean;
+  reason?: string;
+  timeline_duration_ms?: number;
+  ordered_segment_ids?: string[];
+  clips?: AssemblyClip[];
+  chapters?: AssemblyChapter[];
+  warnings?: {
+    missing_vo_files?: string[];
+    gap_targets_not_in_selection?: string[];
+  };
+  preview_audio?: string | null;
+}
+
+export interface WaveformPeaksData {
+  source_path: string;
+  window_ms: number;
+  duration_ms: number;
+  peaks: Array<{ t_ms: number; peak: number }>;
 }
 
 export interface TimelineData {
@@ -265,6 +332,37 @@ export interface TranscriptReviewState {
   pending_count?: number;
   low_confidence_threshold?: number;
   ready?: boolean;
+}
+
+export interface TranscriptFocusRange {
+  start_ms: number;
+  end_ms: number;
+  label?: string;
+}
+
+export interface TranscriptWord {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  speaker_id?: string;
+  confidence?: number;
+  corrected?: boolean;
+}
+
+export interface TranscriptSpeaker {
+  id: string;
+  role?: string;
+}
+
+export interface TranscriptState {
+  ready?: boolean;
+  text?: string;
+  words: TranscriptWord[];
+  duration_ms?: number;
+  speakers?: TranscriptSpeaker[];
+  audio_path?: string | null;
+  low_confidence_threshold?: number;
+  review_applied_at?: string;
 }
 
 export interface AnalysisState {
@@ -345,10 +443,12 @@ export interface ExecuteBody {
     | "flow1_until_preview"
     | "flow1_polish"
     | "flow2"
-    | "flow3";
+    | "flow3"
+    | "nle_apply";
   stage?: string;
   from_stage?: string;
   until_stage?: string;
+  nle_full_refresh?: boolean;
   api_consents?: Record<string, boolean>;
 }
 

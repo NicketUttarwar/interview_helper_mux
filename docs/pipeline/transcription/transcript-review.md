@@ -35,6 +35,9 @@ Each pronunciation item from AWS Transcribe includes `alternatives[0].confidence
 | `transcript/review_queue.json` | Ranked chunks with timings, text, clip paths |
 | `transcript/review_clips/{chunk_id}.wav` | Pre-cut audio per chunk |
 | `transcript/corrections.json` | Operator edits `{ chunk_id: { text, reviewed } }` |
+| `operator/transcript_corrected.json` | Independent corrected transcript snapshot (updated on each edit) |
+| `operator/transcript_corrected.txt` | Plain-text corrected transcript for reuse |
+| `operator/manifest.json` | Index of all operator snapshots in this execution |
 | `.stage_done/transcript_review_build` | Prep complete |
 | `.stage_done/transcript_review` | Operator signed off |
 

@@ -5,6 +5,7 @@ from interview_mux.analysis_memory import default_sound_design_plan
 from interview_mux.run_context import RunContext
 from interview_mux.stages import understanding
 from interview_mux.stages.sound_design_vo_finalize import run_sound_design_vo_finalize
+from run_fixtures import minimal_gap_line, minimal_gap_report
 
 
 def _write_test_wav(path: Path) -> None:
@@ -56,15 +57,13 @@ def test_vo_finalize_sets_measured_duration(tmp_path):
     _write_test_wav(pickup / "line_001.wav")
     ctx.write_json(
         "understanding/gap_report.json",
-        {
-            "interviewer_lines": [
-                {
-                    "line_id": "line_001",
-                    "targets_segment_id": "seg_001",
-                    "delivery": "record",
-                }
-            ]
-        },
+        minimal_gap_report(
+            minimal_gap_line(
+                line_id="line_001",
+                targets_segment_id="seg_001",
+                delivery="record",
+            )
+        ),
     )
     plan = default_sound_design_plan()
     plan["assets"] = [

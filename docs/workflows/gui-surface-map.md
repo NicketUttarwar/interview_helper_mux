@@ -125,12 +125,12 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 |--------------------------------------------------|------------|--------------|----------|----------------------------------|
 | Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*` |
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
-| Timeline (waveform, segments, VO lines) | *(view)* | `GET /api/runs/{id}/timeline` | — | `segments/manifest.json`, `segments/nle_edits.json` (via NLE), `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
-| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split` | `gui_log.jsonl` (`stage: nle`, `full_master_ranking`, `edl_flow1` on apply) | `segments/nle_edits.json`; re-run **`full_master_ranking`** or **`edl_flow1`** to affect `selection.json` / `edl.json` |
+| Timeline (source + assembly views, waveform, trim, transcript strip) | *(view)* | `GET /api/runs/{id}/timeline`, `GET …/assembly-timeline`, `GET …/waveform`, `GET …/transcript` | — | `segments/manifest.json`, `segments/nle_edits.json`, `flow_1_master/edl.json`, `ingest/waveform_peaks.json`, `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
+| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split`, `POST …/nle/snap-boundary` | `gui_log.jsonl` (`stage: nle`, cascade on **Apply timeline edits**) | `segments/nle_edits.json`; **`POST …/execute` `mode: nle_apply`** rebuilds selection (when structural), EDL, and `assembly_preview.wav` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | Editable JSON; Zod pre-save + server `validate_artifact_write`; optional `invalidate_from` — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
 | Fill artifact gaps | *(partial checklist row)* | `POST /api/runs/{id}/fill-artifact-gaps` `{path}` | `gui_log.jsonl` | Re-runs producing LLM stage when artifact is partial |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3`, `stage`, `from_stage` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `nle_full_refresh` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---

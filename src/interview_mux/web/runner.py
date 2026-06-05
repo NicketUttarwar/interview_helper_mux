@@ -17,6 +17,7 @@ from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
 from interview_mux.operator_quality import preclean_acknowledged, stage_requires_preclean_ack
+from interview_mux.nle_state import load_nle, nle_edit_categories
 from interview_mux.pipeline import (
     ANALYSIS_ORDER,
     FLOW1_ORDER,
@@ -73,6 +74,19 @@ class JobRunner:
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
         return merge_consents(load_persisted_consents(), api_consents)
 
+    def _nle_apply_stages(self, ctx: RunContext, *, full_refresh: bool) -> list[str]:
+        nle = load_nle(ctx)
+        cats = nle_edit_categories(nle)
+        if not cats["has_any"]:
+            return []
+        stages: list[str] = []
+        if cats["structural"] or full_refresh:
+            stages.append("full_master_ranking")
+        if full_refresh:
+            stages.extend(["transitions", "edl_narrative_audit"])
+        stages.extend(["edl_flow1", "assembly_preview"])
+        return stages
+
     def _stages_for_execute(
         self,
         ctx: RunContext,
@@ -81,7 +95,10 @@ class JobRunner:
         stage: str | None,
         from_stage: str | None,
         until_stage: str | None = None,
+        nle_full_refresh: bool = False,
     ) -> list[str]:
+        if mode == "nle_apply":
+            return self._nle_apply_stages(ctx, full_refresh=nle_full_refresh)
         if mode == "stage" and stage:
             return [stage]
         if mode in ("analysis", "analysis_until_g0"):
@@ -125,6 +142,7 @@ class JobRunner:
         stage: str | None,
         from_stage: str | None,
         until_stage: str | None = None,
+        nle_full_refresh: bool = False,
         api_consents: dict[str, bool] | None,
     ) -> str | None:
         """Return error message when required providers are not consented."""
@@ -135,6 +153,7 @@ class JobRunner:
             stage=stage,
             from_stage=from_stage,
             until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
         )
         missing: list[str] = []
         for sid in stage_ids:
@@ -158,6 +177,7 @@ class JobRunner:
         flow: str | None = None,
         from_stage: str | None = None,
         until_stage: str | None = None,
+        nle_full_refresh: bool = False,
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
@@ -171,6 +191,7 @@ class JobRunner:
             stage=stage,
             from_stage=from_stage,
             until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
             api_consents=api_consents,
         )
         stage_ids = self._stages_for_execute(
@@ -179,6 +200,7 @@ class JobRunner:
             stage=stage,
             from_stage=from_stage,
             until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
         )
         reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
         if reuse_pending:
@@ -242,6 +264,7 @@ class JobRunner:
                             stage=stage,
                             from_stage=from_stage,
                             until_stage=until_stage,
+                            nle_full_refresh=nle_full_refresh,
                         )
                         for p in missing_consents(sid, self._resolve_consents(api_consents))
                     ],
@@ -320,6 +343,23 @@ class JobRunner:
                         until_stage=until_stage,
                         preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow3"),
                     )
+                    refresh_journey_meta(ctx)
+                elif mode == "nle_apply":
+                    set_selected_flow(ctx, "flow1")
+                    stages = self._nle_apply_stages(ctx, full_refresh=nle_full_refresh)
+                    if not stages:
+                        raise ValueError("No NLE edits to apply.")
+                    if "full_master_ranking" in stages:
+                        self.invalidate_from(run_id, "full_master_ranking")
+                    self.invalidate_from(run_id, "edl_flow1")
+                    ctx.log(
+                        f"Applying NLE edits: {', '.join(stages)}",
+                        level="info",
+                        stage="nle",
+                    )
+                    for sid in stages:
+                        ctx.log(f"NLE apply — running {sid}", level="info", stage=sid)
+                        run_single_stage(ctx, sid)
                     refresh_journey_meta(ctx)
                 else:
                     raise ValueError(f"Unknown mode: {mode}")

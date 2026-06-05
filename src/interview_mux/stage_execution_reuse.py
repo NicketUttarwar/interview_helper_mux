@@ -67,7 +67,13 @@ class StageReuseOfferPending(Exception):
 _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "audio_preclean": ("preclean/lineage.json", "preclean/provider.json", "preclean/isolated.wav"),
     "ingest": ("ingest/normalized.wav", "ingest/checksums.json"),
-    "transcribe": ("transcript/full.json", "transcript/speakers.json"),
+    "transcribe": (
+        "transcript/full.json",
+        "transcript/speakers.json",
+        "operator/transcript_corrected.json",
+        "operator/transcript_corrected.txt",
+        "operator/transcript_corrections.json",
+    ),
     "transcript_review_build": (
         "transcript/review_queue.json",
         "glob:transcript/review_clips/*.wav",
@@ -110,6 +116,18 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "master_flow2": ("flow_2_highlights/master.wav",),
     "podcast_show_description": ("flow_3_description/show_description.json",),
     "export_show_description": ("flow_3_description/show_description.md",),
+}
+
+
+# Copied when present but not required for reuse eligibility.
+_STAGE_REUSE_OPTIONAL: dict[str, frozenset[str]] = {
+    "transcribe": frozenset(
+        {
+            "operator/transcript_corrected.json",
+            "operator/transcript_corrected.txt",
+            "operator/transcript_corrections.json",
+        }
+    ),
 }
 
 
@@ -239,9 +257,12 @@ def prior_run_has_reusable_stage(source_ctx: RunContext, stage_id: str) -> bool:
     if stage_id == "vo_ingest":
         return source_ctx.is_done("vo_ingest")
     specs = stage_reuse_output_specs(stage_id)
+    optional = _STAGE_REUSE_OPTIONAL.get(stage_id, frozenset())
     if not specs:
         return True
     for spec in specs:
+        if spec in optional:
+            continue
         if spec.startswith("glob:"):
             expanded = _expand_spec_paths_fixed(spec, source_ctx)
             if stage_id.startswith("elevenlabs_sfx"):

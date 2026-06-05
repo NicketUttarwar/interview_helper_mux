@@ -27,7 +27,27 @@ def test_resolve_model_collate_floor_for_high_severity():
     assert resolved.model_id
 
 
-def test_tiers_resolve_to_distinct_models():
+def test_tiers_resolve_to_distinct_models(monkeypatch):
+    from interview_mux import model_registry
+
+    def fake_merged_config():
+        return {
+            "models": {
+                "tiers": {
+                    "economy": "gpt-4o-mini",
+                    "standard": "gpt-4o",
+                    "flagship": "o3",
+                },
+                "stages": {
+                    "speaker_roles": {"tier": "economy"},
+                    "boundary_detection": {"tier": "standard"},
+                    "missing_framing": {"tier": "flagship"},
+                },
+            },
+            "secrets": {},
+        }
+
+    monkeypatch.setattr(model_registry, "merged_config", fake_merged_config)
     economy = resolve_model("speaker_roles", "primary")
     standard = resolve_model("boundary_detection", "primary")
     flagship = resolve_model("missing_framing", "primary")

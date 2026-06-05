@@ -11,7 +11,7 @@ def test_repo_root_exists():
 def test_defaults_have_models():
     cfg = load_defaults()
     assert "models" in cfg
-    assert cfg["models"]["stages"]["speaker_roles"]["tier"] == "economy"
+    assert cfg["models"]["stages"]["speaker_roles"]["tier"] == "flagship"
     assert cfg["models"]["tiers"]["flagship"] != cfg["models"]["tiers"]["economy"]
 
 

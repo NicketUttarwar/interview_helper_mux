@@ -7,6 +7,7 @@ from pathlib import Path
 from interview_mux.run_context import RunContext
 from interview_mux.stages import assembly_flow1
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from run_fixtures import minimal_manifest, minimal_manifest_segment
 
 
 def _segments() -> dict[str, dict]:
@@ -93,13 +94,11 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
     ctx = RunContext("run_206", create=True)
     ctx.write_json(
         "segments/manifest.json",
-        {
-            "segments": [
-                {"segment_id": "seg_a", "start_ms": 0, "end_ms": 10_000},
-                {"segment_id": "seg_b", "start_ms": 10_000, "end_ms": 20_000},
-                {"segment_id": "seg_c", "start_ms": 20_000, "end_ms": 30_000},
-            ]
-        },
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=0, end_ms=10_000),
+            minimal_manifest_segment("seg_b", start_ms=10_000, end_ms=20_000),
+            minimal_manifest_segment("seg_c", start_ms=20_000, end_ms=30_000),
+        ),
     )
     ctx.write_json(
         "flow_1_master/selection.json",

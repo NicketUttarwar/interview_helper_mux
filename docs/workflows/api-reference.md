@@ -73,11 +73,16 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |
 | `PUT` | `/api/runs/{run_id}/llm-calls/record` | — | **LlmCallRecordUpdateBody** `{path, volley?, raw_response?}` | `ok`, `record` | **404**, **400** |
-| `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments`, `vo_lines`, `nle`, `normalized_audio` | **404** |
+| `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments` (with `_manifest_*` bounds), `vo_lines`, `nle`, `normalized_audio` | **404** |
+| `GET` | `/api/runs/{run_id}/assembly-timeline` | — | — | `ready`, `clips[]`, `chapters[]`, `timeline_duration_ms`, `preview_audio` | **404** |
+| `GET` | `/api/runs/{run_id}/waveform` | `path` (default `ingest/normalized.wav`) | — | `peaks[]`, `window_ms`, `duration_ms` | **404** |
+| `GET` | `/api/runs/{run_id}/transcript` | — | — | `ready`, `words[]`, `duration_ms`, `audio_path` | **404** |
+| `PATCH` | `/api/runs/{run_id}/transcript/words` | — | **TranscriptWordsPatchBody** | `ok`, `words` | **404** |
 | `GET` | `/api/runs/{run_id}/nle` | — | — | NLE JSON object | **404** |
 | `PUT` | `/api/runs/{run_id}/nle` | — | **NleBody** | `ok: true` | **404** |
 | `PATCH` | `/api/runs/{run_id}/nle/segment` | — | **NleSegmentBody** | `ok`, `nle` | **404** |
 | `POST` | `/api/runs/{run_id}/nle/split` | — | **SplitBody** | `ok`, `nle` | **404** |
+| `POST` | `/api/runs/{run_id}/nle/snap-boundary` | — | **SnapBoundaryBody** `{segment_id, ms, edge}` | `ok`, `snapped_ms` | **400**, **404** |
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
 | `PUT` | `/api/runs/{run_id}/artifact` | — | **ArtifactBody** | `ok`, `path` | **400** `schema_validation_failed` if path is in `ARTIFACT_WRITE_VALIDATORS` and data fails jsonschema, **400** if not `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/fill-artifact-gaps` | — | **FillArtifactGapsBody** `{path, api_consents?}` | Same ack shape as `execute` — background `mode: stage` for producing stage | **400** unknown path, **409** job running, **404** |
@@ -111,7 +116,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`flow1`** \| **`flow1_until_preview`** \| **`flow1_polish`** \| **`flow2`** \| **`flow3`** |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`flow1`** \| **`flow1_until_preview`** \| **`flow1_polish`** \| **`flow2`** \| **`flow3`** \| **`nle_apply`** |
+| `nle_full_refresh` | bool | Optional for **`nle_apply`** — also run `transitions` and `edl_narrative_audit` before EDL rebuild |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |

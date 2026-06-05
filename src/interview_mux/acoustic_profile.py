@@ -101,6 +101,9 @@ def save_operator_overrides(ctx: RunContext, overrides: dict[str, Any]) -> dict[
         raise ValueError("; ".join(errors))
     raw["operator_overrides"] = normalized
     ctx.write_json(SAP_PATH, raw)
+    from interview_mux.operator_snapshots import persist_operator_acoustic_overrides
+
+    persist_operator_acoustic_overrides(ctx, normalized, source="acoustic_override_save")
     return apply_operator_overrides(raw)
 
 

@@ -77,6 +77,26 @@ def test_apply_reuse_copies_and_marks_done(tmp_path: Path, monkeypatch: pytest.M
     assert data["segments"][0]["id"] == "s1"
 
 
+def test_apply_reuse_copies_operator_transcript_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_012_20260101T000012Z", tmp_path)
+    current = _ctx_in_root("exec_013_20260101T000013Z", tmp_path)
+
+    prior.write_json("transcript/full.json", {"text": "Hello", "words": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.write_json("operator/transcript_corrected.json", {"text": "Hello corrected", "words": []})
+    prior.path("operator/transcript_corrected.txt").parent.mkdir(parents=True, exist_ok=True)
+    prior.path("operator/transcript_corrected.txt").write_text("Hello corrected", encoding="utf-8")
+    prior.mark_done("transcribe")
+
+    copied = apply_stage_reuse(current, "transcribe", "exec_012_20260101T000012Z")
+    assert "operator/transcript_corrected.json" in copied
+    assert "operator/transcript_corrected.txt" in copied
+    assert current.read_json("operator/transcript_corrected.json")["text"] == "Hello corrected"
+
+
 def test_decline_runs_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_executions_root(monkeypatch, tmp_path)
     prior = _ctx_in_root("exec_020_20260101T000020Z", tmp_path)
@@ -152,8 +172,8 @@ def test_clear_stage_reuse_on_invalidate(tmp_path: Path, monkeypatch) -> None:
     from interview_mux.pipeline import ANALYSIS_ORDER
     from interview_mux.stage_execution_reuse import clear_stage_reuse_from
 
-    ctx = isolated_run_ctx(tmp_path, "exec_050")
-    init_run_meta_for_test(ctx)
+    _patch_executions_root(monkeypatch, tmp_path)
+    ctx = _ctx_in_root("exec_050_20260101T000050Z", tmp_path)
     record_reuse_decision(ctx, "ingest", action="accept", source_run_id="exec_001")
     record_reuse_decision(ctx, "transcribe", action="decline")
     clear_stage_reuse_from(ctx, "ingest", ANALYSIS_ORDER)

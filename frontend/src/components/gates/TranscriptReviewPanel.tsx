@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
+import { TranscriptDockViewer } from "../workspace/TranscriptDockViewer";
 
 export function TranscriptReviewPanel() {
   const { run, refreshRun, showToast, loadTranscriptReview, transcriptReview } =
@@ -86,11 +87,17 @@ export function TranscriptReviewPanel() {
     ? `/api/runs/${run!.run_id}/audio?path=${encodeURIComponent(chunk.clip_path)}`
     : "";
 
+  const focusRange = {
+    start_ms: chunk.start_ms,
+    end_ms: chunk.end_ms,
+    label: `Clip #${idx + 1}`,
+  };
+
   return (
     <>
       <p className="hint">
-        Clips are ranked lowest AWS confidence first. Listen, fix text, save each chunk,
-        then complete review.
+        Use the synced transcript dock below to edit word-by-word as audio plays. Low-confidence
+        clips are listed first — jump between clips or edit inline at any time.
       </p>
       <div className="tr-review-header">
         <span>
@@ -134,11 +141,11 @@ export function TranscriptReviewPanel() {
         </select>
       </div>
       <div className="tr-review-body">
-        <audio controls className="audio-player" src={clipUrl} />
-        <label className="tr-label">Transcript (editable)</label>
+        <audio controls className="audio-player tr-chunk-audio" src={clipUrl} />
+        <label className="tr-label">Chunk text (bulk edit)</label>
         <textarea
           className="tr-textarea"
-          rows={5}
+          rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
@@ -159,6 +166,12 @@ export function TranscriptReviewPanel() {
           </button>
         </div>
       </div>
+
+      <section className="tr-review-dock-section">
+        <h4>Synced transcript editor</h4>
+        <TranscriptDockViewer focusRange={focusRange} seekOnFocus />
+      </section>
+
       <div className="tr-review-footer">
         <button
           type="button"

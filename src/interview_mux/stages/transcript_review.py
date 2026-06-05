@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
+from interview_mux.operator_snapshots import persist_operator_transcript
 
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
@@ -126,6 +127,7 @@ def apply_corrections(ctx: RunContext) -> None:
     full["text"] = " ".join(w["text"] for w in words if w.get("text"))
     full["review_applied_at"] = datetime.now(timezone.utc).isoformat()
     ctx.write_json("transcript/full.json", full)
+    persist_operator_transcript(ctx, source="review_complete", include_corrections=True)
 
 
 def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed: bool = True) -> dict[str, Any]:
@@ -143,7 +145,59 @@ def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed
 
     ctx.write_json("transcript/corrections.json", data)
     ctx.write_json("transcript/review_queue.json", queue)
+    persist_operator_transcript(ctx, source="chunk_save", include_corrections=True)
     return {"ok": True, "chunk_id": chunk_id}
+
+
+def get_transcript_state(ctx: RunContext) -> dict[str, Any]:
+    """Word-level transcript for the dock editor (karaoke sync + inline edits)."""
+    if not ctx.artifact_exists("transcript/full.json"):
+        return {"ready": False, "words": [], "duration_ms": 0}
+    full = ctx.read_json("transcript/full.json")
+    words: list[dict[str, Any]] = list(full.get("words") or [])
+    duration_ms = max((w.get("end_ms") or 0) for w in words) if words else 0
+    speakers: list[dict[str, Any]] = []
+    if ctx.artifact_exists("transcript/speakers.json"):
+        speakers = (ctx.read_json("transcript/speakers.json") or {}).get("speakers") or []
+    audio_path = "ingest/normalized.wav" if ctx.artifact_exists("ingest/normalized.wav") else None
+    return {
+        "ready": True,
+        "text": full.get("text") or "",
+        "words": words,
+        "duration_ms": duration_ms,
+        "speakers": speakers,
+        "audio_path": audio_path,
+        "low_confidence_threshold": LOW_CONFIDENCE_THRESHOLD,
+        "review_applied_at": full.get("review_applied_at"),
+    }
+
+
+def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Apply inline word edits from the dock viewer without interrupting playback."""
+    if not ctx.artifact_exists("transcript/full.json"):
+        raise FileNotFoundError("transcript/full.json — run transcribe first.")
+    full = ctx.read_json("transcript/full.json")
+    words: list[dict[str, Any]] = list(full.get("words") or [])
+    applied = 0
+    for upd in updates:
+        idx = upd.get("index")
+        text = (upd.get("text") or "").strip()
+        if not isinstance(idx, int) or idx < 0 or idx >= len(words) or not text:
+            continue
+        words[idx]["text"] = text
+        words[idx]["corrected"] = True
+        applied += 1
+    if applied:
+        full["words"] = words
+        full["text"] = " ".join(w["text"] for w in words if w.get("text"))
+        ctx.write_json("transcript/full.json", full)
+        persist_operator_transcript(ctx, source="dock_edit")
+        ctx.log(
+            f"Transcript dock: saved {applied} word edit(s).",
+            level="info",
+            stage="transcript_review",
+        )
+    return {"ok": True, "updated_count": applied, "words": words, "text": full.get("text") or ""}
 
 
 def get_review_state(ctx: RunContext) -> dict[str, Any]:

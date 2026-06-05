@@ -6,6 +6,7 @@ from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
 from interview_mux.gates import check_edl_narrative_qc
 from interview_mux.operator_quality import qc_summary
 from interview_mux.run_context import RunContext
+from run_fixtures import minimal_gap_line, minimal_gap_report
 
 
 def _write_story_artifacts(ctx: RunContext) -> None:
@@ -62,16 +63,14 @@ def _write_story_artifacts(ctx: RunContext) -> None:
     )
     ctx.write_json(
         "understanding/gap_report.json",
-        {
-            "interviewer_lines": [
-                {
-                    "line_id": "line_001",
-                    "targets_segment_id": "seg_b",
-                    "placement": "before",
-                    "delivery": "record",
-                }
-            ]
-        },
+        minimal_gap_report(
+            minimal_gap_line(
+                line_id="line_001",
+                targets_segment_id="seg_b",
+                placement="before",
+                delivery="record",
+            )
+        ),
     )
     ctx.write_json(
         "flow_1_master/edl_narrative_audit.json",

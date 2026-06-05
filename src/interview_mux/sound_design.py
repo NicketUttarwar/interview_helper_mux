@@ -458,7 +458,7 @@ def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _transcript_words(transcript: dict[str, Any]) -> list[dict[str, Any]]:
+def _parse_transcript_words(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     words = [
         w
         for w in (transcript.get("words") or [])
@@ -480,7 +480,7 @@ def _words_in_segment_range(
     lo = start_ms - lookback_ms
     return [
         w
-        for w in _transcript_words(transcript)
+        for w in _parse_transcript_words(transcript)
         if float(w["end_ms"]) > lo and float(w["start_ms"]) < end_ms
     ]
 

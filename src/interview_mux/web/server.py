@@ -45,7 +45,15 @@ from interview_mux.gui_session import (
     get_server_session,
     set_active_execution,
 )
-from interview_mux.nle_state import apply_segments_with_nle, load_nle, save_nle, split_segment_at
+from interview_mux.assembly_timeline import build_assembly_timeline
+from interview_mux.nle_state import (
+    apply_segments_with_nle,
+    load_nle,
+    save_nle,
+    snap_boundary_for_segment,
+    split_segment_at,
+)
+from interview_mux.waveform_peaks import load_or_generate_peaks
 from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log, read_log
@@ -59,6 +67,17 @@ from interview_mux.journey_state import get_flow_intent, stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import runner
 from interview_mux.web.stages import LLM_ROUTING_STAGE_IDS, STAGE_BY_ID, all_stages_for_run
+from interview_mux.operator_snapshots import (
+    append_operator_stage_reuse,
+    mirror_artifact_to_operator,
+    persist_operator_acoustic_overrides,
+    persist_operator_analysis_profile,
+    persist_operator_elevenlabs_listen_results,
+    persist_operator_elevenlabs_prompts,
+    persist_operator_flow_selection,
+    persist_operator_investigation_queue,
+    persist_operator_preclean,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -84,12 +103,13 @@ class ExecuteBody(BaseModel):
     mode: str = Field(
         description=(
             "stage | analysis | analysis_until_g0 | flow1 | flow1_until_preview | "
-            "flow1_polish | flow2 | flow3"
+            "flow1_polish | flow2 | flow3 | nle_apply"
         )
     )
     stage: str | None = None
     from_stage: str | None = None
     until_stage: str | None = None
+    nle_full_refresh: bool = False
     api_consents: dict[str, bool] | None = None
 
 
@@ -143,6 +163,12 @@ class SplitBody(BaseModel):
     at_ms: int
 
 
+class SnapBoundaryBody(BaseModel):
+    segment_id: str
+    ms: int
+    edge: str = "end"
+
+
 class LogBody(BaseModel):
     message: str
     level: str = "info"
@@ -172,6 +198,15 @@ class TranscriptChunkBody(BaseModel):
 
 class TranscriptReviewCompleteBody(BaseModel):
     accept_unreviewed: bool = False
+
+
+class TranscriptWordPatch(BaseModel):
+    index: int
+    text: str
+
+
+class TranscriptWordsPatchBody(BaseModel):
+    updates: list[TranscriptWordPatch] = Field(default_factory=list)
 
 
 class AnalysisProfileBody(BaseModel):
@@ -437,10 +472,20 @@ def create_app() -> FastAPI:
         nle = load_nle(ctx)
         segments: list[dict[str, Any]] = []
         duration_ms = 0
+        manifest_by_id: dict[str, dict[str, Any]] = {}
         if ctx.artifact_exists("segments/manifest.json"):
             manifest = ctx.read_json("segments/manifest.json")
             raw = manifest.get("segments") or []
+            manifest_by_id = {
+                s["segment_id"]: s for s in raw if s.get("segment_id")
+            }
             segments = apply_segments_with_nle(raw, nle)
+            for seg in segments:
+                sid = seg.get("segment_id")
+                if sid and sid in manifest_by_id:
+                    m = manifest_by_id[sid]
+                    seg["_manifest_start_ms"] = int(m["start_ms"])
+                    seg["_manifest_end_ms"] = int(m["end_ms"])
             if segments:
                 duration_ms = max(s.get("end_ms", 0) for s in segments)
         vo_lines: list[dict[str, Any]] = []
@@ -525,6 +570,7 @@ def create_app() -> FastAPI:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, {"errors": [str(exc)]}) from exc
+        persist_operator_acoustic_overrides(ctx, merged.get("operator_overrides") or {}, source="gui_override")
         ctx.log(
             "Acoustic profile operator overrides saved.",
             level="success",
@@ -560,6 +606,36 @@ def create_app() -> FastAPI:
         nle = split_segment_at(ctx, body.segment_id, body.at_ms)
         ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
         return {"ok": True, "nle": nle}
+
+    @app.post("/api/runs/{run_id}/nle/snap-boundary")
+    def nle_snap_boundary(run_id: str, body: SnapBoundaryBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if body.edge not in ("start", "end"):
+            raise HTTPException(400, "edge must be 'start' or 'end'")
+        try:
+            snapped = snap_boundary_for_segment(
+                ctx,
+                segment_id=body.segment_id,
+                ms=body.ms,
+                edge=body.edge,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "snapped_ms": snapped}
+
+    @app.get("/api/runs/{run_id}/assembly-timeline")
+    def get_assembly_timeline(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        return build_assembly_timeline(ctx)
+
+    @app.get("/api/runs/{run_id}/waveform")
+    def get_waveform(run_id: str, path: str = "ingest/normalized.wav") -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        _assert_artifact_path(path)
+        try:
+            return load_or_generate_peaks(ctx, path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.get("/api/runs/{run_id}/llm-routing")
     def get_llm_routing(run_id: str) -> dict[str, Any]:
@@ -639,6 +715,7 @@ def create_app() -> FastAPI:
         full = ctx.path(body.path)
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(body.text, encoding="utf-8")
+        mirror_artifact_to_operator(ctx, body.path, body.text, source="artifact_text_editor")
         ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage="artifact_editor")
         if body.invalidate_from:
             runner.invalidate_from(run_id, body.invalidate_from)
@@ -666,7 +743,10 @@ def create_app() -> FastAPI:
         stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
         ctx.write_json(body.path, body.data, stage_key=stage_key)
         stage = stage_key
+        mirror_artifact_to_operator(ctx, body.path, body.data, source="artifact_json_editor")
         ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
+        if body.path == "understanding/analysis_state.json":
+            persist_operator_analysis_profile(ctx, source="artifact_json_editor")
         if body.path == "understanding/source_acoustic_profile.json" and isinstance(body.data, dict):
             overrides = body.data.get("operator_overrides")
             if isinstance(overrides, dict) and overrides:
@@ -684,6 +764,7 @@ def create_app() -> FastAPI:
     def set_flow(run_id: str, body: FlowBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         set_selected_flow(ctx, body.flow)
+        persist_operator_flow_selection(ctx, body.flow, source="g2_flow_select")
         ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
         refresh_journey_meta(ctx)
         return {"ok": True, "selected_flow": body.flow}
@@ -715,6 +796,8 @@ def create_app() -> FastAPI:
 
             scope = str(payload.get("scope") or "full_source")
             invalidate_after_preclean_accept(ctx, scope)
+        if changed:
+            persist_operator_preclean(ctx, source=f"preclean_{body.action}")
         return {"ok": True, "changed": changed, "audio_preclean": payload}
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
@@ -740,6 +823,7 @@ def create_app() -> FastAPI:
 
         if body.action == "decline":
             entry = record_reuse_decision(ctx, stage_id, action="decline")
+            append_operator_stage_reuse(ctx, stage_id, entry, source="gui_decline")
             return {"ok": True, "action": "decline", "stage_reuse": entry}
 
         source_id = body.source_run_id
@@ -758,6 +842,12 @@ def create_app() -> FastAPI:
             raise HTTPException(400, f"Run {source_id} is not an eligible reuse source for this stage")
         entry = record_reuse_decision(ctx, stage_id, action="accept", source_run_id=source_id)
         copied = apply_stage_reuse(ctx, stage_id, source_id)
+        append_operator_stage_reuse(
+            ctx,
+            stage_id,
+            {**entry, "copied": copied},
+            source="gui_accept",
+        )
         refresh_journey_meta(ctx)
         return {
             "ok": True,
@@ -820,6 +910,11 @@ def create_app() -> FastAPI:
         if body.invalidate_from:
             runner.invalidate_from(run_id, body.invalidate_from)
         warnings = sdp_asset_id_warnings(ctx, rows)
+        persist_operator_elevenlabs_prompts(
+            ctx,
+            {"prompts": rows, "review": review},
+            source="elevenlabs_prompts_put",
+        )
         return {"ok": True, "path": body.path, "review": review, "warnings": warnings}
 
     @app.post("/api/runs/{run_id}/elevenlabs-prompts/approve")
@@ -847,6 +942,11 @@ def create_app() -> FastAPI:
         warnings = sdp_asset_id_warnings(ctx, rows)
         for w in warnings:
             ctx.log(w, level="warning", stage="elevenlabs_prompt_craft")
+        persist_operator_elevenlabs_prompts(
+            ctx,
+            {"prompts": rows, "review": review},
+            source="elevenlabs_prompts_approve",
+        )
         return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
 
     @app.post("/api/runs/{run_id}/elevenlabs-prompts/listen-result")
@@ -874,6 +974,7 @@ def create_app() -> FastAPI:
             level="success" if body.result == "pass" else "warning",
             detail=str(detail),
         )
+        persist_operator_elevenlabs_listen_results(ctx, source="elevenlabs_listen_result")
         return {"ok": True, "entry": entry, "elevenlabs_listen_results": results}
 
     @app.post("/api/runs/{run_id}/handoff-ack")
@@ -909,6 +1010,7 @@ def create_app() -> FastAPI:
             flow=body.mode if body.mode in flow_modes else None,
             from_stage=body.from_stage or body.stage,
             until_stage=body.until_stage,
+            nle_full_refresh=body.nle_full_refresh,
             api_consents=body.api_consents,
         )
 
@@ -958,6 +1060,19 @@ def create_app() -> FastAPI:
     def get_job(run_id: str) -> dict[str, Any]:
         return runner.get_job(run_id)
 
+    @app.get("/api/runs/{run_id}/transcript")
+    def get_transcript(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        return transcript_review.get_transcript_state(ctx)
+
+    @app.patch("/api/runs/{run_id}/transcript/words")
+    def patch_transcript_words(run_id: str, body: TranscriptWordsPatchBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if not ctx.artifact_exists("transcript/full.json"):
+            raise HTTPException(404, "Transcript not found — run transcribe first.")
+        updates = [{"index": u.index, "text": u.text} for u in body.updates]
+        return transcript_review.patch_transcript_words(ctx, updates)
+
     @app.get("/api/runs/{run_id}/transcript-review")
     def get_transcript_review(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -1004,6 +1119,7 @@ def create_app() -> FastAPI:
         save_analysis_state(ctx, body.data, stage="operator_gui")
         if body.operator_verified is not None:
             mark_operator_verified(ctx, body.operator_verified)
+        persist_operator_analysis_profile(ctx, source="analysis_profile_put")
         ctx.log(
             "Interview profile saved from GUI."
             + (" Verified." if body.operator_verified else ""),
@@ -1024,6 +1140,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         ensure_analysis_workspace(ctx)
         mark_operator_verified(ctx, True)
+        persist_operator_analysis_profile(ctx, source="analysis_profile_verify")
         ctx.log("Interview profile marked verified.", level="success", stage="analysis_profile")
         refresh_journey_meta(ctx)
         return {"ok": True, "operator_verified": True}
@@ -1090,6 +1207,7 @@ def create_app() -> FastAPI:
             raise HTTPException(404, f"Investigation item not found: {item_id}")
         queue["items"] = items
         ctx.write_json(path, queue)
+        persist_operator_investigation_queue(ctx, source="investigation_patch")
         ctx.log(
             f"Investigation {item_id} marked {body.status}.",
             level="success",

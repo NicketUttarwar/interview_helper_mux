@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from interview_mux.show_description_qc import validate_show_description
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manifest, minimal_manifest_segment
 
 
 def test_show_description_qc_requires_evidence_ids(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_sdqc")
-    ctx.write_json("segments/manifest.json", {"segments": [{"segment_id": "seg_001"}]})
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+    )
     errors = validate_show_description(
         ctx,
         {
@@ -26,10 +29,15 @@ def test_show_description_qc_requires_evidence_ids(tmp_path):
 def test_show_description_qc_passes_with_valid_evidence(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_sdqc_ok")
     body = "Hook here. " + ("word " * 148)
-    ctx.write_json("segments/manifest.json", {"segments": [{"segment_id": "seg_001"}]})
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+    )
     ctx.write_json(
         "understanding/content_brief.json",
-        {"key_claims": [{"claim": "growth strategy"}]},
+        minimal_content_brief(
+            key_claims=[{"claim": "growth strategy"}],
+        ),
     )
     errors = validate_show_description(
         ctx,

@@ -37,6 +37,8 @@ def test_merge_consents() -> None:
 
 def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("interview_mux.gui_api_consent.load_persisted_consents", lambda: {})
+    monkeypatch.setattr("interview_mux.web.runner.load_persisted_consents", lambda: {})
     (tmp_path / "ASSETS" / "executions").mkdir(parents=True)
     ctx = RunContext(create=True)
     ctx.init_run_meta("ASSETS/input/test.wav")

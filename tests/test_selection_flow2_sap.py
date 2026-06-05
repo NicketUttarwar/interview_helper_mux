@@ -3,14 +3,14 @@ from __future__ import annotations
 from interview_mux.context_volley import _shape_stage_input
 from interview_mux.run_context import RunContext
 from interview_mux.stages import selection_flow2
-from run_fixtures import minimal_source_acoustic_profile
+from run_fixtures import minimal_content_brief, minimal_flow2_selection, minimal_source_acoustic_profile
 
 
 def test_sfx_brief_build_input_wires_source_acoustic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_303", create=True)
-    ctx.write_json("flow_2_highlights/selection.json", {"highlights": []})
-    ctx.write_json("understanding/content_brief.json", {"thesis": "Test"})
+    ctx.write_json("flow_2_highlights/selection.json", minimal_flow2_selection(highlights=[]))
+    ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Test"))
     ctx.write_json(
         "understanding/source_acoustic_profile.json",
         minimal_source_acoustic_profile(

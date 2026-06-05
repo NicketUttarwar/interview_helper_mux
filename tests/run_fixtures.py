@@ -107,6 +107,117 @@ def sound_design_plan_with(**patch: Any) -> dict[str, Any]:
     return plan
 
 
+def minimal_manifest_segment(
+    segment_id: str = "seg_001",
+    *,
+    start_ms: int = 0,
+    end_ms: int = 5000,
+    text: str = "Sample segment text.",
+    **patch: Any,
+) -> dict[str, Any]:
+    """Schema-valid segment for segments/manifest.json."""
+    base: dict[str, Any] = {
+        "segment_id": segment_id,
+        "start_ms": start_ms,
+        "end_ms": end_ms,
+        "speaker_id": "spk_001",
+        "speaker_role": "interviewer",
+        "type": "interviewer_question",
+        "text": text,
+        "topic_tags": ["origin_story"],
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_manifest(*segments: dict[str, Any] | str) -> dict[str, Any]:
+    """Schema-valid segments/manifest.json payload."""
+    if not segments:
+        return {"segments": [minimal_manifest_segment()]}
+    out: list[dict[str, Any]] = []
+    for i, seg in enumerate(segments):
+        if isinstance(seg, str):
+            out.append(minimal_manifest_segment(seg, start_ms=i * 5000, end_ms=(i + 1) * 5000))
+        else:
+            out.append(seg)
+    return {"segments": out}
+
+
+def minimal_narrative_plan(**patch: Any) -> dict[str, Any]:
+    """Schema-valid flow_1_master/narrative_plan.json."""
+    base: dict[str, Any] = {
+        "arc_summary": "Test narrative arc for pytest.",
+        "chapters": [
+            {
+                "chapter_id": "ch_01",
+                "title": "Opening",
+                "suggested_open_segment_id": "seg_001",
+            }
+        ],
+        "ordering_constraints": [],
+    }
+    for key, value in patch.items():
+        base[key] = value
+    return base
+
+
+def minimal_gap_line(**patch: Any) -> dict[str, Any]:
+    """Schema-valid gap_report interviewer line."""
+    base: dict[str, Any] = {
+        "line_id": "line_001",
+        "targets_segment_id": "seg_001",
+        "delivery": "record",
+        "gap_type": "missing_setup",
+        "text": "Can you add context here?",
+        "placement": "before",
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_gap_report(*lines: dict[str, Any]) -> dict[str, Any]:
+    """Schema-valid understanding/gap_report.json."""
+    if not lines:
+        return {"interviewer_lines": []}
+    return {"interviewer_lines": list(lines)}
+
+
+def minimal_flow2_selection(**patch: Any) -> dict[str, Any]:
+    """Schema-valid flow_2_highlights/selection.json."""
+    base: dict[str, Any] = {
+        "reel_thesis": "Highlight reel thesis for pytest.",
+        "highlights": [
+            {
+                "rank": 1,
+                "segment_id": "seg_001",
+                "start_ms": 0,
+                "end_ms": 5000,
+                "headline": "Hook",
+                "scores": {
+                    "salience": 0.9,
+                    "clarity": 0.8,
+                    "emotion": 0.7,
+                    "quotability": 0.6,
+                    "diversity_bonus": 0.1,
+                },
+            }
+        ],
+    }
+    for key, value in patch.items():
+        base[key] = value
+    return base
+
+
+def minimal_content_brief(**patch: Any) -> dict[str, Any]:
+    """Schema-valid understanding/content_brief.json."""
+    base: dict[str, Any] = {
+        "thesis": "Test thesis for pytest.",
+        "topics": [{"name": "Topic A", "summary": "Summary here."}],
+    }
+    base.update(patch)
+    return base
+
+
 def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
     """Route FastAPI handlers to an isolated RunContext."""
     from fastapi import HTTPException
@@ -119,3 +230,90 @@ def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
         return ctx
 
     monkeypatch.setattr(server, "_ctx", _ctx)
+
+
+def patch_executions_root(monkeypatch, tmp_path: Path) -> Path:
+    """Point executions_root at tmp_path so JobRunner threads resolve the same run dir."""
+    from interview_mux.config import merged_config
+
+    root = tmp_path / "ASSETS" / "executions"
+    root.mkdir(parents=True, exist_ok=True)
+    cfg = {**merged_config(), "executions_root": str(root.resolve())}
+    for mod in (
+        "interview_mux.config",
+        "interview_mux.run_context",
+        "interview_mux.stage_execution_reuse",
+        "interview_mux.web.server",
+        "interview_mux.web.runner",
+        "interview_mux.gui_session",
+    ):
+        monkeypatch.setattr(f"{mod}.merged_config", lambda c=cfg: c)
+    return root
+
+
+def seed_analysis_complete(ctx: RunContext) -> None:
+    """Mark shared analysis done and satisfy G0/G1 gates for flow execution."""
+    from interview_mux import pipeline
+    from interview_mux.analysis_memory import default_analysis_state
+
+    for stage in pipeline.ANALYSIS_ORDER:
+        ctx.mark_done(stage)
+    ctx.mark_done("transcript_review")
+    ctx.mark_done("vo_ingest")
+    state = default_analysis_state(ctx.run_id)
+    state["meta"]["operator_verified"] = True
+    ctx.write_json("understanding/analysis_state.json", state)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "line_001",
+                    "targets_segment_id": "seg_001",
+                    "delivery": "record",
+                    "gap_type": "context",
+                    "text": "Add context",
+                    "placement": "before",
+                }
+            ]
+        },
+    )
+    pickup = ctx.path("vo_pickup")
+    pickup.mkdir(parents=True, exist_ok=True)
+    (pickup / "line_001.wav").write_bytes(b"RIFF")
+    ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []})
+    meta = ctx.read_json("run_meta.json")
+    meta["handoff_ack"] = {
+        "sound_design_palettes": "2026-01-01T00:00:00+00:00",
+        "speaker_roles": "2026-01-01T00:00:00+00:00",
+        "content_context": "2026-01-01T00:00:00+00:00",
+    }
+    meta["handoff_pending_writes"] = {}
+    ctx.write_json("run_meta.json", meta)
+
+
+def grant_all_api_consents(client, *, providers: list[str] | None = None) -> None:
+    from interview_mux.api_providers import PROVIDERS
+
+    for pid in providers or list(PROVIDERS):
+        client.post("/api/session/api-consent", json={"provider": pid, "granted": True})
+
+
+def disable_handoff_gates(monkeypatch) -> None:
+    """Skip custom-run handoff pauses in lightweight simulated journey tests."""
+    from interview_mux.config import merged_config
+
+    cfg = {
+        **merged_config(),
+        "journey_ui": {
+            **(merged_config().get("journey_ui") or {}),
+            "require_handoff_between_stages": False,
+        },
+    }
+    for mod in (
+        "interview_mux.custom_run_handoff",
+        "interview_mux.journey_orchestrator",
+        "interview_mux.journey_state",
+        "interview_mux.web.runner",
+    ):
+        monkeypatch.setattr(f"{mod}.merged_config", lambda c=cfg: c)

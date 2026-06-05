@@ -9,7 +9,7 @@ from interview_mux import master_qc
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import mix_flow1
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
-from run_fixtures import init_run_meta_for_test, sound_design_plan_with
+from run_fixtures import init_run_meta_for_test, minimal_manifest, minimal_manifest_segment, sound_design_plan_with
 
 
 def _tone(freq: int, duration_ms: int, gain_db: float = 0.0) -> AudioSegment:
@@ -116,7 +116,7 @@ def test_mix_flow1_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypat
 
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 1500}]},
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=1500)),
     )
     edl = build_flow1_edl(
         selection={"ordered_segment_ids": ["seg_a"]},
@@ -158,7 +158,7 @@ def test_mix_intelligibility_qc_skipped_when_disabled(tmp_path: Path, monkeypatc
 
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 1500}]},
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=1500)),
     )
     edl = build_flow1_edl(
         selection={"ordered_segment_ids": ["seg_a"]},

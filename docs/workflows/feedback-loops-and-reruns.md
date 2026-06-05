@@ -69,9 +69,17 @@ The pipeline also re-runs a done LLM stage automatically when `should_run_stage_
 
 ## NLE timeline edits
 
-`segments/nle_edits.json` — exclude, split, reorder in GUI.
+`segments/nle_edits.json` — exclude, split, reorder, trim in the Timeline tab.
 
-**BUILD-068:** Re-run from `full_master_ranking` or `edl_flow1` after **Save timeline** so overrides affect `selection.json` and export.
+**Apply timeline edits** (`POST …/execute` with `mode: nle_apply`) runs a light cascade by default:
+
+1. `full_master_ranking` — only when order, exclude, or split changed
+2. `edl_flow1` — always when operator edits exist
+3. `assembly_preview` — listen-before-SFX preview after EDL rebuild
+
+Optional `nle_full_refresh: true` also runs `transitions` and `edl_narrative_audit` before EDL build.
+
+Manual stage reruns (`full_master_ranking`, `edl_flow1`) remain available from the pipeline sidebar.
 
 ## Human override (v1)
 

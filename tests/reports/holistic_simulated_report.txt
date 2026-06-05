@@ -1,0 +1,225 @@
+=== Holistic Simulated Test Report ===
+Started: 2026-06-05T18:36:19Z
+
+--- Tier 0: Prerequisites ---
+Using Python: /opt/homebrew/bin/python3.12
+Requirement already satisfied: pip in ./.venv/lib/python3.12/site-packages (26.1.2)
+Requirement already satisfied: setuptools in ./.venv/lib/python3.12/site-packages (82.0.1)
+Requirement already satisfied: wheel in ./.venv/lib/python3.12/site-packages (0.47.0)
+Requirement already satisfied: packaging>=24.0 in ./.venv/lib/python3.12/site-packages (from wheel) (26.2)
+Installing from requirements.lock (anchor lock)...
+Requirement already satisfied: annotated-doc==0.0.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 7)) (0.0.4)
+Requirement already satisfied: annotated-types==0.7.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 11)) (0.7.0)
+Requirement already satisfied: anyio==4.13.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 13)) (4.13.0)
+Requirement already satisfied: attrs==26.1.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 19)) (26.1.0)
+Requirement already satisfied: boolean-py==5.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 23)) (5.0)
+Requirement already satisfied: cachecontrol==0.14.4 in ./.venv/lib/python3.12/site-packages (from cachecontrol[filecache]==0.14.4->-r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 25)) (0.14.4)
+Requirement already satisfied: certifi==2026.5.20 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 29)) (2026.5.20)
+Requirement already satisfied: cffi==2.0.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 34)) (2.0.0)
+Requirement already satisfied: charset-normalizer==3.4.7 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 36)) (3.4.7)
+Requirement already satisfied: click==8.4.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 38)) (8.4.1)
+Requirement already satisfied: cyclonedx-python-lib==11.7.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 42)) (11.7.0)
+Requirement already satisfied: defusedxml==0.7.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 44)) (0.7.1)
+Requirement already satisfied: distro==1.9.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 46)) (1.9.0)
+Requirement already satisfied: fastapi==0.136.3 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 48)) (0.136.3)
+Requirement already satisfied: filelock==3.29.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 50)) (3.29.0)
+Requirement already satisfied: h11==0.16.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 54)) (0.16.0)
+Requirement already satisfied: httpcore==1.0.9 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 58)) (1.0.9)
+Requirement already satisfied: httptools==0.8.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 60)) (0.8.0)
+Requirement already satisfied: httpx==0.28.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 62)) (0.28.1)
+Requirement already satisfied: idna==3.16 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 64)) (3.16)
+Requirement already satisfied: iniconfig==2.3.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 69)) (2.3.0)
+Requirement already satisfied: jiter==0.15.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 71)) (0.15.0)
+Requirement already satisfied: jsonschema==4.26.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 73)) (4.26.0)
+Requirement already satisfied: jsonschema-specifications==2025.9.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 75)) (2025.9.1)
+Requirement already satisfied: license-expression==30.4.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 77)) (30.4.4)
+Requirement already satisfied: markdown-it-py==4.2.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 79)) (4.2.0)
+Requirement already satisfied: mdurl==0.1.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 81)) (0.1.2)
+Requirement already satisfied: msgpack==1.1.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 83)) (1.1.2)
+Requirement already satisfied: numpy==2.4.6 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 85)) (2.4.6)
+Requirement already satisfied: openai==2.38.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 91)) (2.38.0)
+Requirement already satisfied: packageurl-python==0.17.6 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 93)) (0.17.6)
+Requirement already satisfied: packaging==26.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 95)) (26.2)
+Requirement already satisfied: pip-api==0.0.34 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 100)) (0.0.34)
+Requirement already satisfied: pip-audit==2.10.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 102)) (2.10.0)
+Requirement already satisfied: pip-requirements-parser==32.0.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 104)) (32.0.1)
+Requirement already satisfied: platformdirs==4.9.6 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 106)) (4.9.6)
+Requirement already satisfied: pluggy==1.6.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 108)) (1.6.0)
+Requirement already satisfied: py-serializable==2.1.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 110)) (2.1.0)
+Requirement already satisfied: pycparser==3.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 112)) (3.0)
+Requirement already satisfied: pydantic==2.13.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 114)) (2.13.4)
+Requirement already satisfied: pydantic-core==2.46.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 119)) (2.46.4)
+Requirement already satisfied: pydub==0.25.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 121)) (0.25.1)
+Requirement already satisfied: pygments==2.20.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 123)) (2.20.0)
+Requirement already satisfied: pyloudnorm==0.2.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 127)) (0.2.0)
+Requirement already satisfied: pyparsing==3.3.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 129)) (3.3.2)
+Requirement already satisfied: pytest==8.4.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 131)) (8.4.2)
+Requirement already satisfied: python-dotenv==1.2.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 133)) (1.2.2)
+Requirement already satisfied: python-multipart==0.0.29 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 135)) (0.0.29)
+Requirement already satisfied: pyyaml==6.0.3 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 137)) (6.0.3)
+Requirement already satisfied: referencing==0.37.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 139)) (0.37.0)
+Requirement already satisfied: requests==2.34.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 143)) (2.34.2)
+Requirement already satisfied: rich==13.9.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 147)) (13.9.4)
+Requirement already satisfied: rpds-py==0.30.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 152)) (0.30.0)
+Requirement already satisfied: scipy==1.17.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 156)) (1.17.1)
+Requirement already satisfied: shellingham==1.5.4 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 158)) (1.5.4)
+Requirement already satisfied: sniffio==1.3.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 160)) (1.3.1)
+Requirement already satisfied: sortedcontainers==2.4.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 162)) (2.4.0)
+Requirement already satisfied: soundfile==0.13.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 164)) (0.13.1)
+Requirement already satisfied: starlette==1.1.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 166)) (1.1.0)
+Requirement already satisfied: tomli==2.4.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 168)) (2.4.1)
+Requirement already satisfied: tomli-w==1.2.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 170)) (1.2.0)
+Requirement already satisfied: tqdm==4.67.3 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 172)) (4.67.3)
+Requirement already satisfied: typer==0.25.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 174)) (0.25.1)
+Requirement already satisfied: typing-extensions==4.15.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 176)) (4.15.0)
+Requirement already satisfied: typing-inspection==0.4.2 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 187)) (0.4.2)
+Requirement already satisfied: urllib3==2.7.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 191)) (2.7.0)
+Requirement already satisfied: uvicorn==0.47.0 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->-r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 193)) (0.47.0)
+Requirement already satisfied: uvloop==0.22.1 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 195)) (0.22.1)
+Requirement already satisfied: watchfiles==1.2.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 197)) (1.2.0)
+Requirement already satisfied: websockets==16.0 in ./.venv/lib/python3.12/site-packages (from -r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 199)) (16.0)
+Requirement already satisfied: pip in ./.venv/lib/python3.12/site-packages (from pip-api==0.0.34->-r /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (line 100)) (26.1.2)
+Obtaining file:///Users/nicketuttarwar/IDEProjects/interview_helper_mux
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: fastapi==0.136.3 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.136.3)
+Requirement already satisfied: python-multipart==0.0.29 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.0.29)
+Requirement already satisfied: uvicorn==0.47.0 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (0.47.0)
+Requirement already satisfied: openai==2.38.0 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (2.38.0)
+Requirement already satisfied: typer==0.25.1 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.25.1)
+Requirement already satisfied: rich==13.9.4 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (13.9.4)
+Requirement already satisfied: jsonschema==4.26.0 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (4.26.0)
+Requirement already satisfied: filelock==3.29.0 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (3.29.0)
+Requirement already satisfied: pydantic==2.13.4 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (2.13.4)
+Requirement already satisfied: numpy==2.4.6 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (2.4.6)
+Requirement already satisfied: pyloudnorm==0.2.0 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.2.0)
+Requirement already satisfied: pydub==0.25.1 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.25.1)
+Requirement already satisfied: soundfile==0.13.1 in ./.venv/lib/python3.12/site-packages (from interview-mux==0.1.0) (0.13.1)
+Requirement already satisfied: starlette>=0.46.0 in ./.venv/lib/python3.12/site-packages (from fastapi==0.136.3->interview-mux==0.1.0) (1.1.0)
+Requirement already satisfied: typing-extensions>=4.8.0 in ./.venv/lib/python3.12/site-packages (from fastapi==0.136.3->interview-mux==0.1.0) (4.15.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in ./.venv/lib/python3.12/site-packages (from fastapi==0.136.3->interview-mux==0.1.0) (0.4.2)
+Requirement already satisfied: annotated-doc>=0.0.2 in ./.venv/lib/python3.12/site-packages (from fastapi==0.136.3->interview-mux==0.1.0) (0.0.4)
+Requirement already satisfied: attrs>=22.2.0 in ./.venv/lib/python3.12/site-packages (from jsonschema==4.26.0->interview-mux==0.1.0) (26.1.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in ./.venv/lib/python3.12/site-packages (from jsonschema==4.26.0->interview-mux==0.1.0) (2025.9.1)
+Requirement already satisfied: referencing>=0.28.4 in ./.venv/lib/python3.12/site-packages (from jsonschema==4.26.0->interview-mux==0.1.0) (0.37.0)
+Requirement already satisfied: rpds-py>=0.25.0 in ./.venv/lib/python3.12/site-packages (from jsonschema==4.26.0->interview-mux==0.1.0) (0.30.0)
+Requirement already satisfied: anyio<5,>=3.5.0 in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (4.13.0)
+Requirement already satisfied: distro<2,>=1.7.0 in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (1.9.0)
+Requirement already satisfied: httpx<1,>=0.23.0 in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (0.28.1)
+Requirement already satisfied: jiter<1,>=0.10.0 in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (0.15.0)
+Requirement already satisfied: sniffio in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (1.3.1)
+Requirement already satisfied: tqdm>4 in ./.venv/lib/python3.12/site-packages (from openai==2.38.0->interview-mux==0.1.0) (4.67.3)
+Requirement already satisfied: annotated-types>=0.6.0 in ./.venv/lib/python3.12/site-packages (from pydantic==2.13.4->interview-mux==0.1.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in ./.venv/lib/python3.12/site-packages (from pydantic==2.13.4->interview-mux==0.1.0) (2.46.4)
+Requirement already satisfied: scipy>=1.0.1 in ./.venv/lib/python3.12/site-packages (from pyloudnorm==0.2.0->interview-mux==0.1.0) (1.17.1)
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./.venv/lib/python3.12/site-packages (from rich==13.9.4->interview-mux==0.1.0) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./.venv/lib/python3.12/site-packages (from rich==13.9.4->interview-mux==0.1.0) (2.20.0)
+Requirement already satisfied: cffi>=1.0 in ./.venv/lib/python3.12/site-packages (from soundfile==0.13.1->interview-mux==0.1.0) (2.0.0)
+Requirement already satisfied: click>=8.2.1 in ./.venv/lib/python3.12/site-packages (from typer==0.25.1->interview-mux==0.1.0) (8.4.1)
+Requirement already satisfied: shellingham>=1.3.0 in ./.venv/lib/python3.12/site-packages (from typer==0.25.1->interview-mux==0.1.0) (1.5.4)
+Requirement already satisfied: h11>=0.8 in ./.venv/lib/python3.12/site-packages (from uvicorn==0.47.0->uvicorn[standard]==0.47.0->interview-mux==0.1.0) (0.16.0)
+Requirement already satisfied: httptools>=0.6.3 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (0.8.0)
+Requirement already satisfied: python-dotenv>=0.13 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (1.2.2)
+Requirement already satisfied: pyyaml>=5.1 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (6.0.3)
+Requirement already satisfied: uvloop>=0.15.1 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (0.22.1)
+Requirement already satisfied: watchfiles>=0.20 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (1.2.0)
+Requirement already satisfied: websockets>=10.4 in ./.venv/lib/python3.12/site-packages (from uvicorn[standard]==0.47.0->interview-mux==0.1.0) (16.0)
+Requirement already satisfied: idna>=2.8 in ./.venv/lib/python3.12/site-packages (from anyio<5,>=3.5.0->openai==2.38.0->interview-mux==0.1.0) (3.16)
+Requirement already satisfied: certifi in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->openai==2.38.0->interview-mux==0.1.0) (2026.5.20)
+Requirement already satisfied: httpcore==1.* in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->openai==2.38.0->interview-mux==0.1.0) (1.0.9)
+Requirement already satisfied: pycparser in ./.venv/lib/python3.12/site-packages (from cffi>=1.0->soundfile==0.13.1->interview-mux==0.1.0) (3.0)
+Requirement already satisfied: mdurl~=0.1 in ./.venv/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich==13.9.4->interview-mux==0.1.0) (0.1.2)
+Building wheels for collected packages: interview-mux
+  Building editable for interview-mux (pyproject.toml): started
+  Building editable for interview-mux (pyproject.toml): finished with status 'done'
+  Created wheel for interview-mux: filename=interview_mux-0.1.0-0.editable-py3-none-any.whl size=5380 sha256=0e7ef0f255068987390544e62140318cedd699b9e7c35cf2841f17b08d3a9f55
+  Stored in directory: /private/var/folders/hx/28kxr5256v93gn2rxrv6r1tr0000gn/T/pip-ephem-wheel-cache-nykdamxd/wheels/b4/04/c4/ba86c085b60a37ccca60904837873a223635f76655e0cc49b6
+Successfully built interview-mux
+Installing collected packages: interview-mux
+  Attempting uninstall: interview-mux
+    Found existing installation: interview-mux 0.1.0
+    Uninstalling interview-mux-0.1.0:
+      Successfully uninstalled interview-mux-0.1.0
+Successfully installed interview-mux-0.1.0
+Local LLM (default on): installing MLX deps and downloading weights if missing...
+Requirement already satisfied: mlx-lm>=0.21.0 in ./.venv/lib/python3.12/site-packages (0.31.3)
+Requirement already satisfied: huggingface_hub>=0.26.0 in ./.venv/lib/python3.12/site-packages (1.17.0)
+Requirement already satisfied: mlx>=0.31.2 in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (0.31.2)
+Requirement already satisfied: numpy in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (2.4.6)
+Requirement already satisfied: transformers>=5.0.0 in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (5.9.0)
+Requirement already satisfied: sentencepiece in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (0.2.1)
+Requirement already satisfied: protobuf in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (7.35.0)
+Requirement already satisfied: pyyaml in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (6.0.3)
+Requirement already satisfied: jinja2 in ./.venv/lib/python3.12/site-packages (from mlx-lm>=0.21.0) (3.1.6)
+Requirement already satisfied: click>=8.4.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (8.4.1)
+Requirement already satisfied: filelock>=3.10.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (3.29.0)
+Requirement already satisfied: fsspec>=2023.5.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (2026.4.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.4.3 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (1.5.0)
+Requirement already satisfied: httpx<1,>=0.23.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (0.28.1)
+Requirement already satisfied: packaging>=20.9 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (26.2)
+Requirement already satisfied: tqdm>=4.42.1 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (4.67.3)
+Requirement already satisfied: typer<0.26.0,>=0.20.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (0.25.1)
+Requirement already satisfied: typing-extensions>=4.1.0 in ./.venv/lib/python3.12/site-packages (from huggingface_hub>=0.26.0) (4.15.0)
+Requirement already satisfied: anyio in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub>=0.26.0) (4.13.0)
+Requirement already satisfied: certifi in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub>=0.26.0) (2026.5.20)
+Requirement already satisfied: httpcore==1.* in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub>=0.26.0) (1.0.9)
+Requirement already satisfied: idna in ./.venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub>=0.26.0) (3.16)
+Requirement already satisfied: h11>=0.16 in ./.venv/lib/python3.12/site-packages (from httpcore==1.*->httpx<1,>=0.23.0->huggingface_hub>=0.26.0) (0.16.0)
+Requirement already satisfied: shellingham>=1.3.0 in ./.venv/lib/python3.12/site-packages (from typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (1.5.4)
+Requirement already satisfied: rich>=13.8.0 in ./.venv/lib/python3.12/site-packages (from typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (13.9.4)
+Requirement already satisfied: annotated-doc>=0.0.2 in ./.venv/lib/python3.12/site-packages (from typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (0.0.4)
+Requirement already satisfied: mlx-metal==0.31.2 in ./.venv/lib/python3.12/site-packages (from mlx>=0.31.2->mlx-lm>=0.21.0) (0.31.2)
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./.venv/lib/python3.12/site-packages (from rich>=13.8.0->typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./.venv/lib/python3.12/site-packages (from rich>=13.8.0->typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (2.20.0)
+Requirement already satisfied: mdurl~=0.1 in ./.venv/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich>=13.8.0->typer<0.26.0,>=0.20.0->huggingface_hub>=0.26.0) (0.1.2)
+Requirement already satisfied: regex>=2025.10.22 in ./.venv/lib/python3.12/site-packages (from transformers>=5.0.0->mlx-lm>=0.21.0) (2026.5.9)
+Requirement already satisfied: tokenizers<=0.23.0,>=0.22.0 in ./.venv/lib/python3.12/site-packages (from transformers>=5.0.0->mlx-lm>=0.21.0) (0.22.2)
+Requirement already satisfied: safetensors>=0.4.3 in ./.venv/lib/python3.12/site-packages (from transformers>=5.0.0->mlx-lm>=0.21.0) (0.7.0)
+Requirement already satisfied: MarkupSafe>=2.0 in ./.venv/lib/python3.12/site-packages (from jinja2->mlx-lm>=0.21.0) (3.0.3)
+/Users/nicketuttarwar/IDEProjects/interview_helper_mux/scripts/bootstrap_venv.sh: line 32: REFRESH_FLAG[@]: unbound variable
+Checking prerequisites...
+Python 3.12.13
+interview_mux 0.1.0
+Running pip-audit against requirements.lock...
+pip-audit: no unaccepted HIGH/CRITICAL findings
+Prerequisites OK.
+Prerequisites: PASS
+Config import: PASS
+
+--- Tier 1: Unit / integration (pytest tests/) ---
+Main suite: PASS (299 passed)
+
+--- Tier 1b: E2E helper unit tests ---
+E2E helpers: PASS
+
+--- Tier 2: Holistic simulated layer ---
+Holistic layer: PASS
+
+--- Tier 3: Frontend compile (npm run build) ---
+
+> interview-mux-gui@0.2.0 build
+> tsc -b && vite build
+
+vite v6.4.2 building for production...
+transforming...
+✓ 118 modules transformed.
+rendering chunks...
+computing gzip size...
+../src/interview_mux/web/static/index.html                   0.41 kB │ gzip:   0.28 kB
+../src/interview_mux/web/static/assets/index-C5nQ0jyC.css   37.18 kB │ gzip:   7.41 kB
+../src/interview_mux/web/static/assets/index-BEVb1v2x.js   384.25 kB │ gzip: 111.80 kB
+✓ built in 1.80s
+Frontend build: PASS
+
+--- Excluded (by design) ---
+Skipped: ./scripts/e2e.sh (Playwright + real APIs)
+Skipped: E2E_LIVE=1 pytest tests/e2e/test_live.py
+
+Finished: 2026-06-05T18:37:20Z
+Report: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/reports/holistic_simulated_report.txt

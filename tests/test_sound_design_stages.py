@@ -13,6 +13,14 @@ from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
 from interview_mux.stages import sound_design_stages, understanding
+from run_fixtures import (
+    minimal_content_brief,
+    minimal_flow2_selection,
+    minimal_gap_report,
+    minimal_manifest,
+    minimal_manifest_segment,
+    minimal_narrative_plan,
+)
 
 
 def _write_test_wav(path: Path, *, sample_rate: int = 16000, duration_seconds: float = 1.0) -> None:
@@ -51,12 +59,12 @@ def _seed_flow1_inputs(ctx: RunContext) -> None:
         "flow_1_master/selection.json",
         {"ordered_segment_ids": ["seg_001"], "chapters": [{"chapter_id": "ch_01", "segment_ids": ["seg_001"]}]},
     )
-    ctx.write_json("flow_1_master/narrative_plan.json", {"arc_summary": "Test arc"})
+    ctx.write_json("flow_1_master/narrative_plan.json", minimal_narrative_plan())
     ctx.write_json("flow_1_master/transitions.json", {"transitions": []})
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 2000, "text": "hello"}]},
+        minimal_manifest(minimal_manifest_segment("seg_001", start_ms=0, end_ms=2000, text="hello")),
     )
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
 
@@ -144,15 +152,41 @@ def test_sound_design_plan_flow1_persists_assets_and_cues(tmp_path, monkeypatch)
 def _seed_flow2_inputs(ctx: RunContext) -> None:
     ctx.write_json(
         "flow_2_highlights/selection.json",
-        {
-            "highlights": [
-                {"rank": 1, "segment_id": "seg_001", "start_ms": 0, "end_ms": 8000, "headline": "Hook"},
-                {"rank": 2, "segment_id": "seg_002", "start_ms": 12000, "end_ms": 20000, "headline": "Payoff"},
+        minimal_flow2_selection(
+            highlights=[
+                {
+                    "rank": 1,
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "headline": "Hook",
+                    "scores": {
+                        "salience": 0.9,
+                        "clarity": 0.8,
+                        "emotion": 0.7,
+                        "quotability": 0.6,
+                        "diversity_bonus": 0.1,
+                    },
+                },
+                {
+                    "rank": 2,
+                    "segment_id": "seg_002",
+                    "start_ms": 12000,
+                    "end_ms": 20000,
+                    "headline": "Payoff",
+                    "scores": {
+                        "salience": 0.8,
+                        "clarity": 0.8,
+                        "emotion": 0.7,
+                        "quotability": 0.6,
+                        "diversity_bonus": 0.1,
+                    },
+                },
             ],
-            "reel_thesis": "Two beats that show the arc.",
-        },
+            reel_thesis="Two beats that show the arc.",
+        ),
     )
-    ctx.write_json("understanding/content_brief.json", {"thesis": "Founder journey"})
+    ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Founder journey"))
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
 
 
@@ -424,8 +458,11 @@ def test_sound_design_palettes_volley_includes_source_acoustic_profile():
 def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_205", create=True)
-    ctx.write_json("understanding/content_brief.json", {"thesis": "Test thesis"})
-    ctx.write_json("segments/manifest.json", {"segments": [{"segment_id": "seg_1", "text": "hello"}]})
+    ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Test thesis"))
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_1", text="hello")),
+    )
     ctx.write_json("understanding/analysis_state.json", default_analysis_state(ctx.run_id))
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
     _seed_source_acoustic_profile(ctx)

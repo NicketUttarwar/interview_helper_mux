@@ -7,32 +7,28 @@ from interview_mux.gates import check_edl_qc
 from interview_mux.operator_quality import qc_summary
 from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from run_fixtures import minimal_gap_line, minimal_gap_report, minimal_manifest, minimal_manifest_segment
 
 
 def _segments() -> dict[str, dict]:
     return {
-        "seg_a": {"segment_id": "seg_a", "start_ms": 0, "end_ms": 10_000},
-        "seg_b": {"segment_id": "seg_b", "start_ms": 10_000, "end_ms": 25_000},
+        "seg_a": minimal_manifest_segment("seg_a", start_ms=0, end_ms=10_000),
+        "seg_b": minimal_manifest_segment("seg_b", start_ms=10_000, end_ms=25_000),
     }
 
 
 def _write_manifest(ctx: RunContext) -> None:
     ctx.write_json(
         "segments/manifest.json",
-        {
-            "segments": [
-                {"segment_id": "seg_a", "start_ms": 0, "end_ms": 10_000},
-                {"segment_id": "seg_b", "start_ms": 10_000, "end_ms": 25_000},
-            ]
-        },
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=0, end_ms=10_000),
+            minimal_manifest_segment("seg_b", start_ms=10_000, end_ms=25_000),
+        ),
     )
 
 
 def _write_gap_report(ctx: RunContext, *, lines: list[dict] | None = None) -> None:
-    ctx.write_json(
-        "understanding/gap_report.json",
-        {"interviewer_lines": lines or []},
-    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report(*(lines or [])))
 
 
 def test_validate_flow1_edl_passes_built_edl(tmp_path) -> None:
@@ -41,12 +37,12 @@ def test_validate_flow1_edl_passes_built_edl(tmp_path) -> None:
     _write_gap_report(
         ctx,
         lines=[
-            {
-                "line_id": "line_001",
-                "targets_segment_id": "seg_b",
-                "placement": "before",
-                "delivery": "record",
-            }
+            minimal_gap_line(
+                line_id="line_001",
+                targets_segment_id="seg_b",
+                placement="before",
+                delivery="record",
+            )
         ],
     )
     edl = build_flow1_edl(

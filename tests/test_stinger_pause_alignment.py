@@ -10,7 +10,7 @@ from interview_mux.sound_design import (
     flow1_overlays_from_sdp,
     resolve_stinger_position_ms,
 )
-from run_fixtures import minimal_source_acoustic_profile, sound_design_plan_with
+from run_fixtures import minimal_manifest, minimal_manifest_segment, minimal_source_acoustic_profile, sound_design_plan_with
 
 
 def _profile(*, prefer: bool = True, min_pause: int = 400) -> dict:
@@ -88,7 +88,9 @@ def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkey
 
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [_segment("seg_a", start_ms=800, end_ms=3000)]},
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=800, end_ms=3000),
+        ),
     )
     ctx.write_json(
         "transcript/full.json",

@@ -67,6 +67,20 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript/review_queue.json` | transcript_review_build |
 | `transcript/review_clips/*.wav` | transcript_review_build |
 | `transcript/corrections.json` | transcript_review (operator) ([transcript_corrections.schema.json](./json-schemas/transcript_corrections.schema.json)) |
+| `operator/manifest.json` | Index of operator-authored snapshots (GUI edits, settings) |
+| `operator/transcript_corrected.json` | Independent operator-corrected transcript per execution |
+| `operator/transcript_corrected.txt` | Plain-text export of corrected transcript |
+| `operator/transcript_corrections.json` | Copy of chunk corrections at save time |
+| `operator/analysis_profile.json` | Interview profile as edited by operator |
+| `operator/nle_edits.json` | Timeline / NLE operator edits |
+| `operator/acoustic_profile_overrides.json` | Pacing / mix overrides |
+| `operator/flow_selection.json` | G2 flow choice |
+| `operator/preclean_decisions.json` | Pre-clean accept/dismiss history |
+| `operator/stage_reuse_decisions.json` | Stage reuse accept/decline log |
+| `operator/elevenlabs_prompts.json` | ElevenLabs prompt review edits |
+| `operator/elevenlabs_listen_results.json` | Post-listen pass/fail results |
+| `operator/investigation_queue.json` | Investigation status edits |
+| `operator/artifacts/*.json` | Mirrors of other GUI-edited artifacts |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
 | `understanding/context_index.json` | context padding index |
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |

@@ -17,7 +17,7 @@ else
   echo "requirements.lock missing — falling back to requirements.txt"
   pip install -r "$ROOT/requirements.txt"
 fi
-pip install "$ROOT"
+pip install -e "$ROOT"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   echo "Local LLM (default on): installing MLX deps and downloading weights if missing..."

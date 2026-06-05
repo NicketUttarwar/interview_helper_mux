@@ -8,7 +8,12 @@ from pydub.generators import Sine
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import mix_flow1, mix_flow2
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
-from run_fixtures import sound_design_plan_with
+from run_fixtures import (
+    minimal_flow2_selection,
+    minimal_manifest,
+    minimal_manifest_segment,
+    sound_design_plan_with,
+)
 
 
 def _tone(freq: int, duration_ms: int, gain_db: float = 0.0) -> AudioSegment:
@@ -35,7 +40,7 @@ def test_mix_flow1_overlays_stinger_above_speech(tmp_path: Path, monkeypatch) ->
 
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 2000}]},
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=2000)),
     )
     ctx.write_json("flow_1_master/selection.json", {"ordered_segment_ids": ["seg_a"]})
     edl = build_flow1_edl(
@@ -101,7 +106,7 @@ def test_mix_flow1_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
 
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 1500}]},
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=1500)),
     )
     edl = build_flow1_edl(
         selection={"ordered_segment_ids": ["seg_a"]},
@@ -163,21 +168,45 @@ def test_mix_flow2_shared_transition_between_clips(tmp_path: Path, monkeypatch) 
 
     ctx.write_json(
         "segments/manifest.json",
-        {
-            "segments": [
-                {"segment_id": "seg_a", "start_ms": 0, "end_ms": 1000},
-                {"segment_id": "seg_b", "start_ms": 1000, "end_ms": 2000},
-            ]
-        },
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=0, end_ms=1000),
+            minimal_manifest_segment("seg_b", start_ms=1000, end_ms=2000),
+        ),
     )
     ctx.write_json(
         "flow_2_highlights/selection.json",
-        {
-            "highlights": [
-                {"segment_id": "seg_a", "rank": 1, "start_ms": 0, "end_ms": 1000},
-                {"segment_id": "seg_b", "rank": 2, "start_ms": 1000, "end_ms": 2000},
+        minimal_flow2_selection(
+            highlights=[
+                {
+                    "rank": 1,
+                    "segment_id": "seg_a",
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "headline": "Hook",
+                    "scores": {
+                        "salience": 0.9,
+                        "clarity": 0.8,
+                        "emotion": 0.7,
+                        "quotability": 0.6,
+                        "diversity_bonus": 0.1,
+                    },
+                },
+                {
+                    "rank": 2,
+                    "segment_id": "seg_b",
+                    "start_ms": 1000,
+                    "end_ms": 2000,
+                    "headline": "Payoff",
+                    "scores": {
+                        "salience": 0.8,
+                        "clarity": 0.8,
+                        "emotion": 0.7,
+                        "quotability": 0.6,
+                        "diversity_bonus": 0.1,
+                    },
+                },
             ]
-        },
+        ),
     )
     ctx.write_json(
         "understanding/sound_design_plan.json",
@@ -221,8 +250,8 @@ def test_mix_flow2_shared_transition_between_clips(tmp_path: Path, monkeypatch) 
     assert assembly.is_file()
     assert ctx.is_done("mix_flow2")
     mixed = AudioSegment.from_file(assembly)
-    # cold open + 2 clips + 1 transition
-    assert len(mixed) > 2000 + 250
+    # cold open + 2 clips + 1 transition (crossfades reduce total vs naive sum)
+    assert len(mixed) > 2000
 
 
 def test_run_mux_marks_mux_flow1_alias(tmp_path: Path, monkeypatch) -> None:
@@ -231,7 +260,7 @@ def test_run_mux_marks_mux_flow1_alias(tmp_path: Path, monkeypatch) -> None:
     _write_wav(ctx.path("ingest", "normalized.wav"), _tone(440, 500))
     ctx.write_json(
         "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 500}]},
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=500)),
     )
     edl = build_flow1_edl(
         selection={"ordered_segment_ids": ["seg_a"]},

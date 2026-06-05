@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import { stageDescriptionParts } from "../../utils/stageDescription";
 import { HandoffPanel } from "./HandoffPanel";
 import { StageOutputsPanel } from "./StageOutputsPanel";
+import { TranscriptDockViewer } from "./TranscriptDockViewer";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
@@ -100,6 +101,19 @@ export function StageDetail() {
       ) : null}
 
       <StageOutputsPanel stage={selectedStage} />
+
+      {(selectedStage.id === "transcribe" ||
+        selectedStage.id === "transcript_review" ||
+        selectedStage.id === "transcript_review_build") &&
+      selectedStage.artifacts_present?.includes("transcript/full.json") ? (
+        <section className="stage-transcript-dock">
+          <h3 className="stage-outputs-title">Transcript editor</h3>
+          <p className="hint">
+            Word-level sync with source audio — click to seek, double-click to edit inline.
+          </p>
+          <TranscriptDockViewer />
+        </section>
+      ) : null}
 
       {showHandoff ? <HandoffPanel /> : null}
 

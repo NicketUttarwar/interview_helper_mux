@@ -88,3 +88,11 @@ def test_apply_nle_to_selection_merges_order_and_excludes() -> None:
         for e in merged["excluded_segment_ids"]
     )
     assert merged.get("nle_applied") is True
+
+
+def test_apply_segments_trim_override() -> None:
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 500, "end_ms": 8000}}}
+    out = apply_segments_with_nle(_segments(), nle)
+    by_id = {s["segment_id"]: s for s in out}
+    assert by_id["seg_a"]["start_ms"] == 500
+    assert by_id["seg_a"]["end_ms"] == 8000
