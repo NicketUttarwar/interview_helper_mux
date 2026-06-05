@@ -17,8 +17,11 @@ SPECIALIST_PROMPTS: dict[str, str] = {
     "emphasis_coverage_pass": "_shared/specialists/emphasis-coverage-pass.system.txt",
 }
 
-POST_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
+PRE_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "missing_framing": ("comprehension_risk_blind",),
+}
+
+POST_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "segment_classification": ("theme_coverage_pass",),
     "topic_coverage_audit": ("emphasis_coverage_pass",),
     "full_master_ranking": ("comprehension_risk_blind",),
@@ -60,15 +63,23 @@ def _process_specialist_investigations(
     elif specialist_key == "theme_coverage_pass":
         patches = artifacts.get("segment_topic_patches") or []
         if patches:
-            items.append(
-                {
-                    "kind": "theme_unmapped",
-                    "question": f"Specialist found {len(patches)} segment topic patch(es) — re-check classification",
-                    "priority": "medium",
-                    "blocking": False,
-                    "suggested_action": {"type": "rerun_stage", "stage": "segment_classification"},
-                }
-            )
+            applied = apply_segment_topic_patches(ctx, patches)
+            if applied:
+                ctx.log(
+                    f"theme_coverage_pass: applied topic patches to {applied} segment(s)",
+                    level="info",
+                    stage=parent_stage,
+                )
+            else:
+                items.append(
+                    {
+                        "kind": "theme_unmapped",
+                        "question": f"Specialist found {len(patches)} segment topic patch(es) — re-check classification",
+                        "priority": "medium",
+                        "blocking": False,
+                        "suggested_action": {"type": "rerun_stage", "stage": "segment_classification"},
+                    }
+                )
 
     elif specialist_key == "emphasis_coverage_pass":
         coverage = artifacts.get("emphasis_coverage") if isinstance(artifacts.get("emphasis_coverage"), dict) else {}
@@ -94,6 +105,48 @@ def _specialists_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return (resolved.get("analysis") or {}).get("specialists") or {}
 
 
+def apply_segment_topic_patches(ctx: RunContext, patches: list[Any]) -> int:
+    """Merge specialist topic patches into segments/manifest.json."""
+    if not patches or not ctx.artifact_exists("segments/manifest.json"):
+        return 0
+    manifest = ctx.read_json("segments/manifest.json")
+    segments = manifest.get("segments") or []
+    if not isinstance(segments, list):
+        return 0
+    by_id = {
+        str(seg.get("segment_id")): seg for seg in segments if isinstance(seg, dict) and seg.get("segment_id")
+    }
+    applied = 0
+    for patch in patches:
+        if not isinstance(patch, dict):
+            continue
+        seg_id = str(patch.get("segment_id") or "")
+        tags = patch.get("topic_tags")
+        if not seg_id or seg_id not in by_id or not isinstance(tags, list) or not tags:
+            continue
+        by_id[seg_id]["topic_tags"] = [str(t) for t in tags if t]
+        applied += 1
+    if applied:
+        manifest["segments"] = list(by_id.values())
+        ctx.write_json("segments/manifest.json", manifest)
+    return applied
+
+
+def load_comprehension_risks(ctx: RunContext, parent_stage: str = "missing_framing") -> list[dict[str, Any]]:
+    """Read comprehension risks from the latest specialist pass for a parent stage."""
+    spec_path = ctx.path(
+        "understanding", "stage_runs", parent_stage, "specialist_comprehension_risk_blind.json"
+    )
+    if not spec_path.is_file():
+        return []
+    try:
+        env = json.loads(spec_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    risks = (env.get("artifacts") or {}).get("comprehension_risks")
+    return risks if isinstance(risks, list) else []
+
+
 def specialists_enabled(
     cfg: dict[str, Any] | None = None,
     *,
@@ -109,7 +162,7 @@ def specialists_enabled(
         return stage_key in pilot_stages
     if stage_key is None:
         return True
-    return stage_key in POST_STAGE_SPECIALISTS
+    return stage_key in PRE_STAGE_SPECIALISTS or stage_key in POST_STAGE_SPECIALISTS
 
 
 def run_specialist(
@@ -133,6 +186,44 @@ def run_specialist(
     )
 
 
+def _persist_specialist_output(
+    ctx: RunContext,
+    *,
+    stage_key: str,
+    spec_key: str,
+    env: dict[str, Any],
+) -> None:
+    base = ctx.path("understanding", "stage_runs", stage_key)
+    base.mkdir(parents=True, exist_ok=True)
+    out_path = base / f"specialist_{spec_key}.json"
+    out_path.write_text(json.dumps(env, indent=2), encoding="utf-8")
+
+
+def maybe_run_pre_stage_specialists(
+    ctx: RunContext,
+    stage_key: str,
+    stage_input: dict[str, Any],
+    *,
+    cfg: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run configured specialists before the parent primary LLM call."""
+    if not specialists_enabled(cfg, stage_key=stage_key):
+        return []
+    outputs: list[dict[str, Any]] = []
+    for spec_key in PRE_STAGE_SPECIALISTS.get(stage_key, ()):
+        try:
+            env = run_specialist(ctx, spec_key, stage_key, stage_input)
+            outputs.append({"specialist": spec_key, "envelope": env})
+            _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
+        except Exception as exc:
+            ctx.log(
+                f"Pre-stage specialist {spec_key} failed: {exc}",
+                level="warning",
+                stage=stage_key,
+            )
+    return outputs
+
+
 def maybe_run_post_stage_specialists(
     ctx: RunContext,
     stage_key: str,
@@ -148,10 +239,7 @@ def maybe_run_post_stage_specialists(
         try:
             env = run_specialist(ctx, spec_key, stage_key, stage_input)
             outputs.append({"specialist": spec_key, "envelope": env})
-            base = ctx.path("understanding", "stage_runs", stage_key)
-            base.mkdir(parents=True, exist_ok=True)
-            out_path = base / f"specialist_{spec_key}.json"
-            out_path.write_text(json.dumps(env, indent=2), encoding="utf-8")
+            _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
             _process_specialist_investigations(
                 ctx,
                 parent_stage=stage_key,

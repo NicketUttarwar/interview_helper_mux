@@ -10,9 +10,10 @@ from typing import Any
 from pydub import AudioSegment
 
 from interview_mux.acoustic_profile import load_profile, mix_contract, placement_hints
-from interview_mux.audio_timeline import append_with_crossfade
+from interview_mux.audio_timeline import append_with_crossfade, snap_cut_to_word_boundary
 from interview_mux.config import merged_config
 from interview_mux.master_qc import maybe_check_mix_intelligibility
+from interview_mux.mix_completeness import enforce_mix_completeness
 from interview_mux.run_context import RunContext
 
 DEFAULT_FRAME_RATE = 48_000
@@ -21,6 +22,31 @@ MIN_DUCK_DB = 14.0
 
 def _mix_cfg() -> dict[str, Any]:
     return merged_config().get("mix") or {}
+
+
+def _transcript_words(ctx: RunContext) -> list[dict[str, Any]]:
+    if not ctx.artifact_exists("transcript/full.json"):
+        return []
+    full = ctx.read_json("transcript/full.json")
+    words = full.get("words") or []
+    return words if isinstance(words, list) else []
+
+
+def _speech_slice_end_ms(ctx: RunContext, end_ms: int, words: list[dict[str, Any]]) -> int:
+    if not bool(_mix_cfg().get("word_boundary_cuts", True)):
+        return end_ms
+    margin = int(_mix_cfg().get("word_boundary_margin_ms", 50))
+    max_shift = int(_mix_cfg().get("word_boundary_max_shift_ms", 400))
+    return snap_cut_to_word_boundary(end_ms, words, margin_ms=margin, max_shift_ms=max_shift)
+
+
+def _append_mix_clip(
+    base: AudioSegment,
+    clip: AudioSegment,
+    crossfade_ms: int,
+) -> AudioSegment:
+    adaptive = bool(_mix_cfg().get("adaptive_crossfade", True))
+    return append_with_crossfade(base, clip, crossfade_ms, adaptive=adaptive)
 
 
 def mix_flow1(ctx: RunContext) -> Path:
@@ -37,6 +63,7 @@ def mix_flow1(ctx: RunContext) -> Path:
         stage="mix_flow1",
     )
     crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
+    words = _transcript_words(ctx)
     ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
     edl = ctx.read_json("flow_1_master/edl.json")
     source = load_audio(ctx.path("ingest", "normalized.wav"))
@@ -50,7 +77,7 @@ def mix_flow1(ctx: RunContext) -> Path:
         ctype = str(clip.get("type") or "")
         if ctype == "speech":
             start = int(clip.get("source_start_ms", 0))
-            end = int(clip.get("source_end_ms", start))
+            end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
             audio = source[max(0, start) : max(start, end)]
             seg_id = str(clip.get("segment_id") or "")
             if seg_id:
@@ -76,7 +103,7 @@ def mix_flow1(ctx: RunContext) -> Path:
         if len(base) == 0:
             base = audio
         else:
-            base = append_with_crossfade(base, audio, crossfade_ms)
+            base = _append_mix_clip(base, audio, crossfade_ms)
 
     if missing_vo:
         ctx.log(
@@ -132,6 +159,13 @@ def mix_flow1(ctx: RunContext) -> Path:
         segment_timing=segment_timing,
         contract=contract,
     )
+    enforce_mix_completeness(
+        ctx,
+        flow="flow1",
+        stage="mix_flow1",
+        missing_vo=missing_vo,
+        missing_sfx=list(overlay_stats.get("missing_assets") or []),
+    )
     ctx.mark_done("mix_flow1")
     return assembly
 
@@ -140,6 +174,7 @@ def mix_flow2(ctx: RunContext) -> Path:
     """Build Flow 2 montage assembly: highlights + SDP cold open / transitions / outro."""
     contract = mix_contract(ctx)
     crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow2", 120))
+    words = _transcript_words(ctx)
     ctx.log("mix_flow2: loading selection and segment manifest", level="info", stage="mix_flow2")
     selection = ctx.read_json("flow_2_highlights/selection.json")
     manifest = ctx.read_json("segments/manifest.json")
@@ -174,13 +209,14 @@ def mix_flow2(ctx: RunContext) -> Path:
         if start_ms is None or end_ms is None:
             continue
         rendered += 1
-        slice_audio = source[int(start_ms) : int(end_ms)]
+        end_cut = _speech_slice_end_ms(ctx, int(end_ms), words)
+        slice_audio = source[int(start_ms) : end_cut]
         if len(mix) == 0:
             mix = slice_audio
             speech_montage = slice_audio
         else:
-            mix = append_with_crossfade(mix, slice_audio, crossfade_ms)
-            speech_montage = append_with_crossfade(speech_montage, slice_audio, crossfade_ms)
+            mix = _append_mix_clip(mix, slice_audio, crossfade_ms)
+            speech_montage = _append_mix_clip(speech_montage, slice_audio, crossfade_ms)
         rank = int(hl.get("rank") or (i + 1))
         if i + 1 < len(highlights):
             next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
@@ -234,6 +270,12 @@ def mix_flow2(ctx: RunContext) -> Path:
         speech_stem=speech_montage,
         segment_timing={},
         contract=contract,
+    )
+    enforce_mix_completeness(
+        ctx,
+        flow="flow2",
+        stage="mix_flow2",
+        missing_sfx=list(missing_assets),
     )
     ctx.mark_done("mix_flow2")
     return assembly

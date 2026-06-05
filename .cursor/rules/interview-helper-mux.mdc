@@ -57,8 +57,8 @@ Must follow anchor lock policy: **`requirements.lock`**, `pip-audit` in **`tools
 
 Until build-out tickets close the matching gap in **`repository-map.md`**:
 
-- **Flow 1 `master.wav`:** v1 is **reordered speech-only** concat — not final VO + SFX mix (target: BUILD-065–067).
-- **Flow 2 SFX:** index-based concat; shared transition asset is planned (BUILD-065).
+- **Flow 1 `master.wav`:** built via **`mix_flow1`** (speech + VO + SDP beds/stingers) → **`master_flow1`** (BUILD-065–066). Legacy `mux_flow1` is a single-stage rerun alias only.
+- **Flow 2 `master.wav`:** built via **`mix_flow2`** montage + SDP transitions (BUILD-065).
 - **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`.
 - **Pre-clean:** stage shipped (BUILD-019); GUI checkpoint offers BUILD-072.
 - **LLM routing:** tier-aware `model_registry` + economy arbiter + shard/collate (BUILD-073).

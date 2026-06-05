@@ -109,16 +109,27 @@ export function StageDetail() {
           <ul className="llm-routing-list">
             {llmAttempts.map((r, i) => (
               <li key={i}>
-                <span className="llm-routing-task">{r.task_kind || "primary"}</span>
+                <span className="llm-routing-task">
+                  {r.task_kind || "primary"}
+                  {r.attempt ? ` #${r.attempt}` : ""}
+                </span>
                 <span className={`llm-routing-verdict verdict-${r.verdict || "unknown"}`}>
                   {r.verdict || "—"}
                 </span>
                 <span className="muted">
-                  shards {r.shard_count ?? 0}
+                  {r.model_tier ? `${r.model_tier}` : ""}
+                  {r.shard_count != null ? ` · shards ${r.shard_count}` : ""}
+                  {r.shard_plan_source ? ` · plan ${r.shard_plan_source}` : ""}
                   {(r.truncation_flags || []).length
                     ? ` · trunc ${(r.truncation_flags || []).join(", ")}`
                     : ""}
+                  {(r.schema_errors || []).length
+                    ? ` · schema ${(r.schema_errors || []).length}`
+                    : ""}
                 </span>
+                {r.arbiter_reason ? (
+                  <p className="hint llm-routing-reason">{r.arbiter_reason}</p>
+                ) : null}
               </li>
             ))}
           </ul>

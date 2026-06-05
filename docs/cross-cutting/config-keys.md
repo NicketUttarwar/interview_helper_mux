@@ -32,7 +32,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
 | `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
-| `value_analysis.auto_extract_after_content_context` | `understanding.run_content_context` | When master + this flag on, writes `understanding/value_features.json` after successful `content_context` (default off) |
+| `value_analysis.auto_extract_after_content_context` | `understanding.run_content_context` | When master + this flag on, writes `understanding/value_features.json` after successful `content_context` (default **on** in shipped `app.defaults.json`) |
 | `models.<stage_key>` | `get_model()` → OpenAI calls | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).
@@ -216,13 +216,26 @@ Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Dee
 
 ---
 
-## `mix` — crossfade and preclean gate (gap-closure)
+## `mix` — crossfade, slice policy, completeness (gap-closure)
 
 | Key | Used by | If wrong |
 |-----|---------|----------|
-| `mix.crossfade_ms_flow1` / `mix.crossfade_ms_flow2` | `sound_design.py` speech/overlay concat | Harsh or overly long crossfades |
-| `mix.crossfade_ms_assembly_preview` | `assembly_flow1.run_preview` | Preview clip seams audible or mushy |
+| `mix.crossfade_ms_flow1` / `mix.crossfade_ms_flow2` | `sound_design.py` speech/overlay concat | Harsh or overly long crossfades (base ms before adaptive scaling) |
+| `mix.crossfade_ms_assembly_preview` | `assembly_flow1.run_preview`, `audio_preclean.py` chunk merge | Preview clip seams audible or mushy |
+| `mix.adaptive_crossfade` | `audio_timeline.append_with_crossfade` via `sound_design.py` | When `true` (default), crossfade length scales 80–200 ms from tail/head energy |
+| `mix.word_boundary_cuts` | `sound_design.py` EDL/highlight slices | When `true`, nudge slice ends to transcript word boundaries |
+| `mix.word_boundary_margin_ms` / `mix.word_boundary_max_shift_ms` | `audio_timeline.snap_cut_to_word_boundary` | Too small → mid-word cuts remain; too large → clips drift from EDL |
+| `mix.normalize_vo_pickup` | `gaps.ingest_vo_pickup` | When `true`, writes loudnorm copies under `vo_pickup/normalized/` |
+| `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
+| `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
 | `mix.require_preclean_acknowledgment` | `web/runner.py`, GUI preclean offers | When `true`, single-stage runs block until checkpoint acknowledged in `run_meta.audio_preclean.offered_at` |
+| `mix.intelligibility_qc.enabled` | `master_qc.maybe_check_mix_intelligibility` | Optional speech-vs-bed check after mix |
+
+## `audio_preclean`
+
+| Key | Used by | If wrong |
+|-----|---------|----------|
+| `audio_preclean.local_fallback_enabled` | `stages/audio_preclean.py` | When `true` (default), ElevenLabs failure falls back to ffmpeg `afftdn` denoise (`provider: rnnoise_local`) |
 
 ---
 

@@ -31,12 +31,15 @@ def list_stage_routing_attempts(ctx: RunContext) -> list[dict[str, Any]]:
                     "task_kind": doc.get("task_kind"),
                     "attempt": doc.get("attempt"),
                     "verdict": arb.get("verdict"),
+                    "arbiter_reason": arb.get("reasoning_summary") or arb.get("reason"),
                     "shard_count": doc.get("shard_count", 0),
                     "truncation_flags": doc.get("truncation_flags") or [],
                     "shard_plan_source": doc.get("shard_plan_source"),
                     "routed_via_collate": doc.get("routed_via_collate"),
                     "model_tier": doc.get("model_tier"),
+                    "model_id": doc.get("model_id"),
                     "context_chars": doc.get("context_chars"),
+                    "schema_errors": doc.get("schema_errors") or [],
                 }
             )
     return out

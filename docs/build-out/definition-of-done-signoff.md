@@ -2,6 +2,8 @@
 
 **Purpose:** Release-candidate checklist for operators and maintainers. Automated `pytest` is optional; complete this doc (and [smoke-test.md](../workflows/smoke-test.md)) before calling the repository “done.”
 
+**Post gap-closure (2026):** Orchestration loops (envelope `needs`, investigation drain on flow LLM stages, specialist pre-pass for `missing_framing`, mix completeness gate, adaptive crossfade / word-boundary cuts, local pre-clean fallback) are shipped in code — use sections 1–5 below to validate on a real `exec_*` fixture.
+
 **Code anchors:** `src/interview_mux/pipeline.py` · `src/interview_mux/web/stages.py` · [stage-registry.md](./stage-registry.md)
 
 **Related:** [implementation-guide.md](./implementation-guide.md#definition-of-done-entire-app) · [steps-forward.md](./steps-forward.md#definition-of-done-repository-wide) · [repository-map.md](./repository-map.md)

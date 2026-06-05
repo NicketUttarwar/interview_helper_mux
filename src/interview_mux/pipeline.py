@@ -6,11 +6,12 @@ from collections.abc import Callable
 from typing import Any
 
 from interview_mux.analysis_orchestrator import (
+    ALL_LLM_STAGES,
     ANALYSIS_LLM_STAGES,
     drain_investigation_queue,
+    llm_stage_runners,
     post_analysis_finalize,
     pre_analysis_init,
-
 )
 from interview_mux.gates import (
     check_g1_vo,
@@ -272,7 +273,7 @@ def run_analysis(
         ctx.clear_from(from_stage, ANALYSIS_ORDER)
 
     stages = _analysis_stage_fns(ctx)
-    llm_runners = {k: v for k, v in stages.items() if k in ANALYSIS_LLM_STAGES}
+    llm_runners = llm_stage_runners(ctx)
 
     start_idx = 0
     if from_stage:
@@ -302,7 +303,7 @@ def run_analysis(
         finally:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, name)
-        if name in ANALYSIS_LLM_STAGES:
+        if name in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, llm_runners)
         if until_stage and name == until_stage:
             break
@@ -436,6 +437,7 @@ def _run_steps(
         if from_stage not in names:
             raise ValueError(f"Unknown from_stage: {from_stage}")
         start = names.index(from_stage)
+    flow_llm_runners = llm_stage_runners(ctx)
     for name, fn in steps[start:]:
         if ctx.is_done(name) and from_stage != name:
             if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
@@ -456,5 +458,7 @@ def _run_steps(
         finally:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, name)
+        if name in ALL_LLM_STAGES:
+            drain_investigation_queue(ctx, flow_llm_runners)
         if until_stage and name == until_stage:
             break

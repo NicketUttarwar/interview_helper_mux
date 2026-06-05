@@ -321,10 +321,19 @@ export interface ElevenLabsPromptsResponse {
 
 export interface LlmRoutingAttempt {
   stage: string;
+  file?: string;
   task_kind?: string;
+  attempt?: number;
   verdict?: string;
+  arbiter_reason?: string;
   shard_count?: number;
   truncation_flags?: string[];
+  shard_plan_source?: string;
+  routed_via_collate?: boolean;
+  model_tier?: string;
+  model_id?: string;
+  context_chars?: number;
+  schema_errors?: string[];
 }
 
 export interface ExecuteBody {

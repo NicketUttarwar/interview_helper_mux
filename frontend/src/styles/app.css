@@ -1579,6 +1579,15 @@ code {
   font-weight: 600;
 }
 
+.llm-routing-reason {
+  flex: 1 1 100%;
+  margin: 0.15rem 0 0;
+}
+
+.llm-calls-routing-summary {
+  margin-bottom: 1rem;
+}
+
 .log-entry-main {
   display: flex;
   flex-wrap: wrap;

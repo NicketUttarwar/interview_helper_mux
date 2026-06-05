@@ -94,13 +94,13 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-018 — Transcript review + analysis memory
 
-- [ ] Confidence-ranked review queue
-- [ ] `analysis_state.json` profile + investigation queue
-- [ ] Orchestrator drains queue after LLM stages
+- [x] Confidence-ranked review queue
+- [x] `analysis_state.json` profile + investigation queue
+- [x] Orchestrator drains queue after LLM stages (analysis + flow LLM stages; `run_specialist` actions)
 
 ### BUILD-056 — NLE editor state
 
-- [ ] `segments/nle_edits.json` read/write via API
+- [x] `segments/nle_edits.json` read/write via API (`GET/PUT/PATCH /api/runs/{id}/nle*`)
 - [x] Consumed by BUILD-068
 
 ### BUILD-057 — GUI session / active run

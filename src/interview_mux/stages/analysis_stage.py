@@ -83,6 +83,10 @@ def run_analysis_llm_stage(
         break
 
     update_completion_from_analysis(ctx)
+    if last_envelope.get("status") == "complete":
+        from interview_mux.analysis_orchestrator import apply_needs_reruns, llm_stage_runners
+
+        apply_needs_reruns(ctx, stage_key, last_envelope, llm_stage_runners(ctx))
     return last_envelope
 
 
@@ -123,6 +127,10 @@ def run_flow_llm_stage(
         legacy = {k: v for k, v in envelope.items() if k not in ("status", "needs", "memory_updates")}
         if legacy and should_persist_artifacts(arbiter_result, {"artifacts": legacy, "status": envelope.get("status")}, schema_errors):
             persist_artifacts(ctx, legacy)
+    if envelope.get("status") == "complete":
+        from interview_mux.analysis_orchestrator import apply_needs_reruns, llm_stage_runners
+
+        apply_needs_reruns(ctx, stage_key, envelope, llm_stage_runners(ctx))
     return envelope
 
 

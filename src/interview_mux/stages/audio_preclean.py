@@ -54,18 +54,29 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         ctx.mark_done("audio_preclean")
         return out_path
 
-    api_key = require_secret("ELEVENLABS_API_KEY")
-    if source.stat().st_size > _max_upload_from_config():
+    provider_name = "elevenlabs"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        api_key = require_secret("ELEVENLABS_API_KEY")
+        if source.stat().st_size > _max_upload_from_config():
+            ctx.log(
+                "elevenlabs_chunked_isolation: source exceeds upload limit — chunking",
+                level="info",
+                stage="audio_preclean",
+            )
+        isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
+        _write_audio_as_wav(out_path, isolated_bytes)
+    except Exception as exc:
+        if not _local_fallback_enabled():
+            raise
         ctx.log(
-            f"elevenlabs_chunked_isolation: source exceeds upload limit — chunking",
-            level="info",
+            f"ElevenLabs pre-clean failed ({exc}); using local rnnoise_local fallback",
+            level="warning",
             stage="audio_preclean",
         )
-    isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_audio_as_wav(out_path, isolated_bytes)
-    _write_provider(ctx, scope)
+        _local_denoise_fallback(source, out_path)
+        provider_name = "rnnoise_local"
+    _write_provider(ctx, scope, provider=provider_name)
     _write_full_source_lineage(ctx=ctx, source=source, source_sha=src_hash, scope=scope, output=out_path)
     ctx.log(
         f"Audio pre-clean complete ({scope}) → preclean/isolated.wav",
@@ -268,13 +279,48 @@ def _write_audio_as_wav(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _write_provider(ctx: RunContext, scope: str) -> None:
-    provider: dict[str, Any] = {
-        "provider": "elevenlabs",
+def _local_fallback_enabled() -> bool:
+    from interview_mux.config import merged_config
+
+    row = merged_config().get("audio_preclean") or {}
+    return bool(row.get("local_fallback_enabled", True))
+
+
+def _local_denoise_fallback(source: Path, out_path: Path) -> None:
+    """Offline denoise via ffmpeg (documented as rnnoise_local provider)."""
+    filters = ["afftdn=nf=-25", "highpass=f=80", "lowpass=f=12000"]
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(source),
+            "-af",
+            ",".join(filters),
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-c:a",
+            "pcm_s16le",
+            str(out_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _write_provider(ctx: RunContext, scope: str, *, provider: str = "elevenlabs") -> None:
+    row: dict[str, Any] = {
+        "provider": provider,
         "scope": scope,
-        "api_path": "/v1/audio-isolation",
     }
-    ctx.write_json("preclean/provider.json", provider)
+    if provider == "elevenlabs":
+        row["api_path"] = "/v1/audio-isolation"
+    else:
+        row["filter_chain"] = "afftdn,highpass=80,lowpass=12000"
+    ctx.write_json("preclean/provider.json", row)
 
 
 def _write_full_source_lineage(

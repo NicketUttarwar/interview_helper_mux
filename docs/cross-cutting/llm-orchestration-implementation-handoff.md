@@ -56,7 +56,7 @@
 ### Phase D — observability
 
 - [x] Extend `attempt_NNN.json` fields per [llm-orchestration.md](./llm-orchestration.md#observability-target-attempt-json-fields)
-- [ ] GUI: display arbiter verdict in stage debug (optional)
+- [x] GUI: display arbiter verdict in stage debug (`StageDetail` LLM routing panel + `LlmCallsPanel` arbiter summary)
 - [ ] Smoke: short interview + long interview fixtures
 
 ### Phase E — config migration

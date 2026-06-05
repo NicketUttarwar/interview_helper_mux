@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
-import type { LlmCallRecord, LlmCallSummary, LlmCallsIndex, LlmCallVolleyTurn } from "../../types";
+import type {
+  LlmCallRecord,
+  LlmCallSummary,
+  LlmCallsIndex,
+  LlmCallVolleyTurn,
+  LlmRoutingAttempt,
+} from "../../types";
 
 type EditState = {
   system_prompt: string;
@@ -218,12 +224,19 @@ export function LlmCallsPanel() {
   const [records, setRecords] = useState<Record<string, LlmCallRecord>>({});
   const [edits, setEdits] = useState<Record<string, EditState>>({});
   const [savingPath, setSavingPath] = useState<string | null>(null);
+  const [routingAttempts, setRoutingAttempts] = useState<LlmRoutingAttempt[]>([]);
 
   const loadIndex = useCallback(async () => {
     if (!run) return;
     setLoading(true);
     try {
-      const data = await api<LlmCallsIndex>(`/api/runs/${run.run_id}/llm-calls`);
+      const [data, routing] = await Promise.all([
+        api<LlmCallsIndex>(`/api/runs/${run.run_id}/llm-calls`),
+        api<{ attempts: LlmRoutingAttempt[] }>(`/api/runs/${run.run_id}/llm-routing`).catch(
+          () => ({ attempts: [] as LlmRoutingAttempt[] }),
+        ),
+      ]);
+      setRoutingAttempts(routing.attempts || []);
       setIndex(data);
       if (data.stages.length === 1) {
         setExpandedStages(new Set(data.stages));
@@ -425,6 +438,27 @@ export function LlmCallsPanel() {
           {loading ? "Loading…" : `${index?.call_count ?? 0} calls recorded`}
         </span>
       </div>
+
+      {routingAttempts.length > 0 ? (
+        <div className="llm-routing-panel llm-calls-routing-summary">
+          <h3 className="stage-outputs-title">Arbiter routing</h3>
+          <ul className="llm-routing-list">
+            {routingAttempts.slice(0, 12).map((r, i) => (
+              <li key={`${r.stage}-${r.attempt ?? i}`}>
+                <span className="llm-routing-task">
+                  {r.stage} · {r.task_kind || "primary"}
+                </span>
+                <span className={`llm-routing-verdict verdict-${r.verdict || "unknown"}`}>
+                  {r.verdict || "—"}
+                </span>
+                {r.arbiter_reason ? (
+                  <span className="hint sm">{r.arbiter_reason}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {!loading && index && index.call_count === 0 ? (
         <p className="empty-state">

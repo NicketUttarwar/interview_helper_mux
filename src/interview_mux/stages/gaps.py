@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from interview_mux.llm_specialists import maybe_run_post_stage_specialists
+from interview_mux.llm_specialists import (
+    load_comprehension_risks,
+    maybe_run_pre_stage_specialists,
+)
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.artifact_completeness import make_stage_persist
@@ -16,23 +18,17 @@ def run_missing_framing(ctx: RunContext) -> None:
             "segments": c.read_json("segments/manifest.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
-        spec_path = c.path(
-            "understanding", "stage_runs", "missing_framing", "specialist_comprehension_risk_blind.json"
-        )
-        if spec_path.is_file():
-            try:
-                env = json.loads(spec_path.read_text(encoding="utf-8"))
-                risks = (env.get("artifacts") or {}).get("comprehension_risks")
-                if risks:
-                    payload["comprehension_risks"] = risks
-            except Exception:
-                pass
+        risks = load_comprehension_risks(c, "missing_framing")
+        if risks:
+            payload["comprehension_risks"] = risks
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
         return payload
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
+
+    maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
     run_analysis_llm_stage(
         ctx,
@@ -42,7 +38,6 @@ def run_missing_framing(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_gaps_to_state(c, a),
     )
-    maybe_run_post_stage_specialists(ctx, "missing_framing", build_input(ctx))
     ctx.mark_done("missing_framing")
 
 
@@ -100,10 +95,17 @@ def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
 
 
 def ingest_vo_pickup(ctx: RunContext) -> None:
-    """Validate VO files exist; no transform in v1."""
+    """Validate VO files exist; optionally normalize loudness for mix."""
+    import subprocess
+
+    from interview_mux.config import merged_config
+
     report = ctx.read_json("understanding/gap_report.json")
     pickup = ctx.path("vo_pickup")
     missing = []
+    normalized = 0
+    mix_cfg = merged_config().get("mix") or {}
+    normalize = bool(mix_cfg.get("normalize_vo_pickup", True))
     for line in report.get("interviewer_lines") or []:
         if line.get("delivery") != "record":
             continue
@@ -114,11 +116,43 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
         candidates: list[Path] = []
         for base in bases:
             candidates.extend([base / f"{lid}.wav", base / f"{seg}.wav"])
-        if not any(p.is_file() for p in candidates):
+        found = next((p for p in candidates if p.is_file()), None)
+        if not found:
             missing.append(lid or seg)
+            continue
+        if normalize and found.parent == pickup:
+            norm_dir = pickup / "normalized"
+            norm_dir.mkdir(parents=True, exist_ok=True)
+            out = norm_dir / found.name
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(found),
+                    "-af",
+                    "loudnorm=I=-18:TP=-1.5:LRA=11",
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "1",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(out),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            normalized += 1
     if missing:
         raise RuntimeError(
             f"Missing VO pickup files for: {missing}. "
             f"Record and place under {pickup}"
+        )
+    if normalized:
+        ctx.log(
+            f"vo_ingest: normalized {normalized} pickup WAV(s) under vo_pickup/normalized/",
+            level="info",
+            stage="vo_ingest",
         )
     ctx.mark_done("vo_ingest")

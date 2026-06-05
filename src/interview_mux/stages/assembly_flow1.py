@@ -42,9 +42,15 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
     """Resolve pickup WAV for a gap line (clean/ preferred when present)."""
     pickup = ctx.path("vo_pickup")
     clean = pickup / "clean"
+    normalized = pickup / "normalized"
     lid = line.get("line_id", "")
     seg = line.get("targets_segment_id", "")
-    bases = [clean, pickup] if clean.is_dir() else [pickup]
+    bases: list[Path] = []
+    for candidate in (normalized, clean, pickup):
+        if candidate.is_dir():
+            bases.append(candidate)
+    if not bases:
+        bases = [pickup]
     for base in bases:
         for key in (lid, seg):
             if not key:

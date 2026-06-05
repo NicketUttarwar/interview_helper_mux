@@ -51,6 +51,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `acoustic_profile.py` | Shared SAP load, `mix_contract`, volley compact helpers | gap-closure GC-F1 |
 | `audio_timeline.py` | WAV duration, crossfade concat, chunk-by-bytes | gap-closure GC-F1 |
 | `operator_quality.py` | Preclean checkpoints, `qc_summaries` on `run_meta` | gap-closure GC-F1/F3 |
+| `mix_completeness.py` | VO/SFX completeness gate after `mix_flow1`/`mix_flow2` | gap-closure orchestration |
 
 ### Stages (`src/interview_mux/stages/`)
 

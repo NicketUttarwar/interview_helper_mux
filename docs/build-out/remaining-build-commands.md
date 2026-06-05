@@ -54,7 +54,7 @@ Command 1 covered build-out + selected cross-cutting docs. **Commands 2 and 9** 
 | G1.5 listen-result API + post-listen GUI (`POST …/listen-result`, Pass/Fail panels) | **Shipped** |
 | Value-analysis CLIs (`run_value_spike.py`, `extract_value_features.py`) | Shipped — **not** on default `pipeline.py` |
 | Value-features read-only GUI on `content_context` | Shipped — when `value_analysis.enabled` |
-| Value-features auto-extract after `content_context` | **Shipped** — `value_analysis.auto_extract_after_content_context` (default off) |
+| Value-features auto-extract after `content_context` | **Shipped** — `value_analysis.auto_extract_after_content_context` (default **on** in `config/app.defaults.json`) |
 | **Command 1** — build-out / cross-cutting doc coherence | **Done** — see [Command 1](#command-1--documentation-coherence-sweep-done) |
 
 ---

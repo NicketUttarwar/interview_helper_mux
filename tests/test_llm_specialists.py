@@ -4,10 +4,35 @@ from unittest.mock import patch
 
 from interview_mux.llm_specialists import (
     _process_specialist_investigations,
+    apply_segment_topic_patches,
     maybe_run_post_stage_specialists,
+    maybe_run_pre_stage_specialists,
     specialists_enabled,
 )
 from run_fixtures import isolated_run_ctx
+
+_VALID_SEGMENT = {
+    "segment_id": "seg_1",
+    "type": "interviewee_answer",
+    "speaker_id": "spk_0",
+    "speaker_role": "interviewee",
+    "start_ms": 0,
+    "end_ms": 1000,
+    "topic_tags": [],
+}
+
+
+def _segment(seg_id: str, tags: list[str]) -> dict:
+    return {
+        "segment_id": seg_id,
+        "type": "interviewee_answer",
+        "speaker_id": "spk_0",
+        "speaker_role": "interviewee",
+        "start_ms": 0,
+        "end_ms": 1000,
+        "topic_tags": tags,
+    }
+
 
 _PILOT_CFG = {
     "analysis": {
@@ -19,8 +44,9 @@ _PILOT_CFG = {
 }
 
 
-def test_theme_coverage_specialist_enqueues(tmp_path):
+def test_theme_coverage_specialist_applies_patches(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_theme_spec")
+    ctx.write_json("segments/manifest.json", {"segments": [_VALID_SEGMENT]})
     count = _process_specialist_investigations(
         ctx,
         parent_stage="segment_classification",
@@ -31,7 +57,20 @@ def test_theme_coverage_specialist_enqueues(tmp_path):
             }
         },
     )
-    assert count == 1
+    assert count == 0
+    manifest = ctx.read_json("segments/manifest.json")
+    assert manifest["segments"][0]["topic_tags"] == ["t1"]
+
+
+def test_apply_segment_topic_patches_merges_manifest(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_patch")
+    ctx.write_json("segments/manifest.json", {"segments": [_segment("seg_2", ["old"])]})
+    applied = apply_segment_topic_patches(
+        ctx,
+        [{"segment_id": "seg_2", "topic_tags": ["new_topic"]}],
+    )
+    assert applied == 1
+    assert ctx.read_json("segments/manifest.json")["segments"][0]["topic_tags"] == ["new_topic"]
 
 
 def test_pilot_stage_invokes_specialist_when_enabled(tmp_path):
@@ -69,6 +108,28 @@ def test_non_pilot_stage_skips_when_pilot_configured(tmp_path):
 def test_specialists_disabled_by_default(tmp_path):
     assert not specialists_enabled()
     assert not specialists_enabled(stage_key="full_master_ranking")
+
+
+def test_pre_stage_specialist_runs_for_missing_framing(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_pre_spec")
+    cfg = {
+        "analysis": {
+            "specialists": {
+                "enabled": True,
+                "pilot_stages": ["missing_framing"],
+            }
+        }
+    }
+    with patch("interview_mux.llm_specialists.run_specialist") as mock_run:
+        mock_run.return_value = {"artifacts": {"comprehension_risks": []}}
+        outputs = maybe_run_pre_stage_specialists(
+            ctx,
+            "missing_framing",
+            {"segments": {}},
+            cfg=cfg,
+        )
+        mock_run.assert_called_once()
+        assert len(outputs) == 1
 
 
 def test_emphasis_coverage_specialist_enqueues(tmp_path):
