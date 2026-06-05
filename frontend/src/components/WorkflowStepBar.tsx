@@ -17,19 +17,16 @@ export function WorkflowStepBar() {
   const {
     run,
     jobRunning,
-    apiGrants,
     executeJob,
     openActionModal,
     selectStage,
     acknowledgeHandoff,
-    grantAllPendingApiConsents,
     setActiveTab,
     setPipelineSubTab,
   } = useApp();
 
   const cmd = useOperatorCommand(run, {
     jobRunning,
-    apiGrants,
     onExecute: (body) => void executeJob(body),
     onOpenCheckpoint: (stageId) => {
       if (stageId) void selectStage(stageId);
@@ -40,7 +37,6 @@ export function WorkflowStepBar() {
       if (hs) void selectStage(hs.id).then(() => acknowledgeHandoff());
       else void acknowledgeHandoff();
     },
-    onGrantApis: () => void grantAllPendingApiConsents(),
     onGoLogs: () => setActiveTab("logs"),
     onGoStart: () => setActiveTab("start"),
     onGoPipeline: () => {

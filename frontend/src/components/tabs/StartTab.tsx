@@ -24,16 +24,69 @@ const INTENT_CARDS: { id: FlowIntent; title: string; tooltip: string }[] = [
 ];
 
 export function StartTab() {
-  const { assets, selectedAsset, setSelectedAsset, refreshHome, startRun, config } = useApp();
+  const {
+    assets,
+    selectedAsset,
+    setSelectedAsset,
+    refreshHome,
+    startRun,
+    config,
+    run,
+    runId,
+    setActiveTab,
+  } = useApp();
   const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
   const intentEnabled = config?.journey_ui?.intent_at_start !== false;
+  const sessionLocked = Boolean(runId && run);
+
+  if (sessionLocked && run) {
+    const sourcePath = run.meta?.input_audio_path || "Unknown source";
+    const sourceName = sourcePath.split("/").pop() || sourcePath;
+    return (
+      <main className="view tab-view">
+        <section className="panel hero hero-compact">
+          <h2>Session in progress</h2>
+          <p className="hint">
+            Source audio is locked for this session. Continue in Pipeline — use{" "}
+            <strong>Menu → Clear session</strong> only when you want to start over.
+          </p>
+        </section>
+        <section className="panel panel-compact source-locked-panel">
+          <h3>
+            Locked source audio
+            <InfoTooltip text="The interview file cannot be changed mid-session. This keeps the pipeline sequential and consistent." />
+          </h3>
+          <div className="source-locked-card">
+            <div>
+              <strong>{sourceName}</strong>
+              <div className="asset-meta muted">{sourcePath}</div>
+              {run.meta?.execution_number ? (
+                <div className="asset-meta">
+                  Execution #{run.meta.execution_number} · {run.run_id}
+                </div>
+              ) : null}
+            </div>
+            <span className="stage-status-pill done">Locked</span>
+          </div>
+          <div className="flow-choice">
+            <button type="button" className="btn primary" onClick={() => setActiveTab("pipeline")}>
+              Continue in Pipeline
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setActiveTab("logs")}>
+              View logs
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="view tab-view">
       <section className="panel hero hero-compact">
         <h2>
           New execution
-          <InfoTooltip text="Place .wav files in ASSETS/, pick your output type, then start." />
+          <InfoTooltip text="Pick one interview file — it locks for the session once you start." />
         </h2>
       </section>
       {intentEnabled ? (

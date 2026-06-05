@@ -10,7 +10,6 @@ import {
 } from "react";
 import { api, ApiError } from "../api/client";
 import type {
-  ApiProvider,
   AppConfig,
   AppTab,
   AssetFile,
@@ -31,12 +30,11 @@ import {
   findPendingFocusStage,
   getHandoffPathsLocal,
 } from "../utils/checkpoint";
-import { API_CONSENT_PREFIX, mapGateToStage } from "../utils";
+import { ALL_API_CONSENTS, mapGateToStage } from "../utils";
 import {
   findActiveStage,
   findNextRunnableStage,
   hasActionRequiredStage,
-  providersForExecute,
 } from "../utils/preclean";
 
 interface AppContextValue {
@@ -52,13 +50,11 @@ interface AppContextValue {
   homeLog: LogEntry[];
   assets: AssetFile[];
   runs: RunSummary[];
-  apiProviders: ApiProvider[];
   apiGrants: Record<string, boolean>;
   alertsMuted: boolean;
   toast: string | null;
   jobRunning: boolean;
   transcriptReview: TranscriptReviewState | null;
-  pendingConsentProvider: string | null;
   selectedStage: StageInfo | undefined;
   actionModalOpen: boolean;
   pendingActionCount: number;
@@ -87,10 +83,6 @@ interface AppContextValue {
   acknowledgeHandoff: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
   setAlertsMuted: (muted: boolean) => void;
-  revokeAllApiConsents: () => void;
-  resolveApiConsent: (granted: boolean) => Promise<void>;
-  promptApiConsent: (providerId: string) => Promise<boolean>;
-  grantAllPendingApiConsents: () => Promise<boolean>;
   appendClientLog: (message: string, level?: string) => void;
   loadTranscriptReview: () => Promise<TranscriptReviewState | null>;
   setTranscriptReview: (data: TranscriptReviewState | null) => void;
@@ -105,31 +97,6 @@ export function useApp(): AppContextValue {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
-}
-
-function getBrowserApiGrants(): Record<string, boolean> {
-  const grants: Record<string, boolean> = {};
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
-    if (key?.startsWith(API_CONSENT_PREFIX)) {
-      grants[key.slice(API_CONSENT_PREFIX.length)] =
-        sessionStorage.getItem(key) === "1";
-    }
-  }
-  return grants;
-}
-
-function setBrowserApiGrant(provider: string, granted: boolean): void {
-  sessionStorage.setItem(`${API_CONSENT_PREFIX}${provider}`, granted ? "1" : "0");
-}
-
-function clearBrowserApiGrants(): void {
-  const keys: string[] = [];
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
-    if (key?.startsWith(API_CONSENT_PREFIX)) keys.push(key);
-  }
-  for (const key of keys) sessionStorage.removeItem(key);
 }
 
 function playAttentionPing(muted: boolean): void {
@@ -166,8 +133,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [homeLog, setHomeLog] = useState<LogEntry[]>([]);
   const [assets, setAssets] = useState<AssetFile[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [apiProviders, setApiProviders] = useState<ApiProvider[]>([]);
-  const [apiGrants, setApiGrants] = useState<Record<string, boolean>>({});
   const [alertsMuted, setAlertsMutedState] = useState(
     () => localStorage.getItem("gui_mute_alerts") === "1",
   );
@@ -175,9 +140,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [jobRunning, setJobRunning] = useState(false);
   const [transcriptReview, setTranscriptReview] =
     useState<TranscriptReviewState | null>(null);
-  const [pendingConsentProvider, setPendingConsentProvider] = useState<
-    string | null
-  >(null);
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -190,7 +152,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastNotifiedTsRef = useRef<string | null>(null);
   const lastActionRequiredIdRef = useRef<string | null>(null);
   const jobStatusPrevRef = useRef<string | null>(null);
-  const consentResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -207,15 +168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const mergedApiGrants = useCallback(
-    () => ({ ...apiGrants, ...getBrowserApiGrants() }),
-    [apiGrants],
-  );
-
-  const isProviderGranted = useCallback(
-    (provider: string) => Boolean(mergedApiGrants()[provider]),
-    [mergedApiGrants],
-  );
+  const mergedApiGrants = useCallback(() => ALL_API_CONSENTS, []);
 
   const pendingActionCount = useMemo(
     () => countPendingActions(run, mergedApiGrants()),
@@ -253,26 +206,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     confirmResolveRef.current = null;
   }, []);
 
-  const loadApiConsent = useCallback(async () => {
-    const data = await api<{ providers: ApiProvider[]; grants: Record<string, boolean> }>(
-      "/api/session/api-consent",
-    );
-    setApiProviders(data.providers || []);
-    setApiGrants({ ...(data.grants || {}), ...getBrowserApiGrants() });
-  }, []);
-
   const setAlertsMuted = useCallback((muted: boolean) => {
     localStorage.setItem("gui_mute_alerts", muted ? "1" : "0");
     setAlertsMutedState(muted);
   }, []);
-
-  const revokeAllApiConsents = useCallback(() => {
-    for (const p of apiProviders) {
-      setBrowserApiGrant(p.id, false);
-    }
-    setApiGrants({});
-    showToast("API access revoked for this browser session.");
-  }, [apiProviders, showToast]);
 
   const renderLogWithAlerts = useCallback(
     (entries: LogEntry[]) => {
@@ -357,74 +294,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 1200);
   }, [runId, refreshRun, stopJobPoll, pollLog]);
 
-  const showApiConsentModal = useCallback(
-    (providerId: string): Promise<boolean> => {
-      return new Promise((resolve) => {
-        consentResolveRef.current = resolve;
-        setPendingConsentProvider(providerId);
-      });
-    },
-    [],
-  );
-
-  const resolveApiConsent = useCallback(
-    async (granted: boolean) => {
-      const providerId = pendingConsentProvider;
-      setPendingConsentProvider(null);
-      if (!providerId) return;
-      if (granted) {
-        setBrowserApiGrant(providerId, true);
-        try {
-          await api("/api/session/api-consent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ provider: providerId, granted: true }),
-          });
-        } catch {
-          /* sessionStorage is enough */
-        }
-        setApiGrants((prev) => ({ ...prev, [providerId]: true }));
-      }
-      consentResolveRef.current?.(granted);
-      consentResolveRef.current = null;
-    },
-    [pendingConsentProvider],
-  );
-
-  const promptApiConsent = useCallback(
-    (providerId: string) => showApiConsentModal(providerId),
-    [showApiConsentModal],
-  );
-
-  const grantAllPendingApiConsents = useCallback(async (): Promise<boolean> => {
-    const grants = mergedApiGrants();
-    for (const p of apiProviders) {
-      if (grants[p.id]) continue;
-      const ok = await showApiConsentModal(p.id);
-      if (!ok) {
-        showToast("API access not granted — some steps will stay blocked.");
-        return false;
-      }
-    }
-    showToast("API access granted for this session.");
-    return true;
-  }, [apiProviders, mergedApiGrants, showApiConsentModal, showToast]);
-
-  const ensureApiConsentForExecute = useCallback(
-    async (body: ExecuteBody): Promise<boolean> => {
-      if (!run) return false;
-      const missing = providersForExecute(body, run.stages).filter(
-        (p) => !isProviderGranted(p),
-      );
-      for (const pid of missing) {
-        const ok = await showApiConsentModal(pid);
-        if (!ok) return false;
-      }
-      return true;
-    },
-    [run, isProviderGranted, showApiConsentModal],
-  );
-
   const selectStage = useCallback(
     async (stageId: string) => {
       setSelectedStageId(stageId);
@@ -464,16 +333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         playAttentionPing(alertsMuted);
         return;
       }
-      if (!(await ensureApiConsentForExecute(body))) {
-        showToast("API access not granted — execution cancelled.");
-        return;
-      }
-      const grants = mergedApiGrants();
-      const api_consents: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(grants)) {
-        if (v) api_consents[k] = true;
-      }
-      const payload = { ...body, api_consents };
+      const payload = { ...body, api_consents: ALL_API_CONSENTS };
       const targetStage =
         body.mode === "stage" && body.stage ? body.stage : null;
       const reuseOffersEnabled =
@@ -505,7 +365,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const res = await api<{
           ok?: boolean;
           error?: string;
-          needs_api_consent?: boolean;
           needs_stage_reuse?: boolean;
           needs_step_through?: boolean;
           stage?: string;
@@ -529,18 +388,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             await refreshRun();
             return;
           }
-          if (res.needs_api_consent) {
-            const refreshed = await api<RunData>(`/api/runs/${runId}`);
-            const missing = refreshed.job?.missing_api_providers || [];
-            const grantsNow = mergedApiGrants();
-            for (const pid of missing) {
-              if (!grantsNow[pid]) {
-                const ok = await showApiConsentModal(pid);
-                if (!ok) break;
-              }
-            }
-            await refreshRun();
-          }
           return;
         }
         startJobPoll();
@@ -558,19 +405,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       run,
       config,
       alertsMuted,
-      ensureApiConsentForExecute,
-      mergedApiGrants,
       showToast,
       refreshRun,
       startJobPoll,
-      showApiConsentModal,
       selectStage,
       openActionModal,
     ],
   );
 
   const openRun = useCallback(
-    async (id: string, opts: { quiet?: boolean } = {}) => {
+    async (id: string, opts: { quiet?: boolean; force?: boolean } = {}) => {
+      if (runId && id !== runId && !opts.force) {
+        showToast("This session is locked to one source. Clear session to open another run.");
+        return;
+      }
       setRunId(id);
       setActiveTabState("pipeline");
       setPipelineSubTab("stage");
@@ -599,7 +447,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!opts.quiet) appendClientLogInternal(id, `Opened execution ${id}`, "info");
       startJobPoll();
     },
-    [selectedStageId, renderLogWithAlerts, selectStage, startJobPoll],
+    [selectedStageId, renderLogWithAlerts, selectStage, startJobPoll, runId, showToast],
   );
 
   const appendClientLogInternal = async (
@@ -630,6 +478,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const startRun = useCallback(
     async (inputPath: string, flowIntent?: string) => {
+      if (runId) {
+        showToast("Source audio is locked for this session. Clear session to start over.");
+        setActiveTabState("pipeline");
+        return;
+      }
       try {
         const body: Record<string, string> = { input_audio_path: inputPath };
         if (flowIntent) body.flow_intent = flowIntent;
@@ -644,7 +497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(e instanceof Error ? e.message : "Failed to start run");
       }
     },
-    [appendClientLog, openRun, showToast],
+    [appendClientLog, openRun, showToast, runId],
   );
 
   const clearSession = useCallback(async () => {
@@ -768,10 +621,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }>("/api/session");
       const startedAt = session.server?.started_at;
       if (startedAt && localStorage.getItem(GUI_SERVER_STARTED_AT_KEY) !== startedAt) {
-        clearBrowserApiGrants();
         localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
       }
-      await loadApiConsent();
       setServerActiveRunId(session.active?.run_id ?? null);
       await refreshHome();
       if (session.log?.length) renderLogWithAlerts(session.log);
@@ -851,13 +702,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     homeLog,
     assets,
     runs,
-    apiProviders,
-    apiGrants: mergedApiGrants(),
+    apiGrants: ALL_API_CONSENTS,
     alertsMuted,
     toast,
     jobRunning,
     transcriptReview,
-    pendingConsentProvider,
     selectedStage,
     actionModalOpen,
     pendingActionCount,
@@ -886,10 +735,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     acknowledgeHandoff,
     onCheckpointContinue,
     setAlertsMuted,
-    revokeAllApiConsents,
-    resolveApiConsent,
-    promptApiConsent,
-    grantAllPendingApiConsents,
     appendClientLog,
     loadTranscriptReview,
     setTranscriptReview,

@@ -1,5 +1,4 @@
 import { useApp } from "../../context/AppContext";
-import { ApiConsentModal } from "../ApiConsentModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { OperatorActionModal } from "./OperatorActionModal";
 import { StageTransitionModal } from "./StageTransitionModal";
@@ -11,7 +10,6 @@ export function ModalHost() {
   return (
     <>
       <Toast />
-      <ApiConsentModal />
       {confirmMessage ? <ConfirmDialog /> : null}
       <StageTransitionModal />
       {actionModalOpen ? <OperatorActionModal /> : null}

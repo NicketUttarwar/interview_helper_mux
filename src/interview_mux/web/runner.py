@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.api_providers import (
     PROVIDERS,
+    all_provider_grants,
     missing_consents,
     providers_for_stages,
     stage_api_providers,
@@ -77,7 +78,11 @@ class JobRunner:
         return status in ("running", "running_with_warnings")
 
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
-        return merge_consents(load_persisted_consents(), api_consents)
+        return merge_consents(
+            all_provider_grants(),
+            load_persisted_consents(),
+            api_consents,
+        )
 
     def _nle_apply_stages(
         self,

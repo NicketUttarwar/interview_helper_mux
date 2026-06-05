@@ -12,6 +12,7 @@ interface Offer {
 }
 
 export function PrecleanOfferCard({
+  stage,
   offer,
 }: {
   stage: StageInfo;
@@ -51,15 +52,18 @@ export function PrecleanOfferCard({
           scope: offer.scope,
         }),
       });
-      if (action === "accept" && offer.checkpoint === "g1_vo_pickup") {
-        showToast("Running pickup pre-clean…");
+      if (action === "accept") {
+        showToast(
+          offer.checkpoint === "g1_vo_pickup"
+            ? "Running pickup cleaning…"
+            : "Running audio cleaning…",
+        );
         await executeJob({ mode: "stage", stage: "audio_preclean" });
       } else {
-        showToast(
-          action === "accept"
-            ? `Saved pre-clean preference (${offer.scope}).`
-            : "Pre-clean offer dismissed.",
-        );
+        showToast("Skipped audio cleaning — continuing with original audio.");
+        if (stage.id === "audio_preclean" || offer.checkpoint === "before_ingest") {
+          await executeJob({ mode: "stage", stage: "audio_preclean" });
+        }
       }
       await refreshRun();
     } catch (e) {
@@ -72,31 +76,30 @@ export function PrecleanOfferCard({
   };
 
   return (
-    <div className="quality-offer-card">
-      <p className="hint">
-        <strong>Quality offer:</strong> {offer.prompt}
-      </p>
+    <div className="quality-offer-card preclean-offer-card">
+      <h4 className="quality-offer-title">Optional audio cleaning</h4>
+      <p className="hint">{offer.prompt}</p>
       <p className="muted">
-        Scope: <code>{offer.scope}</code>. Optional, non-blocking, and never auto-runs.
+        Optional — never runs automatically. Skip to keep the original recording.
       </p>
-      <div className="flow-choice">
+      <div className="flow-choice preclean-offer-actions">
         <button
           type="button"
-          className="btn ghost sm"
+          className="btn ghost"
           disabled={submitting}
           data-testid={`preclean-dismiss-${offer.checkpoint}`}
           onClick={() => void submit("dismiss")}
         >
-          Dismiss
+          Skip cleaning
         </button>
         <button
           type="button"
-          className="btn primary sm"
+          className="btn primary"
           disabled={submitting}
           data-testid={`preclean-accept-${offer.checkpoint}`}
           onClick={() => void submit("accept")}
         >
-          Accept
+          Run cleaning
         </button>
       </div>
     </div>

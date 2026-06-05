@@ -47,6 +47,11 @@ def list_providers() -> list[dict[str, Any]]:
     ]
 
 
+def all_provider_grants() -> dict[str, bool]:
+    """All external APIs are assumed configured and consented for GUI sessions."""
+    return {pid: True for pid in PROVIDERS}
+
+
 def stage_api_providers(stage_id: str) -> tuple[str, ...]:
     from interview_mux.web.stages import STAGE_API_PROVIDERS
 

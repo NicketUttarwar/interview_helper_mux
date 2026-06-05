@@ -76,6 +76,9 @@ export function findPendingFocusStage(
   ) {
     return run.job.stage;
   }
+  if (run.job?.status === "stage_transition" && run.job.stage) {
+    return run.job.stage;
+  }
   const handoff = findHandoffStage(run);
   if (handoff) return handoff.id;
   const blocking = run.journey?.blocking ?? run.blocking;
@@ -113,18 +116,12 @@ export function findHandoffStage(run: RunData | null): StageInfo | null {
   return null;
 }
 
-/** True when job is stopped for API consent and at least one provider is still ungranted. */
+/** External APIs are assumed configured — no operator consent prompts. */
 export function isApiConsentJobPending(
-  run: RunData | null,
-  grants: Record<string, boolean> = {},
+  _run: RunData | null,
+  _grants: Record<string, boolean> = {},
 ): boolean {
-  const job = run?.job;
-  if (!job || job.status !== "needs_operator") return false;
-  const missing = job.missing_api_providers;
-  const apiRelated =
-    job.message?.includes("API consent") || Boolean(missing?.length);
-  if (!apiRelated) return true;
-  return (missing || []).some((id) => !grants[id]);
+  return false;
 }
 
 export function countPendingActions(
@@ -134,6 +131,7 @@ export function countPendingActions(
   if (!run) return 0;
   let n = 0;
   if (run.job?.status === "gate") n += 1;
+  else if (run.job?.status === "stage_transition") n += 1;
   else if (run.job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
     n += 1;
   }

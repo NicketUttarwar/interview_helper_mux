@@ -29,6 +29,8 @@ export function GateActions({ stage }: Props) {
     import("../../types").ReuseCandidate[]
   >([]);
 
+  const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
+
   useEffect(() => {
     if (!run || stage.status === "done" || !reuseOffersEnabled) {
       setReuseCandidates([]);
@@ -61,8 +63,6 @@ export function GateActions({ stage }: Props) {
   ]);
 
   if (!run) return null;
-
-  const precleanOffer = resolvePrecleanOffer(stage, run.meta);
 
   if (
     stage.id === "topic_coverage_audit" &&
@@ -118,6 +118,10 @@ export function GateActions({ stage }: Props) {
 
   return (
     <div className="gate-actions">
+      {precleanOffer ? (
+        <PrecleanOfferCard stage={stage} offer={precleanOffer} />
+      ) : null}
+
       <StageAudioActions stage={stage} />
 
       {stage.id === "analysis_profile" ? (
@@ -156,10 +160,6 @@ export function GateActions({ stage }: Props) {
       {stage.id === "content_context" &&
       (config?.value_analysis_enabled || run.meta?.qc_summaries) ? (
         <ValueFeaturesPanel />
-      ) : null}
-
-      {precleanOffer ? (
-        <PrecleanOfferCard stage={stage} offer={precleanOffer} />
       ) : null}
 
       {reuseCandidates.length ? (

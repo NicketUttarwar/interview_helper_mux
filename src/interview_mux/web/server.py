@@ -37,13 +37,16 @@ from interview_mux.gates import (
     set_selected_flow,
 )
 from interview_mux.stages import transcript_review
-from interview_mux.api_providers import list_providers
-from interview_mux.gui_api_consent import load_persisted_consents, save_persisted_consent
+from interview_mux.api_providers import list_providers, all_provider_grants
+from interview_mux.gui_api_consent import load_persisted_consents, merge_consents, save_persisted_consent
 from interview_mux.gui_session import (
+    active_run_id,
+    assert_session_allows_run_switch,
     clear_active_execution,
     get_active_execution,
     get_server_session,
     set_active_execution,
+    source_audio_locked_for_session,
 )
 from interview_mux.assembly_timeline import build_assembly_timeline
 from interview_mux.nle_state import (
@@ -288,10 +291,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/session/api-consent")
     def get_api_consent() -> dict[str, Any]:
-        persisted = load_persisted_consents()
+        grants = merge_consents(all_provider_grants(), load_persisted_consents())
         return {
             "providers": list_providers(),
-            "grants": persisted,
+            "grants": grants,
         }
 
     @app.post("/api/session/api-consent")
@@ -324,11 +327,15 @@ def create_app() -> FastAPI:
 
     @app.put("/api/session/active")
     def put_active(body: ActiveBody) -> dict[str, Any]:
-        if not body.run_id:
-            clear_active_execution()
-            return {"ok": True, "active": None}
-        _ctx(body.run_id)
-        return set_active_execution(body.run_id, selected_stage_id=body.selected_stage_id)
+        if body.run_id:
+            try:
+                assert_session_allows_run_switch(body.run_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            _ctx(body.run_id)
+            return set_active_execution(body.run_id, selected_stage_id=body.selected_stage_id)
+        clear_active_execution()
+        return {"ok": True, "active": None}
 
     @app.delete("/api/session/active")
     def delete_active() -> dict[str, Any]:
@@ -390,6 +397,12 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs")
     def create_run(body: CreateRunBody) -> dict[str, Any]:
+        if active_run_id():
+            raise HTTPException(
+                409,
+                "An execution is already active in this session. "
+                "Clear session (Menu) before starting with a different source.",
+            )
         src = _resolve_repo_path(body.input_audio_path)
         if not src.is_file():
             raise HTTPException(404, f"Audio file not found: {body.input_audio_path}")
@@ -402,11 +415,17 @@ def create_app() -> FastAPI:
             set_flow_intent(ctx, body.flow_intent)
         ensure_analysis_workspace(ctx)
         refresh_journey_meta(ctx)
-        set_active_execution(ctx.run_id)
+        meta = ctx.read_json("run_meta.json")
+        set_active_execution(
+            ctx.run_id,
+            input_audio_path=meta.get("input_audio_path"),
+            source_locked=True,
+        )
         return {
             "run_id": ctx.run_id,
             "run_dir": str(ctx.run_dir.relative_to(ctx.root)),
-            "execution_number": ctx.read_json("run_meta.json").get("execution_number"),
+            "execution_number": meta.get("execution_number"),
+            "input_audio_path": meta.get("input_audio_path"),
         }
 
     @app.get("/api/runs/{run_id}/summary")
@@ -1328,6 +1347,12 @@ def create_app() -> FastAPI:
     def reset_run(run_id: str, body: ResetBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         if body.new_input_audio_path:
+            if source_audio_locked_for_session() and active_run_id() == run_id:
+                raise HTTPException(
+                    409,
+                    "Source audio is locked for this session. "
+                    "Clear session to start over with different audio.",
+                )
             src = _resolve_repo_path(body.new_input_audio_path)
             if not src.is_file():
                 raise HTTPException(404, f"Audio file not found: {body.new_input_audio_path}")

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { ALL_API_CONSENTS } from "../../utils";
 
 export function StageTransitionModal() {
-  const { run, runId, config, showToast, refreshRun, startJobPoll, apiGrants } = useApp();
+  const { run, activeTab, runId, config, showToast, refreshRun, startJobPoll } = useApp();
+
+  // Step-through UI lives inline on the Pipeline tab; modal is fallback on other tabs.
+  if (activeTab === "pipeline") return null;
 
   const job = run?.job;
   const pendingMeta = run?.meta?.step_through?.pending;
@@ -37,16 +41,16 @@ export function StageTransitionModal() {
       if (!runId || !stageId || submitting) return;
       setSubmitting(true);
       try {
-        const api_consents: Record<string, boolean> = {};
-        for (const [k, v] of Object.entries(apiGrants)) {
-          if (v) api_consents[k] = true;
-        }
         const res = await api<{ ok?: boolean; error?: string }>(
           `/api/runs/${runId}/stage-transition`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stage_id: stageId, action, api_consents }),
+            body: JSON.stringify({
+              stage_id: stageId,
+              action,
+              api_consents: ALL_API_CONSENTS,
+            }),
           },
         );
         if (res.ok === false) {
@@ -62,7 +66,7 @@ export function StageTransitionModal() {
         setSubmitting(false);
       }
     },
-    [runId, stageId, submitting, apiGrants, showToast, refreshRun, startJobPoll],
+    [runId, stageId, submitting, showToast, refreshRun, startJobPoll],
   );
 
   useEffect(() => {

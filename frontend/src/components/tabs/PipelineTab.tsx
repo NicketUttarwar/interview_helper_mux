@@ -1,20 +1,21 @@
 import type { PipelineSubTab } from "../../types";
 import { useApp } from "../../context/AppContext";
-import { Sidebar } from "../workspace/Sidebar";
+import { PipelineCommandCenter } from "../pipeline/PipelineCommandCenter";
+import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { StageDetail } from "../workspace/StageDetail";
 import { NlePanel } from "../workspace/NlePanel";
 import { ProfilePanel } from "../workspace/ProfilePanel";
 import { ArtifactEditor } from "../workspace/ArtifactEditor";
 import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
 import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
-import { JourneyShell } from "../journey/JourneyShell";
-const SUB_TABS: { id: PipelineSubTab; label: string; tooltip?: string }[] = [
-  { id: "stage", label: "Stage" },
-  { id: "story", label: "Story", tooltip: "Themes, investigations, and story lock" },
-  { id: "timeline", label: "Timeline", tooltip: "Non-linear editor for segment cuts" },
-  { id: "profile", label: "Profile", tooltip: "Analysis profile JSON" },
-  { id: "files", label: "Files", tooltip: "Edit JSON and text artifacts" },
-  { id: "llm_calls", label: "Debug", tooltip: "LLM call audit for engineering" },
+import { DeliverableCard } from "../workspace/DeliverableCard";
+
+const TOOL_TABS: { id: PipelineSubTab; label: string; tooltip: string }[] = [
+  { id: "story", label: "Story board", tooltip: "Themes and investigations" },
+  { id: "timeline", label: "Timeline", tooltip: "Segment cuts (NLE)" },
+  { id: "profile", label: "Profile JSON", tooltip: "Analysis profile editor" },
+  { id: "files", label: "Files", tooltip: "Artifact file editor" },
+  { id: "llm_calls", label: "Debug", tooltip: "LLM call audit" },
 ];
 
 export function PipelineTab() {
@@ -24,11 +25,8 @@ export function PipelineTab() {
     pipelineSubTab,
     setPipelineSubTab,
     setActiveTab,
-    openActionModal,
-    pendingActionCount,
     serverActiveRunId,
     openRun,
-    config,
   } = useApp();
 
   if (!runId || !run) {
@@ -36,6 +34,7 @@ export function PipelineTab() {
       <main className="view tab-view pipeline-empty">
         <section className="panel panel-compact">
           <h2>No active run</h2>
+          <p className="hint">Start from the Start tab or resume a previous execution.</p>
           <div className="flow-choice">
             {serverActiveRunId ? (
               <button
@@ -58,50 +57,49 @@ export function PipelineTab() {
     );
   }
 
+  const showTools = pipelineSubTab !== "stage";
+
   return (
-    <main className="view workspace-shell pipeline-tab">
+    <main className="view workspace-shell pipeline-tab pipeline-v2">
       <div className="workspace-scroll">
-        <JourneyShell>
-          <div className="workspace-layout">
-            <Sidebar />
-            <section className="main-panel pipeline-main">
-              <div className="pipeline-toolbar">
-                <nav className="app-subtabs" aria-label="Pipeline sections">
-                  {SUB_TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={`app-subtab${pipelineSubTab === t.id ? " active" : ""}`}
-                      title={t.tooltip}
-                      onClick={() => setPipelineSubTab(t.id)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </nav>
-                {pendingActionCount > 0 ? (
-                  <button type="button" className="btn primary sm" onClick={openActionModal}>
-                    Action ({pendingActionCount})
-                  </button>
-                ) : null}
-                {config?.journey_ui?.step_through_between_stages !== false ? (
-                  <span
-                    className="pipeline-step-through-hint muted"
-                    title="Before each automated stage, a 10s countdown asks you to proceed or skip."
+        <PipelineCommandCenter />
+
+        <div className="pipeline-v2-body">
+          <PipelineStepList />
+          <div className="pipeline-v2-main">
+            {pipelineSubTab === "stage" || !showTools ? <StageDetail /> : null}
+            {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
+            {pipelineSubTab === "timeline" ? <NlePanel /> : null}
+            {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
+            {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
+            {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
+
+            <details className="pipeline-tools-drawer panel">
+              <summary>Tools &amp; editors</summary>
+              <div className="pipeline-tools-tabs">
+                <button
+                  type="button"
+                  className={`btn ghost sm${pipelineSubTab === "stage" ? " active" : ""}`}
+                  onClick={() => setPipelineSubTab("stage")}
+                >
+                  Step detail
+                </button>
+                {TOOL_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`btn ghost sm${pipelineSubTab === t.id ? " active" : ""}`}
+                    title={t.tooltip}
+                    onClick={() => setPipelineSubTab(t.id)}
                   >
-                    Step-through on
-                  </span>
-                ) : null}
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              {pipelineSubTab === "stage" ? <StageDetail /> : null}
-              {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
-              {pipelineSubTab === "timeline" ? <NlePanel /> : null}
-              {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
-              {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
-              {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
-            </section>
+            </details>
           </div>
-        </JourneyShell>
+        </div>
+        <DeliverableCard />
       </div>
     </main>
   );

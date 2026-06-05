@@ -87,6 +87,13 @@ export function mapGateToStage(id: string): string {
 
 export const API_CONSENT_PREFIX = "api_consent_";
 
+/** External APIs are assumed configured and consented at session start. */
+export const ALL_API_CONSENTS: Record<string, boolean> = {
+  openai: true,
+  aws: true,
+  elevenlabs: true,
+};
+
 export const LLM_STAGES = new Set([
   "speaker_roles",
   "content_context",

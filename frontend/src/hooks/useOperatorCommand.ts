@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import type { ExecuteBody, JourneyExecuteHint, RunData, StageInfo } from "../types";
 import {
   findHandoffStage,
-  isApiConsentJobPending,
   stageTitleForId,
 } from "../utils/checkpoint";
 
@@ -10,7 +9,6 @@ export type CommandKind =
   | "idle"
   | "no_run"
   | "running"
-  | "consent"
   | "error"
   | "blocked"
   | "handoff"
@@ -42,11 +40,9 @@ export function useOperatorCommand(
   run: RunData | null,
   opts: {
     jobRunning: boolean;
-    apiGrants: Record<string, boolean>;
     onExecute: (body: ExecuteBody) => void;
     onOpenCheckpoint: (stageId?: string) => void;
     onAcknowledgeHandoff: () => void;
-    onGrantApis: () => void;
     onGoLogs: () => void;
     onGoStart: () => void;
     onGoPipeline: () => void;
@@ -54,11 +50,9 @@ export function useOperatorCommand(
 ): OperatorCommandState {
   const {
     jobRunning,
-    apiGrants,
     onExecute,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
-    onGrantApis,
     onGoLogs,
     onGoStart,
     onGoPipeline,
@@ -104,19 +98,16 @@ export function useOperatorCommand(
       };
     }
 
-    if (isApiConsentJobPending(run, apiGrants)) {
-      const ungranted = (job?.missing_api_providers || []).filter((id) => !apiGrants[id]);
+    if (job?.status === "stage_transition" && job.stage) {
+      const title = stageTitleForId(run.stages, job.stage) || job.stage;
       return {
-        kind: "consent",
-        statusLine: job?.message || "Allow required APIs, then run again.",
-        primaryLabel: ungranted.length ? "Allow required APIs" : "Open checkpoint",
+        kind: "ready",
+        statusLine: `Step-through pause before ${title} — open Pipeline to proceed or skip.`,
+        primaryLabel: "Open Pipeline",
         primaryDisabled: false,
-        secondaryLabel: hint ? `Retry: ${hint.label}` : null,
-        onPrimary: ungranted.length ? onGrantApis : () => onOpenCheckpoint(),
-        onSecondary:
-          hint && hintToExecuteBody(hint)
-            ? () => onExecute(hintToExecuteBody(hint)!)
-            : null,
+        secondaryLabel: "View logs",
+        onPrimary: onGoPipeline,
+        onSecondary: onGoLogs,
         handoffStage: null,
       };
     }
@@ -235,11 +226,9 @@ export function useOperatorCommand(
   }, [
     run,
     jobRunning,
-    apiGrants,
     onExecute,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
-    onGrantApis,
     onGoLogs,
     onGoStart,
     onGoPipeline,

@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { formatTs } from "../utils";
-import { ApiAccessBar } from "./ApiAccessBar";
 import { stageTitleForId } from "../utils/checkpoint";
 
 export function StatusHeader() {
@@ -9,7 +8,6 @@ export function StatusHeader() {
     run,
     alertsMuted,
     setAlertsMuted,
-    revokeAllApiConsents,
     pendingActionCount,
     actionSummary,
     openActionModal,
@@ -57,6 +55,14 @@ export function StatusHeader() {
             <span className={`status-value ${jobLabel.cls}`}>{jobLabel.text}</span>
           </div>
           <div className="status-cell">
+            <span className="status-label">Source</span>
+            <span className="status-value muted source-lock-label" title={run?.meta?.input_audio_path}>
+              {run?.meta?.input_audio_path
+                ? `${run.meta.input_audio_path.split("/").pop()} (locked)`
+                : "—"}
+            </span>
+          </div>
+          <div className="status-cell">
             <span className="status-label">Updated</span>
             <span className="status-value muted">{formatTs(run?.meta?.updated_at)}</span>
           </div>
@@ -90,9 +96,6 @@ export function StatusHeader() {
               </button>
               {menuOpen ? (
                 <div className="header-menu panel">
-                  <button type="button" className="btn ghost sm block" onClick={revokeAllApiConsents}>
-                    Revoke API access
-                  </button>
                   <button
                     type="button"
                     className="btn danger ghost sm block"
@@ -105,8 +108,6 @@ export function StatusHeader() {
             </div>
           </div>
         </div>
-
-        <ApiAccessBar compact />
 
         {precleanWarnings?.length ? (
           <div className="preclean-warnings-banner compact-banner" role="status">

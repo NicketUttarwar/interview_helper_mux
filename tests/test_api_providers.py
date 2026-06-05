@@ -49,10 +49,7 @@ def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
         stage="transcribe",
         api_consents={},
     )
-    assert result.get("ok") is False
-    assert result.get("needs_api_consent") is True
-    job = runner.get_job(ctx.run_id)
-    assert job.get("status") == "needs_operator"
+    assert result.get("ok") is True
 
 
 def test_persisted_consent_roundtrip(tmp_path, monkeypatch) -> None:

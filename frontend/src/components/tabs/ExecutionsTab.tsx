@@ -2,7 +2,16 @@ import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
 
 export function ExecutionsTab() {
-  const { runs, runId, refreshHome, openRun } = useApp();
+  const { runs, runId, refreshHome, openRun, showToast } = useApp();
+  const sessionLocked = Boolean(runId);
+
+  const tryOpenRun = (id: string) => {
+    if (sessionLocked && id !== runId) {
+      showToast("Clear session (Menu) before opening a different execution.");
+      return;
+    }
+    void openRun(id);
+  };
 
   return (
     <main className="view tab-view">
@@ -22,19 +31,26 @@ export function ExecutionsTab() {
                 ? `${r.progress.done}/${r.progress.total}`
                 : "";
               const isActive = r.run_id === runId;
+              const isDisabled = sessionLocked && !isActive;
               const lastLog = r.last_log?.message
                 ? escapeHtml(r.last_log.message).slice(0, 80)
                 : "";
               return (
                 <div
                   key={r.run_id}
-                  className={`run-item${isActive ? " run-item-active" : ""}`}
-                  onClick={() => void openRun(r.run_id)}
+                  className={`run-item${isActive ? " run-item-active" : ""}${isDisabled ? " run-item-disabled" : ""}`}
+                  onClick={() => tryOpenRun(r.run_id)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") void openRun(r.run_id);
+                    if (e.key === "Enter") tryOpenRun(r.run_id);
                   }}
                   role="button"
-                  tabIndex={0}
+                  tabIndex={isDisabled ? -1 : 0}
+                  aria-disabled={isDisabled}
+                  title={
+                    isDisabled
+                      ? "Clear session to open a different execution"
+                      : undefined
+                  }
                 >
                   <div className="run-main">
                     <strong>
@@ -51,9 +67,10 @@ export function ExecutionsTab() {
                   <button
                     type="button"
                     className="btn primary sm"
+                    disabled={isDisabled}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void openRun(r.run_id);
+                      tryOpenRun(r.run_id);
                     }}
                   >
                     {isActive ? "Open" : "Resume"}
