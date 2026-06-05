@@ -49,7 +49,7 @@ def run_transcribe(ctx: RunContext) -> None:
         "--media-format",
         "wav",
         "--media",
-        f"FileUri={media_uri}",
+        f"MediaFileUri={media_uri}",
         "--output-bucket-name",
         bucket,
         "--output-key",

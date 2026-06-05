@@ -28,6 +28,7 @@ export function PipelineTab() {
     pendingActionCount,
     serverActiveRunId,
     openRun,
+    config,
   } = useApp();
 
   if (!runId || !run) {
@@ -82,6 +83,14 @@ export function PipelineTab() {
                   <button type="button" className="btn primary sm" onClick={openActionModal}>
                     Action ({pendingActionCount})
                   </button>
+                ) : null}
+                {config?.journey_ui?.step_through_between_stages !== false ? (
+                  <span
+                    className="pipeline-step-through-hint muted"
+                    title="Before each automated stage, a 10s countdown asks you to proceed or skip."
+                  >
+                    Step-through on
+                  </span>
                 ) : null}
               </div>
               {pipelineSubTab === "stage" ? <StageDetail /> : null}

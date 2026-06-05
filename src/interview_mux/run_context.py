@@ -194,6 +194,9 @@ class RunContext:
             marker = self.path(".stage_done", s)
             if marker.is_file():
                 marker.unlink()
+        from interview_mux.stage_step_through import clear_step_through_from
+
+        clear_step_through_from(self, stage, order)
         self.log(f"Invalidated stages from {stage} onward — ready to re-run.", level="warning", stage=stage)
 
     def _resolve_input_audio_ref(self, input_audio_path: str) -> Path:

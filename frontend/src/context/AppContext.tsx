@@ -83,6 +83,7 @@ interface AppContextValue {
   executeJob: (body: ExecuteBody) => Promise<void>;
   runNextStage: () => Promise<void>;
   redoFromStage: () => Promise<void>;
+  startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
   setAlertsMuted: (muted: boolean) => void;
@@ -506,6 +507,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           error?: string;
           needs_api_consent?: boolean;
           needs_stage_reuse?: boolean;
+          needs_step_through?: boolean;
           stage?: string;
         }>(`/api/runs/${runId}/execute`, {
           method: "POST",
@@ -514,6 +516,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         if (res.ok === false) {
           showToast(res.error || "Failed to start");
+          if (res.needs_step_through && res.stage) {
+            await selectStage(res.stage);
+            playAttentionPing(alertsMuted);
+            await refreshRun();
+            return;
+          }
           if (res.needs_stage_reuse && res.stage) {
             await selectStage(res.stage);
             openActionModal();
@@ -785,7 +793,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!run) return;
     const job = run.job;
     const actionStage = run.stages.find((s) => s.status === "action_required");
-    if (job?.status === "gate" || job?.status === "needs_operator") {
+    if (job?.status === "gate" || job?.status === "needs_operator" || job?.status === "stage_transition") {
       if (jobStatusPrevRef.current !== job.status) playAttentionPing(alertsMuted);
     } else if (actionStage) {
       if (lastActionRequiredIdRef.current !== actionStage.id) {
@@ -874,6 +882,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     executeJob,
     runNextStage,
     redoFromStage,
+    startJobPoll,
     acknowledgeHandoff,
     onCheckpointContinue,
     setAlertsMuted,

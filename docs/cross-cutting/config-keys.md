@@ -22,6 +22,8 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `flow_intent` | Early planning before G2 |
 | `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `preview_listened_at` milestone |
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
+| `journey_ui.step_through_between_stages` | `stage_step_through`, pipeline, GUI | When `true` (default), pauses **before** each automated stage with a countdown modal — proceed or skip via `POST …/stage-transition` |
+| `journey_ui.step_through_pause_seconds` | `stage_step_through`, GUI countdown modal | Seconds before auto-proceed (default `10`) |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), GUI checkpoint modal and `executeJob` pre-check show reuse offers; when `false`, offers hidden (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true`, blocks ElevenLabs SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |

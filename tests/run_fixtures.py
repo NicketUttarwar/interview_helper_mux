@@ -308,12 +308,15 @@ def disable_handoff_gates(monkeypatch) -> None:
         "journey_ui": {
             **(merged_config().get("journey_ui") or {}),
             "require_handoff_between_stages": False,
+            "step_through_between_stages": False,
         },
     }
     for mod in (
         "interview_mux.custom_run_handoff",
+        "interview_mux.stage_step_through",
         "interview_mux.journey_orchestrator",
         "interview_mux.journey_state",
         "interview_mux.web.runner",
+        "interview_mux.pipeline",
     ):
         monkeypatch.setattr(f"{mod}.merged_config", lambda c=cfg: c)

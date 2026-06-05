@@ -38,6 +38,11 @@ from interview_mux.stage_execution_reuse import (
     check_stage_reuse_before_execute,
     clear_stage_reuse_from,
 )
+from interview_mux.stage_step_through import (
+    StageStepThroughPending,
+    confirm_step_through,
+    pending_step_through_stage,
+)
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 
@@ -266,6 +271,44 @@ class JobRunner:
                 "needs_handoff_review": True,
             }
 
+        pending_step = pending_step_through_stage(ctx_pre)
+        if pending_step:
+            msg = (
+                f"Step-through pause active for '{pending_step}'. "
+                "Proceed or skip in the GUI to continue."
+            )
+            job = self.get_job(run_id)
+            self._write_job(
+                ctx_pre,
+                {
+                    **{
+                        k: job.get(k)
+                        for k in (
+                            "mode",
+                            "stage",
+                            "flow",
+                            "from_stage",
+                            "until_stage",
+                            "nle_full_refresh",
+                            "nle_apply_mode",
+                        )
+                        if k in job
+                    },
+                    "status": "stage_transition",
+                    "stage": pending_step,
+                    "message": msg,
+                    "step_through": True,
+                },
+            )
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "needs_step_through": True,
+                "stage": pending_step,
+            }
+
         if consent_err:
             ctx_pre.log(consent_err, level="action", stage=stage or mode)
             self._write_job(
@@ -307,7 +350,17 @@ class JobRunner:
                 ctx.log(f"Starting: {info.title if info else label}", level="info", stage=label, detail=msg)
                 self._write_job(
                     ctx,
-                    {"status": "running", "mode": mode, "stage": stage, "flow": flow, "message": msg},
+                    {
+                        "status": "running",
+                        "mode": mode,
+                        "stage": stage,
+                        "flow": flow,
+                        "from_stage": from_stage or stage,
+                        "until_stage": until_stage,
+                        "nle_full_refresh": nle_full_refresh,
+                        "nle_apply_mode": nle_apply_mode,
+                        "message": msg,
+                    },
                 )
                 if mode == "stage" and stage == "transcript_review":
                     transcript_review.mark_transcript_review_complete(ctx)
@@ -408,6 +461,26 @@ class JobRunner:
                         "message": gate_msg,
                         "needs_stage_reuse": True,
                         "reuse_candidates": [c.to_dict() for c in exc.candidates],
+                    },
+                )
+            except StageStepThroughPending as exc:
+                gate_msg = str(exc)
+                ctx.log(gate_msg, level="action", stage=exc.stage_id)
+                refresh_journey_meta(ctx)
+                self._write_job(
+                    ctx,
+                    {
+                        "status": "stage_transition",
+                        "mode": mode,
+                        "stage": exc.stage_id,
+                        "flow": flow,
+                        "from_stage": from_stage or stage,
+                        "until_stage": until_stage,
+                        "nle_full_refresh": nle_full_refresh,
+                        "nle_apply_mode": nle_apply_mode,
+                        "message": gate_msg,
+                        "step_through": True,
+                        "pause_seconds": exc.pause_seconds,
                     },
                 )
             except SystemExit as exc:
@@ -563,5 +636,30 @@ class JobRunner:
             seen.add(key)
             clear_stage_reuse_from(ctx, stage_id, order)
 
+    def resume_step_through(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        action: str,
+        api_consents: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        ctx = RunContext(run_id, create=False)
+        if action not in ("proceed", "skip"):
+            raise ValueError("action must be 'proceed' or 'skip'")
+        resume = confirm_step_through(ctx, stage_id, action)  # type: ignore[arg-type]
+        flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
+        mode = str(resume.get("mode") or "stage")
+        return self.start(
+            run_id,
+            mode=mode,
+            stage=resume.get("stage"),
+            flow=resume.get("flow") if mode in flow_modes else None,
+            from_stage=resume.get("from_stage"),
+            until_stage=resume.get("until_stage"),
+            nle_full_refresh=bool(resume.get("nle_full_refresh")),
+            nle_apply_mode=str(resume.get("nle_apply_mode") or "structural"),
+            api_consents=api_consents,
+        )
 
 runner = JobRunner()
