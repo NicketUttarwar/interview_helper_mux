@@ -81,6 +81,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}/nle` | — | — | NLE JSON object | **404** |
 | `PUT` | `/api/runs/{run_id}/nle` | — | **NleBody** | `ok: true` | **404** |
 | `PATCH` | `/api/runs/{run_id}/nle/segment` | — | **NleSegmentBody** | `ok`, `nle` | **404** |
+| `POST` | `/api/runs/{run_id}/nle/batch` | — | **NleBatchBody** `{operations: [{segment_id, patch}]}` | `ok`, `updated`, `nle` | **400** schema, **404** |
 | `POST` | `/api/runs/{run_id}/nle/split` | — | **SplitBody** | `ok`, `nle` | **404** |
 | `POST` | `/api/runs/{run_id}/nle/snap-boundary` | — | **SnapBoundaryBody** `{segment_id, ms, edge}` | `ok`, `snapped_ms` | **400**, **404** |
 | `GET` | `/api/runs/{run_id}/artifact` | `path` (string, **required**) | — | Parsed JSON or `{path, text}` for non-JSON | **404** artifact, **400** path |
@@ -117,7 +118,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | Field | Type | Notes |
 |-------|------|--------|
 | `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`flow1`** \| **`flow1_until_preview`** \| **`flow1_polish`** \| **`flow2`** \| **`flow3`** \| **`nle_apply`** |
-| `nle_full_refresh` | bool | Optional for **`nle_apply`** — also run `transitions` and `edl_narrative_audit` before EDL rebuild |
+| `nle_full_refresh` | bool | Optional for **`nle_apply`** — also run `transitions` and `edl_narrative_audit` before EDL rebuild (legacy; prefer `nle_apply_mode: full_refresh`) |
+| `nle_apply_mode` | string | Optional for **`nle_apply`**: `trim_only` (EDL + preview only), `structural` (default — ranking when structural edits), `full_refresh` (structural + transitions + EDL narrative audit) |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |

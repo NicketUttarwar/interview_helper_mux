@@ -224,6 +224,7 @@ export interface TimelineSegment {
   _manifest_start_ms?: number;
   _manifest_end_ms?: number;
   topic_tags?: string[];
+  flags?: string[];
 }
 
 export interface VoLine {
@@ -449,6 +450,7 @@ export interface ExecuteBody {
   from_stage?: string;
   until_stage?: string;
   nle_full_refresh?: boolean;
+  nle_apply_mode?: "trim_only" | "structural" | "full_refresh";
   api_consents?: Record<string, boolean>;
 }
 

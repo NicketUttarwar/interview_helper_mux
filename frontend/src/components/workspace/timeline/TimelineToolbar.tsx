@@ -7,8 +7,13 @@ interface Props {
   dirtyReason: DirtyReason;
   segments: TimelineSegment[];
   selectedSegmentId: string | null;
+  snapEnabled: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
   onModeChange: (mode: TimelineMode) => void;
   onZoomChange: (zoom: number) => void;
+  onSnapChange: (snap: boolean) => void;
+  onFitSelection: () => void;
   onSplit: () => void;
   onExclude: () => void;
   onMarkRedo: () => void;
@@ -18,6 +23,18 @@ interface Props {
   onRestore: () => void;
   onSnapTrim: () => void;
   onAddMarker: () => void;
+  onOpenReview: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+}
+
+function ToolbarGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="timeline-toolbar-group">
+      <span className="timeline-toolbar-label">{label}</span>
+      <div className="timeline-toolbar-buttons">{children}</div>
+    </div>
+  );
 }
 
 export function TimelineToolbar({
@@ -26,8 +43,13 @@ export function TimelineToolbar({
   dirtyReason,
   segments,
   selectedSegmentId,
+  snapEnabled,
+  canUndo,
+  canRedo,
   onModeChange,
   onZoomChange,
+  onSnapChange,
+  onFitSelection,
   onSplit,
   onExclude,
   onMarkRedo,
@@ -37,68 +59,131 @@ export function TimelineToolbar({
   onRestore,
   onSnapTrim,
   onAddMarker,
+  onOpenReview,
+  onUndo,
+  onRedo,
 }: Props) {
   const asideCount = segments.filter((s) => s.type === "aside" && !s._excluded).length;
 
   return (
     <div className="nle-toolbar timeline-toolbar">
-      <div className="timeline-mode-toggle">
+      <ToolbarGroup label="View">
+        <div className="timeline-mode-toggle">
+          <button
+            type="button"
+            className={`btn sm${mode === "source" ? " primary" : " ghost"}`}
+            onClick={() => onModeChange("source")}
+          >
+            Source
+          </button>
+          <button
+            type="button"
+            className={`btn sm${mode === "assembly" ? " primary" : " ghost"}`}
+            onClick={() => onModeChange("assembly")}
+          >
+            Assembly
+          </button>
+        </div>
+        <label className="zoom-label">
+          Zoom{" "}
+          <input
+            type="range"
+            min={1}
+            max={8}
+            value={zoom}
+            onChange={(e) => onZoomChange(Number(e.target.value))}
+          />
+        </label>
+        <label className="timeline-snap-toggle">
+          <input
+            type="checkbox"
+            checked={snapEnabled}
+            onChange={(e) => onSnapChange(e.target.checked)}
+          />
+          Snap
+        </label>
         <button
           type="button"
-          className={`btn sm${mode === "source" ? " primary" : " ghost"}`}
-          onClick={() => onModeChange("source")}
+          className="btn sm ghost"
+          disabled={!selectedSegmentId}
+          onClick={() => void onFitSelection()}
         >
-          Source
+          Fit selection
+        </button>
+      </ToolbarGroup>
+
+      <ToolbarGroup label="Edit">
+        <button type="button" className="btn sm ghost" onClick={() => void onSplit()}>
+          Split
         </button>
         <button
           type="button"
-          className={`btn sm${mode === "assembly" ? " primary" : " ghost"}`}
-          onClick={() => onModeChange("assembly")}
+          className="btn sm ghost"
+          onClick={() => void onSnapTrim()}
+          disabled={!selectedSegmentId}
         >
-          Assembly
+          Snap trim
         </button>
-      </div>
-      <label className="zoom-label">
-        Zoom{" "}
-        <input
-          type="range"
-          min={1}
-          max={8}
-          value={zoom}
-          onChange={(e) => onZoomChange(Number(e.target.value))}
-        />
-      </label>
-      <button type="button" className="btn sm ghost" onClick={() => void onSplit()}>
-        Split at playhead
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onExclude()}>
-        Exclude
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onMarkRedo()}>
-        Mark redo
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onSnapTrim()} disabled={!selectedSegmentId}>
-        Snap trim
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onTightenPauses()} disabled={!selectedSegmentId}>
-        Tighten pauses
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onRippleDelete()} disabled={!selectedSegmentId}>
-        Ripple delete
-      </button>
-      <button type="button" className="btn sm ghost" onClick={() => void onRestore()} disabled={!selectedSegmentId}>
-        Restore
-      </button>
-      {asideCount > 0 ? (
-        <button type="button" className="btn sm ghost" onClick={() => void onTrimAsides()}>
-          Exclude asides ({asideCount})
+        <button
+          type="button"
+          className="btn sm ghost"
+          onClick={() => void onTightenPauses()}
+          disabled={!selectedSegmentId}
+        >
+          Tighten pauses
         </button>
-      ) : null}
-      <button type="button" className="btn sm ghost" onClick={() => void onAddMarker()}>
-        Add marker
-      </button>
+      </ToolbarGroup>
+
+      <ToolbarGroup label="Structure">
+        <button type="button" className="btn sm ghost" onClick={() => void onExclude()}>
+          Exclude
+        </button>
+        <button type="button" className="btn sm ghost" onClick={() => void onMarkRedo()}>
+          Mark redo
+        </button>
+        <button
+          type="button"
+          className="btn sm ghost"
+          onClick={() => void onRippleDelete()}
+          disabled={!selectedSegmentId}
+        >
+          Ripple delete
+        </button>
+        <button
+          type="button"
+          className="btn sm ghost"
+          onClick={() => void onRestore()}
+          disabled={!selectedSegmentId}
+        >
+          Restore
+        </button>
+        {asideCount > 0 ? (
+          <button type="button" className="btn sm ghost" onClick={() => void onTrimAsides()}>
+            Exclude asides ({asideCount})
+          </button>
+        ) : null}
+      </ToolbarGroup>
+
+      <ToolbarGroup label="Review">
+        <button type="button" className="btn sm ghost" onClick={onOpenReview}>
+          Review queue
+        </button>
+        <button type="button" className="btn sm ghost" disabled={!canUndo} onClick={() => void onUndo()}>
+          Undo
+        </button>
+        <button type="button" className="btn sm ghost" disabled={!canRedo} onClick={() => void onRedo()}>
+          Redo
+        </button>
+      </ToolbarGroup>
+
+      <ToolbarGroup label="Markers">
+        <button type="button" className="btn sm ghost" onClick={() => void onAddMarker()}>
+          Add marker
+        </button>
+      </ToolbarGroup>
+
       {dirtyReason ? (
-        <span className="dirty-badge muted">Unapplied {dirtyReason} edits</span>
+        <span className="dirty-badge timeline-dirty-banner">Unapplied {dirtyReason} edits</span>
       ) : null}
     </div>
   );

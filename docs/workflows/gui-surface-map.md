@@ -70,7 +70,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 |---------|---------|--------------|
 | **Stage** | Title, description, **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
 | **Story** | Story Board — themes, investigations, **Lock story for podcast edit** | When analysis workspace exists |
-| **Timeline** | NLE waveform / segment editor | After segment classification (empty state otherwise) |
+| **Timeline** | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification (empty state otherwise) |
 | **Profile** | Analysis profile form | When profile stage exists / unlocked |
 | **Files** | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
 | **Engineering** | LLM call record index and editor | Power-user audit path |
@@ -126,11 +126,11 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*` |
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
 | Timeline (source + assembly views, waveform, trim, transcript strip) | *(view)* | `GET /api/runs/{id}/timeline`, `GET …/assembly-timeline`, `GET …/waveform`, `GET …/transcript` | — | `segments/manifest.json`, `segments/nle_edits.json`, `flow_1_master/edl.json`, `ingest/waveform_peaks.json`, `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
-| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/split`, `POST …/nle/snap-boundary` | `gui_log.jsonl` (`stage: nle`, cascade on **Apply timeline edits**) | `segments/nle_edits.json`; **`POST …/execute` `mode: nle_apply`** rebuilds selection (when structural), EDL, and `assembly_preview.wav` |
+| NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/batch`, `POST …/nle/split`, `POST …/nle/snap-boundary` | `gui_log.jsonl` (`stage: nle`, cascade on **Apply timeline edits**) | `segments/nle_edits.json`; **`POST …/execute` `mode: nle_apply`** with optional `nle_apply_mode` (`trim_only` \| `structural` \| `full_refresh`) rebuilds selection (when structural), EDL, and `assembly_preview.wav` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | Editable JSON; Zod pre-save + server `validate_artifact_write`; optional `invalidate_from` — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
 | Fill artifact gaps | *(partial checklist row)* | `POST /api/runs/{id}/fill-artifact-gaps` `{path}` | `gui_log.jsonl` | Re-runs producing LLM stage when artifact is partial |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `nle_full_refresh` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---

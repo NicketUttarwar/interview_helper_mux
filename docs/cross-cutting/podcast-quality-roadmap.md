@@ -14,7 +14,7 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 | Assembly Flow 2 | **`mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
 | Flow 3 publishing | Third-person show description JSON + markdown (BUILD-045–046, 080) | Same |
 | SFX | SDP + **`elevenlabs_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
-| NLE GUI | Trim handles, transcript strip, assembly view, **Apply timeline edits** (`nle_apply`); feeds ranking + EDL (BUILD-068) | Deeper craft iteration on timeline UX |
+| NLE GUI | Mouse-first editor: smart presets, review queue, filters, undo history, transcript selection trim, partial apply modes (`trim_only` / `structural` / `full_refresh`), assembly A/B preview; feeds ranking + EDL (BUILD-068) | Extended listen-study metrics + deeper craft loops |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks); EDL timeline QC (`validate_edl`); extended EDL narrative QC (`validate_narrative --include-edl`) | Extended listen-study metrics |
 | Pre-clean | **`audio_preclean`** + **GUI offers** at roadmap checkpoints (never auto-enabled) | Same pattern at any new checkpoint |
 

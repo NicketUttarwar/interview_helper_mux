@@ -48,3 +48,24 @@ def test_nle_apply_stages_empty_without_edits(ctx: RunContext) -> None:
     ctx.write_json("segments/nle_edits.json", {"playhead_ms": 0})
     runner = JobRunner()
     assert runner._nle_apply_stages(ctx, full_refresh=False) == []
+
+
+def test_nle_apply_stages_trim_only_mode_skips_ranking(ctx: RunContext) -> None:
+    ctx.write_json(
+        "segments/nle_edits.json",
+        {
+            "sequence_order": ["seg_b", "seg_a"],
+            "segment_overrides": {"seg_a": {"excluded": True}},
+        },
+    )
+    runner = JobRunner()
+    stages = runner._nle_apply_stages(ctx, full_refresh=False, apply_mode="trim_only")
+    assert stages == ["edl_flow1", "assembly_preview"]
+    assert "full_master_ranking" not in stages
+
+
+def test_nle_apply_stages_full_refresh_mode(ctx: RunContext) -> None:
+    runner = JobRunner()
+    stages = runner._nle_apply_stages(ctx, full_refresh=True, apply_mode="full_refresh")
+    assert "transitions" in stages
+    assert "edl_narrative_audit" in stages

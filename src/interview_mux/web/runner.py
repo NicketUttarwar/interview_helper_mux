@@ -74,15 +74,23 @@ class JobRunner:
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
         return merge_consents(load_persisted_consents(), api_consents)
 
-    def _nle_apply_stages(self, ctx: RunContext, *, full_refresh: bool) -> list[str]:
+    def _nle_apply_stages(
+        self,
+        ctx: RunContext,
+        *,
+        full_refresh: bool,
+        apply_mode: str = "structural",
+    ) -> list[str]:
         nle = load_nle(ctx)
         cats = nle_edit_categories(nle)
         if not cats["has_any"]:
             return []
+        if apply_mode == "trim_only":
+            return ["edl_flow1", "assembly_preview"]
         stages: list[str] = []
         if cats["structural"] or full_refresh:
             stages.append("full_master_ranking")
-        if full_refresh:
+        if full_refresh or apply_mode == "full_refresh":
             stages.extend(["transitions", "edl_narrative_audit"])
         stages.extend(["edl_flow1", "assembly_preview"])
         return stages
@@ -96,9 +104,15 @@ class JobRunner:
         from_stage: str | None,
         until_stage: str | None = None,
         nle_full_refresh: bool = False,
+        nle_apply_mode: str = "structural",
     ) -> list[str]:
         if mode == "nle_apply":
-            return self._nle_apply_stages(ctx, full_refresh=nle_full_refresh)
+            mode_arg = "full_refresh" if nle_full_refresh else nle_apply_mode
+            return self._nle_apply_stages(
+                ctx,
+                full_refresh=nle_full_refresh or nle_apply_mode == "full_refresh",
+                apply_mode=mode_arg,
+            )
         if mode == "stage" and stage:
             return [stage]
         if mode in ("analysis", "analysis_until_g0"):
@@ -143,6 +157,7 @@ class JobRunner:
         from_stage: str | None,
         until_stage: str | None = None,
         nle_full_refresh: bool = False,
+        nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None,
     ) -> str | None:
         """Return error message when required providers are not consented."""
@@ -154,6 +169,7 @@ class JobRunner:
             from_stage=from_stage,
             until_stage=until_stage,
             nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
         )
         missing: list[str] = []
         for sid in stage_ids:
@@ -178,6 +194,7 @@ class JobRunner:
         from_stage: str | None = None,
         until_stage: str | None = None,
         nle_full_refresh: bool = False,
+        nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
@@ -192,6 +209,7 @@ class JobRunner:
             from_stage=from_stage,
             until_stage=until_stage,
             nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
             api_consents=api_consents,
         )
         stage_ids = self._stages_for_execute(
@@ -201,6 +219,7 @@ class JobRunner:
             from_stage=from_stage,
             until_stage=until_stage,
             nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
         )
         reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
         if reuse_pending:
@@ -265,6 +284,7 @@ class JobRunner:
                             from_stage=from_stage,
                             until_stage=until_stage,
                             nle_full_refresh=nle_full_refresh,
+                            nle_apply_mode=nle_apply_mode,
                         )
                         for p in missing_consents(sid, self._resolve_consents(api_consents))
                     ],
@@ -346,7 +366,12 @@ class JobRunner:
                     refresh_journey_meta(ctx)
                 elif mode == "nle_apply":
                     set_selected_flow(ctx, "flow1")
-                    stages = self._nle_apply_stages(ctx, full_refresh=nle_full_refresh)
+                    mode_arg = "full_refresh" if nle_full_refresh else nle_apply_mode
+                    stages = self._nle_apply_stages(
+                        ctx,
+                        full_refresh=nle_full_refresh or nle_apply_mode == "full_refresh",
+                        apply_mode=mode_arg,
+                    )
                     if not stages:
                         raise ValueError("No NLE edits to apply.")
                     if "full_master_ranking" in stages:

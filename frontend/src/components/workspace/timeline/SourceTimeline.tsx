@@ -1,7 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 import { formatMs } from "../../../utils";
 import { segmentManifestBounds } from "../../../hooks/useTimelineEditor";
+import { SEGMENT_FLAG_LABELS } from "../../../utils/nleHelpers";
 import type { TimelineSegment, VoLine, WaveformPeaksData } from "../../../types";
+import { SegmentContextMenu } from "./SegmentContextMenu";
 
 const MIN_TRIM_MS = 300;
 
@@ -13,36 +15,59 @@ interface Props {
   zoom: number;
   playheadMs: number;
   selectedSegmentId: string | null;
+  selectedSegmentIds: string[];
+  visibleSegmentIds: Set<string>;
+  hideNonMatching: boolean;
+  snapEnabled: boolean;
   waveform: WaveformPeaksData | null;
   chapters?: Array<{ title: string; anchor_segment_id: string; timeline_start_ms?: number }>;
   markers?: Array<Record<string, unknown>>;
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
   onSeek: (ms: number) => void;
-  onSelect: (segId: string, startMs: number) => void;
+  onSelect: (segId: string, startMs: number, opts?: { additive?: boolean; range?: boolean }) => void;
   onReorder: (dragId: string, targetId: string) => void;
   onTrim: (segId: string, startMs: number, endMs: number, snap: boolean) => void;
+  onContextAction: (segId: string, actionId: string) => void;
+  onPlayheadDrag?: (ms: number) => void;
+  onScroll?: (left: number) => void;
 }
 
 export function SourceTimeline({
   segments,
-  voLines,
   durationMs,
   widthPx,
   playheadMs,
   selectedSegmentId,
+  selectedSegmentIds,
+  visibleSegmentIds,
+  hideNonMatching,
+  snapEnabled,
   waveform,
   chapters,
   markers,
+  scrollRef,
   onSeek,
   onSelect,
   onReorder,
   onTrim,
+  onContextAction,
+  onPlayheadDrag,
+  onScroll,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const localScrollRef = useRef<HTMLDivElement>(null);
+  const scrollEl = scrollRef || localScrollRef;
   const [trimPreview, setTrimPreview] = useState<{
     segId: string;
     start: number;
     end: number;
   } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    segId: string;
+  } | null>(null);
+  const [draggingPlayhead, setDraggingPlayhead] = useState(false);
 
   const msFromEvent = useCallback(
     (clientX: number) => {
@@ -79,15 +104,34 @@ export function SourceTimeline({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setTrimPreview(null);
-      void onTrim(segId, live.start, live.end, ev.shiftKey);
+      const snap = snapEnabled || ev.shiftKey;
+      void onTrim(segId, live.start, live.end, snap);
     };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
 
+  const startPlayheadDrag = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraggingPlayhead(true);
+    const onMove = (ev: MouseEvent) => {
+      const ms = msFromEvent(ev.clientX);
+      onPlayheadDrag?.(ms);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setDraggingPlayhead(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   const renderSegment = (seg: TimelineSegment) => {
     const segId = seg.segment_id || seg._nle_label || "";
+    if (hideNonMatching && !visibleSegmentIds.has(segId)) return null;
+    const dimmed = visibleSegmentIds.size < segments.length && !visibleSegmentIds.has(segId);
     const preview = trimPreview?.segId === segId ? trimPreview : null;
     const startMs = preview?.start ?? seg.start_ms;
     const endMs = preview?.end ?? seg.end_ms;
@@ -104,17 +148,27 @@ export function SourceTimeline({
         : role === "interviewer"
           ? "interviewer"
           : "interviewee";
+    const multiSelected = selectedSegmentIds.includes(segId);
+    const flagHint = (seg.flags || []).map((f) => SEGMENT_FLAG_LABELS[f] || f).join("; ");
 
     return (
       <div
         key={segId}
-        className={`segment-block ${cls}${seg._mark_redo ? " mark-redo" : ""}${seg._excluded ? " excluded nle-excluded" : ""}${selectedSegmentId === segId ? " selected" : ""}`}
+        className={`segment-block ${cls}${seg._mark_redo ? " mark-redo" : ""}${seg._excluded ? " excluded nle-excluded" : ""}${selectedSegmentId === segId ? " selected" : ""}${multiSelected ? " multi-selected" : ""}${dimmed ? " dimmed" : ""}${(seg.flags || []).length ? " flagged" : ""}`}
         draggable={!preview}
         data-seg-id={segId}
         style={{ left: `${left}%`, width: `${width}%` }}
-        title={seg.text?.slice(0, 120) || segId}
+        title={[seg.text?.slice(0, 120) || segId, flagHint].filter(Boolean).join(" · ")}
         onClick={(e) => {
           e.stopPropagation();
+          onSelect(segId, startMs, {
+            additive: e.metaKey || e.ctrlKey,
+            range: e.shiftKey,
+          });
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ x: e.clientX, y: e.clientY, segId });
           onSelect(segId, startMs);
         }}
         onDragStart={(e) => e.dataTransfer.setData("text/plain", segId)}
@@ -135,19 +189,20 @@ export function SourceTimeline({
             <div
               className="trim-handle trim-handle-left"
               onMouseDown={(e) => startTrimDrag(e, seg, "start")}
-              title="Drag to trim start (Shift = snap)"
+              title="Drag to trim start"
             />
             <div
               className="trim-handle trim-handle-right"
               onMouseDown={(e) => startTrimDrag(e, seg, "end")}
-              title="Drag to trim end (Shift = snap)"
+              title="Drag to trim end"
             />
           </>
         ) : null}
         <div className="seg-label">{segId}</div>
+        {(seg.flags || []).length ? <span className="seg-flag-dot" title={flagHint}>⚑</span> : null}
         <div>{formatMs(startMs)}</div>
         {preview ? (
-          <div className="trim-delta">
+          <div className="trim-delta-tooltip">
             {formatMs(endMs - startMs)}
             {endMs - startMs < seg.end_ms - seg.start_ms ? " (−)" : ""}
           </div>
@@ -167,7 +222,12 @@ export function SourceTimeline({
   return (
     <div className="nle-tracks">
       <div className="track-label">Speech</div>
-      <div className="timeline-scroll" style={{ ["--tl-width" as string]: `${widthPx}px` }}>
+      <div
+        className="timeline-scroll"
+        ref={scrollEl}
+        style={{ ["--tl-width" as string]: `${widthPx}px` }}
+        onScroll={() => onScroll?.(scrollEl.current?.scrollLeft ?? 0)}
+      >
         <div className="timeline-ruler" style={{ width: `${widthPx}px` }}>
           {Array.from({
             length: Math.floor(durationMs / (durationMs > 600000 ? 60000 : 15000)) + 1,
@@ -187,7 +247,7 @@ export function SourceTimeline({
           className="timeline-track timeline-track-with-waveform"
           style={{ width: `${widthPx}px` }}
           onClick={(e) => {
-            if ((e.target as HTMLElement).closest(".segment-block, .trim-handle")) return;
+            if ((e.target as HTMLElement).closest(".segment-block, .trim-handle, .playhead-handle")) return;
             onSeek(msFromEvent(e.clientX));
           }}
         >
@@ -211,7 +271,12 @@ export function SourceTimeline({
           ) : null}
           {segments.map(renderSegment)}
         </div>
-        <div className="playhead" style={{ left: `${(playheadMs / durationMs) * 100}%` }} />
+        <div
+          className={`playhead${draggingPlayhead ? " dragging" : ""}`}
+          style={{ left: `${(playheadMs / durationMs) * 100}%` }}
+        >
+          <div className="playhead-handle" onMouseDown={startPlayheadDrag} title="Drag playhead" />
+        </div>
       </div>
 
       {chapterMarkers.length ? (
@@ -253,23 +318,15 @@ export function SourceTimeline({
         </>
       ) : null}
 
-      <div className="track-label">VO pickup</div>
-      <div className="vo-track" style={{ ["--tl-width" as string]: `${widthPx}px` }}>
-        {voLines.map((line) => {
-          const seg = segments.find((s) => s.segment_id === line.targets_segment_id);
-          if (!seg) return null;
-          return (
-            <div
-              key={line.line_id}
-              className={`vo-chip${line.recorded_file ? " done" : " missing"}`}
-              style={{ left: `${(seg.start_ms / durationMs) * 100}%` }}
-              title={line.text}
-            >
-              {line.line_id}
-            </div>
-          );
-        })}
-      </div>
+      {contextMenu ? (
+        <SegmentContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          segmentId={contextMenu.segId}
+          onAction={(action) => onContextAction(contextMenu.segId, action)}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

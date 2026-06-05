@@ -77,7 +77,7 @@ The pipeline also re-runs a done LLM stage automatically when `should_run_stage_
 2. `edl_flow1` — always when operator edits exist
 3. `assembly_preview` — listen-before-SFX preview after EDL rebuild
 
-Optional `nle_full_refresh: true` also runs `transitions` and `edl_narrative_audit` before EDL build.
+Optional `nle_full_refresh: true` or `nle_apply_mode: full_refresh` also runs `transitions` and `edl_narrative_audit` before EDL build. Use `nle_apply_mode: trim_only` to rebuild EDL + `assembly_preview.wav` without re-running `full_master_ranking`.
 
 Manual stage reruns (`full_master_ranking`, `edl_flow1`) remain available from the pipeline sidebar.
 

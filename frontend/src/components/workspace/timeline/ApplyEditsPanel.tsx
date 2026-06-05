@@ -1,17 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../api/client";
 import { useApp } from "../../../context/AppContext";
 import { formatMs, nleHasOperatorEdits } from "../../../utils";
-import type { NleState } from "../../../types";
+import { computeNleDiff } from "../../../utils/nleDiff";
+import type { NleState, TimelineSegment, VoLine } from "../../../types";
+
+type ApplyMode = "trim_only" | "structural" | "full_refresh";
 
 interface Props {
   nle: NleState | null;
   runId: string | null;
+  segments: TimelineSegment[];
+  voLines: VoLine[];
+  chapterAnchorIds: string[];
   assemblyDurationBefore: number | null;
   assemblyDurationAfter: number | null;
   previewAudioPath?: string;
-  canRevert: boolean;
-  onRevert: () => void;
+  priorPreviewUrl?: string | null;
+  sticky?: boolean;
+  onRevert?: () => void;
   onBeforeApply: (durationMs: number | null) => void;
   onApplied: () => void;
 }
@@ -19,31 +26,52 @@ interface Props {
 export function ApplyEditsPanel({
   nle,
   runId,
+  segments,
+  voLines,
+  chapterAnchorIds,
   assemblyDurationBefore,
   assemblyDurationAfter,
   previewAudioPath,
-  canRevert,
-  onRevert,
+  priorPreviewUrl,
+  sticky,
   onBeforeApply,
   onApplied,
 }: Props) {
-  const { executeJob, run, jobRunning, refreshRun } = useApp();
+  const { executeJob, run, jobRunning, refreshRun, showToast } = useApp();
   const job = run?.job;
-  const [fullRefresh, setFullRefresh] = useState(false);
+  const [applyMode, setApplyMode] = useState<ApplyMode>("structural");
   const [applying, setApplying] = useState(false);
 
   const hasEdits = nleHasOperatorEdits(nle as Record<string, unknown> | null);
+
+  const diff = useMemo(
+    () => computeNleDiff(segments, nle, { voLines, chapterAnchorIds }),
+    [segments, nle, voLines, chapterAnchorIds],
+  );
 
   useEffect(() => {
     if (job?.status === "complete" && applying) {
       setApplying(false);
       void refreshRun();
       onApplied();
+      showToast(
+        assemblyDurationBefore != null && assemblyDurationAfter != null
+          ? `Assembly updated (${formatMs(assemblyDurationBefore)} → ${formatMs(assemblyDurationAfter)})`
+          : "Timeline edits applied",
+      );
     }
     if (job?.status === "error" || job?.status === "needs_operator") {
       setApplying(false);
     }
-  }, [job?.status, applying, refreshRun, onApplied]);
+  }, [
+    job?.status,
+    applying,
+    refreshRun,
+    onApplied,
+    showToast,
+    assemblyDurationBefore,
+    assemblyDurationAfter,
+  ]);
 
   if (!hasEdits) return null;
 
@@ -52,17 +80,59 @@ export function ApplyEditsPanel({
       ? assemblyDurationAfter - assemblyDurationBefore
       : null;
 
+  const fullRefresh = applyMode === "full_refresh";
+
   return (
-    <div className="apply-edits-panel">
+    <div className={`apply-edits-panel${sticky ? " apply-edits-sticky" : ""}`}>
       <p>Timeline edits detected — apply to rebuild selection, EDL, and assembly preview.</p>
-      <label className="apply-edits-checkbox">
-        <input
-          type="checkbox"
-          checked={fullRefresh}
-          onChange={(e) => setFullRefresh(e.target.checked)}
-        />
-        Full narrative refresh (re-run transitions + EDL narrative audit)
-      </label>
+
+      <div className="apply-edits-diff">
+        <span>{diff.excludedCount} excluded</span>
+        <span>{diff.trimmedCount} trimmed</span>
+        <span>{diff.redoCount} redo</span>
+        {diff.reordered ? <span>reordered</span> : null}
+        {diff.msRemoved > 0 ? (
+          <span>est. −{Math.round(diff.msRemoved / 1000)}s</span>
+        ) : null}
+        {diff.voConflictIds.length ? (
+          <span className="warn">{diff.voConflictIds.length} VO conflicts</span>
+        ) : null}
+        {diff.chapterConflictIds.length ? (
+          <span className="warn">{diff.chapterConflictIds.length} chapter conflicts</span>
+        ) : null}
+      </div>
+
+      <fieldset className="apply-edits-modes">
+        <legend>Apply mode</legend>
+        <label>
+          <input
+            type="radio"
+            name="nle-apply-mode"
+            checked={applyMode === "trim_only"}
+            onChange={() => setApplyMode("trim_only")}
+          />
+          Trims only (EDL + preview)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="nle-apply-mode"
+            checked={applyMode === "structural"}
+            onChange={() => setApplyMode("structural")}
+          />
+          Structural (ranking + EDL when needed)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="nle-apply-mode"
+            checked={applyMode === "full_refresh"}
+            onChange={() => setApplyMode("full_refresh")}
+          />
+          Full narrative refresh (+ transitions + EDL audit)
+        </label>
+      </fieldset>
+
       <div className="btn-row">
         <button
           type="button"
@@ -81,26 +151,38 @@ export function ApplyEditsPanel({
             }
             onBeforeApply(before);
             setApplying(true);
-            await executeJob({ mode: "nle_apply", nle_full_refresh: fullRefresh });
+            await executeJob({
+              mode: "nle_apply",
+              nle_full_refresh: fullRefresh,
+              nle_apply_mode: applyMode,
+            });
           }}
         >
           {applying || jobRunning || job?.status === "running" ? "Applying…" : "Apply timeline edits"}
         </button>
-        {canRevert ? (
-          <button type="button" className="btn sm ghost" onClick={() => void onRevert()}>
-            Revert last edit
-          </button>
-        ) : null}
       </div>
+
       {delta != null ? (
         <p className="muted duration-delta">
           Assembly duration: {formatMs(assemblyDurationBefore!)} → {formatMs(assemblyDurationAfter!)}
           {delta !== 0 ? ` (${delta > 0 ? "+" : ""}${Math.round(delta / 1000)}s)` : ""}
         </p>
       ) : null}
-      {previewAudioPath ? (
-        <audio controls className="audio-player assembly-preview-player" src={previewAudioPath} />
-      ) : null}
+
+      <div className="apply-edits-preview-row">
+        {priorPreviewUrl ? (
+          <div>
+            <p className="muted">Before</p>
+            <audio controls className="audio-player assembly-preview-player" src={priorPreviewUrl} />
+          </div>
+        ) : null}
+        {previewAudioPath ? (
+          <div>
+            <p className="muted">After</p>
+            <audio controls className="audio-player assembly-preview-player" src={previewAudioPath} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

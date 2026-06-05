@@ -146,6 +146,18 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 ---
 
+## Timeline (NLE) — Pipeline → Timeline tab
+
+| Check | Pass | If fail |
+|-------|------|--------|
+| Smart actions | Use **Remove tangents**, **Tighten all pauses**, or **Review flagged** before hand-trimming every segment | Open **Review queue** for step-through |
+| QC checklist | Resolve VO/chapter conflicts shown in timeline QC before Apply | **Jump** to segment → **Restore** or adjust trim |
+| Apply mode | **Trims only** when only in/out edits changed; **Structural** when excluding/reordering; **Full narrative refresh** when transitions may be stale | Re-apply with correct `nle_apply_mode` — [api-reference.md](./api-reference.md) |
+| Assembly preview | After Apply, listen in **Assembly** view; compare before/after preview players when present | Re-run `edl_flow1` + `assembly_preview` via Apply |
+| Undo | Use **Edit history** or **Undo** if a batch preset over-trimmed | Restore prior `nle_edits.json` state from history panel |
+
+---
+
 ## Flow 1 — extended analysis + assembly prep
 
 | Check | Pass | If fail |

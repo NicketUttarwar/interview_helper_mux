@@ -110,6 +110,7 @@ class ExecuteBody(BaseModel):
     from_stage: str | None = None
     until_stage: str | None = None
     nle_full_refresh: bool = False
+    nle_apply_mode: str = "structural"
     api_consents: dict[str, bool] | None = None
 
 
@@ -167,6 +168,15 @@ class SnapBoundaryBody(BaseModel):
     segment_id: str
     ms: int
     edge: str = "end"
+
+
+class NleBatchOperation(BaseModel):
+    segment_id: str
+    patch: dict[str, Any]
+
+
+class NleBatchBody(BaseModel):
+    operations: list[NleBatchOperation]
 
 
 class LogBody(BaseModel):
@@ -607,6 +617,24 @@ def create_app() -> FastAPI:
         ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
         return {"ok": True, "nle": nle}
 
+    @app.post("/api/runs/{run_id}/nle/batch")
+    def nle_batch(run_id: str, body: NleBatchBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        nle = load_nle(ctx)
+        overrides = nle.setdefault("segment_overrides", {})
+        count = 0
+        for op in body.operations:
+            if not op.segment_id:
+                continue
+            overrides[op.segment_id] = {**overrides.get(op.segment_id, {}), **op.patch}
+            count += 1
+        try:
+            save_nle(ctx, nle)
+        except ValueError as exc:
+            raise HTTPException(400, {"errors": [str(exc)]}) from exc
+        ctx.log(f"NLE batch update: {count} segment(s).", level="info", stage="nle")
+        return {"ok": True, "updated": count, "nle": nle}
+
     @app.post("/api/runs/{run_id}/nle/snap-boundary")
     def nle_snap_boundary(run_id: str, body: SnapBoundaryBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -1011,6 +1039,7 @@ def create_app() -> FastAPI:
             from_stage=body.from_stage or body.stage,
             until_stage=body.until_stage,
             nle_full_refresh=body.nle_full_refresh,
+            nle_apply_mode=body.nle_apply_mode,
             api_consents=body.api_consents,
         )
 
