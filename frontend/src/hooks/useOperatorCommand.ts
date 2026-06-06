@@ -98,20 +98,6 @@ export function useOperatorCommand(
       };
     }
 
-    if (job?.status === "stage_transition" && job.stage) {
-      const title = stageTitleForId(run.stages, job.stage) || job.stage;
-      return {
-        kind: "ready",
-        statusLine: `Step-through pause before ${title} — open Pipeline to proceed or skip.`,
-        primaryLabel: "Open Pipeline",
-        primaryDisabled: false,
-        secondaryLabel: "View logs",
-        onPrimary: onGoPipeline,
-        onSecondary: onGoLogs,
-        handoffStage: null,
-      };
-    }
-
     if (job?.status === "error") {
       return {
         kind: "error",

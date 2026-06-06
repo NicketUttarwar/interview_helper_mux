@@ -36,10 +36,6 @@ def decide_next_step(
     if job_status in ("running", "running_with_warnings") or job_running:
         return StepAction(StepKind.WAIT, detail="job_running")
 
-    if job_status == "stage_transition":
-        stage_id = str(job.get("stage") or "")
-        return StepAction(StepKind.RESOLVE_GATE, detail=f"step_through:{stage_id}")
-
     if blocking.get("blocked"):
         return StepAction(
             StepKind.RESOLVE_GATE,

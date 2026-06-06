@@ -32,12 +32,6 @@ def resolve_blocking(
     if job_status == "needs_operator" and _needs_api_consent(job):
         actions.append("api_consent_noted")
 
-    if job_status == "stage_transition":
-        stage_id = str(job.get("stage") or "")
-        if stage_id:
-            api.stage_transition(run_id, stage_id, "proceed", api_consents=API_CONSENTS)
-            actions.append(f"step_through_proceed:{stage_id}")
-
     stages = run.get("stages") or []
     for stage in stages:
         sid = stage.get("id") or ""

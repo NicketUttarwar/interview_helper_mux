@@ -27,7 +27,6 @@ from interview_mux.gates import (
 from interview_mux.custom_run_handoff import active_pipeline_stage, pause_after_stage_if_needed
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import resolve_before_stage_run
-from interview_mux.stage_step_through import require_step_through_before_stage
 from interview_mux.stages import analysis_flow1_extended
 from interview_mux.stages import assembly_flow1
 from interview_mux.stages import assembly_flow2
@@ -156,7 +155,6 @@ def _guard_stage_reuse(ctx: RunContext, stage: str) -> bool:
 
 def run_single_stage(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
-    require_step_through_before_stage(ctx, stage)
     if stage not in (
         "transcript_review",
         "podcast_sfx_brief",
@@ -297,7 +295,6 @@ def run_analysis(
                 )
             else:
                 continue
-        require_step_through_before_stage(ctx, name)
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
         token = active_pipeline_stage.set(name)
@@ -451,7 +448,6 @@ def _run_steps(
                 )
             else:
                 continue
-        require_step_through_before_stage(ctx, name)
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
         if preclean_hook is not None:

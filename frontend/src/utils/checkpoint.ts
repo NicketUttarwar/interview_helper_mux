@@ -76,9 +76,6 @@ export function findPendingFocusStage(
   ) {
     return run.job.stage;
   }
-  if (run.job?.status === "stage_transition" && run.job.stage) {
-    return run.job.stage;
-  }
   const handoff = findHandoffStage(run);
   if (handoff) return handoff.id;
   const blocking = run.journey?.blocking ?? run.blocking;
@@ -131,7 +128,6 @@ export function countPendingActions(
   if (!run) return 0;
   let n = 0;
   if (run.job?.status === "gate") n += 1;
-  else if (run.job?.status === "stage_transition") n += 1;
   else if (run.job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
     n += 1;
   }

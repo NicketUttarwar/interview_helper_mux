@@ -2179,59 +2179,6 @@ code {
   width: 100%;
 }
 
-.stage-transition-overlay {
-  z-index: 1100;
-}
-
-.stage-transition-card {
-  text-align: center;
-  max-width: 420px;
-}
-
-.stage-transition-eyebrow {
-  margin: 0 0 0.35rem;
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.stage-transition-copy {
-  margin: 0.75rem 0 1rem;
-}
-
-.stage-transition-timer {
-  position: relative;
-  height: 3rem;
-  border-radius: 999px;
-  background: var(--surface-2);
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.stage-transition-timer-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2, var(--accent)));
-  transition: width 1s linear;
-}
-
-.stage-transition-timer-label {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-size: 1.35rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.stage-transition-actions {
-  justify-content: center;
-}
-
 .pipeline-tab.pipeline-v2 {
   max-width: none;
 }
@@ -2289,24 +2236,6 @@ code {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
-}
-
-.pipeline-step-through-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: var(--space-3);
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  background: var(--surface-2);
-  border: 1px dashed var(--accent);
-}
-
-.pipeline-step-through-buttons {
-  display: flex;
-  gap: 0.5rem;
 }
 
 .pipeline-step-list {
@@ -2493,14 +2422,6 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
-}
-
-.pipeline-step-through-hint {
-  font-size: 0.8rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  background: var(--surface-2);
-  white-space: nowrap;
 }
 
 .modal-actions {

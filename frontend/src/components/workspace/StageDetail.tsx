@@ -30,7 +30,6 @@ export function StageDetail() {
         selectedStageId,
         jobRunning,
         apiGrants,
-        pauseSecondsDefault: config?.journey_ui?.step_through_pause_seconds ?? 10,
       }),
     [run, selectedStageId, jobRunning, apiGrants, config],
   );

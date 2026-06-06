@@ -16,13 +16,10 @@ export interface PipelineNavState {
   nextNumber: number | null;
   focusStageId: string | null;
   handoffStage: StageInfo | null;
-  stepThroughStageId: string | null;
-  stepThroughSeconds: number;
   statusLine: string;
   nextLine: string;
-  primaryAction: "run_next" | "checkpoint" | "handoff" | "step_through_proceed" | "none";
+  primaryAction: "run_next" | "checkpoint" | "handoff" | "none";
   canRunNext: boolean;
-  canSkipStepThrough: boolean;
   precleanOffer: ReturnType<typeof resolvePrecleanOffer>;
 }
 
@@ -67,7 +64,6 @@ export function resolvePipelineNav(
     selectedStageId: string | null;
     jobRunning: boolean;
     apiGrants: Record<string, boolean>;
-    pauseSecondsDefault?: number;
   },
 ): PipelineNavState {
   const empty: PipelineNavState = {
@@ -78,13 +74,10 @@ export function resolvePipelineNav(
     nextNumber: null,
     focusStageId: null,
     handoffStage: null,
-    stepThroughStageId: null,
-    stepThroughSeconds: opts.pauseSecondsDefault ?? 10,
     statusLine: "Open a run to see pipeline steps.",
     nextLine: "",
     primaryAction: "none",
     canRunNext: false,
-    canSkipStepThrough: false,
     precleanOffer: null,
   };
 
@@ -95,13 +88,9 @@ export function resolvePipelineNav(
   const focusStageId = findPendingFocusStage(run, opts.apiGrants);
   const nextRunnable = findNextRunnableStage(run.stages);
   const job = run.job;
-  const stepThroughStageId =
-    job?.status === "stage_transition" ? job.stage ?? run.meta?.step_through?.pending?.stage_id ?? null : null;
 
   let currentStage: StageInfo | null = null;
-  if (stepThroughStageId) {
-    currentStage = run.stages.find((s) => s.id === stepThroughStageId) ?? null;
-  } else if (focusStageId) {
+  if (focusStageId) {
     currentStage = run.stages.find((s) => s.id === focusStageId) ?? null;
   } else if (handoffStage) {
     currentStage = handoffStage;
@@ -130,18 +119,10 @@ export function resolvePipelineNav(
   let nextLine = "";
   let primaryAction: PipelineNavState["primaryAction"] = "none";
   let canRunNext = false;
-  let canSkipStepThrough = Boolean(stepThroughStageId);
 
   if (opts.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
     statusLine = job?.message || `Running ${job?.stage || "pipeline"}…`;
     nextLine = "Watch Logs for progress.";
-  } else if (stepThroughStageId) {
-    const title =
-      run.stages.find((s) => s.id === stepThroughStageId)?.title || stepThroughStageId;
-    statusLine = `Ready to run step ${findNumbered(numbered, stepThroughStageId)?.number ?? "?"}: ${title}`;
-    nextLine = "Proceed to run this step, or skip it.";
-    primaryAction = "step_through_proceed";
-    canRunNext = true;
   } else if (job?.status === "gate" || run.stages.some((s) => s.status === "action_required")) {
     const gate =
       run.stages.find((s) => s.status === "action_required") ||
@@ -161,7 +142,7 @@ export function resolvePipelineNav(
     canRunNext = true;
   } else if (nextRunnable) {
     statusLine = `Up next: Step ${nextNumber ?? "?"} — ${nextRunnable.title}`;
-    nextLine = "Run the next step when ready (step-through countdown may appear).";
+    nextLine = "Run the next step when you are ready.";
     primaryAction = "run_next";
     canRunNext = true;
   } else {
@@ -179,17 +160,10 @@ export function resolvePipelineNav(
     nextNumber,
     focusStageId,
     handoffStage,
-    stepThroughStageId,
-    stepThroughSeconds:
-      job?.pause_seconds ??
-      run.meta?.step_through?.pending?.pause_seconds ??
-      opts.pauseSecondsDefault ??
-      10,
     statusLine,
     nextLine,
     primaryAction,
     canRunNext,
-    canSkipStepThrough,
     precleanOffer,
   };
 }
@@ -218,5 +192,5 @@ export function stageNavStatus(
 
 export function jobBlocksPipeline(job: JobState | undefined): boolean {
   if (!job?.status) return false;
-  return ["running", "running_with_warnings", "stage_transition"].includes(job.status);
+  return ["running", "running_with_warnings"].includes(job.status);
 }

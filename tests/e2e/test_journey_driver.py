@@ -85,10 +85,3 @@ def test_flow_ship_complete_via_artifacts_present():
     step = decide_next_step(run, flow="flow1")
     assert step.kind == StepKind.VERIFY_FLOW
 
-
-def test_decide_resolve_gate_on_stage_transition():
-    run = _base_run()
-    run["job"] = {"status": "stage_transition", "stage": "audio_preclean"}
-    step = decide_next_step(run, flow="flow1")
-    assert step.kind == StepKind.RESOLVE_GATE
-    assert "step_through" in step.detail

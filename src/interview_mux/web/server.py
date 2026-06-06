@@ -143,12 +143,6 @@ class HandoffAckBody(BaseModel):
     stage_id: str
 
 
-class StageTransitionBody(BaseModel):
-    stage_id: str
-    action: str
-    api_consents: dict[str, bool] | None = None
-
-
 class ResetBody(BaseModel):
     from_stage: str | None = None
     new_input_audio_path: str | None = None
@@ -1052,22 +1046,6 @@ def create_app() -> FastAPI:
             stage=body.stage_id,
         )
         return {"ok": True, "handoff_ack": ack}
-
-    @app.post("/api/runs/{run_id}/stage-transition")
-    def stage_transition(run_id: str, body: StageTransitionBody) -> dict[str, Any]:
-        _ctx(run_id)
-        if runner.is_running(run_id):
-            raise HTTPException(409, "A job is already running for this run.")
-        set_active_execution(run_id)
-        try:
-            return runner.resume_step_through(
-                run_id,
-                stage_id=body.stage_id,
-                action=body.action,
-                api_consents=body.api_consents,
-            )
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:

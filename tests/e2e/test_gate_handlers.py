@@ -32,19 +32,6 @@ def test_resolve_blocking_transcript_review():
     assert "transcript_review_complete" in actions
 
 
-def test_resolve_blocking_step_through_proceed():
-    api = MagicMock()
-    run = {
-        "job": {"status": "stage_transition", "stage": "ingest"},
-        "stages": [],
-        "journey": {"preclean_checkpoints": [], "milestones": {}},
-        "log_tail": [],
-    }
-    actions = resolve_blocking(api, "exec_001", run)
-    api.stage_transition.assert_called_once()
-    assert actions == ["step_through_proceed:ingest"]
-
-
 def test_dismiss_all_unacknowledged_preclean_checkpoints():
     api = MagicMock()
     run = {

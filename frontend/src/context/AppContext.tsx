@@ -156,7 +156,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userDismissedActionRef = useRef(false);
-  const prevPendingCountRef = useRef(0);
 
   const selectedStage = useMemo(
     () => run?.stages.find((s) => s.id === selectedStageId),
@@ -326,11 +325,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const handoffStage = findHandoffStage(run);
       if (handoffStage) {
         showToast(
-          `Review outputs from ${handoffStage.title} before running the pipeline.`,
+          `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
         );
         await selectStage(handoffStage.id);
-        openActionModal();
-        playAttentionPing(alertsMuted);
         return;
       }
       const payload = { ...body, api_consents: ALL_API_CONSENTS };
@@ -366,7 +363,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ok?: boolean;
           error?: string;
           needs_stage_reuse?: boolean;
-          needs_step_through?: boolean;
           stage?: string;
         }>(`/api/runs/${runId}/execute`, {
           method: "POST",
@@ -375,12 +371,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         if (res.ok === false) {
           showToast(res.error || "Failed to start");
-          if (res.needs_step_through && res.stage) {
-            await selectStage(res.stage);
-            playAttentionPing(alertsMuted);
-            await refreshRun();
-            return;
-          }
           if (res.needs_stage_reuse && res.stage) {
             await selectStage(res.stage);
             openActionModal();
@@ -540,11 +530,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const handoffStage = findHandoffStage(run);
     if (handoffStage) {
       showToast(
-        `Review outputs from ${handoffStage.title}, then acknowledge before the next stage.`,
+        `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
       );
       await selectStage(handoffStage.id);
-      openActionModal();
-      playAttentionPing(alertsMuted);
       return;
     }
     if (hasActionRequiredStage(run.stages)) {
@@ -644,7 +632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!run) return;
     const job = run.job;
     const actionStage = run.stages.find((s) => s.status === "action_required");
-    if (job?.status === "gate" || job?.status === "needs_operator" || job?.status === "stage_transition") {
+    if (job?.status === "gate" || job?.status === "needs_operator") {
       if (jobStatusPrevRef.current !== job.status) playAttentionPing(alertsMuted);
     } else if (actionStage) {
       if (lastActionRequiredIdRef.current !== actionStage.id) {
@@ -658,32 +646,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [run, alertsMuted]);
 
   useEffect(() => {
-    const prev = prevPendingCountRef.current;
-    prevPendingCountRef.current = pendingActionCount;
-    if (pendingActionCount > 0 && pendingActionCount > prev) {
-      userDismissedActionRef.current = false;
-    }
-    if (
-      pendingActionCount > 0 &&
-      !userDismissedActionRef.current &&
-      !actionModalOpen &&
-      run
-    ) {
-      const focusId = findPendingFocusStage(run, mergedApiGrants());
-      const focusStage = focusId
-        ? run.stages.find((s) => s.id === focusId)
-        : undefined;
-      if (focusStage?.status === "locked") {
-        return;
-      }
-      setActionModalOpen(true);
-      void focusPendingStage();
-    }
     if (pendingActionCount === 0) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
     }
-  }, [pendingActionCount, actionModalOpen, run, focusPendingStage, mergedApiGrants]);
+  }, [pendingActionCount]);
 
   useEffect(() => {
     if (activeTab === "executions") void refreshHome();

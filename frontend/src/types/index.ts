@@ -33,8 +33,6 @@ export interface AppConfig {
     journey_log_filter?: boolean;
     require_preview_listen?: boolean;
     enable_stage_reuse_offers?: boolean;
-    step_through_between_stages?: boolean;
-    step_through_pause_seconds?: number;
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -148,8 +146,6 @@ export interface JobState {
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
   needs_stage_reuse?: boolean;
   reuse_candidates?: ReuseCandidate[];
-  step_through?: boolean;
-  pause_seconds?: number;
 }
 
 export interface RunData {
@@ -208,15 +204,6 @@ export interface RunMeta {
       at?: string;
     }
   >;
-  step_through?: {
-    pending?: {
-      stage_id?: string;
-      title?: string;
-      pause_seconds?: number;
-      requested_at?: string;
-    };
-    approved?: Record<string, string>;
-  };
 }
 
 export interface ElevenLabsListenResult {

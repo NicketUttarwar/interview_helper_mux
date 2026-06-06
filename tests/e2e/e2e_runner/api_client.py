@@ -116,19 +116,6 @@ class ApiClient:
     def approve_elevenlabs_prompts(self, run_id: str) -> dict[str, Any]:
         return self._post(f"/api/runs/{run_id}/elevenlabs-prompts/approve", {})
 
-    def stage_transition(
-        self,
-        run_id: str,
-        stage_id: str,
-        action: str,
-        *,
-        api_consents: dict[str, bool] | None = None,
-    ) -> dict[str, Any]:
-        body: dict[str, Any] = {"stage_id": stage_id, "action": action}
-        if api_consents:
-            body["api_consents"] = api_consents
-        return self._post(f"/api/runs/{run_id}/stage-transition", body)
-
     def wait_for_health(self, *, timeout_s: float = 120.0, interval_s: float = 1.0) -> None:
         deadline = time.monotonic() + timeout_s
         last_err: Exception | None = None

@@ -7,7 +7,7 @@ import {
 } from "../../utils/pipelineNavigation";
 
 export function PipelineStepList() {
-  const { run, selectedStageId, selectStage, apiGrants, jobRunning, config } = useApp();
+  const { run, selectedStageId, selectStage, apiGrants, jobRunning } = useApp();
 
   const nav = useMemo(
     () =>
@@ -15,9 +15,8 @@ export function PipelineStepList() {
         selectedStageId,
         jobRunning,
         apiGrants,
-        pauseSecondsDefault: config?.journey_ui?.step_through_pause_seconds ?? 10,
       }),
-    [run, selectedStageId, jobRunning, apiGrants, config],
+    [run, selectedStageId, jobRunning, apiGrants],
   );
 
   if (!run) return null;
