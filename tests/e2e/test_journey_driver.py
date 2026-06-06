@@ -58,3 +58,37 @@ def test_until_stage_done():
     run["stages"] = [{"id": "ingest", "status": "done"}]
     step = decide_next_step(run, flow="flow1", until_stage="ingest")
     assert step.kind == StepKind.DONE
+
+
+def test_decide_execute_with_string_artifacts_on_stages():
+    run = _base_run()
+    run["stages"] = [
+        {
+            "id": "ingest",
+            "status": "pending",
+            "artifacts": ["ingest/checksums.json"],
+        }
+    ]
+    step = decide_next_step(run, flow="flow1")
+    assert step.kind == StepKind.EXECUTE
+
+
+def test_flow_ship_complete_via_artifacts_present():
+    run = _base_run()
+    run["journey"]["phase"] = "ship"
+    run["stages"] = [
+        {
+            "id": "flow_1_master",
+            "artifacts_present": ["flow_1_master/master.wav"],
+        }
+    ]
+    step = decide_next_step(run, flow="flow1")
+    assert step.kind == StepKind.VERIFY_FLOW
+
+
+def test_decide_resolve_gate_on_stage_transition():
+    run = _base_run()
+    run["job"] = {"status": "stage_transition", "stage": "audio_preclean"}
+    step = decide_next_step(run, flow="flow1")
+    assert step.kind == StepKind.RESOLVE_GATE
+    assert "step_through" in step.detail

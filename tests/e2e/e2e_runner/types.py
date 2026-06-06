@@ -9,6 +9,8 @@ from typing import Any
 
 FlowName = str  # flow1 | flow2 | flow3
 
+DEFAULT_INPUT_AUDIO = "ASSETS/input/interview.wav"
+
 
 class StepKind(str, Enum):
     WAIT = "wait"
@@ -28,7 +30,7 @@ class StepAction:
 @dataclass
 class SessionConfig:
     repo_root: str
-    input_audio: str = "ASSETS/input/interview.wav"
+    input_audio: str = DEFAULT_INPUT_AUDIO
     flows: tuple[FlowName, ...] = ("flow1", "flow2", "flow3")
     base_url: str = "http://127.0.0.1:8765"
     poll_interval_s: float = 2.0

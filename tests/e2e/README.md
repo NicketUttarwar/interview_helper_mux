@@ -34,7 +34,7 @@ tests/e2e/
 
 1. [SETUP.md](../../SETUP.md) — repo `.venv`, secrets, toolchain
 2. `ASSETS/input/interview.wav`
-3. `CURSOR_API_KEY` when heal mode is enabled (default). Use `--no-heal` to skip.
+3. `CURSOR_API_KEY` in `config/secrets/secrets.env` when heal mode is enabled (default). Use `--no-heal` to skip.
 
 First run bootstraps `tests/e2e/.venv` and installs Playwright Chromium.
 
@@ -43,11 +43,11 @@ First run bootstraps `tests/e2e/.venv` and installs Playwright Chromium.
 ## Quick start
 
 ```bash
-export CURSOR_API_KEY="cursor_..."   # optional if --no-heal
+# Add CURSOR_API_KEY to config/secrets/secrets.env (see config/templates/secrets.env.example)
 ./scripts/e2e.sh
 ```
 
-### Flags (passed through to `python -m e2e_runner run`)
+### Flags (passed through to `python -m e2e_runner`)
 
 | Flag | Effect |
 |------|--------|
@@ -68,13 +68,18 @@ You do **not** need `source .venv/bin/activate` before `./scripts/e2e.sh` — th
 
 ## What `./scripts/e2e.sh` does
 
-1. Checks prerequisites and `interview.wav`
-2. Runs fast `pytest` preflight (repo tests, skips live E2E)
-3. Starts `./scripts/run.sh --no-browser`
-4. Playwright drives `http://127.0.0.1:8765` + REST API for gates
-5. On failure: failure bundle → Cursor Agent heal → restart → resume
-6. Verifies masters / show description per flow
-7. Writes `tests/e2e/reports/<session>_final-report.md`
+1. Verifies `ASSETS/input/interview.wav`
+2. Bootstraps repo `.venv` if missing (`scripts/bootstrap_venv.sh`)
+3. Bootstraps / refreshes `tests/e2e/.venv` (Playwright + cursor-sdk)
+4. Builds GUI static bundle if missing (`scripts/build_gui.sh`)
+5. Runs `tools/check_prerequisites.sh` and validates required secrets + AWS auth
+6. Runs E2E helper `pytest` (must pass)
+7. Starts `./scripts/run.sh --no-browser`
+8. Playwright drives `http://127.0.0.1:8765` + REST API for gates
+9. Runs **flow1 → flow2 → flow3** by default (dismisses optional pre-clean offers; uses `interview.wav` via API)
+10. On failure: failure bundle → Cursor Agent heal → restart → resume
+11. Verifies masters / show description per flow
+12. Writes `tests/e2e/reports/<session>_final-report.md`
 
 ---
 
@@ -108,9 +113,9 @@ Prefer `./scripts/e2e.sh` for the full autonomous path.
 
 ## Environment
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CURSOR_API_KEY` | — | Cursor Agent self-heal |
+| Variable / key | Default | Purpose |
+|----------------|---------|---------|
+| `CURSOR_API_KEY` in `config/secrets/secrets.env` | — | Cursor Agent self-heal (`export CURSOR_API_KEY` still overrides) |
 | `E2E_MAX_HEAL_ATTEMPTS` | `5` | Per failure-site heal cap |
 
 ---
@@ -120,5 +125,5 @@ Prefer `./scripts/e2e.sh` for the full autonomous path.
 ```bash
 bash tests/e2e/bootstrap_venv.sh
 source tests/e2e/.venv/bin/activate
-python -m e2e_runner run --help
+python -m e2e_runner --help
 ```

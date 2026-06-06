@@ -8,8 +8,8 @@ from pathlib import Path
 
 import typer
 
-from e2e_runner.orchestrator import Orchestrator
-from e2e_runner.types import SessionConfig
+from e2e_runner.orchestrator import Orchestrator, _normalize_input_audio
+from e2e_runner.types import DEFAULT_INPUT_AUDIO, SessionConfig
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -22,9 +22,9 @@ def _e2e_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-@app.command("run")
+@app.callback(invoke_without_command=True)
 def run_cmd(
-    input_audio: str = typer.Option("ASSETS/input/interview.wav", "--input"),
+    input_audio: str = typer.Option(DEFAULT_INPUT_AUDIO, "--input"),
     flows: str = typer.Option("flow1,flow2,flow3", "--flows"),
     base_url: str = typer.Option("http://127.0.0.1:8765", "--base-url"),
     resume_run_id: str | None = typer.Option(None, "--resume-run-id"),
@@ -40,7 +40,7 @@ def run_cmd(
     flow_tuple = tuple(f.strip() for f in flows.split(",") if f.strip())
     cfg = SessionConfig(
         repo_root=str(root),
-        input_audio=input_audio,
+        input_audio=_normalize_input_audio(root, input_audio),
         flows=flow_tuple,  # type: ignore[arg-type]
         base_url=base_url,
         heal_enabled=not no_heal,

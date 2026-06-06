@@ -43,10 +43,13 @@ def run_heal(
     prompt_path.write_text(prompt, encoding="utf-8")
 
     if not api_key:
-        transcript_path.write_text("Heal skipped: CURSOR_API_KEY not set\n", encoding="utf-8")
+        transcript_path.write_text(
+            "Heal skipped: CURSOR_API_KEY not set in config/secrets/secrets.env\n",
+            encoding="utf-8",
+        )
         return HealResult(
             success=False,
-            summary="CURSOR_API_KEY not set",
+            summary="CURSOR_API_KEY not set in config/secrets/secrets.env",
             transcript_path=str(transcript_path),
             files_changed=[],
             pytest_ok=False,

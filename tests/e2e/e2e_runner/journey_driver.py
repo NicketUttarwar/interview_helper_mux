@@ -36,6 +36,10 @@ def decide_next_step(
     if job_status in ("running", "running_with_warnings") or job_running:
         return StepAction(StepKind.WAIT, detail="job_running")
 
+    if job_status == "stage_transition":
+        stage_id = str(job.get("stage") or "")
+        return StepAction(StepKind.RESOLVE_GATE, detail=f"step_through:{stage_id}")
+
     if blocking.get("blocked"):
         return StepAction(
             StepKind.RESOLVE_GATE,
@@ -88,15 +92,25 @@ def _flow_ship_complete(
     return phase == "ship" and bool(milestones.get("master_exported"))
 
 
+def _artifact_path(art: Any) -> str | None:
+    if isinstance(art, str):
+        return art
+    if isinstance(art, dict):
+        path = art.get("path")
+        return str(path) if path else None
+    return None
+
+
 def _artifact_exists(run: dict[str, Any], rel: str) -> bool:
     deliverable = (run.get("journey") or {}).get("deliverable") or {}
     path = deliverable.get("path") or ""
     if rel.split("/")[-1] in path:
         return True
     for stage in run.get("stages") or []:
-        for art in stage.get("artifacts") or []:
-            if art.get("path") == rel:
-                return True
+        for field in ("artifacts_present", "artifacts"):
+            for art in stage.get(field) or []:
+                if _artifact_path(art) == rel:
+                    return True
     return False
 
 

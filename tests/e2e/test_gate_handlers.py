@@ -32,6 +32,48 @@ def test_resolve_blocking_transcript_review():
     assert "transcript_review_complete" in actions
 
 
+def test_resolve_blocking_step_through_proceed():
+    api = MagicMock()
+    run = {
+        "job": {"status": "stage_transition", "stage": "ingest"},
+        "stages": [],
+        "journey": {"preclean_checkpoints": [], "milestones": {}},
+        "log_tail": [],
+    }
+    actions = resolve_blocking(api, "exec_001", run)
+    api.stage_transition.assert_called_once()
+    assert actions == ["step_through_proceed:ingest"]
+
+
+def test_dismiss_all_unacknowledged_preclean_checkpoints():
+    api = MagicMock()
+    run = {
+        "meta": {"audio_preclean": {"offered_at": ["before_ingest"]}},
+        "journey": {
+            "preclean_checkpoints": [
+                "before_ingest",
+                "after_g0",
+                "before_sfx_spend",
+                "before_flow_mix",
+                "before_master_export",
+            ],
+            "recommended_preclean": "before_flow_mix",
+            "milestones": {},
+        },
+        "stages": [],
+        "log_tail": [],
+    }
+    actions = resolve_blocking(api, "exec_001", run)
+    dismissed = {a.split(":", 1)[1] for a in actions if a.startswith("preclean_dismiss:")}
+    assert "before_ingest" not in dismissed
+    assert dismissed == {
+        "after_g0",
+        "before_sfx_spend",
+        "before_flow_mix",
+        "before_master_export",
+    }
+
+
 def test_stall_detector_resets_on_fingerprint_change():
     det = StallDetector(gate_timeout_s=1.0, idle_timeout_s=1.0)
     det.observe(("a", "prepare", "x", "idle", ""), job_running=False)

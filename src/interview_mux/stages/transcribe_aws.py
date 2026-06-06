@@ -20,18 +20,34 @@ def _aws(*args: str, capture: bool = True) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _read_transcript_json(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise RuntimeError(f"Transcript download is empty: {path}")
+    if text.startswith("<?xml") or text.startswith("<Error"):
+        raise RuntimeError(
+            "Transcript download failed with an S3 access error. "
+            "Verify AWS credentials and bucket permissions for s3:GetObject."
+        )
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Transcript file is not valid JSON ({path}): {exc}") from exc
+
+
 def run_transcribe(ctx: RunContext) -> None:
     cfg = merged_config()
     secrets = cfg.get("secrets") or {}
     bucket = secrets.get("AWS_S3_BUCKET") or require_secret("AWS_S3_BUCKET")
-    key = secrets.get("AWS_S3_INPUT_KEY") or f"interview_mux/{ctx.run_id}/normalized.wav"
+    input_key = secrets.get("AWS_S3_INPUT_KEY") or f"interview_mux/{ctx.run_id}/normalized.wav"
+    output_key = f"interview_mux/{ctx.run_id}/transcribe-output.json"
     region = secrets.get("AWS_DEFAULT_REGION") or secrets.get("AWS_REGION") or "us-east-1"
 
     normalized = ctx.path("ingest", "normalized.wav")
     if not normalized.is_file():
         raise FileNotFoundError(normalized)
 
-    s3_uri = f"s3://{bucket}/{key}"
+    s3_uri = f"s3://{bucket}/{input_key}"
     _aws("s3", "cp", str(normalized), s3_uri)
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
@@ -53,7 +69,7 @@ def run_transcribe(ctx: RunContext) -> None:
         "--output-bucket-name",
         bucket,
         "--output-key",
-        f"interview_mux/{ctx.run_id}/transcribe-output.json",
+        output_key,
         "--settings",
         "ShowSpeakerLabels=true,MaxSpeakerLabels=4",
         "--region",
@@ -76,15 +92,12 @@ def run_transcribe(ctx: RunContext) -> None:
         if status == "FAILED":
             raise RuntimeError(job.get("FailureReason", "Transcribe failed"))
 
-    transcript_uri = job["Transcript"]["TranscriptFileUri"]
-    # Download via aws s3 if s3 URI, else curl
+    # Always fetch via aws s3 cp — TranscriptFileUri is often an HTTPS URL that
+    # requires SigV4 auth and fails with AccessDenied when downloaded via curl.
     local_out = out_dir / "aws_raw.json"
-    if transcript_uri.startswith("s3://"):
-        _aws("s3", "cp", transcript_uri, str(local_out))
-    else:
-        subprocess.run(["curl", "-sL", transcript_uri, "-o", str(local_out)], check=True)
+    _aws("s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
-    raw = json.loads(local_out.read_text(encoding="utf-8"))
+    raw = _read_transcript_json(local_out)
     full, speakers = _normalize_transcript(raw)
     ctx.write_json("transcript/full.json", full)
     ctx.write_json("transcript/speakers.json", speakers)

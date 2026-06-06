@@ -86,6 +86,22 @@ def _fake_aws_run(*args: str, **kwargs: Any) -> MagicMock:
         )
     elif "transcribe" in cmd and "start-transcription-job" in cmd:
         proc.stdout = ""
+    elif "s3" in cmd and "cp" in cmd and len(cmd) >= 4:
+        dest = cmd[-1]
+        if dest.endswith("aws_raw.json"):
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
+            Path(dest).write_text(
+                json.dumps(
+                    {
+                        "results": {
+                            "transcripts": [{"transcript": "simulated transcript"}],
+                            "items": [],
+                            "speaker_labels": {"segments": []},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
     return proc
 
 

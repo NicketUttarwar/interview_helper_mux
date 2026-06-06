@@ -7,6 +7,17 @@ from typing import Any
 from e2e_runner.api_client import API_CONSENTS, ApiClient
 from e2e_runner.wav_stub import minimal_wav_bytes
 
+# Matches server _default_scope_for_checkpoint and frontend resolvePrecleanOffer.
+_PRECLEAN_SCOPES: dict[str, str] = {
+    "before_ingest": "full_source",
+    "after_g0": "full_source",
+    "after_profile_or_segmentation": "full_source",
+    "g1_vo_pickup": "vo_pickup",
+    "before_sfx_spend": "full_source",
+    "before_flow_mix": "normalized_rebuild",
+    "before_master_export": "normalized_rebuild",
+}
+
 
 def resolve_blocking(
     api: ApiClient,
@@ -20,6 +31,12 @@ def resolve_blocking(
 
     if job_status == "needs_operator" and _needs_api_consent(job):
         actions.append("api_consent_noted")
+
+    if job_status == "stage_transition":
+        stage_id = str(job.get("stage") or "")
+        if stage_id:
+            api.stage_transition(run_id, stage_id, "proceed", api_consents=API_CONSENTS)
+            actions.append(f"step_through_proceed:{stage_id}")
 
     stages = run.get("stages") or []
     for stage in stages:
@@ -77,6 +94,16 @@ def _needs_g2(run: dict[str, Any]) -> bool:
     return phase == "complete" and milestones.get("g1_complete") and not milestones.get("g2_complete")
 
 
+def _preclean_acknowledged(meta: dict[str, Any], checkpoint: str) -> bool:
+    preclean = meta.get("audio_preclean")
+    if not isinstance(preclean, dict):
+        return False
+    offered = preclean.get("offered_at")
+    if not isinstance(offered, list):
+        return False
+    return checkpoint in offered
+
+
 def _dismiss_preclean_offers(
     api: ApiClient,
     run_id: str,
@@ -84,14 +111,22 @@ def _dismiss_preclean_offers(
     actions: list[str],
 ) -> None:
     journey = run.get("journey") or {}
-    for cp in journey.get("preclean_checkpoints") or []:
-        rec = journey.get("recommended_preclean")
-        if isinstance(rec, dict) and rec.get("checkpoint") == cp:
-            try:
-                api.preclean_offer(run_id, str(cp), "dismiss", scope=rec.get("scope"))
-                actions.append(f"preclean_dismiss:{cp}")
-            except Exception:
-                pass
+    meta = run.get("meta") or {}
+    checkpoints = list(journey.get("preclean_checkpoints") or [])
+    recommended = journey.get("recommended_preclean")
+    if isinstance(recommended, str) and recommended and recommended not in checkpoints:
+        checkpoints.append(recommended)
+
+    for cp in checkpoints:
+        checkpoint = str(cp)
+        if _preclean_acknowledged(meta, checkpoint):
+            continue
+        scope = _PRECLEAN_SCOPES.get(checkpoint, "full_source")
+        try:
+            api.preclean_offer(run_id, checkpoint, "dismiss", scope=scope)
+            actions.append(f"preclean_dismiss:{checkpoint}")
+        except Exception:
+            pass
 
 
 def _ack_handoffs(

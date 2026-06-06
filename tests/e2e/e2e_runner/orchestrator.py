@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,16 +14,27 @@ from e2e_runner.final_report import write_final_report
 from e2e_runner.gate_handlers import execute_with_consent, resolve_blocking
 from e2e_runner.heal import run_heal
 from e2e_runner.journey_driver import decide_next_step, fingerprint
+from e2e_runner.secrets import cursor_api_key
 from e2e_runner.server_lifecycle import ServerProcess
 from e2e_runner.stall_detector import StallDetector
 from e2e_runner.types import IncidentRecord, SessionConfig, StepKind
 from e2e_runner.verify import verify_flow
+
+DEFAULT_INPUT_AUDIO = "ASSETS/input/interview.wav"
+
+
+def _normalize_input_audio(repo_root: Path, input_audio: str) -> str:
+    candidate = Path(input_audio)
+    if candidate.is_absolute():
+        return candidate.resolve().relative_to(repo_root.resolve()).as_posix()
+    return input_audio.replace("\\", "/")
 
 
 class Orchestrator:
     def __init__(self, cfg: SessionConfig) -> None:
         self.cfg = cfg
         self.repo_root = Path(cfg.repo_root)
+        self.cfg.input_audio = _normalize_input_audio(self.repo_root, cfg.input_audio)
         self.log_dir = Path(cfg.log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.started_at = datetime.now(timezone.utc)
@@ -61,7 +71,7 @@ class Orchestrator:
             else:
                 flows = self.cfg.flows
 
-            for flow in flows:
+            for index, flow in enumerate(flows):
                 try:
                     run_id = self._run_flow(server, api, browser, flow)
                     if run_id:
@@ -96,6 +106,10 @@ class Orchestrator:
                         exit_code = 1
                         break
 
+                if index < len(flows) - 1:
+                    api.clear_session()
+                    browser.sync_active_session()
+
             outcome = "passed" if exit_code == 0 and not self.residual else (
                 "partial" if self.clean_flows else "failed"
             )
@@ -124,8 +138,9 @@ class Orchestrator:
             created = api.create_run(asset_path, flow_intent=flow)
             run_id = str(created.get("run_id") or "")
             api.set_active(run_id)
-            basename = Path(asset_path).name
-            browser.start_execution(basename, flow)
+            run = api.get_run(run_id)
+            resolve_blocking(api, run_id, run)
+            browser.sync_active_session()
 
         stall = StallDetector()
         job_running = False
@@ -183,6 +198,16 @@ class Orchestrator:
             if step.kind == StepKind.WAIT:
                 if step.detail.startswith("error:"):
                     raise E2EFailure(step.detail)
+                if step.detail == "job_running":
+                    job_running = True
+                    job = api.wait_for_job_terminal(
+                        run_id, poll_s=self.cfg.poll_interval_s
+                    )
+                    job_running = False
+                    run["job"] = job
+                    if str(job.get("status")) == "error":
+                        raise E2EFailure(str(job.get("message") or job.get("error")))
+                    stall.reset()
                 time.sleep(self.cfg.poll_interval_s)
                 continue
 
@@ -256,7 +281,7 @@ class Orchestrator:
             run_id=run_id or None,
             run_snapshot=run,
             log_tail=log_tail,
-            api_key=os.environ.get("CURSOR_API_KEY"),
+            api_key=cursor_api_key(self.repo_root),
         )
 
         self.incidents.append(

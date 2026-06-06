@@ -52,6 +52,11 @@ class StallDetector:
         phase = self._fp[1] if self._fp and len(self._fp) > 1 else ""
         job_status = self._fp[3] if self._fp and len(self._fp) > 3 else "idle"
 
+        if job_status in ("running", "running_with_warnings"):
+            if elapsed > self.running_timeout_s:
+                return True, f"job running > {self.running_timeout_s}s"
+            return False, ""
+
         if job_status in ("gate", "needs_operator") and elapsed > self.gate_timeout_s:
             return True, f"gate/needs_operator unchanged > {self.gate_timeout_s}s"
 

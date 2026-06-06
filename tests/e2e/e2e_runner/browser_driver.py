@@ -45,11 +45,24 @@ class BrowserDriver:
         except Exception:
             return False
 
+    def sync_active_session(self) -> bool:
+        """Reload GUI after API run creation — avoids manual asset picker clicks."""
+        if not self.page:
+            return False
+        try:
+            self.page.goto(self.base_url)
+            self.page.wait_for_load_state("networkidle", timeout=15000)
+            return True
+        except Exception:
+            return False
+
     def start_execution(
         self,
         asset_basename: str,
         flow_intent: str,
     ) -> bool:
+        if self.sync_active_session():
+            return True
         if not self.page:
             return False
         try:
