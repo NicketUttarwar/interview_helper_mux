@@ -290,33 +290,3 @@ def seed_analysis_complete(ctx: RunContext) -> None:
     }
     meta["handoff_pending_writes"] = {}
     ctx.write_json("run_meta.json", meta)
-
-
-def grant_all_api_consents(client, *, providers: list[str] | None = None) -> None:
-    from interview_mux.api_providers import PROVIDERS
-
-    for pid in providers or list(PROVIDERS):
-        client.post("/api/session/api-consent", json={"provider": pid, "granted": True})
-
-
-def disable_handoff_gates(monkeypatch) -> None:
-    """Skip custom-run handoff pauses in lightweight simulated journey tests."""
-    from interview_mux.config import merged_config
-
-    cfg = {
-        **merged_config(),
-        "journey_ui": {
-            **(merged_config().get("journey_ui") or {}),
-            "require_handoff_between_stages": False,
-            "step_through_between_stages": False,
-        },
-    }
-    for mod in (
-        "interview_mux.custom_run_handoff",
-        "interview_mux.stage_step_through",
-        "interview_mux.journey_orchestrator",
-        "interview_mux.journey_state",
-        "interview_mux.web.runner",
-        "interview_mux.pipeline",
-    ):
-        monkeypatch.setattr(f"{mod}.merged_config", lambda c=cfg: c)

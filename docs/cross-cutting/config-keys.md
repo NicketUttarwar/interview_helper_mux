@@ -211,7 +211,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
 | `ELEVENLABS_API_KEY` | SFX + isolation fail — see [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) |
-| `CURSOR_API_KEY` | E2E self-heal (`./scripts/e2e.sh`) skipped when empty — env var still overrides |
+| `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — optional for main pipeline |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
 

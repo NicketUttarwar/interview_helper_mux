@@ -13,7 +13,6 @@ How to verify each build-out wave before marking tickets **done**. Complements [
 | **Stage integration** | One stage writes expected artifacts | Per BUILD ticket |
 | **Flow integration** | Full flow1, flow2, or flow3 | Per wave |
 | **Operator smoke** | GUI + CLI happy path | Release / definition of done |
-| **Autonomous E2E** | `./scripts/e2e.sh` — [tests/e2e/README.md](../../tests/e2e/README.md) | Release / nightly |
 | **Quality QA** | LUFS, listen tests, SFX coherence | Wave 5–6 |
 
 ---
@@ -74,25 +73,9 @@ cd frontend && npm run build          # Zod validators must compile
 
 **Fixture:** `tests/fixtures/runs/gap_closure_smoke/` — minimal `run_meta.json`, `source_acoustic_profile.json`, valid/invalid `nle_edits.json`, invalid `review_queue.json`.
 
-**Helpers:** `tests/run_fixtures.py` — `isolated_run_ctx`, `ctx_from_fixture`, `patch_server_ctx`, `patch_executions_root`, `seed_analysis_complete`, `grant_all_api_consents`, `minimal_manifest`, `minimal_narrative_plan`, `minimal_gap_report`, `minimal_flow2_selection`, `minimal_content_brief` (keeps pytest off repo `data/run_*`).
+**Helpers:** `tests/run_fixtures.py` — `isolated_run_ctx`, `ctx_from_fixture`, `patch_server_ctx`, `patch_executions_root`, `seed_analysis_complete`, `minimal_manifest`, `minimal_narrative_plan`, `minimal_gap_report`, `minimal_flow2_selection`, `minimal_content_brief` (keeps pytest off repo `data/run_*`).
 
-**Holistic simulated (offline, no external APIs):**
-
-```bash
-./tools/run_holistic_simulated_tests.sh
-```
-
-Tier 1 runs the full `pytest tests/ -q` suite and must be fully green (exit 1 on any failure). Tier 2 runs the holistic marker subset; Tier 3 runs `npm run build`.
-
-| File | Covers |
-|------|--------|
-| `tests/conftest.py` | Autouse outbound network guard (localhost TestClient only) |
-| `tests/simulated_services.py` | Central OpenAI / AWS / ElevenLabs / local MLX mocks from `stage_artifacts.json` |
-| `test_holistic_simulated_journey.py` | Prepare → Ship API sequence for flow1/2/3 (stubbed pipeline, simulated services) |
-| `test_api_contract_sweep.py` | Lightweight GET/POST smoke for `/api/*` routes |
-| `test_stage_parity.py` | Stage ↔ GUI order parity + `STAGE_TEST_COVERAGE` registry |
-
-Report: `tests/reports/holistic_simulated_report.txt`. **Does not** run `./scripts/e2e.sh` or `E2E_LIVE=1` (real APIs).
+**Stage parity:** `test_stage_parity.py` — stage ↔ GUI order parity + `STAGE_TEST_COVERAGE` registry.
 
 **Phase 6 complete:** re-run `pytest tests/ -q` once (see [gap-closure final verification](./gap-closure-agent-commands.md#final-verification-run-once-after-all-commands)).
 
@@ -235,6 +218,5 @@ python tools/run_flow.py --flow flow3 --run-id <id>
 ## Related
 
 - [smoke-test.md](../workflows/smoke-test.md) — end-to-end operator checklist
-- [tests/e2e/README.md](../../tests/e2e/README.md) — autonomous `./scripts/e2e.sh` runner
 - [troubleshooting.md](../workflows/troubleshooting.md) — failure symptoms
 - [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) — master pass/fail thresholds
