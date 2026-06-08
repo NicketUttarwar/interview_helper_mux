@@ -57,6 +57,18 @@ def _gaps_content_brief(data: dict[str, Any] | None) -> list[str]:
     return gaps
 
 
+def _gaps_content_brief_reanchor(data: dict[str, Any] | None) -> list[str]:
+    gaps = _gaps_content_brief(data)
+    if not data:
+        return gaps
+    for i, t in enumerate(data.get("topics") or []):
+        if isinstance(t, dict) and not (t.get("segment_ids") or []):
+            gaps.append(f"topics[{i}].segment_ids")
+    if not (data.get("topic_relationships") or []):
+        gaps.append("topic_relationships")
+    return gaps
+
+
 def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["speakers"]
@@ -114,6 +126,10 @@ def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
     return []
 
 
+STAGE_GAP_RULES: dict[str, GapRule] = {
+    "content_brief_reanchor": _gaps_content_brief_reanchor,
+}
+
 ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
     "understanding/analysis_state.json": _gaps_analysis_state,
     "understanding/content_brief.json": _gaps_content_brief,
@@ -136,11 +152,25 @@ ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
 }
 
 
-def compute_gaps(rel_path: str, data: dict[str, Any] | None) -> list[Gap]:
-    rule = ARTIFACT_COMPLETENESS_RULES.get(rel_path)
+def _gap_rule_for(rel_path: str, stage_key: str | None = None) -> GapRule | None:
+    if stage_key and stage_key in STAGE_GAP_RULES:
+        rel_for_stage = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+        if rel_for_stage == rel_path:
+            return STAGE_GAP_RULES[stage_key]
+    return ARTIFACT_COMPLETENESS_RULES.get(rel_path)
+
+
+def compute_gaps(rel_path: str, data: dict[str, Any] | None, *, stage_key: str | None = None) -> list[Gap]:
+    rule = _gap_rule_for(rel_path, stage_key)
     if not rule:
         return []
     return [Gap(path=p, reason="incomplete") for p in rule(data)]
+
+
+def _status_stage_key(rel_path: str, ctx: RunContext) -> str | None:
+    if rel_path == "understanding/content_brief.json" and ctx.is_done("content_brief_reanchor"):
+        return "content_brief_reanchor"
+    return None
 
 
 def artifact_status(rel_path: str, ctx: RunContext) -> str:
@@ -150,7 +180,7 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     raw = ctx.read_json(rel_path)
     data = raw if isinstance(raw, dict) else None
     schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
-    semantic = compute_gaps(rel_path, data)
+    semantic = compute_gaps(rel_path, data, stage_key=_status_stage_key(rel_path, ctx))
     if schema_errors or semantic:
         return "partial"
     return "complete"
@@ -245,7 +275,7 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
         raw = ctx.read_json(rel)
         if isinstance(raw, dict):
             existing = raw
-    gaps = compute_gaps(rel, existing)
+    gaps = compute_gaps(rel, existing, stage_key=stage_key)
     schema_errors = validate_artifact_write(rel, existing) if existing else []
     stage_errors = []
     if existing and stage_key:
@@ -260,7 +290,7 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
 
     skip_fields: list[str] = []
     if existing:
-        rule = ARTIFACT_COMPLETENESS_RULES.get(rel)
+        rule = _gap_rule_for(rel, stage_key)
         if rule:
             complete_paths = set()
             probe = copy.deepcopy(existing)
@@ -312,7 +342,7 @@ def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
         return True
     if validate_artifact_write(rel, raw):
         return True
-    if compute_gaps(rel, raw):
+    if compute_gaps(rel, raw, stage_key=stage_key):
         return True
     stage_errors = validate_stage_artifacts(stage_key, raw)
     return bool(stage_errors)

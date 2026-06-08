@@ -72,10 +72,6 @@ python -m interview_mux run-stage --run-id exec_001_... --stage transcript_revie
 
 `src/interview_mux/stages/transcript_review.py`
 
-## Quality offer after G0
-
-If the operator completed many low-confidence corrections, the GUI may offer **full-source** [background noise removal](../../pipeline/audio_preclean/README.md): re-run from `audio_preclean` → ingest → transcribe. Optional — dismiss to continue with current audio.
-
 This is separate from the offer at **G1** to clean only new `vo_pickup/` recordings.
 
 ## Related

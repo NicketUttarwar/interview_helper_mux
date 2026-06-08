@@ -124,6 +124,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("segments/manifest.json",),
     ),
     StageInfo(
+        "content_brief_reanchor",
+        "Content brief re-anchor",
+        "Ground topics, claims, and relationships to segment IDs after classification.",
+        "analysis",
+        ("understanding/content_brief.json",),
+        ("understanding/content_brief.json",),
+    ),
+    StageInfo(
         "sound_design_palettes",
         "Sound design palettes",
         "Create transcript-grounded sound design coherence plus reusable theme palettes.",
@@ -419,6 +427,7 @@ STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
     "content_context": ("openai",),
     "boundary_detection": ("openai",),
     "segment_classification": ("openai",),
+    "content_brief_reanchor": ("openai",),
     "sound_design_palettes": ("openai",),
     "missing_framing": ("openai",),
     "optimal_questions": ("openai",),

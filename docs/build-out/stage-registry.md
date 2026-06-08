@@ -26,7 +26,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Shared analysis
 
-**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `source_acoustic_profile` → `speaker_roles` → `content_context` → `boundary_detection` → `segment_classification` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
+**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `source_acoustic_profile` → `speaker_roles` → `content_context` → `boundary_detection` → `segment_classification` → `content_brief_reanchor` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -38,6 +38,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `content_context` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` | `understanding/content-context` |
 | `boundary_detection` | shipped | `segmentation.py` | BUILD-024 | `segments/boundaries.json` | `segmentation/boundary-detection` |
 | `segment_classification` | shipped | `segmentation.py` | BUILD-024 | `segments/manifest.json` | `segmentation/segment-classification` |
+| `content_brief_reanchor` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` (patch) | `understanding/content-brief-reanchor` |
 | `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` |
 | `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
 | `vo_ingest` | shipped | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline | — |

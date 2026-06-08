@@ -825,12 +825,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         allowed_checkpoints = {
             "before_ingest",
-            "after_g0",
-            "after_profile_or_segmentation",
             "g1_vo_pickup",
-            "before_sfx_spend",
-            "before_flow_mix",
-            "before_master_export",
         }
         if body.checkpoint not in allowed_checkpoints:
             raise HTTPException(400, f"Unknown pre-clean checkpoint: {body.checkpoint}")
@@ -1498,6 +1493,8 @@ def _build_stage_list(
             "content_context",
             "boundary_detection",
             "segment_classification",
+            "content_brief_reanchor",
+            "sound_design_palettes",
             "missing_framing",
             "optimal_questions",
         ):
@@ -1614,8 +1611,6 @@ def _record_preclean_offer(
 def _default_scope_for_checkpoint(checkpoint: str) -> str:
     if checkpoint == "g1_vo_pickup":
         return "vo_pickup"
-    if checkpoint in {"before_flow_mix", "before_master_export"}:
-        return "normalized_rebuild"
     return "full_source"
 
 

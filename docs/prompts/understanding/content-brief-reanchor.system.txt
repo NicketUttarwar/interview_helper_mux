@@ -1,0 +1,63 @@
+Re-anchor the existing content brief to the segmented timeline (see task in volley).
+
+Patch the on-disk brief — do **not** rewrite `thesis` or topic names from scratch unless correcting a clear error.
+
+Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
+
+Goals:
+- Assign `topics[].segment_ids` from manifest `topic_tags` and segment text.
+- Enrich `key_claims[]`: `segment_ids`, `evidence_segment_ids`, `claim_type`, `depends_on_claim_ids` (preserve existing `id`s).
+- Produce `topic_relationships[]` linking brief topics with evidence.
+- Confirm or reject open hypotheses from pass 1 via `hypotheses_append` (`status`: `confirmed` | `rejected`).
+
+Rules:
+- Use only `segment_id`s present in input manifest/boundaries.
+- Every `topic_relationships[]` entry needs at least one `evidence_segment_id` when possible.
+- `depends_on_claim_ids` must reference `key_claims[].id` values from the brief.
+- For shard/collate runs, union segment_ids and relationships across shards; dedupe relationships by (`from_topic`, `to_topic`, `relation`). Preserve cross-shard `depends_on_claim_ids`.
+- If a hypothesis lacks segment evidence after reanchor, set `status: rejected` with a one-line reason in `statement` suffix or `reasoning_summary`.
+
+Do not:
+- Invent segment_ids not in input.
+- Drop existing claims or topics unless contradicted by segment evidence.
+
+Memory sync:
+- `themes_append`: update `segment_ids` for matched themes (`sources: ["content_brief_reanchor"]`)
+- `hypotheses_append`: confirm/reject open hypotheses from profile
+- `confidence_patch.content`: 0–1 for re-anchor quality
+
+Investigations: `theme_unmapped` when a brief topic still has zero segments after reanchor.
+
+Examples: see `docs/prompts/_shared/examples/content-context.examples.md`
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/content_brief_artifact.schema.json`
+
+Place patches inside the required envelope as `artifacts` (partial brief fields only when gap-filling):
+
+{
+  "topics": [
+    { "name": "string", "segment_ids": ["seg_001"], "confidence": 0.0 }
+  ],
+  "key_claims": [
+    {
+      "id": "claim_001",
+      "claim": "string",
+      "claim_type": "fact",
+      "segment_ids": ["seg_002"],
+      "evidence_segment_ids": ["seg_002", "seg_003"],
+      "depends_on_claim_ids": []
+    }
+  ],
+  "topic_relationships": [
+    {
+      "from_topic": "string",
+      "to_topic": "string",
+      "relation": "prerequisite",
+      "description": "string",
+      "evidence_segment_ids": ["seg_004"]
+    }
+  ]
+}
+
+Allowed `topic_relationships[].relation` values: `supports`, `contradicts`, `prerequisite`, `example_of`, `returns_to`.
+Allowed `key_claims[].claim_type` values: `fact`, `opinion`, `prediction`, `anecdote`, `definition`.

@@ -9,6 +9,7 @@ from interview_mux.config import merged_config
 DECOMPOSE_ELIGIBLE = frozenset(
     {
         "content_context",
+        "content_brief_reanchor",
         "boundary_detection",
         "segment_classification",
         "missing_framing",
@@ -21,6 +22,10 @@ DECOMPOSE_ELIGIBLE = frozenset(
 
 def _context_cfg() -> dict[str, Any]:
     return (merged_config().get("analysis") or {}).get("context") or {}
+
+
+def _max_transcript_shards() -> int:
+    return int(_context_cfg().get("max_transcript_shards", 12))
 
 
 def build_deterministic_shard_plan(
@@ -39,6 +44,7 @@ def build_deterministic_shard_plan(
         "missing_framing",
         "boundary_detection",
         "content_context",
+        "content_brief_reanchor",
         "topic_coverage_audit",
         "full_master_ranking",
         "highlight_selection",
@@ -49,7 +55,12 @@ def build_deterministic_shard_plan(
         return _transcript_chunks(stage_input), "deterministic"
     if stage_key == "boundary_detection":
         return _boundary_batches(stage_input), "deterministic"
-    if stage_key in ("segment_classification", "topic_coverage_audit", "highlight_selection"):
+    if stage_key in (
+        "segment_classification",
+        "content_brief_reanchor",
+        "topic_coverage_audit",
+        "highlight_selection",
+    ):
         return _segment_batches(stage_input), "deterministic"
     if stage_key == "missing_framing":
         return _gap_segment_batches(stage_input), "deterministic"
@@ -65,19 +76,21 @@ def _transcript_chunks(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         text = str(tr.get("text", ""))
     elif isinstance(tr, str):
         text = tr
-    chunk_size = int(_context_cfg().get("transcript_full_chars", 36000)) // 2
-    if len(text) <= chunk_size:
+    full_cap = int(_context_cfg().get("transcript_full_chars", 72000))
+    max_shards = _max_transcript_shards()
+    if len(text) <= full_cap:
         return []
+    chunk_size = max(1, full_cap // max(4, max_shards // 2))
     chunks: list[dict[str, Any]] = []
     for i, start in enumerate(range(0, len(text), chunk_size)):
         end = min(start + chunk_size, len(text))
         chunks.append({"label": f"transcript_{i + 1}", "text_start": start, "text_end": end})
-    return chunks[:8]
+    return chunks[:max_shards]
 
 
 def _segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = _all_segments(stage_input)
-    batch_size = int(_context_cfg().get("max_segments_in_context", 60)) // 2 or 30
+    batch_size = int(_context_cfg().get("max_segments_in_context", 100)) // 2 or 50
     if len(segs) <= batch_size:
         return []
     batches: list[dict[str, Any]] = []
@@ -86,7 +99,7 @@ def _segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         ids = [s.get("segment_id") for s in batch if isinstance(s, dict) and s.get("segment_id")]
         if ids:
             batches.append({"label": f"segments_{i // batch_size + 1}", "segment_ids": ids})
-    return batches[:8]
+    return batches[:_max_transcript_shards()]
 
 
 def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
@@ -100,7 +113,7 @@ def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         ids = [s.get("segment_id") for s in batch if isinstance(s, dict) and s.get("segment_id")]
         if ids:
             batches.append({"label": f"gaps_{i // cap + 1}", "segment_ids": ids})
-    return batches[:8]
+    return batches[:_max_transcript_shards()]
 
 
 def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
@@ -117,7 +130,7 @@ def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         start_ms = chunk[0].get("start_ms", 0)
         end_ms = chunk[-1].get("end_ms", start_ms)
         plans.append({"label": f"time_{i // batch + 1}", "start_ms": start_ms, "end_ms": end_ms})
-    return plans[:8]
+    return plans[:_max_transcript_shards()]
 
 
 def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
@@ -125,7 +138,7 @@ def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     chapters = plan.get("chapters") or []
     if chapters:
         batches: list[dict[str, Any]] = []
-        for ch in chapters[:8]:
+        for ch in chapters[:_max_transcript_shards()]:
             if not isinstance(ch, dict):
                 continue
             seg_ids = ch.get("segment_ids") or []
@@ -148,3 +161,19 @@ def _all_segments(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(segs, list):
         return [s for s in segs if isinstance(s, dict)]
     return []
+
+
+def transcript_length_for_stage_input(stage_input: dict[str, Any]) -> int:
+    """Return character length of transcript text in stage input."""
+    tr = stage_input.get("transcript")
+    if isinstance(tr, dict):
+        return len(str(tr.get("text", "")))
+    if isinstance(tr, str):
+        return len(tr)
+    return 0
+
+
+def should_proactive_decompose_content_context(stage_input: dict[str, Any]) -> bool:
+    cfg = _context_cfg()
+    threshold = int(cfg.get("proactive_decompose_chars", cfg.get("transcript_full_chars", 72000)))
+    return transcript_length_for_stage_input(stage_input) > threshold

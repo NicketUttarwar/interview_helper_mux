@@ -20,6 +20,7 @@ prompts/
 │   └── examples/                       ← good vs bad pattern packs (*.examples.md)
 ├── understanding/
 │   ├── content-context.system.txt
+│   ├── content-brief-reanchor.system.txt
 │   └── speaker-roles.system.txt
 ├── segmentation/
 │   ├── boundary-detection.system.txt
@@ -51,7 +52,7 @@ prompts/
 
 Markdown “good vs bad” references under [`_shared/examples/`](./_shared/examples/). Each stage `.system.txt` that has a pack links to it (same pattern as gap stages).
 
-Runtime compact injection is intentionally narrower than this reference list: by default only `missing_framing`, `segment_classification`, and `topic_coverage_audit` receive a capped excerpt from their example packs. Other packs are authoring and regression references unless `analysis.prompt_examples.stages` is configured.
+Runtime compact injection is intentionally narrower than this reference list: by default only `content_context`, `missing_framing`, `segment_classification`, and `topic_coverage_audit` receive a capped excerpt from their example packs. Other packs are authoring and regression references unless `analysis.prompt_examples.stages` is configured.
 
 | Stage / area | Example file |
 |--------------|----------------|
@@ -81,12 +82,13 @@ Runtime compact injection is intentionally narrower than this reference list: by
 Orchestrator: inner retries per stage + investigation queue drain. Target: + arbiter per primary call — [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
 1. `understanding/speaker-roles` *(after `source_acoustic_profile` in pipeline)*
-2. `understanding/content-context`
+2. `understanding/content-context` — pass 1 semantic brief
 3. `segmentation/boundary-detection`
 4. `segmentation/segment-classification`
-5. `sound_design/theme-palettes` — `sound_design_palettes` after classification
-6. `interviewer-gap/missing-framing`
-7. `interviewer-gap/optimal-questions`
+5. `understanding/content-brief-reanchor` — patch brief to timeline + topic links
+6. `sound_design/theme-palettes` — `sound_design_palettes` after reanchor
+7. `interviewer-gap/missing-framing`
+8. `interviewer-gap/optimal-questions`
 
 **Gate G1** — human VO for `delivery: record`
 

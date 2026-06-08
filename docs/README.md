@@ -46,7 +46,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 
 - **Input:** Raw interview audio under `./ASSETS/` — pick a file in the GUI home screen; no config path required ([cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md))
 - **Run state:** Each execution under `ASSETS/executions/exec_*` — resume after relaunching `./scripts/run.sh`
-- **Quality (optional, offered throughout):** [Background noise removal](./pipeline/audio_preclean/README.md) — before ingest, after transcript review, **after recording pickup questions at G1**, and before final mix
+- **Quality (optional, two moments):** [Background noise removal](./pipeline/audio_preclean/README.md) — before ingest and **after recording pickup questions at G1**
 - **Outputs (per run, operator chooses one flow after analysis):**
   1. **Full master podcast** — full coverage, optimal order, VO bridges, podcast SFX, mastered WAV
   2. **Highlight reel** — ≤5 clips, montage SFX, mastered WAV

@@ -18,6 +18,7 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "source_acoustic_profile": ["test_source_acoustic_profile.py", "test_recompute_acoustic_profile.py", "test_pipeline.py"],
     "speaker_roles": ["test_prompt_validation.py", "test_pipeline.py"],
     "content_context": ["test_prompt_validation.py", "test_value_analysis_auto_extract.py", "test_pipeline.py"],
+    "content_brief_reanchor": ["test_content_brief_reanchor.py", "test_pipeline.py"],
     "boundary_detection": ["test_prompt_validation.py", "test_llm_harness_084.py", "test_pipeline.py"],
     "segment_classification": ["test_prompt_validation.py", "test_llm_harness_084.py", "test_pipeline.py"],
     "sound_design_palettes": ["test_sound_design_stages.py", "test_pipeline.py"],

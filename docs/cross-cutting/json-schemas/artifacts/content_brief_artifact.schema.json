@@ -19,7 +19,40 @@
         }
       }
     },
-    "key_claims": { "type": "array" },
+    "topic_relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from_topic", "to_topic", "relation"],
+        "properties": {
+          "from_topic": { "type": "string" },
+          "to_topic": { "type": "string" },
+          "relation": {
+            "enum": ["supports", "contradicts", "prerequisite", "example_of", "returns_to"]
+          },
+          "description": { "type": "string" },
+          "evidence_segment_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "key_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim"],
+        "properties": {
+          "id": { "type": "string" },
+          "claim": { "type": "string" },
+          "claim_type": {
+            "enum": ["fact", "opinion", "prediction", "anecdote", "definition"]
+          },
+          "speaker_role": { "enum": ["interviewee", "interviewer"] },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "evidence_segment_ids": { "type": "array", "items": { "type": "string" } },
+          "depends_on_claim_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
     "emotional_beats": { "type": "array" },
     "audience": { "type": "string" },
     "jargon_glossary": { "type": "array" }

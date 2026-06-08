@@ -88,7 +88,7 @@ flowchart TB
 
 **Mandatory gates:** G0, G1 (when gaps require record), G2. Details: [operator-gates.md](../workflows/operator-gates.md).
 
-**Optional quality offers** (never blocking): pre-clean at checkpoints — [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
+**Optional quality offers** (never blocking): pre-clean before ingest and after G1 pickup — [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
 
 ---
 
@@ -120,13 +120,14 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 4. `transcript_review_build` → **pause for G0** → `transcript_review`
 5. `source_acoustic_profile`
 6. `speaker_roles`
-7. `content_context`
+7. `content_context` — pass 1: thesis, topics, typed claims, open hypotheses
 8. `boundary_detection`
 9. `segment_classification`
-10. `sound_design_palettes`
-11. `missing_framing`
-12. `optimal_questions` → may **pause for G1**
-13. `vo_ingest` *(after operator records pickup; not in `ANALYSIS_ORDER` but callable)*
+10. `content_brief_reanchor` — pass 2: `segment_ids`, `topic_relationships`, confirm/reject hypotheses
+11. `sound_design_palettes`
+12. `missing_framing`
+13. `optimal_questions` → may **pause for G1**
+14. `vo_ingest` *(after operator records pickup; not in `ANALYSIS_ORDER` but callable)*
 
 **Orchestrator:** LLM stages drain `investigation_queue` — [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
 

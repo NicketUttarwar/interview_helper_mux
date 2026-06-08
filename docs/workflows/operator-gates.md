@@ -39,8 +39,6 @@ See [gui-surface-map.md](./gui-surface-map.md) and [api-reference.md](./api-refe
 
 See [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
-**Quality offer after G0:** If many clips were low-confidence, offer [background noise removal](../pipeline/audio_preclean/README.md) on the full source and re-run from `audio_preclean` → ingest (operator choice).
-
 ---
 
 ## Profile gate — Flow 1 extended (BUILD-081)
@@ -89,7 +87,7 @@ After pickup recordings are saved, **offer background noise removal on the new V
 - Scope: `vo_pickup` — does **not** require re-cleaning the original interview
 - If accepted: clean pickup WAVs, then continue to `vo_ingest` / G2
 
-If the operator dismisses, continue without cleaning. They can accept a full-source pre-clean offer later before mix.
+If the operator dismisses, continue without cleaning.
 
 See [audio pre-clean — G1 pickup](../pipeline/audio_preclean/README.md#g1-pickup-cleanup-explicit-product-behavior).
 
@@ -145,10 +143,7 @@ These **do not** block the pipeline unless the operator accepts and a re-run is 
 | Offer | Typical moment | Scope |
 |-------|----------------|-------|
 | Pre-clean source | Before ingest / new run (acceptance runs `audio_preclean` before `ingest`) | `full_source` |
-| Pre-clean after STT pain | After G0 | `full_source` |
 | Pre-clean pickup VO | **After G1 recordings** | `vo_pickup` only |
-| Pre-clean before SFX spend | After `assembly_preview` — listen speech + VO before ElevenLabs API calls | `full_source` (checkpoint `before_sfx_spend`) |
-| Pre-clean before mix | Before `mux_flow*` | `full_source` or `normalized_rebuild` |
 | Assembly preview listen | After ranking, before SFX | N/A (listen only) |
 | Re-verify master | After `master.wav` | QA + optional re-mux |
 

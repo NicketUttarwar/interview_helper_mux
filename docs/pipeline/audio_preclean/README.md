@@ -12,7 +12,7 @@ Most interviews skip pre-clean. Enable when the source or **new pickup recording
 |--------|----------------|
 | Audible constant hum or hiss under speech | Offer / enable pre-clean |
 | Clean studio / booth recording | Skip |
-| Phone or Zoom with light noise only | Try without first; offer after G0 if many low-confidence words |
+| Phone or Zoom with light noise only | Try without first; accept pre-clean before ingest if noise is obvious |
 | New VO pickup sounds noisy (home office mic) | **Clean pickup files only** at G1 |
 | Already processed by another denoiser | Skip (avoid double-processing) |
 
@@ -22,16 +22,12 @@ Most interviews skip pre-clean. Enable when the source or **new pickup recording
 
 ## When the operator is offered pre-clean
 
-Pre-clean is **not** a gate (not G0/G1/G2). The product should **offer** it at quality checkpoints throughout the run. The operator can accept, dismiss, or re-open the offer later.
+Pre-clean is **not** a gate (not G0/G1/G2). The product offers it at **exactly two moments** in a run. The operator can accept, dismiss, or re-open the offer later.
 
 | Workflow moment | What gets cleaned | Why |
 |-----------------|-------------------|-----|
 | **Before ingest** (start of run) | Raw capture (`run_meta.input_audio_path`, usually under `ASSETS/input/`) | Best STT and segmentation on noisy source |
-| **After G0 transcript review** | Full source (re-run from `audio_preclean` → ingest) | Low-confidence errors may be noise, not words |
-| **After analysis / before re-run** | Full source | Operator chose to redo from ingest with cleaner audio |
 | **G1 — after recording pickup questions** | **`vo_pickup/*.wav` only** | New interviewer lines often recorded in a noisier room than the interview |
-| **Before assembly / mix** | Full `ingest/normalized.wav` path | Final mux clarity before master |
-| **After master preview sounds noisy** | Full source or assembly bus (operator choice) | Last-chance quality fix before export |
 
 ### G1 pickup cleanup (explicit product behavior)
 

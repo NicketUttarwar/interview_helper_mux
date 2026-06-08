@@ -17,6 +17,33 @@
       }
     ]
   },
+  "content_brief_reanchor": {
+    "thesis": "Interview about product leadership tradeoffs.",
+    "topics": [
+      {
+        "name": "Founding constraints",
+        "summary": "The guest explains early product and hiring constraints.",
+        "segment_ids": ["seg_001"]
+      }
+    ],
+    "topic_relationships": [
+      {
+        "from_topic": "Founding constraints",
+        "to_topic": "Hiring lessons",
+        "relation": "prerequisite",
+        "evidence_segment_ids": ["seg_001"]
+      }
+    ],
+    "key_claims": [
+      {
+        "id": "claim_001",
+        "claim": "Early hiring shaped product velocity.",
+        "claim_type": "fact",
+        "segment_ids": ["seg_001"],
+        "evidence_segment_ids": ["seg_001"]
+      }
+    ]
+  },
   "boundary_detection": {
     "boundaries": [
       {

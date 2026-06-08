@@ -2,7 +2,7 @@
 
 OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user/assistant volley** built by `src/interview_mux/context_volley.py`. Client version: [anchored-toolchain.md](./anchored-toolchain.md). The pipeline does **not** send the full `analysis_state.json` on every call.
 
-**Smart routing (spec):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls. v1 uses `full` only.
+**Smart routing (shipped):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls on decompose-eligible stages.
 
 **Local framing (plan):** [local-llm-tier.md](./local-llm-tier.md) — optional MLX pass to compress priors into ≤2 volley turns before OpenAI.
 
@@ -29,7 +29,8 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `content_context` | speaker roles | identity, notes | ≤2 blocking |
 | `boundary_detection` | speaker roles, content_context | themes, thesis | segment/theme kinds |
 | `segment_classification` | content_context, boundary_detection | themes, narrative, speakers | theme/segment kinds |
-| `missing_framing` | segment_classification, content_context | narrative, entities, major_questions | gap kinds |
+| `content_brief_reanchor` | content_context, segment_classification | themes, narrative, hypotheses | theme kinds ≤2 |
+| `missing_framing` | segment_classification, content_brief_reanchor, content_context | narrative, entities, major_questions, hypotheses | gap kinds |
 | `optimal_questions` | missing_framing, content_context | style, major_questions, narrative | gap kinds |
 | `full_master_ranking` | narrative_arc_plan, topic_coverage_audit, optimal_questions, missing_framing | themes, narrative, style | — |
 | `highlight_selection` | content_context, missing_framing | themes, narrative, style, major_questions | ≤1 |
@@ -60,7 +61,9 @@ Implement in `build_message_volley(..., profile="full"|"shard"|"collate")` — s
 
 Heavy fields are stripped per stage:
 
-- Full transcript only on `content_context` and `boundary_detection` (with char caps)
+- Full transcript only on `content_context` and `boundary_detection` (with char caps); `content_context` may **proactively shard/collate** when transcript length exceeds `proactive_decompose_chars`
+- `speaker_roles` receives `transcript_samples` (opening / middle / closing windows) instead of a single excerpt
+- `content_brief_reanchor` gets compact `content_brief` + capped manifest (no raw transcript)
 - `missing_framing` gets compact segment list (truncated text), not raw transcript
 - `optimal_questions` gets gap evaluations + affected segments only
 - Flow stages get slim brief + capped manifest; ranking also gets compact `coverage_audit`, `narrative_plan`, `gap_report`
@@ -74,13 +77,21 @@ Limits in `config/app.defaults.json` → `analysis.context`:
 
 ```json
 "context": {
-  "transcript_excerpt_chars": 12000,
-  "transcript_full_chars": 36000,
+  "transcript_excerpt_chars": 24000,
+  "transcript_full_chars": 72000,
+  "speaker_roles_sample_chars": 24000,
+  "max_transcript_shards": 12,
+  "proactive_decompose_chars": 72000,
   "segment_text_max_chars": 400,
-  "max_segments_in_context": 60,
-  "max_stage_data_chars": 32000
+  "max_segments_in_context": 100,
+  "max_segments_in_gap_pass": 50,
+  "max_gap_evaluations": 50,
+  "max_stage_data_chars": 64000,
+  "interviewer_sample_lines": 8
 }
 ```
+
+`understanding/context_index.json` also sets `max_user_json_chars: 96000` for padding budget metadata.
 
 ## Audit
 

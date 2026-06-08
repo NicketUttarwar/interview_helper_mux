@@ -21,6 +21,7 @@ ANALYSIS_LLM_STAGES = frozenset(
         "content_context",
         "boundary_detection",
         "segment_classification",
+        "content_brief_reanchor",
         "sound_design_palettes",
         "missing_framing",
         "optimal_questions",

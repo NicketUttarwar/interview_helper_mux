@@ -142,12 +142,7 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | Checkpoint | GUI stage focus | Default `scope` | API |
 |------------|-----------------|-----------------|-----|
 | `before_ingest` | `audio_preclean` | `full_source` | `POST …/preclean-offer` |
-| `after_g0` | `transcript_review` (done) | `full_source` | same |
-| `after_profile_or_segmentation` | `analysis_profile`, `segment_classification` | `full_source` | same |
 | `g1_vo_pickup` | `g1_vo_pickup` (all lines recorded) | **`vo_pickup`** | same |
-| `before_flow_mix` | `mix_flow1`, `mix_flow2`, `mux_flow1`, `mux_flow2` | `normalized_rebuild` | same |
-| `before_sfx_spend` | `assembly_preview` | `full_source` | same |
-| `before_master_export` | `master_flow1`, `master_flow2` | `normalized_rebuild` | same |
 
 **`action` values:** `offer` (card shown), `accept`, `dismiss`. Persisted under `run_meta.json` → `audio_preclean` (`enabled`, `scope`, `offered_at`, `decisions`). Log lines use `RunContext.log()` → `gui_log.jsonl`.
 

@@ -22,8 +22,8 @@ def test_mix_contract_defaults_when_profile_missing(tmp_path):
 
 
 def test_preclean_acknowledged_false_when_empty():
-    assert preclean_acknowledged({}, "before_flow_mix") is False
-    assert preclean_acknowledged({"audio_preclean": {"offered_at": []}}, "before_flow_mix") is False
+    assert preclean_acknowledged({}, "before_ingest") is False
+    assert preclean_acknowledged({"audio_preclean": {"offered_at": []}}, "before_ingest") is False
 
 
 def test_compact_for_volley_and_pacing_liner():

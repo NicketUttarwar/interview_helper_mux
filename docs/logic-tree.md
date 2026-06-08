@@ -144,6 +144,21 @@ Split the transcript into **segments** — contiguous time ranges with a single 
 
 ---
 
+### 3b. Re-anchor content brief
+
+After segments exist, patch the content brief with timeline anchors and cross-topic structure.
+
+| Field | Description |
+|-------|-------------|
+| `topics[].segment_ids` | Ground each theme to manifest segments |
+| `key_claims[].segment_ids` / `evidence_segment_ids` | Anchor claims with typed structure |
+| `topic_relationships[]` | Links between themes (`supports`, `prerequisite`, etc.) |
+| `hypotheses` | Confirm or reject open hypotheses from pass 1 |
+
+**Prompt:** [content-brief-reanchor](./prompts/understanding/content-brief-reanchor.system.txt)
+
+---
+
 ### 5. Is each segment self-explanatory?
 
 For every segment (especially `interviewee_answer`), ask: **Would a listener who only hears this clip understand it in context of the episode?**

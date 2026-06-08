@@ -6,6 +6,7 @@ Goals:
 - Flag topics with zero coverage in `missing_coverage` with a concrete `suggestion` (required for excludes).
 - Flag segments that cover no brief topic in `orphan_segment_ids`.
 - Prefer including all non-aside interview material in the eventual full master.
+- When `content_brief.topic_relationships` is present, verify `evidence_segment_ids` are covered or note gaps in `missing_coverage`.
 - For shard/collate runs, merge mappings across shards, dedupe by topic/claim text, union all supporting `segment_id`s, then recompute one global `coverage_score`.
 - If `content_brief.key_claims` is non-empty, return `claim_mappings` for every claim.
 

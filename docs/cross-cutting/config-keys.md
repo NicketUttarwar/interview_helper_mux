@@ -132,12 +132,15 @@ Drains `investigation_queue` suggestions per stage. **Too low:** unresolved inve
 
 ## `analysis.context.*`
 
-Consumed by `context_volley` shaping. See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
+Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (shipped: `transcript_full_chars` 72000, `max_stage_data_chars` 64000, `max_segments_in_context` 100). See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
 
 | Key | If wrong |
 |-----|----------|
-| `transcript_excerpt_chars` | Truncated evidence in mid-pipeline stages |
+| `transcript_excerpt_chars` | Legacy excerpt fallback truncated in mid-pipeline stages |
 | `transcript_full_chars` | Early understanding/segmentation blind past cutoff |
+| `speaker_roles_sample_chars` | Speaker role inference sees too little of long interviews |
+| `max_transcript_shards` | Long transcripts split into too few/many shard calls |
+| `proactive_decompose_chars` | `content_context` single-pass vs shard/collate threshold |
 | `segment_text_max_chars` | Gap text unreadable / over-truncated |
 | `max_segments_in_context` | Tail segments invisible to ranking-like stages |
 | `max_segments_in_gap_pass` | Gap pass misses part of timeline |
@@ -229,7 +232,7 @@ Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Dee
 | `mix.normalize_vo_pickup` | `gaps.ingest_vo_pickup` | When `true`, writes loudnorm copies under `vo_pickup/normalized/` |
 | `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
 | `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
-| `mix.require_preclean_acknowledgment` | `web/runner.py`, GUI preclean offers | When `true`, single-stage runs block until checkpoint acknowledged in `run_meta.audio_preclean.offered_at` |
+| `mix.require_preclean_acknowledgment` | *(deprecated — unused)* | Formerly gated mix/master stages on mid-pipeline pre-clean ack; v1 offers only `before_ingest` and `g1_vo_pickup` (non-blocking) |
 | `mix.intelligibility_qc.enabled` | `master_qc.maybe_check_mix_intelligibility` | Optional speech-vs-bed check after mix |
 
 ## `audio_preclean`

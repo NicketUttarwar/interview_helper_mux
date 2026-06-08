@@ -52,7 +52,7 @@ See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./el
 ### Wave D — Audio pre-clean (BUILD-019 + BUILD-072) — **done**
 
 - `audio_preclean` stage shipped (ElevenLabs REST, optional).
-- **Quality offers** at every checkpoint — see [audio pre-clean](../pipeline/audio_preclean/README.md#when-the-operator-is-offered-pre-clean).
+- **Quality offers** at two checkpoints — see [audio pre-clean](../pipeline/audio_preclean/README.md#when-the-operator-is-offered-pre-clean).
 - Pickup-only scope (`vo_pickup`) when operator records gap-fill lines at G1.
 
 ---
@@ -64,11 +64,7 @@ These are **optional** prompts in the GUI (and future CLI flags), not gates G0�
 | Checkpoint | Offer |
 |------------|--------|
 | Before ingest | Clean source interview background noise |
-| After G0 (transcript review) | Re-clean if many low-confidence words may be noise-related |
-| After profile / segmentation | Clean before re-running analysis from a stage |
 | **G1 — after recording pickup questions** | Clean **new VO files** in `vo_pickup/` (room tone on mic, HVAC) |
-| Before Flow 1/2 mix | Clean full `normalized.wav` before final assembly (re-ingest downstream) |
-| Before master export | Last chance if master preview sounds noisy |
 
 **G1 follow-up (important):** When the operator records **additional interviewer questions** to fill gaps, the app should explicitly offer: *“Remove background noise from your new pickup recordings?”* This is separate from cleaning the original interview — only `vo_pickup/*.wav` (or a merged pickup bus) need isolation.
 
@@ -83,17 +79,15 @@ flowchart LR
   CAP[Capture] --> Q1{Offer pre-clean?}
   Q1 --> ING[Ingest + STT]
   ING --> G0[G0 transcript]
-  G0 --> Q2{Offer pre-clean?}
-  Q2 --> AN[Analysis]
+  G0 --> AN[Analysis]
   AN --> G1[G1 VO pickup]
-  G1 --> Q3{Offer clean new VO?}
-  Q3 --> G2[G2 flow pick]
+  G1 --> Q2{Offer clean new VO?}
+  Q2 --> G2[G2 flow pick]
   G2 --> SEL[Selection + narrative]
   SEL --> PRE[Preview assembly]
   PRE --> G15{G1.5 SFX approve optional}
   G15 --> MIX[Mix + master]
   MIX --> QA[verify + listen]
-  QA --> Q4{Offer pre-clean before re-mux?}
 ```
 
 ---

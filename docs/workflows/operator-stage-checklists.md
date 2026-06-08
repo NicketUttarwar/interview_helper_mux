@@ -89,7 +89,9 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `understanding/content_brief.json` | Stage outputs **complete** (not partial); `thesis`, `topics`, sensible `key_claims` | **Fill gaps** or `--from-stage content_context`; edit in Files tab — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
+| `understanding/content_brief.json` (pass 1) | After `content_context`: **complete** for `thesis`, `topics`, sensible typed `key_claims` | **Fill gaps** or `--from-stage content_context`; edit in Files tab — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
+| `understanding/content_brief.json` (pass 2) | After `content_brief_reanchor`: `topics[].segment_ids` populated; `topic_relationships` present; claims have `evidence_segment_ids` where possible | `--from-stage content_brief_reanchor` after manifest stable |
+| `analysis_state.hypotheses` | Open hypotheses from pass 1 confirmed/rejected after reanchor | Re-run `content_brief_reanchor` or edit profile |
 | `understanding/speakers.json` | Roles match who asks vs answers | Edit + `--from-stage speaker_roles` or fix in profile |
 | `understanding/source_acoustic_profile.json` | `pacing.pace_class` and `mix_contract` look plausible for the interview cadence | Re-run `--from-stage source_acoustic_profile`; verify transcript timing + ingest WAV |
 | **Recompute SAP** (GUI) | **Recompute profile** on `source_acoustic_profile` stage re-derives from current ingest/transcript; invalidates downstream when pace class changes | Use after G0 corrections or preclean; check `gui_log.jsonl` for `acoustic_profile_recomputed` |
@@ -117,6 +119,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | `segments/boundaries.json` | No overlapping ranges; sorted by `start_ms` | `--from-stage boundary_detection` |
 | `segments/manifest.json` | Every `segment_id` from boundaries has type + role + tags | `--from-stage segment_classification` |
+| **Re-anchor** | `.stage_done/content_brief_reanchor` after classification | `--from-stage content_brief_reanchor` if topics lack segment anchors |
 | Types | Not all `interviewee_answer`; asides / setup exist where audible | Re-classify or hand-edit manifest |
 | Flags | Only known `flags` tokens — [segment-schema.md](../cross-cutting/segment-schema.md) | Fix JSON; invalid flags fail schema validation |
 | `segment_id` alignment | Every manifest `segment_id` exists in `boundaries.json` | Re-run classification or fix merge bug |
@@ -173,7 +176,6 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
 | `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl_flow1`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
 | `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO only (no SFX spend yet) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
-| **before_sfx_spend** (quality offer) | After preview listen, Accept/Dismiss pre-clean offer on `assembly_preview` panel if shown; checkpoint logged in `run_meta.audio_preclean.offered_at` | Accept → invalidate ingest path and re-run from `audio_preclean`; Dismiss → proceed to craft/generate — [operator-gates.md](./operator-gates.md#quality-improvement-offers-not-gates) |
 | `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 | `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
@@ -257,7 +259,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | G2 | `run_meta.json` → `selected_flow: flow3` | Complete [G2](#g2--flow-pick); `python tools/run_flow.py --flow flow3` |
 | Profile (recommended) | `understanding/analysis_state.json` → `meta.operator_verified: true`, or you accept the unverified warning in `gui_log.jsonl` | [Profile gate](#profile-gate--flow-1-extended-build-081) (warn-only for Flow 3) |
 | `podcast_show_description` | `flow_3_description/show_description.json` exists; `word_count` 150–250; third person in `description_markdown` | `--from-stage podcast_show_description`; edit profile / `understanding/content_brief.json` |
-| Evidence | `evidence_segment_ids` populated; claims traceable to brief / manifest | Re-run `content_context` or fix brief |
+| Evidence | `evidence_segment_ids` populated; claims traceable to brief / manifest | Re-run `content_brief_reanchor` or fix brief |
 | `export_show_description` | `flow_3_description/show_description.md` exists; plain text (no `**` / `*` left from markdown strip) | `--from-stage export_show_description` after JSON stage |
 | No audio | No `master.wav` or `assembly.wav` under `flow_3_description/` | Select flow1/flow2 for audio deliverables — [publishing](../pipeline/publishing/README.md) |
 

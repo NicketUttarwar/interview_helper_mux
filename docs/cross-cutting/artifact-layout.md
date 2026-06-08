@@ -45,7 +45,7 @@ ASSETS/executions/exec_001_20260523T120000Z/
 |------|----------|---------|
 | `understanding/analysis_state.json` | **Yes** | Themes, major questions, style, narrative — main interview profile ([analysis_state.schema.json](./json-schemas/analysis_state.schema.json)) |
 | `understanding/investigation_queue.json` | Yes | Open investigations / rerun hints |
-| `understanding/content_brief.json` | Yes | Content brief artifact (synced to memory) |
+| `understanding/content_brief.json` | Yes | Content brief — thesis, topics, typed `key_claims`, `topic_relationships` (synced to memory) |
 | `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; schema: [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json); expanded by Wave 5 stages) |
 | `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — [source_acoustic_profile.schema.json](./json-schemas/source_acoustic_profile.schema.json); [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
 | `understanding/speakers.json` | Yes | Speaker roles |
@@ -88,7 +88,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.json` | Full request/response + volley per API call |
 | `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.md` | Optional copy-paste markdown sidecar |
 | `understanding/speakers.json` | speaker roles (LLM) |
-| `understanding/content_brief.json` | content context |
+| `understanding/content_brief.json` | `content_context` (pass 1) + `content_brief_reanchor` (patch) |
 | `understanding/sound_design_plan.json` | shared analysis init (BUILD-060 baseline) |
 | `understanding/source_acoustic_profile.json` | source_acoustic_profile |
 | `understanding/gap_evaluations.json` | missing framing |

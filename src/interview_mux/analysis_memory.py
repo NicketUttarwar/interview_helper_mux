@@ -100,7 +100,7 @@ def default_context_index(run_id: str) -> dict[str, Any]:
         "artifacts": {},
         "padding_rules": {
             "always_include": ["analysis_state_summary", "open_investigations"],
-            "max_user_json_chars": 48000,
+            "max_user_json_chars": 96000,
         },
     }
 
@@ -493,6 +493,42 @@ def apply_envelope_to_memory(
     return state
 
 
+def _theme_id_from_topic(topic: dict[str, Any], fallback_idx: int) -> str:
+    return topic.get("name", "").lower().replace(" ", "_")[:32] or f"theme_{fallback_idx}"
+
+
+def _upsert_theme(state: dict[str, Any], topic: dict[str, Any], *, source: str) -> None:
+    if not isinstance(topic, dict):
+        return
+    state.setdefault("themes", [])
+    theme_id = _theme_id_from_topic(topic, len(state["themes"]))
+    segment_ids = list(topic.get("segment_ids") or [])
+    confidence = topic.get("confidence", 0.8)
+    for existing in state["themes"]:
+        if isinstance(existing, dict) and existing.get("id") == theme_id:
+            if topic.get("summary"):
+                existing["summary"] = topic["summary"]
+            if segment_ids:
+                existing["segment_ids"] = segment_ids
+            if confidence is not None:
+                existing["confidence"] = confidence
+            sources = list(existing.get("sources") or [])
+            if source not in sources:
+                sources.append(source)
+            existing["sources"] = sources
+            return
+    state["themes"].append(
+        {
+            "id": theme_id,
+            "label": topic.get("name", ""),
+            "summary": topic.get("summary", ""),
+            "segment_ids": segment_ids,
+            "confidence": confidence,
+            "sources": [source],
+        }
+    )
+
+
 def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
     state = load_analysis_state(ctx)
     state.setdefault("narrative", {})
@@ -504,19 +540,10 @@ def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
         state["narrative"]["key_claims"] = brief["key_claims"]
     if brief.get("emotional_beats"):
         state["narrative"]["emotional_beats"] = brief["emotional_beats"]
+    if brief.get("topic_relationships"):
+        state["narrative"]["topic_relationships"] = brief["topic_relationships"]
     for topic in brief.get("topics") or []:
-        if isinstance(topic, dict):
-            state.setdefault("themes", [])
-            entry = {
-                "id": topic.get("name", "").lower().replace(" ", "_")[:32] or f"theme_{len(state['themes'])}",
-                "label": topic.get("name", ""),
-                "summary": topic.get("summary", ""),
-                "segment_ids": [],
-                "confidence": 0.8,
-                "sources": ["content_context"],
-            }
-            if entry not in state["themes"]:
-                state["themes"].append(entry)
+        _upsert_theme(state, topic, source="content_context")
     for term in brief.get("jargon_glossary") or []:
         if isinstance(term, dict):
             state.setdefault("entities", [])
@@ -528,6 +555,18 @@ def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
                 }
             )
     save_analysis_state(ctx, state, stage="content_context")
+
+
+def sync_content_brief_reanchor_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
+    state = load_analysis_state(ctx)
+    state.setdefault("narrative", {})
+    if brief.get("key_claims"):
+        state["narrative"]["key_claims"] = brief["key_claims"]
+    if brief.get("topic_relationships"):
+        state["narrative"]["topic_relationships"] = brief["topic_relationships"]
+    for topic in brief.get("topics") or []:
+        _upsert_theme(state, topic, source="content_brief_reanchor")
+    save_analysis_state(ctx, state, stage="content_brief_reanchor")
 
 
 def sync_speakers_to_state(ctx: RunContext, speakers_doc: dict[str, Any]) -> None:

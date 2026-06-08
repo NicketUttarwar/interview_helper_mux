@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from interview_mux.analysis_memory import (
     ensure_analysis_workspace,
+    sync_content_brief_reanchor_to_state,
     sync_content_brief_to_state,
     sync_gaps_to_state,
     sync_speakers_to_state,
@@ -139,6 +140,7 @@ __all__ = [
     "run_analysis_llm_stage",
     "run_flow_llm_stage",
     "sync_content_brief_to_state",
+    "sync_content_brief_reanchor_to_state",
     "sync_gaps_to_state",
     "sync_speakers_to_state",
 ]

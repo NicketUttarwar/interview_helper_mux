@@ -12,13 +12,15 @@ Every execution builds a **custom analysis profile** for that recording. Memory 
 |------|---------|
 | `understanding/analysis_state.json` | **Main profile** — themes, major questions, style, narrative, entities, completion |
 | `understanding/investigation_queue.json` | Open items the orchestrator may re-run stages to resolve |
-| `understanding/content_brief.json` | Stage artifact (thesis, topics, claims); synced into `analysis_state` |
+| `understanding/content_brief.json` | Stage artifact (thesis, topics, typed claims, `topic_relationships`); synced into `analysis_state` — pass 1 from `content_context`, timeline patch from `content_brief_reanchor` |
 | `understanding/speakers.json` | Speaker roles |
 | `segments/manifest.json` | Segment timeline |
 
 Edit these in the **Interview profile** GUI panel or any stage JSON editor. Saves run **Zod** (client) + **jsonschema** (server) validation — see [artifact-generation-and-validation.md](./artifact-generation-and-validation.md).
 
 **Stage outputs** in the GUI show each artifact as `pending`, `partial`, or `complete`. Use **Fill gaps** on partial rows to re-run the producing stage, or **Open** to edit manually.
+
+For `content_brief.json`: **complete** after `content_context` means thesis + topics are filled; after `content_brief_reanchor` completes, completeness also requires `topics[].segment_ids` and `topic_relationships`. Open hypotheses from pass 1 live in `analysis_state.hypotheses` until reanchor confirms or rejects them via `memory_updates`.
 
 **Zero-shot + review:** The pipeline runs automatically stage-by-stage, but **stops after each step** that writes custom-run profile JSON until you **Acknowledge & continue** ([operator-gates.md](../workflows/operator-gates.md#gui-operator-console-checkpoints--api-consent)). Re-writing a profile file (LLM or manual save) clears the prior ack for that stage so you can review again.
 

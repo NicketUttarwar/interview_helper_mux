@@ -50,7 +50,7 @@ All work starts from a single long-form interview recording in `./ASSETS/`. Oper
 | **Segmentation** | Time-bounded units | Segment manifest |
 | **Interviewer gap analysis** | Missing framing, VO script | Gap report |
 
-**Optional pre-clean (offered throughout):** Background noise removal is **never required** but should be **offered** at multiple checkpoints — before ingest, after transcript review, when re-running analysis, **after the operator records additional pickup questions at G1**, and before final mix. Full-source clean improves STT and assembly; pickup-only clean targets new `vo_pickup/` files without re-processing the interview. Default is off. See [audio pre-clean](./pipeline/audio_preclean/README.md).
+**Optional pre-clean (two moments):** Background noise removal is **never required** but is **offered** at exactly two checkpoints — before ingest on the raw capture, and **after the operator records additional pickup questions at G1**. Full-source clean improves STT and assembly; pickup-only clean targets new `vo_pickup/` files without re-processing the interview. Default is off. See [audio pre-clean](./pipeline/audio_preclean/README.md).
 
 Run via: `python tools/run_analysis.py`
 

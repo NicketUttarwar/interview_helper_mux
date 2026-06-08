@@ -57,7 +57,30 @@
         "interviewee_style": { "type": "string" }
       }
     },
-    "narrative": { "type": "object" },
+    "narrative": {
+      "type": "object",
+      "properties": {
+        "thesis": { "type": "string" },
+        "audience": { "type": "string" },
+        "emotional_beats": { "type": "array" },
+        "key_claims": { "type": "array" },
+        "topic_relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from_topic": { "type": "string" },
+              "to_topic": { "type": "string" },
+              "relation": {
+                "enum": ["supports", "contradicts", "prerequisite", "example_of", "returns_to"]
+              },
+              "description": { "type": "string" },
+              "evidence_segment_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
     "entities": { "type": "array" },
     "speakers": { "type": "array" },
     "hypotheses": { "type": "array" },

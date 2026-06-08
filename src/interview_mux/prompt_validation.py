@@ -15,6 +15,7 @@ from interview_mux.config import repo_root
 STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "speaker_roles": "speakers_artifact.schema.json",
     "content_context": "content_brief_artifact.schema.json",
+    "content_brief_reanchor": "content_brief_artifact.schema.json",
     "boundary_detection": "boundaries_artifact.schema.json",
     "segment_classification": "manifest_artifact.schema.json",
     "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
@@ -38,6 +39,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
 STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "speaker_roles": "understanding/speakers.json",
     "content_context": "understanding/content_brief.json",
+    "content_brief_reanchor": "understanding/content_brief.json",
     "boundary_detection": "segments/boundaries.json",
     "segment_classification": "segments/manifest.json",
     "sound_design_palettes": "understanding/sound_design_plan.json",

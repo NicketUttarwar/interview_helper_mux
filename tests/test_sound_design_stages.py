@@ -429,10 +429,10 @@ def test_elevenlabs_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch)
         sound_design_stages.run_elevenlabs_prompt_craft(ctx)
 
 
-def test_analysis_order_places_sound_design_palettes_after_segment_classification():
-    seg_idx = ANALYSIS_ORDER.index("segment_classification")
+def test_analysis_order_places_sound_design_palettes_after_content_brief_reanchor():
+    reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
-    assert pal_idx == seg_idx + 1
+    assert pal_idx == reanchor_idx + 1
 
 
 def test_sound_design_palettes_volley_includes_source_acoustic_profile():

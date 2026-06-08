@@ -21,6 +21,7 @@ _ANALYSIS_PRIORS = (
     "content_context",
     "boundary_detection",
     "segment_classification",
+    "content_brief_reanchor",
     "missing_framing",
 )
 
@@ -72,17 +73,24 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         investigation_kinds=frozenset({"theme_unmapped", "segment_ambiguity"}),
         max_investigations=3,
     ),
+    "content_brief_reanchor": StageContextPlan(
+        task_line="Re-anchor content brief topics and claims to segment_ids; add topic relationships.",
+        prior_stages=("content_context", "segment_classification"),
+        profile_keys=("themes", "narrative", "hypotheses"),
+        investigation_kinds=frozenset({"theme_unmapped"}),
+        max_investigations=2,
+    ),
     "sound_design_palettes": StageContextPlan(
         task_line="Define transcript-grounded sound design coherence and theme palettes.",
-        prior_stages=("content_context", "segment_classification"),
+        prior_stages=("content_context", "content_brief_reanchor", "segment_classification"),
         profile_keys=("themes", "narrative", "style", "operator_notes"),
         investigation_kinds=frozenset({"theme_unmapped"}),
         max_investigations=2,
     ),
     "missing_framing": StageContextPlan(
         task_line="Evaluate which segments are self-explanatory for listeners; classify gaps only.",
-        prior_stages=("segment_classification", "content_context"),
-        profile_keys=("narrative", "entities", "major_questions"),
+        prior_stages=("segment_classification", "content_brief_reanchor", "content_context"),
+        profile_keys=("narrative", "entities", "major_questions", "hypotheses"),
         investigation_kinds=frozenset({"gap_unresolved", "segment_ambiguity"}),
         max_investigations=3,
     ),
@@ -102,7 +110,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
     "narrative_arc_plan": StageContextPlan(
         task_line="Plan narrative arc, chapters, and ordering constraints.",
         prior_stages=("topic_coverage_audit", "content_context"),
-        profile_keys=("themes", "narrative", "style"),
+        profile_keys=("themes", "narrative", "style", "hypotheses"),
         max_investigations=1,
     ),
     "full_master_ranking": StageContextPlan(
@@ -590,6 +598,17 @@ def _format_profile_slice(state: dict[str, Any], keys: tuple[str, ...]) -> str:
                     f"{s.get('speaker_id')}={s.get('role')}" for s in sp[:6] if isinstance(s, dict)
                 )
             )
+    if "hypotheses" in keys:
+        hyps = state.get("hypotheses") or []
+        open_hyps = [h for h in hyps if isinstance(h, dict) and h.get("status") == "open"]
+        if open_hyps:
+            lines.append(
+                "Open hypotheses: "
+                + "; ".join(
+                    f"{h.get('id', '')}: {str(h.get('statement', ''))[:80]}"
+                    for h in open_hyps[:6]
+                )
+            )
     if "operator_notes" in keys and state.get("operator_notes"):
         lines.append(f"Operator notes: {state['operator_notes']}")
     return "\n".join(lines)
@@ -627,10 +646,18 @@ def _format_investigations(ctx: RunContext, stage_key: str, plan: StageContextPl
 def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
     """Strip fields each stage does not need — avoid shipping full transcript everywhere."""
     if stage_key == "speaker_roles":
+        samples = raw.get("transcript_samples")
+        if isinstance(samples, dict) and samples:
+            clipped = {
+                k: _clip_text(v, _char_limit("speaker_roles_sample_chars", 24000) // max(len(samples), 1))
+                for k, v in samples.items()
+                if v
+            }
+            return {"transcript_samples": clipped, "speakers": raw.get("speakers")}
         return {
             "transcript_excerpt": _clip_text(
                 raw.get("transcript_excerpt") or _extract_transcript_text(raw),
-                _char_limit("transcript_excerpt_chars", 12000),
+                _char_limit("transcript_excerpt_chars", 24000),
             ),
             "speakers": raw.get("speakers"),
         }
@@ -638,12 +665,21 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         out_cc: dict[str, Any] = {
             "transcript": _clip_text(
                 raw.get("transcript") or _extract_transcript_text(raw),
-                _char_limit("transcript_full_chars", 36000),
+                _char_limit("transcript_full_chars", 72000),
             ),
         }
         if raw.get("transcript_quality"):
             out_cc["transcript_quality"] = raw["transcript_quality"]
         return out_cc
+    if stage_key == "content_brief_reanchor":
+        out_ra: dict[str, Any] = {
+            "content_brief": _compact_brief(raw.get("content_brief")),
+            "segments": _compact_segments(raw.get("segments"), max_count=100),
+            "speakers": raw.get("speakers"),
+        }
+        if raw.get("boundaries"):
+            out_ra["boundaries"] = raw.get("boundaries")
+        return out_ra
     if stage_key == "boundary_detection":
         out: dict[str, Any] = {
             "speakers": raw.get("speakers"),
@@ -652,11 +688,11 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         tr = raw.get("transcript")
         if isinstance(tr, dict):
             out["transcript"] = {
-                "text": _clip_text(tr.get("text", ""), _char_limit("transcript_full_chars", 36000)),
+                "text": _clip_text(tr.get("text", ""), _char_limit("transcript_full_chars", 72000)),
                 "items": tr.get("items"),
             }
         else:
-            out["transcript"] = _clip_text(tr, _char_limit("transcript_full_chars", 36000))
+            out["transcript"] = _clip_text(tr, _char_limit("transcript_full_chars", 72000))
         if raw.get("transcript_quality"):
             out["transcript_quality"] = raw["transcript_quality"]
         if raw.get("pause_ladder_hints"):
@@ -869,7 +905,8 @@ def _compact_brief(brief: Any) -> Any:
         "thesis": brief.get("thesis"),
         "audience": brief.get("audience"),
         "topics": brief.get("topics"),
-        "key_claims": (brief.get("key_claims") or [])[:15],
+        "key_claims": (brief.get("key_claims") or [])[:25],
+        "topic_relationships": (brief.get("topic_relationships") or [])[:20],
         "jargon_glossary": (brief.get("jargon_glossary") or [])[:12],
     }
 

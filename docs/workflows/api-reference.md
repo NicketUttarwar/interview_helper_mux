@@ -142,7 +142,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `checkpoint` | string | One of `before_ingest`, `after_g0`, `after_profile_or_segmentation`, `g1_vo_pickup`, `before_flow_mix`, `before_master_export` |
+| `checkpoint` | string | One of `before_ingest`, `g1_vo_pickup` |
 | `action` | string | `offer` \| `accept` \| `dismiss` |
 | `scope` | string \| null | Optional override: `full_source` \| `vo_pickup` \| `normalized_rebuild` |
 

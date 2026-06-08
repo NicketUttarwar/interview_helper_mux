@@ -84,6 +84,7 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 | `content_context` | `understanding/content_brief.json` |
 | `boundary_detection` | `segments/boundaries.json` |
 | `segment_classification` | `segments/manifest.json` |
+| `content_brief_reanchor` | `understanding/content_brief.json` (patch merge) |
 | `sound_design_palettes` | `understanding/sound_design_plan.json` |
 | `missing_framing` | `understanding/gap_evaluations.json` |
 | `optimal_questions` | `understanding/gap_report.json` |
@@ -268,7 +269,7 @@ On a run with transcript ready:
 python tools/run_analysis.py --run-id <exec_id> --from-stage content_context
 ```
 
-Confirm `understanding/content_brief.json` shows **complete** in Stage outputs and themes appear in `analysis_state.json` after `content_context` sync.
+Confirm `understanding/content_brief.json` shows **complete** after `content_context` (thesis + topics). After full analysis, confirm **complete** again post-`content_brief_reanchor` (`topics[].segment_ids`, `topic_relationships`). Themes and hypotheses sync into `analysis_state.json` via stage `memory_updates`.
 
 ---
 

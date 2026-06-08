@@ -10,8 +10,10 @@ import json
 import numpy as np
 
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
+from interview_mux.config import merged_config
 from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.run_context import RunContext
+from interview_mux.transcript_sampling import stratified_transcript_samples_from_words
 from interview_mux.value_analysis.extract import (
     maybe_auto_extract_value_features,
     maybe_enqueue_orchestration_investigations,
@@ -19,17 +21,37 @@ from interview_mux.value_analysis.extract import (
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import (
     run_analysis_llm_stage,
+    sync_content_brief_reanchor_to_state,
     sync_content_brief_to_state,
     sync_speakers_to_state,
 )
+
+
+def _speaker_roles_sample_chars() -> int:
+    ctx_cfg = (merged_config().get("analysis") or {}).get("context") or {}
+    return int(ctx_cfg.get("speaker_roles_sample_chars", 24000))
 
 
 def run_speaker_roles(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         transcript = c.read_json("transcript/full.json")
         speakers = c.read_json("transcript/speakers.json")
+        words = transcript.get("words") or []
+        sample_chars = _speaker_roles_sample_chars()
+        if words:
+            samples = stratified_transcript_samples_from_words(
+                words,
+                total_chars=sample_chars,
+            )
+        else:
+            from interview_mux.transcript_sampling import stratified_transcript_samples
+
+            samples = stratified_transcript_samples(
+                transcript.get("text", ""),
+                total_chars=sample_chars,
+            )
         return {
-            "transcript_excerpt": transcript.get("text", "")[:12000],
+            "transcript_samples": samples,
             "speakers": speakers,
         }
 
@@ -71,6 +93,30 @@ def run_content_context(ctx: RunContext) -> None:
     maybe_auto_extract_value_features(ctx)
     maybe_enqueue_orchestration_investigations(ctx)
     ctx.mark_done("content_context")
+
+
+def run_content_brief_reanchor(ctx: RunContext) -> None:
+    def build_input(c: RunContext) -> dict:
+        payload: dict[str, Any] = {
+            "content_brief": c.read_json("understanding/content_brief.json"),
+            "segments": c.read_json("segments/manifest.json"),
+            "speakers": c.read_json("understanding/speakers.json"),
+        }
+        if c.artifact_exists("segments/boundaries.json"):
+            payload["boundaries"] = c.read_json("segments/boundaries.json")
+        return payload
+
+    persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
+
+    run_analysis_llm_stage(
+        ctx,
+        "content_brief_reanchor",
+        "understanding/content-brief-reanchor.system.txt",
+        build_input,
+        persist,
+        sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
+    )
+    ctx.mark_done("content_brief_reanchor")
 
 
 def run_source_acoustic_profile(ctx: RunContext) -> None:

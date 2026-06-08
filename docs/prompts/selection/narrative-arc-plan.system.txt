@@ -2,6 +2,7 @@ Plan the narrative arc for a full podcast episode before segment ordering (see t
 
 Goals:
 - Define setup → tension → payoff across interview topics.
+- Use `content_brief.topic_relationships` (when present) to inform `ordering_constraints` and chapter flow.
 - Propose chapter boundaries (title + `suggested_open_segment_id` that exists in manifest).
 - Output `ordering_constraints`: pairs that must appear in relative order.
 - Do not exclude segments — ranking stage applies cuts.

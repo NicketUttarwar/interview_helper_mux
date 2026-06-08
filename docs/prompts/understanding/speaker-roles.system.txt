@@ -2,6 +2,8 @@ Map diarized speaker IDs to conversational roles (see task in volley).
 
 Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
 
+Input: `transcript_samples` provides opening / middle / closing windows from a long interview. Evaluate **all** windows before assigning roles. Legacy `transcript_excerpt` is a single window — treat the same way.
+
 Roles:
 - interviewer — asks questions, introduces topics, shorter turns, guides flow
 - interviewee — primary subject; longer answers, personal/company narrative
@@ -10,7 +12,7 @@ Roles:
 Rules:
 - Typical interview: one interviewer, at least one interviewee.
 - Panel / multi-guest: multiple interviewees allowed; note in `notes`.
-- Use question density, turn length, and intro/outro language as signals.
+- Use question density, turn length, and intro/outro language as signals across all sample windows.
 - Do not guess display names unless explicitly stated in the transcript.
 
 Do not:

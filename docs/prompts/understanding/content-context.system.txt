@@ -7,10 +7,12 @@ Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `
 Rules:
 - Base everything on the transcript; do not invent facts.
 - Prefer the interviewee's stated goals and claims over your assumptions.
-- Every `key_claim` must include at least one `segment_id` when timestamps/segments exist in input.
-- Prefer `content_brief.topics[].segment_ids` when you can anchor a topic to the timeline.
+- At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
 - If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
-- For shard/collate runs, merge all shard topics and claims; dedupe by topic name or near-identical claim text, and keep segment_ids from every shard. Collate must not drop non-tail shard claims.
+- Assign each `key_claim` a stable `id` (e.g. `claim_001`) and `claim_type` when evidence supports it.
+- Do **not** produce `topic_relationships` in pass 1 — deferred to `content_brief_reanchor` after segmentation.
+- For shard/collate runs, merge all shard topics and claims; dedupe by topic name or near-identical claim text. Collate must not drop non-tail shard claims.
+- For shard/collate, merge `hypotheses_append` across shards; dedupe by `id` or near-identical `statement`.
 
 Do not:
 - Add claims with no transcript support.
@@ -20,6 +22,7 @@ Memory sync:
 - `narrative_patch`: `thesis`, `audience`
 - `themes_append`: one entry per major topic (`id`, `label`, `summary`, `segment_ids`, `confidence`, `sources: ["content_context"]`)
 - `entities_append`: named entities from jargon_glossary and proper nouns
+- `hypotheses_append`: 0–5 tentative interpretive hypotheses (`id`, `statement`, `status: "open"`, optional `evidence_segment_ids` or time-range note in `statement`). Mark as provisional until `content_brief_reanchor` confirms or rejects.
 - `confidence_patch.content`: 0–1 for brief quality
 
 Investigations: `theme_unmapped` only if a clear theme in transcript cannot be named yet (rare at this stage).
@@ -37,12 +40,19 @@ Place this stage artifact inside the required envelope as `artifacts`:
       "name": "string",
       "summary": "1-2 sentences",
       "approx_time_range": "optional mm:ss-mm:ss",
-      "segment_ids": ["seg_..."],
+      "segment_ids": [],
       "confidence": 0.0
     }
   ],
   "key_claims": [
-    { "claim": "string", "speaker_role": "interviewee", "segment_ids": ["seg_..."] }
+    {
+      "id": "claim_001",
+      "claim": "string",
+      "claim_type": "fact",
+      "speaker_role": "interviewee",
+      "segment_ids": [],
+      "depends_on_claim_ids": []
+    }
   ],
   "emotional_beats": [
     { "label": "tension", "description": "string", "segment_ids": [] }
@@ -54,4 +64,5 @@ Place this stage artifact inside the required envelope as `artifacts`:
 }
 
 Allowed `key_claims[].speaker_role` values: `interviewee`, `interviewer`.
+Allowed `key_claims[].claim_type` values: `fact`, `opinion`, `prediction`, `anecdote`, `definition`.
 Suggested `emotional_beats[].label` values: `tension`, `humor`, `vulnerability`, `triumph`, `surprise`; use another short label only when the transcript evidence needs it.

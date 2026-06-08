@@ -13,6 +13,7 @@ from interview_mux.run_context import RunContext
 
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
 STAGE_EXAMPLE_FILES: dict[str, str] = {
+    "content_context": "_shared/examples/content-context.examples.md",
     "missing_framing": "_shared/examples/missing-framing.examples.md",
     "segment_classification": "_shared/examples/segment-classification.examples.md",
     "topic_coverage_audit": "_shared/examples/topic-coverage-audit.examples.md",

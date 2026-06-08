@@ -42,6 +42,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "content_context": "understand",
     "boundary_detection": "understand",
     "segment_classification": "understand",
+    "content_brief_reanchor": "understand",
     "sound_design_palettes": "understand",
     "missing_framing": "understand",
     "optimal_questions": "understand",

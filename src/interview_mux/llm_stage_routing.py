@@ -17,7 +17,11 @@ from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.local_llm_config import skip_openai_when_local_satisfied
 from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley_for_llm
 from interview_mux.llm_arbiter import run_llm_arbiter
-from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, build_deterministic_shard_plan
+from interview_mux.llm_shard_plans import (
+    DECOMPOSE_ELIGIBLE,
+    build_deterministic_shard_plan,
+    should_proactive_decompose_content_context,
+)
 from interview_mux.llm_subtasks import run_shards_then_collate
 from interview_mux.model_registry import resolve_model
 from interview_mux.prompt_validation import (
@@ -226,6 +230,34 @@ def run_llm_stage_with_routing(
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
+    if stage_key == "content_context" and should_proactive_decompose_content_context(stage_input):
+        shard_plan, shard_plan_source = build_deterministic_shard_plan(
+            stage_key,
+            stage_input,
+            truncation_flags=["proactive_decompose_chars"],
+        )
+        if shard_plan:
+            volley, _local = prepare_volley_for_llm(
+                ctx, stage_key, stage_input, profile="full", task_kind="primary"
+            )
+            envelope, shard_count = run_shards_then_collate(
+                ctx,
+                stage_key=stage_key,
+                prompt_rel=prompt_rel,
+                stage_input=stage_input,
+                shard_plan=shard_plan,
+                parent_attempt=attempt,
+            )
+            schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
+            arbiter_result = {
+                "verdict": "accept",
+                "confidence": 0.85,
+                "gaps": [],
+                "shard_plan": shard_plan,
+                "reasoning_summary": "Proactive shard/collate for long transcript.",
+            }
+            return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
+
     volley, local_framing = prepare_volley_for_llm(
         ctx, stage_key, stage_input, profile="full", task_kind="primary"
     )

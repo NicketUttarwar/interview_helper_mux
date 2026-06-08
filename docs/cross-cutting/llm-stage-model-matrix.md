@@ -24,9 +24,10 @@
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `speaker_roles` | low | **flagship** | primary, arbiter | full | no | systematic role inversion | [speaker-roles.system.txt](../prompts/understanding/speaker-roles.system.txt) |
-| `content_context` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — transcript chunks | low confidence; thesis contradicts transcript tail; truncation | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
+| `content_context` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — transcript chunks | low confidence; thesis contradicts transcript tail; truncation; proactive decompose past `proactive_decompose_chars` | [content-context.system.txt](../prompts/understanding/content-context.system.txt) |
 | `boundary_detection` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | truncation; partial boundaries | [boundary-detection.system.txt](../prompts/segmentation/boundary-detection.system.txt) |
 | `segment_classification` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `theme_unmapped`; max_segments hit | [segment-classification.system.txt](../prompts/segmentation/segment-classification.system.txt) |
+| `content_brief_reanchor` | medium | **flagship** | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | missing `topic_relationships`; unmapped topic segment_ids | [content-brief-reanchor.system.txt](../prompts/understanding/content-brief-reanchor.system.txt) |
 | `missing_framing` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — segment batches | `max_gap_evaluations`; partial gap coverage | [missing-framing.system.txt](../prompts/interviewer-gap/missing-framing.system.txt) |
 | `optimal_questions` | high | flagship | primary, arbiter | full | no | weak VO linkage to gaps | [optimal-questions.system.txt](../prompts/interviewer-gap/optimal-questions.system.txt) |
 

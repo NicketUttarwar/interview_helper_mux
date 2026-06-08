@@ -37,7 +37,6 @@ def _seed_g1_complete(ctx) -> None:
 
 def test_default_scope_for_checkpoint() -> None:
     assert _default_scope_for_checkpoint("g1_vo_pickup") == "vo_pickup"
-    assert _default_scope_for_checkpoint("before_flow_mix") == "normalized_rebuild"
     assert _default_scope_for_checkpoint("before_ingest") == "full_source"
 
 
@@ -67,11 +66,11 @@ def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
     messages = [e["message"] for e in read_log(ctx.run_dir)]
     assert "g1_pickup_preclean_accepted" in messages
 
-    _record_preclean_offer(ctx, checkpoint="after_g0", action="dismiss", scope=None)
+    _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
     meta = ctx.read_json("run_meta.json")
     assert meta["audio_preclean"]["enabled"] is False
     messages = [e["message"] for e in read_log(ctx.run_dir)]
-    assert any("dismissed" in m and "after_g0" in m for m in messages)
+    assert any("dismissed" in m and "before_ingest" in m for m in messages)
 
 
 def test_preclean_offer_accept_invalidates_markers(tmp_path, monkeypatch) -> None:
@@ -84,7 +83,7 @@ def test_preclean_offer_accept_invalidates_markers(tmp_path, monkeypatch) -> Non
     client = TestClient(create_app())
     res = client.post(
         f"/api/runs/{ctx.run_id}/preclean-offer",
-        json={"checkpoint": "after_g0", "action": "accept", "scope": "full_source"},
+        json={"checkpoint": "before_ingest", "action": "accept", "scope": "full_source"},
     )
     assert res.status_code == 200
     assert res.json()["audio_preclean"]["enabled"] is True
@@ -97,11 +96,12 @@ def test_preclean_offer_api_rejects_unknown_checkpoint(tmp_path, monkeypatch) ->
     patch_server_ctx(monkeypatch, ctx)
 
     client = TestClient(create_app())
-    res = client.post(
-        f"/api/runs/{ctx.run_id}/preclean-offer",
-        json={"checkpoint": "not_a_checkpoint", "action": "offer"},
-    )
-    assert res.status_code == 400
+    for checkpoint in ("not_a_checkpoint", "after_g0", "before_flow_mix"):
+        res = client.post(
+            f"/api/runs/{ctx.run_id}/preclean-offer",
+            json={"checkpoint": checkpoint, "action": "offer"},
+        )
+        assert res.status_code == 400
 
 
 def test_preclean_offer_idempotent_offer(tmp_path) -> None:

@@ -21,7 +21,7 @@ from interview_mux.journey_state import (
     read_run_meta,
     stage_operator_phase,
 )
-from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS, preclean_acknowledged
+from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS
 from interview_mux.custom_run_handoff import (
     handoff_between_stages_enabled,
     handoff_review_message,
@@ -108,22 +108,12 @@ def _open_investigation_count(ctx: RunContext) -> int:
 
 
 def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, bool]) -> str | None:
-    meta = read_run_meta(ctx)
-    if phase == "prepare":
-        if not milestones.get("g0_complete") and _review_queue_low_confidence_count(ctx) >= 3:
-            return "after_g0"
-        if not ctx.is_done("ingest"):
-            return "before_ingest"
+    if phase == "prepare" and not ctx.is_done("ingest"):
+        return "before_ingest"
     if phase == "complete" and not milestones.get("g1_complete"):
         g1_missing = check_g1_vo(ctx)
         if g1_missing:
             return "g1_vo_pickup"
-    if phase == "polish" and milestones.get("preview_ready"):
-        if not preclean_acknowledged(meta, "before_sfx_spend"):
-            return "before_sfx_spend"
-    if phase == "ship":
-        if not preclean_acknowledged(meta, "before_master_export"):
-            return "before_master_export"
     return None
 
 

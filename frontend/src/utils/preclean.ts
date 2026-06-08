@@ -33,47 +33,11 @@ export function resolvePrecleanOffer(
       scope: "full_source",
       prompt: "Clean source interview background noise before ingest?",
     };
-  } else if (stage.id === "transcript_review" && stage.status === "done") {
-    offer = {
-      checkpoint: "after_g0",
-      scope: "full_source",
-      prompt:
-        "Re-clean full source if low-confidence transcript errors seem noise-related?",
-    };
-  } else if (stage.id === "analysis_profile" || stage.id === "segment_classification") {
-    offer = {
-      checkpoint: "after_profile_or_segmentation",
-      scope: "full_source",
-      prompt: "Clean source audio before re-running analysis from ingest?",
-    };
   } else if (stage.id === "g1_vo_pickup" && stage.status === "done") {
     offer = {
       checkpoint: "g1_vo_pickup",
       scope: "vo_pickup",
       prompt: "Remove background noise from new pickup recordings?",
-    };
-  } else if (
-    stage.id === "mix_flow1" ||
-    stage.id === "mix_flow2" ||
-    stage.id === "mux_flow1" ||
-    stage.id === "mux_flow2"
-  ) {
-    offer = {
-      checkpoint: "before_flow_mix",
-      scope: "normalized_rebuild",
-      prompt: "Clean normalized interview audio before final assembly/mix?",
-    };
-  } else if (stage.id === "assembly_preview") {
-    offer = {
-      checkpoint: "before_sfx_spend",
-      scope: "full_source",
-      prompt: "Clean source before ElevenLabs SFX spend?",
-    };
-  } else if (stage.id === "master_flow1" || stage.id === "master_flow2") {
-    offer = {
-      checkpoint: "before_master_export",
-      scope: "normalized_rebuild",
-      prompt: "Last chance: pre-clean before master export?",
     };
   }
 

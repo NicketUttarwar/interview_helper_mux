@@ -10,24 +10,9 @@ from interview_mux.run_context import RunContext
 PRECLEAN_CHECKPOINTS = frozenset(
     {
         "before_ingest",
-        "after_g0",
-        "after_profile_or_segmentation",
         "g1_vo_pickup",
-        "before_sfx_spend",
-        "before_flow_mix",
-        "before_master_export",
     }
 )
-
-_STAGE_PRECLEAN_MAP: dict[str, str] = {
-    "assembly_preview": "before_sfx_spend",
-    "mix_flow1": "before_flow_mix",
-    "mix_flow2": "before_flow_mix",
-    "mux_flow1": "before_flow_mix",
-    "mux_flow2": "before_flow_mix",
-    "master_flow1": "before_master_export",
-    "master_flow2": "before_master_export",
-}
 
 
 def preclean_acknowledged(meta: dict[str, Any], checkpoint: str) -> bool:
@@ -38,10 +23,6 @@ def preclean_acknowledged(meta: dict[str, Any], checkpoint: str) -> bool:
     if not isinstance(offered, list):
         return False
     return checkpoint in offered
-
-
-def stage_requires_preclean_ack(stage_id: str) -> str | None:
-    return _STAGE_PRECLEAN_MAP.get(stage_id)
 
 
 def record_qc_summary(ctx: RunContext, key: str, payload: dict[str, Any]) -> None:

@@ -13,9 +13,10 @@ When `gap_fill_context` is present in stage input, prompts must emit patch-only 
 | Stage | Prompt | Tier | Volley | artifacts | Memory sync |
 |-------|--------|------|--------|-----------|-------------|
 | speaker_roles | understanding/speaker-roles | flagship | full | speakers.json | speakers list |
-| content_context | understanding/content-context | flagship | full / shard / collate | content_brief.json | narrative_patch, themes_append, entities_append, confidence_patch |
+| content_context | understanding/content-context | flagship | full / shard / collate | content_brief.json | narrative_patch, themes_append, entities_append, hypotheses_append, confidence_patch |
 | boundary_detection | segmentation/boundary-detection | flagship | full / shard / collate | boundaries.json | segment_summary_patch |
 | segment_classification | segmentation/segment-classification | flagship | full / shard / collate | manifest.json | themes_append segment_ids |
+| content_brief_reanchor | understanding/content-brief-reanchor | flagship | full / shard / collate | content_brief.json (patch) | themes_append segment_ids, hypotheses_append confirm/reject, confidence_patch |
 | sound_design_palettes | sound_design/theme-palettes | flagship | full | sound_design_plan.json (coherence + palettes) | follow_up_investigations.theme_unmapped |
 | missing_framing | interviewer-gap/missing-framing | flagship | full / shard / collate | gap_evaluations.json | gaps_summary_patch |
 | optimal_questions | interviewer-gap/optimal-questions | flagship | full | gap_report.json | major_questions_append, gaps_summary_patch |

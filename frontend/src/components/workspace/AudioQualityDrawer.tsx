@@ -6,12 +6,7 @@ import { useJourney } from "../../hooks/useJourney";
 
 const CHECKPOINT_LABELS: Record<string, string> = {
   before_ingest: "Before ingest",
-  after_g0: "After transcript review",
-  after_profile_or_segmentation: "After profile / segmentation",
   g1_vo_pickup: "After VO pickup (G1)",
-  before_sfx_spend: "Before SFX spend",
-  before_flow_mix: "Before mix",
-  before_master_export: "Before master export",
 };
 
 export function AudioQualityDrawer() {

@@ -12,12 +12,10 @@ from interview_mux.api_providers import (
     providers_for_stages,
     stage_api_providers,
 )
-from interview_mux.config import merged_config
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents
 from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
-from interview_mux.operator_quality import preclean_acknowledged, stage_requires_preclean_ack
 from interview_mux.nle_state import load_nle, nle_edit_categories
 from interview_mux.pipeline import (
     ANALYSIS_ORDER,
@@ -348,7 +346,6 @@ class JobRunner:
                         ctx,
                         from_stage=fs,
                         until_stage=us,
-                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow1"),
                     )
                     refresh_journey_meta(ctx)
                     if mode == "flow1" and not us:
@@ -360,7 +357,6 @@ class JobRunner:
                         ctx,
                         from_stage=from_stage or stage,
                         until_stage=until_stage,
-                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow2"),
                     )
                     refresh_journey_meta(ctx)
                     if not until_stage:
@@ -376,7 +372,6 @@ class JobRunner:
                         ctx,
                         from_stage=from_stage or stage,
                         until_stage=until_stage,
-                        preclean_hook=lambda s: self._check_preclean_gate(ctx, s, mode="flow3"),
                     )
                     refresh_journey_meta(ctx)
                 elif mode == "nle_apply":
@@ -459,64 +454,7 @@ class JobRunner:
         Thread(target=_run, daemon=True).start()
         return {"ok": True, "run_id": run_id, "mode": mode}
 
-    def _append_preclean_warning(
-        self,
-        ctx: RunContext,
-        *,
-        checkpoint: str,
-        stage: str,
-        mode: str,
-    ) -> None:
-        job = self.get_job(ctx.run_id)
-        warnings: list[dict[str, str]] = list(job.get("preclean_warnings") or [])
-        entry = {"checkpoint": checkpoint, "stage": stage}
-        if entry not in warnings:
-            warnings.append(entry)
-        payload = {
-            k: v
-            for k, v in job.items()
-            if k not in ("run_id", "updated_at", "preclean_warnings", "status")
-        }
-        payload.update(
-            {
-                "status": "running_with_warnings",
-                "preclean_warnings": warnings,
-                "mode": mode,
-            }
-        )
-        self._write_job(ctx, payload)
-
-    def _check_preclean_gate(self, ctx: RunContext, stage: str, *, mode: str) -> None:
-        checkpoint = stage_requires_preclean_ack(stage)
-        if not checkpoint:
-            return
-        mix_cfg = merged_config().get("mix") or {}
-        if not mix_cfg.get("require_preclean_acknowledgment", True):
-            return
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        if preclean_acknowledged(meta, checkpoint):
-            return
-        if mode.startswith("flow"):
-            ctx.log(
-                f"Pre-clean offer ({checkpoint}) not acknowledged — continuing full-flow run.",
-                level="warning",
-                stage=stage,
-            )
-            self._append_preclean_warning(ctx, checkpoint=checkpoint, stage=stage, mode=mode)
-            return
-        msg = (
-            f"Complete the pre-clean quality offer for checkpoint '{checkpoint}' "
-            f"on the {stage} stage panel before auto-running this stage."
-        )
-        ctx.log(msg, level="action", stage=stage)
-        self._write_job(
-            ctx,
-            {"status": "needs_operator", "mode": mode, "stage": stage, "message": msg},
-        )
-        raise RuntimeError(msg)
-
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
-        self._check_preclean_gate(ctx, stage, mode="stage")
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)

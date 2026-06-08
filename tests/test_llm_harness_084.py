@@ -10,6 +10,7 @@ from interview_mux.analysis_memory import ensure_analysis_workspace
 def test_decompose_eligible_includes_boundary_and_content_context():
     assert "boundary_detection" in DECOMPOSE_ELIGIBLE
     assert "content_context" in DECOMPOSE_ELIGIBLE
+    assert "content_brief_reanchor" in DECOMPOSE_ELIGIBLE
     assert "full_master_ranking" in DECOMPOSE_ELIGIBLE
 
 

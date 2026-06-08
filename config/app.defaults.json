@@ -20,6 +20,7 @@
     "stages": {
       "speaker_roles": { "tier": "flagship" },
       "content_context": { "tier": "flagship" },
+      "content_brief_reanchor": { "tier": "flagship" },
       "boundary_detection": { "tier": "flagship" },
       "segment_classification": { "tier": "flagship" },
       "sound_design_palettes": { "tier": "flagship" },
@@ -145,13 +146,16 @@
       "enabled": true
     },
     "context": {
-      "transcript_excerpt_chars": 12000,
-      "transcript_full_chars": 36000,
+      "transcript_excerpt_chars": 24000,
+      "transcript_full_chars": 72000,
+      "speaker_roles_sample_chars": 24000,
+      "max_transcript_shards": 12,
+      "proactive_decompose_chars": 72000,
       "segment_text_max_chars": 400,
-      "max_segments_in_context": 60,
-      "max_segments_in_gap_pass": 35,
+      "max_segments_in_context": 100,
+      "max_segments_in_gap_pass": 50,
       "max_gap_evaluations": 50,
-      "max_stage_data_chars": 32000,
+      "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8
     },
     "prompt_thresholds": {
