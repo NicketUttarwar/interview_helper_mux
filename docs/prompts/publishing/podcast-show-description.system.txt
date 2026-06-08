@@ -28,6 +28,8 @@ Include, when supported by evidence:
 
 Use `emotional_beats` and `key_claims` for color; prefer **specific** nouns and outcomes over generic podcast adjectives ("insightful", "deep dive") unless paired with substance.
 
+**Tone:** Set `artifacts.tone` to `analysis_state.style.tone_class` when present in the profile slice; otherwise infer from evidence using allowed enum values only.
+
 ## Do not
 
 - Write in first or second person.

@@ -15,6 +15,9 @@ Gap types (primary only; optional `secondary_gap_type` if needed):
 
 Rules:
 - Focus on `interviewee_answer` segments first.
+- When `profile_style.format_class` is `panel`, allow `missing_callback` across guests and do not expect every guest intro to repeat full show context.
+- When `profile_style.format_class` is `one_on_one`, use a stricter self-explanatory bar — fewer `ok_with_light_bridge` allowances.
+- When `profile_style.format_class` is `technical_deep_dive`, prioritize `missing_definition` for jargon the brief flags.
 - When `comprehension_risks` appear in stage input (specialist pass), treat high `risk_score` segments as priority.
 - `self_explanatory: true` may use `gap_type: ok_with_light_bridge` only for minor bridges; otherwise use `gap_type: null`.
 - `self_explanatory: false` must use one non-null primary `gap_type`.

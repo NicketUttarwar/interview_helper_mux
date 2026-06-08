@@ -38,7 +38,7 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 function visibleStages(stages: StageInfo[]): StageInfo[] {
-  return stages.filter((s) => s.phase !== "gate" || s.status === "action_required");
+  return stages;
 }
 
 export function buildNumberedStages(stages: StageInfo[]): NumberedStage[] {

@@ -13,6 +13,9 @@ export interface ProfileFormState {
   themes: string;
   questions: string;
   tone: string;
+  toneClass: string;
+  formatClass: string;
+  formatNotes: string;
   pacing: string;
   intStyle: string;
   eeStyle: string;
@@ -30,6 +33,9 @@ export function loadProfileToForm(st: AnalysisState): ProfileFormState {
     themes: themesToText(st.themes),
     questions: questionsToText(st.major_questions),
     tone: style.tone || "",
+    toneClass: style.tone_class || "",
+    formatClass: style.format_class || "",
+    formatNotes: style.format_notes || "",
     pacing: style.pacing || "",
     intStyle: style.interviewer_style || "",
     eeStyle: style.interviewee_style || "",
@@ -57,6 +63,9 @@ export function collectAnalysisProfileFromForm(
     style: {
       ...(base?.style || {}),
       tone: form.tone.trim(),
+      tone_class: form.toneClass.trim() || undefined,
+      format_class: form.formatClass.trim() || undefined,
+      format_notes: form.formatNotes.trim(),
       pacing: form.pacing.trim(),
       interviewer_style: form.intStyle.trim(),
       interviewee_style: form.eeStyle.trim(),

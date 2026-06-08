@@ -5,6 +5,8 @@ import {
   resolvePipelineNav,
   stageNavStatus,
 } from "../../utils/pipelineNavigation";
+import { stageHasTodoActions } from "../../utils/stageGuidance";
+import { ActionMarker } from "../guidance/ActionMarker";
 
 export function PipelineStepList() {
   const { run, selectedStageId, selectStage, apiGrants, jobRunning } = useApp();
@@ -30,11 +32,12 @@ export function PipelineStepList() {
         {numbered.map((entry) => {
           const status = stageNavStatus(entry, run, selectedStageId, nav.focusStageId);
           const isSelected = entry.stage.id === selectedStageId;
+          const hasAction = stageHasTodoActions(entry.stage);
           return (
             <li key={entry.stage.id}>
               <button
                 type="button"
-                className={`pipeline-step-row status-${status}${isSelected ? " selected" : ""}`}
+                className={`pipeline-step-row status-${status}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}`}
                 onClick={() => void selectStage(entry.stage.id)}
                 aria-current={status === "current" ? "step" : undefined}
               >
@@ -42,9 +45,14 @@ export function PipelineStepList() {
                   {status === "done" ? "✓" : entry.number}
                 </span>
                 <span className="pipeline-step-body">
-                  <span className="pipeline-step-title">{entry.stage.title}</span>
+                  <span className="pipeline-step-title">
+                    {hasAction ? (
+                      <ActionMarker status="todo" className="pipeline-step-action-dot" />
+                    ) : null}
+                    {entry.stage.title}
+                  </span>
                   <span className="pipeline-step-meta muted">
-                    {entry.phaseLabel}
+                    {entry.phaseLabel} · step {entry.number}
                     {entry.stage.status === "action_required"
                       ? " · needs you"
                       : entry.stage.status === "locked"

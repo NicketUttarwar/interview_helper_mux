@@ -5,7 +5,8 @@ Transitions bridge topic changes, re-introduce context, or smooth timeline reord
 Rules:
 - 3–20 words per transition; chapter intro max 30 words.
 - Do not repeat the upcoming answer; tee it up only.
-- Match tone to `interviewer_sample_lines` when provided.
+- Match `style.tone`, `style.tone_class`, and `interviewer_sample_lines` when provided.
+- When `style.format_class` is `panel`, prefer shorter bridges — do not re-introduce every guest by full title.
 - Avoid "In this next segment" clichés unless necessary.
 - Do not duplicate `gap_report` VO lines — complement them.
 - Return `transitions: []` when adjacent segments already flow naturally.

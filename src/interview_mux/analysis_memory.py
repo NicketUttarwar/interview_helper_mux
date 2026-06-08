@@ -7,6 +7,10 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from interview_mux.tone_taxonomy import (
+    OPERATOR_LOCKABLE_IDENTITY_FIELDS,
+    OPERATOR_LOCKABLE_STYLE_FIELDS,
+)
 from interview_mux.config import merged_config
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
@@ -187,6 +191,13 @@ def load_analysis_state(ctx: RunContext) -> dict[str, Any]:
 
 
 def save_analysis_state(ctx: RunContext, state: dict[str, Any], *, stage: str | None = None) -> None:
+    if stage == "operator_gui" and ctx.artifact_exists(ANALYSIS_STATE_PATH):
+        prior = ctx.read_json(ANALYSIS_STATE_PATH)
+        if isinstance(prior, dict):
+            locks = set((prior.get("meta") or {}).get("operator_locked_fields") or [])
+            locks |= _detect_operator_field_edits(prior, state)
+            state.setdefault("meta", {})
+            state["meta"]["operator_locked_fields"] = sorted(locks)
     state.setdefault("meta", {})
     state["meta"]["last_updated_at"] = _now()
     if stage:
@@ -222,23 +233,78 @@ def _next_inv_id(queue: dict[str, Any]) -> str:
     return f"inv_{n:03d}"
 
 
+def _nested_get(state: dict[str, Any], dotted: str) -> Any:
+    cur: Any = state
+    for part in dotted.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _nested_set(state: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    cur = state
+    for part in parts[:-1]:
+        cur = cur.setdefault(part, {})
+    cur[parts[-1]] = value
+
+
+def _all_lockable_profile_fields() -> list[str]:
+    return list(OPERATOR_LOCKABLE_STYLE_FIELDS) + list(OPERATOR_LOCKABLE_IDENTITY_FIELDS)
+
+
+def _operator_locked_fields(state: dict[str, Any]) -> set[str]:
+    meta = state.get("meta") or {}
+    locked = set(meta.get("operator_locked_fields") or [])
+    if meta.get("operator_verified"):
+        locked.update(_all_lockable_profile_fields())
+    return locked
+
+
+def _detect_operator_field_edits(prior: dict[str, Any], new: dict[str, Any]) -> set[str]:
+    edited: set[str] = set()
+    for path in _all_lockable_profile_fields():
+        old_val = _nested_get(prior, path)
+        new_val = _nested_get(new, path)
+        if isinstance(old_val, str):
+            old_val = old_val.strip()
+        if isinstance(new_val, str):
+            new_val = new_val.strip()
+        if new_val and new_val != old_val:
+            edited.add(path)
+    return edited
+
+
+def _derive_one_line_summary(brief: dict[str, Any]) -> str:
+    thesis = str(brief.get("thesis") or "").strip()
+    if not thesis:
+        return ""
+    first = thesis.split(".")[0].strip()
+    if not first:
+        return thesis[:120]
+    return first if len(first) <= 120 else first[:117] + "..."
+
+
 def merge_memory_updates(
     state: dict[str, Any],
     updates: dict[str, Any] | None,
     *,
     skip_operator_conflicts: bool = False,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    conflicts: list[dict[str, str]] = []
     if not updates:
-        return state
+        return state, conflicts
     out = copy.deepcopy(state)
+    locked = _operator_locked_fields(out)
     if skip_operator_conflicts:
         updates = {
             k: v
             for k, v in updates.items()
-            if k not in ("narrative_patch", "style_patch", "themes_append", "major_questions_append")
+            if k not in ("narrative_patch", "style_patch", "themes_append", "major_questions_append", "interview_identity_patch")
         }
         if not updates:
-            return out
+            return out, conflicts
 
     def _append_unique(lst: list, item: Any, id_key: str = "id") -> None:
         if not item:
@@ -280,12 +346,32 @@ def merge_memory_updates(
     if "style_patch" in updates and isinstance(updates["style_patch"], dict):
         out.setdefault("style", {})
         for k, v in updates["style_patch"].items():
-            if v is not None:
-                out["style"][k] = v
+            if v is None or v == "":
+                continue
+            path = f"style.{k}"
+            current = out["style"].get(k)
+            if path in locked:
+                if current and str(current).strip() and str(v).strip() != str(current).strip():
+                    conflicts.append(
+                        {"field": path, "locked": str(current).strip(), "suggested": str(v).strip()}
+                    )
+                continue
+            out["style"][k] = v
 
-    if "interview_identity_patch" in updates:
+    if "interview_identity_patch" in updates and isinstance(updates["interview_identity_patch"], dict):
         out.setdefault("interview_identity", {})
-        out["interview_identity"].update(updates["interview_identity_patch"])
+        for k, v in updates["interview_identity_patch"].items():
+            if v is None or v == "":
+                continue
+            path = f"interview_identity.{k}"
+            current = out["interview_identity"].get(k)
+            if path in locked:
+                if current and str(current).strip() and str(v).strip() != str(current).strip():
+                    conflicts.append(
+                        {"field": path, "locked": str(current).strip(), "suggested": str(v).strip()}
+                    )
+                continue
+            out["interview_identity"][k] = v
 
     if "confidence_patch" in updates:
         out.setdefault("confidence", {})
@@ -303,7 +389,33 @@ def merge_memory_updates(
         out.setdefault("gaps_summary", {})
         out["gaps_summary"].update(updates["gaps_summary_patch"])
 
-    return out
+    return out, conflicts
+
+
+def enqueue_style_conflicts(
+    ctx: RunContext,
+    stage_key: str,
+    conflicts: list[dict[str, str]],
+) -> None:
+    if not conflicts:
+        return
+    items = []
+    for row in conflicts:
+        field = row.get("field", "style")
+        items.append(
+            {
+                "kind": "style_conflict",
+                "question": (
+                    f"Transcript suggests {row.get('suggested', '?')} for {field}; "
+                    f"operator locked {row.get('locked', '?')}. Review in Story Board."
+                ),
+                "priority": "medium",
+                "blocking": False,
+                "suggested_action": {"type": "operator"},
+                "target": {"field": field, "stage": stage_key},
+            }
+        )
+    enqueue_investigations(ctx, items, created_by_stage=stage_key)
 
 
 def enqueue_investigations(
@@ -458,12 +570,13 @@ def apply_envelope_to_memory(
     )
     operator_needs = [n for n in envelope.get("needs") or [] if n.get("type") == "operator"]
     if do_merge:
-        state = merge_memory_updates(
+        state, style_conflicts = merge_memory_updates(
             state,
             envelope.get("memory_updates"),
             skip_operator_conflicts=bool(operator_needs)
             or bool((state.get("meta") or {}).get("operator_verified")),
         )
+        enqueue_style_conflicts(ctx, stage_key, style_conflicts)
         if envelope.get("reasoning_summary"):
             state.setdefault("meta", {})
             passes = state["meta"].get("stage_summaries") or {}
@@ -554,6 +667,11 @@ def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
                     "segment_ids": [term.get("first_segment_id")] if term.get("first_segment_id") else [],
                 }
             )
+    state.setdefault("interview_identity", {})
+    if not _nested_get(state, "interview_identity.one_line_summary"):
+        derived = _derive_one_line_summary(brief)
+        if derived:
+            state["interview_identity"]["one_line_summary"] = derived
     save_analysis_state(ctx, state, stage="content_context")
 
 
@@ -682,4 +800,6 @@ def mark_operator_verified(ctx: RunContext, verified: bool = True) -> None:
     state.setdefault("meta", {})
     state["meta"]["operator_verified"] = verified
     state["meta"]["operator_verified_at"] = _now() if verified else None
+    if verified:
+        state["meta"]["operator_locked_fields"] = _all_lockable_profile_fields()
     save_analysis_state(ctx, state, stage="operator")

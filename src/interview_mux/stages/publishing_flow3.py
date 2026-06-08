@@ -3,10 +3,14 @@ from __future__ import annotations
 import re
 
 from interview_mux.analysis_memory import load_analysis_state
-from interview_mux.run_context import RunContext
 from interview_mux.config import merged_config
-from interview_mux.show_description_qc import validate_show_description
+from interview_mux.show_description_qc import (
+    validate_show_description,
+    validate_show_description_tone_alignment,
+)
+from interview_mux.tone_taxonomy import tone_class_for_show_description
 from interview_mux.artifact_writes import write_validated_artifact
+from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -36,6 +40,9 @@ def run_podcast_show_description(ctx: RunContext) -> None:
             "speakers": c.read_json("understanding/speakers.json"),
             "segments": c.read_json("segments/manifest.json"),
         }
+        preferred = tone_class_for_show_description(load_analysis_state(c))
+        if preferred:
+            out["preferred_tone_class"] = preferred
         if c.artifact_exists("understanding/gap_evaluations.json"):
             ev = c.read_json("understanding/gap_evaluations.json")
             evaluations = ev.get("evaluations") or []
@@ -56,7 +63,13 @@ def run_podcast_show_description(ctx: RunContext) -> None:
         return out
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        state = load_analysis_state(c)
+        preferred = tone_class_for_show_description(state)
+        tone_errors = validate_show_description_tone_alignment(
+            artifacts, preferred_tone_class=preferred
+        )
         errors = validate_show_description(c, artifacts)
+        errors.extend(tone_errors)
         if errors:
             summary = "; ".join(errors[:4])
             c.log(

@@ -9,6 +9,7 @@ import {
 } from "../../utils/checkpoint";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
+import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
 
 export function OperatorActionModal() {
   const {
@@ -81,6 +82,7 @@ export function OperatorActionModal() {
         {actionSummary ? <p className="hint modal-summary">{actionSummary}</p> : null}
 
         <div className="modal-body-scroll">
+          <StageGuidancePanel stage={selectedStage} />
           {showHandoff ? <HandoffPanel /> : null}
           <GateActions stage={selectedStage} />
         </div>

@@ -7,7 +7,13 @@ import {
   loadProfileToForm,
   type ProfileFormState,
 } from "./profileForm";
+import {
+  FORMAT_CLASS_VALUES,
+  TONE_CLASS_VALUES,
+  formatClassLabel,
+} from "../../utils/toneTaxonomy";
 import type { AnalysisState } from "../../types";
+import { ActionMarker } from "../guidance/ActionMarker";
 
 const emptyForm: ProfileFormState = {
   title: "",
@@ -16,6 +22,9 @@ const emptyForm: ProfileFormState = {
   themes: "",
   questions: "",
   tone: "",
+  toneClass: "",
+  formatClass: "",
+  formatNotes: "",
   pacing: "",
   intStyle: "",
   eeStyle: "",
@@ -61,13 +70,27 @@ export function ProfilePanel() {
   if (!show) return null;
 
   if (!run?.profile_ready_for_review && !run?.profile_verified) {
+    const profileStage = run?.stages?.find((s) => s.id === "analysis_profile");
+    const items = profileStage?.guidance
+      ? [...(profileStage.guidance.prerequisites || []), ...(profileStage.guidance.actions || [])]
+      : [
+          {
+            id: "wait",
+            label: "Complete transcript review and understanding analysis first",
+            status: "todo" as const,
+          },
+        ];
     return (
       <div className="panel profile-panel">
         <h3>Interview profile</h3>
-        <p className="muted">
-          AI is preparing the interview profile. Complete transcript review, run
-          understanding analysis, then review and verify the populated profile here.
-        </p>
+        <ul className="stage-guidance-list">
+          {items.map((item) => (
+            <li key={item.id} className={`stage-guidance-item status-${item.status}`}>
+              <ActionMarker status={item.status} />
+              <span className="stage-guidance-label">{item.label}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
@@ -178,12 +201,41 @@ export function ProfilePanel() {
           />
         </label>
         <label className="profile-field">
-          <span>Tone</span>
+          <span>Tone class</span>
+          <select
+            value={form.toneClass}
+            onChange={(e) => setField("toneClass", e.target.value)}
+          >
+            <option value="">— Select —</option>
+            {TONE_CLASS_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {formatClassLabel(v)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="profile-field">
+          <span>Tone (nuance)</span>
           <input
             type="text"
             value={form.tone}
             onChange={(e) => setField("tone", e.target.value)}
+            placeholder="e.g. warm investigative, not sensational"
           />
+        </label>
+        <label className="profile-field">
+          <span>Format</span>
+          <select
+            value={form.formatClass}
+            onChange={(e) => setField("formatClass", e.target.value)}
+          >
+            <option value="">— Select —</option>
+            {FORMAT_CLASS_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {formatClassLabel(v)}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="profile-field">
           <span>Pacing</span>
@@ -191,6 +243,15 @@ export function ProfilePanel() {
             type="text"
             value={form.pacing}
             onChange={(e) => setField("pacing", e.target.value)}
+          />
+        </label>
+        <label className="profile-field full">
+          <span>Format notes</span>
+          <input
+            type="text"
+            value={form.formatNotes}
+            onChange={(e) => setField("formatNotes", e.target.value)}
+            placeholder="Panel guests, media format, etc."
           />
         </label>
         <label className="profile-field">

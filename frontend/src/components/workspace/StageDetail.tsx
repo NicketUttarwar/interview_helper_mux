@@ -9,6 +9,7 @@ import { InfoTooltip } from "../InfoTooltip";
 import { stageDescriptionParts } from "../../utils/stageDescription";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { getHandoffPathsLocal } from "../../utils/checkpoint";
+import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
@@ -99,7 +100,9 @@ export function StageDetail() {
       <div className="stage-detail-head">
         <div>
           {stepEntry ? (
-            <p className="stage-detail-step-num">Step {stepEntry.number}</p>
+            <p className="stage-detail-step-num">
+              Pipeline step {stepEntry.number} · {stepEntry.phaseLabel} phase
+            </p>
           ) : null}
           <h2>
             {selectedStage.title}
@@ -118,6 +121,8 @@ export function StageDetail() {
         </div>
         <span className={`stage-status-pill ${selectedStage.status}`}>{statusLabel}</span>
       </div>
+
+      <StageGuidancePanel stage={selectedStage} stepNumber={stepEntry?.number ?? null} />
 
       {needsCheckpoint ? (
         <div className="stage-detail-checkpoint panel-inset">

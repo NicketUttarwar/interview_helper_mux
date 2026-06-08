@@ -139,8 +139,7 @@
       "write_markdown_sidecar": true
     },
     "specialists": {
-      "enabled": false,
-      "pilot_stages": ["full_master_ranking"]
+      "enabled": true
     },
     "prompt_examples": {
       "enabled": true

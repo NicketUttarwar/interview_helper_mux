@@ -6,6 +6,7 @@ export const understanding_analysis_state_jsonSchema = z.object({
   "run_id": z.string().optional(),
   "meta": z.object({
   "operator_verified": z.boolean().optional(),
+  "operator_locked_fields": z.array(z.string()).optional(),
   "last_updated_stage": z.string().optional(),
   "analysis_pass": z.number().optional(),
 }).optional(),
@@ -29,6 +30,8 @@ export const understanding_analysis_state_jsonSchema = z.object({
 })),
   "style": z.object({
   "tone": z.string().optional(),
+  "tone_class": z.enum(["journalistic", "conversational", "investor", "technical", "human_interest"]).optional(),
+  "format_class": z.enum(["one_on_one", "panel", "fireside", "technical_deep_dive", "media_profile", "debate"]).optional(),
   "pacing": z.string().optional(),
   "format_notes": z.string().optional(),
   "interviewer_style": z.string().optional(),

@@ -11,7 +11,7 @@ Roles:
 
 Rules:
 - Typical interview: one interviewer, at least one interviewee.
-- Panel / multi-guest: multiple interviewees allowed; note in `notes`.
+- Panel / multi-guest: multiple interviewees allowed; note in `notes` with `format_hint: panel` when two or more distinct interviewees are evident.
 - Use question density, turn length, and intro/outro language as signals across all sample windows.
 - Do not guess display names unless explicitly stated in the transcript.
 

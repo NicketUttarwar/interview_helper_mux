@@ -63,7 +63,7 @@
   "nle_edits": {
     "strict": true
   },
-  "_comment_value_analysis": "Deterministic extract flags — no SSL; specialists excluded (inference)",
+  "_comment_value_analysis": "Deterministic extract flags — auto-extract after content_context; no SSL",
   "value_analysis": {
     "enabled": true,
     "spike_scoring": true,
@@ -93,14 +93,13 @@
     "apply_to_shards": true,
     "apply_to_collate": true
   },
-  "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
+  "_comment_analysis": "Volley caps, thresholds, orchestration; specialists run on mapped stages when enabled",
   "analysis": {
     "max_iterations_per_stage": 3,
     "max_queue_drains_per_stage": 5,
     "max_volley_retries": 2,
     "specialists": {
-      "enabled": false,
-      "pilot_stages": ["full_master_ranking"]
+      "enabled": true
     },
     "prompt_examples": {
       "enabled": true

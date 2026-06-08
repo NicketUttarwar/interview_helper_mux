@@ -24,6 +24,7 @@ Do not:
 Memory sync:
 - `themes_append`: update `segment_ids` for matched themes (`sources: ["content_brief_reanchor"]`)
 - `hypotheses_append`: confirm/reject open hypotheses from profile
+- `style_patch` (optional): refine `pacing`, `tone`, or `interviewer_style` / `interviewee_style` only when segment mix clearly supports it — do **not** change `tone_class` or `format_class` unless segment evidence contradicts them
 - `confidence_patch.content`: 0–1 for re-anchor quality
 
 Investigations: `theme_unmapped` when a brief topic still has zero segments after reanchor.

@@ -111,6 +111,38 @@ export interface JourneyState {
   phase_progress?: Record<string, { done: number; total: number }>;
   open_investigations?: number;
   sound_labels?: string[];
+  phase_guidance?: Record<string, PhaseGuidance>;
+}
+
+export type GuidanceItemStatus = "todo" | "done" | "waiting";
+
+export interface GuidanceItem {
+  id: string;
+  label: string;
+  status: GuidanceItemStatus;
+  stage_id?: string;
+  action?: string;
+  kind?: string;
+  from_stage_id?: string;
+  from_stage_title?: string;
+}
+
+export interface StageGuidance {
+  phase_label: string;
+  prerequisites: GuidanceItem[];
+  actions: GuidanceItem[];
+  unlocks: string;
+  artifact_checks?: Array<{
+    path: string;
+    label: string;
+    status: GuidanceItemStatus;
+  }>;
+}
+
+export interface PhaseGuidance {
+  goal: string;
+  actions: GuidanceItem[];
+  progress?: { done: number; total: number } | null;
 }
 
 export interface StageInfo {
@@ -127,6 +159,7 @@ export interface StageInfo {
   handoff_paths?: string[];
   audio_outputs_present?: string[];
   api_providers?: string[];
+  guidance?: StageGuidance;
 }
 
 export interface ReuseCandidate {
@@ -385,12 +418,15 @@ export interface AnalysisState {
   major_questions?: Array<{ question?: string } | string>;
   style?: {
     tone?: string;
+    tone_class?: string;
+    format_class?: string;
+    format_notes?: string;
     pacing?: string;
     interviewer_style?: string;
     interviewee_style?: string;
   };
   operator_notes?: string;
-  meta?: { operator_verified?: boolean };
+  meta?: { operator_verified?: boolean; operator_locked_fields?: string[] };
 }
 
 export interface AnalysisProfileResponse {

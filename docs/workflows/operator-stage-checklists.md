@@ -4,6 +4,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
+**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
 **Operator status and logs (policy):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — all operator-visible output goes to `gui_log.jsonl` and/or `gui_job.json` via `RunContext.log()`; do not duplicate that policy here.
@@ -96,7 +98,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `understanding/source_acoustic_profile.json` | `pacing.pace_class` and `mix_contract` look plausible for the interview cadence | Re-run `--from-stage source_acoustic_profile`; verify transcript timing + ingest WAV |
 | **Recompute SAP** (GUI) | **Recompute profile** on `source_acoustic_profile` stage re-derives from current ingest/transcript; invalidates downstream when pace class changes | Use after G0 corrections or preclean; check `gui_log.jsonl` for `acoustic_profile_recomputed` |
 | **SAP overrides** (GUI) | Optional `operator_overrides.pace_class` / `underscore_policy` saved without re-running DSP | Clear overrides to restore derived values — [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
-| `understanding/analysis_state.json` | Themes / questions roughly match interview | [analysis-memory.md](../cross-cutting/analysis-memory.md) |
+| `understanding/analysis_state.json` | Themes / questions / `style.tone_class` / `style.format_class` match interview | [analysis-memory.md](../cross-cutting/analysis-memory.md) |
 | Investigations | `investigation_queue.json` not full of stale blockers | Resolve or dismiss; orchestrator may re-run |
 
 ---
@@ -107,7 +109,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `understanding/analysis_state.json` | `meta.operator_verified: true` | GUI **Interview profile** → **Mark verified**; or edit JSON on disk — [artifact-layout](../cross-cutting/artifact-layout.md#shared-analysis-wave-2) |
+| `understanding/analysis_state.json` | `meta.operator_verified: true`; `style.tone`, `style.tone_class`, `style.format_class` populated | GUI **Interview profile** → **Mark verified** — [artifact-layout](../cross-cutting/artifact-layout.md#shared-analysis-wave-2) |
 | Before `topic_coverage_audit` | `.stage_done/topic_coverage_audit` absent and profile verified, or re-run from a later Flow 1 stage | Pipeline blocks with `ctx.log` at `level=action`; check `gui_log.jsonl` — [operator-gates.md](./operator-gates.md#profile-gate--flow-1-extended-build-081) |
 | Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | **Story** or **Profile** sub-tabs, or profile-lock CTAs on `topic_coverage_audit` — [operator-flow-audit.md](./operator-flow-audit.md) |
 

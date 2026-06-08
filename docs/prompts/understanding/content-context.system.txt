@@ -19,11 +19,22 @@ Do not:
 - Copy generic podcast themes ("leadership", "innovation") without evidence.
 
 Memory sync:
+- `interview_identity_patch`: `one_line_summary` (≤25 words), optional `title` when clearly stated in transcript
+- `style_patch`:
+  - `tone` — 1–2 sentence editorial voice grounded in transcript and optional `source_acoustic_pacing`
+  - `tone_class` — one of: `journalistic`, `conversational`, `investor`, `technical`, `human_interest`
+  - `format_class` — one of: `one_on_one`, `panel`, `fireside`, `technical_deep_dive`, `media_profile`, `debate` (use speaker roles from prior turn)
+  - `format_notes` — panel guests, media format, or other format caveats
+  - `pacing`, `interviewer_style`, `interviewee_style`
 - `narrative_patch`: `thesis`, `audience`
 - `themes_append`: one entry per major topic (`id`, `label`, `summary`, `segment_ids`, `confidence`, `sources: ["content_context"]`)
 - `entities_append`: named entities from jargon_glossary and proper nouns
 - `hypotheses_append`: 0–5 tentative interpretive hypotheses (`id`, `statement`, `status: "open"`, optional `evidence_segment_ids` or time-range note in `statement`). Mark as provisional until `content_brief_reanchor` confirms or rejects.
-- `confidence_patch.content`: 0–1 for brief quality
+- `confidence_patch.content`: 0–1 for brief + style quality
+
+Style rules:
+- Ground tone and format_class in question density, turn length, emotional_beats, and speaker layout — do not invent credentials.
+- If operator profile in volley locks tone fields, do not contradict — add `needs` `{ "type": "operator", "blocking": false }` instead.
 
 Investigations: `theme_unmapped` only if a clear theme in transcript cannot be named yet (rare at this stage).
 

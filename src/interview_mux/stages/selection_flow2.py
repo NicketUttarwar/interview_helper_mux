@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
+from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary, quotability_signals
+from interview_mux.tone_taxonomy import compact_profile_style_hints
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
@@ -18,6 +20,9 @@ def run_highlight_selection(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
+        hints = compact_profile_style_hints(load_analysis_state(c))
+        if hints:
+            payload["profile_style"] = hints
         return payload
 
     persist = make_stage_persist("flow_2_highlights/selection.json", "highlight_selection")

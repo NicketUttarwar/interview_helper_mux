@@ -35,7 +35,7 @@ BUILD-022, BUILD-023, BUILD-082
 
 1. Run analysis stages (or full `run_analysis.py`)
 2. In **Stage outputs**, confirm `content_brief.json` is **complete** after `content_context` (semantic brief) and again after `content_brief_reanchor` (timeline anchors + topic links)
-3. Open **Interview profile** in the GUI — review themes, major questions, style
+3. Open **Interview profile** or **Story Board** — review themes, `tone_class`, format, and one-line summary
 4. Edit JSON in **Files** tab if needed (Zod + server validation on save)
 5. Click **Mark profile verified** when the profile is correct
 6. Use **Fill gaps** on partial artifacts or **Redo from selected stage** to refresh LLM output
@@ -54,8 +54,8 @@ See [analysis-memory.md](../../cross-cutting/analysis-memory.md) and [artifact-g
 | Stage | Tier (default) | Decompose | On-disk artifact |
 |-------|----------------|-----------|------------------|
 | `speaker_roles` | flagship | no | `understanding/speakers.json` (stratified `transcript_samples` from opening/middle/closing) |
-| `content_context` | flagship | yes | `understanding/content_brief.json` (+ `memory_updates` → `analysis_state.json`) |
-| `content_brief_reanchor` | flagship | yes | `understanding/content_brief.json` (patch segment_ids, relationships) |
+| `content_context` | flagship | yes | `understanding/content_brief.json` (+ `memory_updates` → `analysis_state.json`: identity, style, themes) |
+| `content_brief_reanchor` | flagship | yes | `understanding/content_brief.json` (patch segment_ids, relationships; optional style refine) |
 
 Gap-fill: each stage input includes `gap_fill_context` when a prior partial file exists.
 

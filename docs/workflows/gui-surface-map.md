@@ -25,6 +25,8 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; refresh on tab focus |
 | **Pipeline** | Stage rail + sub-tabs | **Stage \| Story \| Timeline \| Profile (JSON) \| Files \| Engineering** — primary operator flow |
+| **Pipeline** | **Phase guidance banner** | `journey.phase_guidance[phase]` — goal, progress, top orange actions |
+| **Pipeline** | **Stage guidance panel** | `stages[].guidance` — prerequisites, actions, unlocks on every stage detail |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
 | Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
 | Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers, stage reuse — auto-open on `action_required`; **always** selects blocking stage (including on Logs tab) via `findPendingFocusStage` |

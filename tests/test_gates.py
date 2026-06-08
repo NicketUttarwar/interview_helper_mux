@@ -14,13 +14,13 @@ from interview_mux.gates import (
 )
 from interview_mux.analysis_memory import default_analysis_state
 from interview_mux.run_context import RunContext
-from run_fixtures import ctx_from_fixture, isolated_run_ctx
+from run_fixtures import ctx_from_fixture, isolated_run_ctx, populated_analysis_state
 
 
 def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
     ctx.path("understanding").mkdir(parents=True, exist_ok=True)
-    state = default_analysis_state(ctx.run_id)
-    state["meta"]["operator_verified"] = verified
+    ctx.mark_done("optimal_questions")
+    state = populated_analysis_state(ctx.run_id, verified=verified)
     ctx.write_json("understanding/analysis_state.json", state)
 
 

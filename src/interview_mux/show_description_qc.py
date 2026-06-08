@@ -83,3 +83,19 @@ def validate_show_description(
                 )
 
     return errors
+
+
+def validate_show_description_tone_alignment(
+    doc: dict[str, Any],
+    *,
+    preferred_tone_class: str | None,
+) -> list[str]:
+    """Warn when generated tone drifts from locked profile tone_class."""
+    if not preferred_tone_class:
+        return []
+    artifact_tone = doc.get("tone")
+    if artifact_tone and str(artifact_tone) != preferred_tone_class:
+        return [
+            f'tone "{artifact_tone}" differs from profile tone_class "{preferred_tone_class}"'
+        ]
+    return []

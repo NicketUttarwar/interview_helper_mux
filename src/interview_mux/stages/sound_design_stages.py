@@ -9,6 +9,7 @@ from interview_mux.prompt_validation import (
 from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
+from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
@@ -30,6 +31,9 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         profile = load_profile(c)
         if profile:
             payload["source_acoustic_profile"] = compact_for_volley(profile)
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
 
         style = (payload["analysis_state"].get("style") or {}) if isinstance(payload["analysis_state"], dict) else {}
         notes = style.get("sound_design_notes")

@@ -11,6 +11,7 @@ import {
   workflowStepStatus,
   type WorkflowStepId,
 } from "../utils/workflowSteps";
+import type { OperatorPhase } from "../types";
 
 /** Top workflow navigator — current step, clickable anchors, and next action. */
 export function WorkflowStepBar() {
@@ -95,7 +96,7 @@ export function WorkflowStepBar() {
     >
       <div className="workflow-step-summary">
         <span className="workflow-step-current">
-          Step {activeIndex + 1} of {WORKFLOW_STEPS.length}: <strong>{stepLabel}</strong>
+          Phase {activeIndex + 1} of {WORKFLOW_STEPS.length}: <strong>{stepLabel}</strong>
         </span>
         <span className="workflow-step-status muted">{statusShort}</span>
       </div>
@@ -104,13 +105,17 @@ export function WorkflowStepBar() {
         {WORKFLOW_STEPS.map((step, i) => {
           const status = workflowStepStatus(step.id, run);
           const isActive = step.id === activeStepId;
+          const prog =
+            step.id !== "start" && run?.journey?.phase_progress?.[step.id as OperatorPhase];
+          const progressHint =
+            prog && prog.total > 0 ? ` · ${prog.done}/${prog.total} done` : "";
           return (
             <li key={step.id} className="workflow-step-item">
               {i > 0 ? <span className="workflow-step-connector" aria-hidden /> : null}
               <button
                 type="button"
                 className={`workflow-step-chip status-${status}${isActive ? " current" : ""}`}
-                title={step.tooltip}
+                title={`${step.tooltip}${progressHint}`}
                 aria-current={isActive ? "step" : undefined}
                 onClick={() => navigateToStep(step.id)}
               >

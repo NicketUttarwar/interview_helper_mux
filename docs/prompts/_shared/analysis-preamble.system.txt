@@ -13,7 +13,13 @@ Do not ask for fields that are absent from the volley. Do not assume facts from 
 
 ## Memory updates
 
-Update rolling memory incrementally via `memory_updates`. If operator profile was marked verified in context, do not contradict those fields unless stage data clearly disproves them — then add a `needs` entry with `type: operator`.
+Update rolling memory incrementally via `memory_updates`. If operator profile was marked verified in context, do not contradict those fields unless stage data clearly disproves them — then add a `needs` entry with `type: operator` (non-blocking). If individual style or identity fields appear in `operator_locked_fields`, treat them as locked the same way.
+
+When `style.format_class` is in the profile slice, adapt stage behavior:
+- `panel` — multiple interviewees; allow cross-guest callbacks; diversify highlights by speaker
+- `technical_deep_dive` — prioritize definitions and jargon clarity in gaps and highlights
+- `one_on_one` — standard Q&A self-explanatory bar
+- `fireside` / `media_profile` — lighter bridges; respect broadcast pacing
 
 Each stage prompt specifies which `memory_updates` fields to populate. Empty `memory_updates` when nothing new is learned.
 
@@ -36,6 +42,7 @@ When stage data reveals a fixable pipeline issue, add `follow_up_investigations`
 | theme_unmapped | Brief topic has zero segments | segment_classification |
 | segment_ambiguity | Overlapping or duplicate boundaries | boundary_detection |
 | gap_unresolved | High-severity gap with no clear fix | missing_framing |
+| style_conflict | Transcript tone/format conflicts with operator-locked profile | (operator review) |
 
 ## Think deeper
 
@@ -67,7 +74,7 @@ Canonical envelope shape:
     "major_questions_append": [
       { "question": "", "segment_ids": [], "priority": "medium" }
     ],
-    "style_patch": { "tone": "", "pacing": "", "format_notes": "", "interviewer_style": "", "interviewee_style": "" },
+    "style_patch": { "tone": "", "tone_class": "", "format_class": "", "format_notes": "", "pacing": "", "interviewer_style": "", "interviewee_style": "" },
     "narrative_patch": { "thesis": "", "audience": "" },
     "entities_append": [],
     "hypotheses_append": [

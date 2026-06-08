@@ -2289,6 +2289,109 @@ code {
   border-color: var(--warning);
 }
 
+.pipeline-step-row.has-action .pipeline-step-num {
+  background: var(--warning);
+  color: #111;
+}
+
+.pipeline-step-action-dot {
+  flex-shrink: 0;
+  color: var(--warning);
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+/* Stage / phase guidance */
+.action-marker {
+  flex-shrink: 0;
+  width: 1.1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.action-marker.status-todo {
+  color: var(--warning);
+}
+
+.action-marker.status-done {
+  color: var(--success, #3dba6d);
+}
+
+.action-marker.status-waiting {
+  color: var(--muted, #888);
+}
+
+.stage-guidance,
+.phase-guidance-banner {
+  margin-bottom: 1rem;
+}
+
+.stage-guidance-heading,
+.phase-guidance-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.stage-guidance-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stage-guidance-list.compact .stage-guidance-item {
+  padding: 0.25rem 0;
+}
+
+.stage-guidance-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.stage-guidance-item.status-todo {
+  border-left: 3px solid var(--warning);
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+}
+
+.stage-guidance-label {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.stage-guidance-item-actions {
+  flex-shrink: 0;
+}
+
+.stage-guidance-badge {
+  font-size: 0.75rem;
+  font-weight: normal;
+  margin-left: 0.5rem;
+}
+
+.stage-guidance-phase {
+  margin-top: 0.25rem;
+}
+
+.phase-guidance-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+}
+
+.phase-guidance-progress {
+  font-weight: normal;
+}
+
+.phase-guidance-goal {
+  margin: 0.35rem 0 0.5rem;
+}
+
 .pipeline-step-num {
   flex-shrink: 0;
   width: 1.75rem;

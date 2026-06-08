@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from interview_mux.analysis_memory import load_analysis_state
+from interview_mux.tone_taxonomy import compact_profile_style_hints
 from interview_mux.llm_specialists import (
     load_comprehension_risks,
     maybe_run_pre_stage_specialists,
@@ -24,6 +26,9 @@ def run_missing_framing(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
+        hints = compact_profile_style_hints(load_analysis_state(c))
+        if hints:
+            payload["profile_style"] = hints
         return payload
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")

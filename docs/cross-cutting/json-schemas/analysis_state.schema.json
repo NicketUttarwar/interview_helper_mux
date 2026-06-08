@@ -10,6 +10,10 @@
       "type": "object",
       "properties": {
         "operator_verified": { "type": "boolean" },
+        "operator_locked_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "last_updated_stage": { "type": "string" },
         "analysis_pass": { "type": "integer" }
       }
@@ -51,6 +55,27 @@
       "type": "object",
       "properties": {
         "tone": { "type": "string" },
+        "tone_class": {
+          "type": "string",
+          "enum": [
+            "journalistic",
+            "conversational",
+            "investor",
+            "technical",
+            "human_interest"
+          ]
+        },
+        "format_class": {
+          "type": "string",
+          "enum": [
+            "one_on_one",
+            "panel",
+            "fireside",
+            "technical_deep_dive",
+            "media_profile",
+            "debate"
+          ]
+        },
         "pacing": { "type": "string" },
         "format_notes": { "type": "string" },
         "interviewer_style": { "type": "string" },

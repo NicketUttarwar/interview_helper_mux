@@ -105,9 +105,18 @@ def test_non_pilot_stage_skips_when_pilot_configured(tmp_path):
         assert outputs == []
 
 
-def test_specialists_disabled_by_default(tmp_path):
-    assert not specialists_enabled()
-    assert not specialists_enabled(stage_key="full_master_ranking")
+def test_specialists_enabled_globally_when_no_pilot():
+    cfg = {"analysis": {"specialists": {"enabled": True}}}
+    assert specialists_enabled(cfg=cfg)
+    assert specialists_enabled(cfg=cfg, stage_key="missing_framing")
+    assert specialists_enabled(cfg=cfg, stage_key="segment_classification")
+    assert specialists_enabled(cfg=cfg, stage_key="topic_coverage_audit")
+    assert specialists_enabled(cfg=cfg, stage_key="full_master_ranking")
+
+
+def test_specialists_disabled_when_flag_off():
+    cfg = {"analysis": {"specialists": {"enabled": False}}}
+    assert not specialists_enabled(cfg=cfg, stage_key="full_master_ranking")
 
 
 def test_pre_stage_specialist_runs_for_missing_framing(tmp_path):

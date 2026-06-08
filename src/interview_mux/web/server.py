@@ -1435,6 +1435,12 @@ def _is_editable_text_path(path: str) -> bool:
     return False
 
 
+def _g0_locked_analysis_stages() -> frozenset[str]:
+    from interview_mux.stage_guidance import G0_LOCKED_ANALYSIS_STAGES
+
+    return G0_LOCKED_ANALYSIS_STAGES
+
+
 def _build_stage_list(
     ctx: RunContext,
     flow: str | None,
@@ -1488,16 +1494,7 @@ def _build_stage_list(
                 s["status"] = "locked"
             else:
                 s["status"] = "done" if ctx.is_done(sid) else "pending"
-        elif transcript_review_pending and sid in (
-            "speaker_roles",
-            "content_context",
-            "boundary_detection",
-            "segment_classification",
-            "content_brief_reanchor",
-            "sound_design_palettes",
-            "missing_framing",
-            "optimal_questions",
-        ):
+        elif transcript_review_pending and sid in _g0_locked_analysis_stages():
             s["status"] = "locked"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
@@ -1516,7 +1513,19 @@ def _build_stage_list(
                 if handoff:
                     s["handoff_paths"] = handoff
         s["operator_phase"] = stage_operator_phase(sid)
-    return _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
+    filtered = _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
+    from interview_mux.stage_guidance import attach_guidance_to_stages
+
+    attach_guidance_to_stages(
+        ctx,
+        filtered,
+        flow=flow,
+        g1_missing=g1_missing,
+        transcript_review_pending=transcript_review_pending,
+        profile_gate_pending=profile_gate_pending,
+        profile_verified=profile_verified,
+    )
+    return filtered
 
 
 def _filter_stages_for_intent(

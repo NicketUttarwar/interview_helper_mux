@@ -1,6 +1,7 @@
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { useJourney } from "../../hooks/useJourney";
+import { ActionMarker } from "../guidance/ActionMarker";
 
 export function DeliverableCard() {
   const { run, runId, refreshRun, config } = useApp();
@@ -26,10 +27,14 @@ export function DeliverableCard() {
 
   return (
     <footer id="workflow-deliverable" className="deliverable-card panel">
-      <h4>Deliverable</h4>
+      <h4>Export phase</h4>
+      <p className="hint phase-guidance-goal">
+        {run.journey?.phase_guidance?.ship?.goal || "Download your master WAV or show description."}
+      </p>
       {previewPath && phase !== "ship" ? (
         <div className="deliverable-row">
-          <span>Assembly preview</span>
+          <ActionMarker status="todo" />
+          <span>Listen to assembly preview before sound spend</span>
           <audio controls src={playUrl(previewPath)} />
           <button type="button" className="btn ghost sm" onClick={() => void onPreviewListened()}>
             Continue to sound

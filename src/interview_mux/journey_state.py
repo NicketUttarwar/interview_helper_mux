@@ -56,6 +56,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "transitions": "create",
     "sound_design_plan_flow1": "create",
     "sound_design_vo_finalize": "create",
+    "edl_narrative_audit": "create",
     "edl_flow1": "create",
     "assembly_preview": "create",
     "highlight_selection": "create",

@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
+import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
+import { firstTodoItem } from "../../utils/stageGuidance";
 
 export function PipelineCommandCenter() {
   const {
@@ -53,20 +55,40 @@ export function PipelineCommandCenter() {
             : `Run step ${nav.nextNumber ?? ""}`.trim()
           : null;
 
+  const topTodo = nav.currentStage?.guidance
+    ? firstTodoItem(nav.currentStage.guidance)
+    : nav.nextStage?.guidance
+      ? firstTodoItem(nav.nextStage.guidance)
+      : null;
+
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
+      {run ? <PhaseGuidanceBanner run={run} /> : null}
       <div className="pipeline-command-head">
         <div>
           <p className="pipeline-command-eyebrow">
             {nav.currentNumber
-              ? `You are on step ${nav.currentNumber} of ${nav.numberedStages.length}`
+              ? `Pipeline step ${nav.currentNumber} of ${nav.numberedStages.length}${
+                  nav.currentStage?.guidance?.phase_label
+                    ? ` · ${nav.currentStage.guidance.phase_label} phase`
+                    : ""
+                }`
               : `Pipeline · ${nav.numberedStages.length} steps`}
           </p>
           <h2 className="pipeline-command-title">
             {nav.currentStage?.title || nav.nextStage?.title || "Pipeline"}
           </h2>
           <p className="pipeline-command-status">{nav.statusLine}</p>
-          {nav.nextLine ? <p className="hint pipeline-command-next">{nav.nextLine}</p> : null}
+          {topTodo ? (
+            <p className="hint pipeline-command-next">
+              <span className="action-marker status-todo" aria-hidden>
+                ●
+              </span>{" "}
+              {topTodo.label}
+            </p>
+          ) : nav.nextLine ? (
+            <p className="hint pipeline-command-next">{nav.nextLine}</p>
+          ) : null}
         </div>
         <div className="pipeline-command-actions">
           {primaryLabel ? (

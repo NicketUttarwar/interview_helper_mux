@@ -152,7 +152,7 @@ Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (sh
 
 ## `analysis.specialists.enabled`
 
-When `true`, runs economy-tier specialist passes after `missing_framing`, `segment_classification`, and `topic_coverage_audit`; enqueues investigations when thresholds are met. Default `false`.
+When `true` (shipped default), runs economy-tier specialist passes after `missing_framing` (pre), `segment_classification`, `topic_coverage_audit`, and `full_master_ranking` (post); enqueues investigations when thresholds are met. Omit `pilot_stages` to run all mapped stages globally.
 
 ---
 

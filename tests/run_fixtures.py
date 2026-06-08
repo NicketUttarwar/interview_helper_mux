@@ -10,6 +10,28 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 
+def populated_analysis_state(run_id: str, *, verified: bool = False) -> dict[str, Any]:
+    """Minimal complete analysis_state for gate / handoff tests."""
+    from interview_mux.analysis_memory import default_analysis_state
+
+    state = default_analysis_state(run_id)
+    state["themes"] = [{"id": "t1", "label": "Theme", "summary": "Summary text"}]
+    state["narrative"] = {"thesis": "Core thesis from the interview."}
+    state["interview_identity"] = {"one_line_summary": "A conversation about testing."}
+    state["style"] = {
+        "tone": "Warm investigative conversation",
+        "tone_class": "journalistic",
+        "format_class": "one_on_one",
+        "pacing": "measured",
+        "format_notes": "",
+        "interviewer_style": "curious",
+        "interviewee_style": "analytical",
+    }
+    state["meta"]["operator_verified"] = verified
+    state["completion"] = {"analysis_ready": True, "blockers": []}
+    return state
+
+
 def init_run_meta_for_test(ctx: RunContext, input_audio_path: str = "ASSETS/input/demo.wav") -> None:
     """Minimal run_meta when run_dir is outside the repo tree (pytest tmp_path)."""
     now = datetime.now(timezone.utc).isoformat()

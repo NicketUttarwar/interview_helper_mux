@@ -4,6 +4,8 @@
 
 The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`.
 
+**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The workflow bar uses **Phase N of 7** (Prepare → Export); the pipeline left rail uses **pipeline step N of M** for individual stages — these numbers are different on purpose.
+
 ---
 
 ## Before you start

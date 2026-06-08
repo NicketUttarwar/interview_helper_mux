@@ -30,6 +30,25 @@ After edits, use **Redo from selected stage** to re-run downstream LLM stages wi
 
 Set `meta.operator_verified: true` in `analysis_state.json` (or click **Mark profile verified** in the GUI) when themes, questions, and style are correct. LLM stages treat verified fields as authoritative.
 
+### Style and identity (`content_context`)
+
+`content_context` emits `memory_updates.interview_identity_patch` (`one_line_summary`, optional `title`) and `style_patch`:
+
+| Field | Purpose |
+|-------|---------|
+| `style.tone` | Free-text editorial voice (nuance) |
+| `style.tone_class` | Enum aligned with Flow 3 show description: `journalistic`, `conversational`, `investor`, `technical`, `human_interest` |
+| `style.format_class` | Interview shape: `one_on_one`, `panel`, `fireside`, `technical_deep_dive`, `media_profile`, `debate` |
+| `style.pacing`, `interviewer_style`, `interviewee_style`, `format_notes` | Downstream transitions, gaps, highlights, sound design |
+
+`content_brief_reanchor` may refine pacing/tone prose when segment evidence supports it; it should not rewrite `tone_class` / `format_class` without strong contradiction.
+
+If the LLM omits `one_line_summary`, `sync_content_brief_to_state` derives it from `content_brief.thesis`.
+
+### Operator field locks
+
+GUI profile saves record edited paths in `meta.operator_locked_fields`. Locked fields (and all profile style/identity fields when `operator_verified`) are not overwritten by later LLM `style_patch` / `interview_identity_patch` merges. Conflicts enqueue `style_conflict` investigations in `investigation_queue.json` (Story Board).
+
 ## Supporting files (machine-managed)
 
 | Path | Purpose |

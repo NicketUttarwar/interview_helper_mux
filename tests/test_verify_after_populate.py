@@ -19,7 +19,7 @@ from interview_mux.gates import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import _build_stage_list
-from run_fixtures import init_run_meta_for_test, patch_executions_root
+from run_fixtures import init_run_meta_for_test, patch_executions_root, populated_analysis_state
 
 COMPLETE_SPEAKERS = {
     "speakers": [
@@ -69,11 +69,7 @@ def test_analysis_profile_action_required_after_analysis(tmp_path, monkeypatch) 
     init_run_meta_for_test(ctx)
     ensure_analysis_workspace(ctx)
     ctx.mark_done("optimal_questions")
-    state = ctx.read_json("understanding/analysis_state.json")
-    state["themes"] = [{"id": "t1", "label": "Theme", "summary": "Summary text"}]
-    state["narrative"] = {"thesis": "Core thesis from the interview."}
-    state["interview_identity"] = {"one_line_summary": "A conversation about testing."}
-    state["completion"] = {"analysis_ready": True, "blockers": []}
+    state = populated_analysis_state(ctx.run_id)
     ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
 
     assert analysis_profile_ready_for_review(ctx)
@@ -90,11 +86,7 @@ def test_profile_gate_pending_requires_populated_profile(tmp_path, monkeypatch) 
     assert not check_profile_gate_pending(ctx)
 
     ctx.mark_done("optimal_questions")
-    state = ctx.read_json("understanding/analysis_state.json")
-    state["themes"] = [{"id": "t1", "label": "Theme", "summary": "Summary text"}]
-    state["narrative"] = {"thesis": "Core thesis from the interview."}
-    state["interview_identity"] = {"one_line_summary": "A conversation about testing."}
-    state["completion"] = {"analysis_ready": True, "blockers": []}
+    state = populated_analysis_state(ctx.run_id)
     ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
 
     assert check_profile_gate_pending(ctx)

@@ -7,6 +7,11 @@ import {
   loadProfileToForm,
   type ProfileFormState,
 } from "./profileForm";
+import {
+  TONE_CLASS_VALUES,
+  formatClassLabel,
+} from "../../utils/toneTaxonomy";
+import { ActionMarker } from "../guidance/ActionMarker";
 
 function investigationItems(queue: Record<string, unknown>): Array<Record<string, unknown>> {
   const items = queue.items ?? queue.investigations;
@@ -65,7 +70,19 @@ export function StoryBoardPanel() {
   };
 
   if (!data || !form) {
-    return <p className="muted">Story Board unlocks after content understanding.</p>;
+    return (
+      <div className="story-board panel">
+        <h3>Story Board</h3>
+        <ul className="stage-guidance-list">
+          <li className="stage-guidance-item status-todo">
+            <ActionMarker status="todo" />
+            <span className="stage-guidance-label">
+              Unlocks after content understanding — run Analyze phase stages first
+            </span>
+          </li>
+        </ul>
+      </div>
+    );
   }
 
   const openItems = investigationItems(data.investigation_queue).filter(
@@ -87,16 +104,36 @@ export function StoryBoardPanel() {
         />
       </label>
       <label className="field">
-        Tone
+        Tone class
+        <select
+          value={form.toneClass}
+          onChange={(e) => setForm({ ...form, toneClass: e.target.value })}
+        >
+          <option value="">— Select —</option>
+          {TONE_CLASS_VALUES.map((v) => (
+            <option key={v} value={v}>
+              {formatClassLabel(v)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        Tone (nuance)
         <input value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })} />
       </label>
+      {form.formatClass ? (
+        <p className="muted">
+          Format: {formatClassLabel(form.formatClass)}
+          {form.formatNotes ? ` — ${form.formatNotes}` : ""}
+        </p>
+      ) : null}
       {openItems.length > 0 ? (
         <section>
           <h4>Open questions ({openItems.length})</h4>
           <ul>
             {openItems.map((it) => (
               <li key={String(it.id)}>
-                {String(it.summary ?? it.kind ?? it.id)}
+                {String(it.question ?? it.summary ?? it.kind ?? it.id)}
                 <button
                   type="button"
                   className="btn ghost"

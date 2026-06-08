@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { formatBytes } from "../../utils";
 import { InfoTooltip } from "../InfoTooltip";
+import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
+import { ActionMarker } from "../guidance/ActionMarker";
 
 type FlowIntent = "flow1" | "flow2" | "flow3";
 
@@ -89,6 +91,7 @@ export function StartTab() {
           <InfoTooltip text="Pick one interview file — it locks for the session once you start." />
         </h2>
       </section>
+      <StartPhaseGuidance />
       {intentEnabled ? (
         <section className="panel panel-compact">
           <h3>
@@ -148,7 +151,7 @@ export function StartTab() {
                     void startRun(f.path, intentEnabled ? flowIntent : undefined);
                   }}
                 >
-                  Start
+                  <ActionMarker status="todo" /> Start
                 </button>
               </div>
             ))

@@ -461,7 +461,17 @@ def build_journey_snapshot(
         "phase_progress": phase_progress(ctx, stages),
         "open_investigations": _open_investigation_count(ctx),
         "sound_labels": list(SOUND_LABELS),
+        "phase_guidance": _build_phase_guidance(ctx, stages),
     }
+
+
+def _build_phase_guidance(
+    ctx: RunContext,
+    stages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    from interview_mux.stage_guidance import build_phase_guidance
+
+    return build_phase_guidance(ctx, stages)
 
 
 def set_flow_intent(ctx: RunContext, flow: str) -> None:

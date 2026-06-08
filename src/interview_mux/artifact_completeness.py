@@ -38,6 +38,13 @@ def _gaps_analysis_state(data: dict[str, Any] | None) -> list[str]:
     ident = data.get("interview_identity") or {}
     if not _non_empty_str(ident.get("one_line_summary")):
         gaps.append("interview_identity.one_line_summary")
+    style = data.get("style") or {}
+    if not _non_empty_str(style.get("tone")):
+        gaps.append("style.tone")
+    if not _non_empty_str(style.get("tone_class")):
+        gaps.append("style.tone_class")
+    if not _non_empty_str(style.get("format_class")):
+        gaps.append("style.format_class")
     return gaps
 
 
@@ -219,8 +226,8 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
             if key in ("themes", "major_questions", "entities", "hypotheses", "open_questions"):
                 from interview_mux.analysis_memory import merge_memory_updates
 
-                merged = merge_memory_updates({key: out[key]}, {key: val})
-                out[key] = merged[key]
+                merged, _ = merge_memory_updates({key: out.get(key, [])}, {key: val})
+                out[key] = merged.get(key, out.get(key))
             else:
                 out[key] = val if patch.get(f"{key}_replace") else out[key] + [
                     x for x in val if x not in out[key]
