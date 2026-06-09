@@ -127,7 +127,7 @@ python tools/run_analysis.py --run-id <id>
 
 **G1 path:** Leave `delivery: record` gaps unrecorded → pipeline exits with message; record `vo_pickup/*.wav`; rerun `--from-stage vo_ingest`.
 
-**G0 path:** Pause at transcript review; fix corrections; mark complete.
+**G0 path:** Pause at transcript review; fix corrections in synced dock (word edit + fuzzy batch replace) or chunk textarea; verify `words[].corrected` and `PATCH …/transcript/words`; mark complete.
 
 ---
 

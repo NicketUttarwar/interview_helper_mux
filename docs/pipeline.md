@@ -45,7 +45,7 @@ All work starts from a single long-form interview recording in `./ASSETS/`. Oper
 | **Audio pre-clean** *(optional)* | Remove background noise before STT/mux | `preclean/isolated.wav`, `preclean/lineage.json` |
 | **Ingest** | Normalize format, checksum, session id | `ASSETS/executions/exec_*` workspace, normalized WAV |
 | **Transcribe + diarize** | Word-level text with speaker labels | Transcript JSON, speaker map |
-| **Transcript review (G0)** | Operator fixes STT using confidence-ranked clips | Corrections merged into transcript |
+| **Transcript review (G0)** | Operator fixes STT using confidence-ranked clips + synced word dock (fuzzy similar-word replace) | `transcript/full.json`, `transcript/corrections.json` |
 | **Content understanding** | Themes, narrative arc, who said what (OpenAI **flagship**, gap-fill, validated write) | `analysis_state.json`, content brief, speaker roles — [artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md) |
 | **Segmentation** | Time-bounded units | Segment manifest |
 | **Interviewer gap analysis** | Missing framing, VO script | Gap report |

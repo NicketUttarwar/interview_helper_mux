@@ -33,7 +33,12 @@ BUILD-021
 
 ## Transcript review (G0)
 
-After transcription, operators correct STT in the GUI before analysis continues. See [transcript-review.md](./transcript-review.md).
+After transcription, operators correct STT in the GUI before analysis continues:
+
+- **Synced transcript dock** — word-level karaoke editor with immediate `PATCH …/transcript/words` saves
+- **Fuzzy similar-word replace** — batch-fix repeated mishearings across the full transcript (client-side matcher, 80–100% strictness)
+
+See [transcript-review.md](./transcript-review.md).
 
 ## Config
 

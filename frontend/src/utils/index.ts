@@ -1,3 +1,14 @@
+export {
+  correctionDiffersFromSource,
+  FUZZY_MATCH_DEFAULT,
+  FUZZY_MATCH_FLOOR,
+  clampFuzzyMinScore,
+  findFuzzyWordMatches,
+  fuzzyWordScore,
+  normalizeWordToken,
+  type FuzzyMatch,
+} from "./fuzzyMatch";
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

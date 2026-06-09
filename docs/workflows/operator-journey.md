@@ -28,7 +28,7 @@ Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
 1. Optional: accept **audio pre-clean** once ([audio_preclean](../pipeline/audio_preclean/README.md)).
 2. Run **Prepare transcript for review** (ingest → transcribe → STT review queue).
-3. **G0:** Open transcript review; fix lowest-confidence clips first; **Complete transcript review**.
+3. **G0:** Open transcript review; fix lowest-confidence clips first using the **synced transcript dock** (word-by-word) or chunk textarea; use **Fix similar words** to batch-replace repeated mishearings; **Complete transcript review**.
 
 Go deeper: [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
@@ -100,7 +100,7 @@ Must match `journey_orchestrator.py` constants (tested in `tests/test_journey_or
 
 | Constant | Text |
 |----------|------|
-| NEXT_ACTION_PREPARE_G0 | Review STT clips (low confidence first) |
+| NEXT_ACTION_PREPARE_G0 | Review STT clips (low confidence first) — dock word editor + **Fix similar words** panel |
 | NEXT_ACTION_PREPARE_RUN | Prepare transcript for review |
 | NEXT_ACTION_UNDERSTAND_RUN | Run understanding analysis |
 | NEXT_ACTION_UNDERSTAND_PROFILE | Review AI story profile |

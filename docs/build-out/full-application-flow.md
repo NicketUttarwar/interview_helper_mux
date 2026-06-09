@@ -76,7 +76,7 @@ flowchart TB
 | 3b | **Resume:** pick row in **Previous executions** | `PUT /api/session/active` | same `exec_*` folder; logs + `.stage_done` intact |
 | 4 | Optional: accept pre-clean offer | `audio_preclean` | `preclean/isolated.wav` |
 | 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions`; optional reuse per stage; write approval when enabled | `.stage_done/*` under same `exec_*` (markers deferred until approve when staging on) |
-| 6 | **G0:** Review ranked STT clips | `transcript_review` completes | `transcript/corrections.json` |
+| 6 | **G0:** Review ranked STT clips (dock word edits + optional fuzzy batch replace) | `transcript_review` completes | `transcript/corrections.json`, `transcript/full.json` (`corrected` words) |
 | 7 | Edit interview profile (optional) | — | `analysis_state.json` |
 | 8 | Continue analysis if paused at G0 | Remaining analysis stages | `analysis_complete.json` |
 | 9 | **G1:** Record pickup lines | `vo_ingest` when re-run | `vo_pickup/*.wav` |

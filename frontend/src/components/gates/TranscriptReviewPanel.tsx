@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
-import { TranscriptDockViewer } from "../workspace/TranscriptDockViewer";
+import {
+  formatCorrectionSummary,
+  TranscriptDockViewer,
+  type TranscriptCorrectionStats,
+} from "../workspace/TranscriptDockViewer";
+import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 
 export function TranscriptReviewPanel() {
   const { run, refreshRun, showToast, loadTranscriptReview, transcriptReview } =
@@ -11,6 +16,9 @@ export function TranscriptReviewPanel() {
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [text, setText] = useState("");
+  const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
+    emptyCorrectionStats(),
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -28,7 +36,14 @@ export function TranscriptReviewPanel() {
 
   useEffect(() => {
     if (chunk) setText(chunk.corrected_text || chunk.text || "");
-  }, [chunk?.chunk_id]);
+  }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text]);
+
+  const syncChunkTextFromDock = async () => {
+    const data = await loadTranscriptReview();
+    if (!data || !chunk) return;
+    const updated = data.chunks.find((c) => c.chunk_id === chunk.chunk_id);
+    if (updated) setText(updated.corrected_text || updated.text || "");
+  };
 
   const saveChunk = async (chunkId: string, reviewed: boolean, useOriginal = false) => {
     if (!run) return;
@@ -56,7 +71,10 @@ export function TranscriptReviewPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
       });
-      showToast("Transcript review complete");
+      const summary = formatCorrectionSummary(correctionStats);
+      showToast(
+        summary ? `${summary} · Transcript review complete` : "Transcript review complete",
+      );
       await refreshRun();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Complete failed");
@@ -169,10 +187,18 @@ export function TranscriptReviewPanel() {
 
       <section className="tr-review-dock-section">
         <h4>Synced transcript editor</h4>
-        <TranscriptDockViewer focusRange={focusRange} seekOnFocus />
+        <TranscriptDockViewer
+          focusRange={focusRange}
+          seekOnFocus
+          onWordsSaved={() => void syncChunkTextFromDock()}
+          onCorrectionStatsChange={setCorrectionStats}
+        />
       </section>
 
       <div className="tr-review-footer">
+        {correctionStats.total > 0 ? (
+          <p className="tr-correction-summary">{formatCorrectionSummary(correctionStats)}</p>
+        ) : null}
         <button
           type="button"
           className="btn primary"

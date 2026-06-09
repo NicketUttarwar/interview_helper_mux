@@ -46,6 +46,20 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 
 ---
 
+## Transcript review (G0) and dock
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| Fuzzy panel shows no matches | Strictness too high or correction not typed yet | Panel hint text; slider at 80% | Type a different correction; lower strictness toward 80% |
+| Batch replace did not apply | **Also replace similar matches** unchecked | Popover checkbox; button label “Replace this word” | Check box and click **Replace N words** |
+| Edit closes when clicking panel | Blur before fix (older builds) | — | Current GUI defers blur when focus stays in `.fuzzy-replace-popover` |
+| Dock save failed | Network or invalid index | Browser network tab, `gui_log.jsonl` | Retry edit; reload transcript (`GET …/transcript`) |
+| Chunk save OK but `full.json` unchanged | Expected until G0 complete | `transcript/corrections.json` vs `full.json` | **Complete transcript review** to merge chunk text |
+| Chunk textarea stale after dock edit | Fixed in current GUI — reload on save | `corrected_text` in `review_queue.json` | Dock save syncs queue; textarea auto-refreshes |
+| Batch replace mistake | Undo available | Dock toolbar **Undo** or ⌘Z | Reverts last edit batch via `PATCH …/transcript/words` |
+
+---
+
 ## Transcription (AWS)
 
 ### Symptom table (behavioral)

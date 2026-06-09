@@ -31,9 +31,10 @@ See [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./sta
 
 **Prompt operator:**
 
-1. Open the GUI stage **Transcript review**
-2. Play each ranked clip (lowest AWS confidence first); edit transcript text; save
-3. Click **Complete transcript review** (applies corrections to `transcript/full.json`)
+1. Open the GUI stage **Transcript review** (checkpoint modal opens when G0 is pending)
+2. For each ranked clip (lowest AWS confidence first): play audio; fix words in the **synced transcript dock** (double-click a word) or bulk-edit the chunk textarea and **Save chunk**
+3. When the same mishearing appears elsewhere, use **Fix similar words** while editing — adjust match strictness (80–100%), then **Replace N words** to batch-correct duplicates
+4. Click **Complete transcript review** (merges chunk corrections into `transcript/full.json`; dock edits are already in `full.json`)
 
 **Skip when:** Operator has completed review (marker file present).
 

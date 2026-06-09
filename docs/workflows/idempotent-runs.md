@@ -42,7 +42,7 @@ When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can 
 | Re-run pickup-only pre-clean | `audio_preclean` with `scope: vo_pickup` (then `vo_ingest`; does not invalidate transcript) |
 | Operator dismissed pre-clean offer | No marker change; continue current lineage |
 | Transcribe failed | `--from-stage transcribe` |
-| STT corrections changed | `--from-stage transcript_review` (re-sign-off) or `transcript_review_build` to rebuild clips |
+| STT corrections changed | Dock word edits already in `transcript/full.json`; chunk queue via `transcript/corrections.json` until complete — `--from-stage transcript_review` (re-sign-off) or `transcript_review_build` to rebuild clips |
 | Changed prompts only | `--from-stage <llm_stage>` |
 | LLM artifact incomplete (GUI **partial**) | `POST …/fill-artifact-gaps` or `--from-stage <producer>` — pipeline may also auto re-run done stages when `should_run_stage_for_artifact` is true ([artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md)) |
 | New VO files added | `--from-stage vo_ingest` |

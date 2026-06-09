@@ -104,6 +104,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 |-------|------|--------|
 | `transcript/full.json` | Words + timestamps; speakers present | [transcription](../pipeline/transcription/README.md), re-`transcribe` |
 | Review queue | `transcript/review_queue.json` chunks have clips | `transcript_review_build` |
+| Dock word edits | `words[].corrected: true` after inline edits; `operator/transcript_corrected.json` updates (`source: dock_edit`) | Re-edit in dock; check `PATCH …/transcript/words` in network log |
+| Fuzzy bulk replace | Repeated mishearings updated in one action; toast “Updated N words” when N &gt; 1 | Lower match strictness; confirm **Also replace similar matches** — [transcript-review.md](../pipeline/transcription/transcript-review.md#fuzzy-find-and-replace-similar-words) |
 | **G0** | `.stage_done/transcript_review` after sign-off | Complete GUI review or CLI sign-off — [transcript-review.md](../pipeline/transcription/transcript-review.md) |
 | Corrections applied | Spot-check: edited chunk text appears in `full.json` after complete | Re-complete review |
 | Partial review | “Accept remaining” used deliberately; know uncorrected chunks remain | Spot-listen high-error regions later |

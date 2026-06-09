@@ -27,6 +27,23 @@ See [operator-journey.md](./operator-journey.md) for CTA strings and milestones.
 
 ---
 
+## G0 — Transcript review panel
+
+Rendered in the **operator action modal** when `transcript_review` is `action_required` (also available on stage detail for `transcribe` / `transcript_review`).
+
+| Area | Branching |
+|------|-----------|
+| Chunk list | Previous / Next / dropdown; auto-advance after **Save chunk** |
+| Clip audio | Per-chunk `review_clips/*.wav` player |
+| Bulk edit | Textarea + **Save chunk** / **Mark reviewed (no change)** |
+| Synced dock | `TranscriptDockViewer` — karaoke word flow, click seek, double-click inline edit |
+| Fuzzy panel | `FuzzyReplacePopover` opens on edit; dismiss × or backdrop → **Find similar** pill reopens; strictness slider 80–100%; match rows seek + scroll transcript |
+| Complete | **Complete transcript review** or **Accept remaining & complete** → unblocks `speaker_roles` |
+
+Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `transcript/corrections.json` until complete merges into `full.json`.
+
+---
+
 ## Key operator decisions
 
 | Decision | Where | Commits? |

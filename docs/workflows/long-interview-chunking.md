@@ -70,7 +70,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 
 | Goal | Typical `--from-stage` |
 |------|-------------------------|
-| Fix transcript only | `transcript_review` sign-off then `speaker_roles` or full `analysis` |
+| Fix transcript only | Dock word edits (`PATCH …/transcript/words`) or G0 chunk queue; then `transcript_review` sign-off and `speaker_roles` or full `analysis` |
 | Fix semantic brief only | `content_context` (invalidates reanchor + downstream) |
 | Fix timeline anchors / topic links | `content_brief_reanchor` (after manifest exists) |
 | Fix segmentation only | `boundary_detection` (invalidates downstream) |

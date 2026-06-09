@@ -38,6 +38,10 @@ python tools/run_analysis.py --from-stage transcribe
 
 Check AWS S3 upload and `aws transcribe` job status in logs.
 
+## Word-level STT fixes (G0 dock)
+
+For localized mishearings (not full re-transcribe): open **Transcript review**, use the synced dock or **Fix similar words** batch replace, then complete G0. Dock edits write `transcript/full.json` immediately via `PATCH …/transcript/words`. See [transcript-review.md](../pipeline/transcription/transcript-review.md).
+
 ## Re-segment
 
 When boundaries are wrong:

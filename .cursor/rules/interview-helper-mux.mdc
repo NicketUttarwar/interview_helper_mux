@@ -71,7 +71,7 @@ Do not run Flow 1 extended stages (`topic_coverage_audit`+) unless **`run_meta.j
 
 | Gate | When | Action |
 |------|------|--------|
-| **G0** | After `transcript_review_build` | Operator fixes STT in GUI; complete before `speaker_roles` |
+| **G0** | After `transcript_review_build` | Operator fixes STT in GUI (synced dock + fuzzy similar-word replace); complete before `speaker_roles` |
 | **G1** | After analysis / `optimal_questions` | If `delivery: record` gaps lack **`vo_pickup/*.wav`**, stop until recorded; then `vo_ingest` |
 | **G2** | After G1 clear | Set **`selected_flow`**: `flow1` \| `flow2` \| `flow3` in **`run_meta.json`** before flow pipeline |
 | **Profile** | Before Flow 1 `topic_coverage_audit` | **`meta.operator_verified: true`** in **`analysis_state.json`** |

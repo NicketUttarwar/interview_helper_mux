@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,12 +10,37 @@ import {
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
+import {
+  FUZZY_MATCH_DEFAULT,
+  findFuzzyWordMatches,
+} from "../../utils/fuzzyMatch";
 import type { TranscriptState, TranscriptWord } from "../../types";
+import {
+  addCorrectionStats,
+  emptyCorrectionStats,
+  formatCorrectionSummary,
+  type TranscriptCorrectionStats,
+} from "../../utils/transcriptCorrectionStats";
+import { FuzzyReplacePopover } from "./FuzzyReplacePopover";
+
+export type { TranscriptCorrectionStats };
+export { formatCorrectionSummary };
 
 export interface TranscriptFocusRange {
   start_ms: number;
   end_ms: number;
   label?: string;
+}
+
+interface WordUndoSnapshot {
+  index: number;
+  text: string;
+  corrected?: boolean;
+}
+
+interface UndoEntry {
+  snapshots: WordUndoSnapshot[];
+  statsDelta: TranscriptCorrectionStats;
 }
 
 interface Props {
@@ -23,7 +49,14 @@ interface Props {
   /** Seek playback to focus range when it changes. */
   seekOnFocus?: boolean;
   compact?: boolean;
+  /** Called after word edits persist (e.g. refresh chunk textarea). */
+  onWordsSaved?: () => void;
+  /** Session correction totals for review summary. */
+  onCorrectionStatsChange?: (stats: TranscriptCorrectionStats) => void;
 }
+
+const BATCH_REPLACE_CONFIRM_MIN = 3;
+const MAX_UNDO_STACK = 30;
 
 function findActiveWordIndex(words: TranscriptWord[], timeMs: number): number {
   if (!words.length) return -1;
@@ -39,8 +72,10 @@ export function TranscriptDockViewer({
   focusRange = null,
   seekOnFocus = false,
   compact = false,
+  onWordsSaved,
+  onCorrectionStatsChange,
 }: Props) {
-  const { runId, showToast } = useApp();
+  const { runId, showToast, confirm } = useApp();
   const [transcript, setTranscript] = useState<TranscriptState | null>(null);
   const [words, setWords] = useState<TranscriptWord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,15 +84,28 @@ export function TranscriptDockViewer({
   const [playing, setPlaying] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editOriginalText, setEditOriginalText] = useState("");
+  const [fuzzyMinScore, setFuzzyMinScore] = useState(FUZZY_MATCH_DEFAULT);
+  const [selectedFuzzyIndices, setSelectedFuzzyIndices] = useState<Set<number>>(new Set());
+  const [fuzzyPopoverDismissed, setFuzzyPopoverDismissed] = useState(false);
+  const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
+    emptyCorrectionStats,
+  );
+  const [editAnchorEl, setEditAnchorEl] = useState<HTMLElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [followPlayback, setFollowPlayback] = useState(true);
+  const [undoAvailable, setUndoAvailable] = useState(false);
 
   const playerRef = useRef<HTMLAudioElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
+  const editInputRef = useRef<HTMLInputElement>(null);
   const pendingSaves = useRef<Map<number, string>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusKey = useRef<string>("");
+  const prevFuzzyMatchCount = useRef(0);
+  const undoStack = useRef<UndoEntry[]>([]);
+  const dockRef = useRef<HTMLDivElement>(null);
 
   const loadTranscript = useCallback(async () => {
     if (!runId) return;
@@ -107,12 +155,13 @@ export function TranscriptDockViewer({
       if (result.words) setWords(result.words);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 1800);
+      onWordsSaved?.();
     } catch (e) {
       setSaveStatus("idle");
       showToast(e instanceof Error ? e.message : "Save failed");
       for (const u of updates) pendingSaves.current.set(u.index, u.text);
     }
-  }, [runId, showToast]);
+  }, [runId, showToast, onWordsSaved]);
 
   const queueSave = useCallback(
     (index: number, text: string) => {
@@ -134,6 +183,16 @@ export function TranscriptDockViewer({
     setPlayheadMs(ms);
     if (playerRef.current) playerRef.current.currentTime = ms / 1000;
   }, []);
+
+  const seekToWord = useCallback(
+    (index: number) => {
+      const word = words[index];
+      if (!word) return;
+      seekTo(word.start_ms);
+      wordRefs.current.get(index)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    },
+    [words, seekTo],
+  );
 
   useEffect(() => {
     if (!focusRange || !seekOnFocus) return;
@@ -164,24 +223,176 @@ export function TranscriptDockViewer({
     else player.pause();
   };
 
+  const fuzzyMatches = useMemo(() => {
+    if (editingIndex === null) return [];
+    return findFuzzyWordMatches(
+      words,
+      editingIndex,
+      editOriginalText,
+      fuzzyMinScore,
+      editDraft,
+    );
+  }, [words, editingIndex, editOriginalText, fuzzyMinScore, editDraft]);
+
+  const approvedFuzzyMatches = useMemo(
+    () => fuzzyMatches.filter((m) => selectedFuzzyIndices.has(m.index)),
+    [fuzzyMatches, selectedFuzzyIndices],
+  );
+
+  const fuzzyCandidateIndices = useMemo(() => {
+    if (editingIndex === null || fuzzyPopoverDismissed) return new Set<number>();
+    return new Set(approvedFuzzyMatches.map((m) => m.index));
+  }, [editingIndex, fuzzyPopoverDismissed, approvedFuzzyMatches]);
+
+  const recordCorrection = useCallback(
+    (totalAdded: number, fuzzyBatchAdded: number) => {
+      if (totalAdded <= 0) return;
+      setCorrectionStats((prev) => {
+        const next = addCorrectionStats(prev, totalAdded, fuzzyBatchAdded);
+        onCorrectionStatsChange?.(next);
+        return next;
+      });
+    },
+    [onCorrectionStatsChange],
+  );
+
+  const pushUndo = useCallback(
+    (indices: number[], statsDelta: TranscriptCorrectionStats) => {
+      const snap: WordUndoSnapshot[] = [];
+      for (const index of indices) {
+        const word = words[index];
+        if (!word) continue;
+        snap.push({ index, text: word.text, corrected: word.corrected });
+      }
+      if (!snap.length) return;
+      undoStack.current.push({ snapshots: snap, statsDelta });
+      if (undoStack.current.length > MAX_UNDO_STACK) undoStack.current.shift();
+      setUndoAvailable(true);
+    },
+    [words],
+  );
+
+  const endEdit = () => {
+    setEditingIndex(null);
+    setFuzzyPopoverDismissed(false);
+    setSelectedFuzzyIndices(new Set());
+  };
+
+  const applyWordUpdates = useCallback(
+    (indices: number[], text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setWords((prev) => {
+        const next = [...prev];
+        for (const idx of indices) {
+          if (next[idx]) next[idx] = { ...next[idx], text: trimmed, corrected: true };
+        }
+        return next;
+      });
+      for (const idx of indices) queueSave(idx, trimmed);
+    },
+    [queueSave],
+  );
+
   const commitEdit = (index: number) => {
     const trimmed = editDraft.trim();
     if (!trimmed) {
-      setEditingIndex(null);
+      endEdit();
       return;
     }
+    if (words[index]?.text !== trimmed) {
+      pushUndo([index], { total: 1, fuzzyBatch: 0 });
+      recordCorrection(1, 0);
+    }
+    applyWordUpdates([index], trimmed);
+    endEdit();
+  };
+
+  const applyFuzzyReplace = async () => {
+    if (editingIndex === null) return;
+    const trimmed = editDraft.trim();
+    if (!trimmed) return;
+
+    const targetIndices = new Set<number>([editingIndex]);
+    for (const m of approvedFuzzyMatches) targetIndices.add(m.index);
+    const indices = Array.from(targetIndices);
+    const fuzzyBatchCount = approvedFuzzyMatches.length;
+
+    if (indices.length >= BATCH_REPLACE_CONFIRM_MIN) {
+      const ok = await confirm(
+        fuzzyBatchCount > 0
+          ? `Replace ${indices.length} words with “${trimmed}”? ${fuzzyBatchCount} similar match${fuzzyBatchCount === 1 ? "" : "es"} plus the word you are editing.`
+          : `Replace this word with “${trimmed}”?`,
+      );
+      if (!ok) return;
+    }
+
+    const changed = indices.filter((idx) => words[idx]?.text !== trimmed);
+    const fuzzyChangedCount = changed.filter((idx) =>
+      approvedFuzzyMatches.some((m) => m.index === idx),
+    ).length;
+    if (changed.length) {
+      pushUndo(changed, { total: changed.length, fuzzyBatch: fuzzyChangedCount });
+      recordCorrection(changed.length, fuzzyChangedCount);
+    }
+    applyWordUpdates(indices, trimmed);
+    const summary = formatCorrectionSummary({
+      total: changed.length,
+      fuzzyBatch: fuzzyChangedCount,
+    });
+    showToast(summary || `Updated ${indices.length} words`);
+    endEdit();
+  };
+
+  const undoLastEdit = useCallback(async () => {
+    const entry = undoStack.current.pop();
+    if (!entry?.snapshots.length) {
+      setUndoAvailable(undoStack.current.length > 0);
+      return;
+    }
+    setUndoAvailable(undoStack.current.length > 0);
     setWords((prev) => {
       const next = [...prev];
-      if (next[index]) next[index] = { ...next[index], text: trimmed, corrected: true };
+      for (const s of entry.snapshots) {
+        if (!next[s.index]) continue;
+        next[s.index] = {
+          ...next[s.index],
+          text: s.text,
+          corrected: s.corrected,
+        };
+      }
       return next;
     });
-    queueSave(index, trimmed);
-    setEditingIndex(null);
+    setCorrectionStats((prev) => {
+      const next = {
+        total: Math.max(0, prev.total - entry.statsDelta.total),
+        fuzzyBatch: Math.max(0, prev.fuzzyBatch - entry.statsDelta.fuzzyBatch),
+      };
+      onCorrectionStatsChange?.(next);
+      return next;
+    });
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    for (const s of entry.snapshots) pendingSaves.current.set(s.index, s.text);
+    await flushSaves();
+    showToast("Undid last edit");
+  }, [flushSaves, showToast, onCorrectionStatsChange]);
+
+  const handleEditBlur = (index: number) => {
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active?.closest(".fuzzy-replace-popover")) return;
+      commitEdit(index);
+    }, 0);
   };
 
   const startEdit = (index: number) => {
+    const original = words[index]?.text || "";
     setEditingIndex(index);
-    setEditDraft(words[index]?.text || "");
+    setEditDraft(original);
+    setEditOriginalText(original);
+    setFuzzyMinScore(FUZZY_MATCH_DEFAULT);
+    setSelectedFuzzyIndices(new Set());
+    setFuzzyPopoverDismissed(false);
   };
 
   const onWordKeyDown = (e: KeyboardEvent<HTMLInputElement>, index: number) => {
@@ -189,9 +400,49 @@ export function TranscriptDockViewer({
       e.preventDefault();
       commitEdit(index);
     } else if (e.key === "Escape") {
-      setEditingIndex(null);
+      endEdit();
     }
   };
+
+  const showFuzzyPopover = editingIndex !== null && !fuzzyPopoverDismissed;
+
+  useLayoutEffect(() => {
+    if (editingIndex === null) {
+      setEditAnchorEl(null);
+      return;
+    }
+    setEditAnchorEl(editInputRef.current);
+  }, [editingIndex, editDraft]);
+
+  useEffect(() => {
+    if (editingIndex === null) {
+      prevFuzzyMatchCount.current = 0;
+      return;
+    }
+    setSelectedFuzzyIndices((prev) => {
+      const next = new Set(prev);
+      const matchIndices = new Set(fuzzyMatches.map((m) => m.index));
+      for (const m of fuzzyMatches) next.add(m.index);
+      for (const idx of next) {
+        if (!matchIndices.has(idx)) next.delete(idx);
+      }
+      return next;
+    });
+    prevFuzzyMatchCount.current = fuzzyMatches.length;
+  }, [fuzzyMatches, editingIndex]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (editingIndex !== null) return;
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      if (!undoStack.current.length) return;
+      e.preventDefault();
+      void undoLastEdit();
+    };
+    const el = dockRef.current;
+    el?.addEventListener("keydown", onKeyDown);
+    return () => el?.removeEventListener("keydown", onKeyDown);
+  }, [editingIndex, undoLastEdit]);
 
   const speakerLabels = useMemo(() => {
     const map = new Map<string, string>();
@@ -218,7 +469,11 @@ export function TranscriptDockViewer({
   const progressPct = durationMs > 0 ? Math.min(100, (playheadMs / durationMs) * 100) : 0;
 
   return (
-    <div className={`transcript-dock${compact ? " compact" : ""}`}>
+    <div
+      ref={dockRef}
+      className={`transcript-dock${compact ? " compact" : ""}`}
+      tabIndex={-1}
+    >
       <div className="transcript-dock-toolbar">
         <button
           type="button"
@@ -266,6 +521,20 @@ export function TranscriptDockViewer({
             {saveStatus === "saving" ? "Saving…" : "Saved"}
           </span>
         ) : null}
+        {undoAvailable ? (
+          <button
+            type="button"
+            className="btn sm ghost transcript-undo-btn"
+            onClick={() => void undoLastEdit()}
+          >
+            Undo
+          </button>
+        ) : null}
+        {correctionStats.total > 0 ? (
+          <span className="transcript-correction-summary-pill" title="Session correction total">
+            {formatCorrectionSummary(correctionStats)}
+          </span>
+        ) : null}
         {focusRange ? (
           <span className="transcript-focus-badge">
             {focusRange.label || "Review clip"} · {formatMs(focusRange.start_ms)}–
@@ -311,14 +580,27 @@ export function TranscriptDockViewer({
                   </span>
                 ) : null}
                 {editingIndex === i ? (
-                  <input
-                    className="transcript-word-input"
-                    value={editDraft}
-                    autoFocus
-                    onChange={(e) => setEditDraft(e.target.value)}
-                    onBlur={() => commitEdit(i)}
-                    onKeyDown={(e) => onWordKeyDown(e, i)}
-                  />
+                  <span className="transcript-word-edit-wrap">
+                    <input
+                      ref={editInputRef}
+                      className="transcript-word-input"
+                      value={editDraft}
+                      autoFocus
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onBlur={() => handleEditBlur(i)}
+                      onKeyDown={(e) => onWordKeyDown(e, i)}
+                    />
+                    {fuzzyPopoverDismissed ? (
+                      <button
+                        type="button"
+                        className="fuzzy-reopen-btn"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setFuzzyPopoverDismissed(false)}
+                      >
+                        Find similar
+                      </button>
+                    ) : null}
+                  </span>
                 ) : (
                   <span
                     ref={(el) => {
@@ -332,6 +614,7 @@ export function TranscriptDockViewer({
                       isLowConf ? "low-conf" : "",
                       word.corrected ? "corrected" : "",
                       focusRange && !inFocus ? "out-of-focus" : "",
+                      fuzzyCandidateIndices.has(i) ? "fuzzy-candidate" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
@@ -360,10 +643,37 @@ export function TranscriptDockViewer({
 
       <div className="transcript-dock-footer">
         <span className="muted">
-          Click a word to seek · double-click to edit · edits save automatically
+          Click to seek · double-click to edit · ⌘Z undo · similar-word fixer while editing
         </span>
         <span className="muted">{words.length} words</span>
       </div>
+
+      {showFuzzyPopover ? (
+        <FuzzyReplacePopover
+          anchorEl={editAnchorEl}
+          sourceText={editOriginalText}
+          correctionDraft={editDraft}
+          matches={fuzzyMatches}
+          selectedMatchIndices={selectedFuzzyIndices}
+          minScore={fuzzyMinScore}
+          onMinScoreChange={setFuzzyMinScore}
+          onToggleMatch={(index, included) => {
+            setSelectedFuzzyIndices((prev) => {
+              const next = new Set(prev);
+              if (included) next.add(index);
+              else next.delete(index);
+              return next;
+            });
+          }}
+          onSelectAllMatches={() => {
+            setSelectedFuzzyIndices(new Set(fuzzyMatches.map((m) => m.index)));
+          }}
+          onClearAllMatches={() => setSelectedFuzzyIndices(new Set())}
+          onReplace={() => void applyFuzzyReplace()}
+          onClose={() => setFuzzyPopoverDismissed(true)}
+          onSeekToMatch={seekToWord}
+        />
+      ) : null}
     </div>
   );
 }

@@ -114,7 +114,7 @@ def apply_corrections(ctx: RunContext) -> None:
         text = (patch.get("text") or "").strip()
         if not text:
             continue
-        words = _replace_words_in_range(
+        words = _apply_correction_to_range(
             words,
             chunk["start_ms"],
             chunk["end_ms"],
@@ -179,6 +179,7 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
     full = ctx.read_json("transcript/full.json")
     words: list[dict[str, Any]] = list(full.get("words") or [])
     applied = 0
+    edited_indices: list[int] = []
     for upd in updates:
         idx = upd.get("index")
         text = (upd.get("text") or "").strip()
@@ -186,17 +187,27 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
             continue
         words[idx]["text"] = text
         words[idx]["corrected"] = True
+        edited_indices.append(idx)
         applied += 1
+
     if applied:
         full["words"] = words
         full["text"] = " ".join(w["text"] for w in words if w.get("text"))
         ctx.write_json("transcript/full.json", full)
+        synced_chunks = _sync_review_queue_from_word_edits(ctx, words, edited_indices)
         persist_operator_transcript(ctx, source="dock_edit")
         ctx.log(
             f"Transcript dock: saved {applied} word edit(s).",
             level="info",
             stage="transcript_review",
         )
+        return {
+            "ok": True,
+            "updated_count": applied,
+            "words": words,
+            "text": full.get("text") or "",
+            "synced_chunk_ids": synced_chunks,
+        }
     return {"ok": True, "updated_count": applied, "words": words, "text": full.get("text") or ""}
 
 
@@ -316,6 +327,99 @@ def _make_chunk(
         "word_count": len(span_words),
         "confidence": confidence,
     }
+
+
+def _words_overlapping_range(
+    words: list[dict[str, Any]], start_ms: int, end_ms: int
+) -> list[dict[str, Any]]:
+    return [
+        w
+        for w in words
+        if w["start_ms"] < end_ms and w["end_ms"] > start_ms
+    ]
+
+
+def _text_for_word_range(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str:
+    span = _words_overlapping_range(words, start_ms, end_ms)
+    return " ".join(w["text"] for w in span if w.get("text"))
+
+
+def _sync_review_queue_from_word_edits(
+    ctx: RunContext,
+    words: list[dict[str, Any]],
+    edited_indices: list[int],
+) -> list[str]:
+    """Mirror dock word edits into review queue chunk text and corrections.json."""
+    if not ctx.artifact_exists("transcript/review_queue.json"):
+        return []
+
+    queue = ctx.read_json("transcript/review_queue.json")
+    chunks = list(queue.get("chunks") or [])
+    corrections_data = (
+        ctx.read_json("transcript/corrections.json")
+        if ctx.artifact_exists("transcript/corrections.json")
+        else {"corrections": {}}
+    )
+    corrections = corrections_data.setdefault("corrections", {})
+
+    affected_chunk_ids: set[str] = set()
+    for idx in edited_indices:
+        if idx < 0 or idx >= len(words):
+            continue
+        word = words[idx]
+        w_start = word.get("start_ms", 0)
+        w_end = word.get("end_ms", 0)
+        for chunk in chunks:
+            if w_start < chunk.get("end_ms", 0) and w_end > chunk.get("start_ms", 0):
+                affected_chunk_ids.add(chunk["chunk_id"])
+
+    for chunk_id in sorted(affected_chunk_ids):
+        chunk = next((c for c in chunks if c.get("chunk_id") == chunk_id), None)
+        if not chunk:
+            continue
+        synced = _text_for_word_range(words, chunk["start_ms"], chunk["end_ms"])
+        chunk["corrected_text"] = synced
+        entry = corrections.get(chunk_id) or {}
+        entry["text"] = synced
+        entry.setdefault("reviewed", False)
+        corrections[chunk_id] = entry
+
+    queue["chunks"] = chunks
+    ctx.write_json("transcript/review_queue.json", queue)
+    ctx.write_json("transcript/corrections.json", corrections_data)
+    return sorted(affected_chunk_ids)
+
+
+def _apply_correction_to_range(
+    words: list[dict[str, Any]],
+    start_ms: int,
+    end_ms: int,
+    text: str,
+    speaker_id: str | None,
+) -> list[dict[str, Any]]:
+    """Apply chunk correction without destroying dock word-level edits when possible."""
+    text = text.strip()
+    if not text:
+        return words
+
+    span = _words_overlapping_range(words, start_ms, end_ms)
+    current = " ".join(w["text"] for w in span if w.get("text"))
+    if current == text:
+        return words
+
+    tokens = text.split()
+    dock_corrected = bool(span) and all(w.get("corrected") for w in span)
+
+    if dock_corrected:
+        return words
+
+    if span and len(tokens) == len(span):
+        for word, token in zip(span, tokens):
+            word["text"] = token
+            word["corrected"] = True
+        return words
+
+    return _replace_words_in_range(words, start_ms, end_ms, text, speaker_id)
 
 
 def _replace_words_in_range(

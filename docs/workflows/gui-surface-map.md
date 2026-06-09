@@ -81,6 +81,16 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 Gate/checkpoint panels render in the **operator action modal**, not inline on Stage.
 
+### G0 transcript review panel (action modal)
+
+| Component | File | APIs | Operator actions |
+|-----------|------|------|------------------|
+| Chunk navigator + clip audio + bulk textarea | `TranscriptReviewPanel` | `GET/PUT …/transcript-review`, `POST …/complete` | Previous/Next clip, **Save chunk**, **Complete transcript review** |
+| Synced word-level dock | `TranscriptDockViewer` | `GET …/transcript`, `PATCH …/transcript/words` | Click seek, double-click edit, debounced save |
+| Fuzzy similar-word panel | `FuzzyReplacePopover` | *(client)* → batch `PATCH …/transcript/words` | Match strictness 80–100%, jump to match, **Replace N words** |
+
+Also mounted on **Transcribe** / **Transcript review** stage detail (`StageDetail`) without the chunk navigator.
+
 ---
 
 ## Logs tab
@@ -156,7 +166,7 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
-| **Transcript review** (G0) | `transcript_review` | `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` | `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `.stage_done/transcript_review` |
+| **Transcript review** (G0) | `transcript_review` | `GET …/transcript`, `PATCH …/transcript/words`, `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` (`Transcript dock: saved N word edit(s).`) | `transcript/full.json`, `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `operator/transcript_corrected.*`, `.stage_done/transcript_review` |
 | **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
 | **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |

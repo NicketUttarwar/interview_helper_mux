@@ -33,7 +33,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `ingest` | shipped | `ingest.py` | BUILD-020 | `ingest/normalized.wav`, `ingest/checksums.json` | — |
 | `transcribe` | shipped | `transcribe_aws.py` | BUILD-021 | `transcript/full.json`, `transcript/speakers.json` | — |
 | `transcript_review_build` | shipped | `transcript_review.py` | BUILD-018 | `transcript/review_queue.json` | — |
-| `transcript_review` | gate | `transcript_review.py` | BUILD-018 | `transcript/corrections.json` | — |
+| `transcript_review` | gate | `transcript_review.py` | BUILD-018 | `transcript/corrections.json`; dock: `patch_transcript_words` → `transcript/full.json` | GUI: `TranscriptDockViewer`, `FuzzyReplacePopover` |
 | `speaker_roles` | shipped | `understanding.py` | BUILD-022 | `understanding/speakers.json` | `understanding/speaker-roles` |
 | `content_context` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` | `understanding/content-context` |
 | `boundary_detection` | shipped | `segmentation.py` | BUILD-024 | `segments/boundaries.json` | `segmentation/boundary-detection` |

@@ -76,8 +76,8 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments` (with `_manifest_*` bounds), `vo_lines`, `nle`, `normalized_audio` | **404** |
 | `GET` | `/api/runs/{run_id}/assembly-timeline` | — | — | `ready`, `clips[]`, `chapters[]`, `timeline_duration_ms`, `preview_audio` | **404** |
 | `GET` | `/api/runs/{run_id}/waveform` | `path` (default `ingest/normalized.wav`) | — | `peaks[]`, `window_ms`, `duration_ms` | **404** |
-| `GET` | `/api/runs/{run_id}/transcript` | — | — | `ready`, `words[]`, `duration_ms`, `audio_path` | **404** |
-| `PATCH` | `/api/runs/{run_id}/transcript/words` | — | **TranscriptWordsPatchBody** | `ok`, `words` | **404** |
+| `GET` | `/api/runs/{run_id}/transcript` | — | — | `ready`, `words[]`, `duration_ms`, `audio_path`, `low_confidence_threshold`, `review_applied_at` — see **Transcript dock word edits** | **404** |
+| `PATCH` | `/api/runs/{run_id}/transcript/words` | — | **TranscriptWordsPatchBody** | `ok`, `updated_count`, `words`, `text` — batch-safe (fuzzy replace) | **404** |
 | `GET` | `/api/runs/{run_id}/nle` | — | — | NLE JSON object | **404** |
 | `PUT` | `/api/runs/{run_id}/nle` | — | **NleBody** | `ok: true` | **404** |
 | `PATCH` | `/api/runs/{run_id}/nle/segment` | — | **NleSegmentBody** | `ok`, `nle` | **404** |
@@ -242,6 +242,36 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 | `complete` | Whether `.stage_done/transcript_review` exists |
 | `chunks` | From `review_queue.json` |
 | `pending_count` / `chunk_count` / `low_confidence_threshold` | When `ready` |
+
+### Transcript dock word edits
+
+**`GET /api/runs/{run_id}/transcript`** — word-level karaoke editor state.
+
+| Key | Notes |
+|-----|-------|
+| `ready` | `false` until `transcript/full.json` exists |
+| `words[]` | `{ text, start_ms, end_ms, speaker_id?, confidence?, corrected? }` |
+| `duration_ms` | From ingest audio |
+| `audio_path` | Typically `ingest/normalized.wav` for synced playback |
+| `low_confidence_threshold` | Default **0.85** — UI flags words below this |
+| `review_applied_at` | Set after G0 complete |
+
+**`PATCH /api/runs/{run_id}/transcript/words`** — body **TranscriptWordsPatchBody**:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `updates` | `TranscriptWordPatch[]` | One or more word edits |
+
+**TranscriptWordPatch:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `index` | int | Zero-based index into `full.json` `words[]` |
+| `text` | string | Replacement token (trimmed server-side) |
+
+**Response:** `{ ok, updated_count, words, text }` — writes `transcript/full.json` immediately, sets `words[i].corrected = true`, rebuilds `full.text`, persists `operator/transcript_corrected.*` (`source: dock_edit`).
+
+The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]` that batches multiple `updates` through this endpoint (no separate fuzzy API). See [transcript-review.md](../pipeline/transcription/transcript-review.md#fuzzy-find-and-replace-similar-words).
 
 ---
 

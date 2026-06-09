@@ -81,7 +81,7 @@ See [audio_preclean/README.md](./pipeline/audio_preclean/README.md) and [operato
 | Word error rate heuristic acceptable | Continue | Re-transcribe or human QC |
 | Speaker labels present | Continue | Run diarization |
 | Timestamps monotonic | Continue | Fix alignment |
-| G0 transcript review signed off | Continue | GUI: ranked low-confidence clips |
+| G0 transcript review signed off | Continue | GUI: ranked clips + synced dock word editor + fuzzy similar-word replace |
 
 AWS per-word `confidence` drives review queue ordering; see [transcript-review.md](./pipeline/transcription/transcript-review.md).
 
@@ -313,7 +313,7 @@ flowchart TD
 
 | Gate | Condition | Action |
 |------|-----------|--------|
-| **G0** | `review_queue.json` present, transcript review not signed off | GUI: correct ranked STT clips, complete review |
+| **G0** | `review_queue.json` present, transcript review not signed off | GUI: ranked clips + synced dock + fuzzy similar-word replace; complete review |
 | **G1** | `delivery: record` in gap report without `vo_pickup/*.wav` | Stop; operator records from `interviewer_script.txt` |
 | **G2** | Analysis complete, G1 clear | Operator selects `flow1`, `flow2`, or `flow3` in `run_meta.json` |
 

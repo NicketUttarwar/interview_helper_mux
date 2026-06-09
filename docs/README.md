@@ -40,6 +40,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md) | Per-stage operator verification |
 | [workflows/troubleshooting.md](./workflows/troubleshooting.md) | Symptom playbook + guards |
 | [workflows/smoke-test.md](./workflows/smoke-test.md) | Greenfield machine checklist |
+| [pipeline/transcription/transcript-review.md](./pipeline/transcription/transcript-review.md) | G0 operator STT QC — synced dock, fuzzy similar-word replace |
 | [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md) | STT + diarization options (catalog) |
 | [pipeline/transcription/source-separation-and-enhancement.md](./pipeline/transcription/source-separation-and-enhancement.md) | Denoise / separation options |
 

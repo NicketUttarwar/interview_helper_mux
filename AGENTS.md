@@ -33,6 +33,7 @@
 
 ## Audio / STT / ElevenLabs (when implementing those areas)
 
+- [docs/pipeline/transcription/transcript-review.md](docs/pipeline/transcription/transcript-review.md) — G0 gate, synced dock word editor, fuzzy similar-word replace
 - [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md)
 - [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md)
 - [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md)
