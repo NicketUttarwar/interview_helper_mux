@@ -16,6 +16,10 @@ The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` �
 
 Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
+**Same interview, new execution:** Starting a second run on the same WAV gets the same `source_audio_hash`. The **Executions** tab shows **Same audio** on matching runs. At each stage you can **Reuse outputs** from a prior execution instead of re-running expensive steps — [stage-execution-reuse.md](./stage-execution-reuse.md).
+
+**Review before save:** By default, each automated stage pauses in **Review outputs before saving** so you can preview JSON, text, and audio before files land on disk. Approve to continue or discard to re-run — see [gui-surface-map.md](./gui-surface-map.md).
+
 ---
 
 ## Phase: Prepare

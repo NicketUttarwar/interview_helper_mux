@@ -123,6 +123,23 @@ export function resolvePipelineNav(
   if (opts.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
     statusLine = job?.message || `Running ${job?.stage || "pipeline"}…`;
     nextLine = "Watch Logs for progress.";
+  } else if (job?.status === "awaiting_write_approval" || job?.awaiting_write_approval) {
+    const sid = job.pending_write_stage || job.stage;
+    const stage = sid ? run.stages.find((s) => s.id === sid) : null;
+    statusLine = stage
+      ? `${stage.title} — review outputs before saving`
+      : "Review stage outputs before saving";
+    nextLine = "Approve or discard staged files in the checkpoint panel.";
+    primaryAction = "checkpoint";
+    canRunNext = true;
+  } else if (job?.needs_stage_reuse && job.stage) {
+    const stage = run.stages.find((s) => s.id === job.stage);
+    statusLine = stage
+      ? `${stage.title} — reuse from a previous execution?`
+      : "Choose reuse or run fresh";
+    nextLine = "Pick a prior run with the same source audio hash, or run this step fresh.";
+    primaryAction = "checkpoint";
+    canRunNext = true;
   } else if (job?.status === "gate" || run.stages.some((s) => s.status === "action_required")) {
     const gate =
       run.stages.find((s) => s.status === "action_required") ||

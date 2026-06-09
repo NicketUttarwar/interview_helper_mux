@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from threading import Lock, Thread
-from typing import Any
+from typing import Any, Iterator
 
 from interview_mux.api_providers import (
     PROVIDERS,
@@ -37,7 +38,17 @@ from interview_mux.stage_execution_reuse import (
     check_stage_reuse_before_execute,
     clear_stage_reuse_from,
 )
+from interview_mux.write_staging import (
+    WriteApprovalPending,
+    check_write_approval_before_execute,
+)
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
+
+
+class RunBusyError(RuntimeError):
+    def __init__(self, run_id: str) -> None:
+        super().__init__(f"A job is already running for run {run_id}")
+        self.run_id = run_id
 
 
 class JobRunner:
@@ -69,6 +80,17 @@ class JobRunner:
     def is_running(self, run_id: str) -> bool:
         status = self.get_job(run_id).get("status")
         return status in ("running", "running_with_warnings")
+
+    @contextmanager
+    def run_guard(self, run_id: str) -> Iterator[None]:
+        """Serialize mutating API calls with background execute for one run."""
+        lock = self._lock_for(run_id)
+        if not lock.acquire(blocking=False):
+            raise RunBusyError(run_id)
+        try:
+            yield
+        finally:
+            lock.release()
 
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
         return merge_consents(
@@ -224,6 +246,31 @@ class JobRunner:
             nle_full_refresh=nle_full_refresh,
             nle_apply_mode=nle_apply_mode,
         )
+        write_pending = check_write_approval_before_execute(ctx_pre)
+        if write_pending:
+            msg = str(write_pending)
+            ctx_pre.log(msg, level="action", stage=write_pending.stage_id)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "awaiting_write_approval",
+                    "mode": mode,
+                    "stage": write_pending.stage_id,
+                    "message": msg,
+                    "pending_write_stage": write_pending.stage_id,
+                    "pending_write_paths": write_pending.paths,
+                },
+            )
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "awaiting_write_approval": True,
+                "pending_write_stage": write_pending.stage_id,
+                "pending_write_paths": write_pending.paths,
+            }
+
         reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
         if reuse_pending:
             msg = str(reuse_pending)
@@ -404,6 +451,21 @@ class JobRunner:
                 self._write_job(
                     ctx,
                     {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
+                )
+            except WriteApprovalPending as exc:
+                gate_msg = str(exc)
+                ctx.log(gate_msg, level="action", stage=exc.stage_id)
+                refresh_journey_meta(ctx)
+                self._write_job(
+                    ctx,
+                    {
+                        "status": "awaiting_write_approval",
+                        "mode": mode,
+                        "stage": exc.stage_id,
+                        "message": gate_msg,
+                        "pending_write_stage": exc.stage_id,
+                        "pending_write_paths": exc.paths,
+                    },
                 )
             except StageReuseOfferPending as exc:
                 gate_msg = str(exc)

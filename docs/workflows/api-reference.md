@@ -23,7 +23,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 ## Conventions
 
-- **`{run_id}`** — Execution directory name (`exec_NNN_…` or legacy `run_NNN`). Unknown id → **404** `Run not found`.
+- **`{run_id}`** — Execution directory name. New format: `exec_NNN_<hash12>_TIMESTAMP` (12-char `source_audio_hash_short` embedded). Legacy: `exec_NNN_TIMESTAMP` or `run_NNN`. Unknown id → **404** `Run not found`.
 - **Artifact paths** — Query/body paths must be **relative to run root**, no `..`, no leading `/` — else **400** `Invalid artifact path`.
 - **JSON responses** — Unless noted, `application/json`. Audio routes return **`FileResponse`** with guessed `Content-Type`.
 
@@ -43,8 +43,8 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
 Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
-| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry) | Per-run errors swallowed → `progress: {0,0}` |
-| `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number` | **404** if `input_audio_path` file missing |
+| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry) | Per-run errors swallowed → `progress: {0,0}` |
+| `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short` | **404** if `input_audio_path` file missing |
 
 ### `CreateRunBody`
 
@@ -92,8 +92,14 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
-| `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `candidates[]`, `pending_decision` | **404** unknown stage |
+| `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `blocking`, `candidates[]` (hash fields, `paths[]`, `same_source_audio`), `pending_decision`, `current_source_audio_hash_short` | **404** unknown stage |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/reuse` | — | **StageReuseBody** `{action, source_run_id?}` | `ok`, `stage_reuse`, `copied[]` on accept | **400** ineligible source, **404** |
+| `GET` | `/api/runs/{run_id}/pending-writes` | — | — | `stages[]` with `{stage_id, paths[]}` | **404** |
+| `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}` | — | — | `{stage_id, paths[]}` | **404** if none staged |
+| `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | `path` (required) | — | JSON object, or `{text}` for `.md`/`.txt` | **404** |
+| `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
+| `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
+| `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |
 | `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
 | `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
 | `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `elevenlabs_prompts_approved` | **404** missing prompts artifact |
@@ -110,7 +116,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `POST` | `/api/runs/{run_id}/analysis-profile/verify` | — | — | `ok`, `operator_verified: true` | **404** |
 | `POST` | `/api/runs/{run_id}/vo/{line_id}` | — | **multipart** field `file` (WAV) | `ok`, `path`, `g1_missing` | **404** |
 | `POST` | `/api/runs/{run_id}/reset` | — | **ResetBody** | `ok: true` | **400** missing both fields, **404** audio |
-| `GET` | `/api/runs/{run_id}/audio` | `path` (required) | — | Binary file | **404**, **400** |
+| `GET` | `/api/runs/{run_id}/audio` | `path` (required); optional `pending=1`, `pending_stage=<stage_id>` | — | Binary file (final path, or staged copy when pending query set) | **404**, **400** |
 | `GET` | `/api/runs/{run_id}/source-audio` | — | — | Original input from `run_meta.json` | **404** |
 
 ### `ExecuteBody`
@@ -124,7 +130,9 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
 
-**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `idle`.
+**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `idle`. Additional job fields: `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`.
+
+When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land in `.pending_writes/<stage_id>/` until `POST …/approve`. Reuse copies use the same staging path when approval is enabled.
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
 
@@ -137,6 +145,23 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | Field | Type | Notes |
 |-------|------|-------|
 | `flow` | string | **`flow1`** \| **`flow2`** \| **`flow3`** (`FlowBody` pattern in `server.py`) |
+
+### `PendingWriteContentBody`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `path` | string | Relative path under run (same as final artifact path) |
+| `data` | any | Full JSON document (for `.json` paths) |
+| `text` | string | Plain text (for `.md`, `.txt`) |
+
+Exactly one of `data` or `text` required.
+
+### `StageReuseBody`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `action` | string | `accept` \| `decline` |
+| `source_run_id` | string \| null | Required when `action` is `accept` |
 
 ### `PrecleanOfferBody`
 
@@ -258,6 +283,7 @@ Use these for live schema inspection if this markdown drifts from code.
 ## Related
 
 - [gui-surface-map.md](./gui-surface-map.md)
+- [stage-execution-reuse.md](./stage-execution-reuse.md)
 - [operator-gates.md](./operator-gates.md)
 - [transcript-review.md](../pipeline/transcription/transcript-review.md)
 - [artifact-layout.md](../cross-cutting/artifact-layout.md)

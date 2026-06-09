@@ -32,7 +32,8 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) | Golden prompt regression QA |
 | [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
 | [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) | `app.defaults.json` + secrets keys reference |
-| [workflows/](./workflows/) | Gates, idempotency, smoke test |
+| [workflows/](./workflows/) | Gates, idempotency, stage reuse, smoke test |
+| [workflows/stage-execution-reuse.md](./workflows/stage-execution-reuse.md) | Per-stage reuse from prior executions (source audio hash match) |
 | [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) | GUI panels ↔ API ↔ logs ↔ artifacts |
 | [workflows/api-reference.md](./workflows/api-reference.md) | HTTP `/api/*` reference (methods, bodies, errors) |
 | [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) | Context caps + chunking policy |
@@ -45,7 +46,7 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 ## Inputs and outputs
 
 - **Input:** Raw interview audio under `./ASSETS/` — pick a file in the GUI home screen; no config path required ([cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md))
-- **Run state:** Each execution under `ASSETS/executions/exec_*` — resume after relaunching `./scripts/run.sh`
+- **Run state:** Each execution under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP` — resume after relaunching `./scripts/run.sh`; hash enables per-stage reuse from prior runs on the same WAV
 - **Quality (optional, two moments):** [Background noise removal](./pipeline/audio_preclean/README.md) — before ingest and **after recording pickup questions at G1**
 - **Outputs (per run, operator chooses one flow after analysis):**
   1. **Full master podcast** — full coverage, optimal order, VO bridges, podcast SFX, mastered WAV

@@ -70,6 +70,12 @@ export function findPendingFocusStage(
   if (run.job?.status === "gate" && run.job.stage) return run.job.stage;
   if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
+    (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
+    (run.job.pending_write_stage || run.job.stage)
+  ) {
+    return run.job.pending_write_stage || run.job.stage || null;
+  }
+  if (
     run.job?.status === "needs_operator" &&
     !isApiConsentJobPending(run, grants) &&
     run.job.stage
@@ -128,7 +134,11 @@ export function countPendingActions(
   if (!run) return 0;
   let n = 0;
   if (run.job?.status === "gate") n += 1;
-  else if (run.job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
+  else if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
+    n += 1;
+  } else if (run.job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
+    n += 1;
+  } else if (run.job?.needs_stage_reuse) {
     n += 1;
   }
   n += run.stages.filter((s) => s.status === "action_required").length;
@@ -149,6 +159,12 @@ export function actionSummaryText(
   const actionStage = run.stages.find((s) => s.status === "action_required");
   if (job?.status === "gate") {
     return job.message || "Action required before the pipeline can continue.";
+  }
+  if (job?.status === "awaiting_write_approval" || job?.awaiting_write_approval) {
+    return job.message || "Review stage outputs before saving to disk.";
+  }
+  if (job?.needs_stage_reuse) {
+    return job.message || "Choose reuse from a previous execution or run fresh.";
   }
   if (job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
     return job.message || "Action required before the pipeline can continue.";

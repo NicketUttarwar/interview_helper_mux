@@ -33,7 +33,9 @@ See [operator-journey.md](./operator-journey.md) for CTA strings and milestones.
 |----------|-------|----------|
 | `flow_intent` | Start tab (optional) | Planning only — stored in `run_meta` |
 | `selected_flow` | G2 `g2_flow_select` | Yes — `POST /api/runs/{id}/flow`; GUI **Use planned choice** applies intent in one click |
-| Stage reuse | Action modal before expensive stage | `POST …/stages/{id}/reuse` — accept copies outputs and continues pipeline |
+| Stage reuse | `StageReuseSection` on Stage detail + action modal | `GET …/reuse-offers` then `POST …/stages/{id}/reuse` — accept copies outputs (through write staging when enabled); decline runs fresh |
+| Write approval | `WriteApprovalPanel` in action modal + Stage detail | `GET/PUT …/pending-writes/{stage}/…` then `POST …/approve` or `…/discard` |
+| Source audio hash | Status header + Executions tab | `run_meta.source_audio_hash_short`; **Same audio** pill when hashes match active session |
 | API consent | Modal + session grants | Required before `POST …/execute` |
 | Handoff ack | After LLM custom-run writes | `POST …/handoff-ack` — uses handoff stage id, not arbitrary sidebar selection |
 

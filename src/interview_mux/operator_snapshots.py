@@ -315,8 +315,3 @@ def persist_operator_investigation_queue(ctx: RunContext, *, source: str) -> Non
         },
         source=source,
     )
-
-
-def list_operator_snapshot_paths() -> tuple[str, ...]:
-    """Paths eligible for stage reuse copy when present."""
-    return tuple(SNAPSHOT_PATHS.values())

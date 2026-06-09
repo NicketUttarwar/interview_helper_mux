@@ -26,9 +26,11 @@ source .venv/bin/activate
 
 1. `./scripts/run.sh`
 2. Home → pick a file under **Input audio** (or resume **Previous executions**)
-3. Note `run_id` (e.g. `exec_001_20260523T120000Z`) from the workspace header
+3. Note `run_id` (e.g. `exec_001_a1b2c3d4e5f6_20260523T120000Z`) from the workspace header — includes a 12-char source-audio hash segment
 
 **Resume check:** stop the server, run `./scripts/run.sh` again, open the same execution from **Previous executions** — stage markers and `gui_log.jsonl` should still be present under `ASSETS/executions/<run_id>/`.
+
+**Reuse check (optional):** start a second execution on the same WAV; confirm **Same audio** on Executions tab; at a pending stage, confirm **Previous execution reuse** offers the first run when that stage completed.
 
 See [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
@@ -45,7 +47,7 @@ After analysis stages, GUI **Stage outputs** should show **complete** for `under
 ## Analysis (CLI)
 
 ```bash
-python tools/run_analysis.py --run-id exec_001_20260523T120000Z
+python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 ```
 
 Use the `run_id` from the GUI step above. For headless-only setups, `INPUT_AUDIO_PATH` in `secrets.env` remains a fallback — not required when the run was created via the GUI asset picker.
@@ -67,9 +69,9 @@ If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_inges
 ## Flow 1
 
 ```bash
-python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
-python tools/validate_narrative.py --run-id exec_001_20260523T120000Z --include-edl
-python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1_master/master.wav
+python tools/run_flow.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/validate_narrative.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --include-edl
+python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_1_master/master.wav
 ```
 
 **Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. `validate_narrative.py --include-edl` covers upstream narrative, EDL timeline, and EDL narrative QC; run `verify_edl.py` if you need schema-only diagnostics. Listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
@@ -79,8 +81,8 @@ python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_1
 Use a fresh run or separate `run_002` after analysis:
 
 ```bash
-python tools/run_flow.py --flow flow2 --run-id exec_001_20260523T120000Z
-python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_2_highlights/master.wav
+python tools/run_flow.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_2_highlights/master.wav
 ```
 
 **Expectations:** Flow 2 targets: integrated LUFS −14 ±1, true peak ≤ −1 dBTP (same sample-rate and duration rules as Flow 1).
@@ -90,7 +92,7 @@ python tools/verify_master.py ASSETS/executions/exec_001_20260523T120000Z/flow_2
 After shared analysis and **G2** with `selected_flow: flow3`:
 
 ```bash
-python tools/run_flow.py --flow flow3 --run-id exec_001_20260523T120000Z
+python tools/run_flow.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 ```
 
 **Expectations:**
@@ -103,7 +105,7 @@ python tools/run_flow.py --flow flow3 --run-id exec_001_20260523T120000Z
 Inspect copy in the GUI artifact editor or:
 
 ```bash
-cat ASSETS/executions/exec_001_20260523T120000Z/flow_3_description/show_description.md
+cat ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_3_description/show_description.md
 ```
 
 Spec: [publishing/README.md](../pipeline/publishing/README.md).

@@ -36,10 +36,23 @@ def test_merge_consents() -> None:
 
 
 def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
+    from run_fixtures import ensure_test_wav, patch_merged_config
+    from interview_mux.config import merged_config
+
+    base_cfg = merged_config()
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("interview_mux.config.repo_root", lambda: tmp_path)
+    cfg = {
+        **base_cfg,
+        "assets_root": "ASSETS",
+        "executions_root": str(tmp_path / "ASSETS" / "executions"),
+    }
+    patch_merged_config(monkeypatch, cfg)
     monkeypatch.setattr("interview_mux.gui_api_consent.load_persisted_consents", lambda: {})
     monkeypatch.setattr("interview_mux.web.runner.load_persisted_consents", lambda: {})
     (tmp_path / "ASSETS" / "executions").mkdir(parents=True)
+    ensure_test_wav(tmp_path, "ASSETS/input/test.wav")
     ctx = RunContext(create=True)
     ctx.init_run_meta("ASSETS/input/test.wav")
     runner = JobRunner()

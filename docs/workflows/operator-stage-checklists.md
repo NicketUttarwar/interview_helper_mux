@@ -31,6 +31,31 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Disk space | Enough room for `normalized.wav`, clips, SFX, masters | Free space check before long runs |
 | Secrets loaded | App sees `OPENAI_*`, `AWS_*`, `ELEVENLABS_*` as required by stage | [smoke-test.md](./smoke-test.md) |
 | Toolchain lock | `./tools/check_prerequisites.sh` OK; `pip-audit` clean on lock | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md); refresh lock or accepted advisory |
+| Source audio hash | `run_meta.source_audio_hash` and `_short` set after run create; matches canonical pipeline WAV | Re-create run if hash missing on new-format id; compare **Executions** tab **Same audio** pill |
+| Stage reuse decision | When offers appear: accept (copy) or decline (run fresh) before execute proceeds | [stage-execution-reuse.md](./stage-execution-reuse.md); `run_meta.stage_reuse[stage_id]` |
+| Write approval | When enabled: review `.pending_writes/<stage>/` before **Save & continue** | [gui-surface-map.md](./gui-surface-map.md); set `journey_ui.require_write_approval_per_stage: false` for unattended runs |
+
+---
+
+## Stage execution reuse (every automated stage)
+
+| Check | Pass | If fail |
+|-------|------|--------|
+| Candidates listed | Prior `exec_*` with same `source_audio_hash` and `.stage_done/<stage>` | No offer — run fresh; verify prior run completed that stage |
+| Hash match banner | **Same source audio as this run** when hashes align | Different source — do not reuse unless paths intentionally match |
+| Reuse accept | Files copied (staged or final per config); pipeline continues or opens write review | Check `gui_log.jsonl` `stage_reuse_applied`; verify source run artifacts exist |
+| Reuse decline | `stage_reuse[stage_id].action === "decline"`; stage runs normally | Stuck on `needs_stage_reuse` — open action modal, choose **Run fresh instead** |
+
+---
+
+## Per-stage write approval
+
+| Check | Pass | If fail |
+|-------|------|--------|
+| Staging folder | `.pending_writes/<stage_id>/` contains expected outputs after stage run | Stage may have failed before persist; check `gui_log.jsonl` |
+| Preview | JSON/text editable; WAV plays via pending audio URL | Path typo — refresh panel; re-run stage if staging empty |
+| Approve | Files at final artifact paths; `.stage_done/<stage>` written | Approve failed — validation error in toast; fix JSON in staging editor |
+| Discard | Staging cleared; stage invalidated for re-run | Use **Discard & re-run** then **Run step N** |
 
 ---
 

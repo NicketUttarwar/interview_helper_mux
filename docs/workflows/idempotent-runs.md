@@ -3,7 +3,7 @@
 Each stage marks completion:
 
 ```
-ASSETS/executions/exec_NNN_TIMESTAMP/.stage_done/<stage_name>
+ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP/.stage_done/<stage_name>
 ```
 
 Legacy runs use `data/run_NNN/.stage_done/<stage_name>` instead.
@@ -13,15 +13,15 @@ Legacy runs use `data/run_NNN/.stage_done/<stage_name>` instead.
 ## Re-run from a stage
 
 ```bash
-python tools/run_analysis.py --run-id exec_001_20260523T120000Z --from-stage segmentation
-python tools/run_flow.py --run-id exec_001_20260523T120000Z --flow flow1 --from-stage full_master_ranking
+python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --from-stage segmentation
+python tools/run_flow.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --flow flow1 --from-stage full_master_ranking
 ```
 
 `--from-stage` deletes that stage's marker and downstream markers, then re-executes.
 
 ## Run allocation
 
-**GUI (normative):** Home → **Input audio** → start execution → server allocates `exec_NNN_<UTC timestamp>` under `ASSETS/executions/`.
+**GUI (normative):** Home → **Input audio** → start execution → server hashes the canonical pipeline WAV and allocates `exec_NNN_<hash12>_<UTC timestamp>` under `ASSETS/executions/`.
 
 **CLI:** Omit `--run-id` to allocate a new execution id, or pass `--run-id exec_001_…` to continue an existing workspace.
 
@@ -29,7 +29,7 @@ Legacy auto-increment `run_001`, `run_002`, … under `data/` remains for old ru
 
 ## Reuse outputs from a prior execution
 
-When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can offer to copy artifacts from another `exec_*` that used the **same** `input_audio_path`. Decisions live in `run_meta.stage_reuse`.
+When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can offer to copy artifacts from another `exec_*` that shares the same `source_audio_hash` (primary) or `input_audio_path` (legacy fallback). Decisions live in `run_meta.stage_reuse`.
 
 - GUI: checkpoint modal — [stage-execution-reuse.md](./stage-execution-reuse.md)
 - CLI: `--reuse-from exec_001_…` (auto-accept) or `--no-reuse-offers` (non-TTY default)

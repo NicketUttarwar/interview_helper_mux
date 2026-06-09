@@ -33,6 +33,7 @@ export interface AppConfig {
     journey_log_filter?: boolean;
     require_preview_listen?: boolean;
     enable_stage_reuse_offers?: boolean;
+    require_write_approval_per_stage?: boolean;
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -49,6 +50,8 @@ export interface RunSummary {
   run_id: string;
   execution_number?: number;
   input_audio_path?: string;
+  source_audio_hash?: string;
+  source_audio_hash_short?: string;
   updated_at?: string;
   created_at?: string;
   selected_flow?: string;
@@ -167,6 +170,10 @@ export interface ReuseCandidate {
   updated_at?: string | null;
   execution_number?: number | null;
   paths: string[];
+  source_audio_hash?: string;
+  source_audio_hash_short?: string;
+  hash_in_run_id?: string | null;
+  same_source_audio?: boolean;
 }
 
 export interface JobState {
@@ -179,6 +186,9 @@ export interface JobState {
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
   needs_stage_reuse?: boolean;
   reuse_candidates?: ReuseCandidate[];
+  awaiting_write_approval?: boolean;
+  pending_write_stage?: string;
+  pending_write_paths?: string[];
 }
 
 export interface RunData {
@@ -207,6 +217,8 @@ export interface RunData {
 export interface RunMeta {
   execution_number?: number;
   input_audio_path?: string;
+  source_audio_hash?: string;
+  source_audio_hash_short?: string;
   updated_at?: string;
   selected_flow?: string;
   flow_intent?: string;

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { formatTs } from "../utils";
 import { stageTitleForId } from "../utils/checkpoint";
+import { SourceAudioHashBadge } from "./guidance/SourceAudioHashBadge";
 
 export function StatusHeader() {
   const {
@@ -25,6 +26,12 @@ export function StatusHeader() {
       job?.mode;
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
       return { text: runningStage ? `Running: ${runningStage}` : "Running", cls: "running" };
+    }
+    if (job?.status === "awaiting_write_approval" || job?.awaiting_write_approval) {
+      return { text: "Review before save", cls: "action" };
+    }
+    if (job?.needs_stage_reuse) {
+      return { text: "Reuse or run fresh", cls: "action" };
     }
     if (job?.status === "gate" || job?.status === "needs_operator") {
       return { text: "Needs you", cls: "action" };
@@ -62,6 +69,16 @@ export function StatusHeader() {
                 : "—"}
             </span>
           </div>
+          {run?.meta?.source_audio_hash_short ? (
+            <div className="status-cell status-cell-hash">
+              <span className="status-label">Audio hash</span>
+              <SourceAudioHashBadge
+                hashShort={run.meta.source_audio_hash_short}
+                hashFull={run.meta.source_audio_hash}
+                label=""
+              />
+            </div>
+          ) : null}
           <div className="status-cell">
             <span className="status-label">Updated</span>
             <span className="status-value muted">{formatTs(run?.meta?.updated_at)}</span>

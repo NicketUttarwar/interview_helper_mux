@@ -1,6 +1,6 @@
 # Artifact layout
 
-All run artifacts live under `ASSETS/executions/exec_NNN_TIMESTAMP/` (filesystem-only state). Legacy `data/run_NNN/` runs are still readable.
+All run artifacts live under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP/` (filesystem-only state). The 12-character segment is `source_audio_hash_short` from the canonical pipeline WAV. Legacy ids `exec_NNN_TIMESTAMP` and `data/run_NNN/` runs are still readable.
 
 **ASSETS model (source audio + resume):** [assets-and-executions.md](./assets-and-executions.md) — operators pick input WAVs from `ASSETS/` in the GUI; every execution folder holds full run state for relaunch via `./scripts/run.sh`.
 
@@ -18,13 +18,14 @@ ASSETS/
 ## Run root
 
 ```
-ASSETS/executions/exec_001_20260523T120000Z/
-  run_meta.json                 # execution_number, input path, selected_flow, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
+ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
+  run_meta.json                 # execution_number, input path, source_audio_hash, selected_flow, stage_reuse, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
   gui_log.jsonl                 # centralized operator log (policy: .cursor/rules/interview-helper-mux.mdc)
   gui_job.json                  # last background execute job status (GUI job panel)
   segments/nle_edits.json       # non-linear editor state
   analysis_complete.json        # set when Wave 2 finishes
-  .stage_done/                  # one empty marker file per completed stage
+  .stage_done/                  # one empty marker file per completed stage (deferred until write approval when enabled)
+  .pending_writes/<stage_id>/   # staged outputs awaiting operator approve/discard (when journey_ui.require_write_approval_per_stage)
   vo_pickup/                    # operator-recorded WAVs (G1 gate)
   vo_pickup/clean/              # optional; after pickup-scoped pre-clean (BUILD-019/072)
   preclean/                     # optional; full-source or lineage for pre-clean runs

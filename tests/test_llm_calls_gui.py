@@ -12,15 +12,18 @@ from interview_mux.run_context import RunContext
 
 
 def test_list_and_update_llm_calls_gui(tmp_path, monkeypatch):
+    from run_fixtures import patch_merged_config
+
     cfg = {
         "assets_root": "ASSETS",
         "executions_root": str(tmp_path / "ASSETS" / "executions"),
         "data_root": "data",
+        "journey_ui": {"require_write_approval_per_stage": False},
         "analysis": {"llm_call_records": {"enabled": True, "write_markdown_sidecar": False}},
     }
-    for mod in ("interview_mux.config", "interview_mux.llm_call_record", "interview_mux.run_context", "interview_mux.llm_calls_gui"):
-        monkeypatch.setattr(f"{mod}.merged_config", lambda: cfg)
+    patch_merged_config(monkeypatch, cfg)
     monkeypatch.setattr("interview_mux.config.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
 
     run_id = "exec_050_20260101T000000Z"
     ctx = RunContext(run_id, create=True)

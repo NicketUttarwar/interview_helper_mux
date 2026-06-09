@@ -113,7 +113,8 @@
     "journey_log_filter": true,
     "require_preview_listen": false,
     "require_handoff_between_stages": true,
-    "enable_stage_reuse_offers": true
+    "enable_stage_reuse_offers": true,
+    "require_write_approval_per_stage": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
   "local_llm": {

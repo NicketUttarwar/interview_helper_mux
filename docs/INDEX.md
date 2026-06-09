@@ -82,6 +82,7 @@ Flat hub for **interview_helper_mux**.
 - [workflows/analysis-orchestration-loop.md](./workflows/analysis-orchestration-loop.md)
 - [workflows/operator-gates.md](./workflows/operator-gates.md)
 - [workflows/idempotent-runs.md](./workflows/idempotent-runs.md)
+- [workflows/stage-execution-reuse.md](./workflows/stage-execution-reuse.md) — reuse prior exec_* stage outputs (same source audio hash)
 - [workflows/feedback-loops-and-reruns.md](./workflows/feedback-loops-and-reruns.md)
 - [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md)
 - [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs ↔ artifacts (6 pipeline sub-tabs, status banner, session clear)

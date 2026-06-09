@@ -16,8 +16,10 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
 | **API consent** | Modal before first use of OpenAI, AWS Transcribe, or ElevenLabs in the session; per-provider grant; revocable via **Revoke API** |
 | **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Review AI-generated outputs** lists those files; edit in **File editor** if needed, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
+| **Stage execution reuse** | Before each automated stage (when candidates exist), **Previous execution reuse** offers copying outputs from a prior `exec_*` with the same `source_audio_hash`. **Reuse outputs** or **Run fresh instead**. Controlled by `journey_ui.enable_stage_reuse_offers` (default `true`). Not a gate — does not replace G0–G2. |
+| **Write approval** | After each automated stage (when enabled), **Review outputs before saving** lists files in `.pending_writes/<stage>/`; preview, edit, **Save & continue** or **Discard & re-run**. Controlled by `journey_ui.require_write_approval_per_stage` (default `true`). Applies to reused copies too. |
 
-See [gui-surface-map.md](./gui-surface-map.md) and [api-reference.md](./api-reference.md).
+See [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./stage-execution-reuse.md), and [api-reference.md](./api-reference.md).
 
 ---
 

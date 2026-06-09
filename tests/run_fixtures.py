@@ -9,6 +9,55 @@ from typing import Any
 
 from interview_mux.run_context import RunContext
 
+MINIMAL_WAV_BYTES = b"RIFF" + b"\x00" * 64
+
+_MERGED_CONFIG_MODULES = (
+    "interview_mux.config",
+    "interview_mux.run_context",
+    "interview_mux.stage_execution_reuse",
+    "interview_mux.web.server",
+    "interview_mux.gui_session",
+    "interview_mux.write_staging",
+    "interview_mux.custom_run_handoff",
+    "interview_mux.llm_call_record",
+    "interview_mux.llm_calls_gui",
+    "interview_mux.journey_orchestrator",
+    "interview_mux.journey_state",
+)
+
+
+def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
+    """Patch merged_config in every imported module that binds it at load time."""
+    import importlib
+
+    for mod_name in _MERGED_CONFIG_MODULES:
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        if hasattr(mod, "merged_config"):
+            monkeypatch.setattr(mod, "merged_config", lambda c=cfg: c)
+
+
+def _execution_number_from_run_id(run_id: str) -> int | None:
+    if not run_id.startswith("exec_"):
+        return None
+    part = run_id.split("_")[1]
+    return int(part) if part.isdigit() else None
+
+
+def ensure_test_wav(
+    root: Path,
+    rel: str = "ASSETS/input/interview.wav",
+    *,
+    content: bytes = MINIMAL_WAV_BYTES,
+) -> Path:
+    """Create a minimal WAV under root for init_run_meta / hash tests."""
+    wav = root / rel
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(content)
+    return wav
+
 
 def populated_analysis_state(run_id: str, *, verified: bool = False) -> dict[str, Any]:
     """Minimal complete analysis_state for gate / handoff tests."""
@@ -32,17 +81,28 @@ def populated_analysis_state(run_id: str, *, verified: bool = False) -> dict[str
     return state
 
 
-def init_run_meta_for_test(ctx: RunContext, input_audio_path: str = "ASSETS/input/demo.wav") -> None:
+def init_run_meta_for_test(
+    ctx: RunContext,
+    input_audio_path: str = "ASSETS/input/demo.wav",
+    *,
+    source_audio_hash: str | None = None,
+    source_audio_hash_short: str | None = None,
+) -> None:
     """Minimal run_meta when run_dir is outside the repo tree (pytest tmp_path)."""
     now = datetime.now(timezone.utc).isoformat()
     meta: dict[str, Any] = {
         "created_at": now,
         "updated_at": now,
         "execution_id": ctx.run_id,
+        "execution_number": _execution_number_from_run_id(ctx.run_id),
         "input_audio_path": input_audio_path,
-        "storage_root": str(ctx.run_dir),
+        "storage_root": str(ctx.run_dir.relative_to(ctx.root)) if ctx.run_dir.is_relative_to(ctx.root) else str(ctx.run_dir),
     }
-    ctx.write_json("run_meta.json", meta)
+    if source_audio_hash:
+        meta["source_audio_hash"] = source_audio_hash
+    if source_audio_hash_short:
+        meta["source_audio_hash_short"] = source_audio_hash_short
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
 
 
 def isolated_run_ctx(tmp_path: Path, run_id: str) -> RunContext:
@@ -254,22 +314,19 @@ def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
     monkeypatch.setattr(server, "_ctx", _ctx)
 
 
-def patch_executions_root(monkeypatch, tmp_path: Path) -> Path:
+def patch_executions_root(monkeypatch, tmp_path: Path, **cfg_overrides: Any) -> Path:
     """Point executions_root at tmp_path so JobRunner threads resolve the same run dir."""
     from interview_mux.config import merged_config
 
     root = tmp_path / "ASSETS" / "executions"
     root.mkdir(parents=True, exist_ok=True)
-    cfg = {**merged_config(), "executions_root": str(root.resolve())}
-    for mod in (
-        "interview_mux.config",
-        "interview_mux.run_context",
-        "interview_mux.stage_execution_reuse",
-        "interview_mux.web.server",
-        "interview_mux.web.runner",
-        "interview_mux.gui_session",
-    ):
-        monkeypatch.setattr(f"{mod}.merged_config", lambda c=cfg: c)
+    cfg = {
+        **merged_config(),
+        "assets_root": str((tmp_path / "ASSETS").resolve()),
+        "executions_root": str(root.resolve()),
+        **cfg_overrides,
+    }
+    patch_merged_config(monkeypatch, cfg)
     return root
 
 

@@ -29,7 +29,9 @@ From repo root:
 |------|------|
 | `src/App.tsx` | Shell layout |
 | `src/context/AppContext.tsx` | Global state, polling, API consent |
-| `src/components/` | Home, workspace, gates, NLE |
+| `src/components/guidance/` | Reuse (`StageReuseSection`, `StageReuseOfferCard`), write approval, hash badges |
+| `src/hooks/useStageReuseOffers.ts` | Shared reuse-offer fetch (modal only when open; hidden in Stage detail) |
+| `src/utils/sourceAudioHash.ts` | Canonical 12-char hash short from run meta |
 | `src/api/client.ts` | Fetch wrapper |
 | `src/types/` | API TypeScript types |
 | `src/styles/app.css` | Operator console styles |

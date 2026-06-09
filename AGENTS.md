@@ -21,7 +21,8 @@
 12. [docs/workflows/operator-stage-checklists.md](docs/workflows/operator-stage-checklists.md) — per-stage verification (extend when you add stages)
 13. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI ↔ API ↔ logs ↔ artifacts
 14. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
-14b. [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md) — reuse prior exec_* stage outputs (same source audio)
+14b. [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md) — reuse prior exec_* stage outputs (same source audio hash)
+14c. Write approval — `journey_ui.require_write_approval_per_stage`; `.pending_writes/` — [gui-surface-map.md](docs/workflows/gui-surface-map.md), [api-reference.md](docs/workflows/api-reference.md)
 15. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
 16. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — paths per run
 16b. [docs/cross-cutting/artifact-generation-and-validation.md](docs/cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod

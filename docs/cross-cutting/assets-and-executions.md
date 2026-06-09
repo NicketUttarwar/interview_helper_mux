@@ -12,7 +12,7 @@
 |------|------|
 | No hardcoded WAV path for normal use | Operators do **not** set `INPUT_AUDIO_PATH` or edit `input_audio_path` to use the GUI. They drop audio under `ASSETS/` and pick a file in the home screen. |
 | Single filesystem root for operator media | Everything the app reads or writes for a session lives under **`ASSETS/`** (gitignored). |
-| Durable executions | Each pipeline run is a folder under `ASSETS/executions/` with a stable `exec_NNN_TIMESTAMP` id. Stopping `./scripts/run.sh` does not destroy progress. |
+| Durable executions | Each pipeline run is a folder under `ASSETS/executions/` with a stable `exec_NNN_<hash12>_TIMESTAMP` id. The hash fingerprints the canonical pipeline WAV (same bytes → same hash → reuse offers). Stopping `./scripts/run.sh` does not destroy progress. |
 | Resume after relaunch | `./scripts/run.sh` → home screen lists **Previous executions** → open one → active run + stage list + logs restore from disk. |
 
 Legacy `data/run_NNN/` runs remain readable for older clones; **new work** uses `ASSETS/executions/` only.
@@ -26,7 +26,7 @@ ASSETS/
   input/                          # recommended drop zone for raw interview WAVs (any filename)
   …/other.wav                     # optional: any .wav under ASSETS/ except executions/ and .gui/
   executions/
-    exec_001_20260523T120000Z/    # one folder per run — full pipeline state (see artifact-layout)
+    exec_001_a1b2c3d4e5f6_20260523T120000Z/    # one folder per run — hash12 = source_audio_hash_short (see artifact-layout)
       run_meta.json
       gui_log.jsonl
       gui_job.json
@@ -97,7 +97,7 @@ CLI tools may still use config defaults for unattended scripts:
 
 ```bash
 # After creating a run via GUI (or explicit run id):
-python tools/run_analysis.py --run-id exec_001_20260523T120000Z
+python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 ```
 
 not “set `INPUT_AUDIO_PATH` to a fixed path” unless testing headless automation.
@@ -110,7 +110,7 @@ Relaunching the app must be sufficient to resume without re-copying audio or re-
 
 | Category | On-disk |
 |----------|---------|
-| Identity | `run_meta.json` (`execution_id`, `input_audio_path`, `selected_flow`, timestamps) |
+| Identity | `run_meta.json` (`execution_id`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `selected_flow`, `stage_reuse`, timestamps) |
 | Progress | `.stage_done/<stage_id>` markers |
 | Operator visibility | `gui_log.jsonl`, `gui_job.json` |
 | Pipeline artifacts | `ingest/`, `transcript/`, `understanding/`, `segments/`, `flow_*`, `vo_pickup/`, … |
@@ -125,7 +125,10 @@ Deleting an `exec_*` folder is the only supported way to discard a run; there is
 
 | Area | Expected behavior |
 |------|-------------------|
-| `RunContext` | `executions_root` from config (default `ASSETS/executions`); allocate `exec_NNN_<UTC timestamp>` ids |
+| `RunContext` | `executions_root` from config; atomic `exec_NNN_<hash12>_<UTC timestamp>` via `.execution_counter` + `FileLock`; `mutate_run_meta()` for locked updates |
+| `source_audio_hash.py` | `source_audio_hash_pair()` — single WAV read → full + short hash |
+| `stage_execution_reuse.py` | Per-stage reuse; `reuse_already_applied()` prevents double-copy after staged accept |
+| `write_staging.py` | `.pending_writes/` with per-stage `FileLock`; approve/discard serialized with `JobRunner.run_guard` |
 | `gui_session.py` | Persist active run under `ASSETS/.gui/` |
 | `GET /api/assets` | Recursive scan of `assets_root`, skip `executions` and `.gui` |
 | `GET /api/runs` | Enumerate execution dirs + summarize `run_meta.json` |
@@ -141,4 +144,5 @@ Deleting an `exec_*` folder is the only supported way to discard a run; there is
 - [artifact-layout.md](./artifact-layout.md) — file-level tree inside each `exec_*`
 - [config-keys.md](./config-keys.md) — `assets_root`, `executions_root`, CLI fallbacks
 - [idempotent-runs.md](../workflows/idempotent-runs.md) — `--from-stage` within an execution folder
+- [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) — copy prior stage outputs when hash matches
 - [capture/README.md](../pipeline/capture/README.md) — manual capture → `ASSETS/input/`

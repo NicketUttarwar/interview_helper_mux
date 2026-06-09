@@ -299,22 +299,27 @@ Default URL: `http://127.0.0.1:8765` (`web_port` in config).
 
 Operator phases: **Prepare → Understand → Complete → Create → Ship** — [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md). Tab layout, modals, and checkpoints: [docs/workflows/operator-flow-audit.md](docs/workflows/operator-flow-audit.md). **Clear session** (header menu) clears both browser state and server active run.
 
+New executions get ids like `exec_003_<hash12>_TIMESTAMP` where `<hash12>` fingerprints the canonical pipeline WAV. Runs on the same source audio can **reuse** prior stage outputs — [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md). By default each stage pauses for **review before save** (`journey_ui.require_write_approval_per_stage`).
+
 ### CLI (headless)
 
-Create or resume a run via GUI first, or allocate with `interview-mux` / tools:
+Create or resume a run via GUI first, or allocate with `interview-mux` / tools. Use the actual `run_id` from the workspace header or `ASSETS/executions/` (new ids include a 12-char audio hash segment).
 
 ```bash
 # Shared analysis (ingest → transcribe → … → optimal_questions)
-python tools/run_analysis.py --run-id exec_001_20260523T120000Z
+python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 
 # After G0/G1/G2 in GUI (or set selected_flow via API/CLI):
-python tools/run_flow.py --flow flow1 --run-id exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow2 --run-id exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow3 --run-id exec_001_20260523T120000Z
+python tools/run_flow.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_flow.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_flow.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 
 # Full pipeline in one shot (needs --flow after analysis):
-interview-mux run --run-id exec_001_20260523T120000Z --flow flow1
-interview-mux analysis --run-id exec_001_20260523T120000Z --analysis-only
+interview-mux run --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --flow flow1
+interview-mux analysis --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --analysis-only
+
+# Reuse all reusable stages from a prior run (same source audio hash):
+interview-mux analysis --run-id exec_002_… --reuse-from exec_001_…
 ```
 
 Subcommands: `interview-mux analysis`, `flow`, `serve`, `run` (see `interview-mux --help`).

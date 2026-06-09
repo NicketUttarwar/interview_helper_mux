@@ -176,22 +176,21 @@ def _blocking(
 
     if not blocked:
         from interview_mux.stage_execution_reuse import (
-            find_reuse_candidates,
-            pending_reuse_stage,
+            reuse_candidates_if_undecided,
             stage_reuse_offers_enabled,
         )
         from interview_mux.web.stages import STAGE_BY_ID
 
         if stage_reuse_offers_enabled():
             for sid in _next_pending_stage_ids(ctx):
-                if pending_reuse_stage(ctx, sid):
+                candidates = reuse_candidates_if_undecided(ctx, sid)
+                if candidates:
                     blocked = True
                     reason = "stage_reuse"
                     stage_id = sid
                     info = STAGE_BY_ID.get(sid)
                     title = info.title if info else sid
-                    candidates = find_reuse_candidates(ctx, sid)
-                    src = candidates[0].run_id if candidates else "a prior run"
+                    src = candidates[0].run_id
                     message = (
                         f"{title} can reuse outputs from {src}. "
                         "Choose reuse or run fresh before continuing."

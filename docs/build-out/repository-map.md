@@ -33,7 +33,11 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 |--------|----------------|--------|
 | `cli.py` | Typer CLI: `analysis`, `flow`, `serve`, default pipeline | BUILD-028, 051 |
 | `config.py` | Merge defaults + secrets; model IDs | BUILD-011 |
-| `run_context.py` | Run workspace paths, `.stage_done`, `ctx.log()` | BUILD-012 |
+| `run_context.py` | Run workspace paths, `.stage_done`, `ctx.log()`, hash-aware run ids | BUILD-012 |
+| `source_audio_hash.py` | Pipeline WAV SHA-256; hash in `exec_NNN_<hash12>_TIMESTAMP` ids | — |
+| `stage_execution_reuse.py` | Per-stage reuse offers, copy-from-prior-run, `run_meta.stage_reuse` | — |
+| `write_staging.py` | `.pending_writes/` staging; approve/discard before final persist | — |
+| `stage_guidance.py` | `stages[].guidance` and journey phase copy for GUI | — |
 | `file_store.py` | Locked JSON read/write | BUILD-012 |
 | `session_log.py` | `gui_log.jsonl` append/read | BUILD-016 |
 | `gui_session.py` | Active run / server session under `ASSETS/.gui` | BUILD-014 |

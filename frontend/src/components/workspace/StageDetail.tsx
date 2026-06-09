@@ -10,6 +10,8 @@ import { stageDescriptionParts } from "../../utils/stageDescription";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { getHandoffPathsLocal } from "../../utils/checkpoint";
 import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
+import { StageReuseSection } from "../guidance/StageReuseSection";
+import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
@@ -19,6 +21,7 @@ export function StageDetail() {
     selectedStage,
     selectedStageId,
     openActionModal,
+    actionModalOpen,
     jobRunning,
     apiGrants,
     selectStage,
@@ -123,6 +126,13 @@ export function StageDetail() {
       </div>
 
       <StageGuidancePanel stage={selectedStage} stepNumber={stepEntry?.number ?? null} />
+
+      {!actionModalOpen ? (
+        <>
+          <StageReuseSection stage={selectedStage} />
+          <WriteApprovalPanel stage={selectedStage} />
+        </>
+      ) : null}
 
       {needsCheckpoint ? (
         <div className="stage-detail-checkpoint panel-inset">

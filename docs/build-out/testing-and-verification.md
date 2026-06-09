@@ -47,6 +47,11 @@ cd frontend && npm run build          # Zod validators must compile
 | `test_build073_llm_routing.py` | Arbiter + shard/collate routing |
 | `test_g1_5_prompt_review.py` | ElevenLabs prompt review API (GET/PUT/approve) |
 | `test_preclean_offer.py` | BUILD-072 pre-clean offer API + run_meta |
+| `test_source_audio_hash.py` | Pipeline WAV SHA-256, hash in run id parsing |
+| `test_run_context_hash_id.py` | `allocate_run_id(source_hash=…)`, `run_meta` hash fields |
+| `test_write_staging.py` | `.pending_writes/` staging, approve/discard, operational path bypass |
+| `test_stage_execution_reuse.py` | Reuse candidates, hash match, copy-through-staging |
+| `test_stage_guidance_parity.py` | GUI guidance vs `stage_guidance.py` |
 | `test_master_qc.py` | LUFS / true-peak thresholds, sample-rate checks |
 | `test_verify_master_cli.py` | CLI exit codes + flow path inference |
 | **Gap closure (GC-F1–GC-D1)** | |

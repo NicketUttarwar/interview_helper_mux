@@ -155,16 +155,8 @@ def _guard_stage_reuse(ctx: RunContext, stage: str) -> bool:
     return False
 
 
-def run_single_stage(ctx: RunContext, stage: str) -> None:
+def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
-    if stage not in (
-        "transcript_review",
-        "podcast_sfx_brief",
-        "sfx_brief",
-        "mux_flow1",
-        "mux_flow2",
-    ) and _guard_stage_reuse(ctx, stage):
-        return
     if stage == "transcript_review":
         transcript_review.mark_transcript_review_complete(ctx)
         return
@@ -265,6 +257,21 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     raise ValueError(f"Unknown stage: {stage}")
 
 
+def run_single_stage(ctx: RunContext, stage: str) -> None:
+    """Run exactly one pipeline stage (reads all inputs from disk)."""
+    if stage not in (
+        "transcript_review",
+        "podcast_sfx_brief",
+        "sfx_brief",
+        "mux_flow1",
+        "mux_flow2",
+    ) and _guard_stage_reuse(ctx, stage):
+        return
+    from interview_mux.write_staging import run_wrapped_stage
+
+    run_wrapped_stage(ctx, stage, lambda: _run_single_stage_impl(ctx, stage))
+
+
 def run_analysis(
     ctx: RunContext,
     *,
@@ -299,9 +306,11 @@ def run_analysis(
                 continue
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
+        from interview_mux.write_staging import run_wrapped_stage
+
         token = active_pipeline_stage.set(name)
         try:
-            fn()
+            run_wrapped_stage(ctx, name, fn)
         finally:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, name)
@@ -454,9 +463,11 @@ def _run_steps(
             continue
         if preclean_hook is not None:
             preclean_hook(name)
+        from interview_mux.write_staging import run_wrapped_stage
+
         token = active_pipeline_stage.set(name)
         try:
-            fn()
+            run_wrapped_stage(ctx, name, fn)
         finally:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, name)

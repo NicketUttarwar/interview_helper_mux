@@ -8,7 +8,6 @@ import { TranscriptReviewPanel } from "./TranscriptReviewPanel";
 import { VoPickupPanel } from "./VoPickupPanel";
 import { FlowSelectPanel } from "./FlowSelectPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
-import { StageReuseOfferCard } from "./StageReuseOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
 import { QcSummaryCard } from "./QcSummaryCard";
 import { ValueFeaturesPanel } from "./ValueFeaturesPanel";
@@ -23,44 +22,8 @@ interface Props {
 
 export function GateActions({ stage }: Props) {
   const { run, config, timeline, setPipelineSubTab } = useApp();
-  const reuseOffersEnabled =
-    config?.journey_ui?.enable_stage_reuse_offers !== false;
-  const [reuseCandidates, setReuseCandidates] = useState<
-    import("../../types").ReuseCandidate[]
-  >([]);
 
   const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
-
-  useEffect(() => {
-    if (!run || stage.status === "done" || !reuseOffersEnabled) {
-      setReuseCandidates([]);
-      return;
-    }
-    if (run.job?.needs_stage_reuse && run.job.stage === stage.id && run.job.reuse_candidates) {
-      setReuseCandidates(run.job.reuse_candidates);
-      return;
-    }
-    void api<{
-      eligible?: boolean;
-      candidates?: import("../../types").ReuseCandidate[];
-      pending_decision?: { action?: string } | null;
-    }>(`/api/runs/${run.run_id}/stages/${stage.id}/reuse-offers`)
-      .then((offers) => {
-        if (offers.eligible && !offers.pending_decision) {
-          setReuseCandidates(offers.candidates || []);
-        } else {
-          setReuseCandidates([]);
-        }
-      })
-      .catch(() => setReuseCandidates([]));
-  }, [
-    run,
-    stage.id,
-    stage.status,
-    run?.job?.needs_stage_reuse,
-    run?.job?.stage,
-    reuseOffersEnabled,
-  ]);
 
   if (!run) return null;
 
@@ -162,9 +125,6 @@ export function GateActions({ stage }: Props) {
         <ValueFeaturesPanel />
       ) : null}
 
-      {reuseCandidates.length ? (
-        <StageReuseOfferCard stage={stage} candidates={reuseCandidates} />
-      ) : null}
     </div>
   );
 }

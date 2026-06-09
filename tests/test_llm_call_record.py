@@ -58,18 +58,18 @@ def test_split_and_reconstruct_volley():
 
 
 def test_record_llm_call_writes_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "interview_mux.config.repo_root",
-        lambda: tmp_path,
-    )
+    from run_fixtures import patch_merged_config
+
+    monkeypatch.setattr("interview_mux.config.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
     cfg = {
         "assets_root": "ASSETS",
         "executions_root": str(tmp_path / "ASSETS" / "executions"),
         "data_root": "data",
+        "journey_ui": {"require_write_approval_per_stage": False},
         "analysis": {"llm_call_records": {"enabled": True, "write_markdown_sidecar": True}},
     }
-    for mod in ("interview_mux.config", "interview_mux.llm_call_record", "interview_mux.run_context"):
-        monkeypatch.setattr(f"{mod}.merged_config", lambda: cfg)
+    patch_merged_config(monkeypatch, cfg)
 
     run_id = "exec_099_20260101T000000Z"
     ctx = RunContext(run_id, create=True)

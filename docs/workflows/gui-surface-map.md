@@ -6,7 +6,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **HTTP companion:** [api-reference.md](./api-reference.md) — method/path/body tables and common status codes. Stack pins: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
-**Convention:** `{run_id}` is the execution id (e.g. `exec_001_20260523T120000Z` or legacy `run_001`). Run root = that folder under `executions_root` or `data_root` — see [artifact-layout.md](../cross-cutting/artifact-layout.md).
+**Convention:** `{run_id}` is the execution id (e.g. `exec_001_a1b2c3d4e5f6_20260523T120000Z`, legacy `exec_001_20260523T120000Z`, or `run_001`). Run root = that folder under `executions_root` or `data_root` — see [artifact-layout.md](../cross-cutting/artifact-layout.md).
 
 **ASSETS-first flow:** Operators do not configure a WAV path in secrets for GUI use. Home screen **Input audio** lists files under `ASSETS/` (via `GET /api/assets`); **Previous executions** lists `ASSETS/executions/exec_*` for resume. Canonical spec: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
@@ -16,20 +16,20 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | Compact status bar | Execution, focus stage, job (human labels), updated |
+| Header | Compact status bar | Execution, job status (including **Reuse or run fresh**, **Review before save**), source file, **audio hash** chip (click-to-copy), updated |
 | Header | **Command bar** | All tabs: running / blocked / handoff / next CTA from `journey` |
 | Below command bar | **Execution status banner** | Running / API consent / blocked / last job error — complements command bar |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
-| **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; refresh on tab focus |
+| **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
 | **Pipeline** | Stage rail + sub-tabs | **Stage \| Story \| Timeline \| Profile (JSON) \| Files \| Engineering** — primary operator flow |
 | **Pipeline** | **Phase guidance banner** | `journey.phase_guidance[phase]` — goal, progress, top orange actions |
 | **Pipeline** | **Stage guidance panel** | `stages[].guidance` — prerequisites, actions, unlocks on every stage detail |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
 | Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
-| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers, stage reuse — auto-open on `action_required`; **always** selects blocking stage (including on Logs tab) via `findPendingFocusStage` |
+| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers, **Previous execution reuse**, **Review outputs before saving** — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; **always** selects blocking stage (including on Logs tab) via `findPendingFocusStage` |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
@@ -38,7 +38,9 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`.
 
-**Stage reuse:** When `journey_ui.enable_stage_reuse_offers` is true (default), modal offers reuse before execute; **Reuse** copies outputs then auto-advances via **Run next**; **Run fresh** declines then runs the stage.
+**Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
+
+**Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved.
 
 **Flow intent:** Optional at Start (`flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
 
@@ -59,7 +61,7 @@ After create, UI switches to **Pipeline → Stage** (`GET /api/runs/{id}`).
 
 | User-visible | API | Log / session | Artifact / disk |
 |--------------|-----|---------------|-----------------|
-| **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %; each run folder is immutable |
+| **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %, `source_audio_hash_short`; **Same audio** when hash matches active session |
 | Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace; switches to Pipeline |
 
 Browsing executions while another run is active does **not** stop job/log polling for the current session until the operator resumes a different run or clears the session.
@@ -70,7 +72,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Sub-tab | Content | When visible |
 |---------|---------|--------------|
-| **Stage** | Title, description, **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
+| **Stage** | Title, description, **Previous execution reuse** (`StageReuseSection`), **Review outputs before saving** (`WriteApprovalPanel` when staged), **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
 | **Story** | Story Board — themes, investigations, **Lock story for podcast edit** | When analysis workspace exists |
 | **Timeline** | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification (empty state otherwise) |
 | **Profile** | Analysis profile form | When `profile_ready_for_review` or profile verified; **locked** with waiting message until understanding analysis completes |
@@ -100,7 +102,7 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | File | Purpose |
 |------|---------|
 | `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
-| `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`). |
+| `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`, `needs_stage_reuse`, `reuse_candidates`, `awaiting_write_approval`, `pending_write_stage`). |
 
 **Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Custom-run descriptive JSON writes trigger **handoff** only when artifacts are **complete** (`detail.handoff` / stage `handoff_paths`); batch runs pause until **Acknowledge & continue** (`POST …/handoff-ack`). Config: `journey_ui.require_handoff_between_stages`.
 

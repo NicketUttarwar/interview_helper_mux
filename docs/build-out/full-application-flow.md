@@ -72,10 +72,10 @@ flowchart TB
 |------|---------------|-------------|-----------------|
 | 1 | Place one or more `.wav` files under `ASSETS/` (recommended: `ASSETS/input/`) | — | — |
 | 2 | `./scripts/run.sh` | FastAPI + static UI | `ASSETS/.gui/server_session.json` |
-| 3a | **New:** pick file in **Input audio** (home) | `POST /api/runs` → `ASSETS/executions/exec_*/` | `run_meta.json` (`input_audio_path`) |
+| 3a | **New:** pick file in **Input audio** (home) | `POST /api/runs` → `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP/` | `run_meta.json` (`input_audio_path`, `source_audio_hash`) |
 | 3b | **Resume:** pick row in **Previous executions** | `PUT /api/session/active` | same `exec_*` folder; logs + `.stage_done` intact |
 | 4 | Optional: accept pre-clean offer | `audio_preclean` | `preclean/isolated.wav` |
-| 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions` | `.stage_done/*` under same `exec_*` |
+| 5 | Execute **analysis** (or step through stages) | `ingest` → … → `optimal_questions`; optional reuse per stage; write approval when enabled | `.stage_done/*` under same `exec_*` (markers deferred until approve when staging on) |
 | 6 | **G0:** Review ranked STT clips | `transcript_review` completes | `transcript/corrections.json` |
 | 7 | Edit interview profile (optional) | — | `analysis_state.json` |
 | 8 | Continue analysis if paused at G0 | Remaining analysis stages | `analysis_complete.json` |

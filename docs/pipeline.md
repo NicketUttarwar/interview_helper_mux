@@ -38,7 +38,7 @@ flowchart TB
 
 ## Shared foundation
 
-All work starts from a single long-form interview recording in `./ASSETS/`. Operators select the file in the GUI (**Input audio**) or pass `input_audio_path` when creating a run via API; each run persists under `ASSETS/executions/exec_*` — [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md).
+All work starts from a single long-form interview recording in `./ASSETS/`. Operators select the file in the GUI (**Input audio**) or pass `input_audio_path` when creating a run via API; each run persists under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP` (same WAV → same hash → per-stage reuse offers) — [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md) · [workflows/stage-execution-reuse.md](./workflows/stage-execution-reuse.md).
 
 | Stage | Goal | Key artifacts |
 |-------|------|----------------|

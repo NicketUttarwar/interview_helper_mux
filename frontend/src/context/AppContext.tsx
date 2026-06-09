@@ -279,20 +279,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     renderLogWithAlerts(runData.log_tail || []);
   }, [runId, renderLogWithAlerts]);
 
-  const startJobPoll = useCallback(() => {
-    stopJobPoll();
-    if (!runId) return;
-    setJobRunning(true);
-    jobPollRef.current = setInterval(async () => {
-      const job = await api<JobState>(`/api/runs/${runId}/job`);
-      if (job.status !== "running" && job.status !== "running_with_warnings") {
-        await refreshRun();
-        stopJobPoll();
-      }
-      await pollLog();
-    }, 1200);
-  }, [runId, refreshRun, stopJobPoll, pollLog]);
-
   const selectStage = useCallback(
     async (stageId: string) => {
       setSelectedStageId(stageId);
@@ -319,6 +305,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void focusPendingStage();
   }, [focusPendingStage]);
 
+  const startJobPoll = useCallback(() => {
+    stopJobPoll();
+    if (!runId) return;
+    setJobRunning(true);
+    jobPollRef.current = setInterval(async () => {
+      const job = await api<JobState>(`/api/runs/${runId}/job`);
+      if (job.status !== "running" && job.status !== "running_with_warnings") {
+        await refreshRun();
+        stopJobPoll();
+        if (job.status === "awaiting_write_approval" || job.awaiting_write_approval) {
+          if (!userDismissedActionRef.current) {
+            openActionModal();
+            playAttentionPing(alertsMuted);
+          }
+        }
+      }
+      await pollLog();
+    }, 1200);
+  }, [runId, refreshRun, stopJobPoll, pollLog, openActionModal, alertsMuted]);
+
   const executeJob = useCallback(
     async (body: ExecuteBody) => {
       if (!runId) return;
@@ -331,33 +337,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       const payload = { ...body, api_consents: ALL_API_CONSENTS };
-      const targetStage =
-        body.mode === "stage" && body.stage ? body.stage : null;
-      const reuseOffersEnabled =
-        config?.journey_ui?.enable_stage_reuse_offers !== false;
-      if (targetStage && reuseOffersEnabled) {
-        const offers = await api<{
-          eligible?: boolean;
-          pending_decision?: { action?: string } | null;
-          candidates?: unknown[];
-        }>(`/api/runs/${runId}/stages/${targetStage}/reuse-offers`).catch(
-          () => null,
-        );
-        if (
-          offers?.eligible &&
-          !offers.pending_decision &&
-          (offers.candidates?.length ?? 0) > 0
-        ) {
-          await selectStage(targetStage);
-          openActionModal();
-          showToast(
-            "A previous execution has outputs for this step — choose reuse or run fresh.",
-          );
-          playAttentionPing(alertsMuted);
-          return;
-        }
-      }
-
       try {
         const res = await api<{
           ok?: boolean;
@@ -378,6 +357,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             await refreshRun();
             return;
           }
+          const writePending = res as {
+            awaiting_write_approval?: boolean;
+            pending_write_stage?: string;
+          };
+          if (writePending.awaiting_write_approval && writePending.pending_write_stage) {
+            await selectStage(writePending.pending_write_stage);
+            openActionModal();
+            playAttentionPing(alertsMuted);
+            await refreshRun();
+            return;
+          }
           return;
         }
         startJobPoll();
@@ -393,7 +383,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [
       runId,
       run,
-      config,
       alertsMuted,
       showToast,
       refreshRun,
@@ -527,6 +516,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const runNextStage = useCallback(async () => {
     if (!run) return;
+    if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
+      const sid = run.job.pending_write_stage || run.job.stage;
+      if (sid) await selectStage(sid);
+      openActionModal();
+      showToast("Review stage outputs before saving to disk.");
+      return;
+    }
     const handoffStage = findHandoffStage(run);
     if (handoffStage) {
       showToast(

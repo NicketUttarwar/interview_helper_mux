@@ -38,7 +38,7 @@ Place source audio under `ASSETS/input/` (any `.wav`; pick from GUI **Input audi
 | **Headless pipeline** | `./scripts/run.sh --cli` then `interview-mux` / `python -m interview_mux` with `--flow`, `--run-id`, `--analysis-only`, etc. |
 | **Stage CLIs** | `python tools/run_analysis.py --run-id <exec_*>` · `python tools/run_flow.py --flow flow1\|flow2\|flow3 --run-id <exec_*>` |
 
-GUI runs and artifacts live under `ASSETS/executions/exec_*` and resume after restart — [docs/cross-cutting/assets-and-executions.md](docs/cross-cutting/assets-and-executions.md).
+GUI runs and artifacts live under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP` and resume after restart. Runs on the same source WAV share a hash — reuse prior stage outputs per step — [docs/cross-cutting/assets-and-executions.md](docs/cross-cutting/assets-and-executions.md) · [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md).
 
 ---
 

@@ -15,6 +15,10 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | Record pickup fails silently | Mic permission denied | Browser site settings | Allow microphone; toast should appear on deny |
 | Clear session but Executions still highlights run | Expected — list is historical | `ASSETS/.gui/active_execution.json` | **Clear session** clears server active pointer; use **Resume server session** on empty Pipeline if needed |
 | Job already running toast | Concurrent `POST …/execute` | `gui_job.json` `status: running` | Wait for job poll; open **Logs** |
+| Stuck on **Reuse or run fresh** | `needs_stage_reuse` without decision | `gui_job.json`, action modal | Open **Action** → **Reuse outputs** or **Run fresh instead** |
+| Stuck on **Review before save** | Staged outputs awaiting approve | `.pending_writes/<stage>/`, `gui_job.status: awaiting_write_approval` | Open action modal → preview files → **Save & continue** or **Discard & re-run** |
+| Reuse offer missing | No prior run with same hash + completed stage | `run_meta.source_audio_hash`, prior `.stage_done/` | Complete stage on prior exec first; legacy runs may need same `input_audio_path` |
+| Hash mismatch between runs | Different canonical WAV bytes | `source_audio_hash_short` in Executions list | Expected — only reuse when **Same audio** pill shows |
 | QC fail with no guidance | Strict narrative/EDL QC | `run_meta.qc_summaries` | Read errors in gate panel; **View Logs**; **Redo from selected stage** |
 
 ---

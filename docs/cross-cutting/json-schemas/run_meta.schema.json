@@ -6,7 +6,23 @@
     "execution_id": { "type": "string" },
     "execution_number": { "type": ["integer", "null"] },
     "input_audio_path": { "type": "string" },
+    "source_audio_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source_audio_hash_short": { "type": "string", "pattern": "^[a-f0-9]{12}$" },
     "storage_root": { "type": "string" },
+    "stage_reuse": {
+      "type": "object",
+      "description": "Per-stage reuse decisions: stage_id -> { action: accept|decline, source_run_id?, at }",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "action": { "enum": ["accept", "decline"] },
+          "source_run_id": { "type": "string" },
+          "at": { "type": "string" }
+        },
+        "required": ["action", "at"]
+      }
+    },
+    "pending_write_approval": { "type": "object" },
     "created_at": { "type": "string" },
     "updated_at": { "type": "string" },
     "selected_flow": { "enum": ["flow1", "flow2", "flow3"] },

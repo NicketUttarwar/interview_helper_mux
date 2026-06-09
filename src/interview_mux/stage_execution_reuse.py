@@ -8,8 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from interview_mux.config import merged_config
+from interview_mux.assets_audio import ensure_wav_asset, repo_relative_path
+from interview_mux.config import merged_config, repo_root
 from interview_mux.run_context import RunContext
+from interview_mux.source_audio_hash import (
+    hash_short_from_full,
+    hashes_match,
+    parse_hash_from_run_id,
+)
 from interview_mux.web.stages import STAGE_BY_ID
 
 Disposition = Literal["run", "skipped"]
@@ -39,6 +45,10 @@ class ReuseCandidate:
     updated_at: str | None
     execution_number: int | None
     paths: list[str]
+    source_audio_hash: str | None = None
+    source_audio_hash_short: str | None = None
+    hash_in_run_id: str | None = None
+    same_source_audio: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +56,10 @@ class ReuseCandidate:
             "updated_at": self.updated_at,
             "execution_number": self.execution_number,
             "paths": self.paths,
+            "source_audio_hash": self.source_audio_hash,
+            "source_audio_hash_short": self.source_audio_hash_short,
+            "hash_in_run_id": self.hash_in_run_id,
+            "same_source_audio": self.same_source_audio,
         }
 
 
@@ -116,6 +130,25 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "master_flow2": ("flow_2_highlights/master.wav",),
     "podcast_show_description": ("flow_3_description/show_description.json",),
     "export_show_description": ("flow_3_description/show_description.md",),
+    "transcript_review": (
+        "transcript/corrections.json",
+        "transcript/full.json",
+        "operator/transcript_corrected.json",
+        "operator/transcript_corrected.txt",
+    ),
+    "analysis_profile": (
+        "understanding/analysis_state.json",
+        "understanding/investigation_queue.json",
+        "operator/analysis_profile.json",
+    ),
+    "g1_vo_pickup": (
+        "glob:vo_pickup/*.wav",
+        "glob:vo_pickup/clean/*.wav",
+        "glob:vo_pickup/normalized/*.wav",
+    ),
+    "g2_flow_select": ("operator/flow_selection.json",),
+    "mux_flow1": ("flow_1_master/assembly.wav",),
+    "mux_flow2": ("flow_2_highlights/assembly.wav",),
 }
 
 
@@ -148,13 +181,42 @@ def _read_meta(ctx: RunContext) -> dict[str, Any]:
 
 
 def _write_meta(ctx: RunContext, meta: dict[str, Any]) -> None:
-    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    ctx.write_json("run_meta.json", meta)
+    ctx.mutate_run_meta(lambda m: m.update(meta))
 
 
 def input_audio_path_for_run(ctx: RunContext) -> str | None:
     path = _read_meta(ctx).get("input_audio_path")
     return str(path) if path else None
+
+
+def _canonical_wav_path_for_run(ctx: RunContext) -> Path | None:
+    raw = input_audio_path_for_run(ctx)
+    if not raw:
+        return None
+    p = Path(raw)
+    if not p.is_absolute():
+        p = repo_root() / p
+    if not p.is_file():
+        return None
+    return ensure_wav_asset(p)
+
+
+def runs_share_source_audio(current: RunContext, source: RunContext) -> bool:
+    cur_hash = current.source_audio_hash()
+    src_hash = source.source_audio_hash()
+    if cur_hash and src_hash:
+        return hashes_match(cur_hash, src_hash)
+    cur_path = input_audio_path_for_run(current)
+    src_path = input_audio_path_for_run(source)
+    if cur_path and src_path and cur_path == src_path:
+        return True
+    cur_wav = _canonical_wav_path_for_run(current)
+    src_wav = _canonical_wav_path_for_run(source)
+    if cur_wav and src_wav:
+        return repo_relative_path(repo_root(), cur_wav) == repo_relative_path(
+            repo_root(), src_wav
+        )
+    return False
 
 
 def get_reuse_decision(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
@@ -169,15 +231,17 @@ def record_reuse_decision(
     action: str,
     source_run_id: str | None = None,
 ) -> dict[str, Any]:
-    meta = _read_meta(ctx)
-    reuse = dict(meta.get("stage_reuse") or {})
     now = datetime.now(timezone.utc).isoformat()
     entry: dict[str, Any] = {"action": action, "at": now}
     if source_run_id:
         entry["source_run_id"] = source_run_id
-    reuse[stage_id] = entry
-    meta["stage_reuse"] = reuse
-    _write_meta(ctx, meta)
+
+    def _patch(meta: dict[str, Any]) -> None:
+        reuse = dict(meta.get("stage_reuse") or {})
+        reuse[stage_id] = entry
+        meta["stage_reuse"] = reuse
+
+    ctx.mutate_run_meta(_patch)
     from interview_mux.web.stages import STAGE_BY_ID
 
     title = STAGE_BY_ID.get(stage_id).title if STAGE_BY_ID.get(stage_id) else stage_id
@@ -254,8 +318,8 @@ def prior_run_has_reusable_stage(source_ctx: RunContext, stage_id: str) -> bool:
         return False
     if stage_id == "audio_preclean":
         return True
-    if stage_id == "vo_ingest":
-        return source_ctx.is_done("vo_ingest")
+    if stage_id in ("vo_ingest", "g1_vo_pickup"):
+        return source_ctx.is_done(stage_id)
     specs = stage_reuse_output_specs(stage_id)
     optional = _STAGE_REUSE_OPTIONAL.get(stage_id, frozenset())
     if not specs:
@@ -282,14 +346,14 @@ def prior_run_has_reusable_stage(source_ctx: RunContext, stage_id: str) -> bool:
 
 
 def prior_run_has_file(ctx: RunContext, rel: str) -> bool:
-    p = ctx.path(rel)
+    p = ctx.final_path(*rel.split("/"))
     return p.is_file() and p.stat().st_size > 0
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
-    input_path = input_audio_path_for_run(ctx)
-    if not input_path:
+    if not input_audio_path_for_run(ctx) and not ctx.source_audio_hash():
         return []
+    current_hash = ctx.source_audio_hash()
     candidates: list[ReuseCandidate] = []
     for run_id in RunContext.list_runs():
         if run_id == ctx.run_id:
@@ -297,7 +361,7 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
         if not RunContext.exists(run_id):
             continue
         source = RunContext(run_id, create=False)
-        if input_audio_path_for_run(source) != input_path:
+        if not runs_share_source_audio(ctx, source):
             continue
         if not prior_run_has_reusable_stage(source, stage_id):
             continue
@@ -305,12 +369,31 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
             continue
         meta = _read_meta(source)
         paths = list_copy_paths_for_stage(source, stage_id)
+        src_hash = source.source_audio_hash() or meta.get("source_audio_hash")
+        src_short = (
+            meta.get("source_audio_hash_short")
+            or (hash_short_from_full(src_hash) if src_hash else None)
+            or parse_hash_from_run_id(run_id)
+        )
+        hash_in_id = parse_hash_from_run_id(run_id)
+        same = bool(
+            current_hash
+            and src_hash
+            and hashes_match(current_hash, src_hash)
+            and hash_in_id
+            and src_short
+            and hash_in_id == src_short
+        )
         candidates.append(
             ReuseCandidate(
                 run_id=run_id,
                 updated_at=meta.get("updated_at"),
                 execution_number=meta.get("execution_number"),
                 paths=paths,
+                source_audio_hash=str(src_hash) if src_hash else None,
+                source_audio_hash_short=str(src_short) if src_short else None,
+                hash_in_run_id=hash_in_id,
+                same_source_audio=same,
             )
         )
 
@@ -334,6 +417,33 @@ def list_copy_paths_for_stage(source_ctx: RunContext, stage_id: str) -> list[str
     return sorted(set(paths))
 
 
+def _reuse_dest(ctx: RunContext, rel: str, *, use_staging: bool, stage_id: str) -> Path:
+    if use_staging:
+        from interview_mux.write_staging import staged_path
+
+        dest = staged_path(ctx, rel, stage_id=stage_id)
+    else:
+        dest = ctx.final_path(*rel.split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return dest
+
+
+def _apply_gate_meta_reuse(ctx: RunContext, source: RunContext, stage_id: str) -> None:
+    src_meta = _read_meta(source)
+    if stage_id == "g2_flow_select":
+        flow = src_meta.get("selected_flow")
+        if flow in ("flow1", "flow2", "flow3"):
+            from interview_mux.gates import set_selected_flow
+
+            set_selected_flow(ctx, str(flow))
+    if stage_id == "analysis_profile":
+        verified = src_meta.get("profile_verified_at")
+        if verified:
+            meta = _read_meta(ctx)
+            meta["profile_verified_at"] = verified
+            _write_meta(ctx, meta)
+
+
 def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> list[str]:
     if not RunContext.exists(source_run_id):
         raise ValueError(f"Source run not found: {source_run_id}")
@@ -341,34 +451,53 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
     if not prior_run_has_reusable_stage(source, stage_id):
         raise ValueError(f"Run {source_run_id} does not have reusable outputs for {stage_id}")
 
+    from interview_mux.write_staging import (
+        _staging_lock,
+        enter_stage_staging,
+        exit_stage_staging,
+        write_approval_enabled,
+    )
+
+    use_staging = write_approval_enabled()
+    if use_staging:
+        enter_stage_staging(stage_id)
+
     copied: list[str] = []
-    for rel in list_copy_paths_for_stage(source, stage_id):
-        src = source.path(rel)
-        if not src.is_file():
-            continue
-        dest = ctx.path(rel)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
-        copied.append(rel)
+    staging_lock = _staging_lock(ctx, stage_id) if use_staging else None
+    try:
+        if staging_lock is not None:
+            staging_lock.acquire()
+        for rel in list_copy_paths_for_stage(source, stage_id):
+            src = source.final_path(*rel.split("/"))
+            if not src.is_file():
+                continue
+            dest = _reuse_dest(ctx, rel, use_staging=use_staging, stage_id=stage_id)
+            shutil.copy2(src, dest)
+            copied.append(rel)
 
-    if stage_id == "vo_ingest":
-        if not _gap_reports_match(ctx, source):
-            raise ValueError(
-                "Cannot reuse vo_ingest: gap_report.json differs from source execution."
-            )
-        pickup = source.path("vo_pickup")
-        if pickup.is_dir():
-            ctx.path("vo_pickup").mkdir(parents=True, exist_ok=True)
-            for wav in sorted(pickup.glob("*.wav")):
-                rel = str(wav.relative_to(source.run_dir)).replace("\\", "/")
-                dest = ctx.path(rel)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(wav, dest)
-                if rel not in copied:
-                    copied.append(rel)
+        if stage_id == "vo_ingest" or stage_id == "g1_vo_pickup":
+            if stage_id == "vo_ingest" and not _gap_reports_match(ctx, source):
+                raise ValueError(
+                    "Cannot reuse vo_ingest: gap_report.json differs from source execution."
+                )
+            pickup = source.final_path("vo_pickup")
+            if pickup.is_dir():
+                ctx.final_path("vo_pickup").mkdir(parents=True, exist_ok=True)
+                for wav in sorted(pickup.rglob("*.wav")):
+                    rel = str(wav.relative_to(source.run_dir)).replace("\\", "/")
+                    dest = _reuse_dest(ctx, rel, use_staging=use_staging, stage_id=stage_id)
+                    shutil.copy2(wav, dest)
+                    if rel not in copied:
+                        copied.append(rel)
 
-    _validate_copied_artifacts(ctx, stage_id)
-    ctx.mark_done(stage_id)
+        _apply_gate_meta_reuse(ctx, source, stage_id)
+        _validate_copied_artifacts(ctx, stage_id)
+        ctx.mark_done(stage_id)
+    finally:
+        if staging_lock is not None:
+            staging_lock.release()
+        if use_staging:
+            exit_stage_staging()
 
     if stage_id == "vo_ingest":
         ctx.write_json(
@@ -380,6 +509,16 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
             },
         )
 
+    now = datetime.now(timezone.utc).isoformat()
+
+    def _mark_applied(meta: dict[str, Any]) -> None:
+        reuse = dict(meta.get("stage_reuse") or {})
+        row = dict(reuse.get(stage_id) or {})
+        row["applied_at"] = now
+        reuse[stage_id] = row
+        meta["stage_reuse"] = reuse
+
+    ctx.mutate_run_meta(_mark_applied)
     ctx.log(
         f"stage_reuse_applied: copied {len(copied)} file(s) from {source_run_id}",
         level="success",
@@ -410,26 +549,51 @@ def _validate_copied_artifacts(ctx: RunContext, stage_id: str) -> None:
                 )
 
 
+def reuse_already_applied(ctx: RunContext, stage_id: str) -> bool:
+    """True when accept reuse already copied outputs (done or awaiting write approval)."""
+    from interview_mux.write_staging import has_pending_writes
+
+    if ctx.is_done(stage_id):
+        return True
+    if has_pending_writes(ctx, stage_id):
+        return True
+    decision = get_reuse_decision(ctx, stage_id)
+    return bool(decision and decision.get("action") == "accept" and decision.get("applied_at"))
+
+
+def reuse_candidates_if_undecided(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
+    if not stage_reuse_offers_enabled():
+        return []
+    if ctx.is_done(stage_id):
+        return []
+    if get_reuse_decision(ctx, stage_id):
+        return []
+    return find_reuse_candidates(ctx, stage_id)
+
+
 def reuse_offer_payload(ctx: RunContext, stage_id: str) -> dict[str, Any]:
     decision = get_reuse_decision(ctx, stage_id)
     candidates = find_reuse_candidates(ctx, stage_id)
     return {
         "stage_id": stage_id,
-        "eligible": bool(candidates) and stage_reuse_offers_enabled(),
+        "eligible": bool(candidates),
+        "blocking": bool(candidates) and stage_reuse_offers_enabled(),
         "candidates": [c.to_dict() for c in candidates],
         "pending_decision": decision,
+        "current_source_audio_hash_short": (
+            _read_meta(ctx).get("source_audio_hash_short")
+            or (
+                hash_short_from_full(ctx.source_audio_hash())
+                if ctx.source_audio_hash()
+                else None
+            )
+        ),
     }
 
 
 def pending_reuse_stage(ctx: RunContext, stage_id: str) -> bool:
     """True when reuse is available but operator has not decided yet."""
-    if not stage_reuse_offers_enabled():
-        return False
-    if ctx.is_done(stage_id):
-        return False
-    if get_reuse_decision(ctx, stage_id):
-        return False
-    return bool(find_reuse_candidates(ctx, stage_id))
+    return bool(reuse_candidates_if_undecided(ctx, stage_id))
 
 
 def resolve_before_stage_run(ctx: RunContext, stage_id: str) -> Disposition:
@@ -454,6 +618,8 @@ def resolve_before_stage_run(ctx: RunContext, stage_id: str) -> Disposition:
     if decision:
         action = str(decision.get("action") or "")
         if action == "accept":
+            if reuse_already_applied(ctx, stage_id):
+                return "skipped"
             source_id = str(decision.get("source_run_id") or "")
             if not source_id:
                 return "run"
@@ -462,7 +628,7 @@ def resolve_before_stage_run(ctx: RunContext, stage_id: str) -> Disposition:
         if action == "decline":
             return "run"
 
-    candidates = find_reuse_candidates(ctx, stage_id)
+    candidates = reuse_candidates_if_undecided(ctx, stage_id)
     if not candidates:
         return "run"
 
@@ -477,8 +643,9 @@ def check_stage_reuse_before_execute(
     if not stage_reuse_offers_enabled():
         return None
     for sid in stage_ids:
-        if pending_reuse_stage(ctx, sid):
-            return StageReuseOfferPending(sid, find_reuse_candidates(ctx, sid))
+        candidates = reuse_candidates_if_undecided(ctx, sid)
+        if candidates:
+            return StageReuseOfferPending(sid, candidates)
     return None
 
 

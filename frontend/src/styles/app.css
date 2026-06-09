@@ -3711,3 +3711,328 @@ code {
 .status-grid-compact {
   grid-template-columns: 0.6fr 0.6fr 0.7fr auto;
 }
+
+.hash-chip {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  color: var(--text-muted, #9aa0a6);
+}
+
+.hash-chip-match {
+  border-color: var(--accent, #5b9fd4);
+  color: var(--accent, #5b9fd4);
+}
+
+.reuse-hash-match-banner {
+  font-size: 0.85rem;
+  color: var(--accent, #5b9fd4);
+  margin-bottom: 0.35rem;
+}
+
+.write-approval-panel .write-approval-file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.write-approval-panel .write-approval-file-list li {
+  margin-bottom: 0.5rem;
+}
+
+.write-approval-audio {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.write-approval-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Source audio hash badge */
+.source-hash-badge-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.source-hash-badge-label {
+  font-size: 0.75rem;
+}
+
+.hash-chip-btn {
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.hash-chip-btn:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-elevated, rgba(255, 255, 255, 0.06)));
+}
+
+.hash-match-indicator {
+  font-size: 0.72rem;
+  opacity: 0.9;
+}
+
+.status-cell-hash .source-hash-badge-wrap {
+  margin-top: 0.1rem;
+}
+
+/* Stage reuse section */
+.stage-reuse-section {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
+}
+
+.stage-reuse-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.stage-reuse-section-lead {
+  margin: 0.25rem 0 0;
+  max-width: 42rem;
+}
+
+.stage-reuse-loading {
+  margin: 0;
+  font-style: italic;
+}
+
+.stage-reuse-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.stage-reuse-candidate-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.stage-reuse-candidate-card {
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.stage-reuse-candidate-card.matched {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.stage-reuse-candidate-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stage-reuse-candidate-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stage-reuse-run-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.stage-reuse-run-id {
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.stage-reuse-exec-badge {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.reuse-hash-match-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+.reuse-match-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  font-size: 0.7rem;
+}
+
+.stage-reuse-paths {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.stage-reuse-paths-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+}
+
+.stage-reuse-paths-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stage-reuse-paths-list .artifact-path {
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.stage-reuse-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+}
+
+.stage-reuse-footer-hint {
+  margin: 0;
+  flex: 1;
+}
+
+/* Write approval layout */
+.write-approval-layout {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) 1fr;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .write-approval-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.write-approval-file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.write-approval-file-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.write-approval-file-btn:hover,
+.write-approval-file-btn.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.write-approval-kind {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.write-approval-kind.kind-audio {
+  color: var(--accent);
+}
+
+.write-approval-preview {
+  min-height: 8rem;
+}
+
+.write-approval-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Executions tab enhancements */
+.executions-active-hash {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.run-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.run-same-audio-pill {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.run-item-same-audio {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.run-item-hash-row {
+  margin-top: 0.35rem;
+}

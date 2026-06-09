@@ -17,6 +17,7 @@ from interview_mux.stage_execution_reuse import (
     record_reuse_decision,
     reset_stage_reuse_cli,
     resolve_before_stage_run,
+    reuse_already_applied,
 )
 from run_fixtures import init_run_meta_for_test
 
@@ -28,6 +29,11 @@ def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
     monkeypatch.setattr("interview_mux.config.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.run_context.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.stage_execution_reuse.merged_config", lambda: cfg)
+    monkeypatch.setattr("interview_mux.write_staging.merged_config", lambda: cfg)
+    monkeypatch.setattr(
+        "interview_mux.write_staging.write_approval_enabled",
+        lambda: False,
+    )
     return root
 
 
@@ -51,6 +57,7 @@ def test_find_candidates_same_input_only(tmp_path: Path, monkeypatch: pytest.Mon
     candidates = find_reuse_candidates(current, "transcribe")
     assert len(candidates) == 1
     assert candidates[0].run_id == "exec_001_20260101T000000Z"
+    assert "source_audio_hash" in candidates[0].to_dict()
 
     other.write_json("transcript/full.json", {"segments": []})
     other.write_json("transcript/speakers.json", {"speakers": []})
@@ -166,6 +173,25 @@ def test_auto_reuse_from_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         assert current.is_done("speaker_roles")
     finally:
         reset_stage_reuse_cli()
+
+
+def test_accept_reuse_not_reapplied_when_staged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: True)
+    prior = _ctx_in_root("exec_060_20260101T000060Z", tmp_path)
+    current = _ctx_in_root("exec_061_20260101T000061Z", tmp_path)
+
+    prior.write_json("transcript/full.json", {"segments": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.mark_done("transcribe")
+
+    record_reuse_decision(
+        current, "transcribe", action="accept", source_run_id="exec_060_20260101T000060Z"
+    )
+    apply_stage_reuse(current, "transcribe", "exec_060_20260101T000060Z")
+    assert not current.is_done("transcribe")
+    assert reuse_already_applied(current, "transcribe")
+    assert resolve_before_stage_run(current, "transcribe") == "skipped"
 
 
 def test_clear_stage_reuse_on_invalidate(tmp_path: Path, monkeypatch) -> None:

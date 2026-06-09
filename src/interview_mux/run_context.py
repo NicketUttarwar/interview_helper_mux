@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,11 +8,19 @@ from typing import Any
 
 from interview_mux.assets_audio import ensure_wav_asset, repo_relative_path
 from interview_mux.config import merged_config, repo_root
+from filelock import FileLock
+
+from interview_mux.file_store import lock_path_for
 from interview_mux.file_store import read_json as fs_read_json
 from interview_mux.file_store import write_json as fs_write_json
 from interview_mux.session_log import append_log
+from interview_mux.source_audio_hash import (
+    compute_source_audio_hash,
+    normalized_source_audio_hash,
+    parse_hash_from_run_id,
+)
 
-EXEC_ID_RE = re.compile(r"^exec_\d{3}_\d{8}T\d{6}Z$")
+EXEC_ID_RE = re.compile(r"^exec_\d{3}(?:_[a-f0-9]{12})?_\d{8}T\d{6}Z$")
 LEGACY_RUN_RE = re.compile(r"^run_\d{3}$")
 
 
@@ -49,21 +58,46 @@ class RunContext:
             return self.legacy_data_root / run_id
         return self.executions_root / run_id
 
-    def _allocate_run_id(self) -> str:
-        existing_nums: list[int] = []
-        if self.executions_root.is_dir():
-            for p in self.executions_root.iterdir():
+    @classmethod
+    def _max_execution_number(cls, executions: Path) -> int:
+        nums: list[int] = []
+        if executions.is_dir():
+            for p in executions.iterdir():
                 if not p.is_dir():
                     continue
                 m = re.match(r"exec_(\d{3})_", p.name)
                 if m:
-                    existing_nums.append(int(m.group(1)))
-        n = (max(existing_nums) + 1) if existing_nums else 1
+                    nums.append(int(m.group(1)))
+        return max(nums) if nums else 0
+
+    @classmethod
+    def allocate_run_id(cls, *, source_hash: str | None = None) -> str:
+        cfg = merged_config()
+        executions = cls._executions_root(cfg)
+        counter_path = executions / ".execution_counter"
+        with FileLock(lock_path_for(counter_path)):
+            if counter_path.is_file():
+                try:
+                    n = int(counter_path.read_text(encoding="utf-8").strip()) + 1
+                except ValueError:
+                    n = cls._max_execution_number(executions) + 1
+            else:
+                n = cls._max_execution_number(executions) + 1
+            counter_path.write_text(str(n), encoding="utf-8")
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        if source_hash:
+            clean = re.sub(r"[^a-z0-9]", "", source_hash.lower())[:12]
+            return f"exec_{n:03d}_{clean}_{ts}"
         return f"exec_{n:03d}_{ts}"
 
+    def _allocate_run_id(self) -> str:
+        return self.allocate_run_id()
+
     def path(self, *parts: str) -> Path:
-        return self.run_dir.joinpath(*parts)
+        from interview_mux.write_staging import resolve_write_path
+
+        rel = "/".join(parts)
+        return resolve_write_path(self, rel)
 
     def write_json(
         self,
@@ -90,26 +124,43 @@ class RunContext:
         return p
 
     def read_json(self, rel: str) -> Any:
-        p = self.path(rel)
+        from interview_mux.write_staging import resolve_read_path
+
+        p = resolve_read_path(self, rel)
         return fs_read_json(p)
 
-    def init_run_meta(self, input_audio_path: str) -> None:
+    def init_run_meta(
+        self,
+        input_audio_path: str,
+        *,
+        source_audio_hash: str | None = None,
+        source_audio_hash_short: str | None = None,
+    ) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        meta_path = self.path("run_meta.json")
+        meta_path = self.final_path("run_meta.json")
         meta: dict[str, Any] = {}
         if meta_path.is_file():
-            meta = self.read_json("run_meta.json")
+            meta = fs_read_json(meta_path)
         seq = self.run_id.split("_")[1] if self.run_id.startswith("exec_") else meta.get("execution_number")
         meta.setdefault("created_at", now)
         meta["updated_at"] = now
-        meta["execution_number"] = int(seq) if seq else None
+        meta["execution_number"] = int(seq) if seq and str(seq).isdigit() else meta.get("execution_number")
         meta["execution_id"] = self.run_id
         resolved_input = self._resolve_input_audio_ref(input_audio_path)
         wav_input = ensure_wav_asset(resolved_input)
         stored_input = repo_relative_path(self.root, wav_input)
         meta["input_audio_path"] = stored_input
+        if source_audio_hash and source_audio_hash_short:
+            meta["source_audio_hash"] = source_audio_hash
+            meta["source_audio_hash_short"] = source_audio_hash_short
+        else:
+            from interview_mux.source_audio_hash import source_audio_hash_pair
+
+            full, short = source_audio_hash_pair(wav_input)
+            meta["source_audio_hash"] = full
+            meta["source_audio_hash_short"] = short
         meta["storage_root"] = str(self.run_dir.relative_to(self.root))
-        self.write_json("run_meta.json", meta)
+        fs_write_json(meta_path, meta)
         log_msg = f"Execution {self.run_id} initialized with input {stored_input}"
         if wav_input != resolved_input.resolve():
             log_msg = (
@@ -117,6 +168,23 @@ class RunContext:
                 f"(converted from {input_audio_path})"
             )
         append_log(self.run_dir, log_msg, level="info", stage="setup")
+
+    def mutate_run_meta(self, mutator: Any) -> dict[str, Any]:
+        """Locked read-modify-write for run_meta.json (avoids concurrent field loss)."""
+        meta_path = self.final_path("run_meta.json")
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(lock_path_for(meta_path)):
+            meta: dict[str, Any] = {}
+            if meta_path.is_file():
+                raw = json.loads(meta_path.read_text(encoding="utf-8"))
+                meta = raw if isinstance(raw, dict) else {}
+            mutator(meta)
+            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            payload = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
+            tmp = meta_path.with_suffix(meta_path.suffix + ".tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(meta_path)
+        return meta
 
     def log(
         self,
@@ -163,8 +231,22 @@ class RunContext:
             return None
         return str(attempts[-1].relative_to(self.run_dir)).replace("\\", "/")
 
-    def mark_done(self, stage: str) -> None:
-        marker = self.path(".stage_done", stage)
+    def mark_done(self, stage: str, *, force: bool = False) -> None:
+        from interview_mux.write_staging import (
+            has_pending_writes,
+            record_pending_approval,
+            write_approval_enabled,
+        )
+
+        if (
+            not force
+            and write_approval_enabled()
+            and has_pending_writes(self, stage)
+        ):
+            record_pending_approval(self, stage)
+            return
+
+        marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
         from interview_mux.custom_run_handoff import custom_run_paths_for_stage
@@ -184,14 +266,14 @@ class RunContext:
         self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
 
     def is_done(self, stage: str) -> bool:
-        return self.path(".stage_done", stage).is_file()
+        return self.final_path(".stage_done", stage).is_file()
 
     def clear_from(self, stage: str, order: list[str]) -> None:
         if stage not in order:
             return
         idx = order.index(stage)
         for s in order[idx:]:
-            marker = self.path(".stage_done", s)
+            marker = self.final_path(".stage_done", s)
             if marker.is_file():
                 marker.unlink()
         from interview_mux.stage_step_through import clear_step_through_from
@@ -217,8 +299,29 @@ class RunContext:
             raw = self.root / raw
         return ensure_wav_asset(raw)
 
+    def source_audio_hash(self) -> str | None:
+        """Full SHA-256 of pipeline WAV from run_meta, or None."""
+        if not self.artifact_exists("run_meta.json"):
+            return None
+        meta = self.read_json("run_meta.json")
+        if isinstance(meta, dict) and meta.get("source_audio_hash"):
+            return str(meta["source_audio_hash"])
+        if isinstance(meta, dict) and meta.get("input_audio_path"):
+            try:
+                wav = ensure_wav_asset(self._resolve_input_audio_ref(meta["input_audio_path"]))
+                return compute_source_audio_hash(wav)
+            except (FileNotFoundError, OSError):
+                return None
+        return None
+
     def artifact_exists(self, rel: str) -> bool:
-        return self.path(rel).is_file()
+        from interview_mux.write_staging import artifact_exists_resolved
+
+        return artifact_exists_resolved(self, rel)
+
+    def final_path(self, *parts: str) -> Path:
+        """Absolute final on-disk path (never staging)."""
+        return self.run_dir.joinpath(*parts)
 
     @classmethod
     def list_runs(cls) -> list[str]:
@@ -251,10 +354,13 @@ class RunContext:
         ):
             if ctx.artifact_exists(rel):
                 outputs.append(rel)
+        hash_short = meta.get("source_audio_hash_short") or parse_hash_from_run_id(run_id)
         return {
             "run_id": run_id,
             "execution_number": meta.get("execution_number"),
             "input_audio_path": meta.get("input_audio_path"),
+            "source_audio_hash": meta.get("source_audio_hash") or ctx.source_audio_hash(),
+            "source_audio_hash_short": hash_short,
             "selected_flow": meta.get("selected_flow"),
             "created_at": meta.get("created_at"),
             "updated_at": meta.get("updated_at"),

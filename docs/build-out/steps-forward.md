@@ -4,6 +4,8 @@ Prioritized backlog for making the **whole repository** coherent: code, GUI, doc
 
 **What to do next (Agent work):** [remaining-build-commands.md](./remaining-build-commands.md) — open commands only; do not re-run shipped BUILD prompts from this file.
 
+**Run id note:** New executions use `exec_NNN_<hash12>_TIMESTAMP` (source-audio fingerprint). Historical examples below may show legacy `exec_NNN_TIMESTAMP` — substitute your actual `run_id` from the GUI or `ASSETS/executions/`.
+
 **Holistic build-out guide:** [implementation-guide.md](./implementation-guide.md) (all phases) · [full-application-flow.md](./full-application-flow.md) (operator journey) · [ticket-specs.md](./ticket-specs.md) (acceptance per BUILD id) · [stage-registry.md](./stage-registry.md) (every stage).
 
 **Status key:** **Now** = unblock operators or agents this week · **Next** = quality/mix wave · **Later** = R&D or optional track · ~~struck~~ = **shipped** (historical reference)

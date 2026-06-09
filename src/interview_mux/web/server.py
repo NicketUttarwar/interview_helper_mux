@@ -68,7 +68,7 @@ from interview_mux.journey_orchestrator import (
 )
 from interview_mux.journey_state import get_flow_intent, stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
-from interview_mux.web.runner import runner
+from interview_mux.web.runner import RunBusyError, runner
 from interview_mux.web.stages import LLM_ROUTING_STAGE_IDS, STAGE_BY_ID, all_stages_for_run
 from interview_mux.operator_snapshots import (
     append_operator_stage_reuse,
@@ -141,6 +141,12 @@ class ArtifactTextBody(BaseModel):
 
 class HandoffAckBody(BaseModel):
     stage_id: str
+
+
+class PendingWriteContentBody(BaseModel):
+    path: str
+    data: Any | None = None
+    text: str | None = None
 
 
 class ResetBody(BaseModel):
@@ -403,8 +409,17 @@ def create_app() -> FastAPI:
         _assert_asset_input_path(body.input_audio_path)
         if body.run_id and RunContext.exists(body.run_id):
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
-        ctx = RunContext(body.run_id, create=True)
-        ctx.init_run_meta(body.input_audio_path)
+        from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
+
+        wav_src = pipeline_wav_path(src)
+        full_hash, short_hash = source_audio_hash_pair(wav_src)
+        run_id = body.run_id or RunContext.allocate_run_id(source_hash=short_hash)
+        ctx = RunContext(run_id, create=True)
+        ctx.init_run_meta(
+            body.input_audio_path,
+            source_audio_hash=full_hash,
+            source_audio_hash_short=short_hash,
+        )
         if body.flow_intent:
             set_flow_intent(ctx, body.flow_intent)
         ensure_analysis_workspace(ctx)
@@ -420,6 +435,8 @@ def create_app() -> FastAPI:
             "run_dir": str(ctx.run_dir.relative_to(ctx.root)),
             "execution_number": meta.get("execution_number"),
             "input_audio_path": meta.get("input_audio_path"),
+            "source_audio_hash": meta.get("source_audio_hash"),
+            "source_audio_hash_short": meta.get("source_audio_hash_short"),
         }
 
     @app.get("/api/runs/{run_id}/summary")
@@ -846,6 +863,90 @@ def create_app() -> FastAPI:
             persist_operator_preclean(ctx, source=f"preclean_{body.action}")
         return {"ok": True, "changed": changed, "audio_preclean": payload}
 
+    @app.get("/api/runs/{run_id}/pending-writes")
+    def list_pending_writes(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.write_staging import all_pending_stages, list_pending_paths
+
+        stages = all_pending_stages(ctx)
+        return {
+            "stages": [
+                {"stage_id": sid, "paths": list_pending_paths(ctx, sid)} for sid in stages
+            ]
+        }
+
+    @app.get("/api/runs/{run_id}/pending-writes/{stage_id}")
+    def get_pending_writes_stage(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.write_staging import list_pending_paths
+
+        paths = list_pending_paths(ctx, stage_id)
+        if not paths:
+            raise HTTPException(404, f"No pending writes for stage: {stage_id}")
+        return {"stage_id": stage_id, "paths": paths}
+
+    @app.get("/api/runs/{run_id}/pending-writes/{stage_id}/content")
+    def get_pending_write_content(run_id: str, stage_id: str, path: str) -> Any:
+        ctx = _ctx(run_id)
+        _assert_artifact_path(path)
+        from interview_mux.write_staging import read_pending_content, read_pending_json, read_pending_text
+
+        rel_path = path
+        try:
+            if path.endswith(".json"):
+                return read_pending_json(ctx, stage_id, rel_path)
+            if path.endswith((".md", ".txt")):
+                return {"text": read_pending_text(ctx, stage_id, rel_path)}
+            raw = read_pending_content(ctx, stage_id, rel_path)
+            return {"bytes_b64": None, "size": len(raw)}
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.put("/api/runs/{run_id}/pending-writes/{stage_id}/content")
+    def put_pending_write_content(
+        run_id: str, stage_id: str, body: PendingWriteContentBody
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        _assert_artifact_path(body.path)
+        from interview_mux.write_staging import write_pending_content
+
+        if body.data is not None:
+            write_pending_content(ctx, stage_id, body.path, data=body.data)
+        elif body.text is not None:
+            write_pending_content(ctx, stage_id, body.path, text=body.text)
+        else:
+            raise HTTPException(400, "Provide data or text")
+        return {"ok": True, "path": body.path}
+
+    @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
+    def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
+
+        try:
+            with runner.run_guard(run_id):
+                if not list_pending_paths(ctx, stage_id):
+                    raise HTTPException(404, f"No pending writes for stage: {stage_id}")
+                flushed = approve_stage_writes(ctx, stage_id)
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return {"ok": True, "flushed": flushed, "stage_id": stage_id}
+
+    @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/discard")
+    def discard_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.write_staging import discard_stage_writes
+
+        try:
+            with runner.run_guard(run_id):
+                discard_stage_writes(ctx, stage_id)
+                runner.invalidate_from(run_id, stage_id)
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return {"ok": True, "stage_id": stage_id}
+
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -862,38 +963,66 @@ def create_app() -> FastAPI:
             raise HTTPException(404, f"Unknown stage: {stage_id}")
         from interview_mux.stage_execution_reuse import (
             apply_stage_reuse,
-            find_reuse_candidates,
+            get_reuse_decision,
             prior_run_has_reusable_stage,
             record_reuse_decision,
+            reuse_already_applied,
+            reuse_candidates_if_undecided,
         )
 
-        if body.action == "decline":
-            entry = record_reuse_decision(ctx, stage_id, action="decline")
-            append_operator_stage_reuse(ctx, stage_id, entry, source="gui_decline")
-            return {"ok": True, "action": "decline", "stage_reuse": entry}
+        try:
+            with runner.run_guard(run_id):
+                if body.action == "decline":
+                    existing = get_reuse_decision(ctx, stage_id)
+                    if existing and existing.get("action") == "decline":
+                        refresh_journey_meta(ctx)
+                        return {"ok": True, "action": "decline", "stage_reuse": existing}
+                    entry = record_reuse_decision(ctx, stage_id, action="decline")
+                    append_operator_stage_reuse(ctx, stage_id, entry, source="gui_decline")
+                    refresh_journey_meta(ctx)
+                    return {"ok": True, "action": "decline", "stage_reuse": entry}
 
-        source_id = body.source_run_id
-        if not source_id:
-            raise HTTPException(400, "source_run_id is required when action is accept")
-        if not RunContext.exists(source_id):
-            raise HTTPException(404, f"Source run not found: {source_id}")
-        source = RunContext(source_id, create=False)
-        if not prior_run_has_reusable_stage(source, stage_id):
-            raise HTTPException(
-                400,
-                f"Run {source_id} does not have complete reusable outputs for {stage_id}",
-            )
-        allowed = {c.run_id for c in find_reuse_candidates(ctx, stage_id)}
-        if source_id not in allowed:
-            raise HTTPException(400, f"Run {source_id} is not an eligible reuse source for this stage")
-        entry = record_reuse_decision(ctx, stage_id, action="accept", source_run_id=source_id)
-        copied = apply_stage_reuse(ctx, stage_id, source_id)
-        append_operator_stage_reuse(
-            ctx,
-            stage_id,
-            {**entry, "copied": copied},
-            source="gui_accept",
-        )
+                if reuse_already_applied(ctx, stage_id):
+                    entry = get_reuse_decision(ctx, stage_id) or {}
+                    refresh_journey_meta(ctx)
+                    return {
+                        "ok": True,
+                        "action": "accept",
+                        "stage_reuse": entry,
+                        "copied": [],
+                        "stage_done": ctx.is_done(stage_id),
+                    }
+
+                source_id = body.source_run_id
+                if not source_id:
+                    raise HTTPException(400, "source_run_id is required when action is accept")
+                if not RunContext.exists(source_id):
+                    raise HTTPException(404, f"Source run not found: {source_id}")
+                source = RunContext(source_id, create=False)
+                if not prior_run_has_reusable_stage(source, stage_id):
+                    raise HTTPException(
+                        400,
+                        f"Run {source_id} does not have complete reusable outputs for {stage_id}",
+                    )
+                allowed = {c.run_id for c in reuse_candidates_if_undecided(ctx, stage_id)}
+                if source_id not in allowed:
+                    raise HTTPException(
+                        400,
+                        f"Run {source_id} is not an eligible reuse source for this stage",
+                    )
+                entry = record_reuse_decision(
+                    ctx, stage_id, action="accept", source_run_id=source_id
+                )
+                copied = apply_stage_reuse(ctx, stage_id, source_id)
+                append_operator_stage_reuse(
+                    ctx,
+                    stage_id,
+                    {**entry, "copied": copied},
+                    source="gui_accept",
+                )
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
         refresh_journey_meta(ctx)
         return {
             "ok": True,
@@ -1341,10 +1470,22 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/runs/{run_id}/audio")
-    def serve_audio(run_id: str, path: str) -> FileResponse:
+    def serve_audio(
+        run_id: str,
+        path: str,
+        pending: int = 0,
+        pending_stage: str | None = None,
+    ) -> FileResponse:
         ctx = _ctx(run_id)
         _assert_artifact_path(path)
-        full = ctx.path(path)
+        if pending and pending_stage:
+            from interview_mux.write_staging import staged_path
+
+            full = staged_path(ctx, path, stage_id=pending_stage)
+        else:
+            full = ctx.final_path(*path.split("/"))
+        if not full.is_file():
+            full = ctx.path(path)
         if not full.is_file():
             raise HTTPException(404, f"Audio not found: {path}")
         media = mimetypes.guess_type(full.name)[0] or "application/octet-stream"

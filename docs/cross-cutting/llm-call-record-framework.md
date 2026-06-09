@@ -75,7 +75,7 @@ understanding/llm_calls/
 <run_id>/<stage_key>/a<attempt>/<sequence>_<task_kind>
 ```
 
-Example: `exec_001_20260601T120000Z/missing_framing/a002/02_arbiter`
+Example: `exec_001_a1b2c3d4e5f6_20260601T120000Z/missing_framing/a002/02_arbiter`
 
 ### `importance`
 
@@ -179,7 +179,7 @@ Cross-link via `links.attempt_artifact` on each call record.
 
 ```bash
 source .venv/bin/activate
-python tools/export_llm_calls.py --run-id exec_001_20260601T120000Z
+python tools/export_llm_calls.py --run-id exec_001_a1b2c3d4e5f6_20260601T120000Z
 python tools/export_llm_calls.py --run-id exec_001_... --stage missing_framing --importance high
 python tools/export_llm_calls.py --run-id exec_001_... --label-contains arbiter --format jsonl -o calls.jsonl
 ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from interview_mux.stage_step_through import clear_step_through_from, reset_step_through_session
 from interview_mux.run_context import RunContext
+from run_fixtures import ensure_test_wav
 
 
 def test_clear_step_through_from(tmp_path, monkeypatch) -> None:
@@ -11,6 +12,7 @@ def test_clear_step_through_from(tmp_path, monkeypatch) -> None:
         "interview_mux.run_context.repo_root",
         lambda: tmp_path,
     )
+    ensure_test_wav(tmp_path, "ASSETS/input/interview.wav")
     ctx = RunContext("exec_001_20260101T000001Z")
     ctx.init_run_meta("ASSETS/input/interview.wav")
     meta = ctx.read_json("run_meta.json")
@@ -31,6 +33,7 @@ def test_reset_step_through_session(tmp_path, monkeypatch) -> None:
         "interview_mux.run_context.repo_root",
         lambda: tmp_path,
     )
+    ensure_test_wav(tmp_path, "ASSETS/input/interview.wav")
     ctx = RunContext("exec_002_20260101T000002Z")
     ctx.init_run_meta("ASSETS/input/interview.wav")
     meta = ctx.read_json("run_meta.json")

@@ -2,6 +2,18 @@
 
 See also: [troubleshooting.md](./troubleshooting.md) when a re-run does not fix the issue.
 
+## Reuse prior execution (same source audio)
+
+When starting a new `exec_*` on the same WAV, the GUI can **reuse** completed stage outputs from an earlier run (matched by `source_audio_hash`) instead of re-running — [stage-execution-reuse.md](./stage-execution-reuse.md).
+
+CLI auto-accept all reusable stages:
+
+```bash
+interview-mux analysis --run-id exec_002_… --reuse-from exec_001_…
+```
+
+To clear a reuse decision and run fresh: open the stage in GUI → **Run fresh instead**, or invalidate with `--from-stage <stage_id>`.
+
 ## Re-run pre-clean (quality)
 
 When the operator accepts a background-noise offer:

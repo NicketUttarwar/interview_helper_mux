@@ -41,8 +41,8 @@ python tools/run_value_spike.py \
 **Feature extraction** — merge profiles into `understanding/value_features.json` ([schema](../../cross-cutting/json-schemas/value_features.schema.json)):
 
 ```bash
-python tools/extract_value_features.py --run-id exec_001_20260523T120000Z --profile all
-python tools/extract_value_features.py --run-id exec_001_20260523T120000Z --profile transcript
+python tools/extract_value_features.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --profile all
+python tools/extract_value_features.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --profile transcript
 ```
 
 Module: `src/interview_mux/value_analysis/extract.py` (`extract_and_write_value_features`, `maybe_auto_extract_value_features`).

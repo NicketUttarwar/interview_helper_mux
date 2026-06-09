@@ -9,17 +9,13 @@ from fastapi.testclient import TestClient
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, patch_server_ctx
+from run_fixtures import init_run_meta_for_test, patch_executions_root, patch_server_ctx
 
 
 def _patch_executions_root(monkeypatch, tmp_path: Path) -> None:
-    root = tmp_path / "ASSETS" / "executions"
-    root.mkdir(parents=True)
-    cfg = {**merged_config(), "executions_root": str(root), "assets_root": str(tmp_path / "ASSETS")}
-    monkeypatch.setattr("interview_mux.config.merged_config", lambda: cfg)
-    monkeypatch.setattr("interview_mux.run_context.merged_config", lambda: cfg)
-    monkeypatch.setattr("interview_mux.stage_execution_reuse.merged_config", lambda: cfg)
-    monkeypatch.setattr("interview_mux.web.server.merged_config", lambda: cfg)
+    journey = dict(merged_config().get("journey_ui") or {})
+    journey["require_write_approval_per_stage"] = False
+    patch_executions_root(monkeypatch, tmp_path, journey_ui=journey)
 
 
 def _setup_pair(tmp_path: Path) -> tuple:

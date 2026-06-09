@@ -10,6 +10,8 @@ import {
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
 import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
+import { StageReuseSection } from "../guidance/StageReuseSection";
+import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
 
 export function OperatorActionModal() {
   const {
@@ -82,6 +84,8 @@ export function OperatorActionModal() {
         {actionSummary ? <p className="hint modal-summary">{actionSummary}</p> : null}
 
         <div className="modal-body-scroll">
+          <StageReuseSection stage={selectedStage} />
+          <WriteApprovalPanel stage={selectedStage} />
           <StageGuidancePanel stage={selectedStage} />
           {showHandoff ? <HandoffPanel /> : null}
           <GateActions stage={selectedStage} />

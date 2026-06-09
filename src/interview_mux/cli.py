@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from interview_mux.gates import check_g1_vo, set_selected_flow
 from interview_mux.pipeline import run_analysis, run_flow1, run_flow2, run_flow3
+from interview_mux.config import merged_config, repo_root
 from interview_mux.run_context import EXEC_ID_RE, LEGACY_RUN_RE, RunContext
+from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
 from interview_mux.stage_execution_reuse import configure_stage_reuse_cli
 
 app = typer.Typer(help="interview_helper_mux pipeline")
@@ -47,8 +50,32 @@ def _open_run(run_id: str | None) -> RunContext:
                 "  Create via GUI (ASSETS/ → New execution) or omit --run-id to allocate a new exec_* folder."
             )
             raise typer.Exit(1)
-        return RunContext(run_id, create=False)
-    return RunContext(create=True)
+        ctx = RunContext(run_id, create=False)
+        if not ctx.artifact_exists("run_meta.json"):
+            cfg = merged_config()
+            raw = Path(cfg["input_audio_path"])
+            if not raw.is_absolute():
+                raw = repo_root() / raw
+            if raw.is_file():
+                ctx.init_run_meta(str(raw.relative_to(repo_root())))
+        return ctx
+    cfg = merged_config()
+    raw = Path(cfg["input_audio_path"])
+    if not raw.is_absolute():
+        raw = repo_root() / raw
+    if not raw.is_file():
+        console.print(f"[red]Input audio not found:[/red] {raw}")
+        raise typer.Exit(1)
+    wav = pipeline_wav_path(raw)
+    full_hash, short_hash = source_audio_hash_pair(wav)
+    new_id = RunContext.allocate_run_id(source_hash=short_hash)
+    ctx = RunContext(new_id, create=True)
+    ctx.init_run_meta(
+        str(raw.relative_to(repo_root())),
+        source_audio_hash=full_hash,
+        source_audio_hash_short=short_hash,
+    )
+    return ctx
 
 
 def _apply_cli_reuse_options(
