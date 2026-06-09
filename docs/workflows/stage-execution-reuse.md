@@ -4,7 +4,8 @@ At **every pipeline stage**, the GUI can offer to copy outputs from an earlier e
 
 ## When an offer appears
 
-- Another `exec_*` folder under `ASSETS/executions/` shares the same `source_audio_hash` (fallback: same `input_audio_path` on legacy runs without a stored hash).
+- Another `exec_*` folder under `ASSETS/executions/` shares the same `source_audio_hash` (weak fallback: same `input_audio_path` or canonical WAV path only when **both** runs lack a stored hash).
+- Hash is **recomputed from disk** when building the offer list; a mismatch vs stored `run_meta.source_audio_hash` logs a warning.
 - That run has `.stage_done/<stage>` and all requisite output files for the stage (see `src/interview_mux/stage_execution_reuse.py`).
 - The current run has not decided yet (`run_meta.stage_reuse[stage_id]` unset).
 
@@ -29,7 +30,7 @@ The **Executions** tab and status header also surface hash chips; runs with matc
 
 When `enable_stage_reuse_offers` is `false`, the UI still lists candidates but execute is not blocked (CLI: `--no-reuse-offers`).
 
-Decisions are stored in `run_meta.stage_reuse` (with `applied_at` after copy) and cleared when you **Redo from stage**. Accept is idempotent — a second accept while outputs are staged or done does not re-copy files. API reuse/approve/discard calls are serialized with the background job via `JobRunner.run_guard`. A mirror log is written to `operator/stage_reuse_decisions.json`.
+Decisions are stored in `run_meta.stage_reuse` (with `applied_at` after copy) and cleared when you **Redo from stage**. Accept is idempotent — a second accept while outputs are staged or done does not re-copy files. API reuse/approve/discard calls are serialized with the background job via `JobRunner.run_guard` and a cross-process `RunDirectoryLock` on `{run_dir}/.run.lock`. Reuse copy acquires the **source** run lock for the duration of the copy. Candidates expose `match_kind` (`hash` | `path` | `wav`) for UI badges. Reusing SDP-consuming stages (`sound_design_palettes`, `sound_design_plan_flow*`, `sound_design_vo_finalize`) is blocked when an existing `understanding/sound_design_plan.json` came from a different `source_run_id`. A mirror log is written to `operator/stage_reuse_decisions.json`.
 
 ## API
 

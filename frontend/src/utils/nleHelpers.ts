@@ -210,31 +210,6 @@ export function reviewQueueForFilter(
   }
 }
 
-export function describeHistoryEntry(
-  prev: NleState | null,
-  next: NleState,
-  label?: string,
-): string {
-  if (label) return label;
-  const pOv = prev?.segment_overrides || {};
-  const nOv = next.segment_overrides || {};
-  const allIds = new Set([...Object.keys(pOv), ...Object.keys(nOv)]);
-  for (const id of allIds) {
-    const p = pOv[id] || {};
-    const n = nOv[id] || {};
-    if (n.excluded && !p.excluded) return `Excluded ${id}`;
-    if (!n.excluded && p.excluded) return `Restored ${id}`;
-    if (n.mark_redo && !p.mark_redo) return `Marked redo ${id}`;
-    if ((n.start_ms != null || n.end_ms != null) && (p.start_ms !== n.start_ms || p.end_ms !== n.end_ms)) {
-      return `Trimmed ${id}`;
-    }
-  }
-  const pOrder = JSON.stringify(prev?.sequence_order || []);
-  const nOrder = JSON.stringify(next.sequence_order || []);
-  if (pOrder !== nOrder) return "Reordered segments";
-  return "Timeline edit";
-}
-
 export function parseSegmentIdFromQcMessage(msg: string): string | null {
   const m = msg.match(/\b(seg_[a-z0-9_]+)\b/i);
   return m ? m[1] : null;

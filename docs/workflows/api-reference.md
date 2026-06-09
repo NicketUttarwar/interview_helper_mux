@@ -132,6 +132,10 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 **Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `idle`. Additional job fields: `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`.
 
+Stage `status` in **`GET /api/runs/{run_id}`** may be `awaiting_write_approval` when `.pending_writes/<stage_id>/` has unapproved files.
+
+Mutating endpoints (artifact PUT, pending-write PUT, handoff-ack, NLE, VO upload, etc.) return **HTTP 409** `{"error": "run_busy"}` when `RunDirectoryLock` or the in-process job lock is held.
+
 When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land in `.pending_writes/<stage_id>/` until `POST …/approve`. Reuse copies use the same staging path when approval is enabled.
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.

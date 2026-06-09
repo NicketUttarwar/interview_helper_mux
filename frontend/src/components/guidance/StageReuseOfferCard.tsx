@@ -43,9 +43,15 @@ export function StageReuseOfferCard({
         showToast(`Running ${stage.title} fresh.`);
         await executeJob({ mode: "stage", stage: stage.id });
       } else {
-        const pending = await api<{ paths?: string[] }>(
-          `/api/runs/${runId}/pending-writes/${stage.id}`,
-        ).catch(() => null);
+        let pending: { paths?: string[] } | null = null;
+        for (let i = 0; i < 8; i++) {
+          pending = await api<{ paths?: string[] }>(
+            `/api/runs/${runId}/pending-writes/${stage.id}`,
+          ).catch(() => null);
+          if (pending?.paths?.length) break;
+          await new Promise((r) => setTimeout(r, 300));
+          await refreshRun();
+        }
         if (pending?.paths?.length) {
           showToast(`Reused ${stage.title} — review outputs before saving.`);
           openActionModal();
@@ -85,7 +91,12 @@ export function StageReuseOfferCard({
                       <span className="reuse-match-icon" aria-hidden>
                         ✓
                       </span>
-                      Same source audio as this run
+                      Same source audio as this run (hash verified)
+                    </p>
+                  ) : c.match_kind === "path" || c.match_kind === "wav" ? (
+                    <p className="hint sm reuse-weak-match">
+                      Matched by {c.match_kind === "path" ? "input path" : "canonical WAV"} only —
+                      verify before reusing
                     </p>
                   ) : null}
                   <div className="stage-reuse-run-title">

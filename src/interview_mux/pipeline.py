@@ -266,6 +266,14 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         "mux_flow1",
         "mux_flow2",
     ) and _guard_stage_reuse(ctx, stage):
+        from interview_mux.write_staging import (
+            after_stage_write_check,
+            has_pending_writes,
+            write_approval_enabled,
+        )
+
+        if write_approval_enabled() and has_pending_writes(ctx, stage):
+            after_stage_write_check(ctx, stage)
         return
     from interview_mux.write_staging import run_wrapped_stage
 

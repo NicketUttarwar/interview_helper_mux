@@ -31,6 +31,13 @@ export function useStageReuseOffers(
     }
     if (job?.needs_stage_reuse && job.stage === stageId && job.reuse_candidates?.length) {
       setCandidates(job.reuse_candidates);
+      void api<{ current_source_audio_hash_short?: string | null }>(
+        `/api/runs/${runId}/stages/${stageId}/reuse-offers`,
+      )
+        .then((offers) => {
+          setCurrentHashShort(offers.current_source_audio_hash_short ?? null);
+        })
+        .catch(() => undefined);
       setLoading(false);
       return;
     }

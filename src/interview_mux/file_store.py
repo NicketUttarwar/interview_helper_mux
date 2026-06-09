@@ -38,3 +38,35 @@ def write_text(path: Path, text: str) -> None:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(path)
+
+
+def write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(lock_path_for(path)):
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+
+
+def atomic_copy(src: Path, dest: Path) -> None:
+    """Promote src to dest via tmp + replace under dest lock."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(lock_path_for(dest)):
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        tmp.write_bytes(src.read_bytes())
+        tmp.replace(dest)
+
+
+def atomic_copy_tree(src_root: Path, dest_root: Path) -> list[str]:
+    """Copy all files under src_root into dest_root; return relative paths copied."""
+    copied: list[str] = []
+    if not src_root.is_dir():
+        return copied
+    for src in sorted(src_root.rglob("*")):
+        if not src.is_file() or src.name.endswith(".lock"):
+            continue
+        rel = str(src.relative_to(src_root)).replace("\\", "/")
+        dest = dest_root.joinpath(*rel.split("/"))
+        atomic_copy(src, dest)
+        copied.append(rel)
+    return copied

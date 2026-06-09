@@ -50,7 +50,7 @@ export function LogsTab() {
     }
     return [...ids]
       .sort()
-      .map((id) => ({ id, title: stageTitleById(run?.stages, id) }));
+      .map((id) => ({ id, title: stageTitleById(run?.stages, id) ?? id }));
   }, [logEntries, run?.stages]);
 
   const filtered = useMemo(() => {
@@ -208,7 +208,7 @@ export function LogsTab() {
                   </span>
                   {e.stage ? (
                     <span className="log-stage" title={e.stage}>
-                      {stageTitleById(run?.stages, e.stage)}
+                      {stageTitleById(run?.stages, e.stage) ?? e.stage}
                     </span>
                   ) : null}
                   {journeyKind ? (

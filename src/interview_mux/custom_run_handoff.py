@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.journey_state import read_run_meta
 from interview_mux.prompt_validation import ARTIFACT_WRITE_VALIDATORS, STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.run_context import RunContext
 
@@ -81,22 +82,8 @@ def stage_for_custom_run_path(rel_path: str) -> str | None:
     return _PATH_TO_STAGE.get(rel_path)
 
 
-def _read_meta(ctx: RunContext) -> dict[str, Any]:
-    if not ctx.artifact_exists("run_meta.json"):
-        return {}
-    raw = ctx.read_json("run_meta.json")
-    return raw if isinstance(raw, dict) else {}
-
-
-def _write_meta(ctx: RunContext, meta: dict[str, Any]) -> None:
-    from datetime import datetime, timezone
-
-    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    ctx.write_json("run_meta.json", meta, skip_handoff=True)
-
-
 def handoff_acknowledged(ctx: RunContext, stage_id: str) -> bool:
-    ack = _read_meta(ctx).get("handoff_ack") or {}
+    ack = read_run_meta(ctx).get("handoff_ack") or {}
     return bool(ack.get(stage_id))
 
 
@@ -115,18 +102,19 @@ def record_custom_run_write(
         or stage_for_custom_run_path(rel_path)
         or "analysis_profile"
     )
-    meta = _read_meta(ctx)
-    pending: dict[str, list[str]] = dict(meta.get("handoff_pending_writes") or {})
-    paths = list(pending.get(sid) or [])
-    if rel_path not in paths:
-        paths.append(rel_path)
-    pending[sid] = paths
-    meta["handoff_pending_writes"] = pending
-    ack = dict(meta.get("handoff_ack") or {})
-    if sid in ack:
-        del ack[sid]
-        meta["handoff_ack"] = ack
-    _write_meta(ctx, meta)
+    def _patch(meta: dict[str, Any]) -> None:
+        pending: dict[str, list[str]] = dict(meta.get("handoff_pending_writes") or {})
+        paths = list(pending.get(sid) or [])
+        if rel_path not in paths:
+            paths.append(rel_path)
+        pending[sid] = paths
+        meta["handoff_pending_writes"] = pending
+        ack = dict(meta.get("handoff_ack") or {})
+        if sid in ack:
+            del ack[sid]
+            meta["handoff_ack"] = ack
+
+    ctx.mutate_run_meta(_patch)
 
 
 def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
@@ -139,7 +127,7 @@ def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
         for p in info.artifacts:
             if is_custom_run_artifact(p):
                 paths.append(p)
-    meta = _read_meta(ctx)
+    meta = read_run_meta(ctx)
     for p in (meta.get("handoff_pending_writes") or {}).get(stage_id) or []:
         if p not in paths:
             paths.append(p)

@@ -60,7 +60,12 @@ export interface RunSummary {
   outputs?: string[];
 }
 
-export type StageStatus = "done" | "pending" | "action_required" | "locked";
+export type StageStatus =
+  | "done"
+  | "pending"
+  | "action_required"
+  | "locked"
+  | "awaiting_write_approval";
 
 export type OperatorPhase =
   | "prepare"
@@ -174,6 +179,7 @@ export interface ReuseCandidate {
   source_audio_hash_short?: string;
   hash_in_run_id?: string | null;
   same_source_audio?: boolean;
+  match_kind?: "hash" | "path" | "wav" | null;
 }
 
 export interface JobState {

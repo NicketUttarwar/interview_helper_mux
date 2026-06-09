@@ -33,6 +33,7 @@ from interview_mux.stages import transcript_review
 from interview_mux.journey_orchestrator import refresh_journey_meta
 from interview_mux.custom_run_handoff import check_handoff_before_execute, pending_handoff_stage
 from interview_mux.run_context import RunContext
+from interview_mux.run_lock import RunDirectoryLock
 from interview_mux.stage_execution_reuse import (
     StageReuseOfferPending,
     check_stage_reuse_before_execute,
@@ -85,11 +86,16 @@ class JobRunner:
     def run_guard(self, run_id: str) -> Iterator[None]:
         """Serialize mutating API calls with background execute for one run."""
         lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
         if not lock.acquire(blocking=False):
+            raise RunBusyError(run_id)
+        if not dir_lock.acquire(blocking=False):
+            lock.release()
             raise RunBusyError(run_id)
         try:
             yield
         finally:
+            dir_lock.release()
             lock.release()
 
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
@@ -223,7 +229,11 @@ class JobRunner:
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
         if not lock.acquire(blocking=False):
+            return {"ok": False, "error": "A job is already running for this run."}
+        if not dir_lock.acquire(blocking=False):
+            lock.release()
             return {"ok": False, "error": "A job is already running for this run."}
 
         ctx_pre = RunContext(run_id, create=False)
@@ -261,6 +271,7 @@ class JobRunner:
                     "pending_write_paths": write_pending.paths,
                 },
             )
+            dir_lock.release()
             lock.release()
             return {
                 "ok": False,
@@ -286,6 +297,7 @@ class JobRunner:
                     "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
                 },
             )
+            dir_lock.release()
             lock.release()
             return {
                 "ok": False,
@@ -308,6 +320,7 @@ class JobRunner:
                     "message": handoff_err,
                 },
             )
+            dir_lock.release()
             lock.release()
             return {
                 "ok": False,
@@ -340,6 +353,7 @@ class JobRunner:
                     ],
                 },
             )
+            dir_lock.release()
             lock.release()
             return {
                 "ok": False,
@@ -511,6 +525,7 @@ class JobRunner:
                     },
                 )
             finally:
+                dir_lock.release()
                 lock.release()
 
         Thread(target=_run, daemon=True).start()

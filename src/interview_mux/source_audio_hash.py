@@ -10,7 +10,6 @@ from interview_mux.assets_audio import ensure_wav_asset
 
 _HASH_SHORT_LEN = 12
 _RUN_ID_HASH_RE = re.compile(r"^exec_\d{3}_([a-f0-9]{12})_\d{8}T\d{6}Z$")
-_LEGACY_RUN_ID_RE = re.compile(r"^exec_\d{3}_\d{8}T\d{6}Z$")
 
 
 def pipeline_wav_path(input_path: Path) -> Path:
@@ -59,7 +58,3 @@ def hashes_match(a: str, b: str, *, short_len: int = _HASH_SHORT_LEN) -> bool:
 def hash_short_from_full(full_hash: str, *, short_len: int = _HASH_SHORT_LEN) -> str:
     clean = re.sub(r"[^a-z0-9]", "", full_hash.lower())
     return clean[:short_len]
-
-
-def is_legacy_run_id(run_id: str) -> bool:
-    return bool(_LEGACY_RUN_ID_RE.match(run_id))

@@ -26,6 +26,8 @@ ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
   analysis_complete.json        # set when Wave 2 finishes
   .stage_done/                  # one empty marker file per completed stage (deferred until write approval when enabled)
   .pending_writes/<stage_id>/   # staged outputs awaiting operator approve/discard (when journey_ui.require_write_approval_per_stage)
+  .archived/<timestamp>/        # downstream artifacts moved here on invalidate/redo (see run_meta.invalidation_archive)
+  .run.lock                      # cross-process mutex for CLI + GUI jobs + mutating API calls
   vo_pickup/                    # operator-recorded WAVs (G1 gate)
   vo_pickup/clean/              # optional; after pickup-scoped pre-clean (BUILD-019/072)
   preclean/                     # optional; full-source or lineage for pre-clean runs

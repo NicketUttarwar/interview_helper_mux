@@ -1,17 +1,8 @@
 import type { OperatorPhase, RunData } from "../../types";
+import { PHASE_LABELS, phaseLabel } from "../../constants/phases";
 import { ActionMarker } from "./ActionMarker";
 import { GuidanceActionButton } from "./GuidanceActionButton";
 import { WORKFLOW_STEPS } from "../../utils/workflowSteps";
-
-const PHASE_LABELS: Record<string, string> = {
-  start: "Start",
-  prepare: "Prepare",
-  understand: "Analyze",
-  complete: "Complete",
-  create: "Build",
-  polish: "Sound",
-  ship: "Export",
-};
 
 interface Props {
   run: RunData;
@@ -87,5 +78,5 @@ export function StartPhaseGuidance() {
 }
 
 export function phaseLabelForOperatorPhase(phase: OperatorPhase | "start"): string {
-  return PHASE_LABELS[phase] || phase;
+  return phaseLabel(phase);
 }

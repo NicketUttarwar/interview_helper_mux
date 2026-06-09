@@ -43,6 +43,17 @@ def _ctx_in_root(run_id: str, executions_root: Path) -> RunContext:
     return ctx
 
 
+def test_find_candidates_include_match_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)
+    current = _ctx_in_root("exec_002_20260101T000001Z", tmp_path)
+    prior.write_json("transcript/full.json", {"segments": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.mark_done("transcribe")
+    candidates = find_reuse_candidates(current, "transcribe")
+    assert candidates[0].match_kind in ("hash", "path", "wav")
+
+
 def test_find_candidates_same_input_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_executions_root(monkeypatch, tmp_path)
     prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)

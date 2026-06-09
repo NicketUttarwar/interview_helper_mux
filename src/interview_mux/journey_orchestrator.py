@@ -10,6 +10,7 @@ from interview_mux.gates import (
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
+    get_selected_flow,
 )
 from interview_mux.journey_log import log_journey
 from interview_mux.journey_state import (
@@ -17,7 +18,6 @@ from interview_mux.journey_state import (
     compute_milestones,
     compute_operator_phase,
     get_flow_intent,
-    get_selected_flow_meta,
     read_run_meta,
     stage_operator_phase,
 )
@@ -205,7 +205,7 @@ def _blocking(
             stage_id = handoff_sid
             message = handoff_review_message(ctx, handoff_sid)
 
-    flow = get_selected_flow_meta(ctx)
+    flow = get_selected_flow(ctx)
     if (
         not blocked
         and ctx.artifact_exists("analysis_complete.json")
@@ -437,7 +437,7 @@ def build_journey_snapshot(
     milestones = compute_milestones(ctx)
     phase = compute_operator_phase(ctx, milestones)
     flow_intent = get_flow_intent(ctx)
-    selected_flow = get_selected_flow_meta(ctx)
+    selected_flow = get_selected_flow(ctx)
     blocking = _blocking(ctx, job=job, milestones=milestones)
     hint = execute_hint(phase, flow_intent, selected_flow, milestones)
     if blocking.get("blocked"):

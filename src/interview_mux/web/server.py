@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,6 +86,16 @@ from interview_mux.operator_snapshots import (
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm"}
+
+
+@contextmanager
+def _guarded_run(run_id: str):
+    """Serialize mutating API calls with background jobs (HTTP 409 on busy)."""
+    try:
+        with runner.run_guard(run_id):
+            yield
+    except RunBusyError as exc:
+        raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
 SKIP_ASSET_PARTS = {"executions", ".gui"}
 
 
@@ -563,13 +574,14 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/nle")
     def put_nle(run_id: str, body: NleBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        try:
-            save_nle(ctx, body.data)
-        except ValueError as exc:
-            raise HTTPException(400, {"errors": [str(exc)]}) from exc
-        ctx.log("NLE timeline state saved to disk.", level="info", stage="nle")
-        return {"ok": True}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            try:
+                save_nle(ctx, body.data)
+            except ValueError as exc:
+                raise HTTPException(400, {"errors": [str(exc)]}) from exc
+            ctx.log("NLE timeline state saved to disk.", level="info", stage="nle")
+            return {"ok": True}
 
     @app.post("/api/runs/{run_id}/recompute-acoustic-profile")
     def recompute_acoustic_profile(run_id: str) -> dict[str, Any]:
@@ -774,59 +786,61 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/artifact/text")
     def put_artifact_text(run_id: str, body: ArtifactTextBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        _assert_artifact_path(body.path)
-        if body.path.endswith(".json"):
-            raise HTTPException(400, "Use PUT /artifact with JSON body for .json files.")
-        if not _is_editable_text_path(body.path):
-            raise HTTPException(400, f"Path not editable via GUI: {body.path}")
-        full = ctx.path(body.path)
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(body.text, encoding="utf-8")
-        mirror_artifact_to_operator(ctx, body.path, body.text, source="artifact_text_editor")
-        ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage="artifact_editor")
-        if body.invalidate_from:
-            runner.invalidate_from(run_id, body.invalidate_from)
-        return {"ok": True, "path": body.path}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            _assert_artifact_path(body.path)
+            if body.path.endswith(".json"):
+                raise HTTPException(400, "Use PUT /artifact with JSON body for .json files.")
+            if not _is_editable_text_path(body.path):
+                raise HTTPException(400, f"Path not editable via GUI: {body.path}")
+            full = ctx.path(body.path)
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text(body.text, encoding="utf-8")
+            mirror_artifact_to_operator(ctx, body.path, body.text, source="artifact_text_editor")
+            ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage="artifact_editor")
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            return {"ok": True, "path": body.path}
 
     @app.put("/api/runs/{run_id}/artifact")
     def put_artifact(run_id: str, body: ArtifactBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        _assert_artifact_path(body.path)
-        if not body.path.endswith(".json"):
-            raise HTTPException(400, "Use PUT /artifact/text for non-JSON text files.")
-        if isinstance(body.data, dict):
-            schema_errors = validate_artifact_write(body.path, body.data)
-            if schema_errors:
-                raise HTTPException(
-                    400,
-                    {
-                        "error": "schema_validation_failed",
-                        "path": body.path,
-                        "errors": schema_errors,
-                    },
-                )
-        from interview_mux.custom_run_handoff import stage_for_custom_run_path
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            _assert_artifact_path(body.path)
+            if not body.path.endswith(".json"):
+                raise HTTPException(400, "Use PUT /artifact/text for non-JSON text files.")
+            if isinstance(body.data, dict):
+                schema_errors = validate_artifact_write(body.path, body.data)
+                if schema_errors:
+                    raise HTTPException(
+                        400,
+                        {
+                            "error": "schema_validation_failed",
+                            "path": body.path,
+                            "errors": schema_errors,
+                        },
+                    )
+            from interview_mux.custom_run_handoff import stage_for_custom_run_path
 
-        stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
-        ctx.write_json(body.path, body.data, stage_key=stage_key)
-        stage = stage_key
-        mirror_artifact_to_operator(ctx, body.path, body.data, source="artifact_json_editor")
-        ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
-        if body.path == "understanding/analysis_state.json":
-            persist_operator_analysis_profile(ctx, source="artifact_json_editor")
-        if body.path == "understanding/source_acoustic_profile.json" and isinstance(body.data, dict):
-            overrides = body.data.get("operator_overrides")
-            if isinstance(overrides, dict) and overrides:
-                ctx.log(
-                    "Acoustic profile operator overrides saved.",
-                    level="success",
-                    stage="source_acoustic_profile",
-                    detail="acoustic_profile_override_saved",
-                )
-        if body.invalidate_from:
-            runner.invalidate_from(run_id, body.invalidate_from)
-        return {"ok": True, "path": body.path}
+            stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
+            ctx.write_json(body.path, body.data, stage_key=stage_key)
+            stage = stage_key
+            mirror_artifact_to_operator(ctx, body.path, body.data, source="artifact_json_editor")
+            ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
+            if body.path == "understanding/analysis_state.json":
+                persist_operator_analysis_profile(ctx, source="artifact_json_editor")
+            if body.path == "understanding/source_acoustic_profile.json" and isinstance(body.data, dict):
+                overrides = body.data.get("operator_overrides")
+                if isinstance(overrides, dict) and overrides:
+                    ctx.log(
+                        "Acoustic profile operator overrides saved.",
+                        level="success",
+                        stage="source_acoustic_profile",
+                        detail="acoustic_profile_override_saved",
+                    )
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            return {"ok": True, "path": body.path}
 
     @app.post("/api/runs/{run_id}/flow")
     def set_flow(run_id: str, body: FlowBody) -> dict[str, Any]:
@@ -906,17 +920,18 @@ def create_app() -> FastAPI:
     def put_pending_write_content(
         run_id: str, stage_id: str, body: PendingWriteContentBody
     ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        _assert_artifact_path(body.path)
-        from interview_mux.write_staging import write_pending_content
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            _assert_artifact_path(body.path)
+            from interview_mux.write_staging import write_pending_content
 
-        if body.data is not None:
-            write_pending_content(ctx, stage_id, body.path, data=body.data)
-        elif body.text is not None:
-            write_pending_content(ctx, stage_id, body.path, text=body.text)
-        else:
-            raise HTTPException(400, "Provide data or text")
-        return {"ok": True, "path": body.path}
+            if body.data is not None:
+                write_pending_content(ctx, stage_id, body.path, data=body.data)
+            elif body.text is not None:
+                write_pending_content(ctx, stage_id, body.path, text=body.text)
+            else:
+                raise HTTPException(400, "Provide data or text")
+            return {"ok": True, "path": body.path}
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
     def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -1154,22 +1169,25 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/handoff-ack")
     def handoff_ack(run_id: str, body: HandoffAckBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        ack = dict(meta.get("handoff_ack") or {})
-        ack[body.stage_id] = datetime.now(timezone.utc).isoformat()
-        meta["handoff_ack"] = ack
-        pending = dict(meta.get("handoff_pending_writes") or {})
-        pending.pop(body.stage_id, None)
-        meta["handoff_pending_writes"] = pending
-        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-        ctx.write_json("run_meta.json", meta)
-        ctx.log(
-            f"Handoff acknowledged for {body.stage_id} — ready for next step.",
-            level="success",
-            stage=body.stage_id,
-        )
-        return {"ok": True, "handoff_ack": ack}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            now = datetime.now(timezone.utc).isoformat()
+
+            def _patch(meta: dict[str, Any]) -> None:
+                ack = dict(meta.get("handoff_ack") or {})
+                ack[body.stage_id] = now
+                meta["handoff_ack"] = ack
+                pending = dict(meta.get("handoff_pending_writes") or {})
+                pending.pop(body.stage_id, None)
+                meta["handoff_pending_writes"] = pending
+
+            meta = ctx.mutate_run_meta(_patch)
+            ctx.log(
+                f"Handoff acknowledged for {body.stage_id} — ready for next step.",
+                level="success",
+                stage=body.stage_id,
+            )
+            return {"ok": True, "handoff_ack": meta.get("handoff_ack") or {}}
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
@@ -1436,14 +1454,17 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/vo/{line_id}")
     async def upload_vo(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        pickup = ctx.path("vo_pickup")
-        pickup.mkdir(parents=True, exist_ok=True)
-        dest = pickup / f"{line_id}.wav"
-        content = await file.read()
-        dest.write_bytes(content)
-        ctx.log(f"VO pickup saved: vo_pickup/{line_id}.wav", level="success", stage="g1_vo_pickup")
-        return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
+        with _guarded_run(run_id):
+            from interview_mux.file_store import write_bytes as fs_write_bytes
+
+            ctx = _ctx(run_id)
+            pickup = ctx.path("vo_pickup")
+            pickup.mkdir(parents=True, exist_ok=True)
+            dest = pickup / f"{line_id}.wav"
+            content = await file.read()
+            fs_write_bytes(dest, content)
+            ctx.log(f"VO pickup saved: vo_pickup/{line_id}.wav", level="success", stage="g1_vo_pickup")
+            return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
 
     @app.post("/api/runs/{run_id}/reset")
     def reset_run(run_id: str, body: ResetBody) -> dict[str, Any]:
@@ -1590,7 +1611,10 @@ def _build_stage_list(
     profile_verified: bool,
     profile_gate_pending: bool,
 ) -> list[dict[str, Any]]:
+    from interview_mux.write_staging import all_pending_stages
+
     stages = all_stages_for_run(flow)
+    pending_write_stages = set(all_pending_stages(ctx))
     for s in stages:
         sid = s["id"]
         if sid == "transcript_review":
@@ -1639,6 +1663,8 @@ def _build_stage_list(
             s["status"] = "locked"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
+        if sid in pending_write_stages:
+            s["status"] = "awaiting_write_approval"
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status

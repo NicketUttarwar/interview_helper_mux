@@ -69,6 +69,28 @@ def test_reuse_decline_api(tmp_path: Path, monkeypatch) -> None:
     assert meta["stage_reuse"]["transcribe"]["action"] == "decline"
 
 
+def test_stage_list_awaiting_write_approval_status(tmp_path: Path, monkeypatch) -> None:
+    journey = dict(merged_config().get("journey_ui") or {})
+    journey["require_write_approval_per_stage"] = True
+    patch_executions_root(monkeypatch, tmp_path, journey_ui=journey)
+    current = RunContext("exec_101_20260101T000101Z", create=True)
+    init_run_meta_for_test(current)
+    patch_server_ctx(monkeypatch, current)
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    enter_stage_staging("ingest")
+    note = current.path("ingest/checksums.json")
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+    client = TestClient(create_app())
+    res = client.get("/api/runs/exec_101_20260101T000101Z")
+    assert res.status_code == 200
+    stages = res.json()["stages"]
+    ingest = next(s for s in stages if s["id"] == "ingest")
+    assert ingest["status"] == "awaiting_write_approval"
+
+
 def test_reuse_accept_invalid_source(tmp_path: Path, monkeypatch) -> None:
     _patch_executions_root(monkeypatch, tmp_path)
     _, current = _setup_pair(tmp_path)

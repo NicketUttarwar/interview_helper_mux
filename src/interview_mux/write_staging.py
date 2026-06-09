@@ -44,10 +44,6 @@ def exit_stage_staging() -> None:
     _active_stage.set(None)
 
 
-def active_staging_stage() -> str | None:
-    return _active_stage.get()
-
-
 def is_operational_path(rel: str) -> bool:
     if rel in OPERATIONAL_REL_PATHS:
         return True
@@ -183,13 +179,14 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             clear_pending_approval(ctx, stage_id)
             return []
         flushed: list[str] = []
+        from interview_mux.file_store import atomic_copy
+
         for src in sorted(root.rglob("*")):
             if not src.is_file() or src.name.endswith(".lock"):
                 continue
             rel = str(src.relative_to(root)).replace("\\", "/")
             dest = ctx.run_dir.joinpath(*rel.split("/"))
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            atomic_copy(src, dest)
             flushed.append(rel)
         shutil.rmtree(root, ignore_errors=True)
     clear_pending_approval(ctx, stage_id)
@@ -232,18 +229,6 @@ def write_pending_content(
         raise ValueError("Provide data, text, or raw")
     record_pending_approval(ctx, stage_id)
     return p
-
-
-def pending_approval_stage(ctx: RunContext) -> str | None:
-    if not ctx.artifact_exists("run_meta.json"):
-        return None
-    meta = ctx.read_json("run_meta.json")
-    if not isinstance(meta, dict):
-        return None
-    pending = meta.get("pending_write_approval") or {}
-    if not isinstance(pending, dict) or not pending:
-        return None
-    return next(iter(pending.keys()), None)
 
 
 def all_pending_stages(ctx: RunContext) -> list[str]:
@@ -314,11 +299,12 @@ def check_write_approval_before_execute(ctx: RunContext) -> WriteApprovalPending
 def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
     flushed = flush_stage_writes(ctx, stage_id)
     ctx.mark_done(stage_id, force=True)
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    if isinstance(meta, dict):
+    now = datetime.now(timezone.utc).isoformat()
+
+    def _ack(meta: dict[str, Any]) -> None:
         ack = dict(meta.get("handoff_ack") or {})
-        ack[stage_id] = datetime.now(timezone.utc).isoformat()
+        ack[stage_id] = now
         meta["handoff_ack"] = ack
-        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-        ctx.write_json("run_meta.json", meta, skip_handoff=True)
+
+    ctx.mutate_run_meta(_ack)
     return flushed

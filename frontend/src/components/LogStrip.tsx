@@ -37,7 +37,7 @@ export function LogStrip() {
               <span className="log-ts">{formatTs(e.ts)}</span>
               {e.stage ? (
                 <span className="log-stage-mini">
-                  {stageTitleById(run?.stages, e.stage)}
+                  {stageTitleById(run?.stages, e.stage) ?? e.stage}
                 </span>
               ) : null}
               <span className="log-msg">{escapeHtml(e.message)}</span>

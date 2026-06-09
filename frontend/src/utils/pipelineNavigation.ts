@@ -1,5 +1,12 @@
-import type { JobState, RunData, StageInfo } from "../types";
+import type { RunData, StageInfo } from "../types";
+import { PHASE_LABELS } from "../constants/phases";
 import { findHandoffStage, findPendingFocusStage } from "./checkpoint";
+import {
+  gateStatusLine,
+  resolveJobStatusContext,
+  reuseStatusLine,
+  writeApprovalStatusLine,
+} from "./operatorStatus";
 import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
 
 export interface NumberedStage {
@@ -22,20 +29,6 @@ export interface PipelineNavState {
   canRunNext: boolean;
   precleanOffer: ReturnType<typeof resolvePrecleanOffer>;
 }
-
-const PHASE_LABELS: Record<string, string> = {
-  prepare: "Prepare",
-  understand: "Analyze",
-  complete: "Complete",
-  create: "Build",
-  polish: "Sound",
-  ship: "Export",
-  analysis: "Analyze",
-  flow1: "Build",
-  flow2: "Build",
-  flow3: "Export",
-  gate: "Checkpoint",
-};
 
 function visibleStages(stages: StageInfo[]): StageInfo[] {
   return stages;
@@ -120,33 +113,26 @@ export function resolvePipelineNav(
   let primaryAction: PipelineNavState["primaryAction"] = "none";
   let canRunNext = false;
 
-  if (opts.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
+  const jobCtx = resolveJobStatusContext(run, opts.jobRunning);
+
+  if (jobCtx.isRunning) {
     statusLine = job?.message || `Running ${job?.stage || "pipeline"}…`;
     nextLine = "Watch Logs for progress.";
-  } else if (job?.status === "awaiting_write_approval" || job?.awaiting_write_approval) {
-    const sid = job.pending_write_stage || job.stage;
-    const stage = sid ? run.stages.find((s) => s.id === sid) : null;
-    statusLine = stage
-      ? `${stage.title} — review outputs before saving`
-      : "Review stage outputs before saving";
+  } else if (jobCtx.awaitingWriteApproval) {
+    statusLine = writeApprovalStatusLine(run, job);
     nextLine = "Approve or discard staged files in the checkpoint panel.";
     primaryAction = "checkpoint";
     canRunNext = true;
-  } else if (job?.needs_stage_reuse && job.stage) {
-    const stage = run.stages.find((s) => s.id === job.stage);
-    statusLine = stage
-      ? `${stage.title} — reuse from a previous execution?`
-      : "Choose reuse or run fresh";
+  } else if (jobCtx.needsStageReuse) {
+    statusLine = reuseStatusLine(run, job);
     nextLine = "Pick a prior run with the same source audio hash, or run this step fresh.";
     primaryAction = "checkpoint";
     canRunNext = true;
-  } else if (job?.status === "gate" || run.stages.some((s) => s.status === "action_required")) {
+  } else if (jobCtx.needsGate) {
     const gate =
-      run.stages.find((s) => s.status === "action_required") ||
+      jobCtx.actionRequiredStage ||
       run.stages.find((s) => s.id === job?.stage);
-    statusLine = gate
-      ? `${gate.title} needs your input`
-      : job?.message || "Checkpoint — action required";
+    statusLine = gateStatusLine(run, job, jobCtx.actionRequiredStage);
     nextLine = gate ? `Complete ${gate.title}, then continue.` : "Open the checkpoint panel.";
     primaryAction = "checkpoint";
     canRunNext = true;
@@ -205,9 +191,4 @@ export function stageNavStatus(
   const next = findNextRunnableStage(run.stages);
   if (next?.id === stage.id) return "current";
   return "upcoming";
-}
-
-export function jobBlocksPipeline(job: JobState | undefined): boolean {
-  if (!job?.status) return false;
-  return ["running", "running_with_warnings"].includes(job.status);
 }

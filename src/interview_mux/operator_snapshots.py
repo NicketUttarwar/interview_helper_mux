@@ -92,9 +92,10 @@ def write_operator_text_snapshot(
     rel = SNAPSHOT_PATHS.get(key)
     if not rel:
         raise ValueError(f"Unknown operator snapshot key: {key}")
+    from interview_mux.file_store import write_text as fs_write_text
+
     dest = ctx.path(rel)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(text, encoding="utf-8")
+    fs_write_text(dest, text)
     _write_manifest_entry(ctx, key, path=rel, source=source)
     return rel
 

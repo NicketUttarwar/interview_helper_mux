@@ -16,7 +16,7 @@ from interview_mux.file_store import write_json as fs_write_json
 from interview_mux.session_log import append_log
 from interview_mux.source_audio_hash import (
     compute_source_audio_hash,
-    normalized_source_audio_hash,
+    hashes_match,
     parse_hash_from_run_id,
 )
 
@@ -252,12 +252,13 @@ class RunContext:
         from interview_mux.custom_run_handoff import custom_run_paths_for_stage
         from interview_mux.web.stages import STAGE_BY_ID
 
-        meta = self.read_json("run_meta.json") if self.artifact_exists("run_meta.json") else {}
-        pending_writes = dict(meta.get("handoff_pending_writes") or {})
-        pending_writes.pop(stage, None)
-        if self.artifact_exists("run_meta.json"):
+        def _clear_handoff_pending(meta: dict[str, Any]) -> None:
+            pending_writes = dict(meta.get("handoff_pending_writes") or {})
+            pending_writes.pop(stage, None)
             meta["handoff_pending_writes"] = pending_writes
-            self.write_json("run_meta.json", meta, stage_key=stage)
+
+        if self.artifact_exists("run_meta.json"):
+            self.mutate_run_meta(_clear_handoff_pending)
 
         paths = custom_run_paths_for_stage(self, stage)
         if not paths:
@@ -271,6 +272,13 @@ class RunContext:
     def clear_from(self, stage: str, order: list[str]) -> None:
         if stage not in order:
             return
+        from interview_mux.execution_invalidation import (
+            archive_artifacts_from,
+            clear_pending_writes_from,
+        )
+
+        archive_artifacts_from(self, stage, order)
+        clear_pending_writes_from(self, stage, order)
         idx = order.index(stage)
         for s in order[idx:]:
             marker = self.final_path(".stage_done", s)
@@ -299,14 +307,31 @@ class RunContext:
             raw = self.root / raw
         return ensure_wav_asset(raw)
 
-    def source_audio_hash(self) -> str | None:
+    def source_audio_hash(self, *, recompute: bool = False) -> str | None:
         """Full SHA-256 of pipeline WAV from run_meta, or None."""
         if not self.artifact_exists("run_meta.json"):
             return None
         meta = self.read_json("run_meta.json")
-        if isinstance(meta, dict) and meta.get("source_audio_hash"):
+        if not isinstance(meta, dict):
+            return None
+        if recompute and meta.get("input_audio_path"):
+            try:
+                wav = ensure_wav_asset(self._resolve_input_audio_ref(meta["input_audio_path"]))
+                live = compute_source_audio_hash(wav)
+                stored = meta.get("source_audio_hash")
+                if stored and not hashes_match(str(stored), live):
+                    self.log(
+                        "Source audio file changed since run init — stored hash no longer matches.",
+                        level="warning",
+                        stage="setup",
+                        detail={"stored_hash": stored, "live_hash": live},
+                    )
+                return live
+            except (FileNotFoundError, OSError):
+                return None
+        if meta.get("source_audio_hash"):
             return str(meta["source_audio_hash"])
-        if isinstance(meta, dict) and meta.get("input_audio_path"):
+        if meta.get("input_audio_path"):
             try:
                 wav = ensure_wav_asset(self._resolve_input_audio_ref(meta["input_audio_path"]))
                 return compute_source_audio_hash(wav)

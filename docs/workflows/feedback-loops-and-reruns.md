@@ -14,6 +14,8 @@ interview-mux analysis --run-id exec_002_… --reuse-from exec_001_…
 
 To clear a reuse decision and run fresh: open the stage in GUI → **Run fresh instead**, or invalidate with `--from-stage <stage_id>`.
 
+**Invalidate / redo from stage** also: archives downstream artifact files to `.archived/<timestamp>/` (recorded in `run_meta.invalidation_archive`), discards `.pending_writes/` from that stage onward, and clears `pending_write_approval` so execute is not blocked.
+
 ## Re-run pre-clean (quality)
 
 When the operator accepts a background-noise offer:

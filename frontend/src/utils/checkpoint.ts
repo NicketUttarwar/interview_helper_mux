@@ -1,26 +1,10 @@
 import type { LogEntry, RunData, StageInfo } from "../types";
+import { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 import { parseLogDetail } from "./index";
+import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 
-const CUSTOM_RUN_ARTIFACT_PREFIXES = [
-  "understanding/",
-  "segments/",
-  "flow_1_master/",
-  "flow_2_highlights/",
-  "flow_3_description/",
-  "sound_design/",
-] as const;
-
-const NON_CUSTOM_RUN_EXACT = new Set([
-  "ingest/checksums.json",
-  "transcript/corrections.json",
-  "transcript/review_queue.json",
-  "segments/nle_edits.json",
-]);
-
-export function isCustomRunArtifactPath(path: string): boolean {
-  if (!path || path.endsWith("/") || NON_CUSTOM_RUN_EXACT.has(path)) return false;
-  return CUSTOM_RUN_ARTIFACT_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
+export { stageTitleById as stageTitleForId } from "./logDisplay";
+export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 
 export function filterCustomRunHandoffPaths(paths: string[]): string[] {
   return paths.filter(isCustomRunArtifactPath);
@@ -156,25 +140,24 @@ export function actionSummaryText(
 ): string | null {
   if (!run) return null;
   const job = run.job;
-  const actionStage = run.stages.find((s) => s.status === "action_required");
+  const ctx = resolveJobStatusContext(run, false);
   if (job?.status === "gate") {
     return job.message || "Action required before the pipeline can continue.";
   }
-  if (job?.status === "awaiting_write_approval" || job?.awaiting_write_approval) {
-    return job.message || "Review stage outputs before saving to disk.";
+  if (ctx.awaitingWriteApproval) {
+    return job?.message || "Review stage outputs before saving to disk.";
   }
-  if (job?.needs_stage_reuse) {
-    return job.message || "Choose reuse from a previous execution or run fresh.";
+  if (ctx.needsStageReuse) {
+    return job?.message || reuseStatusLine(run, job).replace("?", ".");
   }
   if (job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
     return job.message || "Action required before the pipeline can continue.";
   }
-  if (actionStage) {
-    return `${actionStage.title} — complete the required steps.`;
+  if (ctx.actionRequiredStage) {
+    return `${ctx.actionRequiredStage.title} — complete the required steps.`;
   }
-  const handoffStage = findHandoffStage(run);
-  if (handoffStage) {
-    return `Review AI outputs from ${handoffStage.title}.`;
+  if (ctx.handoffStage) {
+    return `Review AI outputs from ${ctx.handoffStage.title}.`;
   }
   return null;
 }
@@ -199,12 +182,4 @@ export function checkpointContinueEnabled(
     return paths.length > 0 && !run.handoff_ack?.[stage.id];
   }
   return false;
-}
-
-export function stageTitleForId(
-  stages: StageInfo[] | undefined,
-  stageId: string | undefined | null,
-): string | null {
-  if (!stageId || !stages) return null;
-  return stages.find((s) => s.id === stageId)?.title ?? stageId;
 }

@@ -1,9 +1,7 @@
 import { useMemo } from "react";
-import type { ExecuteBody, JourneyExecuteHint, RunData, StageInfo } from "../types";
-import {
-  findHandoffStage,
-  stageTitleForId,
-} from "../utils/checkpoint";
+import type { ExecuteBody, RunData, StageInfo } from "../types";
+import { findHandoffStage, stageTitleForId } from "../utils/checkpoint";
+import { hintToExecuteBody } from "../utils/executeHint";
 
 export type CommandKind =
   | "idle"
@@ -24,16 +22,6 @@ export interface OperatorCommandState {
   onPrimary: (() => void) | null;
   onSecondary: (() => void) | null;
   handoffStage: StageInfo | null;
-}
-
-function hintToExecuteBody(hint: JourneyExecuteHint): ExecuteBody | null {
-  if (hint.action === "checkpoint") return null;
-  if (!hint.mode) return null;
-  return {
-    mode: hint.mode as ExecuteBody["mode"],
-    from_stage: hint.from_stage,
-    until_stage: hint.until_stage,
-  };
 }
 
 export function useOperatorCommand(

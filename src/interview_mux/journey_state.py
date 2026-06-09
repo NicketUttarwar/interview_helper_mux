@@ -91,10 +91,6 @@ def get_flow_intent(ctx: RunContext) -> str | None:
     return None
 
 
-def get_selected_flow_meta(ctx: RunContext) -> str | None:
-    return get_selected_flow(ctx)
-
-
 def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     meta = read_run_meta(ctx)
     stored = meta.get("journey_milestones")

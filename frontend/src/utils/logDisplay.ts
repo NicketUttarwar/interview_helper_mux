@@ -23,7 +23,8 @@ export function logJourneyKind(detail: LogEntry["detail"]): string | null {
 
 export function stageTitleById(
   stages: { id: string; title: string }[] | undefined,
-  stageId: string,
-): string {
-  return stages?.find((s) => s.id === stageId)?.title ?? stageId;
+  stageId: string | undefined | null,
+): string | null {
+  if (!stageId || !stages) return null;
+  return stages.find((s) => s.id === stageId)?.title ?? stageId;
 }
