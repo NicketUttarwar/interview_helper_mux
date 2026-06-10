@@ -1700,7 +1700,40 @@ code {
 .assembly-clip.vo { background: #3a4a6a; }
 .assembly-clip.vo.missing { opacity: 0.55; border-style: dashed; }
 .assembly-clip.transition { background: #4a3a5a; min-width: 12px; }
+.assembly-clip.disfluency { background: #5a4a2a; min-width: 10px; font-size: 0.65rem; }
 .assembly-clip.selected { outline: 2px solid var(--accent); }
+
+.disfluency-event-card {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.disfluency-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.disfluency-text {
+  font-size: 1.1rem;
+  margin: 0.5rem 0;
+}
+
+.disfluency-restore-panel {
+  margin: 0.5rem 0 1rem;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
 
 .dirty-badge {
   font-size: 0.75rem;

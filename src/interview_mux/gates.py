@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from interview_mux.config import merged_config
+from interview_mux.disfluency.config import disfluency_enabled
 from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
 from interview_mux.edl_qc import validate_flow1_edl
 from interview_mux.narrative_qc import validate_flow1_narrative
@@ -24,6 +25,33 @@ def require_transcript_review_clear(ctx: RunContext) -> None:
         raise SystemExit(
             "Transcript review gate: open the GUI, listen to ranked clips, correct text, "
             f"then mark review complete → {ctx.path('transcript/review_queue.json')}"
+        )
+
+
+def check_disfluency_review_pending(ctx: RunContext) -> bool:
+    """True when disfluency extract is enabled, events exist, and review is incomplete."""
+    if not disfluency_enabled():
+        return False
+    if ctx.is_done("disfluency_review"):
+        return False
+    if not ctx.artifact_exists("transcript/disfluencies.json"):
+        return False
+    doc = ctx.read_json("transcript/disfluencies.json")
+    if str(doc.get("status")) == "skipped":
+        return False
+    events = doc.get("events") or []
+    if not events:
+        return False
+    return any(
+        isinstance(e, dict) and e.get("review_status") == "pending" for e in events
+    ) or not ctx.is_done("disfluency_review")
+
+
+def require_disfluency_review_clear(ctx: RunContext) -> None:
+    if check_disfluency_review_pending(ctx):
+        raise SystemExit(
+            "Disfluency review required. Confirm or reject filler events in the GUI, "
+            f"then complete review → {ctx.path('transcript/disfluencies.json')}"
         )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.gates import (
+    check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
@@ -17,8 +18,15 @@ from interview_mux.run_context import RunContext
 from interview_mux.web.stages import STAGE_BY_ID
 
 # Stages blocked until G0 transcript review clears (matches pipeline.require_transcript_review_clear).
-_G0_EXCEPTIONS = frozenset({"audio_preclean", "ingest", "transcribe", "transcript_review_build"})
+_G0_EXCEPTIONS = frozenset(
+    {"audio_preclean", "ingest", "transcribe", "transcript_review_build", "disfluency_extract"}
+)
 G0_LOCKED_ANALYSIS_STAGES = frozenset(s for s in ANALYSIS_ORDER if s not in _G0_EXCEPTIONS)
+
+_DISFLUENCY_EXCEPTIONS = frozenset(_G0_EXCEPTIONS)
+DISFLUENCY_LOCKED_ANALYSIS_STAGES = frozenset(
+    s for s in ANALYSIS_ORDER if s not in _DISFLUENCY_EXCEPTIONS
+)
 
 LLM_HANDOFF_STAGES = frozenset(
     {
@@ -68,7 +76,9 @@ STAGE_UNLOCKS: dict[str, str] = {
     "ingest": "Transcribe — normalized source audio",
     "transcribe": "STT review prep — word-level transcript",
     "transcript_review_build": "Transcript review (G0) — ranked clip queue",
-    "transcript_review": "All post-G0 analysis stages",
+    "disfluency_extract": "Disfluency review (G0.5) — filler event catalog",
+    "disfluency_review": "Source acoustic profile and downstream analysis",
+    "transcript_review": "Disfluency extract (when enabled) or source acoustic profile",
     "source_acoustic_profile": "Speaker roles and sonic pacing for mix/SFX",
     "speaker_roles": "Content understanding",
     "content_context": "Segment boundaries",

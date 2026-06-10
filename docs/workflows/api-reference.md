@@ -111,6 +111,10 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
 | `PUT` | `/api/runs/{run_id}/transcript-review/{chunk_id}` | — | **TranscriptChunkBody** | From `save_chunk_correction` | **404** no queue |
 | `POST` | `/api/runs/{run_id}/transcript-review/complete` | — | **TranscriptReviewCompleteBody** | `ok`, `transcript_review_clear` | **400** queue not ready or pending chunks |
+| `GET` | `/api/runs/{run_id}/disfluency-review` | — | — | Events, stats, `pending_count`, `review_complete` | **404** |
+| `PUT` | `/api/runs/{run_id}/disfluency-review/{event_id}` | — | **DisfluencyEventBody** (`review_status`, optional `text`, `include_in_restore`) | `ok`, `stats` | **404** unknown event |
+| `POST` | `/api/runs/{run_id}/disfluency-review/complete` | — | — | `ok`, `disfluency_review_clear` | **400** pending events |
+| `PATCH` | `/api/runs/{run_id}/disfluency-restore` | — | **DisfluencyRestoreBody** (`enabled`) | `ok`, `disfluency_restore_enabled` | **404** |
 | `GET` | `/api/runs/{run_id}/analysis-profile` | — | — | `analysis_state`, `investigation_queue`, `editable_paths`, `operator_verified`, `completion` | **404** |
 | `PUT` | `/api/runs/{run_id}/analysis-profile` | — | **AnalysisProfileBody** | `ok`, `operator_verified`, `completion` | **404** |
 | `POST` | `/api/runs/{run_id}/analysis-profile/verify` | — | — | `ok`, `operator_verified: true` | **404** |

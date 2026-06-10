@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from interview_mux.disfluency.context import attach_disfluency_context
 from interview_mux.acoustic_profile import compact_for_volley, load_profile
 from interview_mux.analysis_memory import default_sound_design_plan
 from interview_mux.prompt_validation import (
@@ -77,7 +78,7 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
         profile = load_profile(c)
         if profile:
             payload["source_acoustic_profile"] = compact_for_volley(profile)
-        return payload
+        return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)

@@ -61,6 +61,7 @@ source .venv/bin/activate
 
 - `bootstrap_venv.sh` creates `.venv`, installs from `requirements.lock` (full transitive pins), and installs this package in editable mode.
 - On **macOS**, bootstrap also installs `mlx-lm` / `huggingface_hub` and runs `scripts/select_local_llm.py --download` (or falls back to `download_local_llm.py`).
+- Bootstrap also attempts `scripts/download_local_stt.py` for optional faster-whisper weights (`disfluency_extract`; non-fatal if skipped).
 - Direct dependency edits go in `requirements.txt`; regenerate the lock with `pip-compile requirements.txt -o requirements.lock` (Python 3.12). Doc mirror: [docs/cross-cutting/anchored-requirements.lock](docs/cross-cutting/anchored-requirements.lock).
 - `check_prerequisites.sh` verifies ffmpeg, ffprobe, aws, Python, `import interview_mux`, and runs `pip-audit` on the lock (fails on unaccepted **HIGH** / **CRITICAL** findings; override via `PIP_AUDIT_IGNORE_VULNS` / `PIP_AUDIT_FAIL_LEVEL` per anchored-toolchain).
 - On macOS with `local_llm` enabled, prerequisites **warn** (non-fatal) if `llmfit`, `mlx-lm`, or weights under `ASSETS/local_llm/models/` are missing.
@@ -235,6 +236,19 @@ python scripts/download_local_llm.py --verify
 ```
 
 Docs: [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md).
+
+---
+
+## Local STT (disfluency extract; optional)
+
+When `disfluency_extract.enabled` is true (default), the pipeline detects filler words in inter-word gaps using energy VAD and optional **faster-whisper** on gap clips. Without Whisper weights, lexicon pass on transcript words still runs.
+
+```bash
+python scripts/download_local_stt.py --model base
+python scripts/download_local_stt.py --verify
+```
+
+Weights: `ASSETS/local_stt/models/` (gitignored). Docs: [docs/pipeline/transcription/disfluency-extract.md](docs/pipeline/transcription/disfluency-extract.md).
 
 ---
 

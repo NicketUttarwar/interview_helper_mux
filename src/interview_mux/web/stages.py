@@ -50,6 +50,15 @@ ANALYSIS_STAGES: tuple[StageInfo, ...] = (
         ("transcript/review_queue.json",),
         (),
     ),
+    StageInfo(
+        "disfluency_extract",
+        "Disfluency extract",
+        "Detect filler words in inter-word gaps (local VAD + Whisper) and export review clips.",
+        "analysis",
+        ("transcript/disfluencies.json",),
+        (),
+        ("glob:transcript/disfluency_clips/*.wav",),
+    ),
 )
 
 TRANSCRIPT_REVIEW_GATE = StageInfo(
@@ -59,6 +68,16 @@ TRANSCRIPT_REVIEW_GATE = StageInfo(
     "gate",
     ("transcript/review_queue.json", "transcript/corrections.json"),
     ("transcript/corrections.json",),
+)
+
+DISFLUENCY_REVIEW_GATE = StageInfo(
+    "disfluency_review",
+    "Disfluency review",
+    "Listen to detected filler clips, confirm or reject each event, then complete review before analysis continues.",
+    "gate",
+    ("transcript/disfluencies.json", "transcript/disfluency_review.json"),
+    ("transcript/disfluencies.json",),
+    ("glob:transcript/disfluency_clips/*.wav",),
 )
 
 ANALYSIS_PROFILE_STAGE = StageInfo(
@@ -409,6 +428,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
     for s in (
         *ANALYSIS_STAGES,
         TRANSCRIPT_REVIEW_GATE,
+        DISFLUENCY_REVIEW_GATE,
         ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
         G2_STAGE,
@@ -478,6 +498,7 @@ def all_stages_for_run(selected_flow: str | None) -> list[dict[str, Any]]:
     for s in ANALYSIS_STAGES:
         out.append(_stage_dict(s))
     out.append(_stage_dict(TRANSCRIPT_REVIEW_GATE))
+    out.append(_stage_dict(DISFLUENCY_REVIEW_GATE))
     out.append(_stage_dict(ANALYSIS_PROFILE_STAGE))
     out.append(_stage_dict(G1_STAGE))
     out.append(_stage_dict(G2_STAGE))

@@ -100,6 +100,23 @@ Setup: `python scripts/select_local_llm.py --download` (see [SETUP.md](../../SET
 
 ---
 
+## `disfluency_extract` / `disfluency_restore`
+
+Local VAD + optional faster-whisper filler detection after G0 — [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md), [disfluency-restore.md](../pipeline/assembly_and_mux/disfluency-restore.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `disfluency_extract.enabled` | `true` | Stage no-ops; gate auto-complete |
+| `disfluency_extract.whisper_model` | `base` | Slow or inaccurate gap ASR |
+| `disfluency_extract.weights_dir` | `ASSETS/local_stt/models` | Whisper pass skipped if weights missing |
+| `disfluency_restore.enabled` | `true` | EDL stays monolithic speech |
+| `disfluency_restore.crossfade_ms` | `30` | Crossfade when splicing filler clips in mix |
+| `run_meta.disfluency_restore.enabled` | — | Per-run override via `PATCH …/disfluency-restore` |
+
+Setup: `python scripts/download_local_stt.py --model base` (optional; lexicon pass works without Whisper).
+
+---
+
 ## Legacy note — flat-only config
 
 Older docs described only a flat `models.<stage_key>` map. That still works, but **`models.tiers` + `models.stages` are the preferred shape** in `config/app.defaults.json`.

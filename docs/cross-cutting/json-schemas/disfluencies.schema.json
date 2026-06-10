@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Disfluencies",
+  "type": "object",
+  "required": ["schema_version", "status", "events", "stats"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "status": { "enum": ["ready", "skipped"] },
+    "skip_reason": { "type": "string" },
+    "computed_at": { "type": "string" },
+    "model": {
+      "type": "object",
+      "properties": {
+        "vad": { "type": ["string", "null"] },
+        "whisper": { "type": ["string", "null"] }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event_id", "start_ms", "end_ms", "review_status"],
+        "properties": {
+          "event_id": { "type": "string" },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "speaker_id": { "type": "string" },
+          "text": { "type": "string" },
+          "label": { "type": "string" },
+          "confidence": { "type": "number" },
+          "source": { "enum": ["vad_gap", "transcript_lexicon"] },
+          "clip_path": { "type": "string" },
+          "review_status": { "enum": ["pending", "confirmed", "rejected"] },
+          "include_in_restore": { "type": "boolean" }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "pending": { "type": "integer" },
+        "confirmed": { "type": "integer" },
+        "rejected": { "type": "integer" }
+      }
+    }
+  }
+}

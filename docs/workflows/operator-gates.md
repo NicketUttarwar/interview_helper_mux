@@ -44,6 +44,27 @@ See [transcript-review.md](../pipeline/transcription/transcript-review.md).
 
 ---
 
+## G0.5 — Disfluency review (filler clips)
+
+**After:** `disfluency_extract` (runs after G0 transcript review when `disfluency_extract.enabled`)
+
+**Trigger:** `transcript/disfluencies.json` has events and `.stage_done/disfluency_review` is missing.
+
+**Prompt operator:**
+
+1. Open **Disfluency review** in the GUI (checkpoint when G0.5 is pending)
+2. Listen to each filler clip; **Confirm** or **Reject**
+3. For confirmed events, toggle **Include in assembly restore** if desired
+4. **Complete review** when no events remain pending
+
+**Skip when:** `disfluency_extract.enabled` is false (auto-complete), or zero events after extract, or review marker present.
+
+**CLI sign-off:** `python -m interview_mux run-stage --run-id … --stage disfluency_review`
+
+See [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md).
+
+---
+
 ## Profile gate — Flow 1 extended (BUILD-081)
 
 **When:** Before `topic_coverage_audit` (first Flow 1 extended stage), when `run_meta.json` has `selected_flow: flow1`.

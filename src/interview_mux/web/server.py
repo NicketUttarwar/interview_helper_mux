@@ -29,7 +29,9 @@ from interview_mux.g15_prompt_review import (
 )
 from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.file_store import read_json, write_json
+from interview_mux.disfluency.config import disfluency_enabled, disfluency_restore_enabled
 from interview_mux.gates import (
+    check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
@@ -37,6 +39,7 @@ from interview_mux.gates import (
     is_operator_profile_verified,
     set_selected_flow,
 )
+from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
 from interview_mux.api_providers import list_providers, all_provider_grants
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents, save_persisted_consent
@@ -230,6 +233,16 @@ class TranscriptReviewCompleteBody(BaseModel):
     accept_unreviewed: bool = False
 
 
+class DisfluencyEventBody(BaseModel):
+    review_status: str = Field(pattern="^(pending|confirmed|rejected)$")
+    text: str | None = None
+    include_in_restore: bool | None = None
+
+
+class DisfluencyRestoreBody(BaseModel):
+    enabled: bool
+
+
 class TranscriptWordPatch(BaseModel):
     index: int
     text: str
@@ -295,6 +308,8 @@ def create_app() -> FastAPI:
             "web_port": cfg.get("web_port", 8765),
             "repo_root": str(root),
             "value_analysis_enabled": value_analysis_enabled(cfg),
+            "disfluency_extract_enabled": disfluency_enabled(cfg),
+            "disfluency_restore_enabled": disfluency_restore_enabled(cfg),
             "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
             "journey_ui": (cfg.get("journey_ui") or {"enabled": True}),
             "llm_routing_stage_ids": sorted(LLM_ROUTING_STAGE_IDS),
@@ -482,11 +497,12 @@ def create_app() -> FastAPI:
         tr_pending = check_transcript_review_pending(ctx)
         profile_verified = is_operator_profile_verified(ctx)
         profile_gate_pending = check_profile_gate_pending(ctx)
+        df_pending = check_disfluency_review_pending(ctx)
         from interview_mux.artifact_completeness import analysis_profile_ready_for_review
 
         profile_ready = analysis_profile_ready_for_review(ctx)
         stages = _build_stage_list(
-            ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending
+            ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
         )
         handoff_ack = meta.get("handoff_ack") or {}
         job = runner.get_job(run_id)
@@ -502,6 +518,8 @@ def create_app() -> FastAPI:
             "flow_intent": intent,
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
+            "disfluency_review_pending": df_pending,
+            "disfluency_review_clear": not df_pending,
             "profile_verified": profile_verified,
             "profile_gate_pending": profile_gate_pending,
             "profile_ready_for_review": profile_ready,
@@ -1452,6 +1470,57 @@ def create_app() -> FastAPI:
         refresh_journey_meta(ctx)
         return {"ok": True, "transcript_review_clear": True}
 
+    @app.get("/api/runs/{run_id}/disfluency-review")
+    def get_disfluency_review(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        return disfluency.get_review_state(ctx)
+
+    @app.put("/api/runs/{run_id}/disfluency-review/{event_id}")
+    def put_disfluency_event(run_id: str, event_id: str, body: DisfluencyEventBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if not ctx.artifact_exists("transcript/disfluencies.json"):
+            raise HTTPException(404, "Disfluency catalog not built — run disfluency_extract first.")
+        try:
+            return disfluency.update_event_review(
+                ctx,
+                event_id,
+                review_status=body.review_status,
+                text=body.text,
+                include_in_restore=body.include_in_restore,
+            )
+        except KeyError:
+            raise HTTPException(404, f"Unknown event: {event_id}") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/runs/{run_id}/disfluency-review/complete")
+    def complete_disfluency_review(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        state = disfluency.get_review_state(ctx)
+        if not state.get("ready"):
+            raise HTTPException(400, "Disfluency catalog not ready.")
+        pending = state.get("pending_count", 0)
+        if pending:
+            raise HTTPException(400, f"{pending} event(s) still pending review.")
+        try:
+            disfluency.mark_disfluency_review_complete(ctx)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return {"ok": True, "disfluency_review_clear": True}
+
+    @app.patch("/api/runs/{run_id}/disfluency-restore")
+    def patch_disfluency_restore(run_id: str, body: DisfluencyRestoreBody) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        block = meta.get("disfluency_restore")
+        if not isinstance(block, dict):
+            block = {}
+        block["enabled"] = body.enabled
+        meta["disfluency_restore"] = block
+        ctx.write_json("run_meta.json", meta)
+        return {"ok": True, "disfluency_restore_enabled": body.enabled}
+
     @app.post("/api/runs/{run_id}/vo/{line_id}")
     async def upload_vo(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -1603,6 +1672,12 @@ def _g0_locked_analysis_stages() -> frozenset[str]:
     return G0_LOCKED_ANALYSIS_STAGES
 
 
+def _disfluency_locked_analysis_stages() -> frozenset[str]:
+    from interview_mux.stage_guidance import DISFLUENCY_LOCKED_ANALYSIS_STAGES
+
+    return DISFLUENCY_LOCKED_ANALYSIS_STAGES
+
+
 def _build_stage_list(
     ctx: RunContext,
     flow: str | None,
@@ -1610,9 +1685,15 @@ def _build_stage_list(
     transcript_review_pending: bool,
     profile_verified: bool,
     profile_gate_pending: bool,
+    disfluency_review_pending: bool | None = None,
 ) -> list[dict[str, Any]]:
     from interview_mux.write_staging import all_pending_stages
 
+    df_pending = (
+        disfluency_review_pending
+        if disfluency_review_pending is not None
+        else check_disfluency_review_pending(ctx)
+    )
     stages = all_stages_for_run(flow)
     pending_write_stages = set(all_pending_stages(ctx))
     for s in stages:
@@ -1621,6 +1702,15 @@ def _build_stage_list(
             if not ctx.artifact_exists("transcript/review_queue.json"):
                 s["status"] = "locked"
             elif transcript_review_pending:
+                s["status"] = "action_required"
+            else:
+                s["status"] = "done"
+        elif sid == "disfluency_review":
+            if not disfluency_enabled():
+                s["status"] = "done"
+            elif not ctx.artifact_exists("transcript/disfluencies.json"):
+                s["status"] = "locked"
+            elif df_pending:
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"
@@ -1660,6 +1750,8 @@ def _build_stage_list(
             else:
                 s["status"] = "done" if ctx.is_done(sid) else "pending"
         elif transcript_review_pending and sid in _g0_locked_analysis_stages():
+            s["status"] = "locked"
+        elif df_pending and sid in _disfluency_locked_analysis_stages():
             s["status"] = "locked"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"

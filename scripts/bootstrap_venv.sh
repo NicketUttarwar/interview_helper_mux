@@ -38,4 +38,8 @@ else
   echo "Note: local_llm.enabled is true by default; on non-macOS, MLX is unavailable and OpenAI volleys are used."
 fi
 
+echo "Local STT (optional): prefetch faster-whisper weights for disfluency_extract…"
+python "$ROOT/scripts/download_local_stt.py" --model base \
+  || echo "WARN: local STT download skipped — disfluency_extract will use transcript lexicon only."
+
 echo "Done. Run: ./scripts/run.sh   (or: source .venv/bin/activate)"

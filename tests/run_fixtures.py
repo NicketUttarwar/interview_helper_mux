@@ -23,6 +23,7 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.llm_calls_gui",
     "interview_mux.journey_orchestrator",
     "interview_mux.journey_state",
+    "interview_mux.disfluency.config",
 )
 
 

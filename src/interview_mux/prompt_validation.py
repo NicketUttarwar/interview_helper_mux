@@ -194,6 +194,11 @@ def validate_transcript_review_queue(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("transcript_review.schema.json"))
 
 
+def validate_disfluencies(data: dict[str, Any]) -> list[str]:
+    """Validate `transcript/disfluencies.json`."""
+    return _validate_dict(data, _load_root_schema("disfluencies.schema.json"))
+
+
 def _validate_by_artifact_schema(filename: str, data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_schema(filename))
 
@@ -280,6 +285,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
     "transcript/review_queue.json": validate_transcript_review_queue,
+    "transcript/disfluencies.json": validate_disfluencies,
     "segments/nle_edits.json": validate_nle_edits,
     "understanding/investigation_queue.json": validate_investigation_queue,
 }

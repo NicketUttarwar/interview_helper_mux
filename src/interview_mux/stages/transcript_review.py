@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from interview_mux.audio_clips import extract_clip
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
@@ -34,7 +34,7 @@ def run_transcript_review_build(ctx: RunContext) -> None:
 
     for chunk in chunks:
         clip_path = clips_dir / f"{chunk['chunk_id']}.wav"
-        _extract_clip(normalized, clip_path, chunk["start_ms"], chunk["end_ms"])
+        extract_clip(normalized, clip_path, chunk["start_ms"], chunk["end_ms"])
         chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
 
     ranked = sorted(
@@ -445,25 +445,3 @@ def _replace_words_in_range(
     kept.sort(key=lambda w: w.get("start_ms", 0))
     return kept
 
-
-def _extract_clip(source: Path, dest: Path, start_ms: int, end_ms: int) -> None:
-    start_s = start_ms / 1000.0
-    duration_s = max((end_ms - start_ms) / 1000.0, 0.05)
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{start_s:.3f}",
-        "-i",
-        str(source),
-        "-t",
-        f"{duration_s:.3f}",
-        "-ar",
-        "48000",
-        "-ac",
-        "1",
-        "-c:a",
-        "pcm_s16le",
-        str(dest),
-    ]
-    subprocess.run(cmd, check=True, capture_output=True)

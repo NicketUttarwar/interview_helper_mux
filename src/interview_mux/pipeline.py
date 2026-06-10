@@ -14,8 +14,10 @@ from interview_mux.analysis_orchestrator import (
     pre_analysis_init,
 )
 from interview_mux.gates import (
+    check_disfluency_review_pending,
     check_g1_vo,
     check_transcript_review_pending,
+    require_disfluency_review_clear,
     require_flow1_extended_gates,
     require_g1_clear,
     require_profile_verified_for_flow1_extended,
@@ -43,6 +45,7 @@ from interview_mux.stages import sound_design_stages
 from interview_mux.stages import sound_design_vo_finalize
 from interview_mux.stages import sfx_elevenlabs
 from interview_mux.stages import transcribe_aws
+from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
 
@@ -51,6 +54,7 @@ ANALYSIS_ORDER = [
     "ingest",
     "transcribe",
     "transcript_review_build",
+    "disfluency_extract",
     "source_acoustic_profile",
     "speaker_roles",
     "content_context",
@@ -99,6 +103,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "ingest": lambda: ingest.run_ingest(ctx),
         "transcribe": lambda: transcribe_aws.run_transcribe(ctx),
         "transcript_review_build": lambda: transcript_review.run_transcript_review_build(ctx),
+        "disfluency_extract": lambda: disfluency.run_disfluency_extract(ctx),
         "source_acoustic_profile": lambda: understanding.run_source_acoustic_profile(ctx),
         "speaker_roles": lambda: understanding.run_speaker_roles(ctx),
         "content_context": lambda: understanding.run_content_context(ctx),
@@ -160,6 +165,9 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
     if stage == "transcript_review":
         transcript_review.mark_transcript_review_complete(ctx)
         return
+    if stage == "disfluency_review":
+        disfluency.mark_disfluency_review_complete(ctx)
+        return
     if stage == "podcast_sfx_brief":
         # v1 legacy — not in FLOW1_ORDER; SDP + elevenlabs_prompt_craft is the default path.
         selection_flow1.run_podcast_sfx_brief(ctx)
@@ -176,8 +184,15 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         return
 
     if stage in ANALYSIS_ORDER:
-        if stage not in ("audio_preclean", "ingest", "transcribe", "transcript_review_build"):
+        if stage not in (
+            "audio_preclean",
+            "ingest",
+            "transcribe",
+            "transcript_review_build",
+            "disfluency_extract",
+        ):
             require_transcript_review_clear(ctx)
+            require_disfluency_review_clear(ctx)
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
@@ -190,6 +205,10 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
             raise SystemExit(
                 "Transcript review required. Open the GUI to correct ranked clips, then complete review."
+            )
+        if stage == "disfluency_extract" and check_disfluency_review_pending(ctx):
+            raise SystemExit(
+                "Disfluency review required. Confirm or reject filler events in the GUI."
             )
         if stage == "optimal_questions":
             missing = check_g1_vo(ctx)
@@ -261,6 +280,7 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
     if stage not in (
         "transcript_review",
+        "disfluency_review",
         "podcast_sfx_brief",
         "sfx_brief",
         "mux_flow1",
@@ -331,10 +351,19 @@ def run_analysis(
                 "Analysis paused for transcript review. Correct STT in the GUI, "
                 "then complete review before continuing."
             )
+        if name == "disfluency_extract" and check_disfluency_review_pending(ctx):
+            raise SystemExit(
+                "Disfluency review required. Confirm or reject filler events in the GUI."
+            )
 
     if check_transcript_review_pending(ctx):
         raise SystemExit(
             "Transcript review incomplete. Finish STT corrections in the GUI before downstream stages."
+        )
+
+    if check_disfluency_review_pending(ctx):
+        raise SystemExit(
+            "Disfluency review incomplete. Confirm or reject filler events in the GUI."
         )
 
     if until_stage and until_stage != "optimal_questions":

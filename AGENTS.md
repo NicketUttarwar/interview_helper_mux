@@ -34,6 +34,8 @@
 ## Audio / STT / ElevenLabs (when implementing those areas)
 
 - [docs/pipeline/transcription/transcript-review.md](docs/pipeline/transcription/transcript-review.md) — G0 gate, synced dock word editor, fuzzy similar-word replace
+- [docs/pipeline/transcription/disfluency-extract.md](docs/pipeline/transcription/disfluency-extract.md) — G0.5 filler extract/review; `disfluency_catalog` in LLM stages
+- [docs/pipeline/assembly_and_mux/disfluency-restore.md](docs/pipeline/assembly_and_mux/disfluency-restore.md) — EDL/mix restore
 - [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md)
 - [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md)
 - [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md)

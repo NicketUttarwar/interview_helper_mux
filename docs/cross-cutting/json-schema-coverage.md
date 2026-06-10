@@ -49,6 +49,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [analysis_state.schema.json](./json-schemas/analysis_state.schema.json) | Profile / memory file |
 | [segment.schema.json](./json-schemas/segment.schema.json) | Full timeline segment (timestamps + text); canonical reference |
 | [transcript_review.schema.json](./json-schemas/transcript_review.schema.json) | `review_queue.json` shape |
+| [disfluencies.schema.json](./json-schemas/disfluencies.schema.json) | `transcript/disfluencies.json` catalog |
 | [investigation_queue.schema.json](./json-schemas/investigation_queue.schema.json) | Queue file |
 | [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
 
@@ -80,6 +81,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_elevenlabs_prompts` | `sound_design/elevenlabs_prompts.json` | Yes |
 | `validate_run_meta` | `run_meta.json` | Yes |
 | `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
+| `validate_disfluencies` | `transcript/disfluencies.json` | Yes |
 | `validate_ingest_checksums` | `ingest/checksums.json` | Yes |
 
 **Guard:** When adding GUI import/export or a new validator, prefer reusing these files instead of duplicating field lists in prose-only docs.

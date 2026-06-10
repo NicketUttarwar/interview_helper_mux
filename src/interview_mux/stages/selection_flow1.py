@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from interview_mux.disfluency.context import attach_disfluency_context
+from interview_mux.context_volley import interviewer_sample_lines
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.nle_state import (
     apply_nle_to_selection,
@@ -55,7 +57,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         }
         if nle_has_operator_edits(nle):
             payload["nle_edits"] = nle
-        return payload
+        return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         nle = load_nle(c)
@@ -86,13 +88,14 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
 def run_transitions(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        return {
+        payload = {
             "selection": c.read_json("flow_1_master/selection.json"),
             "segments": c.read_json("segments/manifest.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
             "interviewer_sample_lines": interviewer_sample_lines(c),
         }
+        return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("flow_1_master/transitions.json", "transitions")
 

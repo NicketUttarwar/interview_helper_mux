@@ -22,6 +22,8 @@ export interface AppConfig {
   web_port: number;
   repo_root: string;
   value_analysis_enabled?: boolean;
+  disfluency_extract_enabled?: boolean;
+  disfluency_restore_enabled?: boolean;
   api_consent_persist?: boolean;
   journey_ui?: {
     enabled?: boolean;
@@ -209,6 +211,8 @@ export interface RunData {
   blocking?: JourneyBlocking;
   transcript_review_pending?: boolean;
   transcript_review_clear?: boolean;
+  disfluency_review_pending?: boolean;
+  disfluency_review_clear?: boolean;
   profile_verified?: boolean;
   profile_gate_pending?: boolean;
   profile_ready_for_review?: boolean;
@@ -246,6 +250,7 @@ export interface RunMeta {
     string,
     { passed: boolean; strict?: boolean; errors?: string[] }
   >;
+  disfluency_restore?: { enabled?: boolean };
   elevenlabs_listen_results?: ElevenLabsListenResult[];
   stage_reuse?: Record<
     string,
@@ -331,7 +336,23 @@ export interface AssemblyTransitionClip {
   text?: string;
 }
 
-export type AssemblyClip = AssemblySpeechClip | AssemblyVoClip | AssemblyTransitionClip;
+export interface AssemblyDisfluencyClip {
+  type: "disfluency";
+  event_id?: string;
+  segment_id?: string;
+  timeline_start_ms: number;
+  duration_ms: number;
+  source_start_ms?: number;
+  source_end_ms?: number;
+  source_path?: string | null;
+  text?: string;
+}
+
+export type AssemblyClip =
+  | AssemblySpeechClip
+  | AssemblyVoClip
+  | AssemblyTransitionClip
+  | AssemblyDisfluencyClip;
 
 export interface AssemblyChapter {
   title: string;

@@ -107,6 +107,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Dock word edits | `words[].corrected: true` after inline edits; `operator/transcript_corrected.json` updates (`source: dock_edit`) | Re-edit in dock; check `PATCH …/transcript/words` in network log |
 | Fuzzy bulk replace | Repeated mishearings updated in one action; toast “Updated N words” when N &gt; 1 | Lower match strictness; confirm **Also replace similar matches** — [transcript-review.md](../pipeline/transcription/transcript-review.md#fuzzy-find-and-replace-similar-words) |
 | **G0** | `.stage_done/transcript_review` after sign-off | Complete GUI review or CLI sign-off — [transcript-review.md](../pipeline/transcription/transcript-review.md) |
+| **G0.5** | `.stage_done/disfluency_review` after sign-off | Confirm/reject filler clips — [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md) |
+| `disfluency_extract` | `transcript/disfluencies.json` + clips | Optional; skipped when disabled in config |
 | Corrections applied | Spot-check: edited chunk text appears in `full.json` after complete | Re-complete review |
 | Partial review | “Accept remaining” used deliberately; know uncorrected chunks remain | Spot-listen high-error regions later |
 
@@ -204,7 +206,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl_flow1` |
 | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
 | `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl_flow1`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
-| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO only (no SFX spend yet) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
+| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
 | `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 | `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |

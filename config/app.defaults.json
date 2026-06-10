@@ -130,6 +130,26 @@
     "apply_to_shards": true,
     "apply_to_collate": true
   },
+  "_comment_disfluency": "Local VAD + Whisper filler detection after G0; optional EDL restore in Flow 1",
+  "disfluency_extract": {
+    "enabled": true,
+    "whisper_model": "base",
+    "compute_type": "int8",
+    "gap_min_ms": 80,
+    "gap_max_ms": 2500,
+    "pad_ms": 80,
+    "min_event_ms": 60,
+    "max_events": 2000,
+    "vad_energy_dbfs": -42.0,
+    "weights_dir": "ASSETS/local_stt/models"
+  },
+  "disfluency_restore": {
+    "enabled": true,
+    "max_inter_segment_gap_ms": 1200,
+    "crossfade_ms": 30,
+    "min_speech_slice_ms": 200,
+    "dedupe_overlap_ms": 40
+  },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
   "analysis": {
     "max_iterations_per_stage": 3,

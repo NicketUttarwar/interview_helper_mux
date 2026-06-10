@@ -100,6 +100,20 @@ def build_assembly_timeline(ctx: RunContext) -> dict[str, Any]:
                     "source_path": clip.get("source_path"),
                 }
             )
+        elif ctype == "disfluency":
+            clips_out.append(
+                {
+                    "type": "disfluency",
+                    "event_id": clip.get("event_id"),
+                    "segment_id": clip.get("segment_id"),
+                    "timeline_start_ms": int(clip.get("timeline_start_ms", 0)),
+                    "duration_ms": int(clip.get("duration_ms", 0)),
+                    "source_start_ms": int(clip.get("source_start_ms", 0)),
+                    "source_end_ms": int(clip.get("source_end_ms", 0)),
+                    "source_path": clip.get("source_path"),
+                    "text": (clip.get("text") or "")[:80],
+                }
+            )
         elif ctype == "transition":
             clips_out.append(
                 {

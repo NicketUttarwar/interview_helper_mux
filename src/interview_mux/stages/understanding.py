@@ -11,6 +11,7 @@ import numpy as np
 
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.config import merged_config
+from interview_mux.disfluency.context import attach_disfluency_context
 from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.run_context import RunContext
 from interview_mux.transcript_sampling import stratified_transcript_samples_from_words
@@ -78,7 +79,7 @@ def run_content_context(ctx: RunContext) -> None:
         profile = load_profile(c)
         if profile:
             payload["source_acoustic_pacing"] = pacing_one_liner(profile)
-        return payload
+        return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_context")
 
@@ -104,7 +105,7 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         }
         if c.artifact_exists("segments/boundaries.json"):
             payload["boundaries"] = c.read_json("segments/boundaries.json")
-        return payload
+        return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
 

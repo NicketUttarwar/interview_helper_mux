@@ -6,6 +6,7 @@ from typing import Any
 
 from interview_mux.analysis_memory import ANALYSIS_STATE_PATH
 from interview_mux.gates import (
+    check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
@@ -106,6 +107,8 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     ):
         g0_complete = True
 
+    disfluency_complete = ctx.is_done("disfluency_review") or not check_disfluency_review_pending(ctx)
+
     profile_verified = False
     if ctx.artifact_exists(ANALYSIS_STATE_PATH):
         state = ctx.read_json(ANALYSIS_STATE_PATH)
@@ -133,6 +136,7 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
 
     computed = {
         "g0_complete": g0_complete,
+        "disfluency_complete": disfluency_complete,
         "profile_verified": profile_verified,
         "g1_complete": g1_complete,
         "g2_complete": g2_complete,

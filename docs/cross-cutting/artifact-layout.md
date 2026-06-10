@@ -69,6 +69,10 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript/speakers.json` | transcription (AWS diarization) |
 | `transcript/review_queue.json` | transcript_review_build |
 | `transcript/review_clips/*.wav` | transcript_review_build |
+| `transcript/disfluencies.json` | disfluency_extract |
+| `transcript/disfluency_clips/*.wav` | disfluency_extract |
+| `transcript/disfluency_review.json` | disfluency_review (gate) |
+| `flow_1_master/disfluency_restore_plan.json` | edl_flow1 |
 | `transcript/corrections.json` | transcript_review (operator) ([transcript_corrections.schema.json](./json-schemas/transcript_corrections.schema.json)) |
 | `operator/manifest.json` | Index of operator-authored snapshots (GUI edits, settings) |
 | `operator/transcript_corrected.json` | Independent operator-corrected transcript per execution; refreshed on each dock word edit (`source: dock_edit`) and chunk save / G0 complete |

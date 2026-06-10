@@ -5,6 +5,8 @@ import { useApp } from "../../context/AppContext";
 import { StageAudioActions } from "./StageAudioActions";
 import { AnalysisProfileGate } from "./AnalysisProfileGate";
 import { TranscriptReviewPanel } from "./TranscriptReviewPanel";
+import { DisfluencyReviewPanel } from "./DisfluencyReviewPanel";
+import { DisfluencyRestorePanel } from "./DisfluencyRestorePanel";
 import { VoPickupPanel } from "./VoPickupPanel";
 import { FlowSelectPanel } from "./FlowSelectPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
@@ -66,6 +68,14 @@ export function GateActions({ stage }: Props) {
     );
   }
 
+  if (stage.id === "disfluency_review" && stage.status === "action_required") {
+    return (
+      <div className="gate-actions">
+        <DisfluencyReviewPanel />
+      </div>
+    );
+  }
+
   if (stage.id === "elevenlabs_prompt_craft") {
     return (
       <div className="gate-actions">
@@ -107,6 +117,10 @@ export function GateActions({ stage }: Props) {
       ) : null}
 
       {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
+
+      {stage.id === "edl_flow1" || stage.id === "assembly_preview" ? (
+        <DisfluencyRestorePanel stageId={stage.id} />
+      ) : null}
 
       {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
         <QcSummaryCard qcKey="narrative_qc" />

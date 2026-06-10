@@ -18,6 +18,9 @@ pyloudnorm==0.2.0
 pydub==0.25.1
 soundfile==0.13.1
 
+# Local STT (optional; disfluency_extract falls back to transcript lexicon when missing)
+faster-whisper>=1.1.0,<2
+
 # Local LLM (Apple Silicon only — optional; pipeline falls back to OpenAI when missing)
 mlx-lm>=0.21.0; sys_platform == "darwin"
 mlx>=0.22.0; sys_platform == "darwin"

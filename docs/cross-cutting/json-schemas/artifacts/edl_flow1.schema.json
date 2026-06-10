@@ -51,12 +51,29 @@
               "duration_ms": { "type": "integer" },
               "timeline_start_ms": { "type": "integer" }
             }
+          },
+          {
+            "type": "object",
+            "required": ["type", "event_id", "segment_id", "timeline_start_ms", "duration_ms"],
+            "properties": {
+              "type": { "const": "disfluency" },
+              "event_id": { "type": "string" },
+              "segment_id": { "type": "string" },
+              "source_path": { "type": ["string", "null"] },
+              "source_start_ms": { "type": "integer" },
+              "source_end_ms": { "type": "integer" },
+              "timeline_start_ms": { "type": "integer" },
+              "duration_ms": { "type": "integer" },
+              "text": { "type": "string" }
+            }
           }
         ]
       }
     },
     "gap_placements": { "type": "array" },
     "timeline_duration_ms": { "type": "integer" },
+    "disfluency_clip_count": { "type": "integer" },
+    "disfluency_restore_enabled": { "type": "boolean" },
     "mux_scope": { "type": "string" }
   }
 }

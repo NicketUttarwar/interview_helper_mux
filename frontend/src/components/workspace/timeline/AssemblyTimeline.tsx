@@ -44,6 +44,7 @@ export function AssemblyTimeline({
     Extract<AssemblyClip, { type: "speech" }>
   >;
   const voClips = clips.filter((c) => c.type === "vo_pickup");
+  const disfluencyClips = clips.filter((c) => c.type === "disfluency");
   const transitionClips = clips.filter((c) => c.type === "transition");
 
   const chapterDurations = (assembly.chapters || []).map((ch: AssemblyChapter, i: number) => {
@@ -93,6 +94,18 @@ export function AssemblyTimeline({
           title={`${clip.line_id} (${clip.placement})`}
         >
           {clip.line_id}
+        </div>
+      );
+    }
+    if (clip.type === "disfluency") {
+      return (
+        <div
+          key={`fill-${clip.event_id}-${start}`}
+          className="assembly-clip disfluency"
+          style={{ left: `${left}%`, width: `${Math.max(width, 0.4)}%` }}
+          title={`${clip.text || "filler"} · ${clip.event_id || ""}`}
+        >
+          {clip.text || "…"}
         </div>
       );
     }
@@ -151,6 +164,7 @@ export function AssemblyTimeline({
           }}
         >
           {speechClips.map((c) => renderClip(c))}
+          {disfluencyClips.map((c) => renderClip(c))}
         </div>
         <div className="playhead" style={{ left: `${(playheadMs / durationMs) * 100}%` }} />
       </div>

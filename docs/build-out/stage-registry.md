@@ -26,13 +26,14 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Shared analysis
 
-**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `source_acoustic_profile` → `speaker_roles` → `content_context` → `boundary_detection` → `segment_classification` → `content_brief_reanchor` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
+**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `speaker_roles` → ...
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
 | `ingest` | shipped | `ingest.py` | BUILD-020 | `ingest/normalized.wav`, `ingest/checksums.json` | — |
 | `transcribe` | shipped | `transcribe_aws.py` | BUILD-021 | `transcript/full.json`, `transcript/speakers.json` | — |
 | `transcript_review_build` | shipped | `transcript_review.py` | BUILD-018 | `transcript/review_queue.json` | — |
+| `disfluency_extract` | shipped | `disfluency.py` | — | `transcript/disfluencies.json`, `transcript/disfluency_clips/` | Gate `disfluency_review` (G0.5) |
 | `transcript_review` | gate | `transcript_review.py` | BUILD-018 | `transcript/corrections.json`; dock: `patch_transcript_words` → `transcript/full.json` | GUI: `TranscriptDockViewer`, `FuzzyReplacePopover` |
 | `speaker_roles` | shipped | `understanding.py` | BUILD-022 | `understanding/speakers.json` | `understanding/speaker-roles` |
 | `content_context` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` | `understanding/content-context` |

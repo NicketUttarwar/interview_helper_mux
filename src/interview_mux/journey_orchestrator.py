@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.gates import (
+    check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
@@ -161,6 +162,18 @@ def _blocking(
             f"Review {n} ranked STT clips" if n else NEXT_ACTION_PREPARE_G0
         )
 
+    if not blocked and check_disfluency_review_pending(ctx):
+        blocked = True
+        reason = "disfluency_review"
+        stage_id = "disfluency_review"
+        doc = ctx.read_json("transcript/disfluencies.json")
+        pending = sum(
+            1
+            for e in (doc.get("events") or [])
+            if isinstance(e, dict) and e.get("review_status") == "pending"
+        )
+        message = f"Review {pending} filler event(s)" if pending else "Complete disfluency review"
+
     g1_missing = check_g1_vo(ctx)
     if g1_missing and ctx.artifact_exists("understanding/gap_report.json"):
         blocked = True
@@ -249,7 +262,11 @@ def execute_hint(
         return {
             "action": "execute",
             "mode": "analysis",
-            "from_stage": "speaker_roles",
+            "from_stage": (
+                "disfluency_extract"
+                if not milestones.get("disfluency_complete", True)
+                else "source_acoustic_profile"
+            ),
             "label": NEXT_ACTION_UNDERSTAND_RUN,
         }
 
@@ -257,7 +274,7 @@ def execute_hint(
         return {
             "action": "execute",
             "mode": "analysis",
-            "from_stage": "speaker_roles",
+            "from_stage": "source_acoustic_profile",
             "label": NEXT_ACTION_UNDERSTAND_RUN,
         }
 

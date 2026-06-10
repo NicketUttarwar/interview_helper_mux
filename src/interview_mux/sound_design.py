@@ -12,6 +12,7 @@ from pydub import AudioSegment
 from interview_mux.acoustic_profile import load_profile, mix_contract, placement_hints
 from interview_mux.audio_timeline import append_with_crossfade, snap_cut_to_word_boundary
 from interview_mux.config import merged_config
+from interview_mux.disfluency.config import restore_settings
 from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.mix_completeness import enforce_mix_completeness
 from interview_mux.run_context import RunContext
@@ -49,6 +50,41 @@ def _append_mix_clip(
     return append_with_crossfade(base, clip, crossfade_ms, adaptive=adaptive)
 
 
+def _disfluency_excluded_windows(edl: dict[str, Any]) -> list[tuple[int, int]]:
+    windows: list[tuple[int, int]] = []
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict) or clip.get("type") != "disfluency":
+            continue
+        start = int(clip.get("timeline_start_ms") or 0)
+        dur = int(clip.get("duration_ms") or 0)
+        if dur > 0:
+            windows.append((start, start + dur))
+    return windows
+
+
+def _overlaps_excluded(pos_ms: int, duration_ms: int, excluded: list[tuple[int, int]]) -> bool:
+    end = pos_ms + max(0, duration_ms)
+    for w0, w1 in excluded:
+        if pos_ms < w1 and end > w0:
+            return True
+    return False
+
+
+def _update_segment_timing(
+    segment_timing: dict[str, tuple[int, int]],
+    seg_id: str,
+    t0: int,
+    t1: int,
+) -> None:
+    if not seg_id:
+        return
+    if seg_id in segment_timing:
+        prev_start, prev_end = segment_timing[seg_id]
+        segment_timing[seg_id] = (min(prev_start, t0), max(prev_end, t1))
+    else:
+        segment_timing[seg_id] = (t0, t1)
+
+
 def mix_flow1(ctx: RunContext) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
     contract = mix_contract(ctx)
@@ -63,14 +99,17 @@ def mix_flow1(ctx: RunContext) -> Path:
         stage="mix_flow1",
     )
     crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
+    disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
     words = _transcript_words(ctx)
     ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
     edl = ctx.read_json("flow_1_master/edl.json")
+    excluded_windows = _disfluency_excluded_windows(edl)
     source = load_audio(ctx.path("ingest", "normalized.wav"))
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     segment_timing: dict[str, tuple[int, int]] = {}
     speech_count = 0
     vo_count = 0
+    disfluency_count = 0
     missing_vo: list[str] = []
 
     for clip in edl.get("clips") or []:
@@ -82,8 +121,9 @@ def mix_flow1(ctx: RunContext) -> Path:
             seg_id = str(clip.get("segment_id") or "")
             if seg_id:
                 t0 = int(clip.get("timeline_start_ms", len(base)))
-                segment_timing[seg_id] = (t0, t0 + len(audio))
+                _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
             speech_count += 1
+            clip_crossfade = crossfade_ms
         elif ctype == "vo_pickup":
             src_rel = clip.get("source_path")
             line_id = str(clip.get("line_id") or "")
@@ -98,12 +138,29 @@ def mix_flow1(ctx: RunContext) -> Path:
                 audio = placeholder_from_clip(clip)
                 missing_vo.append(line_id or "unknown")
             vo_count += 1
+            clip_crossfade = crossfade_ms
+        elif ctype == "disfluency":
+            src_rel = clip.get("source_path")
+            if src_rel:
+                fill_path = ctx.path(str(src_rel))
+                if fill_path.is_file():
+                    audio = load_audio(fill_path)
+                else:
+                    audio = placeholder_from_clip(clip)
+            else:
+                audio = placeholder_from_clip(clip)
+            disfluency_count += 1
+            seg_id = str(clip.get("segment_id") or "")
+            if seg_id:
+                t0 = int(clip.get("timeline_start_ms", len(base)))
+                _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
+            clip_crossfade = disfluency_crossfade_ms
         else:
             continue
         if len(base) == 0:
             base = audio
         else:
-            base = _append_mix_clip(base, audio, crossfade_ms)
+            base = _append_mix_clip(base, audio, clip_crossfade)
 
     if missing_vo:
         ctx.log(
@@ -115,22 +172,38 @@ def mix_flow1(ctx: RunContext) -> Path:
     ctx.log(
         (
             f"mix_flow1: base timeline {len(base)} ms — "
-            f"speech={speech_count}, vo={vo_count}, segments={len(segment_timing)}, "
-            f"crossfade_ms={crossfade_ms}"
+            f"speech={speech_count}, vo={vo_count}, disfluency={disfluency_count}, "
+            f"segments={len(segment_timing)}, crossfade_ms={crossfade_ms}"
         ),
         level="info",
         stage="mix_flow1",
     )
 
     overlays, overlay_stats = build_flow1_overlays(
-        ctx, segment_timing=segment_timing, timeline_ms=len(base), contract=contract
+        ctx,
+        segment_timing=segment_timing,
+        timeline_ms=len(base),
+        contract=contract,
+        excluded_windows=excluded_windows,
     )
     mix = base
+    skipped_on_disfluency = 0
     for cue in overlays:
         clip_audio = cue["audio"]
         if not isinstance(clip_audio, AudioSegment):
             continue
-        mix = mix.overlay(clip_audio, position=max(0, int(cue.get("position_ms", 0))))
+        pos = max(0, int(cue.get("position_ms", 0)))
+        if excluded_windows and _overlaps_excluded(pos, len(clip_audio), excluded_windows):
+            skipped_on_disfluency += 1
+            continue
+        mix = mix.overlay(clip_audio, position=pos)
+
+    if skipped_on_disfluency:
+        ctx.log(
+            f"mix_flow1: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
+            level="info",
+            stage="mix_flow1",
+        )
 
     ctx.log(
         (
@@ -287,9 +360,15 @@ def build_flow1_overlays(
     segment_timing: dict[str, tuple[int, int]],
     timeline_ms: int,
     contract: dict[str, Any] | None = None,
+    excluded_windows: list[tuple[int, int]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     contract = contract or mix_contract(ctx)
-    overlays = flow1_overlays_from_sdp(ctx, segment_timing=segment_timing, contract=contract)
+    overlays = flow1_overlays_from_sdp(
+        ctx,
+        segment_timing=segment_timing,
+        contract=contract,
+        excluded_windows=excluded_windows or [],
+    )
     stats = count_overlay_roles(overlays)
     if overlays:
         stats["missing_assets"] = 0
@@ -305,8 +384,10 @@ def flow1_overlays_from_sdp(
     *,
     segment_timing: dict[str, tuple[int, int]],
     contract: dict[str, Any] | None = None,
+    excluded_windows: list[tuple[int, int]] | None = None,
 ) -> list[dict[str, Any]]:
     contract = contract or mix_contract(ctx)
+    excluded = excluded_windows or []
     if contract.get("underscore_policy") == "skip":
         ctx.log("mix_flow1: underscore_skipped — no bed overlays", level="info", stage="mix_flow1")
         return []
@@ -390,6 +471,8 @@ def flow1_overlays_from_sdp(
                 segments_by_id=segments_by_id,
                 segment_timing=segment_timing,
             )
+        if excluded and _overlaps_excluded(int(pos), len(cue_audio), excluded):
+            continue
         role = "bridge" if placement == "before_segment" else "stinger"
         out.append({"audio": cue_audio, "position_ms": pos, "role": role})
 
