@@ -20,7 +20,7 @@ const PLACEMENT_STAGES = new Set([
 ]);
 
 export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
-  const { run } = useApp();
+  const { run, appendClientLog } = useApp();
   const [adjustments, setAdjustments] = useState<PlacementAdjustment[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -30,18 +30,24 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
       return;
     }
     setLoading(true);
-    void api<{ content?: { adjustments?: PlacementAdjustment[] } }>(
+    void api<{ adjustments?: PlacementAdjustment[]; version?: number }>(
       `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent("sound_design/placement_adjustments.json")}`,
     )
-      .then((data) => setAdjustments(data.content?.adjustments || []))
-      .catch(() => setAdjustments([]))
+      .then((data) => setAdjustments(Array.isArray(data.adjustments) ? data.adjustments : []))
+      .catch((e) => {
+        setAdjustments([]);
+        appendClientLog(
+          e instanceof Error ? e.message : "Failed to load placement adjustments",
+          "warning",
+        );
+      })
       .finally(() => setLoading(false));
-  }, [run, stage.id]);
+  }, [run, stage.id, appendClientLog]);
 
   if (!run || !PLACEMENT_STAGES.has(stage.id)) return null;
   if (loading) {
     return (
-      <div className="quality-offer-card placement-qa-card">
+      <div className="placement-qa-card quality-offer-card">
         <h4>Placement QA</h4>
         <p className="muted sm">Loading placement adjustments…</p>
       </div>

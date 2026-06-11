@@ -257,6 +257,6 @@ From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [st
 | `exec_*` (flow1/2/3) | |
 | Git commit (optional) | |
 | Notes | |
-| Automated suite (2026 audit) | `pytest tests/ -q` — 372 passed; `CHECK_GUI_BUNDLE=1 ./tools/check_prerequisites.sh` OK |
+| Automated suite (2026 audit) | `pytest tests/ -q` — 512 passed; `CHECK_GUI_BUNDLE=1 ./tools/check_prerequisites.sh` OK |
 
 **Maintainer:** When all sections are checked, mark fresh-clone items in [implementation-guide.md](./implementation-guide.md) and [steps-forward.md](./steps-forward.md), and link this file from [AGENTS.md](../../AGENTS.md) / [INDEX.md](../INDEX.md).

@@ -414,7 +414,7 @@ def maybe_check_mix_intelligibility(
     seg_ids = ", ".join(result.flagged_segment_ids) or "unknown"
     ctx.log(
         f"{stage}: mix intelligibility QC failed — bed may mask speech band in segment(s): {seg_ids}",
-        level="warn",
+        level="warning",
         stage=stage,
         detail="intelligibility_warn",
     )

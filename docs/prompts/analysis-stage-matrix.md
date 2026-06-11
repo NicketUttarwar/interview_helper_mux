@@ -46,6 +46,8 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | podcast_show_description | publishing/podcast-show-description | flagship | full | show_description.json | narrative_patch.audience, confidence_patch.show_description |
 | export_show_description | — | — | — | show_description.md | — |
 
+[^flow3]: **Analysis-only entry:** Flow 3 runs after G2 with `selected_flow: flow3`. Requires shared analysis complete (`require_analysis_artifacts_complete`) but **not** Flow 1 ranking or Flow 2 selection. Preflight for `podcast_show_description` checks `content_brief.json`, `speakers.json`, and `manifest.json` when flow3 is selected (`llm_preflight.py`). `export_show_description` is deterministic markdown export — no LLM call.
+
 ## Meta
 
 | Stage | Prompt | Tier | Volley |
@@ -56,11 +58,14 @@ Contract: [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md).
 
 ## Specialist post-passes (`analysis.specialists.enabled`)
 
-| Parent stage | Specialist | Output artifact | Investigation trigger |
-|--------------|------------|-----------------|------------------------|
-| `missing_framing` | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `gap_unresolved` |
-| `segment_classification` | `theme_coverage_pass` | `segment_topic_patches[]` | Non-empty patches → `theme_unmapped` |
-| `topic_coverage_audit` | `emphasis_coverage_pass` | `emphasis_coverage.gaps[]` | Non-empty gaps → coverage re-audit |
+Timing: **pre** runs before the parent primary LLM call; **post** runs after the parent stage completes (`llm_specialists.py`).
+
+| Parent stage | Timing | Specialist | Output artifact | Investigation trigger |
+|--------------|--------|------------|-----------------|------------------------|
+| `missing_framing` | pre | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `gap_unresolved` |
+| `segment_classification` | post | `theme_coverage_pass` | `segment_topic_patches[]` | Non-empty patches → `theme_unmapped` |
+| `topic_coverage_audit` | post | `emphasis_coverage_pass` | `emphasis_coverage.gaps[]` | Non-empty gaps → coverage re-audit |
+| `full_master_ranking` | post | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `comprehension_risk` / `gap_unresolved` |
 
 Enrichment inputs: see [context-padding.md](../cross-cutting/context-padding.md#stage-enrichment-inputs-stage_enrichmentpy).
 

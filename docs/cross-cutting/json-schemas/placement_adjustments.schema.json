@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlacementAdjustments",
+  "type": "object",
+  "required": ["adjustments"],
+  "properties": {
+    "version": { "type": "integer" },
+    "adjustments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "asset_id": { "type": "string" },
+          "role": { "type": "string" },
+          "action": { "type": "string" },
+          "reason": { "type": "string" },
+          "suggested_level_db_delta": { "type": "number" },
+          "suggested_crossfade_ms": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

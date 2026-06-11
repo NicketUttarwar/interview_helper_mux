@@ -65,6 +65,23 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `llm_preflight.py` | Upstream artifact preflight before LLM calls | LLM guidance |
 | `llm_flow_hardening.py` | Spend gates, `complete_llm_stage_or_halt`, mix block | LLM guidance |
 | `prompt_examples.py` | Shared example-pack injection for system prompts | LLM guidance |
+| `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) | LLM guidance |
+| `local_llm_config.py` / `local_llm_runner.py` | Local MLX framer config + chat runner | LLM guidance |
+| `llm_call_record.py` | Per-call OpenAI audit under `understanding/llm_calls/` | BUILD-013 |
+| `llm_calls_gui.py` | GUI helpers for LLM call index | BUILD-014 |
+| `stage_enrichment.py` | Stage-specific enrichment inputs for volleys | BUILD-013 |
+| `show_description_qc.py` | Flow 3 show-description validation | BUILD-045 |
+| `stages/llm_runner.py` | OpenAI calls (`task_kind`, tier meta) | BUILD-013, 073 |
+| `stages/analysis_stage.py` | Shared LLM stage runner + arbiter | BUILD-013, 073 |
+| `stages/model_registry.py` | Tier → API ID resolution | BUILD-073 |
+| `stages/llm_arbiter.py` | Post-primary verdict | BUILD-073 |
+| `stages/llm_subtasks.py` | Shard/collate decompose | BUILD-073, 084 |
+| `stages/llm_stage_routing.py` | Unified primary→arbiter→decompose routing | BUILD-084 |
+| `stages/llm_shard_plans.py` | `DECOMPOSE_ELIGIBLE` + deterministic shard plans | BUILD-084 |
+| `stages/llm_specialists.py` | Optional pre/post specialist passes | BUILD-084 |
+| `stages/llm_routing_debug.py` | Stage attempt summaries for GUI | BUILD-084 |
+
+**LLM guidance (GUIDE wave):** [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) · [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md) · [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18–20
 
 ### Stages (`src/interview_mux/stages/`)
 
@@ -72,19 +89,11 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 |--------|-------------|--------|
 | `ingest.py` | `ingest` | BUILD-020 |
 | `transcribe_aws.py` | `transcribe` | BUILD-021 |
+| `disfluency.py` | `disfluency_extract`, `disfluency_review` (G0.5) | — |
 | `transcript_review.py` | `transcript_review_build`, `transcript_review` | BUILD-018 |
 | `understanding.py` | `source_acoustic_profile`, `speaker_roles`, `content_context` | BUILD-022, 023, 082 |
 | `segmentation.py` | `boundary_detection`, `segment_classification` | BUILD-023–024 |
 | `gaps.py` | `missing_framing`, `optimal_questions`, `vo_ingest` | BUILD-025–027 |
-| `llm_runner.py` | OpenAI calls (`task_kind`, tier meta) | BUILD-013, 073 |
-| `analysis_stage.py` | Shared LLM stage runner + arbiter | BUILD-013, 073 |
-| `model_registry.py` | Tier → API ID resolution | BUILD-073 |
-| `llm_arbiter.py` | Post-primary verdict | BUILD-073 |
-| `llm_subtasks.py` | Shard/collate decompose | BUILD-073, 084 |
-| `llm_stage_routing.py` | Unified primary→arbiter→decompose routing | BUILD-084 |
-| `llm_shard_plans.py` | `DECOMPOSE_ELIGIBLE` + deterministic shard plans | BUILD-084 |
-| `llm_specialists.py` | Optional post-stage specialist passes | BUILD-084 |
-| `llm_routing_debug.py` | Stage attempt summaries for GUI | BUILD-084 |
 | `edl_narrative_qc.py` | Final Flow 1 EDL narrative semantics | EDL narrative QC |
 | `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
 | `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
@@ -141,6 +150,10 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `tools/verify_edl.py` | EDL schema validation for `flow_1_master/edl.json` | BUILD-067 |
 | `tools/extract_value_features.py` | Opt-in value metrics artifact | value-analysis |
 | `tools/run_value_spike.py` | Spike scorecard aggregation | value-analysis |
+| `tools/export_llm_calls.py` | Export labeled LLM call records + stage-run audit appendix | LLM guidance |
+| `tools/validate_show_description.py` | Flow 3 show-description QC | BUILD-045 |
+| `tools/run_disfluency_extract.py` | Standalone disfluency extract CLI | — |
+| `tools/codegen_zod_schemas.py` | JSON Schema → Zod for `frontend/src/schemas/` | BUILD-014 |
 | `src/interview_mux/master_qc.py` | Measurement + threshold checks (shared by CLI and GUI) | BUILD-070 |
 | `src/interview_mux/mastering_bus.py` | pyloudnorm assembly-bus LUFS before limiter | BUILD-071 |
 
@@ -175,7 +188,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 ## Doc ↔ code gaps
 
-**Status (Command 9):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix_flow1`/`mix_flow2`), G2 flow3, pre-clean offers, and smart LLM routing are shipped in code.
+**Status (Command 9 + GUIDE wave):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix_flow1`/`mix_flow2`), G2 flow3, pre-clean offers, smart LLM routing, Flow 3 analysis-only entry, and the LLM guidance program (GUIDE-001–080) are shipped in code.
 
 | Topic | Verification |
 |-------|----------------|
@@ -183,5 +196,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | Full podcast mix | `mix_flow1` / `mix_flow2` in `pipeline.py`; listen + `verify_master.py` — [definition-of-done-signoff.md](./definition-of-done-signoff.md) §3 |
 | Pre-clean offers | `POST …/preclean-offer`; never auto — `web/server.py`, `stages/audio_preclean.py` |
 | Stage parity | `pipeline.py` orders = `web/stages.py` `EXECUTABLE_ORDER` — signoff §5 |
+| Flow 3 analysis-only entry | `run_flow3` → `require_g1_clear` + `require_analysis_artifacts_complete` (no Flow 1 ranking); `podcast_show_description` preflight when `selected_flow: flow3` checks `content_brief.json`, `speakers.json`, `manifest.json` — `pipeline.py`, `llm_preflight.py`, [stage-registry.md](./stage-registry.md) Flow 3 |
+| LLM guidance program | P0–P4 scorecard + quality layers — [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md), `attempt_budget.py`, `local_volley_framer.py`, `placement_qa.py` |
 
 When you introduce a new gap, add a row here and a command in [remaining-build-commands.md](./remaining-build-commands.md). Manual release checklist: [definition-of-done-signoff.md](./definition-of-done-signoff.md).

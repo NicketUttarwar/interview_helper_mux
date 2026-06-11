@@ -30,7 +30,7 @@ def test_list_and_update_llm_calls_gui(tmp_path, monkeypatch):
     record_llm_call(
         ctx,
         stage_key="speaker_roles",
-        prompt_ref="analysis/speaker-roles.system.txt",
+        prompt_ref="understanding/speaker-roles.system.txt",
         request_messages=[
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "task"},

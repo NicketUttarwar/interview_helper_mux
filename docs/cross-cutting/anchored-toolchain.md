@@ -130,7 +130,9 @@ When a spike adds a library, add a row here **and** a dedicated optional extra i
 
 | Library | Suggested pin (spike) | Lever (see [tools-not-in-repo-landscape.md](../pipeline/value-analysis/tools-not-in-repo-landscape.md)) |
 |---------|----------------------|--------------------------------------------------------------------------------------------------------|
-| `faster-whisper` | pin at spike time | STT catalog |
+| `faster-whisper` | `1.1.1` in [`requirements-spike.lock`](../../requirements-spike.lock) | STT catalog / disfluency_extract |
+| `mlx-lm` / `mlx` | pinned in `requirements-spike.lock` (Darwin) | Local LLM volley framing |
+| `huggingface_hub` | `0.26.5` in `requirements-spike.lock` | Model download scripts |
 | `whisperx` | pin at spike time | Alignment |
 | `demucs` | pin at spike time | Stem features |
 | `opensmile` / `speechbrain` | pin at spike time | Prosody |

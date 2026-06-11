@@ -20,7 +20,11 @@ def main() -> None:
     args = parser.parse_args()
     ctx = RunContext(args.run_id, create=False)
     run_disfluency_extract(ctx)
-    print(f"Done — see {ctx.path('transcript/disfluencies.json')}")
+    ctx.log(
+        f"Disfluency extract complete — see {ctx.path('transcript/disfluencies.json')}",
+        level="success",
+        stage="disfluency_extract",
+    )
 
 
 if __name__ == "__main__":

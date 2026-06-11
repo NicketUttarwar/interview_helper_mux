@@ -18,7 +18,8 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
-  const { run, runId, refreshRun, runNextStage, showToast, closeActionModal } = useApp();
+  const { run, runId, refreshRun, runNextStage, showToast, closeActionModal, appendClientLog } =
+    useApp();
   const [paths, setPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [editorValue, setEditorValue] = useState("");
@@ -106,11 +107,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         method: "POST",
       });
       showToast("Outputs saved — continuing.");
+      appendClientLog(`Write approval saved for ${stageId}`, "success");
       closeActionModal();
       await refreshRun();
       await runNextStage();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Approve failed");
+      const msg = e instanceof ApiError ? e.message : "Approve failed";
+      showToast(msg);
+      appendClientLog(msg, "warning");
     } finally {
       setSubmitting(false);
     }
@@ -124,10 +128,13 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         method: "POST",
       });
       showToast("Discarded staged outputs — re-run this step when ready.");
+      appendClientLog(`Write approval discarded for ${stageId}`, "info");
       closeActionModal();
       await refreshRun();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Discard failed");
+      const msg = e instanceof ApiError ? e.message : "Discard failed";
+      showToast(msg);
+      appendClientLog(msg, "warning");
     } finally {
       setSubmitting(false);
     }

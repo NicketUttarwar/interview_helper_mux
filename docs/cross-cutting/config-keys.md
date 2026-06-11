@@ -16,11 +16,17 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `executions_root` | New runs under `ASSETS/executions/...` | Runs created outside expected tree; resume breaks |
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
+| `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
 | `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
 | `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `flow_intent` | Early planning before G2 |
-| `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `preview_listened_at` milestone |
+| `journey_ui.phase_sidebar` | `PipelineStepList` phase grouping | When `false`, flat numbered step list |
+| `journey_ui.story_board` | `StoryBoardPanel` tab | When `false`, hides story-board tool tab |
+| `journey_ui.unified_preclean_drawer` | `AudioQualityDrawer` + journey preclean hints | When `false`, drawer hidden (inline `PrecleanOfferCard` still works) |
+| `journey_ui.express_flow1` | Express Flow 1 CTAs in journey kernel | When `false`, hides express shortcuts |
+| `journey_ui.journey_log_filter` | Logs tab journey-scoped filter | When `false`, standard log filters only |
+| `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `POST …/milestones/preview-listened` before polish execute |
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
@@ -28,7 +34,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly_flow1`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly_flow1`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl_flow1` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
-| `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true`, blocks persisting invalid show description; default `false` (warn only) |
+| `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true` (shipped default), blocks persisting invalid show description; when `false`, warn only |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
@@ -86,6 +92,11 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 | `local_llm.max_volley_turns` | `2` | OpenAI volley bloat; higher API cost |
 | `local_llm.max_tokens` | `768` | Truncated framer JSON → forced escalation |
 | `local_llm.escalate_on_parse_error` | `true` | `false` risks skipping OpenAI on bad local output |
+| `local_llm.min_confidence` | `0.6` | Local framing below threshold → escalate to OpenAI |
+| `local_llm.skip_openai_primary_when_local_satisfied` | `false` | When `true`, may skip OpenAI primary on high-confidence local output (P0–P2 stages always escalate) |
+| `local_llm.apply_to_specialists` | `true` | Local volley before economy specialist passes |
+| `local_llm.apply_to_shards` | `true` | Local volley before shard calls |
+| `local_llm.apply_to_collate` | `true` | Local volley before collate calls |
 
 **Secrets (optional):**
 
@@ -108,9 +119,18 @@ Local VAD + optional faster-whisper filler detection after G0 — [disfluency-ex
 |-----|---------|----------|
 | `disfluency_extract.enabled` | `true` | Stage no-ops; gate auto-complete |
 | `disfluency_extract.whisper_model` | `base` | Slow or inaccurate gap ASR |
+| `disfluency_extract.compute_type` | `int8` | faster-whisper compute type |
+| `disfluency_extract.gap_min_ms` / `gap_max_ms` | `80` / `2500` | Inter-word gap window for candidate events |
+| `disfluency_extract.pad_ms` | `80` | Clip padding around gap audio |
+| `disfluency_extract.min_event_ms` | `60` | Drop shorter detected events |
+| `disfluency_extract.max_events` | `2000` | Cap catalog size per run |
+| `disfluency_extract.vad_energy_dbfs` | `-42.0` | Energy VAD threshold for gap clips |
 | `disfluency_extract.weights_dir` | `ASSETS/local_stt/models` | Whisper pass skipped if weights missing |
 | `disfluency_restore.enabled` | `true` | EDL stays monolithic speech |
+| `disfluency_restore.max_inter_segment_gap_ms` | `1200` | Max gap between speech slices when restoring |
 | `disfluency_restore.crossfade_ms` | `30` | Crossfade when splicing filler clips in mix |
+| `disfluency_restore.min_speech_slice_ms` | `200` | Minimum speech slice after split |
+| `disfluency_restore.dedupe_overlap_ms` | `40` | Overlap dedupe between adjacent restore events |
 | `run_meta.disfluency_restore.enabled` | — | Per-run override via `PATCH …/disfluency-restore` |
 
 Setup: `python scripts/download_local_stt.py --model base` (optional; lexicon pass works without Whisper).
@@ -139,6 +159,12 @@ Export: `python tools/export_llm_calls.py --run-id <exec_*>`.
 ## `analysis.max_iterations_per_stage`
 
 Orchestrator inner loop per LLM stage. **Too low:** exits before fixing validation errors. **Too high:** extra cost on stuck stages.
+
+---
+
+## `analysis.max_volley_retries`
+
+Within-attempt volley retries when the model returns fixable validation errors (`llm_stage_routing.py`, `analysis_memory.py`). Default **2** in `app.defaults.json`. **Too low:** gives up before self-correction. **Too high:** cost thrash on stuck volleys.
 
 ---
 
@@ -185,7 +211,7 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `max_primary_attempts_per_stage` | `4` | Cap primary OpenAI calls per stage (`attempt_budget.py`) |
 | `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
 | `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → stage treated as stuck |
-| `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per kind |
+| `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per investigation kind (`attempt_budget.py`) |
 | `spend_block_stages` | see defaults | Stages that require complete upstream SDP/craft before API spend |
 | `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix_flow*` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
 

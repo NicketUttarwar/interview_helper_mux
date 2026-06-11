@@ -24,12 +24,13 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | Stage rail + sub-tabs | **Stage \| Story \| Timeline \| Profile (JSON) \| Files \| Engineering** — primary operator flow |
+| **Pipeline** | `PipelineCommandCenter` + `PipelineStepList` + main pane | Primary view: **`StageDetail`** (step detail). **Tools drawer:** Story board \| Timeline \| Profile JSON \| Files \| **Debug** (`LlmCallsPanel`) |
 | **Pipeline** | **Phase guidance banner** | `journey.phase_guidance[phase]` — goal, progress, top orange actions |
 | **Pipeline** | **Stage guidance panel** | `stages[].guidance` — prerequisites, actions, unlocks on every stage detail |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
 | Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
-| Modals | Operator action | Gates, checkpoints, handoffs, pre-clean offers, **Previous execution reuse**, **Review outputs before saving** — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; **always** selects blocking stage (including on Logs tab) via `findPendingFocusStage` |
+| Modals | `OperatorActionModal` | Full-screen duplicate of blocking gate UI — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; selects blocking stage via `findPendingFocusStage`. Reuse and write-approval panels stay on `StageDetail` when modal closed. |
+| Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
@@ -70,18 +71,18 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 ## Pipeline tab (sub-tabs)
 
-| Sub-tab | Content | When visible |
-|---------|---------|--------------|
-| **Stage** | Title, description, **Previous execution reuse** (`StageReuseSection`), **Review outputs before saving** (`WriteApprovalPanel` when staged), **artifact checklist** (`artifacts_status`: pending / partial / complete; **Fill gaps** on partial), inline audio for `audio_outputs_present`, handoff panel, LLM routing summary, checkpoint CTA | Always when `run_id` set |
-| **Story** | Story Board — themes, investigations, **Lock story for podcast edit** | When analysis workspace exists |
-| **Timeline** | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification (empty state otherwise) |
-| **Profile** | Analysis profile form | When `profile_ready_for_review` or profile verified; **locked** with waiting message until understanding analysis completes |
-| **Files** | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
-| **Engineering** | LLM call record index and editor | Power-user audit path |
+| Sub-tab / pane | Component | Content | When visible |
+|----------------|-----------|---------|--------------|
+| **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Review outputs before saving** (`WriteApprovalPanel`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages | Always when `run_id` set |
+| **Story board** | `StoryBoardPanel` | Themes, investigations (`GET …/story-board`; `PATCH …/investigation-queue/{id}`), profile verify CTA | When analysis workspace exists |
+| **Timeline** | `NlePanel` | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification |
+| **Profile JSON** | `ProfilePanel` | Analysis profile form | When `profile_ready_for_review` or profile verified |
+| **Files** | `ArtifactEditor` | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
+| **Debug** | `LlmCallsPanel` | LLM call record index/editor + routing summary tab (`GET …/llm-calls`, `GET …/llm-routing`) | Power-user audit path |
 
-Gate/checkpoint panels render in the **operator action modal**, not inline on Stage.
+**Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required` / handoff pending; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. Blocking G0/G0.5 gates show inline first; modal is optional via **Review in full-screen panel**.
 
-### G0 transcript review panel (action modal)
+### G0 transcript review (`TranscriptReviewPanel`)
 
 | Component | File | APIs | Operator actions |
 |-----------|------|------|------------------|
@@ -89,7 +90,15 @@ Gate/checkpoint panels render in the **operator action modal**, not inline on St
 | Synced word-level dock | `TranscriptDockViewer` | `GET …/transcript`, `PATCH …/transcript/words` | Click seek, double-click edit, debounced save |
 | Fuzzy similar-word panel | `FuzzyReplacePopover` | *(client)* → batch `PATCH …/transcript/words` | Match strictness 80–100%, jump to match, **Replace N words** |
 
-Also mounted on **Transcribe** / **Transcript review** stage detail (`StageDetail`) without the chunk navigator.
+Inline on `StageDetail` when `transcript_review` is `action_required`; also in `OperatorActionModal`. Transcript dock also on **Transcribe** / **Transcript review build** without the chunk navigator.
+
+### G0.5 disfluency review (`DisfluencyReviewPanel`)
+
+| Component | APIs | Artifacts |
+|-----------|------|-----------|
+| `DisfluencyReviewPanel` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
+
+Inline when `disfluency_review` is `action_required` (skipped when `disfluency_extract.enabled` is false). `DisfluencyRestorePanel` on `edl_flow1` / `assembly_preview` toggles per-run restore.
 
 ---
 
@@ -123,7 +132,7 @@ Also mounted on **Transcribe** / **Transcript review** stage detail (`StageDetai
 | User-visible / area | API | Log file | Artifact |
 |----------------------|-----|----------|----------|
 | Health | `GET /api/health` | — | — |
-| Paths / port for UI | `GET /api/config` | — | reads `config` + repo; includes `llm_routing_stage_ids` from `web/stages.py` |
+| Paths / port / feature flags | `GET /api/config` | — | `journey_ui`, `value_analysis_enabled`, `disfluency_*_enabled`, `llm_routing_stage_ids` |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
 | Set active run / stage focus | `PUT /api/session/active` `{ run_id?, selected_stage_id? }` | — | `ASSETS/.gui/active_execution.json`; null `run_id` clears |
 | Clear active run | `DELETE /api/session/active` | — | removes active execution pointer |
@@ -144,7 +153,10 @@ Also mounted on **Transcribe** / **Transcript review** stage detail (`StageDetai
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | Editable JSON; Zod pre-save + server `validate_artifact_write`; optional `invalidate_from` — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
 | Fill artifact gaps | *(partial checklist row)* | `POST /api/runs/{id}/fill-artifact-gaps` `{path}` | `gui_log.jsonl` | Re-runs producing LLM stage when artifact is partial |
 | Play clip / source audio | *(audio)* | `GET /api/runs/{id}/audio?path=…`, `GET …/source-audio` | — | WAV under run or source path from `run_meta.json` |
-| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `until_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
+| Preview listened milestone | `assembly_preview` polish CTA | `POST …/milestones/preview-listened` | `gui_log.jsonl` | `run_meta.journey.preview_listened_at` when `require_preview_listen` |
+| Acoustic profile overrides | `source_acoustic_profile` | `PATCH …/acoustic-profile/overrides`, `POST …/recompute-acoustic-profile` | `gui_log.jsonl` | `understanding/source_acoustic_profile.json` → `operator_overrides` |
+| Placement QA hints | `elevenlabs_sfx_flow*`, `mix_flow*` | *(read)* `sound_design/placement_adjustments.json` | — | `PlacementAdjustmentsPanel` after SFX/mix when `sound_design.placement_qa_enabled` |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---
@@ -167,7 +179,8 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript`, `PATCH …/transcript/words`, `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` (`Transcript dock: saved N word edit(s).`) | `transcript/full.json`, `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `operator/transcript_corrected.*`, `.stage_done/transcript_review` |
-| **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
+| **Disfluency review** (G0.5) | `disfluency_review` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `gui_log.jsonl` (`disfluency_review`) | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
+| **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify`, `GET …/story-board`, `PATCH …/investigation-queue/{id}` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
 | **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
 
@@ -182,12 +195,17 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 | Ingest | `ingest` | `ingest/normalized.wav`, `ingest/checksums.json` |
 | Transcribe | `transcribe` | `transcript/full.json`, `transcript/speakers.json` |
 | STT review prep | `transcript_review_build` | `transcript/review_queue.json`, clips |
+| Disfluency extract | `disfluency_extract` | `transcript/disfluencies.json`, `transcript/disfluency_clips/` |
+| Source acoustic profile | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
 | Speaker roles | `speaker_roles` | `understanding/speakers.json` |
 | Content understanding | `content_context` | `understanding/content_brief.json` |
 | Segment boundaries | `boundary_detection` | `segments/boundaries.json` |
 | Segment classification | `segment_classification` | `segments/manifest.json` |
+| Content brief re-anchor | `content_brief_reanchor` | `understanding/content_brief.json` (patch) |
+| Sound design palettes | `sound_design_palettes` | SDP `palettes`, `coherence` in `understanding/sound_design_plan.json` |
 | Gap evaluation | `missing_framing` | `understanding/gap_evaluations.json` |
 | Interviewer script | `optimal_questions` | `understanding/gap_report.json`, `understanding/interviewer_script.txt` |
+| VO ingest *(on-demand)* | `vo_ingest` | Merges `vo_pickup/*.wav`; not in `ANALYSIS_ORDER` — runs on next batch execute or `mode: stage` |
 
 ---
 
@@ -195,13 +213,14 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 
 Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: "flow1"` \| `"flow2"` \| `"flow3"` runs the full selected flow (or pass `from_stage`), or use `mode: "stage"` with a single stage id.
 
-**Flow 3** is text-only publishing copy (`flow_3_description/show_description.json` + `.md`); no audio mux or `master.wav`.
+**Flow 3** is text-only publishing copy (`flow_3_description/show_description.json` + `.md`); no audio mux or `master.wav`. Prerequisites: shared analysis complete (`require_analysis_artifacts_complete`), G1 clear; preflight for `podcast_show_description` uses `content_brief`, `speakers`, `manifest` (not Flow 1 ranking).
 
 | Flow | Title | `id` | Main artifacts |
 |------|-------|------|------------------|
 | 1 | Topic coverage | `topic_coverage_audit` | `flow_1_master/coverage_audit.json` |
 | 1 | Narrative arc | `narrative_arc_plan` | `flow_1_master/narrative_plan.json` |
 | 1 | Segment ordering | `full_master_ranking` | `flow_1_master/selection.json` |
+| 1 | EDL narrative audit | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` |
 | 1 | Transitions | `transitions` | `flow_1_master/transitions.json` |
 | 1 | Sound design plan | `sound_design_plan_flow1` | `understanding/sound_design_plan.json` |
 | 1 | VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
@@ -265,7 +284,7 @@ Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or overr
 | Path | Purpose |
 |------|---------|
 | `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, `context_volley`, schema validation errors — for **debugging model I/O**. |
-| `understanding/llm_calls/` | **Per API call** labeled JSON + optional `.md` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md); **GUI:** Pipeline → **LLM calls** tab; export via `tools/export_llm_calls.py` |
+| `understanding/llm_calls/` | **Per API call** labeled JSON + optional `.md` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md); **GUI:** Pipeline → **Debug** (`LlmCallsPanel`); export via `tools/export_llm_calls.py` |
 
 **Routing fields (BUILD-073):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` may appear in `attempt_*.json` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 

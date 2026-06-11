@@ -10,7 +10,7 @@ Companion to [operator-journey.md](./operator-journey.md) (happy path) and [gui-
 |-----|---------|
 | **Start** | Pick source WAV, optional `flow_intent`, **New execution** |
 | **Executions** | Resume any `exec_*` |
-| **Pipeline** | Sidebar stages + sub-tabs (Stage, Story, Timeline, Profile, Files, Engineering) |
+| **Pipeline** | Pipeline step list + `StageDetail` (stage panel, redo, gates) + sub-tabs (Story, Timeline, Profile, Files, Debug) |
 | **Logs** | Full `gui_log.jsonl` viewer |
 
 **Chrome:** Status header, **command bar**, **execution status banner**, action modal, API consent, confirm dialog, log strip.

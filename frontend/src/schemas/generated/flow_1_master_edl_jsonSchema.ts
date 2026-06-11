@@ -7,5 +7,7 @@ export const flow_1_master_edl_jsonSchema = z.object({
   "clips": z.array(z.unknown()),
   "gap_placements": z.array(z.unknown()).optional(),
   "timeline_duration_ms": z.number(),
+  "disfluency_clip_count": z.number().optional(),
+  "disfluency_restore_enabled": z.boolean().optional(),
   "mux_scope": z.string().optional(),
 });

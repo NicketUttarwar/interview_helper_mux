@@ -37,7 +37,7 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
         strict = bool((merged_config().get("nle_edits") or {}).get("strict"))
         if strict:
             raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
-        ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="nle")
+        ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="full_master_ranking")
     write_json(ctx.path(NLE_REL), data)
     from interview_mux.operator_snapshots import persist_operator_nle
 

@@ -48,6 +48,7 @@ LLM_HANDOFF_STAGES = frozenset(
         "highlight_selection",
         "edl_narrative_audit",
         "podcast_show_description",
+        "elevenlabs_prompt_craft",
     }
 )
 
@@ -192,6 +193,7 @@ def _latest_stage_attempt(ctx: RunContext, stage_id: str) -> dict[str, Any] | No
 def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     """Actionable bullets for budget exhaustion, lint failures, and placement QA."""
     from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count
+    from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS
 
     items: list[dict[str, Any]] = []
     if stage_id in LLM_HANDOFF_STAGES:
@@ -238,6 +240,15 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     kind="story_board",
                 )
             )
+    checkpoint = STAGE_CHECKPOINTS.get(stage_id)
+    if checkpoint and stage_id in LLM_HANDOFF_STAGES:
+        items.append(
+            _guidance_item(
+                "cross_validate",
+                f"Cross-artifact checkpoint after run: {checkpoint}",
+                "done" if ctx.is_done(stage_id) else "todo",
+            )
+        )
     if stage_id in ("mix_flow1", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):
         items.append(
             _guidance_item(
@@ -247,6 +258,55 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
             )
         )
     return items
+
+
+def _stage_reuse_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
+    if not ctx.artifact_exists("gui_job.json"):
+        return []
+    try:
+        job = ctx.read_json("gui_job.json")
+    except Exception:
+        return []
+    if not job.get("needs_stage_reuse") or job.get("stage") != stage_id:
+        return []
+    return [
+        _guidance_item(
+            "stage_reuse",
+            "Reuse prior outputs or run fresh — open Action modal",
+            "todo",
+            kind="checkpoint",
+        )
+    ]
+
+
+def _post_listen_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
+    if stage_id not in ("elevenlabs_prompt_craft", "elevenlabs_sfx_flow1", "elevenlabs_sfx_flow2"):
+        return []
+    if not ctx.artifact_exists("run_meta.json"):
+        return [
+            _guidance_item(
+                "post_listen",
+                "Complete post-listen QA (Pass/Fail) on generated SFX before mix",
+                "todo",
+            )
+        ]
+    meta = ctx.read_json("run_meta.json")
+    results = meta.get("elevenlabs_listen_results") or []
+    if results:
+        return [
+            _guidance_item(
+                "post_listen",
+                "Post-listen QA recorded — review listen history on craft/SFX panel",
+                "done",
+            )
+        ]
+    return [
+        _guidance_item(
+            "post_listen",
+            "Complete post-listen QA (Pass/Fail) on generated SFX before mix",
+            "todo",
+        )
+    ]
 
 
 def _open_investigation_count(ctx: RunContext) -> int:
@@ -261,6 +321,29 @@ def _open_investigation_count(ctx: RunContext) -> int:
         for it in items
         if isinstance(it, dict) and (it.get("status") or "open") in ("open", "pending", "needs")
     )
+
+
+def _g0_5_items(disfluency_review_pending: bool) -> list[dict[str, Any]]:
+    if not disfluency_review_pending:
+        return [
+            _guidance_item(
+                "g0_5",
+                "Disfluency review complete (G0.5)",
+                "done",
+                stage_id="disfluency_review",
+                action="checkpoint",
+            )
+        ]
+    return [
+        _guidance_item(
+            "g0_5",
+            "Complete disfluency review (G0.5)",
+            "todo",
+            stage_id="disfluency_review",
+            action="checkpoint",
+            kind="checkpoint",
+        )
+    ]
 
 
 def _g0_items(transcript_review_pending: bool) -> list[dict[str, Any]]:
@@ -407,11 +490,11 @@ def _analysis_artifacts_gate_prereqs(ctx: RunContext) -> list[dict[str, Any]]:
 def _llm_upstream_prereq_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     """When hardening is on, surface incomplete upstream LLM producer artifacts."""
     from interview_mux.artifact_completeness import artifact_status
-    from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE, flow_hardening_enabled, producer_artifact_path
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled, producer_artifact_path, resolve_llm_upstream_stage
 
     if not flow_hardening_enabled() or stage_id not in LLM_HANDOFF_STAGES:
         return []
-    upstream = LLM_UPSTREAM_STAGE.get(stage_id)
+    upstream = resolve_llm_upstream_stage(ctx, stage_id)
     if not upstream:
         return []
     rel = producer_artifact_path(upstream)
@@ -691,6 +774,8 @@ def build_stage_guidance(
         )
     elif stage_id in G0_LOCKED_ANALYSIS_STAGES:
         prerequisites.extend(_g0_items(tr_pending))
+        if stage_id in DISFLUENCY_LOCKED_ANALYSIS_STAGES:
+            prerequisites.extend(_g0_5_items(check_disfluency_review_pending(ctx)))
         if stage_id == "source_acoustic_profile":
             prerequisites.append(
                 _guidance_item(
@@ -747,11 +832,32 @@ def build_stage_guidance(
     info = STAGE_BY_ID.get(stage_id)
     if info and info.phase in ("flow1", "flow2", "flow3"):
         prerequisites.extend(_analysis_artifacts_gate_prereqs(ctx))
+    from interview_mux.write_staging import has_pending_writes, write_approval_enabled
+
+    if write_approval_enabled() and has_pending_writes(ctx, stage_id):
+        prerequisites.append(
+            _guidance_item(
+                "write_approval",
+                f"Review pending writes for {stage_id} before continuing",
+                "todo",
+                kind="checkpoint",
+            )
+        )
     if stage_id in LLM_HANDOFF_STAGES:
         prerequisites.extend(_llm_upstream_prereq_items(ctx, stage_id))
 
     inv_count = _open_investigation_count(ctx)
+    prerequisites.extend(_stage_reuse_guidance_items(ctx, stage_id))
+    prerequisites.extend(_post_listen_guidance_items(ctx, stage_id))
     prerequisites.extend(_llm_hardening_guidance_items(ctx, stage_id))
+    if stage_id in ("full_master_ranking", "edl_flow1", "edl_narrative_audit", "podcast_show_description"):
+        prerequisites.append(
+            _guidance_item(
+                "qc_card",
+                "Review QC summary card before continuing",
+                "todo" if status != "done" else "done",
+            )
+        )
     if stage_id == "content_context" and inv_count > 0:
         prerequisites.append(
             _guidance_item(

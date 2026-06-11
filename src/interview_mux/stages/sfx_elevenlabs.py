@@ -90,6 +90,12 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             _write_silent_wav(out_file, duration_ms=int(duration_seconds * 1000))
         except Exception as exc:
             logger.warning("ElevenLabs generation failed for %s: %s", asset_id, exc)
+            ctx.log(
+                f"ElevenLabs SFX failed for {asset_id}; wrote silence placeholder ({exc})",
+                level="warning",
+                stage=stage,
+                detail={"asset_id": asset_id, "error": str(exc)[:200]},
+            )
             _write_silent_wav(out_file, duration_ms=int(duration_seconds * 1000))
 
     if generation_items:

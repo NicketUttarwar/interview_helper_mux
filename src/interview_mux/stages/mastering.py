@@ -66,6 +66,12 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
         text=True,
     )
     ctx.mark_done(stage)
+    ctx.log(
+        f"Master complete — {master_rel} at {target:.1f} LUFS target.",
+        level="success",
+        stage=stage,
+        detail=str(master),
+    )
     return master
 
 

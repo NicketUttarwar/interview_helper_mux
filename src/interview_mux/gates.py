@@ -13,6 +13,11 @@ from interview_mux.run_context import RunContext
 from interview_mux.show_description_qc import validate_show_description
 
 
+def _gate_exit(ctx: RunContext, message: str, *, stage: str, level: str = "error") -> None:
+    ctx.log(message, level=level, stage=stage)
+    raise SystemExit(message)
+
+
 def check_transcript_review_pending(ctx: RunContext) -> bool:
     """True when STT review queue exists but operator has not signed off."""
     if ctx.is_done("transcript_review"):
@@ -22,9 +27,11 @@ def check_transcript_review_pending(ctx: RunContext) -> bool:
 
 def require_transcript_review_clear(ctx: RunContext) -> None:
     if check_transcript_review_pending(ctx):
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             "Transcript review gate: open the GUI, listen to ranked clips, correct text, "
-            f"then mark review complete → {ctx.path('transcript/review_queue.json')}"
+            f"then mark review complete → {ctx.path('transcript/review_queue.json')}",
+            stage="transcript_review",
         )
 
 
@@ -49,9 +56,11 @@ def check_disfluency_review_pending(ctx: RunContext) -> bool:
 
 def require_disfluency_review_clear(ctx: RunContext) -> None:
     if check_disfluency_review_pending(ctx):
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             "Disfluency review required. Confirm or reject filler events in the GUI, "
-            f"then complete review → {ctx.path('transcript/disfluencies.json')}"
+            f"then complete review → {ctx.path('transcript/disfluencies.json')}",
+            stage="disfluency_review",
         )
 
 
@@ -77,9 +86,12 @@ def check_g1_vo(ctx: RunContext) -> list[str]:
 def require_g1_clear(ctx: RunContext) -> None:
     missing = check_g1_vo(ctx)
     if missing:
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             f"G1 gate: record VO for {missing} → {ctx.path('vo_pickup')}\n"
-            f"See {ctx.path('understanding', 'interviewer_script.txt')}"
+            f"See {ctx.path('understanding', 'interviewer_script.txt')}",
+            stage="g1_vo_pickup",
+            level="warning",
         )
 
 
@@ -131,6 +143,7 @@ _FLOW1_ORDER = (
     "transitions",
     "sound_design_plan_flow1",
     "sound_design_vo_finalize",
+    "edl_narrative_audit",
     "edl_flow1",
     "assembly_preview",
     "elevenlabs_prompt_craft",
@@ -152,18 +165,22 @@ def _flow1_will_run_topic_coverage(ctx: RunContext, from_stage: str | None) -> b
 def require_selected_flow_flow1(ctx: RunContext) -> None:
     flow = get_selected_flow(ctx)
     if flow != "flow1":
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             f"Flow 1 stages require selected_flow=flow1 in run_meta.json (current: {flow!r}). "
-            "Choose Flow 1 in the GUI (G2) or: python tools/run_flow.py --flow flow1"
+            "Choose Flow 1 in the GUI (G2) or: python tools/run_flow.py --flow flow1",
+            stage="g2_flow_select",
         )
 
 
 def require_selected_flow_flow2(ctx: RunContext) -> None:
     flow = get_selected_flow(ctx)
     if flow != "flow2":
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             f"Flow 2 stages require selected_flow=flow2 in run_meta.json (current: {flow!r}). "
-            "Choose Flow 2 in the GUI (G2) or: python tools/run_flow.py --flow flow2"
+            "Choose Flow 2 in the GUI (G2) or: python tools/run_flow.py --flow flow2",
+            stage="g2_flow_select",
         )
 
 
@@ -204,14 +221,18 @@ def require_analysis_artifacts_complete(ctx: RunContext) -> None:
     errors = validate_cross_artifacts(ctx, "pre_flow1")
     if errors:
         summary = "; ".join(errors[:4])
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             f"Analysis artifacts gate: {summary}. "
-            "Complete analysis stages and Fill gaps before starting flows."
+            "Complete analysis stages and Fill gaps before starting flows.",
+            stage="analysis_profile",
         )
     if not analysis_profile_ready_for_review(ctx):
-        raise SystemExit(
+        _gate_exit(
+            ctx,
             "Analysis artifacts gate: interview profile not ready for review. "
-            f"→ {ctx.path('understanding/analysis_state.json')}"
+            f"→ {ctx.path('understanding/analysis_state.json')}",
+            stage="analysis_profile",
         )
 
 

@@ -158,4 +158,6 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
             level="info",
             stage="vo_ingest",
         )
+    else:
+        ctx.log("vo_ingest: all pickup WAVs already normalized.", level="info", stage="vo_ingest")
     ctx.mark_done("vo_ingest")

@@ -9,6 +9,19 @@ from interview_mux.web.stages import EXECUTABLE_ORDER
 
 TESTS_DIR = Path(__file__).parent
 
+# Gate/checkpoint and on-demand stages in STAGE_BY_ID but not in pipeline EXECUTABLE_ORDER:
+# transcript_review, disfluency_review, analysis_profile, g1_vo_pickup, g2_flow_select, vo_ingest.
+GATE_AND_ON_DEMAND_STAGES = frozenset(
+    {
+        "transcript_review",
+        "disfluency_review",
+        "analysis_profile",
+        "g1_vo_pickup",
+        "g2_flow_select",
+        "vo_ingest",
+    }
+)
+
 # Each pipeline stage must be covered by at least one listed test module.
 STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "audio_preclean": ["test_audio_preclean.py", "test_pipeline.py"],
@@ -95,3 +108,13 @@ def test_each_pipeline_stage_has_test_coverage() -> None:
             stage_id in (TESTS_DIR / mod).read_text(encoding="utf-8") for mod in existing
         )
         assert mentioned, f"{stage_id}: listed tests {existing} do not reference stage id"
+
+
+def test_gate_stages_documented_outside_pipeline_coverage() -> None:
+    from interview_mux.web.stages import STAGE_BY_ID
+
+    for stage_id in GATE_AND_ON_DEMAND_STAGES:
+        assert stage_id in STAGE_BY_ID, f"missing GUI metadata for gate/on-demand {stage_id}"
+        assert stage_id not in STAGE_TEST_COVERAGE, (
+            f"{stage_id} should remain outside STAGE_TEST_COVERAGE (gate/on-demand)"
+        )

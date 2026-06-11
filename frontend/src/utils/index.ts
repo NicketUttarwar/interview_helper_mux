@@ -103,21 +103,6 @@ export const ALL_API_CONSENTS: Record<string, boolean> = {
   elevenlabs: true,
 };
 
-export const LLM_STAGES = new Set([
-  "speaker_roles",
-  "content_context",
-  "boundary_detection",
-  "segment_classification",
-  "missing_framing",
-  "optimal_questions",
-  "topic_coverage_audit",
-  "narrative_arc_plan",
-  "full_master_ranking",
-  "highlight_selection",
-  "transitions",
-  "podcast_show_description",
-]);
-
 export const VALUE_FEATURES_PATH = "understanding/value_features.json";
 export const SAP_PATH = "understanding/source_acoustic_profile.json";
 

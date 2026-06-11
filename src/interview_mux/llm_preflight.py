@@ -29,8 +29,6 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "sound_design_plan_flow1": ("understanding/sound_design_plan.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
     "sfx_brief": ("flow_2_highlights/selection.json",),
-    "podcast_show_description": ("flow_1_master/selection.json",),
-    "edl_narrative_audit": ("flow_1_master/edl.json",),
 }
 
 
@@ -230,6 +228,22 @@ def _preflight_edl_narrative_audit(ctx: RunContext) -> list[str]:
     )
 
 
+def _preflight_podcast_show_description(ctx: RunContext) -> list[str]:
+    from interview_mux.gates import get_selected_flow
+
+    flow = get_selected_flow(ctx)
+    if flow == "flow3":
+        return _check_upstream_artifacts(
+            ctx,
+            (
+                "understanding/content_brief.json",
+                "understanding/speakers.json",
+                "segments/manifest.json",
+            ),
+        )
+    return _check_upstream_artifacts(ctx, ("flow_1_master/selection.json",))
+
+
 def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(ctx, ("flow_1_master/coverage_audit.json",))
 
@@ -274,4 +288,5 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "sound_design_plan_flow2": _preflight_sound_design_plan_flow2,
     "elevenlabs_prompt_craft": _preflight_elevenlabs_prompt_craft,
     "edl_narrative_audit": _preflight_edl_narrative_audit,
+    "podcast_show_description": _preflight_podcast_show_description,
 }

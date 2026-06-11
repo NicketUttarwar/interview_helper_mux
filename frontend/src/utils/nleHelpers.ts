@@ -1,4 +1,4 @@
-import type { NleState, TimelineSegment, TranscriptWord, VoLine, WaveformPeaksData } from "../types";
+import type { TimelineSegment, TranscriptWord, VoLine, WaveformPeaksData } from "../types";
 
 export const SEGMENT_FLAG_LABELS: Record<string, string> = {
   starts_mid_thought: "Starts mid-thought — may need bridge",

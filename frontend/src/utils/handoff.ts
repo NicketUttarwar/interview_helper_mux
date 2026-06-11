@@ -8,7 +8,7 @@ export function findLatestHandoffAudit(
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e.stage !== stageId) continue;
-    const d = parseLogDetail(e.detail);
+    const d = parseLogDetail(e.detail as string | Record<string, unknown> | null | undefined);
     if (typeof d?.audit_path === "string") return d.audit_path;
   }
   return null;

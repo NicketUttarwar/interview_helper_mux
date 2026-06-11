@@ -34,7 +34,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/health` | — | — | `{"status": "ok"}` | — |
-| `GET` | `/api/config` | — | — | `assets_root`, `executions_root`, `data_root`, `web_port`, `repo_root`, `api_consent_persist` | — |
+| `GET` | `/api/config` | — | — | Paths + feature flags — see **`GET /api/config` response** below | — |
 | `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
 | `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
 | `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
@@ -60,6 +60,18 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `run_id` | string \| null | no — omit or null to clear active execution |
 | `selected_stage_id` | string \| null | no |
 
+### `GET /api/config` response
+
+| Field | Notes |
+|-------|-------|
+| `assets_root`, `executions_root`, `data_root`, `web_port`, `repo_root` | Paths for GUI bootstrap |
+| `api_consent_persist` | From `web.api_consent_persist` (default `true`) |
+| `value_analysis_enabled` | Master `value_analysis.enabled` |
+| `disfluency_extract_enabled` | `disfluency_extract.enabled` |
+| `disfluency_restore_enabled` | `disfluency_restore.enabled` |
+| `journey_ui` | Full `journey_ui` object from merged config (phase sidebar, story board, write approval, etc.) |
+| `llm_routing_stage_ids` | Sorted stage ids with LLM routing debug summaries (`web/stages.py` → `LLM_ROUTING_STAGE_IDS`) |
+
 ---
 
 ## Per-run routes (`{run_id}`)
@@ -70,6 +82,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]` (each may include `api_providers[]`), `log_tail` | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
+| `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage routing summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `shard_count`, `primary_attempt_count`, `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors[]`) from `understanding/stage_runs/` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |
 | `PUT` | `/api/runs/{run_id}/llm-calls/record` | — | **LlmCallRecordUpdateBody** `{path, volley?, raw_response?}` | `ok`, `record` | **404**, **400** |
@@ -115,6 +128,10 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `PUT` | `/api/runs/{run_id}/disfluency-review/{event_id}` | — | **DisfluencyEventBody** (`review_status`, optional `text`, `include_in_restore`) | `ok`, `stats` | **404** unknown event |
 | `POST` | `/api/runs/{run_id}/disfluency-review/complete` | — | — | `ok`, `disfluency_review_clear` | **400** pending events |
 | `PATCH` | `/api/runs/{run_id}/disfluency-restore` | — | **DisfluencyRestoreBody** (`enabled`) | `ok`, `disfluency_restore_enabled` | **404** |
+| `GET` | `/api/runs/{run_id}/story-board` | — | — | `analysis_state`, `investigation_queue`, `content_brief`, `narrative_plan` (nullable), `source_acoustic_profile` (nullable), `value_features` (nullable), `operator_verified` | **404** |
+| `PATCH` | `/api/runs/{run_id}/investigation-queue/{item_id}` | — | **InvestigationPatchBody** `{status}` | `ok`, `investigation_queue` — updates `understanding/investigation_queue.json` | **404** item/queue, **400** invalid queue |
+| `GET` | `/api/runs/{run_id}/audio-quality` | — | — | `audio_preclean`, `checkpoints[]` (`id`, `acknowledged`), `recommended` — **deprecated** for new UI; retained for `AudioQualityDrawer` when `journey_ui.enabled` (prefer inline `PrecleanOfferCard` + journey snapshot) | **404** |
+| `POST` | `/api/runs/{run_id}/milestones/preview-listened` | — | — | `ok`, `journey` — sets `preview_listened_at` when `journey_ui.require_preview_listen` gates polish CTAs | **404** |
 | `GET` | `/api/runs/{run_id}/analysis-profile` | — | — | `analysis_state`, `investigation_queue`, `editable_paths`, `operator_verified`, `completion` | **404** |
 | `PUT` | `/api/runs/{run_id}/analysis-profile` | — | **AnalysisProfileBody** | `ok`, `operator_verified`, `completion` | **404** |
 | `POST` | `/api/runs/{run_id}/analysis-profile/verify` | — | — | `ok`, `operator_verified: true` | **404** |
@@ -132,6 +149,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 | `nle_apply_mode` | string | Optional for **`nle_apply`**: `trim_only` (EDL + preview only), `structural` (default — ranking when structural edits), `full_refresh` (structural + transitions + EDL narrative audit) |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
+| `until_stage` | string \| null | For batch modes (`analysis`, `flow1`, `flow2`, `flow3`, `flow1_until_preview`, `flow1_polish`): stop after this stage id (inclusive). Journey hints may set this (e.g. `transcript_review_build` for analysis-until-G0). |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
 
 **Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `idle`. Additional job fields: `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`.
@@ -237,6 +255,12 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 | `operator_verified` | bool \| null | If non-null, updates verification flag |
 | `invalidate_from` | string \| null | Optional pipeline invalidation after save |
 
+### `InvestigationPatchBody`
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `status` | string | `"resolved"` | Written to matching `items[].status` in `understanding/investigation_queue.json` |
+
 ### Transcript review `GET` response
 
 | Key | When |
@@ -285,9 +309,16 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 
 ---
 
-## Acoustic profile recompute
+## Acoustic profile
 
-`POST /api/runs/{run_id}/recompute-acoustic-profile` — re-runs `source_acoustic_profile` from current ingest/transcript. Response: `{ "profile": {…}, "derived_from": {…} }`. Logs `acoustic_profile_recomputed` to `gui_log.jsonl`.
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `POST` | `/api/runs/{run_id}/recompute-acoustic-profile` | — | `ok`, `profile`, `derived_from`, optional `invalidated_from` when `pace_class` changes |
+| `PATCH` | `/api/runs/{run_id}/acoustic-profile/overrides` | **AcousticProfileOverridesBody** | `ok`, `operator_overrides`, `effective` (`pace_class`, `underscore_policy`), `profile` |
+
+**`AcousticProfileOverridesBody`:** `{ overrides: {…}, invalidate_from?: string }` — merges operator overrides into `understanding/source_acoustic_profile.json`; optional pipeline invalidation after save. Logs `acoustic_profile_override_saved`.
+
+`POST …/recompute-acoustic-profile` re-runs deterministic DSP from ingest/transcript. Logs `acoustic_profile_recomputed` to `gui_log.jsonl`.
 
 ---
 

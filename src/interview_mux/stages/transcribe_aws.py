@@ -48,6 +48,7 @@ def run_transcribe(ctx: RunContext) -> None:
         raise FileNotFoundError(normalized)
 
     s3_uri = f"s3://{bucket}/{input_key}"
+    ctx.log(f"Uploading normalized audio to {s3_uri} for transcription.", level="info", stage="transcribe")
     _aws("s3", "cp", str(normalized), s3_uri)
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
@@ -77,8 +78,12 @@ def run_transcribe(ctx: RunContext) -> None:
     )
 
     status = "IN_PROGRESS"
+    poll_count = 0
     while status in ("IN_PROGRESS", "QUEUED"):
         time.sleep(5)
+        poll_count += 1
+        if poll_count == 1 or poll_count % 6 == 0:
+            ctx.log(f"AWS Transcribe job {job_name}: {status}", level="info", stage="transcribe")
         proc = _aws(
             "transcribe",
             "get-transcription-job",
@@ -101,6 +106,12 @@ def run_transcribe(ctx: RunContext) -> None:
     full, speakers = _normalize_transcript(raw)
     ctx.write_json("transcript/full.json", full)
     ctx.write_json("transcript/speakers.json", speakers)
+    ctx.log(
+        f"Transcription complete — {len(full.get('words') or [])} words, "
+        f"{len(speakers.get('speakers') or [])} speaker(s).",
+        level="success",
+        stage="transcribe",
+    )
     ctx.mark_done("transcribe")
 
 

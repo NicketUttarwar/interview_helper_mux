@@ -484,7 +484,10 @@ export interface ElevenLabsPromptRow {
 }
 
 export interface ElevenLabsPromptsResponse {
+  path?: string;
   prompts: ElevenLabsPromptRow[];
+  listen_results?: Array<Record<string, unknown>>;
+  generated_assets?: string[];
   review?: {
     approved?: boolean;
     approved_by?: string;
@@ -493,6 +496,26 @@ export interface ElevenLabsPromptsResponse {
   review_required?: boolean;
   can_generate?: boolean;
   warnings?: string[];
+}
+
+export interface PlacementAdjustmentsArtifact {
+  version?: number;
+  adjustments?: Array<{
+    asset_id?: string;
+    action?: string;
+    reason?: string;
+    suggested_level_db_delta?: number;
+    suggested_crossfade_ms?: number;
+  }>;
+}
+
+export interface LlmRoutingResponse {
+  attempts: LlmRoutingAttempt[];
+}
+
+export interface InvestigationPatchBody {
+  status?: string;
+  resolution_note?: string;
 }
 
 export interface LlmRoutingAttempt {

@@ -177,7 +177,7 @@ def mix_flow1(ctx: RunContext) -> Path:
     if missing_vo:
         ctx.log(
             f"mix_flow1: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
-            level="warn",
+            level="warning",
             stage="mix_flow1",
         )
 
@@ -331,7 +331,7 @@ def mix_flow2(ctx: RunContext) -> Path:
     if missing_assets:
         ctx.log(
             f"mix_flow2: missing SFX assets (skipped): {sorted(set(missing_assets))}",
-            level="warn",
+            level="warning",
             stage="mix_flow2",
         )
 
@@ -475,7 +475,7 @@ def flow1_overlays_from_sdp(
             base = placeholder_audio(asset, cue=cue)
             ctx.log(
                 f"mix_flow1: missing asset {asset_id!r} — placeholder silence",
-                level="warn",
+                level="warning",
                 stage="mix_flow1",
             )
         else:
@@ -502,7 +502,7 @@ def flow1_overlays_from_sdp(
             if stinger_count >= max_stingers:
                 ctx.log(
                     f"mix_flow1: stinger cap reached ({max_stingers}/timeline) — dropped {asset_id}",
-                    level="warn",
+                    level="warning",
                     stage="mix_flow1",
                 )
                 continue

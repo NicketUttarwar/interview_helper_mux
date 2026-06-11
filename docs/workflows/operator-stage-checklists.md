@@ -6,6 +6,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
 
+**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on ElevenLabs stages · QC card reminder on ranking/EDL/show-description stages.
+
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
 **Operator status and logs (policy):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — all operator-visible output goes to `gui_log.jsonl` and/or `gui_job.json` via `RunContext.log()`; do not duplicate that policy here.
@@ -15,6 +17,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 **LLM smart routing (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md) · per-stage tiers: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
 **Flow hardening (preflight):** [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening) — deterministic prerequisites before flagship OpenAI calls.
+
+**Cross-artifact checkpoints (after stage run):** `post_segmentation` (segment_classification) · `post_reanchor` (content_brief_reanchor) · `post_gaps` (optimal_questions) · `pre_flow1` (full_master_ranking). GUI shows checkpoint name in stage guidance when hardening is enabled.
 
 **Toolchain:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) — venv from `requirements.lock`, `check_prerequisites.sh` + `pip-audit`.
 
@@ -345,7 +349,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `sound_design_palettes` | Stage done marker exists and SDP has non-empty `coherence.sonic_identity` + `palettes[]` | Re-run `python tools/run_analysis.py --run-id <id> --from-stage sound_design_palettes`; then inspect `understanding/sound_design_plan.json` |
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
-| Post-gen placement | Beds/stingers placed after listen + theme check | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) |
+| Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) · `sound_design/placement_adjustments.json` |
 | Mix path | `mix_flow1` / `mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix_flow1` or `mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 
 ---
@@ -367,7 +371,7 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 
 | Stage panel | GUI card | `qc_summaries` key | Source |
 |-------------|----------|-------------------|--------|
-| `full_master_ranking`, `edl_flow1` | Yes | `narrative_qc` | `gates.check_narrative_qc` |
+| `full_master_ranking`, `edl_flow1`, `edl_narrative_audit` | Yes | `narrative_qc` / audit card | `gates.check_narrative_qc`, `edl_narrative_audit` |
 | `podcast_show_description` | Yes | `show_description_qc` | `gates.check_show_description_qc` |
 
 **Log-only summaries** (inspect `run_meta.json` or `gui_log.jsonl`):

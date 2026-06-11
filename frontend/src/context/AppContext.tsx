@@ -577,13 +577,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!selectedStageId || !runId) return;
     const ok = await confirm(`Redo from "${selectedStageId}"?`);
     if (!ok) return;
-    await api(`/api/runs/${runId}/reset`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from_stage: mapGateToStage(selectedStageId) }),
-    });
-    await refreshRun();
-  }, [selectedStageId, runId, refreshRun, confirm]);
+    try {
+      await api(`/api/runs/${runId}/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_stage: mapGateToStage(selectedStageId) }),
+      });
+      appendClientLog(`Reset pipeline from ${selectedStageId}`, "action");
+      await refreshRun();
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Redo failed";
+      showToast(msg);
+      appendClientLog(msg, "warning");
+    }
+  }, [selectedStageId, runId, refreshRun, confirm, appendClientLog, showToast]);
 
   const loadTranscriptReview = useCallback(async () => {
     if (!runId) return null;

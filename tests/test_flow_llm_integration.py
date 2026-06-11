@@ -13,9 +13,9 @@ from run_fixtures import isolated_run_ctx, minimal_manifest, patch_merged_config
 @pytest.mark.parametrize(
     "stage_key,prompt_rel",
     [
-        ("full_master_ranking", "flow-1/full-master-ranking.system.txt"),
-        ("transitions", "flow-1/transitions.system.txt"),
-        ("sound_design_plan_flow1", "sound-design/plan-flow1.system.txt"),
+        ("full_master_ranking", "selection/full-master-ranking.system.txt"),
+        ("transitions", "assembly/transitions.system.txt"),
+        ("sound_design_plan_flow1", "sound_design/plan-flow1.system.txt"),
     ],
 )
 def test_flow_stage_preflight_lint_hooks(tmp_path, monkeypatch, stage_key, prompt_rel):

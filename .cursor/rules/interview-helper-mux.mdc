@@ -17,7 +17,7 @@ Applies for the **entire** repository build-out (Waves 0–7). Details and accep
 2. Read **`docs/build-out/ticket-specs.md`** — acceptance for your BUILD id(s).
 3. Read **`docs/build-out/stage-registry.md`** + `docs/pipeline/<area>/README.md` for the stage you touch.
 4. If adding/changing behavior: **`docs/prompts/`** + **`docs/cross-cutting/json-schemas/`** must stay in sync with code.
-4b. LLM guidance program: when touching LLM stages, keep [llm-guidance-program.md](../../docs/cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../../docs/cross-cutting/stage-quality-scorecard.md), arbiter rubrics, `deterministic_lint.py`, `artifact_cross_validate.py`, `llm_preflight.py`, `attempt_budget.py`, and `llm_flow_hardening.py` aligned.
+4b. LLM guidance program: when touching LLM stages, keep [llm-guidance-program.md](../../docs/cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../../docs/cross-cutting/stage-quality-scorecard.md), arbiter rubrics, `deterministic_lint.py`, `artifact_cross_validate.py`, `llm_preflight.py`, `attempt_budget.py`, `llm_flow_hardening.py`, `local_volley_framer.py`, `stage_guidance.py`, `placement_qa.py`, `prompt_examples.py`, and `llm_call_record.py` aligned.
 5. Before marking a ticket done: **`docs/build-out/doc-maintenance.md`** + **`docs/build-out/testing-and-verification.md`**.
 6. After shipping: update **`docs/build-out/README.md`** status, **`ticket-specs.md`** checkboxes, **`repository-map.md`** gap table.
 
@@ -61,7 +61,7 @@ Until build-out tickets close the matching gap in **`repository-map.md`**:
 - **Flow 1 `master.wav`:** built via **`mix_flow1`** (speech + VO + SDP beds/stingers) → **`master_flow1`** (BUILD-065–066). Legacy `mux_flow1` is a single-stage rerun alias only.
 - **Flow 2 `master.wav`:** built via **`mix_flow2`** montage + SDP transitions (BUILD-065).
 - **Sound path default:** SDP chain (`sound_design_palettes` → `sound_design_plan_flow*` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow*` → `mix_flow*`). Legacy **`podcast_sfx_brief`**, **`sfx_brief`**, and **`mux_flow*`** are rerun aliases only — not the default operator path.
-- **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`.
+- **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`. **`run_flow3`** requires shared analysis complete (`require_analysis_artifacts_complete`) but **not** Flow 1 ranking or Flow 2 selection — analysis-only prerequisites documented in [stage-registry.md](../../docs/build-out/stage-registry.md) Flow 3.
 - **Pre-clean:** stage shipped (BUILD-019); GUI checkpoint offers BUILD-072.
 - **LLM routing:** tier-aware `model_registry` + economy arbiter + shard/collate (BUILD-073).
 
@@ -86,7 +86,7 @@ Full gate copy: **`docs/workflows/operator-gates.md`**.
 
 ## Pipeline & code conventions
 
-- **Stage orders:** `ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER` in **`src/interview_mux/pipeline.py`** — add `FLOW3_ORDER` / `run_flow3` when shipping Flow 3.
+- **Stage orders:** `ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER`, `FLOW3_ORDER` in **`src/interview_mux/pipeline.py`** — `run_flow1/2/3` shipped (BUILD-080).
 - **Idempotency:** Each stage writes **`.stage_done/<stage_id>`**; re-run with **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**.
 - **GUI metadata:** New stages → **`web/stages.py`** + **`docs/workflows/gui-surface-map.md`** + **`api-reference.md`**.
 - **Orchestrator:** Shared LLM stages may enqueue investigations — **`analysis_orchestrator.py`**; do not bypass memory merge rules in **`docs/cross-cutting/analysis-memory.md`**.
@@ -114,7 +114,7 @@ Implementation: **`session_log.py`**, **`RunContext.log()`**, **`web/runner.py`*
 |---------|-----------|
 | Pipeline / gates / CLI with `RunContext` | **`ctx.log(message, level=..., stage=..., detail=...)`** |
 | Setup without context | **`session_log.append_log(run_dir, ...)`** |
-| Manual operator note | **`POST /api/runs/{id}/log`** |
+| Manual operator note | **`POST /api/runs/{id}/log`** — also used by the React GUI for operator-authored log entries |
 | **`POST …/execute`** | Update **`gui_job.json`** + **`ctx.log()`** for milestones |
 
 **Levels:** `info`, `success`, `warning`, `error`. Include **`stage`** when tied to a pipeline stage id.
@@ -156,7 +156,7 @@ Do **not** copy this block into other docs — link to **this file** or **`doc-m
 | **`config/`** | `app.defaults.json`, `secrets/secrets.env` |
 | **`docs/`** | Authoritative specs and prompts |
 | **`src/interview_mux/`** | Python package (pipeline + Web GUI) |
-| **`tools/`** | `run_analysis.py`, `run_flow.py`, `check_prerequisites.sh`, `verify_master.py` |
+| **`tools/`** | `run_analysis.py`, `run_flow.py`, `check_prerequisites.sh`, `verify_master.py`, `validate_narrative.py`, `validate_edl.py`, `verify_edl.py`, `validate_show_description.py`, `export_llm_calls.py`, `extract_value_features.py`, `run_value_spike.py`, `run_disfluency_extract.py`, `codegen_zod_schemas.py` |
 | **`scripts/`** | `bootstrap_venv.sh`, `run.sh` |
 | **`tests/`** | pytest |
 
@@ -171,7 +171,10 @@ Launch GUI: **`./scripts/run.sh`** or **`python -m interview_mux serve`**.
 pytest tests/   # when touching validation / review
 python tools/run_analysis.py --run-id <id>   # shared analysis
 python tools/run_flow.py --flow flow1|flow2|flow3 --run-id <id>
-python tools/verify_master.py <path>/master.wav   # audio flows
+python tools/verify_master.py <path>/master.wav   # audio flows (flow1/flow2)
+python tools/validate_show_description.py --run-id <id>   # flow3
+python tools/validate_narrative.py --run-id <id>   # Flow 1 narrative QC
+python tools/export_llm_calls.py --run-id <id>   # LLM call audit export
 ```
 
 Full checklists: **`docs/workflows/smoke-test.md`**, **`docs/build-out/testing-and-verification.md`**.

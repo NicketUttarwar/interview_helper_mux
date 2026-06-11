@@ -60,6 +60,29 @@ def max_queue_drains(ctx: RunContext) -> int:
     return 5
 
 
+def max_investigation_reruns_per_kind(cfg: dict[str, Any] | None = None) -> int:
+    from interview_mux.llm_flow_hardening import flow_hardening_cfg
+
+    return int(flow_hardening_cfg(cfg).get("max_investigation_reruns_per_kind", 2))
+
+
+def _investigation_rerun_counts(ctx: RunContext) -> dict[str, int]:
+    if not ctx.artifact_exists(ORCHESTRATION_PATH):
+        return {}
+    orch = ctx.read_json(ORCHESTRATION_PATH)
+    raw = orch.get("investigation_rerun_counts") or {}
+    return {str(k): int(v) for k, v in raw.items()}
+
+
+def _record_investigation_rerun(ctx: RunContext, kind: str) -> None:
+    ensure_analysis_workspace(ctx)
+    orch = ctx.read_json(ORCHESTRATION_PATH) if ctx.artifact_exists(ORCHESTRATION_PATH) else {}
+    counts = dict(orch.get("investigation_rerun_counts") or {})
+    counts[kind] = int(counts.get(kind, 0)) + 1
+    orch["investigation_rerun_counts"] = counts
+    ctx.write_json(ORCHESTRATION_PATH, orch, skip_handoff=True)
+
+
 def process_needs_after_stage(ctx: RunContext, stage_key: str, envelope: dict[str, Any]) -> list[str]:
     """Apply non-blocking needs; return stage ids suggested for rerun."""
     reruns: list[str] = []
@@ -212,6 +235,18 @@ def drain_investigation_queue(
             from interview_mux.artifact_completeness import artifact_status
             from interview_mux.llm_flow_hardening import producer_artifact_path
 
+            kind = str(item.get("kind") or "unknown")
+            rerun_counts = _investigation_rerun_counts(ctx)
+            cap = max_investigation_reruns_per_kind()
+            if rerun_counts.get(kind, 0) >= cap:
+                ctx.log(
+                    f"Investigation {item.get('id')}: rerun cap reached for kind={kind} "
+                    f"({cap} max) — skipping {st}",
+                    level="warning",
+                    stage="orchestrator",
+                )
+                continue
+
             rel = producer_artifact_path(st)
             before_status = artifact_status(rel, ctx) if rel else None
             ctx.log(
@@ -220,6 +255,7 @@ def drain_investigation_queue(
                 stage="orchestrator",
             )
             stage_runners[st]()
+            _record_investigation_rerun(ctx, kind)
             after_status = artifact_status(rel, ctx) if rel else None
             improved = ctx.is_done(st) and after_status == "complete"
             if not improved and before_status and after_status and after_status != before_status:
@@ -233,23 +269,6 @@ def drain_investigation_queue(
                     level="warning",
                     stage="orchestrator",
                 )
-
-
-def orchestrate_after_llm_stage(
-    ctx: RunContext,
-    stage_key: str,
-    envelope: dict[str, Any],
-    *,
-    stage_runners: dict[str, Callable[[], None]] | None = None,
-) -> None:
-    """Apply envelope needs and drain investigation queue after an LLM stage."""
-    if stage_key not in ALL_LLM_STAGES:
-        return
-    runners = stage_runners or llm_stage_runners(ctx)
-    status = envelope.get("status", "complete")
-    if status == "complete":
-        apply_needs_reruns(ctx, stage_key, envelope, runners)
-    drain_investigation_queue(ctx, runners)
 
 
 def pre_analysis_init(ctx: RunContext) -> None:

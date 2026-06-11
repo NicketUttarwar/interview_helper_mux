@@ -2,7 +2,7 @@
 
 Authoritative list of **every pipeline stage** (shipped, gate, and planned). When adding a stage, update this file, `pipeline.py`, `web/stages.py`, the matching `docs/pipeline/*/README.md`, and [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) in the same PR.
 
-**Code source of truth (shipped orders):** `src/interview_mux/pipeline.py` (`ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER`).
+**Code source of truth (shipped orders):** `src/interview_mux/pipeline.py` — `ANALYSIS_ORDER` (line ~52), `FLOW1_ORDER` (~69), `FLOW2_ORDER` (~85), `FLOW3_ORDER` (~94).
 
 ---
 
@@ -42,7 +42,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `content_brief_reanchor` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` (patch) | `understanding/content-brief-reanchor` |
 | `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` |
 | `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
-| `vo_ingest` | shipped | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline | — |
+| `vo_ingest` | shipped (on-demand) | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline; **not in `ANALYSIS_ORDER`** — triggered by next batch execute after G1 or `mode: stage` | — |
 | `sound_design_plan_init` | shipped (init hook) | `analysis_memory.py` | BUILD-060 | `understanding/sound_design_plan.json` (empty scaffold) | `cross-cutting/json-schemas/sound_design_plan.schema.json` |
 | `source_acoustic_profile` | shipped | `understanding.py` | BUILD-082 | `understanding/source_acoustic_profile.json` | deterministic derivation · [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
 | `sound_design_palettes` | shipped | `sound_design_stages.py` | BUILD-061 | SDP `palettes`, `coherence` | `sound_design/theme-palettes` |
@@ -58,6 +58,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | Gate id | Status | Module | Ticket | Sets / checks | Doc |
 |---------|--------|--------|--------|---------------|-----|
 | G0 `transcript_review` | shipped | `gates.py`, `transcript_review.py` | BUILD-017 | STT corrections before `speaker_roles` | [operator-gates.md](../workflows/operator-gates.md) |
+| G0.5 `disfluency_review` | shipped | `gates.py`, `disfluency.py` | — | Filler catalog sign-off after `disfluency_extract`; auto-skipped when extract disabled | [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md) |
 | G1 `g1_vo_pickup` | shipped | `gates.py`, `gaps.py` | BUILD-017 | `vo_pickup/` for `delivery: record` | same |
 | G2 `g2_flow_select` | shipped | `gates.py`, `server.py` | BUILD-017, **080** | `run_meta.selected_flow` — API: flow1 \| flow2 \| flow3 | same |
 
@@ -109,6 +110,10 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 ---
 
 ## Flow 3 — publishing copy
+
+**Default order (`FLOW3_ORDER` in `pipeline.py`):** `podcast_show_description` → `export_show_description`
+
+**Analysis-only prerequisites:** `run_flow3` calls `require_g1_clear` + `require_analysis_artifacts_complete` (cross-artifact validation + profile ready). Does **not** require Flow 1 ranking or Flow 2 selection. LLM preflight for `podcast_show_description` when `selected_flow: flow3` checks `understanding/content_brief.json`, `understanding/speakers.json`, `segments/manifest.json`.
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|

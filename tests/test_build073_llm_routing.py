@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from interview_mux.analysis_memory import (
     ensure_analysis_workspace,
     load_analysis_state,
@@ -116,6 +118,88 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
     assert ("missing_framing", "primary") in calls
     assert ("missing_framing", "shard") in calls
     assert ("missing_framing", "collate") in calls
+
+
+def test_primary_arbiter_accept_path_no_decompose(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "run_073_accept")
+    ensure_analysis_workspace(ctx)
+    monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": False}}},
+    )
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_run_prompt_envelope(stage_key, prompt_rel, **kwargs):
+        task_kind = kwargs.get("task_kind", "primary")
+        calls.append((stage_key, task_kind))
+        return {
+            "status": "complete",
+            "confidence": 0.9,
+            "reasoning_summary": "ok",
+            "artifacts": {
+                "evaluations": [
+                    {
+                        "segment_id": "seg_001",
+                        "self_explanatory": True,
+                        "gap_type": "ok_with_light_bridge",
+                        "listener_confusion": "",
+                        "severity": "low",
+                    }
+                ]
+            },
+            "needs": [],
+            "memory_updates": {},
+            "_llm_meta": {"model_tier": "standard", "model_id": "gpt-4o", "task_kind": task_kind},
+        }
+
+    def fake_run_llm_arbiter(**_kwargs):
+        return {
+            "verdict": "accept",
+            "confidence": 0.95,
+            "gaps": [],
+            "shard_plan": [],
+            "suggested_investigation": None,
+            "reasoning_summary": "primary ok",
+        }
+
+    persisted: dict[str, Any] = {}
+
+    def persist(_ctx, artifacts):
+        persisted.update(artifacts)
+
+    monkeypatch.setattr(llm_stage_routing, "run_prompt_envelope", fake_run_prompt_envelope)
+    monkeypatch.setattr(llm_stage_routing, "run_llm_arbiter", fake_run_llm_arbiter)
+    monkeypatch.setattr(llm_stage_routing, "validate_stage_artifacts", lambda *_a, **_k: [])
+    monkeypatch.setattr(llm_stage_routing, "validate_envelope", lambda *_a, **_k: [])
+
+    analysis_stage.run_analysis_llm_stage(
+        ctx,
+        "missing_framing",
+        "interviewer-gap/missing-framing.system.txt",
+        lambda _c: {"segments": {"segments": [{"segment_id": "seg_001", "text": "hello"}]}, "content_brief": {"thesis": "x"}},
+        persist,
+        max_iterations=1,
+    )
+    attempt = ctx.read_json("understanding/stage_runs/missing_framing/attempt_001.json")
+    assert attempt["arbiter_result"]["verdict"] == "accept"
+    assert attempt.get("shard_count", 0) == 0
+    assert ("missing_framing", "primary") in calls
+    assert not any(kind != "primary" for _, kind in calls)
+
+
+def test_deterministic_shard_plan_from_truncation_without_arbiter():
+    from interview_mux.llm_shard_plans import build_deterministic_shard_plan
+
+    stage_input = {"transcript": "word " * 20000}
+    plan, source = build_deterministic_shard_plan(
+        "content_context",
+        stage_input,
+        truncation_flags=["max_stage_data_chars"],
+    )
+    assert source == "deterministic"
+    assert len(plan) >= 2
 
 
 def test_uptier_cap_blocks_third_retry(tmp_path, monkeypatch):

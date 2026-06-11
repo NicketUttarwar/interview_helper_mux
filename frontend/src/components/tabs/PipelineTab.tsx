@@ -8,7 +8,7 @@ import { ProfilePanel } from "../workspace/ProfilePanel";
 import { ArtifactEditor } from "../workspace/ArtifactEditor";
 import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
 import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
-import { DeliverableCard } from "../workspace/DeliverableCard";
+import { JourneyShell } from "../journey/JourneyShell";
 
 const TOOL_TABS: { id: PipelineSubTab; label: string; tooltip: string }[] = [
   { id: "story", label: "Story board", tooltip: "Themes and investigations" },
@@ -61,46 +61,47 @@ export function PipelineTab() {
 
   return (
     <main className="view workspace-shell pipeline-tab pipeline-v2">
-      <div className="workspace-scroll">
-        <PipelineCommandCenter />
+      <JourneyShell>
+        <div className="workspace-scroll">
+          <PipelineCommandCenter />
 
-        <div className="pipeline-v2-body">
-          <PipelineStepList />
-          <div className="pipeline-v2-main">
-            {pipelineSubTab === "stage" || !showTools ? <StageDetail /> : null}
-            {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
-            {pipelineSubTab === "timeline" ? <NlePanel /> : null}
-            {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
-            {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
-            {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
+          <div className="pipeline-v2-body">
+            <PipelineStepList />
+            <div className="pipeline-v2-main">
+              {pipelineSubTab === "stage" || !showTools ? <StageDetail /> : null}
+              {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
+              {pipelineSubTab === "timeline" ? <NlePanel /> : null}
+              {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
+              {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
+              {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
 
-            <details className="pipeline-tools-drawer panel">
-              <summary>Tools &amp; editors</summary>
-              <div className="pipeline-tools-tabs">
-                <button
-                  type="button"
-                  className={`btn ghost sm${pipelineSubTab === "stage" ? " active" : ""}`}
-                  onClick={() => setPipelineSubTab("stage")}
-                >
-                  Step detail
-                </button>
-                {TOOL_TABS.map((t) => (
+              <details className="pipeline-tools-drawer panel">
+                <summary>Tools &amp; editors</summary>
+                <div className="pipeline-tools-tabs">
                   <button
-                    key={t.id}
                     type="button"
-                    className={`btn ghost sm${pipelineSubTab === t.id ? " active" : ""}`}
-                    title={t.tooltip}
-                    onClick={() => setPipelineSubTab(t.id)}
+                    className={`btn ghost sm${pipelineSubTab === "stage" ? " active" : ""}`}
+                    onClick={() => setPipelineSubTab("stage")}
                   >
-                    {t.label}
+                    Step detail
                   </button>
-                ))}
-              </div>
-            </details>
+                  {TOOL_TABS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`btn ghost sm${pipelineSubTab === t.id ? " active" : ""}`}
+                      title={t.tooltip}
+                      onClick={() => setPipelineSubTab(t.id)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
           </div>
         </div>
-        <DeliverableCard />
-      </div>
+      </JourneyShell>
     </main>
   );
 }

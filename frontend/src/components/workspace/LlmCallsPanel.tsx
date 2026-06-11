@@ -212,7 +212,7 @@ function CallEditor({
 }
 
 export function LlmCallsPanel() {
-  const { run, showToast } = useApp();
+  const { run, showToast, appendClientLog } = useApp();
   const [index, setIndex] = useState<LlmCallsIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
@@ -243,11 +243,13 @@ export function LlmCallsPanel() {
       }
     } catch (e) {
       setIndex(null);
-      showToast(e instanceof Error ? e.message : "Failed to load LLM calls");
+      const msg = e instanceof Error ? e.message : "Failed to load LLM calls";
+      showToast(msg);
+      appendClientLog(msg, "warning");
     } finally {
       setLoading(false);
     }
-  }, [run, showToast]);
+  }, [run, showToast, appendClientLog]);
 
   useEffect(() => {
     void loadIndex();
@@ -309,7 +311,9 @@ export function LlmCallsPanel() {
       try {
         await loadRecord(path);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to load call");
+        const msg = e instanceof Error ? e.message : "Failed to load call";
+        showToast(msg);
+        appendClientLog(msg, "warning");
         return;
       }
     }
@@ -340,7 +344,9 @@ export function LlmCallsPanel() {
       setRecords((prev) => ({ ...prev, [path]: res.record }));
       showToast("LLM call saved");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed");
+      const msg = e instanceof Error ? e.message : "Save failed";
+      showToast(msg);
+      appendClientLog(msg, "warning");
     } finally {
       setSavingPath(null);
     }
@@ -359,9 +365,11 @@ export function LlmCallsPanel() {
     }
     setExpandedAttempts(attempts);
     setExpandedCalls(calls);
-    void Promise.all([...calls].map((p) => loadRecord(p))).catch(() =>
-      showToast("Some calls failed to load"),
-    );
+    void Promise.all([...calls].map((p) => loadRecord(p))).catch(() => {
+      const msg = "Some calls failed to load";
+      showToast(msg);
+      appendClientLog(msg, "warning");
+    });
   };
 
   const collapseAll = () => {

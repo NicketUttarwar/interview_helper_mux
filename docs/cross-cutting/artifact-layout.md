@@ -105,6 +105,14 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `segments/boundaries.json` | boundary detection |
 | `segments/manifest.json` | segment classification |
 
+## Sound design — `sound_design/` (run root; Flow 1 + Flow 2 SDP path)
+
+| Path | Stage |
+|------|-------|
+| `sound_design/elevenlabs_prompts.json` | `elevenlabs_prompt_craft` (canonical; operator mirror at `operator/elevenlabs_prompts.json`) |
+| `sound_design/placement_adjustments.json` | post-SFX placement QA hints; applied at mix via `apply_placement_adjustments` |
+| `sound_design/assets/{asset_id}.wav` | ElevenLabs generated beds/stingers (canonical SDP path) |
+
 ## Flow 1 — `flow_1_master/`
 
 | Path | Stage |
@@ -115,8 +123,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transitions.json` | interviewer bridges |
 | `edl_narrative_audit.json` | flagship semantic audit before final EDL ([edl_narrative_audit_artifact.schema.json](./json-schemas/artifacts/edl_narrative_audit_artifact.schema.json)) |
 | `podcast_sfx_brief.json` | subtle SFX spec (v1 legacy brief) |
-| `sound_design/assets/{asset_id}.wav` | ElevenLabs generated (canonical SDP path) |
-| `sfx/*.wav` | legacy per-flow SFX folder when SDP assets absent |
+| `sfx/*.wav` | legacy per-flow SFX folder when SDP assets absent (copies from run-root `sound_design/assets/` when present) |
 | `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline ([edl_flow1.schema.json](./json-schemas/artifacts/edl_flow1.schema.json)); consumed by `mix_flow1` |
 | `assembly_preview.wav` | speech + VO preview before SFX (BUILD-069, shipped) |
 | `assembly.wav` | pre-master mix (`mix_flow1`) |

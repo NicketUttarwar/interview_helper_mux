@@ -25,6 +25,11 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | GUI UX / operator shell change | [gui-surface-map.md](../workflows/gui-surface-map.md), [operator-journey.md](../workflows/operator-journey.md), [operator-flow-audit.md](../workflows/operator-flow-audit.md), [troubleshooting.md](../workflows/troubleshooting.md) |
 | Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
 | LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/`; gap-fill line when stage writes artifacts |
+| LLM guidance / quality tiers | [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md), [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18–20 |
+| Placement QA (post-SFX) | [post-generation-placement.md](../cross-cutting/post-generation-placement.md), `placement_qa.py`, `sound_design.placement_qa_enabled` in [config-keys.md](../cross-cutting/config-keys.md) |
+| LLM call export CLI | `tools/export_llm_calls.py`, [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md), [gui-surface-map.md](../workflows/gui-surface-map.md) Debug tab |
+| LLM routing debug API | `GET /api/runs/{id}/llm-routing`, `llm_routing_debug.py`, [api-reference.md](../workflows/api-reference.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md) |
+| Golden envelope fixtures | `tests/fixtures/llm_envelopes/`, `tests/test_llm_envelope_fixtures.py`, `deterministic_lint.py` |
 | Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |
 | Narrative QC / EDL validators | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), `tools/validate_narrative.py`, `tools/validate_edl.py`, `tools/verify_edl.py` |
 | Value analysis hook | [value-analysis/README.md](../pipeline/value-analysis/README.md), [config-keys.md](../cross-cutting/config-keys.md) |

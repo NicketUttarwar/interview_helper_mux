@@ -432,7 +432,7 @@ export function TranscriptDockViewer({
   }, [fuzzyMatches, editingIndex]);
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (editingIndex !== null) return;
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       if (!undoStack.current.length) return;

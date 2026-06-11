@@ -74,7 +74,7 @@ def run_podcast_show_description(ctx: RunContext) -> None:
             summary = "; ".join(errors[:4])
             c.log(
                 f"Show description QC failed ({len(errors)} issue(s)): {summary}",
-                level="error" if _show_description_qc_strict_enabled() else "warn",
+                level="error" if _show_description_qc_strict_enabled() else "warning",
                 stage="podcast_show_description",
                 detail="show_description_qc_fail",
             )

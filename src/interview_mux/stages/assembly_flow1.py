@@ -327,14 +327,14 @@ def run_edl(ctx: RunContext) -> None:
         ctx.log(
             f"EDL: gap VO lines missing WAV (mux remains speech-only): "
             f"{warnings['missing_vo_files']}",
-            level="warn",
+            level="warning",
             stage="edl_flow1",
         )
     if warnings.get("gap_targets_not_in_selection"):
         ctx.log(
             f"EDL: gap targets not in selection order: "
             f"{warnings['gap_targets_not_in_selection']}",
-            level="warn",
+            level="warning",
             stage="edl_flow1",
         )
 

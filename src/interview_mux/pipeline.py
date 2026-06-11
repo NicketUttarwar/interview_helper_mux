@@ -203,19 +203,21 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, stage)
         if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
-            raise SystemExit(
+            msg = (
                 "Transcript review required. Open the GUI to correct ranked clips, then complete review."
             )
+            ctx.log(msg, level="warning", stage="transcript_review")
+            raise SystemExit(msg)
         if stage == "disfluency_extract" and check_disfluency_review_pending(ctx):
-            raise SystemExit(
-                "Disfluency review required. Confirm or reject filler events in the GUI."
-            )
+            msg = "Disfluency review required. Confirm or reject filler events in the GUI."
+            ctx.log(msg, level="warning", stage="disfluency_review")
+            raise SystemExit(msg)
         if stage == "optimal_questions":
             missing = check_g1_vo(ctx)
             if missing:
-                raise SystemExit(
-                    f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
-                )
+                msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
+                ctx.log(msg, level="warning", stage="g1_vo_pickup")
+                raise SystemExit(msg)
             ctx.write_json(
                 "analysis_complete.json",
                 {"completed_at": datetime.now(timezone.utc).isoformat(), "run_id": ctx.run_id},
@@ -295,9 +297,22 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         if write_approval_enabled() and has_pending_writes(ctx, stage):
             after_stage_write_check(ctx, stage)
         return
+    from interview_mux.analysis_orchestrator import ALL_LLM_STAGES, drain_investigation_queue, llm_stage_runners
     from interview_mux.write_staging import run_wrapped_stage
 
-    run_wrapped_stage(ctx, stage, lambda: _run_single_stage_impl(ctx, stage))
+    def _impl() -> None:
+        if stage in ALL_LLM_STAGES:
+            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+            maybe_require_upstream_llm_progress(ctx, stage)
+        _run_single_stage_impl(ctx, stage)
+        if stage in ALL_LLM_STAGES:
+            drain_investigation_queue(ctx, llm_stage_runners(ctx))
+            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+
+            maybe_cross_validate_after_stage(ctx, stage)
+
+    run_wrapped_stage(ctx, stage, _impl)
 
 
 def run_analysis(
@@ -354,24 +369,26 @@ def run_analysis(
         if until_stage and name == until_stage:
             break
         if name == "transcript_review_build" and check_transcript_review_pending(ctx):
-            raise SystemExit(
+            msg = (
                 "Analysis paused for transcript review. Correct STT in the GUI, "
                 "then complete review before continuing."
             )
+            ctx.log(msg, level="warning", stage="transcript_review")
+            raise SystemExit(msg)
         if name == "disfluency_extract" and check_disfluency_review_pending(ctx):
-            raise SystemExit(
-                "Disfluency review required. Confirm or reject filler events in the GUI."
-            )
+            msg = "Disfluency review required. Confirm or reject filler events in the GUI."
+            ctx.log(msg, level="warning", stage="disfluency_review")
+            raise SystemExit(msg)
 
     if check_transcript_review_pending(ctx):
-        raise SystemExit(
-            "Transcript review incomplete. Finish STT corrections in the GUI before downstream stages."
-        )
+        msg = "Transcript review incomplete. Finish STT corrections in the GUI before downstream stages."
+        ctx.log(msg, level="warning", stage="transcript_review")
+        raise SystemExit(msg)
 
     if check_disfluency_review_pending(ctx):
-        raise SystemExit(
-            "Disfluency review incomplete. Confirm or reject filler events in the GUI."
-        )
+        msg = "Disfluency review incomplete. Confirm or reject filler events in the GUI."
+        ctx.log(msg, level="warning", stage="disfluency_review")
+        raise SystemExit(msg)
 
     if until_stage and until_stage != "optimal_questions":
         return
@@ -379,9 +396,9 @@ def run_analysis(
     completion = post_analysis_finalize(ctx)
     missing = check_g1_vo(ctx)
     if missing:
-        raise SystemExit(
-            f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
-        )
+        msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
+        ctx.log(msg, level="warning", stage="g1_vo_pickup")
+        raise SystemExit(msg)
 
     ctx.write_json(
         "analysis_complete.json",

@@ -26,7 +26,7 @@ def run_disfluency_extract(ctx: RunContext) -> None:
     except FileNotFoundError:
         raise
     except Exception as exc:
-        ctx.log(f"disfluency_extract failed: {exc}", level="warn", stage="disfluency_extract")
+        ctx.log(f"disfluency_extract failed: {exc}", level="warning", stage="disfluency_extract")
         write_skipped_artifact(ctx, reason=str(exc))
         ctx.mark_done("disfluency_extract")
         ctx.mark_done("disfluency_review")

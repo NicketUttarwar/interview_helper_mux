@@ -298,11 +298,26 @@ def merge_memory_updates(
     out = copy.deepcopy(state)
     locked = _operator_locked_fields(out)
     if skip_operator_conflicts:
-        updates = {
-            k: v
-            for k, v in updates.items()
-            if k not in ("narrative_patch", "style_patch", "themes_append", "major_questions_append", "interview_identity_patch")
-        }
+        _protected = frozenset(
+            {
+                "narrative_patch",
+                "style_patch",
+                "themes_append",
+                "major_questions_append",
+                "interview_identity_patch",
+                "themes",
+                "major_questions",
+                "narrative",
+                "style",
+                "themes_replace",
+                "major_questions_replace",
+                "entities_replace",
+                "hypotheses_replace",
+                "speakers_replace",
+                "open_questions_replace",
+            }
+        )
+        updates = {k: v for k, v in updates.items() if k not in _protected}
         if not updates:
             return out, conflicts
 

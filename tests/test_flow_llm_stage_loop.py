@@ -39,7 +39,7 @@ def test_flow_stage_budget_exhaustion_raises(tmp_path, monkeypatch):
         analysis_stage.run_flow_llm_stage(
             ctx,
             "full_master_ranking",
-            "flow-1/full-master-ranking.system.txt",
+            "selection/full-master-ranking.system.txt",
             lambda _c: {"segments": {"segments": []}},
             lambda _c, _a: None,
             max_iterations=1,
@@ -74,7 +74,7 @@ def test_flow_stage_retries_on_partial(tmp_path, monkeypatch):
     analysis_stage.run_flow_llm_stage(
         ctx,
         "full_master_ranking",
-        "flow-1/full-master-ranking.system.txt",
+        "selection/full-master-ranking.system.txt",
         lambda _c: {"segments": {"segments": [{"segment_id": "seg_001"}]}},
         lambda _c, _a: None,
         max_iterations=3,
@@ -107,7 +107,7 @@ def test_flow_stage_stops_on_unchanged_signature(tmp_path, monkeypatch):
     analysis_stage.run_flow_llm_stage(
         ctx,
         "transitions",
-        "flow-1/transitions.system.txt",
+        "assembly/transitions.system.txt",
         lambda _c: {},
         lambda _c, _a: None,
         max_iterations=5,
@@ -158,7 +158,7 @@ def test_flow_stage_retries_on_lint_failure(tmp_path, monkeypatch):
     analysis_stage.run_flow_llm_stage(
         ctx,
         "full_master_ranking",
-        "flow-1/full-master-ranking.system.txt",
+        "selection/full-master-ranking.system.txt",
         lambda _c: {"segments": {"segments": [{"segment_id": "seg_001"}]}},
         lambda _c, _a: None,
         max_iterations=3,

@@ -29,7 +29,7 @@ export function QcSummaryCard({ qcKey }: { qcKey: string }) {
       {!summary.passed ? (
         <p className="hint">
           Fix issues in the Logs tab, edit artifacts in Files if needed, then use{" "}
-          <strong>Redo from selected stage</strong> in the sidebar and re-run this step.
+          <strong>Redo from this step</strong> below and re-run.
         </p>
       ) : null}
       {!summary.passed ? (

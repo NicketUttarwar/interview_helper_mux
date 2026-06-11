@@ -36,6 +36,9 @@
 | Cross-validate | `artifact_cross_validate.py`, `sdp_cross_validate.py` | ID-set consistency |
 | Attempt budget | `attempt_budget.py` | Loop circuit-breaker |
 | Flow hardening | `llm_flow_hardening.py` | Critical vs soft stages |
+| Local volley framer | `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) |
+| Stage guidance | `stage_guidance.py` | GUI journey phase copy and gate CTAs (`stages[].guidance`) |
+| Placement QA | `placement_qa.py` | Post-SFX hints; `apply_placement_adjustments` at mix |
 
 ---
 

@@ -96,7 +96,7 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
             except Exception as exc:
                 ctx.log(
                     f"disfluency_extract: whisper failed on gap {gap['gap_index']}: {exc}",
-                    level="warn",
+                    level="warning",
                     stage="disfluency_extract",
                 )
             finally:

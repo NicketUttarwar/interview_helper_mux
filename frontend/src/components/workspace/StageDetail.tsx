@@ -25,6 +25,8 @@ export function StageDetail() {
     jobRunning,
     apiGrants,
     selectStage,
+    redoFromStage,
+    appendClientLog,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
 
@@ -60,8 +62,14 @@ export function StageDetail() {
       .then((data) => {
         setLlmAttempts((data.attempts || []).filter((a) => a.stage === selectedStage.id));
       })
-      .catch(() => setLlmAttempts([]));
-  }, [run, selectedStage, llmStageIds]);
+      .catch((e) => {
+        setLlmAttempts([]);
+        appendClientLog(
+          e instanceof Error ? e.message : "Failed to load LLM routing summary",
+          "warning",
+        );
+      });
+  }, [run, selectedStage, llmStageIds, appendClientLog]);
 
   useEffect(() => {
     if (!run || selectedStageId) return;
@@ -152,6 +160,19 @@ export function StageDetail() {
       )}
 
       <StageOutputsPanel stage={selectedStage} />
+
+      {selectedStage.status === "done" && !jobRunning ? (
+        <div className="stage-detail-actions">
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() => void redoFromStage()}
+            title="Clear this step and later markers, then re-run from here"
+          >
+            Redo from this step
+          </button>
+        </div>
+      ) : null}
 
       {(selectedStage.id === "transcribe" ||
         selectedStage.id === "transcript_review" ||

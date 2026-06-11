@@ -34,6 +34,12 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "flow_2_highlights/sfx_brief.json": "artifacts/sfx_montage_artifact.schema.json",
     "flow_3_description/show_description.json": "artifacts/show_description_artifact.schema.json",
     "sound_design/elevenlabs_prompts.json": "artifacts/elevenlabs_prompts_artifact.schema.json",
+    "sound_design/placement_adjustments.json": "placement_adjustments.schema.json",
+    "run_meta.json": "run_meta.schema.json",
+    "transcript/corrections.json": "transcript_corrections.schema.json",
+    "transcript/disfluencies.json": "disfluencies.schema.json",
+    "segments/nle_edits.json": "nle_edits.schema.json",
+    "transcript/review_queue.json": "transcript_review.schema.json",
 }
 
 

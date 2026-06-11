@@ -59,8 +59,25 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "highlight_selection": "optimal_questions",
     "sound_design_plan_flow1": "full_master_ranking",
     "sound_design_plan_flow2": "highlight_selection",
-    "podcast_show_description": "full_master_ranking",
+    "edl_narrative_audit": "sound_design_plan_flow1",
+    # podcast_show_description and elevenlabs_prompt_craft resolved per selected_flow — see resolve_llm_upstream_stage
 }
+
+
+def resolve_llm_upstream_stage(ctx: RunContext, stage_key: str) -> str | None:
+    """Flow-aware upstream LLM stage (None = no LLM upstream)."""
+    from interview_mux.gates import get_selected_flow
+
+    flow = get_selected_flow(ctx)
+    if stage_key == "podcast_show_description":
+        if flow == "flow3":
+            return "optimal_questions"
+        return "full_master_ranking"
+    if stage_key == "elevenlabs_prompt_craft":
+        if flow == "flow2":
+            return "sound_design_plan_flow2"
+        return "sound_design_plan_flow1"
+    return LLM_UPSTREAM_STAGE.get(stage_key)
 
 
 def flow_hardening_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -93,12 +110,16 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
     if stage_key.startswith("elevenlabs_sfx"):
         ok, msg = can_run_elevenlabs_generation(ctx)
         if not ok:
-            raise SystemExit(msg or "G1.5: prompt approval required before ElevenLabs generation.")
+            exit_msg = msg or "G1.5: prompt approval required before ElevenLabs generation."
+            ctx.log(exit_msg, level="error", stage=stage_key)
+            raise SystemExit(exit_msg)
         rel = "sound_design/elevenlabs_prompts.json"
         if artifact_status(rel, ctx) != "complete":
-            raise SystemExit(
+            exit_msg = (
                 f"Spend gate: {rel} incomplete. Run elevenlabs_prompt_craft and approve prompts first."
             )
+            ctx.log(exit_msg, level="error", stage=stage_key)
+            raise SystemExit(exit_msg)
     if stage_key in ("mix_flow1", "mix_flow2"):
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
             flow = "flow1" if stage_key == "mix_flow1" else "flow2"
@@ -106,7 +127,9 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
 
             errors = validate_pre_mix(ctx, flow)
             if errors:
-                raise SystemExit(f"Mix gate: {'; '.join(errors[:3])}")
+                exit_msg = f"Mix gate: {'; '.join(errors[:3])}"
+                ctx.log(exit_msg, level="error", stage=stage_key)
+                raise SystemExit(exit_msg)
 
 
 def is_critical_stage(stage_key: str) -> bool:
@@ -235,22 +258,26 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
     if not flow_hardening_enabled():
         return
     if not ctx.is_done(upstream_stage):
-        raise SystemExit(
+        exit_msg = (
             f"Prerequisite stage {upstream_stage} is not complete. "
             f"Run analysis from --from-stage {upstream_stage}."
         )
+        ctx.log(exit_msg, level="error", stage=upstream_stage)
+        raise SystemExit(exit_msg)
     rel = producer_artifact_path(upstream_stage)
     if rel and artifact_status(rel, ctx) != "complete":
-        raise SystemExit(
+        exit_msg = (
             f"Prerequisite artifact {rel} from stage {upstream_stage} is incomplete. "
             f"Use Fill gaps or re-run --from-stage {upstream_stage}."
         )
+        ctx.log(exit_msg, level="error", stage=upstream_stage)
+        raise SystemExit(exit_msg)
 
 
 def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None:
     """When hardening is on, verify immediate upstream LLM stage before running stage_key."""
     if not flow_hardening_enabled():
         return
-    upstream = LLM_UPSTREAM_STAGE.get(stage_key)
+    upstream = resolve_llm_upstream_stage(ctx, stage_key)
     if upstream:
         require_llm_stage_progress(ctx, upstream)

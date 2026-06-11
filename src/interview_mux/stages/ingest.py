@@ -61,5 +61,10 @@ def run_ingest(ctx: RunContext) -> Path:
         checksums["preclean_path"] = "preclean/isolated.wav"
         checksums["preclean_sha256"] = _sha256(preclean)
     ctx.write_json("ingest/checksums.json", checksums)
+    ctx.log(
+        f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono).",
+        level="success",
+        stage="ingest",
+    )
     ctx.mark_done("ingest")
     return normalized

@@ -187,6 +187,15 @@ G1_STAGE = StageInfo(
     ("understanding/gap_report.json",),
 )
 
+VO_INGEST_STAGE = StageInfo(
+    "vo_ingest",
+    "Merge VO pickup",
+    "On-demand after G1: normalize pickup WAVs under vo_pickup/ (CLI or API single-stage run; not in default pipeline order).",
+    "gate",
+    ("vo_pickup/", "understanding/gap_report.json"),
+    ("vo_pickup/normalized/",),
+)
+
 FLOW1_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "topic_coverage_audit",
@@ -242,6 +251,7 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         "Flagship review of final Flow 1 narrative readiness before EDL construction.",
         "flow1",
         (
+            "flow_1_master/edl_narrative_audit.json",
             "flow_1_master/selection.json",
             "flow_1_master/narrative_plan.json",
             "flow_1_master/transitions.json",
@@ -431,6 +441,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
         DISFLUENCY_REVIEW_GATE,
         ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
+        VO_INGEST_STAGE,
         G2_STAGE,
         *FLOW1_STAGES,
         *FLOW2_STAGES,

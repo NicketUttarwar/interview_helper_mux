@@ -19,6 +19,20 @@ app = typer.Typer(help="interview_helper_mux pipeline")
 console = Console()
 
 
+def _emit(
+    ctx: RunContext | None,
+    message: str,
+    *,
+    level: str = "info",
+    stage: str | None = None,
+    console_markup: str | None = None,
+) -> None:
+    """Write operator-visible output to gui_log.jsonl when a run exists, and to the terminal."""
+    if ctx is not None:
+        ctx.log(message, level=level, stage=stage or "cli")
+    console.print(console_markup or message)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -77,6 +91,7 @@ def _open_run(run_id: str | None) -> RunContext:
         source_audio_hash=full_hash,
         source_audio_hash_short=short_hash,
     )
+    _emit(ctx, f"Allocated run {ctx.run_id}", level="info", stage="cli")
     return ctx
 
 
@@ -93,10 +108,11 @@ def _apply_cli_reuse_options(
 def _cli_write_approval_gate(ctx: RunContext) -> None:
     pending = check_write_approval_before_execute(ctx)
     if pending:
-        console.print(
-            f"[red]Write approval pending for {pending.stage_id}:[/red] "
+        msg = (
+            f"Write approval pending for {pending.stage_id}: "
             f"{', '.join(pending.paths)}"
         )
+        _emit(ctx, msg, level="error", stage=pending.stage_id, console_markup=f"[red]{msg}[/red]")
         raise typer.Exit(1)
 
 
@@ -113,27 +129,39 @@ def run_pipeline(
 ) -> RunContext:
     _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers)
     ctx = _open_run(run_id)
-    console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
+    _emit(
+        ctx,
+        f"Run {ctx.run_id} → {ctx.run_dir}",
+        level="info",
+        stage="cli",
+        console_markup=f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}",
+    )
 
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
         if not skip_analysis or not ctx.path("analysis_complete.json").is_file():
             run_analysis(ctx, from_stage=from_stage)
-            console.print("[green]Analysis complete.[/green]")
+            _emit(ctx, "Analysis complete.", level="success", stage="cli", console_markup="[green]Analysis complete.[/green]")
         else:
-            console.print("[dim]Skipping analysis (analysis_complete.json present).[/dim]")
+            _emit(
+                ctx,
+                "Skipping analysis (analysis_complete.json present).",
+                level="info",
+                stage="cli",
+                console_markup="[dim]Skipping analysis (analysis_complete.json present).[/dim]",
+            )
 
         missing_vo = check_g1_vo(ctx)
         if missing_vo:
-            console.print(
-                f"[yellow]G1 gate:[/yellow] record VO for {missing_vo}\n"
-                f"  → {ctx.path('vo_pickup')}\n"
-                f"  → {ctx.path('understanding', 'interviewer_script.txt')}"
+            msg = (
+                f"G1 gate: record VO for {missing_vo} → {ctx.path('vo_pickup')} "
+                f"→ {ctx.path('understanding', 'interviewer_script.txt')}"
             )
+            _emit(ctx, msg, level="warning", stage="g1_vo_pickup", console_markup=f"[yellow]G1 gate:[/yellow] record VO for {missing_vo}\n  → {ctx.path('vo_pickup')}\n  → {ctx.path('understanding', 'interviewer_script.txt')}")
             raise typer.Exit(1)
 
         if analysis_only:
-            console.print("[dim]--analysis-only: stopping before flow.[/dim]")
+            _emit(ctx, "--analysis-only: stopping before flow.", level="info", stage="cli", console_markup="[dim]--analysis-only: stopping before flow.[/dim]")
             return ctx
 
         chosen = flow
@@ -145,26 +173,26 @@ def run_pipeline(
             try:
                 chosen = typer.prompt("flow", default="flow1").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                console.print("\n[red]Aborted.[/red]")
+                _emit(ctx, "Aborted.", level="warning", stage="cli", console_markup="\n[red]Aborted.[/red]")
                 raise typer.Exit(1) from None
 
         if chosen not in ("flow1", "flow2", "flow3"):
-            console.print(f"[red]Invalid flow: {chosen}[/red] (use flow1, flow2, or flow3)")
+            msg = f"Invalid flow: {chosen} (use flow1, flow2, or flow3)"
+            _emit(ctx, msg, level="error", stage="g2_flow_select", console_markup=f"[red]{msg}[/red]")
             raise typer.Exit(1)
 
         set_selected_flow(ctx, chosen)
-        console.print(f"[bold]Flow[/bold] {chosen}")
+        _emit(ctx, f"Flow {chosen}", level="info", stage="g2_flow_select", console_markup=f"[bold]Flow[/bold] {chosen}")
         if chosen == "flow1":
             run_flow1(ctx, from_stage=flow_from_stage)
-            console.print(f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
+            _emit(ctx, f"Master: {ctx.path('flow_1_master/master.wav')}", level="success", stage="flow1", console_markup=f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
         elif chosen == "flow2":
             run_flow2(ctx, from_stage=flow_from_stage)
-            console.print(f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
+            _emit(ctx, f"Master: {ctx.path('flow_2_highlights/master.wav')}", level="success", stage="flow2", console_markup=f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
         else:
             run_flow3(ctx, from_stage=flow_from_stage)
-            console.print(
-                f"[green]Show description:[/green] {ctx.path('flow_3_description/show_description.md')}"
-            )
+            desc = str(ctx.path("flow_3_description/show_description.md"))
+            _emit(ctx, f"Show description: {desc}", level="success", stage="flow3", console_markup=f"[green]Show description:[/green] {desc}")
     return ctx
 
 
@@ -183,11 +211,17 @@ def analysis_cmd(
 ) -> None:
     _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers or None)
     ctx = _open_run(run_id)
-    console.print(f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}")
+    _emit(
+        ctx,
+        f"Run {ctx.run_id} → {ctx.run_dir}",
+        level="info",
+        stage="cli",
+        console_markup=f"[bold]Run[/bold] {ctx.run_id} → {ctx.run_dir}",
+    )
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
         run_analysis(ctx, from_stage=from_stage)
-    console.print("[green]Analysis complete.[/green] Resolve G1 if needed, then run flow.")
+    _emit(ctx, "Analysis complete. Resolve G1 if needed, then run flow.", level="success", stage="cli", console_markup="[green]Analysis complete.[/green] Resolve G1 if needed, then run flow.")
 
 
 @app.command("flow")
@@ -207,20 +241,21 @@ def flow_cmd(
     _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers or None)
     ctx = _open_run(run_id)
     set_selected_flow(ctx, flow)
-    console.print(f"[bold]Flow[/bold] {flow} on {ctx.run_id}")
-    if flow == "flow1":
-        run_flow1(ctx, from_stage=from_stage)
-        console.print(f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
-    elif flow == "flow2":
-        run_flow2(ctx, from_stage=from_stage)
-        console.print(f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
-    elif flow == "flow3":
-        run_flow3(ctx, from_stage=from_stage)
-        console.print(
-            f"[green]Show description:[/green] {ctx.path('flow_3_description/show_description.md')}"
-        )
-    else:
-        raise typer.BadParameter("flow must be flow1, flow2, or flow3")
+    _emit(ctx, f"Flow {flow} on {ctx.run_id}", level="info", stage="g2_flow_select", console_markup=f"[bold]Flow[/bold] {flow} on {ctx.run_id}")
+    with run_directory_lock(ctx.run_id):
+        _cli_write_approval_gate(ctx)
+        if flow == "flow1":
+            run_flow1(ctx, from_stage=from_stage)
+            _emit(ctx, f"Master: {ctx.path('flow_1_master/master.wav')}", level="success", stage="flow1", console_markup=f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
+        elif flow == "flow2":
+            run_flow2(ctx, from_stage=from_stage)
+            _emit(ctx, f"Master: {ctx.path('flow_2_highlights/master.wav')}", level="success", stage="flow2", console_markup=f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
+        elif flow == "flow3":
+            run_flow3(ctx, from_stage=from_stage)
+            desc = str(ctx.path("flow_3_description/show_description.md"))
+            _emit(ctx, f"Show description: {desc}", level="success", stage="flow3", console_markup=f"[green]Show description:[/green] {desc}")
+        else:
+            raise typer.BadParameter("flow must be flow1, flow2, or flow3")
 
 
 @app.command("serve")

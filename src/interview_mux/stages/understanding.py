@@ -151,6 +151,11 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
         "operator_overrides": prior_overrides,
     }
     ctx.write_json("understanding/source_acoustic_profile.json", profile)
+    ctx.log(
+        f"Source acoustic profile complete — pace={pacing.get('pace_class', 'unknown')}.",
+        level="success",
+        stage="source_acoustic_profile",
+    )
     ctx.mark_done("source_acoustic_profile")
 
 

@@ -1,0 +1,10 @@
+# Optional spike dependencies (local STT + local LLM on Apple Silicon).
+# Not installed by default bootstrap (requirements.lock). Install when needed:
+#   pip install -r requirements-spike.lock
+#
+# Doc: docs/cross-cutting/anchored-toolchain.md
+
+faster-whisper==1.1.1
+huggingface_hub==0.26.5
+mlx==0.22.1
+mlx-lm==0.21.5

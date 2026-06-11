@@ -13,86 +13,93 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | **Arbiter** | `shipped` \| `missing` \| `—` (non-LLM) |
 | **Lint** | `shipped` \| `missing` \| `—` |
 | **Crossval** | checkpoint id or `—` |
-| **Preflight** | `shipped` \| `partial` \| `missing` \| `—` |
+| **Preflight** | `shipped` \| `partial` \| `missing` \| `shipped (G0 gate)` \| `—` |
 | **Examples** | `full` \| `compact` \| `doc_only` \| `missing` |
+| **Loop budget** | `shipped` \| `partial` \| `—` (via `attempt_budget.py`; LLM stages only) |
 | **Status** | `shipped` (target) \| `in_progress` \| `blocked` |
+
+**Lint column note:** `placement_apply` marks non-LLM mix stages where `apply_placement_adjustments` in `placement_qa.py` applies post-SFX hints — not arbiter lint.
+
+**Preflight note:** G0 is enforced before first LLM stages via `check_transcript_review_pending` in `llm_preflight.py` (`speaker_roles`, `content_context`, …) — not a separate OpenAI preflight on `transcript_review` itself.
 
 ---
 
 ## P0 — Foundation (errors poison downstream)
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `speaker_roles` | P0 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `content_context` | P0 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `boundary_detection` | P0 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `segment_classification` | P0 | shipped | shipped | shipped | `post_segmentation` | shipped | full | shipped |
-| `content_brief_reanchor` | P0 | shipped | shipped | shipped | `post_reanchor` | shipped | full | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `speaker_roles` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `content_context` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `boundary_detection` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `segment_classification` | P0 | shipped | shipped | shipped | `post_segmentation` | shipped | full | shipped | shipped |
+| `content_brief_reanchor` | P0 | shipped | shipped | shipped | `post_reanchor` | shipped | full | shipped | shipped |
 
 ---
 
 ## P1 — Narrative comprehension
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `missing_framing` | P1 | shipped | shipped | shipped | `post_gaps` | shipped | full | shipped |
-| `optimal_questions` | P1 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `topic_coverage_audit` | P1 | shipped | shipped | shipped | `pre_flow1` | shipped | full | shipped |
-| `narrative_arc_plan` | P1 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `full_master_ranking` | P1 | shipped | shipped | shipped | `post_ranking` | shipped | full | shipped |
-| `edl_narrative_audit` | P1 | shipped | shipped | shipped | `post_edl_audit` | shipped | full | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `missing_framing` | P1 | shipped | shipped | shipped | `post_gaps` | shipped | full | shipped | shipped |
+| `optimal_questions` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `topic_coverage_audit` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `narrative_arc_plan` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `full_master_ranking` | P1 | shipped | shipped | shipped | `post_ranking` | shipped | full | shipped | shipped |
+| `edl_narrative_audit` | P1 | shipped | shipped | shipped | `post_edl_audit` | shipped | full | shipped | shipped |
 
 ---
 
 ## P2 — Sound design + API spend
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `sound_design_palettes` | P2 | shipped | shipped | shipped | `post_sound_palettes` | shipped | full | shipped |
-| `sound_design_plan_flow1` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped |
-| `sound_design_plan_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped |
-| `elevenlabs_prompt_craft` | P2 | shipped | shipped | shipped | `pre_elevenlabs_spend` | shipped | compact | shipped |
-| `elevenlabs_sfx_flow1` | P2 | — | — | — | `pre_mix_flow1` | partial | doc_only | shipped |
-| `elevenlabs_sfx_flow2` | P2 | — | — | — | `pre_mix_flow2` | partial | doc_only | shipped |
-| `mix_flow1` | P2 | — | — | placement_apply | `pre_mix_flow1` | — | doc_only | shipped |
-| `mix_flow2` | P2 | — | — | placement_apply | `pre_mix_flow2` | — | doc_only | shipped |
-| `podcast_sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped |
-| `sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `sound_design_palettes` | P2 | shipped | shipped | shipped | `post_sound_palettes` | shipped | full | shipped | shipped |
+| `sound_design_plan_flow1` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped | shipped |
+| `sound_design_plan_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped | shipped |
+| `elevenlabs_prompt_craft` | P2 | shipped | shipped | shipped | `pre_elevenlabs_spend` | shipped | compact | shipped | shipped |
+| `elevenlabs_sfx_flow1` | P2 | — | — | — | `pre_mix_flow1` | partial | doc_only | — | shipped |
+| `elevenlabs_sfx_flow2` | P2 | — | — | — | `pre_mix_flow2` | partial | doc_only | — | shipped |
+| `mix_flow1` | P2 | — | — | placement_apply | `pre_mix_flow1` | — | doc_only | — | shipped |
+| `mix_flow2` | P2 | — | — | placement_apply | `pre_mix_flow2` | — | doc_only | — | shipped |
+| `podcast_sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped | shipped |
+| `sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped | shipped |
 
 ---
 
 ## P3 — Polish (operator-recoverable)
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `transitions` | P3 | shipped | shipped | shipped | `post_transitions` | shipped | full | shipped |
-| `highlight_selection` | P3 | shipped | shipped | shipped | — | shipped | full | shipped |
-| `podcast_show_description` | P3 | shipped | shipped | shipped | — | shipped | full | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `transitions` | P3 | shipped | shipped | shipped | `post_transitions` | shipped | full | shipped | shipped |
+| `highlight_selection` | P3 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `podcast_show_description` | P3 | shipped | shipped | shipped | — | shipped (flow3-aware)[^flow3-preflight] | full | shipped | shipped |
+
+[^flow3-preflight]: When `selected_flow: flow3`, preflight checks `understanding/content_brief.json`, `understanding/speakers.json`, `segments/manifest.json` (analysis-only — no Flow 1 `selection.json`). Flow 1 path still requires `flow_1_master/selection.json`.
 
 ---
 
 ## P4 — Upstream non-LLM gates
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `transcript_review_build` | P4 | — | — | — | — | — | doc_only | shipped |
-| `transcript_review` (G0) | P4 | — | — | — | — | shipped | doc_only | shipped |
-| `disfluency_extract` | P4 | — | — | — | — | — | doc_only | shipped |
-| `disfluency_review` (G0.5) | P4 | — | — | — | — | — | doc_only | shipped |
-| `source_acoustic_profile` | P4 | — | — | — | — | — | doc_only | shipped |
-| `sound_design_vo_finalize` | P4 | — | — | — | — | partial | doc_only | shipped |
-| `assembly_preview` | P4 | — | — | — | — | — | doc_only | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `transcript_review_build` | P4 | — | — | — | — | — | doc_only | — | shipped |
+| `transcript_review` (G0) | P4 | — | — | — | — | shipped (G0 gate) | doc_only | — | shipped |
+| `disfluency_extract` | P4 | — | — | — | — | — | doc_only | — | shipped |
+| `disfluency_review` (G0.5) | P4 | — | — | — | — | — | doc_only | — | shipped |
+| `source_acoustic_profile` | P4 | — | — | — | — | — | doc_only | — | shipped |
+| `sound_design_vo_finalize` | P4 | — | — | — | — | partial | doc_only | — | shipped |
+| `assembly_preview` | P4 | — | — | — | — | — | doc_only | — | shipped |
 
 ---
 
 ## Meta + specialists
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|--------|
-| `_arbiter` | meta | shipped | — | — | — | — | doc_only | shipped |
-| `comprehension_risk_blind` | P1 specialist | shipped | — | — | — | — | full | shipped |
-| `theme_coverage_pass` | P0 specialist | shipped | — | — | — | — | full | shipped |
-| `emphasis_coverage_pass` | P1 specialist | shipped | — | — | — | — | full | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
+| `_arbiter` | meta | shipped | — | — | — | — | doc_only | — | shipped |
+| `comprehension_risk_blind` | P1 specialist | shipped | — | — | — | — | full | — | shipped |
+| `theme_coverage_pass` | P0 specialist | shipped | — | — | — | — | full | — | shipped |
+| `emphasis_coverage_pass` | P1 specialist | shipped | — | — | — | — | full | — | shipped |
 
 ---
 
@@ -105,6 +112,8 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | Arbiter rubrics | `docs/prompts/_shared/arbiter-rubrics/*.json` · [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) |
 | Cross-validate | `src/interview_mux/artifact_cross_validate.py`, `sdp_cross_validate.py` |
 | Attempt budget | `src/interview_mux/attempt_budget.py` |
+| Local volley framer | `src/interview_mux/local_volley_framer.py` — `prepare_volley_for_llm` |
+| Stage guidance | `src/interview_mux/stage_guidance.py` — GUI journey copy + gate CTAs |
 | Flow hardening | `src/interview_mux/llm_flow_hardening.py` |
 | Examples | `docs/prompts/_shared/examples/` |
 | Scenario atlas | [interview-scenario-atlas.md](../prompts/_shared/interview-scenario-atlas.md) |

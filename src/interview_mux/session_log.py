@@ -30,6 +30,7 @@ def append_log(
     stage: str | None = None,
     detail: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Append to gui_log.jsonl. Levels: info, success, warning, error; action is GUI-only milestone."""
     entry: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "level": level,
