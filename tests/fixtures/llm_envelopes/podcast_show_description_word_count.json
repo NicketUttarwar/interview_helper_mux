@@ -1,0 +1,8 @@
+{
+  "stage_key": "podcast_show_description",
+  "expected_substring": "word_count",
+  "artifacts": {
+    "word_count": 50,
+    "description_markdown": "Too short."
+  }
+}

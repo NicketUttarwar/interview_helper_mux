@@ -24,6 +24,7 @@ from interview_mux.run_context import RunContext
 
 PersistFn = Callable[[RunContext, dict[str, Any]], None]
 SyncFn = Callable[[RunContext, dict[str, Any]], None]
+PostLoopHook = Callable[[RunContext, str, dict[str, Any], dict[str, Any], list[str], bool], None]
 
 
 def _attempt_signature(
@@ -38,7 +39,34 @@ def _attempt_signature(
     )
 
 
-def run_analysis_llm_stage(
+def _maybe_legacy_flow_persist(
+    ctx: RunContext,
+    *,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any] | None,
+    schema_errors: list[str],
+    output_rel: str | None,
+    persist_artifacts: PersistFn,
+) -> None:
+    """Flow-only: persist top-level envelope keys when artifacts wrapper is absent."""
+    if output_rel is None:
+        return
+    artifacts = envelope.get("artifacts") or {}
+    if artifacts or envelope.get("artifacts") is not None:
+        return
+    from interview_mux.analysis_memory import should_persist_artifacts
+
+    legacy = {k: v for k, v in envelope.items() if k not in ("status", "needs", "memory_updates")}
+    if legacy and should_persist_artifacts(
+        arbiter_result,
+        {"artifacts": legacy, "status": envelope.get("status")},
+        schema_errors,
+    ):
+        persist_artifacts(ctx, legacy)
+
+
+def _run_llm_stage_loop(
     ctx: RunContext,
     stage_key: str,
     prompt_rel: str,
@@ -47,21 +75,25 @@ def run_analysis_llm_stage(
     *,
     sync_fn: SyncFn | None = None,
     max_iterations: int | None = None,
-    auto_complete: bool = True,
-) -> dict[str, Any]:
-    """Run one analysis LLM stage with inner retry loop until complete or max attempts."""
+    output_rel: str | None = None,
+    post_loop_hook: PostLoopHook | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], list[str], bool]:
+    """Shared inner retry loop for analysis and flow LLM stages."""
     from interview_mux.analysis_orchestrator import max_iterations_for_stage
+    from interview_mux.attempt_budget import check_primary_budget
 
-    ensure_analysis_workspace(ctx)
     limit = max_iterations or max_iterations_for_stage(ctx)
     last_envelope: dict[str, Any] = {}
-    last_volley: list[dict[str, str]] = []
     last_arbiter: dict[str, Any] = {}
     last_schema_errors: list[str] = []
     last_routed_via_collate = False
     prev_signature: tuple[Any, ...] | None = None
 
     for attempt in range(1, limit + 1):
+        budget_msg = check_primary_budget(ctx, stage_key)
+        if budget_msg:
+            ctx.log(budget_msg, level="action", stage=stage_key)
+            raise SystemExit(budget_msg)
         stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
         envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
             ctx,
@@ -82,8 +114,16 @@ def run_analysis_llm_stage(
             persist_artifacts=persist_artifacts,
             sync_fn=sync_fn,
         )
+        _maybe_legacy_flow_persist(
+            ctx,
+            stage_key=stage_key,
+            envelope=envelope,
+            arbiter_result=arbiter_result,
+            schema_errors=schema_errors,
+            output_rel=output_rel,
+            persist_artifacts=persist_artifacts,
+        )
         last_envelope = envelope
-        last_volley = volley
         last_arbiter = arbiter_result or {}
         last_schema_errors = schema_errors
         routing = envelope.get("_routing_meta") or {}
@@ -116,25 +156,61 @@ def run_analysis_llm_stage(
                 routed_via_collate=last_routed_via_collate,
             ):
                 break
-        if status == "blocked":
-            ctx.log(
-                f"Stage {stage_key} blocked: {envelope.get('needs')}",
-                level="warning",
-                stage=stage_key,
-            )
-            break
-        if attempt < limit and (status in ("partial", "needs_input") or blocking_needs):
+        if attempt < limit and (
+            status in ("partial", "needs_input")
+            or (status == "blocked" and blocking_needs)
+            or blocking_needs
+        ):
             ctx.log(
                 f"Stage {stage_key} attempt {attempt}/{limit}: {status} — retrying with updated memory",
                 level="info",
                 stage=stage_key,
             )
             continue
+        if status == "blocked":
+            ctx.log(
+                f"Stage {stage_key} blocked: {envelope.get('needs')}",
+                level="warning",
+                stage=stage_key,
+            )
         break
 
+    if post_loop_hook is not None:
+        post_loop_hook(ctx, stage_key, last_envelope, last_arbiter, last_schema_errors, last_routed_via_collate)
+
+    return last_envelope, last_arbiter, last_schema_errors, last_routed_via_collate
+
+
+def run_analysis_llm_stage(
+    ctx: RunContext,
+    stage_key: str,
+    prompt_rel: str,
+    build_stage_input: Callable[[RunContext], dict[str, Any]],
+    persist_artifacts: PersistFn,
+    *,
+    sync_fn: SyncFn | None = None,
+    max_iterations: int | None = None,
+    auto_complete: bool = True,
+) -> dict[str, Any]:
+    """Run one analysis LLM stage with inner retry loop until complete or max attempts."""
     from interview_mux.analysis_memory import update_completion_from_analysis
 
-    update_completion_from_analysis(ctx)
+    ensure_analysis_workspace(ctx)
+
+    def _post_analysis(ctx_: RunContext, *_a: Any) -> None:
+        update_completion_from_analysis(ctx_)
+
+    last_envelope, last_arbiter, last_schema_errors, last_routed_via_collate = _run_llm_stage_loop(
+        ctx,
+        stage_key,
+        prompt_rel,
+        build_stage_input,
+        persist_artifacts,
+        sync_fn=sync_fn,
+        max_iterations=max_iterations,
+        post_loop_hook=_post_analysis,
+    )
+
     if last_envelope.get("status") == "complete" and llm_stage_progress_ok(
         ctx,
         stage_key,
@@ -168,65 +244,45 @@ def run_flow_llm_stage(
     persist_artifacts: PersistFn,
     *,
     output_rel: str | None = None,
+    max_iterations: int | None = None,
     auto_complete: bool = True,
 ) -> dict[str, Any]:
-    """Flow stages: single envelope call with analysis memory padding and full routing."""
+    """Flow stages: full routing with shared retry loop and analysis memory padding."""
     ensure_analysis_workspace(ctx)
-    stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
-    envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
+
+    last_envelope, last_arbiter, last_schema_errors, last_routed_via_collate = _run_llm_stage_loop(
         ctx,
         stage_key,
         prompt_rel,
-        stage_input,
-        attempt=1,
+        build_stage_input,
+        persist_artifacts,
+        max_iterations=max_iterations,
+        output_rel=output_rel,
     )
-    finalize_stage_attempt(
-        ctx,
-        stage_key,
-        1,
-        envelope,
-        volley,
-        arbiter_result,
-        schema_errors,
-        shard_count,
-        persist_artifacts=persist_artifacts,
-    )
-    routing = envelope.get("_routing_meta") or {}
-    routed_via_collate = bool(routing.get("routed_via_collate"))
-    artifacts = envelope.get("artifacts") or {}
-    if not artifacts and output_rel and envelope.get("artifacts") is None:
-        from interview_mux.analysis_memory import should_persist_artifacts
 
-        legacy = {k: v for k, v in envelope.items() if k not in ("status", "needs", "memory_updates")}
-        if legacy and should_persist_artifacts(
-            arbiter_result,
-            {"artifacts": legacy, "status": envelope.get("status")},
-            schema_errors,
-        ):
-            persist_artifacts(ctx, legacy)
-    if envelope.get("status") == "complete" and llm_stage_progress_ok(
+    if last_envelope.get("status") == "complete" and llm_stage_progress_ok(
         ctx,
         stage_key,
-        envelope,
-        schema_errors=schema_errors,
-        arbiter_result=arbiter_result,
-        routed_via_collate=routed_via_collate,
+        last_envelope,
+        schema_errors=last_schema_errors,
+        arbiter_result=last_arbiter,
+        routed_via_collate=last_routed_via_collate,
     ):
         from interview_mux.analysis_orchestrator import apply_needs_reruns, llm_stage_runners
 
-        apply_needs_reruns(ctx, stage_key, envelope, llm_stage_runners(ctx))
+        apply_needs_reruns(ctx, stage_key, last_envelope, llm_stage_runners(ctx))
 
     if auto_complete:
         complete_llm_stage_or_halt(
             ctx,
             stage_key,
-            envelope,
-            schema_errors=schema_errors,
-            arbiter_result=arbiter_result,
-            routed_via_collate=routed_via_collate,
+            last_envelope,
+            schema_errors=last_schema_errors,
+            arbiter_result=last_arbiter,
+            routed_via_collate=last_routed_via_collate,
         )
 
-    return envelope
+    return last_envelope
 
 
 # Re-export sync helpers for stage modules

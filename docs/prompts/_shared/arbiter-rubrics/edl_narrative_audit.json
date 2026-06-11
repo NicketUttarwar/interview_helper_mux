@@ -1,0 +1,25 @@
+{
+  "stage_key": "edl_narrative_audit",
+  "severity": "high",
+  "accept_criteria": [
+    "Audit validates final EDL against coverage_audit, narrative_plan, and gap clarity",
+    "Timeline continuity and chapter boundaries are checked with explicit pass/fail",
+    "Ordering constraints from full_master_ranking are respected",
+    "Material issues surfaced as gaps or suggested_investigation, not silent accept"
+  ],
+  "reject_patterns": [
+    "Final timeline breaks coverage or chapter continuity",
+    "Audit accepts EDL with known gap clarity failures",
+    "Ordering violations vs master selection without flagging",
+    "Audit references segment_ids absent from flow_1_master/edl.json"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "upstream_artifacts_complete"
+  ]
+}

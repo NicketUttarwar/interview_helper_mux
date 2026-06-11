@@ -17,6 +17,12 @@ SPECIALIST_PROMPTS: dict[str, str] = {
     "emphasis_coverage_pass": "_shared/specialists/emphasis-coverage-pass.system.txt",
 }
 
+SPECIALIST_EXAMPLE_FILES: dict[str, str] = {
+    "comprehension_risk_blind": "_shared/examples/specialists/comprehension-risk-blind.examples.md",
+    "theme_coverage_pass": "_shared/examples/specialists/theme-coverage-pass.examples.md",
+    "emphasis_coverage_pass": "_shared/examples/specialists/emphasis-coverage-pass.examples.md",
+}
+
 PRE_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "missing_framing": ("comprehension_risk_blind",),
 }
@@ -27,7 +33,9 @@ POST_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "full_master_ranking": ("comprehension_risk_blind",),
 }
 
-COMPREHENSION_RISK_THRESHOLD = 0.7
+def comprehension_risk_threshold(cfg: dict[str, Any] | None = None) -> float:
+    spec_cfg = _specialists_cfg(cfg)
+    return float(spec_cfg.get("comprehension_risk_threshold", 0.7) or 0.7)
 
 
 def _process_specialist_investigations(
@@ -36,6 +44,7 @@ def _process_specialist_investigations(
     parent_stage: str,
     specialist_key: str,
     envelope: dict[str, Any],
+    cfg: dict[str, Any] | None = None,
 ) -> int:
     """Enqueue investigations from specialist artifacts when thresholds are met."""
     artifacts = envelope.get("artifacts") or {}
@@ -46,7 +55,7 @@ def _process_specialist_investigations(
             if not isinstance(row, dict):
                 continue
             score = float(row.get("risk_score") or 0)
-            if score < COMPREHENSION_RISK_THRESHOLD:
+            if score < comprehension_risk_threshold(cfg):
                 continue
             seg = row.get("segment_id", "")
             items.append(
@@ -189,9 +198,16 @@ def run_specialist(
     parent_stage: str,
     stage_input: dict[str, Any],
 ) -> dict[str, Any]:
+    from interview_mux.prompt_examples import append_examples_to_system
+    from interview_mux.stages.llm_runner import load_system_prompt
+
     prompt_rel = SPECIALIST_PROMPTS.get(specialist_key)
     if not prompt_rel:
         raise ValueError(f"Unknown specialist: {specialist_key}")
+    system = load_system_prompt(prompt_rel, include_preamble=False)
+    example_rel = SPECIALIST_EXAMPLE_FILES.get(specialist_key)
+    if example_rel:
+        system = append_examples_to_system(system, example_rel, stage_key=specialist_key)
     volley, _ = prepare_volley_for_llm(
         ctx, parent_stage, stage_input, profile="shard", task_kind="specialist"
     )
@@ -201,6 +217,7 @@ def run_specialist(
         messages=volley,
         ctx=ctx,
         task_kind="specialist",
+        system_override=system,
     )
 
 
@@ -273,6 +290,7 @@ def maybe_run_post_stage_specialists(
                 parent_stage=stage_key,
                 specialist_key=spec_key,
                 envelope=env,
+                cfg=cfg,
             )
         except Exception as exc:
             ctx.log(

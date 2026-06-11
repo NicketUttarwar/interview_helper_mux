@@ -1,0 +1,25 @@
+{
+  "stage_key": "content_brief_reanchor",
+  "severity": "medium",
+  "accept_criteria": [
+    "Every topic has grounded segment_ids from manifest",
+    "topic_relationships present and reference valid topic names",
+    "Thesis and topic summaries preserved or improved from pass-1 brief without contradiction",
+    "Hypotheses from content_context confirmed, revised, or rejected with evidence"
+  ],
+  "reject_patterns": [
+    "Topics missing segment_ids or referencing unknown segment_ids",
+    "topic_relationships empty when multiple topics exist",
+    "Unmapped topic segment_ids (theme_unmapped) across a material portion of manifest",
+    "Partial reanchor after truncation without decompose plan"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

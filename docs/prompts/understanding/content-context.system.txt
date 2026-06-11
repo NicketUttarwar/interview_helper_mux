@@ -77,3 +77,39 @@ Place this stage artifact inside the required envelope as `artifacts`:
 Allowed `key_claims[].speaker_role` values: `interviewee`, `interviewer`.
 Allowed `key_claims[].claim_type` values: `fact`, `opinion`, `prediction`, `anecdote`, `definition`.
 Suggested `emotional_beats[].label` values: `tension`, `humor`, `vulnerability`, `triumph`, `surprise`; use another short label only when the transcript evidence needs it.
+
+## Claim typing — depth and quality bar
+
+Assign `claim_type` from **how the interviewee frames** the statement, not from your external fact-check:
+
+| claim_type | Use when |
+|------------|----------|
+| `fact` | Verifiable event, metric, date, or third-party outcome stated as true |
+| `opinion` | Judgment, preference, prediction framed as belief ("I think", "we believe") |
+| `prediction` | Forward-looking outcome with uncertainty ("will", "expect", "might") |
+| `anecdote` | Personal story illustrating a point; timeline may be approximate |
+| `definition` | Term explanation, acronym expansion, or "what X means to us" |
+
+Rules:
+- One claim per distinct assertion; split compound claims when downstream coverage needs granularity.
+- `depends_on_claim_ids` — link when claim B only makes sense after claim A (e.g. metric after product definition).
+- Dialect and idiom: preserve speaker wording in `claim` text; do not normalize to generic podcast language.
+- Lower `confidence` on claims touching `transcript_quality.flagged_chunks`.
+- **Quality bar:** Every `key_claim` must cite paraphrasable transcript support; reject boilerplate ("they're passionate about the mission") without a specific utterance.
+
+## Shard merge and collate discipline
+
+When input indicates shard or collate runs:
+
+- **Topics:** Union by normalized name (case-fold, trim); merge `approx_time_range` to earliest start / latest end; union provisional `segment_ids` when present.
+- **Claims:** Dedupe by near-identical claim text (≥85% overlap) or same `id`; keep the richer `claim_type` and merge `depends_on_claim_ids`.
+- **Tail shards:** Never drop claims or topics that appear only in non-head shards — collate is lossless for brief content.
+- **Hypotheses:** Merge `hypotheses_append` by `id` or near-identical `statement`; preserve highest `confidence` evidence note.
+- **Conflicts:** When shards disagree on `claim_type`, prefer the shard whose excerpt contains the explicit framing cue; note conflict in `reasoning_summary`.
+
+## Dialect tolerance (English variants)
+
+- Accept British, American, Indian, Australian, African, Caribbean, and mixed Englishes without "correcting" spelling in claims.
+- Homophones and STT errors: do not create claims from obvious mis-hears unless meaning is clear from context; flag low confidence instead.
+- Untranslated non-English phrases: include in claim text as spoken; add plain gloss in `jargon_glossary` when the term blocks comprehension.
+- `format_class: debate` or `panel` may yield overlapping opinions — use `opinion` vs `fact` carefully when guests disagree.

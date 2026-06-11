@@ -35,6 +35,12 @@
       "sfx_brief": { "tier": "economy" }
     }
   },
+  "_comment_sound_design": "SDP asset caps and post-generation placement QA",
+  "sound_design": {
+    "max_assets_flow1": 6,
+    "max_assets_flow2": 4,
+    "placement_qa_enabled": true
+  },
   "_comment_mix_engine": "crossfade_ms_* and preclean acknowledgment for step-through runner",
   "mix": {
     "crossfade_ms_flow1": 100,
@@ -99,10 +105,12 @@
     "max_queue_drains_per_stage": 5,
     "max_volley_retries": 2,
     "specialists": {
-      "enabled": true
+      "enabled": true,
+      "comprehension_risk_threshold": 0.7
     },
     "prompt_examples": {
-      "enabled": true
+      "enabled": true,
+      "mode": "full"
     },
     "context": {
       "transcript_excerpt_chars": 12000,
@@ -122,6 +130,24 @@
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,
       "max_highlight_clips": 5
+    },
+    "flow_hardening": {
+      "enabled": true,
+      "strict_critical_stages": true,
+      "preflight_enabled": true,
+      "cross_validate_enabled": true,
+      "max_primary_attempts_per_stage": 4,
+      "max_arbiter_rejects_per_stage": 3,
+      "max_investigation_reruns_per_kind": 2,
+      "stuck_signature_threshold": 2,
+      "spend_block_stages": [
+        "elevenlabs_prompt_craft",
+        "elevenlabs_sfx_flow1",
+        "elevenlabs_sfx_flow2",
+        "mix_flow1",
+        "mix_flow2"
+      ],
+      "block_mix_without_sfx_when_enabled": true
     }
   }
 }

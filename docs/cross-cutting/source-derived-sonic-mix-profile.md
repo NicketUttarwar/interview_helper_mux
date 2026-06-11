@@ -211,6 +211,16 @@ flowchart TB
 
 Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 
+### Volley consumption by sound stage
+
+| Stage | SAP fields read (volley / `build_input`) | On-disk SAP path |
+|-------|------------------------------------------|------------------|
+| `sound_design_palettes` | `room_timbre_hint`, `mix_contract`, `pace_class`, `prompt_tokens` | `understanding/source_acoustic_profile.json` |
+| `sound_design_plan_flow1` | `placement_hints`, `stinger_max_per_minute`, `mix_contract` | same |
+| `sound_design_plan_flow2` | `placement_hints`, `mix_contract`, montage density hints | same |
+| `elevenlabs_prompt_craft` | `prompt_tokens`, `musical_intent`, `mix_contract`, `pace_class` | same |
+| `mix_flow1` / `mix_flow2` | `duck_under_speech_db`, pause-tail placement via `mix_contract` | same (not re-injected at mix; read from disk in `sound_design.py`) |
+
 ---
 
 ## Holistic integration with generated assets

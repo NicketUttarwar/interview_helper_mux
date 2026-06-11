@@ -33,6 +33,7 @@ Condensed themes (add rows sparingly). Tier: **T0** quick try, **T1** new artifa
 | Flow 1 narrative | Pacing + lexical signals for order and transitions — **Spec:** [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) | T1 |
 | Flow 1 sound | CLAP-style semantic retrieval; events (laughter) for sting safety | T1 |
 | Flow 1/2 sound | ElevenLabs craft + post-gen placement — [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) (docs shipped); per-run mix baseline — [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) | T1 |
+| Placement QA v2 | Spectral spike / intelligibility analysis on mixed stems (RMS/peak vs speech windows) — defer; v1 uses file presence + level/crossfade hints only (`placement_qa.py`) | T0 |
 | Flow 2 | Audio–text retrieval + hook-first acoustic cues | T0–T1 |
 | Memory | Chunked audio + text spine; investigations on acoustic + text surprise | T1–T2 |
 | Program-wide | Audio LM “confusion map” (only with governance) | T2 |

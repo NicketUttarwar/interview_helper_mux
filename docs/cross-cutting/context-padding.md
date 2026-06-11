@@ -30,11 +30,18 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `boundary_detection` | speaker roles, content_context | themes, thesis | segment/theme kinds |
 | `segment_classification` | content_context, boundary_detection | themes, narrative, speakers | theme/segment kinds |
 | `content_brief_reanchor` | content_context, segment_classification | themes, narrative, hypotheses | theme kinds ≤2 |
+| `sound_design_palettes` | content_context, content_brief_reanchor, segment_classification | themes, narrative, style, operator_notes | theme kinds ≤2 |
 | `missing_framing` | segment_classification, content_brief_reanchor, content_context | narrative, entities, major_questions, hypotheses | gap kinds |
 | `optimal_questions` | missing_framing, content_context | style, major_questions, narrative | gap kinds |
+| `topic_coverage_audit` | content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, major_questions | theme kinds ≤2 |
+| `narrative_arc_plan` | topic_coverage_audit, optimal_questions, missing_framing, content_context | themes, narrative, style, major_questions | — |
 | `full_master_ranking` | narrative_arc_plan, topic_coverage_audit, optimal_questions, missing_framing | themes, narrative, style | — |
 | `highlight_selection` | content_context, missing_framing | themes, narrative, style, major_questions | ≤1 |
 | `transitions` | full_master_ranking, optimal_questions | style, narrative | — |
+| `sound_design_plan_flow1` | full_master_ranking, narrative_arc_plan, transitions, optimal_questions | style, themes, narrative | — |
+| `sound_design_plan_flow2` | highlight_selection | style, themes, narrative | — |
+| `edl_narrative_audit` | full_master_ranking, narrative_arc_plan, topic_coverage_audit, transitions, missing_framing, sound_design_plan_flow1 | style, themes, narrative, major_questions | ≤1 |
+| `elevenlabs_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
 | `sfx_brief` | highlight_selection | style, narrative | — |
 | `podcast_show_description` | content_context, speaker_roles, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
@@ -68,6 +75,10 @@ Heavy fields are stripped per stage:
 - `optimal_questions` gets gap evaluations + affected segments only
 - Flow stages get slim brief + capped manifest; ranking also gets compact `coverage_audit`, `narrative_plan`, `gap_report`
 - `transitions` gets `interviewer_sample_lines` from manifest + `gap_report`
+- `sound_design_palettes` gets compact brief + manifest + optional existing SDP stub; no raw transcript
+- `sound_design_plan_flow1` / `sound_design_plan_flow2` get compact `sound_design_plan`, selection/highlights, transitions (flow1), not full transcript
+- `edl_narrative_audit` gets slim ranking, narrative plan, coverage audit, transitions, gap summaries, SDP plan — not raw transcript
+- `elevenlabs_prompt_craft` gets compact SDP `assets[]` and coherence; not full transcript
 - `podcast_sfx_brief` / `sfx_brief` get compact `selection` (order or highlights), not full transcript
 - `podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
 

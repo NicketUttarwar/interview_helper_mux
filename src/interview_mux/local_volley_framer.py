@@ -17,6 +17,7 @@ from interview_mux.context_volley import (
 from interview_mux.local_llm_config import (
     LOCAL_FRAMER_PROMPT,
     escalate_on_parse_error,
+    force_escalate_stage,
     max_volley_turns,
     min_confidence,
     should_frame_task_kind,
@@ -91,6 +92,8 @@ def must_escalate_to_openai(
     """Code-level escalation rules (in addition to model output)."""
     if severity == "high":
         return True, "high_severity_stage"
+    if force_escalate_stage(stage_key):
+        return True, "p0_p2_quality_first_stage"
     if truncation_flags:
         return True, f"truncation:{','.join(truncation_flags)}"
     if operator_verified:

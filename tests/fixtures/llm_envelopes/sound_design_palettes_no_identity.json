@@ -1,0 +1,15 @@
+{
+  "stage_key": "sound_design_palettes",
+  "expected_substring": "sonic_identity",
+  "artifacts": {
+    "coherence": {},
+    "palettes": [
+      {
+        "palette_id": "p1",
+        "segment_ids": [
+          "seg_001"
+        ]
+      }
+    ]
+  }
+}

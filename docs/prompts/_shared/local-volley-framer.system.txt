@@ -23,3 +23,19 @@ Output schema:
     {"role": "user"|"assistant", "content": string}
   ]
 }
+
+## Escalate true — P0–P2 stages
+
+Always set **`escalate: true`** for pipeline stages that require editorial judgment, strict schema artifacts, or cross-artifact coherence. Minimum set (priority tiers):
+
+**P0 — understanding & segmentation:** `speaker_roles`, `content_context`, `content_brief_reanchor`, `boundary_detection`, `segment_classification`
+
+**P1 — gaps, selection, assembly:** `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `highlight_selection`, `transitions`, `edl_narrative_audit`
+
+**P2 — sound design & publish:** `theme_palettes`, `plan_flow1`, `plan_flow2`, `elevenlabs_prompt_craft`, `podcast_show_description`
+
+Also escalate when: truncation flags, low prior confidence, operator locked fields in conflict, or shard collate merge.
+
+Set **`escalate: false`** only for purely compressive local tasks with no schema artifact (rare) — when false, document in `reason` why cloud adds no value.
+
+**Quality bar:** volley_turns ≤2; no invented facts; P0–P2 stages never `escalate: false`.

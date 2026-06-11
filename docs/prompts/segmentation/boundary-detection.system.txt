@@ -45,3 +45,31 @@ Place this stage artifact inside the required envelope as `artifacts.boundaries`
 }
 
 Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`, `question_answer_pair`.
+
+## Crosstalk, backchannel, and panel handoffs
+
+### Crosstalk (`heavy_crosstalk` regions)
+
+- When two speakers overlap materially, prefer **one segment** spanning the exchange if a single communicative intent (one answer attempt) — do not micro-split every overlap word.
+- If overlap separates distinct intents (host interrupts to pivot topic), split at the **intent break** using `proposed_split_reason: topic_shift` or `speaker_change`.
+- Add `warnings` entry naming time range and affected `speaker_id`s; downstream classification will set `heavy_crosstalk` flag.
+- Do not invent words for unintelligible overlap; boundary text may end mid-clause with warning.
+
+### Backchannel
+
+- Brief interviewer affirmations ("yeah", "right", "mm-hmm", "sure") during a long answer: **keep inside** the interviewee answer segment unless the backchannel is a standalone turn ≥ `short_question_max_words` or changes topic.
+- Do not create micro-segments for every backchannel — quality bar is intent-level segments, not turn-level diarization.
+- Exception: isolated `interviewer_reaction` after a completed answer → split with `proposed_split_reason: pause` or `speaker_change`.
+
+### Panel handoffs
+
+- When host says "I'll go to [Guest B]" or "Back to you, [Name]", split with `proposed_split_reason: speaker_change` or `topic_shift`.
+- Short handoff + question to next guest: may remain one segment if Q+A pair rule applies (≤ `short_question_max_words` question + immediate answer).
+- `format_class: panel`: expect more `speaker_change` boundaries; chronological merge across shards must preserve guest alternation in `segment_id` order.
+- When diarization swaps `speaker_id` mid-answer, note in `warnings` rather than forcing a boundary mid-sentence unless STT fragmentation requires it.
+
+### Quality bar
+
+- Typical interview: tens of segments, not hundreds.
+- Every boundary needs defensible `proposed_split_reason`; sort monotonic; zero overlap unless documented in `warnings`.
+- Flag missing timestamps in `warnings` — do not guess `start_ms` / `end_ms`.

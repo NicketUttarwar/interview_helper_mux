@@ -1,0 +1,25 @@
+{
+  "stage_key": "boundary_detection",
+  "severity": "medium",
+  "accept_criteria": [
+    "Boundaries cover the full interview timeline without large unexplained gaps",
+    "Each boundary has valid start_ms/end_ms or segment_id aligned with transcript timing",
+    "Cut points respect natural turn boundaries and topic shifts",
+    "Shard batches collectively cover all time ranges when decomposed"
+  ],
+  "reject_patterns": [
+    "Partial boundaries with truncation_flags and no shard plan",
+    "Overlapping or non-monotonic boundary times",
+    "Boundaries that split mid-sentence without editorial justification",
+    "Empty boundaries list when transcript has substantive content"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "truncation_requires_decompose",
+    "min_row_count_met"
+  ]
+}

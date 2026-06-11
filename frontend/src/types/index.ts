@@ -501,6 +501,7 @@ export interface LlmRoutingAttempt {
   task_kind?: string;
   attempt?: number;
   verdict?: string;
+  arbiter_verdict?: string;
   arbiter_reason?: string;
   shard_count?: number;
   truncation_flags?: string[];
@@ -510,6 +511,10 @@ export interface LlmRoutingAttempt {
   model_id?: string;
   context_chars?: number;
   schema_errors?: string[];
+  deterministic_lint_errors?: string[];
+  primary_attempt_count?: number;
+  budget_remaining_primary?: number;
+  stuck_count?: number;
 }
 
 export interface ExecuteBody {

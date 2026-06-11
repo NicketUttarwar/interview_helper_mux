@@ -182,8 +182,24 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `investigation_dedupe` | `true` | Dedupe open investigations by kind+stage+target |
 | `shard_min_success_ratio` | `0.75` | Min fraction of successful shards before collate |
 | `inner_retry_require_delta` | `true` | Stop inner retries when volley/errors unchanged |
+| `max_primary_attempts_per_stage` | `4` | Cap primary OpenAI calls per stage (`attempt_budget.py`) |
+| `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
+| `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → stage treated as stuck |
+| `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per kind |
+| `spend_block_stages` | see defaults | Stages that require complete upstream SDP/craft before API spend |
+| `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix_flow*` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
 
 When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
+
+**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2`, `mix_flow1`, `mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no ElevenLabs call. Override list only for dev; production should keep defaults.
+
+**Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
+
+**Arbiter rubric optional fields** (per-stage JSON under `docs/prompts/_shared/arbiter-rubrics/`):
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `min_segment_coverage_ratio` | `0.85` (or `1.0` when manifest &lt;5 segments) | Threshold for generic `segment_coverage_ratio` lint on decompose-eligible stages |
 
 ---
 
@@ -191,11 +207,25 @@ When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before
 
 When `true` (shipped default), runs economy-tier specialist passes after `missing_framing` (pre), `segment_classification`, `topic_coverage_audit`, and `full_master_ranking` (post); enqueues investigations when thresholds are met. Omit `pilot_stages` to run all mapped stages globally.
 
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `comprehension_risk_threshold` | `0.7` | Minimum `risk_score` from `comprehension_risk_blind` specialist before enqueueing a `comprehension_risk` investigation |
+
 ---
 
-## `analysis.prompt_examples.enabled`
+## `analysis.prompt_examples`
 
-When `true` (default), appends compact good/bad examples from `docs/prompts/_shared/examples/` into system prompts for `missing_framing`, `segment_classification`, and `topic_coverage_audit`.
+Few-shot example injection into system prompts via `stages/llm_runner.py` → `load_compact_examples()`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch; when `false`, no example packs appended |
+| `mode` | `full` (shipped) | `compact` — per-stage char cap (`COMPACT_EXAMPLE_MAX_CHARS_BY_STAGE`); `full` — entire example `.md` file |
+| `stages` | *(omit = built-in list)* | Optional allowlist; when set, only listed `stage_key`s receive examples |
+
+**Built-in stages** (when `stages` omitted): all keys in `STAGE_EXAMPLE_FILES` — includes P0/P1 stages and sound-design packs when example files exist. Narrower runtime default than the full reference list in [prompts/README.md](../prompts/README.md).
+
+**If wrong:** `compact` truncates mid-pattern → model misses bad-example guardrails; `full` on very long packs increases token cost but improves quality-first runs (shipped default). Unknown `mode` falls back to `compact`.
 
 ---
 
@@ -254,6 +284,20 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — optional for main pipeline |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
+
+---
+
+## `sound_design`
+
+SDP asset caps and post-generation placement QA — [sound-design.md](./sound-design.md), [post-generation-placement.md](./post-generation-placement.md).
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `max_assets_flow1` | `6` | `sound_design.py` Flow 1 plan | Too many cues → API cost; too few → thin master |
+| `max_assets_flow2` | `4` | `sound_design.py` Flow 2 plan | Montage under-designed or over-spent |
+| `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `elevenlabs_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
+
+`placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. Does not auto-rewrite the plan; operator or re-run adjusts.
 
 ---
 

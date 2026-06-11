@@ -1,0 +1,8 @@
+{
+  "stage_key": "edl_narrative_audit",
+  "expected_substring": "invalid verdict",
+  "artifacts": {
+    "verdict": "maybe",
+    "blocking_issues": []
+  }
+}

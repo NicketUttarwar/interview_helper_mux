@@ -48,6 +48,50 @@ Set `analysis.flow_hardening.enabled: false` only for intentional legacy/dev run
 
 ---
 
+## LLM loop stuck, arbiter lint fail, SDP cross-validate recovery
+
+Symptoms from `attempt_budget.py` and `deterministic_lint.py` when quality-first routing blocks merge. Config: [config-keys.md](../cross-cutting/config-keys.md) (`max_primary_attempts_per_stage`, `stuck_signature_threshold`). Architecture: [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy).
+
+### LLM loop stuck (attempt budget exhausted)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| `primary attempt budget exhausted (N/N)` | Same stage retried without fixing root cause | `understanding/analysis_orchestration.json` `primary_attempt_counts`, latest `attempt_*.json` `budget_remaining_primary` | Fix upstream artifact cited in `gaps` / lint; `--from-stage <stage>` after edit |
+| `stuck_count` ≥ `stuck_signature_threshold` | Identical envelope signature across attempts | `attempt_*.json` `attempt_signature`, `stuck_count` | Change inputs (transcript, manifest, profile) — not just re-execute |
+| `arbiter reject budget exhausted` | Repeated `retry_uptier` / `decompose` without improvement | `arbiter_reject_counts`, `arbiter_verdict` per attempt | Fill gaps on producer JSON; verify profile `operator_verified` |
+| Stage done but artifact still `partial` | Merge blocked by lint or arbiter | `deterministic_lint_errors`, `should_merge_envelope` outcome | Complete artifact in GUI; re-run stage |
+
+**Do not** raise `max_primary_attempts_per_stage` in production to “force through” — inspect `stage_runs/<stage>/attempt_*.json` and [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md) for the stage tier.
+
+### Arbiter lint fail (deterministic pre-check)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| `deterministic_lint_errors` in attempt audit | Machine check failed before arbiter merge | Rubric `deterministic_lint_keys` in `arbiter-rubrics/<stage>.json` | Fix specific key (e.g. `schema_errors_empty`, `producer_artifact_complete`) |
+| Arbiter `accept` but merge blocked | `confidence_gte_min` or `halt_on_schema_errors_with_accept` | Envelope `confidence` vs `min_confidence_on_accept` | Re-run with stronger tier or fix truncation via decompose |
+| `cross_artifact_refs_valid` | Stage output references unknown `segment_id` | Envelope artifacts vs `segments/manifest.json` | Fix orphan ids in producer JSON; re-run upstream segmentation if manifest stale |
+| `segment_coverage_ratio` below threshold | Decompose-eligible stage cites too few manifest segments | Rubric `min_segment_coverage_ratio` (default 0.85) | Add missing segment refs or lower ratio per rubric for intentional partial coverage |
+| `min_row_count_met` | Empty speakers/boundaries when transcript warrants rows | `speakers.json`, `boundaries.json`, transcript duration | Re-run `speaker_roles` / `boundary_detection` with full volley |
+| `truncation_requires_decompose` | Volley capped; stage is decompose-eligible | `truncation_flags` in attempt | Allow `decompose` path or reduce input size upstream |
+| Low-confidence accept downgraded | `confidence < min_confidence_on_accept` | `stage_expectations` in arbiter payload | Tighten volley evidence or fix partial coverage |
+| `Mix gate:` on `mix_flow*` | `block_mix_without_sfx_when_enabled: true` and WAVs missing | `sound_design/assets/`, `pre_mix_*` cross-validate errors | Re-run `elevenlabs_sfx_flow*`; set `block_mix_without_sfx_when_enabled: false` only for dry-mix dev |
+
+Lint reference: [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) deterministic lint keys table.
+
+### Cross-validate SDP recovery
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| `Cross-artifact gate (post_sound_palettes)` | Palette `segment_id` ∉ manifest or missing `sonic_identity` | `understanding/sound_design_plan.json` `palettes`, `coherence` | Re-run `sound_design_palettes`; fix manifest first if ids wrong |
+| `post_sound_plan_flow1` / `flow2` fail | Cue anchors reference missing selection ranks or assets over cap | SDP `cues[]`, `flow_1_master/selection.json` or Flow 2 `selection.json` | Re-run `sound_design_plan_flow*` after fixing ranking/highlights |
+| `pre_elevenlabs_spend` blocked | Craft prompts missing or `asset_id` mismatch | `elevenlabs_prompts.json`, SDP `assets[]` | Re-run `elevenlabs_prompt_craft`; verify G1.5 approval if enabled |
+| `pre_mix_flow1` / `pre_mix_flow2` fail | Generated WAV missing for planned `asset_id` | `sound_design/assets/`, `.stage_done/elevenlabs_sfx_*` | Re-run generate stage; check `spend_block_stages` prerequisites |
+| Placement QA hints ignored | Beds too hot or wrong duck | `sound_design/placement_adjustments.json`, `gui_log.jsonl` | Adjust SDP cue levels; confirm `sound_design.placement_qa_enabled: true`; re-run `elevenlabs_sfx_flow*` or mix after editing adjustments |
+
+Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_prerequisites()`. Recovery playbook: fix cited producer → delete downstream `.stage_done` only if needed → `--from-stage` at failing producer.
+
+---
+
 ## LLM artifacts and validation
 
 | Symptom | Likely cause | Inspect | Action |

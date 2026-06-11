@@ -56,6 +56,15 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `audio_timeline.py` | WAV duration, crossfade concat, chunk-by-bytes | gap-closure GC-F1 |
 | `operator_quality.py` | Preclean checkpoints, `qc_summaries` on `run_meta` | gap-closure GC-F1/F3 |
 | `mix_completeness.py` | VO/SFX completeness gate after `mix_flow1`/`mix_flow2` | gap-closure orchestration |
+| `arbiter_expectations.py` | Load per-stage arbiter rubrics; merge into routing payload | LLM guidance |
+| `deterministic_lint.py` | Pre-arbiter generic + stage-specific lint | LLM guidance |
+| `attempt_budget.py` | Per-stage primary/arbiter attempt budgets | LLM guidance |
+| `sdp_cross_validate.py` | Sound-design plan cross-artifact checks | LLM guidance |
+| `placement_qa.py` | Post-SFX placement hints; `apply_placement_adjustments` at mix | LLM guidance |
+| `artifact_cross_validate.py` | Hard/soft cross-artifact gates after LLM stages | LLM guidance |
+| `llm_preflight.py` | Upstream artifact preflight before LLM calls | LLM guidance |
+| `llm_flow_hardening.py` | Spend gates, `complete_llm_stage_or_halt`, mix block | LLM guidance |
+| `prompt_examples.py` | Shared example-pack injection for system prompts | LLM guidance |
 
 ### Stages (`src/interview_mux/stages/`)
 

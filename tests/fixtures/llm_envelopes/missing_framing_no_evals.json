@@ -1,0 +1,7 @@
+{
+  "stage_key": "missing_framing",
+  "expected_substring": "gap evaluations",
+  "artifacts": {
+    "evaluations": []
+  }
+}

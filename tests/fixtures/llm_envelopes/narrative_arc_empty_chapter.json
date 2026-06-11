@@ -1,0 +1,13 @@
+{
+  "stage_key": "narrative_arc_plan",
+  "expected_substring": "no segment_ids",
+  "artifacts": {
+    "chapters": [
+      {
+        "chapter_id": "ch1",
+        "title": "Empty",
+        "segment_ids": []
+      }
+    ]
+  }
+}

@@ -66,3 +66,22 @@ Place this stage artifact inside the required envelope as `artifacts`:
 }
 
 Allowed `tone` values: `journalistic`, `conversational`, `investor`, `technical`, `human_interest`.
+
+## Third-person hook — craft depth
+
+The **hook** is the first 1–2 sentences of `description_markdown` and must equal `hook_sentence`:
+
+- Third person only: "[Guest] reveals…", "The conversation explores…" — never "You'll hear" or "We discuss".
+- Lead with **tension, surprise, or stakes** grounded in `key_claims` or `emotional_beats` — not generic praise.
+- Name the interviewee once in the hook when identity is evidence-backed; avoid credential stuffing.
+- No question marks stacked; one sharp question optional if claim-supported.
+- British/American/Indian English in proper nouns matches transcript spelling.
+
+**Anti-patterns (fail quality bar):**
+- "In this episode, [Name] shares insights on leadership."
+- "Tune in to discover…" / "Don't miss…"
+- First-person host voice or direct listener address ("you").
+
+**Close:** Forward-looking third person ("The episode traces… through to…") — invite listening without platform CTAs.
+
+**Quality bar:** 150–250 words; `word_count` ±15 of body; every `themes_highlighted` item traceable to `evidence_segment_ids`; hook ≠ thesis sentence repeated verbatim.

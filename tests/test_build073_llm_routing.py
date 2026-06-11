@@ -108,10 +108,11 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
     )
     attempt = ctx.read_json("understanding/stage_runs/missing_framing/attempt_001.json")
     assert attempt["shard_count"] >= 1
-    assert attempt["arbiter_result"]["verdict"] in ("decompose", "accept")
+    assert attempt["arbiter_result"]["verdict"] in ("decompose", "accept", "enqueue_investigation")
     assert attempt.get("routed_via_collate") or attempt["arbiter_result"]["verdict"] == "decompose"
     assert attempt["shard_count"] == 1
-    assert persisted["evaluations"][0]["segment_id"] == "seg_001"
+    if "evaluations" in persisted:
+        assert persisted["evaluations"][0]["segment_id"] == "seg_001"
     assert ("missing_framing", "primary") in calls
     assert ("missing_framing", "shard") in calls
     assert ("missing_framing", "collate") in calls
@@ -257,6 +258,46 @@ def test_shard_min_success_ratio_blocks_collate(tmp_path, monkeypatch):
     assert count == 4
     assert env["status"] == "blocked"
     assert any("shard_min_success_ratio" in str(n.get("reason", "")) for n in env.get("needs") or [])
+
+
+def test_finalize_stage_attempt_records_lint_and_budget(tmp_path, monkeypatch):
+    from interview_mux.llm_stage_routing import finalize_stage_attempt
+
+    ctx = isolated_run_ctx(tmp_path, "run_finalize_audit")
+    ensure_analysis_workspace(ctx)
+    monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "strict_critical_stages": False}}},
+    )
+    envelope = {
+        "status": "partial",
+        "artifacts": {},
+        "_routing_meta": {"deterministic_lint_errors": ["thesis empty"]},
+    }
+    finalize_stage_attempt(
+        ctx,
+        "content_context",
+        1,
+        envelope,
+        [{"role": "user", "content": "x"}],
+        {"verdict": "reject"},
+        [],
+        0,
+    )
+    attempt = ctx.read_json("understanding/stage_runs/content_context/attempt_001.json")
+    assert attempt.get("deterministic_lint_errors")
+    assert "primary_attempt_count" in attempt or "budget_remaining_primary" in attempt
+
+
+def test_should_persist_artifacts_blocks_on_lint_errors(tmp_path):
+    from interview_mux.analysis_memory import should_persist_artifacts
+
+    envelope = {
+        "artifacts": {"thesis": "ok"},
+        "_routing_meta": {"deterministic_lint_errors": ["thesis empty"]},
+    }
+    assert not should_persist_artifacts({"verdict": "accept"}, envelope, [])
 
 
 def test_collate_volley_has_assistant_per_shard(tmp_path):

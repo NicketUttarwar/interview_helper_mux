@@ -9,8 +9,8 @@
 | Knob | Risk if wrong | Guard |
 |------|----------------|-------|
 | `sound_design.enabled` | Spend on SFX when operator wants dry review | Default off or explicit opt-in; respect assembly-preview-first flow when BUILD-069 exists |
-| `max_assets_flow1` / `max_assets_flow2` | API cost + timbral soup | Cap enforced in code; plans that exceed cap → validation failure, not silent trim |
-| `g1_5_require_prompt_approval` (G1.5, shipped) | Surprise spend | When true, block ElevenLabs until operator approves crafted prompts in GUI |
+| `max_assets_flow1` / `max_assets_flow2` | API cost + timbral soup | Cap enforced in code **(enforced)** via `deterministic_lint` + `post_sound_plan_*` cross-validate |
+| `g1_5_require_prompt_approval` (G1.5, shipped) | Surprise spend | When true, block ElevenLabs until operator approves crafted prompts in GUI **(enforced)** via `pre_elevenlabs_spend` |
 | `allow_diegetic_ambient` | Music mistaken for “room” | If false, reject beds that imply performance; document in SDP `avoid` |
 
 ---
@@ -19,7 +19,7 @@
 
 | Situation | Bad outcome | Rail |
 |-----------|-------------|------|
-| No `topic_tags` on segments | Palettes float free of timeline | Require ≥1 `segment_id` per palette from manifest evidence; empty palette list → `needs_input` or merge from brief only with low confidence |
+| No `topic_tags` on segments | Palettes float free of timeline | Require ≥1 `segment_id` per palette from manifest evidence **(enforced)** at `post_sound_palettes`; empty palette list → `needs_input` or merge from brief only with low confidence |
 | Single-topic interview | Forced fake diversity | Allow 1 palette; do not invent secondary “themes” |
 | Dense jargon block | Bed under unintelligible STT | Prefer no `under_segment` until G0 clean; flag in investigations |
 | Operator `style.sound_design_notes` | Model ignores bans | Treat as hard `avoid` + density override in volley |
@@ -33,7 +33,7 @@
 | Situation | Bad outcome | Rail |
 |-----------|-------------|------|
 | Chapter with zero segments | Stinger into void | Validator: every `after_segment_id` / chapter hook resolves in `selection` |
-| Same `asset_id` not reused | One WAV per cue (v1 regression) | Schema or lint: N cues → ≤ `max_assets_flow1` unique `asset_id`s |
+| Same `asset_id` not reused | One WAV per cue (v1 regression) | Schema or lint **(enforced)**: N cues → ≤ `max_assets_flow1` unique `asset_id`s |
 | VO placement without `vo_pickup` duration | Wrong duck timing | BUILD-066: optional `sound_design_vo_finalize` after ingest of pickups |
 | `duck_under_speech_db` too small | Speech buried | Clamp in mix engine; warn in plan QA if below product minimum |
 

@@ -1,0 +1,25 @@
+{
+  "stage_key": "missing_framing",
+  "severity": "high",
+  "accept_criteria": [
+    "Gap evaluations cover manifest segments or documented exclusion rationale",
+    "Each evaluation cites segment_id and framing gap type with transcript evidence",
+    "Evaluations distinguish missing context, weak follow-up, and unanswered questions",
+    "Shard batches reach full segment coverage when max_gap_evaluations cap hit"
+  ],
+  "reject_patterns": [
+    "Partial gap coverage with truncation and no decompose",
+    "gap_evaluation segment_ids not in manifest",
+    "Evaluations that invent gaps without transcript support",
+    "Empty evaluations when manifest has interview segments"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

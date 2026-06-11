@@ -114,6 +114,33 @@ def apply_to_collate(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("apply_to_collate", True))
 
 
+# P0–P2 stages always escalate to OpenAI (quality-first; see llm-guidance-program.md).
+ALWAYS_ESCALATE_STAGES = frozenset(
+    {
+        "speaker_roles",
+        "content_context",
+        "boundary_detection",
+        "segment_classification",
+        "content_brief_reanchor",
+        "missing_framing",
+        "optimal_questions",
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "full_master_ranking",
+        "edl_narrative_audit",
+        "sound_design_palettes",
+        "sound_design_plan_flow1",
+        "sound_design_plan_flow2",
+        "elevenlabs_prompt_craft",
+        "highlight_selection",
+    }
+)
+
+
+def force_escalate_stage(stage_key: str) -> bool:
+    return stage_key in ALWAYS_ESCALATE_STAGES
+
+
 def should_frame_task_kind(task_kind: str, profile: str, cfg: dict[str, Any] | None = None) -> bool:
     if not local_llm_enabled(cfg):
         return False

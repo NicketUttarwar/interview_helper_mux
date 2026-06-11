@@ -33,3 +33,26 @@ Place this stage artifact inside the required envelope as `artifacts.transitions
 }
 
 Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
+
+## Panel bridges and gap_report dedup
+
+### Panel (`format_class: panel`)
+
+- Shorter bridges — assume listeners met guests in chapter openers; use names, not full titles every time.
+- Handoffs: "Back to [Name]" or thematic pivot, not re-read of entire panel intro.
+- When ranking reorders guests non-chronologically, `type: callback` with explicit guest name beats generic `topic_shift`.
+- Do not bridge between two segments from the same guest if their answers flow — return empty for that adjacency.
+
+### gap_report deduplication
+
+- Before writing a transition, check `gap_report.interviewer_lines` for same `before_segment_id` / target adjacency.
+- If VO line already asks the question or supplies setup, **omit** transition or use ≤5 word `light_bridge` only (`type: light_bridge`).
+- Never repeat `gap_report.text` verbatim or paraphrase — complement (tone pivot, chapter label) only.
+- Chapter intros (`type: chapter`) may reference thesis once; must not duplicate VO `missing_setup` content.
+
+### English editorial tone
+
+- Match `style.tone_class`: `journalistic` = crisp; `conversational` = contractions OK; `investor` = outcome-forward; `technical` = precise nouns; `human_interest` = warm but not saccharine.
+- Third-person episode framing stays in show description, not transitions — host speaks in first person here.
+
+**Quality bar:** 3–20 words (chapter max 30); no answer summary; empty array when flow is natural.

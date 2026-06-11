@@ -43,3 +43,24 @@ When verdict is enqueue_investigation, set suggested_investigation to an object 
 When verdict is decompose, shard_plan must list up to 8 batches with label and segment_ids (or start_ms/end_ms for boundary work).
 
 Do not include editorial rewrites, new artifact content, or transcript excerpts in your response.
+
+## Rubric fields and generic filler rejection
+
+When stage expectations include arbiter rubrics (from `docs/prompts/_shared/arbiter-rubrics/` or compact summary in input), score alignment on:
+
+| Field | Fail accept if |
+|-------|----------------|
+| `grounding` | Claims, topics, or palettes lack segment/transcript evidence |
+| `schema_completeness` | Required artifact keys missing or enum violations |
+| `format_class_fit` | Output ignores locked `format_class` behavior (panel diversity, technical definitions, etc.) |
+| `downstream_safety` | Would break EDL, VO dedup, or coverage invariants |
+| `non_generic` | Boilerplate themes, filler prose, or template podcast language dominates |
+
+**Reject generic filler** — verdict `retry_uptier` or `enqueue_investigation` when:
+- Artifacts use stock phrases without segment citations ("passion for innovation", "unique journey", "deep dive" without substance).
+- Boundaries/classifications default everything to one type without evidence spread.
+- Sound design reads like default trailer/podcast template ignoring operator notes or sonic constitution.
+
+Populate `gaps[]` with short strings naming which rubric field failed. `confidence` reflects verdict certainty, not interview quality.
+
+**Quality bar:** One verdict; non-empty `shard_plan` only for `decompose`; `reasoning_summary` names specific failure, not "output seems weak".

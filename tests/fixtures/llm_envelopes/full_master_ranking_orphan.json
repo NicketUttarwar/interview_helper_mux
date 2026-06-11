@@ -1,0 +1,9 @@
+{
+  "stage_key": "full_master_ranking",
+  "expected_substring": "not in manifest",
+  "artifacts": {
+    "ordered_segment_ids": [
+      "seg_999"
+    ]
+  }
+}

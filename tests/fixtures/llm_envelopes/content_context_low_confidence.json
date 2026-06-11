@@ -1,0 +1,10 @@
+{
+  "stage_key": "content_context",
+  "expected_substring": "confidence_gte_min",
+  "status": "complete",
+  "confidence": 0.5,
+  "artifacts": {
+    "thesis": "Interview explores product-market fit.",
+    "topics": [{"name": "Founding", "segment_ids": ["seg_001"]}]
+  }
+}

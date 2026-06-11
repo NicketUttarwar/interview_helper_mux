@@ -3243,6 +3243,42 @@ code {
   margin-bottom: 1rem;
 }
 
+.lint-error-chip {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(220, 80, 60, 0.15);
+  color: #c44;
+  font-weight: 600;
+}
+
+.routing-budget-badge,
+.routing-stuck-badge {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--surface-2, rgba(128, 128, 128, 0.12));
+  color: var(--muted);
+}
+
+.placement-qa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.placement-qa-table th,
+.placement-qa-table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.2));
+}
+
+.placement-qa-card {
+  margin-top: 0.75rem;
+}
+
 .log-entry-main {
   display: flex;
   flex-wrap: wrap;

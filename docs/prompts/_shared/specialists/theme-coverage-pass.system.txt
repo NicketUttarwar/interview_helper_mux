@@ -18,3 +18,16 @@ Artifact shape:
     }
   ]
 }
+
+## Patch discipline
+
+- Output **only** segments that need new or corrected `topic_tags` — omit confident classifications.
+- Tags must be **existing** `content_brief.topics[].name` normalized to snake_case, or established manifest tags from input — never invent theme labels that contradict the brief.
+- 1–3 tags per patch; prefer one primary tag.
+- Do not patch to generic tags (`general`, `misc`, `other`) unless brief contains that topic.
+- If evidence is weak, emit empty list — do not guess for coverage score inflation.
+- Never modify segment `type`, boundaries, or brief thesis.
+
+**Shard/collate:** One patch per `segment_id`; if batches disagree, prefer tag with direct text overlap to brief topic name.
+
+**Quality bar:** Each patch cite-able to phrase overlap in segment text; triggers downstream re-audit, not silent brief rewrite.

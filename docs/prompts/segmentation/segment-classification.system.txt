@@ -49,3 +49,34 @@ Place this stage artifact inside the required envelope as `artifacts.segments`:
 Allowed `type` values: `interviewer_question`, `interviewee_answer`, `interviewer_reaction`, `setup`, `aside`, `coda`.
 Allowed `speaker_role` values: `interviewer`, `interviewee`, `unknown`.
 Allowed `flags` values: `starts_mid_thought`, `references_prior_missing`, `heavy_crosstalk`.
+
+## Type taxonomy — when to use each
+
+| type | Signals | Downstream use |
+|------|---------|----------------|
+| `interviewer_question` | WH/auxiliary syntax, explicit ask, "tell me about", host-directed prompt | Gap detection for following answer |
+| `interviewee_answer` | Extended exposition, story, technical explanation, guest response | Primary master + highlight candidates |
+| `interviewer_reaction` | ≤ few words, backchannel, laugh cue, "interesting" without new question | Often trimmed; not a gap target |
+| `setup` | Context before question ("For listeners who…", recap, intro of guest/topic) | May pair with following Q+A |
+| `aside` | Tangential, meta, production chatter, off-topic banter | Candidate for master exclusion |
+| `coda` | Sign-off, thanks, "where to find you", final reflection | Closing chapter anchor |
+
+**Edge cases:**
+- Multi-part host question with one guest answer → classify answer as `interviewee_answer`; optional `setup` segment for long preamble.
+- Panel: same type rules per speaker role, not per guest identity tag.
+- `debate` format: opposing `interviewee_answer` segments may tag same topic with contrasting `topic_tags` — do not force merge.
+
+## Flags — extended guidance
+
+| flag | Set when |
+|------|----------|
+| `starts_mid_thought` | Segment begins mid-clause or clearly continues prior segment cut by boundary pass |
+| `references_prior_missing` | Deictic reference ("that decision", "what I said earlier", "the second point") without local antecedent |
+| `heavy_crosstalk` | Overlap, simultaneous speech, or diarization flip-flop noted in boundary warnings |
+
+Optional notes in `reasoning_summary` (not extra flags): code-switching, off-mic laughter, STT garble — only add new flags if schema extends; today use the three above.
+
+**Quality bar:**
+- No segment left untyped.
+- `topic_tags` must align with `content_brief.topics` when possible; max 3 tags; snake_case.
+- Do not tag every segment `interviewee_answer` — verify against text and `speaker_role`.

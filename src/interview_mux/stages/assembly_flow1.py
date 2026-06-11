@@ -263,6 +263,13 @@ def build_flow1_edl(
 
 
 def run_edl(ctx: RunContext) -> None:
+    if ctx.artifact_exists("flow_1_master/edl_narrative_audit.json"):
+        audit = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+        if str(audit.get("verdict", "")).strip().lower() == "fail":
+            raise SystemExit(
+                "edl_narrative_audit verdict is fail — fix blocking issues and re-run "
+                "edl_narrative_audit before edl_flow1."
+            )
     check_narrative_qc(ctx, stage="edl_flow1", require_selection=True)
 
     selection = ctx.read_json("flow_1_master/selection.json")
@@ -359,6 +366,9 @@ def run_edl(ctx: RunContext) -> None:
 
 
 def run_mix_flow1(ctx: RunContext) -> Path:
+    from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
+
+    require_spend_artifacts_complete(ctx, "mix_flow1")
     """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
     from interview_mux.sound_design import mix_flow1
 

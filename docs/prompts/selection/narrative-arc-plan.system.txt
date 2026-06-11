@@ -32,3 +32,21 @@ Place this stage artifact inside the required envelope as `artifacts`:
   ],
   "pacing_notes": "string"
 }
+
+## ordering_constraints — evidence and format_class
+
+`ordering_constraints` encode **editorial causality**, not recording order:
+
+- **Prerequisite topics:** If topic B depends on A in `topic_relationships`, constrain opening segment of B after closing segment of A (use real `segment_id`s from manifest).
+- **Definition before use:** Jargon-heavy `interviewee_answer` after `missing_definition` risk → constrain defining `setup` or earlier answer segment before dependent segment.
+- **Payoff after tension:** `emotional_beats` with `tension` before `triumph` when both exist — cite beat labels in `reason`.
+- **Panel:** Allow interleaved guests in recording order unless `returns_to` relationship requires callback segment after all guest threads introduced.
+- **Debate:** Constrain rebuttal segments after the claim they address when `evidence_segment_ids` support linkage.
+
+Each constraint needs:
+- `before_segment_id` — must appear **earlier** in planned arc than `after_segment_id` (narrative order, not timecode).
+- `reason` — one concrete editorial sentence; no "because better flow" without causal claim.
+
+Empty array is valid only when manifest lacks supporting relationships **and** chronological order is editorially defensible in `arc_summary`.
+
+**Quality bar:** Every chapter `suggested_open_segment_id` exists in input; constraints must survive full master ranking — do not over-constrain if evidence supports only one ordering.

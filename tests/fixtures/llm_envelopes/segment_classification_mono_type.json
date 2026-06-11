@@ -1,0 +1,16 @@
+{
+  "stage_key": "segment_classification",
+  "expected_substring": "interviewee_answer",
+  "artifacts": {
+    "segments": [
+      {
+        "segment_id": "seg_001",
+        "type": "interviewee_answer"
+      },
+      {
+        "segment_id": "seg_002",
+        "type": "interviewee_answer"
+      }
+    ]
+  }
+}

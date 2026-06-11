@@ -1,0 +1,11 @@
+{
+  "stage_key": "missing_framing",
+  "expected_substring": "segment_coverage_ratio",
+  "status": "complete",
+  "confidence": 0.9,
+  "artifacts": {
+    "evaluations": [
+      {"segment_id": "seg_001", "self_explanatory": true, "gap_type": "ok"}
+    ]
+  }
+}

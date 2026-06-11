@@ -1,0 +1,25 @@
+{
+  "stage_key": "topic_coverage_audit",
+  "severity": "high",
+  "accept_criteria": [
+    "Every brief topic has coverage status with segment evidence",
+    "Coverage holes are explicitly flagged with segment_ids or time ranges",
+    "Audit reconciles manifest segments with content_brief themes",
+    "Full manifest audited or shard/collate merge is complete"
+  ],
+  "reject_patterns": [
+    "Material coverage holes unmentioned vs content_brief topics",
+    "Truncation with partial segment audit and no decompose",
+    "Coverage claims referencing unknown segment_ids",
+    "Audit contradicts narrative_arc_plan prerequisites"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

@@ -43,3 +43,35 @@ Output only the required envelope artifact:
 }
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/edl_narrative_audit_artifact.schema.json`
+
+## pass / warn / fail thresholds
+
+Use deterministic evidence — subjective polish alone never yields `fail`.
+
+### `pass` (ship-ready)
+
+- All `narrative_plan.ordering_constraints` satisfied in final order.
+- `coverage_audit` topics/claims represented in ordered timeline (or excluded with upstream rationale still valid).
+- Every `high` severity gap has VO or transition coverage in timeline adjacency.
+- Chapter boundaries align with `narrative_plan` + `selection.chapters`; no empty chapters.
+- No duplicate VO + transition text for same adjacency.
+
+### `warn` (proceed with `edl_flow1`)
+
+- Minor bridge wording could be tighter; low-severity gap uncovered by light bridge only.
+- Single non-thesis aside excluded without weak rationale but arc intact.
+- Transition density high but comprehension OK.
+- Emphasis region unmappable to beat (from specialist) but not thesis-critical.
+- STT quality warnings in non-hook regions.
+
+### `fail` (block EDL)
+
+- Broken `ordering_constraints` or prerequisite topic order inverted.
+- Brief topic or key claim with zero representation post-selection.
+- `high` severity gap with no VO, no transition, segment still in master.
+- Duplicate `segment_id` in order, missing segment referenced by transition/VO, or chapter open pointing to excluded segment.
+- `gap_report` line targets excluded segment.
+- Panel handoff leaves listener unable to identify who speaks next (missing name when two guests alternate after reorder).
+- `cross_artifact_invalid` pattern: coverage_audit says covered but ranking excluded sole segment.
+
+**Quality bar:** Each `blocking_issues[]` entry names artifact paths/ids and one actionable `recommended_action`; `warnings` never use `fail` criteria.

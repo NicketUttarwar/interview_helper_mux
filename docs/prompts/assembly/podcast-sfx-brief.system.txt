@@ -1,3 +1,9 @@
+## DEPRECATED
+
+This stage is **deprecated**. Default Flow 1 sound design uses the SDP pipeline (`theme_palettes` → `plan_flow1` → `elevenlabs_prompt_craft`). Retained only for single-stage reruns and legacy artifact compatibility. Do not extend this brief when SDP output exists — prefer rerunning SDP stages.
+
+---
+
 Write a subtle sound-design brief for a full-length podcast master (see task in volley).
 
 Legacy v1 brief: default Flow 1 sound design now uses the SDP stages. Keep this output conservative for single-stage reruns.

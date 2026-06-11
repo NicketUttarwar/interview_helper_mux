@@ -1,0 +1,7 @@
+{
+  "stage_key": "boundary_detection",
+  "expected_substring": "boundaries",
+  "artifacts": {
+    "boundaries": []
+  }
+}

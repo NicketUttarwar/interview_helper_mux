@@ -87,6 +87,9 @@ def _update_segment_timing(
 
 def mix_flow1(ctx: RunContext) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
+    from interview_mux.placement_qa import maybe_run_placement_qa
+
+    maybe_run_placement_qa(ctx)
     contract = mix_contract(ctx)
     profile = load_profile(ctx)
     pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
@@ -100,6 +103,7 @@ def mix_flow1(ctx: RunContext) -> Path:
     )
     crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
     disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
+    speech_join_crossfades = _flow1_speech_join_crossfades(ctx)
     words = _transcript_words(ctx)
     ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
     edl = ctx.read_json("flow_1_master/edl.json")
@@ -111,6 +115,7 @@ def mix_flow1(ctx: RunContext) -> Path:
     vo_count = 0
     disfluency_count = 0
     missing_vo: list[str] = []
+    prev_speech_seg_id = ""
 
     for clip in edl.get("clips") or []:
         ctype = str(clip.get("type") or "")
@@ -123,7 +128,14 @@ def mix_flow1(ctx: RunContext) -> Path:
                 t0 = int(clip.get("timeline_start_ms", len(base)))
                 _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
             speech_count += 1
-            clip_crossfade = crossfade_ms
+            join_key = (prev_speech_seg_id, seg_id) if prev_speech_seg_id and seg_id else None
+            clip_crossfade = (
+                speech_join_crossfades[join_key]
+                if join_key and join_key in speech_join_crossfades
+                else crossfade_ms
+            )
+            if seg_id:
+                prev_speech_seg_id = seg_id
         elif ctype == "vo_pickup":
             src_rel = clip.get("source_path")
             line_id = str(clip.get("line_id") or "")
@@ -245,6 +257,9 @@ def mix_flow1(ctx: RunContext) -> Path:
 
 def mix_flow2(ctx: RunContext) -> Path:
     """Build Flow 2 montage assembly: highlights + SDP cold open / transitions / outro."""
+    from interview_mux.placement_qa import maybe_run_placement_qa
+
+    maybe_run_placement_qa(ctx)
     contract = mix_contract(ctx)
     crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow2", 120))
     words = _transcript_words(ctx)
@@ -288,12 +303,16 @@ def mix_flow2(ctx: RunContext) -> Path:
             mix = slice_audio
             speech_montage = slice_audio
         else:
-            mix = _append_mix_clip(mix, slice_audio, crossfade_ms)
-            speech_montage = _append_mix_clip(speech_montage, slice_audio, crossfade_ms)
+            rank = int(hl.get("rank") or (i + 1))
+            prev_rank = int((highlights[i - 1] or {}).get("rank") or i)
+            _, join_cf = resolve_between_clip_transition(cue_plan, prev_rank, rank)
+            clip_crossfade = join_cf if join_cf is not None else crossfade_ms
+            mix = _append_mix_clip(mix, slice_audio, clip_crossfade)
+            speech_montage = _append_mix_clip(speech_montage, slice_audio, clip_crossfade)
         rank = int(hl.get("rank") or (i + 1))
         if i + 1 < len(highlights):
             next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
-            trans = resolve_between_clip_transition(cue_plan, rank, next_rank)
+            trans, _trans_cf = resolve_between_clip_transition(cue_plan, rank, next_rank)
             if trans is not None:
                 mix += trans.apply_gain(-12.0).fade_in(25).fade_out(100)
                 transition_count += 1
@@ -379,6 +398,35 @@ def build_flow1_overlays(
     return legacy, stats
 
 
+def _flow1_speech_join_crossfades(ctx: RunContext) -> dict[tuple[str, str], int]:
+    """Per-segment speech join crossfade overrides from SDP transition/stinger cues."""
+    plan = load_sound_design_plan(ctx)
+    if not plan:
+        return {}
+    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
+    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    from interview_mux.placement_qa import apply_placement_adjustments
+
+    cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
+    out: dict[tuple[str, str], int] = {}
+    for cue in cues:
+        if not isinstance(cue, dict) or cue.get("crossfade_ms") is None:
+            continue
+        placement = str(cue.get("placement") or "")
+        if placement not in {"after_segment", "before_segment"}:
+            continue
+        after = str(cue.get("after_segment_id") or "")
+        before = str(cue.get("before_segment_id") or "")
+        if placement == "after_segment" and not after:
+            after = str(cue.get("segment_id") or "")
+        if placement == "before_segment" and not before:
+            before = str(cue.get("segment_id") or "")
+        if after and before:
+            out[(after, before)] = int(cue["crossfade_ms"])
+    return out
+
+
 def flow1_overlays_from_sdp(
     ctx: RunContext,
     *,
@@ -400,6 +448,9 @@ def flow1_overlays_from_sdp(
     flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
     flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
     cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    from interview_mux.placement_qa import apply_placement_adjustments
+
+    cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
     assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
     assets_by_id = {
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
@@ -440,8 +491,10 @@ def flow1_overlays_from_sdp(
             if dur <= 0:
                 continue
             duck_db = max(MIN_DUCK_DB, float(cue.get("duck_under_speech_db", duck_default)))
+            fade_in = int(cue.get("crossfade_ms") or 120)
+            fade_out = int(cue.get("crossfade_ms") or 150)
             bed = loop_to_duration(base, dur)
-            bed = bed.apply_gain(level_db - duck_db).fade_in(120).fade_out(150)
+            bed = bed.apply_gain(level_db - duck_db).fade_in(fade_in).fade_out(fade_out)
             out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
             continue
 
@@ -455,7 +508,9 @@ def flow1_overlays_from_sdp(
                 continue
             stinger_count += 1
 
-        cue_audio = base.apply_gain(level_db).fade_in(50).fade_out(130)
+        fade_in = int(cue.get("crossfade_ms") or 50)
+        fade_out = int(cue.get("crossfade_ms") or 130)
+        cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
         pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
@@ -732,6 +787,9 @@ def flow2_cues_from_sdp(ctx: RunContext, sdp: dict) -> dict[str, Any]:
     flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     flow = flow_plans.get("flow2") if isinstance(flow_plans.get("flow2"), dict) else {}
     cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    from interview_mux.placement_qa import apply_placement_adjustments
+
+    cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
     assets = sdp.get("assets") if isinstance(sdp.get("assets"), list) else []
     assets_by_id = {
         str(item.get("asset_id")): item
@@ -758,22 +816,24 @@ def flow2_cues_from_sdp(ctx: RunContext, sdp: dict) -> dict[str, Any]:
         if placement in {"before_timeline", "after_timeline"}:
             out[placement].append(audio)
         elif placement == "between_clips":
-            out["between_clips"].append(
-                {
-                    "audio": audio,
-                    "from_clip_rank": int(cue.get("from_clip_rank") or 0),
-                    "to_clip_rank": int(cue.get("to_clip_rank") or 0),
-                    "role": asset.get("role"),
-                }
-            )
+            row: dict[str, Any] = {
+                "audio": audio,
+                "from_clip_rank": int(cue.get("from_clip_rank") or 0),
+                "to_clip_rank": int(cue.get("to_clip_rank") or 0),
+                "role": asset.get("role"),
+            }
+            if cue.get("crossfade_ms") is not None:
+                row["crossfade_ms"] = int(cue["crossfade_ms"])
+            out["between_clips"].append(row)
     return out
 
 
 def resolve_between_clip_transition(
     cues: dict[str, Any], from_rank: int, to_rank: int
-) -> AudioSegment | None:
+) -> tuple[AudioSegment | None, int | None]:
     between = cues.get("between_clips") or []
     default: AudioSegment | None = None
+    default_cf: int | None = None
     for item in between:
         if not isinstance(item, dict):
             continue
@@ -782,9 +842,12 @@ def resolve_between_clip_transition(
             continue
         if default is None:
             default = audio
+            if item.get("crossfade_ms") is not None:
+                default_cf = int(item["crossfade_ms"])
         if int(item.get("from_clip_rank") or 0) == from_rank and int(item.get("to_clip_rank") or 0) == to_rank:
-            return audio
-    return default
+            cf = int(item["crossfade_ms"]) if item.get("crossfade_ms") is not None else None
+            return audio, cf
+    return default, default_cf
 
 
 def load_sound_design_plan(ctx: RunContext) -> dict:

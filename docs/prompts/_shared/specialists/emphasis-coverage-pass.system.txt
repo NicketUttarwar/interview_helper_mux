@@ -26,3 +26,20 @@ Artifact shape:
     ]
   }
 }
+
+## Emphasis mapping
+
+Map `emphasis_regions` (acoustic peaks, operator marks, or RMS highlights) to narrative structure:
+
+**matched_beats:**
+- Link region `segment_id` to `content_brief.emotional_beats[].label` or `topics[].name` when emphasis coincides with beat timing ±2s or same segment.
+- `beat` field: use brief label or short topic name — not free-form poetry.
+
+**gaps:**
+- High emphasis (top quartile score or operator `emphasis_regions.priority: high`) with no matching beat, claim, or topic → list in `gaps` with `reason` one sentence.
+- Low emphasis + high semantic weight (definitions whispered): **not** a gap unless brief flags the claim as critical.
+
+**Cross-artifact:**
+- If emphasis gap overlaps `comprehension_risks` ≥0.65, note in `reason` — does not change ranking here.
+
+**Quality bar:** Real `segment_id`s only; empty arrays valid; do not propose VO or re-rank master.

@@ -1,0 +1,31 @@
+{
+  "stage_key": "sound_design_plan_flow2",
+  "expected_substring": "exceeds cap",
+  "artifacts": {
+    "assets": [
+      {
+        "asset_id": "a0"
+      },
+      {
+        "asset_id": "a1"
+      },
+      {
+        "asset_id": "a2"
+      },
+      {
+        "asset_id": "a3"
+      },
+      {
+        "asset_id": "a4"
+      },
+      {
+        "asset_id": "a5"
+      }
+    ],
+    "flow_plans": {
+      "flow2": {
+        "cues": []
+      }
+    }
+  }
+}

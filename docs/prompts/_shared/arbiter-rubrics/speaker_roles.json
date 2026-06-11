@@ -1,0 +1,25 @@
+{
+  "stage_key": "speaker_roles",
+  "severity": "low",
+  "accept_criteria": [
+    "Every diarized speaker has a role (interviewer, interviewee, or other) grounded in turn-taking patterns",
+    "At least one interviewer and one interviewee are identified when the format is one-on-one",
+    "Speaker labels map consistently to transcript speaker ids without orphan or duplicate roles",
+    "Envelope confidence reflects ambiguity only where diarization is genuinely unclear"
+  ],
+  "reject_patterns": [
+    "Systematic role inversion (interviewer labeled interviewee or vice versa)",
+    "Missing role on any speaker row",
+    "Roles invented without transcript evidence (e.g. panel guest with no supporting turns)",
+    "Empty speakers list or schema errors on required speaker fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "min_row_count_met",
+    "upstream_artifacts_complete"
+  ]
+}

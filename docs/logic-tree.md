@@ -336,6 +336,45 @@ Flow 1 export must include gap VO, transitions, and sound design per [podcast-qu
 
 ---
 
+## Sound design branch (SDP path — default)
+
+Legacy `podcast_sfx_brief` / `sfx_brief` / `mux_flow*` are rerun aliases only. Default Flow 1/2 audio path: palettes → plan → craft → generate → mix.
+
+```mermaid
+flowchart LR
+    SAP[source_acoustic_profile] --> PAL[sound_design_palettes]
+    BRIEF[content_brief_reanchor] --> PAL
+    PAL --> PLAN1[sound_design_plan_flow1]
+    PAL --> PLAN2[sound_design_plan_flow2]
+    RANK[full_master_ranking] --> PLAN1
+    TRANS[transitions] --> PLAN1
+    HL[highlight_selection] --> PLAN2
+    PLAN1 --> AUDIT[edl_narrative_audit]
+    AUDIT --> EDL[edl_flow1]
+    EDL --> PREV[assembly_preview]
+    PREV --> CRAFT[elevenlabs_prompt_craft]
+    PLAN2 --> CRAFT
+    CRAFT --> GEN1[elevenlabs_sfx_flow1]
+    CRAFT --> GEN2[elevenlabs_sfx_flow2]
+    GEN1 --> MIX1[mix_flow1]
+    GEN2 --> MIX2[mix_flow2]
+    MIX1 --> MAST1[master_flow1]
+    MIX2 --> MAST2[master_flow2]
+```
+
+| Stage | Input gist | Output gist |
+|-------|------------|-------------|
+| `sound_design_palettes` | Brief themes + manifest + SAP | `sound_design_plan.json` coherence + theme palettes |
+| `sound_design_plan_flow1` | Ranking + transitions + palettes | Reusable `asset_id`s + Flow 1 cue placements |
+| `sound_design_plan_flow2` | Highlight selection + palettes | Montage assets + transition cues |
+| `elevenlabs_prompt_craft` | SDP assets | `elevenlabs_prompts.json` (one prompt per `asset_id`) |
+| `elevenlabs_sfx_flow*` | Approved prompts | `sound_design/assets/*.wav` |
+| `mix_flow*` | EDL/selection + speech + VO + SFX | `assembly.wav` → `master.wav` |
+
+**Spend order:** Listen at `assembly_preview` before craft/generate. G1.5 (`g1_5_require_prompt_approval`) blocks generation until prompts approved. Cross-validate checkpoints: `post_sound_palettes`, `post_sound_plan_flow*`, `pre_elevenlabs_spend`, `pre_mix_flow*` — see [sound-design.md](./cross-cutting/sound-design.md) and [LLM-ANALYSIS-ARCHITECTURE.md §19](../LLM-ANALYSIS-ARCHITECTURE.md#19-guidance-program).
+
+---
+
 ## Related prompts
 
 | Stage | Prompt file |

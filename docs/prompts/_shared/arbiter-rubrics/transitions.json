@@ -1,0 +1,24 @@
+{
+  "stage_key": "transitions",
+  "severity": "low",
+  "accept_criteria": [
+    "Transition copy bridges adjacent master segments with consistent tone",
+    "Transitions reference valid segment or chapter boundaries from selection",
+    "No invented facts beyond what upstream artifacts support",
+    "Tone matches style.tone from analysis_state"
+  ],
+  "reject_patterns": [
+    "Tone mismatch vs analysis_state style",
+    "Transitions referencing unknown segment_ids",
+    "Generic filler bridges with no editorial purpose",
+    "Schema errors on required transition fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

@@ -17,6 +17,7 @@ Applies for the **entire** repository build-out (Waves 0–7). Details and accep
 2. Read **`docs/build-out/ticket-specs.md`** — acceptance for your BUILD id(s).
 3. Read **`docs/build-out/stage-registry.md`** + `docs/pipeline/<area>/README.md` for the stage you touch.
 4. If adding/changing behavior: **`docs/prompts/`** + **`docs/cross-cutting/json-schemas/`** must stay in sync with code.
+4b. LLM guidance program: when touching LLM stages, keep [llm-guidance-program.md](../../docs/cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../../docs/cross-cutting/stage-quality-scorecard.md), arbiter rubrics, `deterministic_lint.py`, `artifact_cross_validate.py`, `llm_preflight.py`, `attempt_budget.py`, and `llm_flow_hardening.py` aligned.
 5. Before marking a ticket done: **`docs/build-out/doc-maintenance.md`** + **`docs/build-out/testing-and-verification.md`**.
 6. After shipping: update **`docs/build-out/README.md`** status, **`ticket-specs.md`** checkboxes, **`repository-map.md`** gap table.
 
@@ -59,6 +60,7 @@ Until build-out tickets close the matching gap in **`repository-map.md`**:
 
 - **Flow 1 `master.wav`:** built via **`mix_flow1`** (speech + VO + SDP beds/stingers) → **`master_flow1`** (BUILD-065–066). Legacy `mux_flow1` is a single-stage rerun alias only.
 - **Flow 2 `master.wav`:** built via **`mix_flow2`** montage + SDP transitions (BUILD-065).
+- **Sound path default:** SDP chain (`sound_design_palettes` → `sound_design_plan_flow*` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow*` → `mix_flow*`). Legacy **`podcast_sfx_brief`**, **`sfx_brief`**, and **`mux_flow*`** are rerun aliases only — not the default operator path.
 - **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`.
 - **Pre-clean:** stage shipped (BUILD-019); GUI checkpoint offers BUILD-072.
 - **LLM routing:** tier-aware `model_registry` + economy arbiter + shard/collate (BUILD-073).

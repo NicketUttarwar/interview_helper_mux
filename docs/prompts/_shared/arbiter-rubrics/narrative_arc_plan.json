@@ -1,0 +1,25 @@
+{
+  "stage_key": "narrative_arc_plan",
+  "severity": "high",
+  "accept_criteria": [
+    "Chapters map to coverage_audit findings and respect chapter cap constraints",
+    "Arc ordering serves thesis and audience from content_brief",
+    "Each chapter cites segment_ids or themes with editorial rationale",
+    "Gap and weak-coverage regions addressed in plan or flagged as needs"
+  ],
+  "reject_patterns": [
+    "Chapter cap violations or incoherent chapter count",
+    "Chapters that ignore flagged coverage holes",
+    "Ordering that contradicts brief thesis or major emotional beats",
+    "Missing chapters when coverage_audit shows mappable topics"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete",
+    "confidence_gte_min"
+  ]
+}

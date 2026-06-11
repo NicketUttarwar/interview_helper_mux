@@ -1,0 +1,14 @@
+{
+  "stage_key": "content_brief_reanchor",
+  "expected_substring": "not in manifest",
+  "artifacts": {
+    "topics": [
+      {
+        "name": "T",
+        "segment_ids": [
+          "seg_missing"
+        ]
+      }
+    ]
+  }
+}

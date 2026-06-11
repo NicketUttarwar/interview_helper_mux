@@ -26,9 +26,15 @@ Structured JSON or markdown sections provided by the runner (compact):
 | `context_chars` | Approximate volley size |
 | `truncation_flags` | e.g. `transcript_capped`, `segments_dropped`, `max_stage_data_chars` |
 | `stage_expectations` | `severity`, `default_tier`, `decompose_eligible` from matrix |
+| `accept_criteria` | From per-stage rubric JSON — conditions that must hold to `accept` |
+| `reject_patterns` | From rubric — known failure signatures that block `accept` |
+| `min_confidence_on_accept` | Rubric floor (typically `0.75`) for arbiter `confidence` on `accept` |
+| `deterministic_lint_keys` | Pre-arbiter lint ids already evaluated (see `deterministic_lint_errors`) |
 | `attempt_number` | Current inner-loop attempt |
 
 **Excluded:** full transcript, full `analysis_state.json`, raw audio references.
+
+**Rubric source:** `docs/prompts/_shared/arbiter-rubrics/<stage_key>.json` loaded by `arbiter_expectations.py`. Index: [arbiter-stage-rubrics.md](./arbiter-stage-rubrics.md).
 
 ---
 
@@ -139,6 +145,21 @@ Max **8** items per plan.
 
 Runner should treat low-confidence accept with material `gaps` as `retry_uptier` or `decompose` per stage rules (implementation detail).
 
+### Bad — accept below rubric confidence floor
+
+```json
+{
+  "verdict": "accept",
+  "confidence": 0.55,
+  "gaps": [],
+  "shard_plan": [],
+  "suggested_investigation": null,
+  "reasoning_summary": "Brief looks complete."
+}
+```
+
+When `confidence < min_confidence_on_accept` (from `stage_expectations`) or any `reject_patterns` match the envelope summary, runner downgrades to `retry_uptier` or blocks merge per `deterministic_lint` (`confidence_gte_min`).
+
 ### Bad — decompose without plan
 
 ```json
@@ -156,7 +177,22 @@ Runner must fall back to `enqueue_investigation`.
 
 ---
 
+## Stage rubric fields (in `stage_expectations`)
+
+Loaded from `arbiter-rubrics/<stage_key>.json` and passed in the arbiter user payload:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `accept_criteria` | string[] | Editorial conditions that must hold for `accept` (≥3 per rubric) |
+| `reject_patterns` | string[] | Failure signatures → `retry_uptier`, `decompose`, or `enqueue_investigation` |
+| `min_confidence_on_accept` | number | Arbiter `confidence` floor on `accept` (typically `0.75`) |
+
+The arbiter judges semantic fit against these lists; `deterministic_lint.py` enforces machine checks (`deterministic_lint_keys`) before the arbiter call. See [arbiter-rubrics/README.md](./arbiter-rubrics/README.md).
+
+---
+
 ## Related
 
 - [llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md)
+- [arbiter-stage-rubrics.md](./arbiter-stage-rubrics.md)
 - [analysis-orchestration-loop.md](../../workflows/analysis-orchestration-loop.md)

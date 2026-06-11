@@ -11,14 +11,16 @@ from interview_mux.config import merged_config, repo_root, require_secret
 from interview_mux.model_registry import resolve_model
 from interview_mux.run_context import RunContext
 
+from interview_mux.prompt_examples import (
+    COMPACT_EXAMPLE_MAX_CHARS,
+    COMPACT_EXAMPLE_MAX_CHARS_BY_STAGE,
+    STAGE_EXAMPLE_FILES,
+    load_compact_examples,
+    prompt_examples_enabled,
+    prompt_path,
+)
+
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
-STAGE_EXAMPLE_FILES: dict[str, str] = {
-    "content_context": "_shared/examples/content-context.examples.md",
-    "missing_framing": "_shared/examples/missing-framing.examples.md",
-    "segment_classification": "_shared/examples/segment-classification.examples.md",
-    "topic_coverage_audit": "_shared/examples/topic-coverage-audit.examples.md",
-}
-COMPACT_EXAMPLE_MAX_CHARS = 600
 JSON_OBJECT_FORMAT: dict[str, str] = {"type": "json_object"}
 ENVELOPE_KEYS = frozenset(
     {
@@ -31,10 +33,6 @@ ENVELOPE_KEYS = frozenset(
         "reasoning_summary",
     }
 )
-
-
-def prompt_path(*parts: str) -> Path:
-    return repo_root().joinpath("docs", "prompts", *parts)
 
 
 def _prompt_thresholds_block() -> str:
@@ -68,35 +66,6 @@ def load_system_prompt(rel_path: str, *, include_preamble: bool = True) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def prompt_examples_enabled(stage_key: str, cfg: dict[str, Any] | None = None) -> bool:
-    resolved = cfg if cfg is not None else merged_config()
-    analysis = resolved.get("analysis") or {}
-    pe = analysis.get("prompt_examples") or {}
-    if pe.get("enabled") is False:
-        return False
-    allowed = pe.get("stages")
-    if isinstance(allowed, list) and allowed:
-        return stage_key in allowed
-    return stage_key in STAGE_EXAMPLE_FILES
-
-
-def load_compact_examples(stage_key: str) -> str | None:
-    """First good/bad block from stage example pack, capped for token budget."""
-    rel = STAGE_EXAMPLE_FILES.get(stage_key)
-    if not rel:
-        return None
-    path = prompt_path(*rel.split("/"))
-    if not path.is_file():
-        return None
-    text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return None
-    clipped = text[:COMPACT_EXAMPLE_MAX_CHARS]
-    if len(text) > COMPACT_EXAMPLE_MAX_CHARS:
-        clipped = clipped.rsplit("\n", 1)[0] + "\n…"
-    return f"## Compact examples (reference)\n{clipped}"
-
-
 def load_system_prompt_for_stage(
     rel_path: str,
     stage_key: str,
@@ -106,7 +75,7 @@ def load_system_prompt_for_stage(
 ) -> str:
     system = load_system_prompt(rel_path, include_preamble=include_preamble)
     if prompt_examples_enabled(stage_key, cfg):
-        examples = load_compact_examples(stage_key)
+        examples = load_compact_examples(stage_key, cfg)
         if examples:
             system = f"{system}\n\n---\n\n{examples}"
     return system
@@ -170,6 +139,7 @@ def run_prompt_envelope(
     response_format: dict[str, str] | None = None,
     call_attempt: int | None = None,
     record_stage_key: str | None = None,
+    system_override: str | None = None,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -178,12 +148,15 @@ def run_prompt_envelope(
     """
     client = OpenAI(api_key=require_secret("OPENAI_API_KEY"))
     cfg = merged_config()
-    system = load_system_prompt_for_stage(
-        prompt_rel,
-        stage_key,
-        include_preamble=include_preamble,
-        cfg=cfg,
-    )
+    if system_override is not None:
+        system = system_override
+    else:
+        system = load_system_prompt_for_stage(
+            prompt_rel,
+            stage_key,
+            include_preamble=include_preamble,
+            cfg=cfg,
+        )
     resolved = (
         None
         if model
@@ -197,7 +170,8 @@ def run_prompt_envelope(
     chosen = model or (resolved.model_id if resolved else None) or "gpt-4o-mini"
 
     if messages:
-        chat_messages: list[dict[str, str]] = [{"role": "system", "content": system}, *messages]
+        rest = messages[1:] if messages and messages[0].get("role") == "system" else messages
+        chat_messages: list[dict[str, str]] = [{"role": "system", "content": system}, *rest]
     elif user_content is not None:
         chat_messages = [
             {"role": "system", "content": system},

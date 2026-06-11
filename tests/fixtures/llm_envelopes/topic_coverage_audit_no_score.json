@@ -1,0 +1,7 @@
+{
+  "stage_key": "topic_coverage_audit",
+  "expected_substring": "coverage_score",
+  "artifacts": {
+    "missing_coverage": []
+  }
+}

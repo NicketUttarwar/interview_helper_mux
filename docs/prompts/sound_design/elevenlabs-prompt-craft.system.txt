@@ -36,6 +36,20 @@ Write `elevenlabs_prompt` as flowing prose with labeled intent (not bullet JSON)
 9. **Emotional color** — Match `primary_mood` without cliché (hopeful ≠ major-key ukulele).
 10. **Hard exclusions** — Merge asset avoid list + negative_prompt themes (no crowd chant, no cartoon, no trailer whoosh).
 
+## 15-section template — completeness note
+
+The list above is **15 sections** (items 1–10 above plus sections 11–15 below). Every `elevenlabs_prompt` must weave all fifteen into flowing prose — not bullets, not skipped because the asset seems simple.
+
+11. **Mix placement** — Documentary ducking target (beds 18–24 dB below dialogue); where cue sits relative to speech (under, after tail, between clips).
+12. **Stereo field and motion** — Center/narrow vs wide; static vs slow pan; no gimmick spins on interview podcasts.
+13. **Loop seam honesty (beds only)** — Describe crossfade-safe loop point; forbid audible repeat click or melody re-entry.
+14. **Operator law** — When `style.sound_design_notes` present, embed compliance in prose ("no piano", "brand neutral", "silence between chapters").
+15. **Regression anchors** — One closing sentence an engineer uses to A/B reject bad generations ("If it sounds like X, regenerate").
+
+**Word counts:** Beds 80–220 words **including** all 15 sections; stingers/transitions 50–120 words — compress sections 11–15 but do not omit.
+
+**Quality bar:** Missing any section → craft failure; prompts with lyrics, speech, or beat on beds → reject; `negative_prompt` always includes vocal/speech bans.
+
 ## Role-specific prescriptive defaults
 
 ### ambient_bed

@@ -1,0 +1,25 @@
+{
+  "stage_key": "highlight_selection",
+  "severity": "high",
+  "accept_criteria": [
+    "Highlights have strong hooks grounded in transcript moments",
+    "Clips respect duration caps and do not over-select redundant beats",
+    "Each highlight references valid manifest segment_ids with rationale",
+    "Candidate batches fully covered when decomposed"
+  ],
+  "reject_patterns": [
+    "Weak hooks or generic clip choices without transcript anchor",
+    "Over-cap clips or redundant highlights on same beat",
+    "Truncation with partial candidate coverage and no decompose",
+    "segment_ids not in manifest"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

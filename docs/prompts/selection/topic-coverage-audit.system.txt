@@ -44,3 +44,17 @@ Place this stage artifact inside the required envelope as `artifacts`:
   "orphan_segment_ids": ["seg_099"],
   "coverage_score": 0.0
 }
+
+## emphasis_regions — acoustic weight
+
+When stage input includes `emphasis_regions` (operator or acoustic analysis):
+
+- Each region has `segment_id` and/or time range with emphasis score — treat **high emphasis + low brief mapping** as under-covered claims or beats.
+- Cross-check emphasis peaks against `key_claims` and `emotional_beats`; if a loud/energetic moment supports a claim with empty `claim_mappings`, add mapping or flag `missing_coverage` with `suggestion`.
+- Quiet but vital speech: low RMS yet high semantic weight (definitions, numbers) — do not ignore because emphasis score is low; rely on brief + manifest text.
+- Weight `coverage_score` downward (by 0.05–0.15) when high-emphasis regions map to no topic or claim unless `orphan_segment_ids` explains them as aside/reaction.
+- Emit `follow_up_investigations` `theme_unmapped` when emphasis aligns with a brief topic name but zero `segment_ids` in mapping.
+
+**Shard collate:** Union emphasis-overlap segment ids into claim/topic mappings before scoring.
+
+**Quality bar:** `suggestion` on every `missing_coverage` row must name segment **type** or search strategy ("look for `setup` before seg_042", "re-tag manifest for topic X") — never "cover better".

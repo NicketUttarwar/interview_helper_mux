@@ -13,6 +13,14 @@ def _bypass_upstream_llm_checks(monkeypatch) -> None:
         "interview_mux.llm_flow_hardening.maybe_require_upstream_llm_progress",
         lambda _ctx, _name: None,
     )
+    monkeypatch.setattr(
+        "interview_mux.artifact_cross_validate.maybe_cross_validate_after_stage",
+        lambda _ctx, _name: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.llm_flow_hardening.require_spend_artifacts_complete",
+        lambda *_a, **_k: None,
+    )
 
 
 def test_blocked_llm_stage_does_not_mark_done(tmp_path, monkeypatch):

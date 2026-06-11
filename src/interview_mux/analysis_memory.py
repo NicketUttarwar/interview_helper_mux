@@ -577,6 +577,10 @@ def should_persist_artifacts(
     """Persist stage artifacts only when merge is allowed and schema is clean."""
     if schema_errors:
         return False
+    routing = envelope.get("_routing_meta") or {}
+    lint_errors = routing.get("deterministic_lint_errors") or []
+    if lint_errors:
+        return False
     artifacts = envelope.get("artifacts") or {}
     if not artifacts:
         return False

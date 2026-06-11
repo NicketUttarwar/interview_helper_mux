@@ -15,6 +15,7 @@ import { QcSummaryCard } from "./QcSummaryCard";
 import { ValueFeaturesPanel } from "./ValueFeaturesPanel";
 import { ElevenLabsPromptReviewPanel } from "./ElevenLabsPromptReviewPanel";
 import { ElevenLabsPostListenPanel } from "./ElevenLabsPostListenPanel";
+import { PlacementAdjustmentsPanel } from "./PlacementAdjustmentsPanel";
 import { ElevenLabsBlockedPanel } from "./ElevenLabsBlockedPanel";
 import { resolvePrecleanOffer } from "../../utils/preclean";
 
@@ -139,6 +140,7 @@ export function GateActions({ stage }: Props) {
         <ValueFeaturesPanel />
       ) : null}
 
+      <PlacementAdjustmentsPanel stage={stage} />
     </div>
   );
 }
@@ -176,6 +178,7 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
   return (
     <div className="gate-actions">
       <ElevenLabsPostListenPanel stage={stage} />
+      <PlacementAdjustmentsPanel stage={stage} />
       {offer ? <PrecleanOfferCard stage={stage} offer={offer} /> : null}
     </div>
   );

@@ -1,0 +1,25 @@
+{
+  "stage_key": "segment_classification",
+  "severity": "medium",
+  "accept_criteria": [
+    "Every manifest segment has classification metadata (theme, type, or equivalent)",
+    "Theme labels map to content_brief topics or analysis_state themes",
+    "Segment ids in output match manifest without orphans",
+    "max_segments cap not silently dropping tail segments without decompose"
+  ],
+  "reject_patterns": [
+    "theme_unmapped on a material share of segments",
+    "Missing segments relative to manifest count after non-collate primary",
+    "Classifications contradict speaker roles or brief thesis",
+    "Truncation with incomplete segment batch coverage"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

@@ -21,6 +21,40 @@ from interview_mux.llm_call_record import (
 from interview_mux.run_context import RunContext
 
 
+def _stage_run_audit_appendix(run_dir: Path, stage_filter: str | None) -> str:
+    """Summarize arbiter verdicts and deterministic lint from stage_runs attempts."""
+    base = run_dir / "understanding" / "stage_runs"
+    if not base.is_dir():
+        return ""
+    lines = ["# Stage run audit (arbiter + lint)", ""]
+    count = 0
+    for stage_dir in sorted(base.iterdir()):
+        if not stage_dir.is_dir():
+            continue
+        if stage_filter and stage_dir.name != stage_filter:
+            continue
+        for attempt in sorted(stage_dir.glob("attempt_*.json")):
+            try:
+                doc = json.loads(attempt.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            arb = doc.get("arbiter_result") or {}
+            lint = doc.get("deterministic_lint_errors") or []
+            verdict = arb.get("verdict", "")
+            lines.append(f"## {stage_dir.name} / {attempt.name}")
+            lines.append(f"- arbiter_verdict: {verdict}")
+            if lint:
+                lines.append(f"- deterministic_lint: {'; '.join(str(x) for x in lint[:4])}")
+            sig = doc.get("attempt_signature")
+            if sig:
+                lines.append(f"- attempt_signature: {sig}")
+            lines.append("")
+            count += 1
+            if count >= 40:
+                break
+    return "\n".join(lines) if count else ""
+
+
 def _resolve_run_dir(run_id: str) -> Path:
     ctx = RunContext(run_id, create=False)
     if not ctx.run_dir.is_dir():
@@ -68,6 +102,9 @@ def main() -> None:
         out = "\n".join(lines) + ("\n" if lines else "")
     else:
         parts = [record_to_markdown(rec) for rec in records]
+        audit = _stage_run_audit_appendix(run_dir, args.stage)
+        if audit:
+            parts.append(audit)
         out = "\n---\n\n".join(parts)
 
     if args.output:

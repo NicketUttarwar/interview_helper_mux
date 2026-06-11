@@ -1,0 +1,40 @@
+{
+  "stage_key": "highlight_selection",
+  "expected_substring": "highlight clips",
+  "artifacts": {
+    "clips": [
+      {
+        "clip_id": "c0",
+        "rank": 0
+      },
+      {
+        "clip_id": "c1",
+        "rank": 1
+      },
+      {
+        "clip_id": "c2",
+        "rank": 2
+      },
+      {
+        "clip_id": "c3",
+        "rank": 3
+      },
+      {
+        "clip_id": "c4",
+        "rank": 4
+      },
+      {
+        "clip_id": "c5",
+        "rank": 5
+      },
+      {
+        "clip_id": "c6",
+        "rank": 6
+      },
+      {
+        "clip_id": "c7",
+        "rank": 7
+      }
+    ]
+  }
+}

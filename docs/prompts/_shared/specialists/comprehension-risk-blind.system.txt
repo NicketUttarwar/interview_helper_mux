@@ -19,3 +19,24 @@ Artifact shape:
     }
   ]
 }
+
+## Scoring rubric (0.0–1.0)
+
+Score **listener confusion if the segment were heard in isolation** (or with only immediate backchannel), blind to labels:
+
+| risk_score | Band | Typical signals |
+|------------|------|-----------------|
+| 0.0–0.2 | Clear | Self-contained; entities defined locally |
+| 0.2–0.4 | Minor | Light deictic reference recoverable from tone |
+| 0.4–0.65 | Moderate | Missing antecedent, unexplained acronym, unclear who speaks in panel overlap |
+| 0.65–0.85 | High | "That decision" with no local anchor; answer without question in source |
+| 0.85–1.0 | Severe | Would fail standalone clip; garbled STT + substantive claim |
+
+Rules:
+- Do not score disfluencies alone above 0.3 unless meaning breaks.
+- Panel crosstalk: score who-is-speaking confusion, not guest disagreement.
+- Code-switch: score only if English listener loses thread on untranslated pivot.
+- One sentence `rationale` citing **auditory** confusion, not editor fix.
+- Empty list when all segments ≤0.35 — valid complete response.
+
+**Quality bar:** Monotonic sanity — do not assign 0.9 without severe confusion; do not assign 0.0 to segments with explicit unresolved acronyms.

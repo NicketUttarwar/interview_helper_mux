@@ -1,0 +1,24 @@
+{
+  "stage_key": "podcast_sfx_brief",
+  "severity": "low",
+  "accept_criteria": [
+    "SFX cues align with master selection chapter beats",
+    "Cue density appropriate for podcast format without over-design",
+    "References valid segment or chapter ids from flow_1_master",
+    "Brief is actionable for downstream assembly without ambiguity"
+  ],
+  "reject_patterns": [
+    "SFX cues on non-existent segments or chapters",
+    "Contradictory cue timing vs master selection order",
+    "Empty brief when selection has clear beat structure",
+    "Schema errors on required SFX brief fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

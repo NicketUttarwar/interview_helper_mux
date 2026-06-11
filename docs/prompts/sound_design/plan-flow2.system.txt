@@ -80,3 +80,17 @@ Place this stage artifact inside the required envelope as `artifacts`. Preserve 
     }
   }
 }
+
+## Single-clip edge case (1 highlight)
+
+When `selection.highlights` length is **1**:
+
+- Plan **cold_open** (`before_timeline`) + optional **outro** (`after_timeline`) only.
+- **Zero** `between_clips` cues — no fabricated transition ranks.
+- Reuse single `transition_stinger` asset for cold_open and outro if mood matches; vary `level_db` only.
+- Do not inflate asset count — 2 unique `asset_id`s is ideal (cold_open role + shared transition/outro).
+- Montage energy still applies but respect `underscore_policy: skip` — cold_open must not obscure clip opening words.
+
+When length is 0 (validation error upstream): return empty `assets` and `cues` with envelope `status: needs_input` — do not invent clips.
+
+**Quality bar:** `from_clip_rank` / `to_clip_rank` must exist in selection; exactly one cold_open; ≤4 assets total.

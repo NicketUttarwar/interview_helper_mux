@@ -9,8 +9,9 @@ from interview_mux.llm_flow_hardening import (
     llm_stage_progress_ok,
     maybe_require_upstream_llm_progress,
     require_llm_stage_progress,
+    require_spend_artifacts_complete,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready
 
 
 def _cfg(*, enabled: bool = True, strict: bool = True) -> dict:
@@ -125,3 +126,30 @@ def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkey
 def test_llm_upstream_stage_maps_content_context(tmp_path):
     assert LLM_UPSTREAM_STAGE["content_context"] == "speaker_roles"
     assert LLM_UPSTREAM_STAGE["topic_coverage_audit"] == "optimal_questions"
+
+
+def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "flow_hardening": {
+                    "enabled": True,
+                    "block_mix_without_sfx_when_enabled": True,
+                    "spend_block_stages": [
+                        "elevenlabs_prompt_craft",
+                        "elevenlabs_sfx_flow1",
+                        "elevenlabs_sfx_flow2",
+                        "mix_flow1",
+                        "mix_flow2",
+                    ],
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "fh_mix_gate")
+    seed_flow1_sound_spend_ready(ctx)
+    (ctx.path("sound_design", "assets") / "bed_01.wav").unlink()
+    with pytest.raises(SystemExit, match="Mix gate"):
+        require_spend_artifacts_complete(ctx, "mix_flow1")

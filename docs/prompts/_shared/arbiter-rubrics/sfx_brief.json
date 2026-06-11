@@ -1,0 +1,24 @@
+{
+  "stage_key": "sfx_brief",
+  "severity": "low",
+  "accept_criteria": [
+    "Montage SFX brief aligns with highlight selection clips",
+    "Cue list references valid highlight segment_ids",
+    "Density appropriate for short-form montage format",
+    "Brief is actionable for assembly without missing clip coverage"
+  ],
+  "reject_patterns": [
+    "SFX cues on highlights not in flow_2_highlights/selection.json",
+    "Empty brief when highlights exist",
+    "Contradictory timing vs highlight in/out points",
+    "Schema errors on required montage brief fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

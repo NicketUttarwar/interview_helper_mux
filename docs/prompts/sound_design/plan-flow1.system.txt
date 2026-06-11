@@ -99,3 +99,19 @@ Place this stage artifact inside the required envelope as `artifacts`. Preserve 
     }
   }
 }
+
+## Disfluency stinger avoidance and VO timing
+
+When `disfluency_catalog` is present in stage input:
+
+- Segments with `confirmed_events` where `include_in_restore: true` may splice filler micro-clips into assembly — **no** `chapter_stinger` or `accent_foley` cue anchored on those micro-segments or their immediate pause tails.
+- Do not place stingers on `interviewer_reaction` segments or sub-second backchannels.
+- If disfluency restore abuts VO pickup, stagger cue: VO bridge first, stinger ≥500 ms later on chapter boundary only.
+
+### VO timing (gap_report)
+
+- `delivery: record` lines: cue `vo_bridge` at `before_segment` or `after_segment` per gap `placement`; leave **≥200 ms** speech lead-in before target answer starts (mix headroom for editor).
+- Do not stack VO bridge and chapter stinger on same `segment_id` edge — prefer stinger on chapter last segment, VO on first segment of next chapter.
+- Dense `format_class: technical_deep_dive` or `pace_class: dense`: omit beds under VO + answer stack; stingers only at chapter ends.
+
+**Quality bar:** ≤6 assets; reuse enforced; beds only on palette `segment_ids`; stinger rate ≤ `stinger_max_per_minute` when profile present.

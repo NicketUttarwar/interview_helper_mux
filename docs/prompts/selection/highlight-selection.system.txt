@@ -59,3 +59,18 @@ Place this stage artifact inside the required envelope as `artifacts`:
 }
 
 All `scores` values must be numbers from 0 to 10. `rejected_candidates[].reason` should be a concise literal reason, not a pipe-separated enum.
+
+## Temporal diversity
+
+Highlights must span the **timeline**, not one hot minute:
+
+- Prefer clips from **≥3 distinct quartiles** of source duration when enough material exists (opening, early-mid, late-mid, closing).
+- Max **two** selected clips from the same 90-second window unless source is <8 minutes total.
+- Max one clip per dominant `topic_tag` unless second clip adds distinct claim type (note exception in `rejected_candidates`).
+- When `quotability_signals` peak in one region, still pick at least one clip outside that region if clarity scores comparable.
+- `panel`: temporal diversity **and** speaker diversity — two interviewees minimum among picks.
+- Reject clusters: five clips from consecutive segments → fail diversity bar even if scores high.
+
+**Scoring tie-break:** When salience/clarity within 1 point, favor the pick that increases time spread or speaker spread; document in `rejected_candidates`.
+
+**Quality bar:** `reel_thesis` matches combined clips; non-overlapping `start_ms`/`end_ms`; ≥3 rejected candidates with literal reasons.

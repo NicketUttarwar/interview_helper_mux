@@ -1,0 +1,7 @@
+{
+  "stage_key": "optimal_questions",
+  "expected_substring": "no interviewer line",
+  "artifacts": {
+    "interviewer_lines": []
+  }
+}

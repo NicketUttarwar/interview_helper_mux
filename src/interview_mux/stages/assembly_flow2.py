@@ -7,8 +7,10 @@ from interview_mux.run_context import RunContext
 
 def run_mix_flow2(ctx: RunContext) -> Path:
     """Flow 2 highlight montage mix (canonical stage id)."""
+    from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
     from interview_mux.sound_design import mix_flow2
 
+    require_spend_artifacts_complete(ctx, "mix_flow2")
     return mix_flow2(ctx)
 
 

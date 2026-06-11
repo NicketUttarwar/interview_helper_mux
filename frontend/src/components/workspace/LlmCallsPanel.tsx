@@ -447,10 +447,24 @@ export function LlmCallsPanel() {
               <li key={`${r.stage}-${r.attempt ?? i}`}>
                 <span className="llm-routing-task">
                   {r.stage} · {r.task_kind || "primary"}
+                  {r.attempt ? ` #${r.attempt}` : ""}
                 </span>
                 <span className={`llm-routing-verdict verdict-${r.verdict || "unknown"}`}>
                   {r.verdict || "—"}
                 </span>
+                {r.primary_attempt_count != null && r.budget_remaining_primary != null ? (
+                  <span className="routing-budget-badge">
+                    {r.primary_attempt_count}/{r.primary_attempt_count + r.budget_remaining_primary}
+                  </span>
+                ) : null}
+                {r.deterministic_lint_errors?.length ? (
+                  <span className="lint-error-chip" title={r.deterministic_lint_errors.join("; ")}>
+                    lint fail
+                  </span>
+                ) : null}
+                {(r.stuck_count ?? 0) > 0 ? (
+                  <span className="routing-stuck-badge">stuck ×{r.stuck_count}</span>
+                ) : null}
                 {r.arbiter_reason ? (
                   <span className="hint sm">{r.arbiter_reason}</span>
                 ) : null}

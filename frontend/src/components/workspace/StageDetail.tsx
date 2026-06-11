@@ -182,7 +182,17 @@ export function StageDetail() {
                 <span className="muted">
                   {r.model_tier ? `${r.model_tier}` : ""}
                   {r.shard_count != null ? ` · shards ${r.shard_count}` : ""}
+                  {r.primary_attempt_count != null && r.budget_remaining_primary != null
+                    ? ` · budget ${r.primary_attempt_count}/${r.primary_attempt_count + r.budget_remaining_primary}`
+                    : ""}
+                  {(r.stuck_count ?? 0) > 0 ? ` · stuck ${r.stuck_count}` : ""}
                 </span>
+                {r.deterministic_lint_errors?.length ? (
+                  <span className="lint-error-chip" title={r.deterministic_lint_errors.join("; ")}>
+                    lint: {r.deterministic_lint_errors[0].slice(0, 48)}
+                    {r.deterministic_lint_errors[0].length > 48 ? "…" : ""}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>

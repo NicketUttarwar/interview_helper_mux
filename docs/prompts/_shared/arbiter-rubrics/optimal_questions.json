@@ -1,0 +1,25 @@
+{
+  "stage_key": "optimal_questions",
+  "severity": "high",
+  "accept_criteria": [
+    "Interviewer lines link to specific gap_evaluations or identified framing gaps",
+    "Questions are actionable VO pickup lines, not generic interview advice",
+    "Lines respect interviewer voice and do not put words in interviewee mouth",
+    "Empty interviewer_lines array is valid only when no VO pickups are required"
+  ],
+  "reject_patterns": [
+    "Weak or generic questions with no linkage to gap_evaluations",
+    "Questions that contradict content_brief thesis or coverage audit",
+    "Invented gaps not present in gap_evaluations artifact",
+    "Schema errors on gap_report required fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete",
+    "confidence_gte_min"
+  ]
+}

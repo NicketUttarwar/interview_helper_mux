@@ -1,0 +1,32 @@
+{
+  "stage_key": "sfx_brief",
+  "expected_substring": "exceeds cap",
+  "artifacts": {
+    "cues": [
+      {
+        "cue_id": "c0"
+      },
+      {
+        "cue_id": "c1"
+      },
+      {
+        "cue_id": "c2"
+      },
+      {
+        "cue_id": "c3"
+      },
+      {
+        "cue_id": "c4"
+      },
+      {
+        "cue_id": "c5"
+      },
+      {
+        "cue_id": "c6"
+      },
+      {
+        "cue_id": "c7"
+      }
+    ]
+  }
+}

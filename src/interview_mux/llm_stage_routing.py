@@ -19,6 +19,16 @@ from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_
 from interview_mux.llm_preflight import run_preflight
 from interview_mux.model_registry import stage_severity
 from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley_for_llm
+from interview_mux.arbiter_expectations import build_stage_expectations
+from interview_mux.attempt_budget import (
+    budget_extra_for_attempt,
+    check_arbiter_budget,
+    is_stuck,
+    record_arbiter_reject,
+    record_primary_attempt,
+    stuck_signature_threshold,
+)
+from interview_mux.deterministic_lint import deterministic_lint
 from interview_mux.llm_arbiter import run_llm_arbiter
 from interview_mux.llm_shard_plans import (
     DECOMPOSE_ELIGIBLE,
@@ -193,6 +203,74 @@ def _run_primary_with_volley_retries(
     return envelope, volley, all_errors
 
 
+def _apply_lint_accept_hardening(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any],
+    lint_errors: list[str],
+) -> None:
+    """Reject arbiter accept when deterministic lint fails."""
+    if not flow_hardening_enabled() or not lint_errors:
+        return
+    if str(arbiter_result.get("verdict", "")).strip() != "accept":
+        return
+    envelope["status"] = "blocked"
+    envelope.setdefault("needs", [])
+    envelope["needs"].append(
+        {
+            "type": "rerun_stage",
+            "stage": stage_key,
+            "reason": f"Deterministic lint: {'; '.join(lint_errors[:3])}",
+            "blocking": True,
+        }
+    )
+    arbiter_result["verdict"] = "enqueue_investigation"
+    arbiter_result["reasoning_summary"] = "Overridden: accept blocked by deterministic lint."
+    ctx.log(
+        f"Stage {stage_key}: arbiter accept overridden — lint failures.",
+        level="warning",
+        stage=stage_key,
+        detail={"lint_errors": lint_errors[:4]},
+    )
+
+
+def _apply_stuck_detector(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any],
+    attempt_signature: tuple[Any, ...],
+) -> None:
+    if not flow_hardening_enabled():
+        return
+    if not is_stuck(ctx, stage_key):
+        return
+    threshold = stuck_signature_threshold()
+    envelope["status"] = "blocked"
+    envelope.setdefault("follow_up_investigations", [])
+    envelope["follow_up_investigations"].append(
+        {
+            "kind": "stuck_retry_loop",
+            "question": (
+                f"{stage_key}: same attempt signature {threshold}+ times — operator review required."
+            ),
+            "priority": "high",
+            "blocking": True,
+            "suggested_action": {"type": "operator", "stage": stage_key},
+        }
+    )
+    arbiter_result["verdict"] = "enqueue_investigation"
+    arbiter_result["reasoning_summary"] = (
+        f"Stuck loop detected ({threshold} identical signatures)."
+    )
+    ctx.log(
+        f"Stage {stage_key}: stuck retry loop — operator checkpoint.",
+        level="action",
+        stage=stage_key,
+    )
+
+
 def _apply_schema_accept_hardening(
     ctx: RunContext,
     stage_key: str,
@@ -288,6 +366,41 @@ def _preflight_blocked_envelope(
     return envelope, [], arbiter_result, errors
 
 
+def _arbiter_stage_expectations(stage_key: str, *, bump_tier: bool = False) -> dict[str, Any]:
+    return build_stage_expectations(stage_key, bump_tier=bump_tier)
+
+
+def _post_arbiter_hardening(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any],
+    schema_errors: list[str],
+    *,
+    attempt_signature: tuple[Any, ...] | None = None,
+    volley: list[dict[str, str]] | None = None,
+    truncation_flags: list[str] | None = None,
+    routed_via_collate: bool = False,
+) -> list[str]:
+    lint_errors = deterministic_lint(
+        stage_key,
+        envelope,
+        ctx,
+        schema_errors=schema_errors,
+        truncation_flags=truncation_flags,
+        volley=volley,
+        routed_via_collate=routed_via_collate,
+    )
+    verdict = str(arbiter_result.get("verdict", "")).strip()
+    if verdict != "accept":
+        record_arbiter_reject(ctx, stage_key, verdict)
+    _apply_lint_accept_hardening(ctx, stage_key, envelope, arbiter_result, lint_errors)
+    _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
+    if attempt_signature is not None:
+        _apply_stuck_detector(ctx, stage_key, envelope, arbiter_result, attempt_signature)
+    return lint_errors
+
+
 def run_llm_stage_with_routing(
     ctx: RunContext,
     stage_key: str,
@@ -301,6 +414,13 @@ def run_llm_stage_with_routing(
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
+    record_primary_attempt(ctx, stage_key)
+    arb_budget_msg = check_arbiter_budget(ctx, stage_key)
+    if arb_budget_msg:
+        ctx.log(arb_budget_msg, level="action", stage=stage_key)
+        env, volley, arb, errs = _preflight_blocked_envelope(stage_key, [arb_budget_msg])
+        return env, volley, arb, errs, 0, None
+
     if flow_hardening_enabled() and flow_hardening_cfg().get("preflight_enabled", True):
         pf_errors = run_preflight(stage_key, ctx)
         if pf_errors:
@@ -331,7 +451,6 @@ def run_llm_stage_with_routing(
                 parent_attempt=attempt,
             )
             schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
-            default_tier = resolve_model(stage_key, "primary").tier
             arbiter_result = run_llm_arbiter(
                 ctx=ctx,
                 stage_key=stage_key,
@@ -340,18 +459,26 @@ def run_llm_stage_with_routing(
                 schema_errors=schema_errors,
                 context_chars=sum(len(m.get("content", "")) for m in volley),
                 truncation_flags=truncation_flags_for_volley(volley),
-                stage_expectations={
-                    "severity": "high" if default_tier == "flagship" else "medium",
-                    "default_tier": default_tier,
-                    "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
-                },
+                stage_expectations=_arbiter_stage_expectations(stage_key),
             )
             envelope["_routing_meta"] = {
                 "routed_via_collate": True,
                 "shard_plan_source": shard_plan_source,
                 "proactive_decompose": True,
             }
-            _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
+            sig = (envelope.get("status"), tuple(schema_errors[:3]), sum(len(m.get("content", "")) for m in volley))
+            lint_errors = _post_arbiter_hardening(
+                ctx,
+                stage_key,
+                envelope,
+                arbiter_result,
+                schema_errors,
+                attempt_signature=sig,
+                volley=volley,
+                truncation_flags=truncation_flags_for_volley(volley),
+                routed_via_collate=True,
+            )
+            envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
             return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
     volley, local_framing = prepare_volley_for_llm(
@@ -419,7 +546,6 @@ def run_llm_stage_with_routing(
         envelope["status"] = "blocked"
         return envelope, volley, arbiter_result, schema_errors, 0, None
 
-    default_tier = resolve_model(stage_key, "primary").tier
     arbiter_result = run_llm_arbiter(
         ctx=ctx,
         stage_key=stage_key,
@@ -428,11 +554,7 @@ def run_llm_stage_with_routing(
         schema_errors=schema_errors,
         context_chars=sum(len(m.get("content", "")) for m in volley),
         truncation_flags=truncation_flags,
-        stage_expectations={
-            "severity": "high" if default_tier == "flagship" else "medium",
-            "default_tier": default_tier,
-            "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
-        },
+        stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=bump_tier),
     )
 
     shard_count = 0
@@ -463,11 +585,7 @@ def run_llm_stage_with_routing(
             schema_errors=schema_errors,
             context_chars=sum(len(m.get("content", "")) for m in volley),
             truncation_flags=truncation_flags,
-            stage_expectations={
-                "severity": "high" if default_tier == "flagship" else "medium",
-                "default_tier": resolve_model(stage_key, "primary", bump_tier=True).tier,
-                "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
-            },
+            stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=True),
         )
         verdict = arbiter_result.get("verdict")
     elif verdict == "retry_uptier":
@@ -510,11 +628,7 @@ def run_llm_stage_with_routing(
                 schema_errors=schema_errors,
                 context_chars=sum(len(m.get("content", "")) for m in volley),
                 truncation_flags=truncation_flags,
-                stage_expectations={
-                    "severity": "high" if default_tier == "flagship" else "medium",
-                    "default_tier": resolve_model(stage_key, "primary", bump_tier=bump_tier).tier,
-                    "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
-                },
+                stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=bump_tier),
             )
             if str(arbiter_result.get("verdict", "")).strip() != "accept":
                 envelope["status"] = "blocked"
@@ -547,12 +661,28 @@ def run_llm_stage_with_routing(
         envelope["status"] = "blocked"
 
     _maybe_enqueue_truncation(ctx, stage_key, truncation_flags, envelope, arbiter_result)
-    _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
+    sig = (
+        envelope.get("status"),
+        tuple(schema_errors[:3]),
+        sum(len(m.get("content", "")) for m in volley),
+    )
+    lint_errors = _post_arbiter_hardening(
+        ctx,
+        stage_key,
+        envelope,
+        arbiter_result,
+        schema_errors,
+        attempt_signature=sig,
+        volley=volley,
+        truncation_flags=truncation_flags,
+        routed_via_collate=routed_via_collate,
+    )
 
     envelope["_routing_meta"] = {
         "routed_via_collate": routed_via_collate,
         "shard_plan_source": shard_plan_source,
         "local_llm": local_framing.to_attempt_meta() if local_framing else None,
+        "deterministic_lint_errors": lint_errors,
     }
     return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
@@ -586,6 +716,18 @@ def finalize_stage_attempt(
             "shard_plan_source": routing.get("shard_plan_source"),
             "routed_via_collate": routed_via_collate,
             "local_llm": routing.get("local_llm"),
+            "deterministic_lint_errors": routing.get("deterministic_lint_errors") or [],
+            **budget_extra_for_attempt(
+                ctx,
+                stage_key,
+                attempt_signature=(
+                    envelope.get("status"),
+                    tuple(schema_errors[:3]),
+                    sum(len(m.get("content", "")) for m in volley),
+                ),
+                arbiter_verdict=str((arbiter_result or {}).get("verdict", "")),
+                lint_errors=routing.get("deterministic_lint_errors") or [],
+            ),
         },
     )
     artifacts = envelope.get("artifacts") or {}

@@ -144,6 +144,28 @@ def test_pre_stage_specialist_runs_for_missing_framing(tmp_path):
         assert len(outputs) == 1
 
 
+def test_run_specialist_injects_example_pack(tmp_path, monkeypatch):
+    from interview_mux.llm_specialists import run_specialist
+
+    ctx = isolated_run_ctx(tmp_path, "run_spec_examples")
+    captured: dict[str, str] = {}
+
+    def fake_run_prompt_envelope(*_a, **kwargs):
+        captured["system"] = kwargs.get("system_override") or ""
+        return {"status": "complete", "artifacts": {}}
+
+    monkeypatch.setattr(
+        "interview_mux.llm_specialists.run_prompt_envelope",
+        fake_run_prompt_envelope,
+    )
+    monkeypatch.setattr(
+        "interview_mux.llm_specialists.prepare_volley_for_llm",
+        lambda *_a, **_k: ([{"role": "user", "content": "{}"}], None),
+    )
+    run_specialist(ctx, "comprehension_risk_blind", "missing_framing", {"segments": {}})
+    assert "Compact examples" in captured.get("system", "") or "Examples" in captured.get("system", "")
+
+
 def test_emphasis_coverage_specialist_enqueues(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_emph_spec")
     count = _process_specialist_investigations(

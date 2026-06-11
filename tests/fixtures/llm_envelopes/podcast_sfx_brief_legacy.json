@@ -1,0 +1,11 @@
+{
+  "stage_key": "podcast_sfx_brief",
+  "expected_substring": "legacy",
+  "artifacts": {
+    "cues": [
+      {
+        "cue_id": "c1"
+      }
+    ]
+  }
+}

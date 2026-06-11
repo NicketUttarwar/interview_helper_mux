@@ -1,0 +1,12 @@
+{
+  "stage_key": "transitions",
+  "expected_substring": "30 words",
+  "artifacts": {
+    "transitions": [
+      {
+        "transition_id": "t1",
+        "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+      }
+    ]
+  }
+}

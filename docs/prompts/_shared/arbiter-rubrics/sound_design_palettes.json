@@ -1,0 +1,24 @@
+{
+  "stage_key": "sound_design_palettes",
+  "severity": "low",
+  "accept_criteria": [
+    "Palettes align with themes from content_brief and analysis_state",
+    "Sonic identity and palette entries are internally consistent",
+    "No palette references themes absent from upstream brief",
+    "Coherence fields present for downstream sound_design_plan stages"
+  ],
+  "reject_patterns": [
+    "Empty palettes when themes exist upstream",
+    "Palette theme ids that do not match brief topic or theme ids",
+    "Contradictory sonic_identity across palette rows",
+    "Schema errors on required palette or coherence fields"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

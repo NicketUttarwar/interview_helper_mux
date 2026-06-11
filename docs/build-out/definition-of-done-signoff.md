@@ -179,6 +179,73 @@ Follow [smoke-test.md](../workflows/smoke-test.md) end-to-end on one fixture int
 
 ---
 
+## 7. Quality-first listen checklist (per stage category)
+
+From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md). For each tier, verify on a real `exec_*` run that artifacts are **complete**, arbiter **accept** (or justified operator override), and listen/export criteria pass before calling the category done.
+
+### P0 — Foundation (understanding / segmentation)
+
+| Stage | Listen / read check |
+|-------|---------------------|
+| `speaker_roles` | Interviewer vs interviewee matches who asks questions in transcript sample |
+| `content_context` | Thesis is interviewee-faithful; topics map to real discussion (no generic filler) |
+| `boundary_detection` | Segment splits align with pauses and topic shifts — spot-check 5 boundaries in GUI |
+| `segment_classification` | Types (`interviewee_answer`, `interviewer_question`, etc.) match transcript turns |
+| `content_brief_reanchor` | Major `topics[].segment_ids` non-empty and plausible |
+
+- [ ] P0 read/listen spot-check passed on fixture run
+
+### P1 — Narrative comprehension (Flow 1 extended)
+
+| Stage | Listen / read check |
+|-------|---------------------|
+| `missing_framing` | Gap types match “would a listener understand this clip?” — no false `ok` on orphan answers |
+| `optimal_questions` | Proposed VO lines ≤ word caps; sound natural when read aloud |
+| `topic_coverage_audit` | Brief topics either covered or explicitly flagged missing |
+| `narrative_arc_plan` | Chapter flow matches intended story; ordering constraints achievable |
+| `full_master_ranking` | `ordered_segment_ids` tell a coherent arc when skim-reading manifest text in order |
+| `edl_narrative_audit` | No critical findings blocking EDL; transitions and gap placements cited |
+
+- [ ] P1 narrative read check passed
+- [ ] `validate_narrative.py` (and `--include-edl` if strict) exits 0
+
+### P2 — Sound design + mix (SDP path)
+
+| Stage | Listen / read check |
+|-------|---------------------|
+| `sound_design_palettes` | `coherence.sonic_identity` matches interview tone (not generic trailer) |
+| `sound_design_plan_flow1` / `flow2` | Cue count within caps; placements anchor to real segment/rank boundaries |
+| `assembly_preview` | Speech + VO intelligible; no SFX yet — **listen before ElevenLabs spend** |
+| `elevenlabs_prompt_craft` | Prompts instrumental; no voice/policy leaks; G1.5 approved if enabled |
+| `elevenlabs_sfx_flow*` | Generated beds/stingers match prompt intent on spot-listen (2 assets minimum) |
+| `mix_flow*` → `master_*` | Beds duck under speech; VO bridges present; not dry speech-only |
+
+- [ ] `assembly_preview` listened before SFX generation
+- [ ] P2 mix listen + `verify_master.py` passed (§3 above)
+
+### P3 — Polish
+
+| Stage | Listen / read check |
+|-------|---------------------|
+| `transitions` | Bridge lines match interviewer style; no duplicate content |
+| `highlight_selection` | ≤5 clips; each self-contained or single micro-setup |
+| `podcast_show_description` | Third person; ~150–250 words; no invented facts |
+
+- [ ] P3 polish read check passed (Flow 2/3 as applicable)
+
+### P4 — Upstream non-LLM gates
+
+| Gate / stage | Check |
+|--------------|-------|
+| G0 transcript review | Low-confidence words corrected; `full.json` merged |
+| `source_acoustic_profile` | Pause ladder and RMS profile plausible for source audio |
+| `disfluency_extract` | Filler catalog sane; restore optional per operator |
+| Spend block | Craft/generate did not run with incomplete SDP (no wasted API calls) |
+
+- [ ] P4 upstream gates verified on fixture run
+
+---
+
 ## Sign-off record
 
 **Manual sections 1–5** below require a real interview WAV and operator time — complete on your machine before release candidate.

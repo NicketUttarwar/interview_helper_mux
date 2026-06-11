@@ -41,6 +41,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = ctx.path("sound_design", "assets")
     assets_dir.mkdir(parents=True, exist_ok=True)
+    from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
+
+    require_spend_artifacts_complete(ctx, stage)
     require_elevenlabs_generation(ctx)
     cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
     api_key = require_secret("ELEVENLABS_API_KEY")
@@ -103,6 +106,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         "api": "rest",
     }
     ctx.write_json(f"{out_rel}/manifest.json", manifest)
+    from interview_mux.placement_qa import maybe_run_placement_qa
+
+    maybe_run_placement_qa(ctx)
     ctx.mark_done(stage)
 
 

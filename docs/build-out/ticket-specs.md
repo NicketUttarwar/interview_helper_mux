@@ -383,6 +383,61 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ---
 
+## Wave — LLM guidance (GUIDE-001–080)
+
+Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-program.md). Full scorecard: [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md). Architecture: [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §19–§20.
+
+### GUIDE-001–010 — Program foundation
+
+- [x] `llm-guidance-program.md` index links scorecard, arbiter rubrics, lint, scenario atlas
+- [x] `stage-quality-scorecard.md` has P0–P4 rows with Prompt / Arbiter / Lint / Crossval / Preflight / Examples / Status columns
+- [x] `interview-scenario-atlas.md` covers ≥6 interview formats with signal → adaptation → recovery
+- [x] `analysis-preamble.system.txt` references guidance program and sonic constitution
+- [x] `AGENTS.md` read order includes 16d (guidance program + scorecard)
+
+### GUIDE-011–020 — Loop prevention
+
+- [x] `attempt_budget.py` caps primary attempts, arbiter rejects, stuck signatures
+- [x] `analysis.flow_hardening` keys documented in [config-keys.md](../cross-cutting/config-keys.md)
+- [x] `understanding/analysis_orchestration.json` persists budget counters
+- [x] Attempt audit writes `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors`
+- [x] [troubleshooting.md](../workflows/troubleshooting.md) LLM loop stuck section
+
+### GUIDE-021–040 — Arbiter rubrics + deterministic lint
+
+- [x] `arbiter-rubrics/<stage_key>.json` for every `STAGE_ARTIFACT_SCHEMAS` LLM stage
+- [x] Each rubric has `accept_criteria`, `reject_patterns`, `min_confidence_on_accept` (≥3 items each)
+- [x] `deterministic_lint.py` implements keys listed in rubrics
+- [x] `arbiter_expectations.py` loads rubrics into arbiter payload
+- [x] [llm-arbiter-contract.md](../prompts/_shared/llm-arbiter-contract.md) documents rubric fields
+
+### GUIDE-041–060 — Per-stage prompt expansion (P0–P3)
+
+- [x] P0 stages: expanded system prompts + full runtime examples (`analysis.prompt_examples.mode: full`)
+- [x] P1 narrative stages: examples + arbiter rubrics shipped in scorecard
+- [x] P2 sound stages: SDP prompts + cross-validate hooks
+- [x] P3 polish stages: `transitions`, `highlight_selection`, `podcast_show_description` scorecard `shipped`
+- [x] Example packs under `docs/prompts/_shared/examples/` match stage keys
+
+### GUIDE-061–070 — Cross-validate, preflight, spend gates
+
+- [x] `artifact_cross_validate.py` checkpoints for segmentation, gaps, flow entry
+- [x] `sdp_cross_validate.py` checkpoints: `post_sound_palettes`, `post_sound_plan_flow*`, `pre_elevenlabs_spend`, `pre_mix_flow*`
+- [x] `spend_block_stages` blocks craft/generate/mix without complete upstream SDP
+- [x] Preflight covers all P0/P1 producer dependencies
+- [x] [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18–§20 complete
+
+### GUIDE-071–080 — Placement QA, monitoring, verification
+
+- [x] `placement_qa.py` + `sound_design.placement_qa_enabled` documented
+- [x] `sound_design/placement_adjustments.json` written after `elevenlabs_sfx_flow*` when enabled; applied at mix via `apply_placement_adjustments`
+- [x] Legacy `podcast_sfx_brief` / `sfx_brief` / `mux_flow*` marked non-default in rules + `stage_guidance.py`
+- [x] [logic-tree.md](../logic-tree.md) SDP branch mermaid
+- [x] [definition-of-done-signoff.md](./definition-of-done-signoff.md) quality-first listen checklist per tier
+- [x] `pytest tests/test_attempt_budget.py` + `test_arbiter_expectations.py` green
+
+---
+
 ## Verification matrix
 
 | After shipping | Run |

@@ -1,0 +1,25 @@
+{
+  "stage_key": "podcast_show_description",
+  "severity": "high",
+  "accept_criteria": [
+    "Description grounded in content_brief thesis and master selection evidence",
+    "Word count within configured band; correct person and voice",
+    "No invented credentials, quotes, or facts absent from upstream artifacts",
+    "Hooks and takeaways match narrative_arc_plan and coverage_audit"
+  ],
+  "reject_patterns": [
+    "Thin evidence or generic marketing copy without transcript grounding",
+    "Wrong person or voice (e.g. third person when first person required)",
+    "Word count out of band",
+    "Claims contradict content_brief or show format_class"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete",
+    "confidence_gte_min"
+  ]
+}

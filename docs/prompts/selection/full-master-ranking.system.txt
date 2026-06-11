@@ -39,3 +39,26 @@ Place this stage artifact inside the required envelope as `artifacts`:
 }
 
 Common exclusion reasons include `aside`, `duplicate`, and `low_quality`; use a concise reason string supported by the input.
+
+## exclude rationale — required depth
+
+Every `excluded_segment_ids[]` entry must be an object `{ "segment_id", "reason" }` with **specific** rationale:
+
+| reason pattern | When valid |
+|----------------|------------|
+| `aside` | Classified `aside` or tangential; cite lack of thesis support in `notes` if contested |
+| `duplicate` | Repeats claim already represented; name kept segment in reason text |
+| `low_quality` | Heavy crosstalk, STT failure, or unintelligible — cite flag or transcript quality |
+| `superseded` | Shorter version of same story kept elsewhere |
+| `trim_for_pacing` | Rare; only when arc holds without it and `narrative_plan` allows |
+
+**Never exclude without object rationale:**
+- Thesis-supporting `interviewee_answer` with coverage_audit mapping
+- Segments with scheduled `gap_report` VO fixing a `high` severity gap
+- Sole segment covering a brief topic
+
+**format_class:**
+- `panel`: excluding one guest's only answer on a shared topic requires explicit duplicate or aside evidence.
+- `technical_deep_dive`: keep definitional segments even if dry — exclude only with `duplicate` or `low_quality`.
+
+**Quality bar:** `notes` summarizes editorial arc; exclusions list is auditable; zero bare segment ids; no duplicate ids in `ordered_segment_ids`.

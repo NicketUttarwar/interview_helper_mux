@@ -1,0 +1,25 @@
+{
+  "stage_key": "content_context",
+  "severity": "high",
+  "accept_criteria": [
+    "Thesis and topics are grounded in transcript evidence, not generic podcast themes",
+    "Key claims have stable ids, claim_type, and transcript support",
+    "Memory patches (interview_identity, style, narrative, themes) are consistent with volley and prior speaker roles",
+    "Full timeline represented or shard/collate merge preserved non-tail claims"
+  ],
+  "reject_patterns": [
+    "Thesis contradicts transcript tail or major stated interviewee goals",
+    "Invented claims or topics with no transcript support",
+    "Truncation blind spots on decompose-eligible run without shard coverage",
+    "Generic filler themes (leadership, innovation) without evidence"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "truncation_requires_decompose",
+    "confidence_gte_min"
+  ]
+}

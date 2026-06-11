@@ -7,10 +7,35 @@ from interview_mux.artifact_completeness import artifact_status, compute_gaps
 from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.run_context import RunContext
 
+HARD_CHECKPOINTS = frozenset(
+    {
+        "post_segmentation",
+        "post_reanchor",
+        "post_gaps",
+        "pre_flow1",
+        "post_sound_plan_flow1",
+        "post_sound_plan_flow2",
+        "pre_elevenlabs_spend",
+        "pre_mix_flow1",
+        "pre_mix_flow2",
+        "post_ranking",
+        "post_edl_audit_fail",
+    }
+)
+
 STAGE_CHECKPOINTS: dict[str, str] = {
     "segment_classification": "post_segmentation",
     "content_brief_reanchor": "post_reanchor",
     "missing_framing": "post_gaps",
+    "sound_design_palettes": "post_sound_palettes",
+    "full_master_ranking": "post_ranking",
+    "transitions": "post_transitions",
+    "sound_design_plan_flow1": "post_sound_plan_flow1",
+    "sound_design_plan_flow2": "post_sound_plan_flow2",
+    "elevenlabs_prompt_craft": "pre_elevenlabs_spend",
+    "edl_narrative_audit": "post_edl_audit",
+    "elevenlabs_sfx_flow1": "pre_mix_flow1",
+    "elevenlabs_sfx_flow2": "pre_mix_flow2",
 }
 
 
@@ -24,6 +49,37 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         return _validate_post_gaps(ctx)
     if checkpoint == "pre_flow1":
         return _validate_pre_flow1(ctx)
+    if checkpoint == "post_sound_palettes":
+        from interview_mux.sdp_cross_validate import validate_post_sound_palettes
+
+        return validate_post_sound_palettes(ctx)
+    if checkpoint == "post_sound_plan_flow1":
+        from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow1
+
+        return validate_post_sound_plan_flow1(ctx)
+    if checkpoint == "post_sound_plan_flow2":
+        from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow2
+
+        return validate_post_sound_plan_flow2(ctx)
+    if checkpoint == "pre_elevenlabs_spend":
+        from interview_mux.sdp_cross_validate import validate_pre_elevenlabs_spend
+
+        return validate_pre_elevenlabs_spend(ctx)
+    if checkpoint == "pre_mix_flow1":
+        from interview_mux.sdp_cross_validate import validate_pre_mix
+
+        return validate_pre_mix(ctx, "flow1")
+    if checkpoint == "pre_mix_flow2":
+        from interview_mux.sdp_cross_validate import validate_pre_mix
+
+        return validate_pre_mix(ctx, "flow2")
+    if checkpoint == "post_ranking":
+        return _validate_post_ranking(ctx)
+    if checkpoint == "post_transitions":
+        hard, _soft = _validate_post_transitions_split(ctx)
+        return hard
+    if checkpoint == "post_edl_audit":
+        return _validate_post_edl_audit(ctx)
     return [f"Unknown cross-validate checkpoint: {checkpoint}"]
 
 
@@ -36,11 +92,44 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
     checkpoint = STAGE_CHECKPOINTS.get(stage_key)
     if not checkpoint:
         return
+    if checkpoint == "post_transitions":
+        hard_errors, soft_errors = _validate_post_transitions_split(ctx)
+        if hard_errors:
+            summary = "; ".join(hard_errors[:4])
+            ctx.log(
+                f"Cross-artifact validation failed ({checkpoint}): {summary}",
+                level="action",
+                stage=stage_key,
+            )
+            raise SystemExit(
+                f"Cross-artifact gate ({checkpoint}): {summary}. "
+                f"Fix artifacts and re-run from --from-stage {stage_key}."
+            )
+        if soft_errors:
+            summary = "; ".join(soft_errors[:4])
+            enqueue_investigations(
+                ctx,
+                [
+                    {
+                        "kind": "cross_artifact_invalid",
+                        "question": summary,
+                        "priority": "medium",
+                        "blocking": False,
+                        "suggested_action": {"type": "rerun_stage", "stage": stage_key},
+                    }
+                ],
+                created_by_stage=stage_key,
+            )
+        return
+
     errors = validate_cross_artifacts(ctx, checkpoint)
     if not errors:
         return
     summary = "; ".join(errors[:4])
-    if checkpoint in ("post_segmentation", "post_reanchor", "post_gaps", "pre_flow1"):
+    hard = checkpoint in HARD_CHECKPOINTS or (
+        checkpoint == "post_edl_audit" and _edl_audit_verdict(ctx) == "fail"
+    )
+    if hard:
         ctx.log(
             f"Cross-artifact validation failed ({checkpoint}): {summary}",
             level="action",
@@ -141,6 +230,62 @@ def _validate_post_gaps(ctx: RunContext) -> list[str]:
         if seg_id and seg_id not in manifest_ids:
             errors.append(f"gap_evaluation segment_id {seg_id} not in manifest")
     return errors
+
+
+def _edl_audit_verdict(ctx: RunContext) -> str:
+    if not ctx.artifact_exists("flow_1_master/edl_narrative_audit.json"):
+        return ""
+    doc = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+    return str(doc.get("verdict", "")).strip().lower() if isinstance(doc, dict) else ""
+
+
+def _validate_post_ranking(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    manifest_ids = _manifest_segment_ids(ctx)
+    if not ctx.artifact_exists("flow_1_master/selection.json"):
+        return ["flow_1_master/selection.json missing"]
+    sel = ctx.read_json("flow_1_master/selection.json")
+    ordered = sel.get("ordered_segment_ids") or []
+    for sid in ordered:
+        if manifest_ids and str(sid) not in manifest_ids:
+            errors.append(f"selection segment {sid} not in manifest")
+    return errors
+
+
+def _validate_post_transitions_split(ctx: RunContext) -> tuple[list[str], list[str]]:
+    """Hard: invalid segment ids; soft: gap_report VO duplication."""
+    from interview_mux.deterministic_lint import transition_gap_overlap_errors
+
+    hard: list[str] = []
+    soft: list[str] = []
+    if not ctx.artifact_exists("flow_1_master/transitions.json"):
+        return hard, soft
+    if not ctx.artifact_exists("flow_1_master/selection.json"):
+        return ["selection.json missing for transition validation"], soft
+    sel = ctx.read_json("flow_1_master/selection.json")
+    selection_ids = {str(x) for x in (sel.get("ordered_segment_ids") or [])}
+    tr_doc = ctx.read_json("flow_1_master/transitions.json")
+    transitions = tr_doc.get("transitions") or []
+    for tr in transitions:
+        if not isinstance(tr, dict):
+            continue
+        for key in ("after_segment_id", "before_segment_id"):
+            sid = tr.get(key)
+            if sid and selection_ids and str(sid) not in selection_ids:
+                hard.append(f"transition {key}={sid} not in selection")
+    soft = transition_gap_overlap_errors(transitions, ctx)
+    return hard, soft
+
+
+def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
+    verdict = _edl_audit_verdict(ctx)
+    if verdict == "fail":
+        doc = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+        issues = doc.get("blocking_issues") or [] if isinstance(doc, dict) else []
+        if issues and isinstance(issues[0], dict):
+            return [str(issues[0].get("issue", "edl narrative audit fail"))]
+        return ["edl_narrative_audit verdict is fail"]
+    return []
 
 
 def _validate_pre_flow1(ctx: RunContext) -> list[str]:

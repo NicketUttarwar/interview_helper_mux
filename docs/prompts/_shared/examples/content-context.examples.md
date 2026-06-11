@@ -29,3 +29,69 @@
 **Bad — generic style**
 
 - `tone`: "Insightful conversation" with no evidence from turn patterns or emotional_beats
+
+---
+
+## Scenario: technical_deep_dive
+
+Engineering or product interview with dense jargon, acronyms, and precision claims. Atlas: [interview-scenario-atlas.md](../interview-scenario-atlas.md#technical_deep_dive).
+
+**Good — glossary-aware brief**
+
+- `topics[].name`: "Event-sourced ledger migration" with `segment_ids` covering the explanation block
+- `key_claims[]` include `claim_type: technical` with evidence where the guest defines terms
+- `memory_updates.style_patch.tone`: "Precise, acronym-heavy — guest assumes listener knows infra basics"
+- `jargon_glossary` or entity notes capture at least one term the guest defines in-passing
+
+**Good — honest coverage limits**
+
+- When transcript tail is truncated in volley, `confidence` lowered and `needs` notes shard/decompose — not silent accept
+- `emotional_beats` sparse or empty when interview is purely technical — no invented drama
+
+**Bad — layperson thesis on expert content**
+
+- `thesis`: "They shared inspiring lessons about leadership" when transcript is API design and latency numbers
+- Topics named "Innovation" / "Technology" with no `segment_ids` tied to specific claims
+- `key_claims` state revenue or funding not spoken in transcript
+
+---
+
+## Scenario: human_interest
+
+Personal story, emotional arc, or adversity/recovery narrative — listener connection matters more than jargon. Atlas-adjacent (profile / memoir / human-story formats).
+
+**Good — emotional beats grounded**
+
+- `emotional_beats[]` each cite `segment_ids` where tone shifts (vulnerability, humor, tension, resolution)
+- `thesis` centers the guest's stated stakes ("why this mattered to them"), not producer hype
+- `memory_updates.interview_identity_patch.one_line_summary` names the guest and situation in ≤25 words
+- `topics` follow the story arc (setup → conflict → turning point → outcome), not arbitrary chapter titles
+
+**Good — style matches intimacy**
+
+- `memory_updates.style_patch.format_class`: `one_on_one` with `tone` describing pace (e.g. "Unhurried, long answers — interviewer minimal")
+- `audience` reflects who should care emotionally (patients, founders, community) with transcript evidence
+
+**Bad — sensationalized or generic**
+
+- Invented trauma, diagnosis, or relationship details absent from transcript
+- `thesis` uses clickbait framing ("You won't believe what happened next")
+- Empty `emotional_beats` on an obviously emotional interview — signals model skipped listening
+- `topics` list "Inspiration" and "Resilience" without segment anchors
+
+---
+
+## Scenario: investor_one_on_one
+
+Metrics-forward founder/investor conversation — numbers, market, and risk language dominate.
+
+**Good — investor-appropriate brief**
+
+- `memory_updates.style_patch.tone_class`: `investor` with measured tone citing metrics-heavy turns
+- `key_claims` separate `opinion` vs `fact` with `segment_ids`; TAM/revenue figures only when spoken
+- `topics` ordered by deal narrative (problem → traction → moat → ask) when transcript supports it
+
+**Bad — consumer-marketing voice**
+
+- `thesis` reads like ad copy ("Revolutionary platform changing lives") without guest wording
+- Fabricated round size, valuation, or customer counts

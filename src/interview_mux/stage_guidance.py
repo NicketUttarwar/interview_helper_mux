@@ -115,8 +115,8 @@ STAGE_UNLOCKS: dict[str, str] = {
     "export_show_description": "Ship phase — markdown export",
     "mux_flow1": "Same as Mix assembly",
     "mux_flow2": "Same as Mix assembly",
-    "podcast_sfx_brief": "Legacy — use sound_design_plan_flow1 on default path",
-    "sfx_brief": "Legacy — use sound_design_plan_flow2 on default path",
+    "podcast_sfx_brief": "(legacy — use SDP path)",
+    "sfx_brief": "(legacy — use SDP path)",
 }
 
 # Prior stage in pipeline order (for prerequisite messaging).
@@ -172,6 +172,81 @@ def _artifact_checks(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
         status = "done" if ctx.artifact_exists(path) else "waiting"
         checks.append({"path": path, "label": label, "status": status})
     return checks
+
+
+def _latest_stage_attempt(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
+    base = ctx.path("understanding", "stage_runs", stage_id)
+    if not base.is_dir():
+        return None
+    attempts = sorted(base.glob("attempt_*.json"))
+    if not attempts:
+        return None
+    rel = f"understanding/stage_runs/{stage_id}/{attempts[-1].name}"
+    try:
+        doc = ctx.read_json(rel)
+        return doc if isinstance(doc, dict) else None
+    except Exception:
+        return None
+
+
+def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
+    """Actionable bullets for budget exhaustion, lint failures, and placement QA."""
+    from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count
+
+    items: list[dict[str, Any]] = []
+    if stage_id in LLM_HANDOFF_STAGES:
+        cap = max_primary_attempts()
+        count = primary_attempt_count(ctx, stage_id)
+        if count >= cap:
+            items.append(
+                _guidance_item(
+                    "llm_budget",
+                    f"Primary attempt budget exhausted ({count}/{cap}) — review stage_runs before retry",
+                    "todo",
+                )
+            )
+        attempt = _latest_stage_attempt(ctx, stage_id)
+        if attempt:
+            lint = attempt.get("deterministic_lint_errors") or []
+            if lint:
+                summary = str(lint[0])[:100]
+                items.append(
+                    _guidance_item(
+                        "llm_lint",
+                        f"Latest attempt failed lint: {summary}",
+                        "todo",
+                    )
+                )
+    if ctx.artifact_exists("understanding/investigation_queue.json"):
+        queue = ctx.read_json("understanding/investigation_queue.json")
+        inv_items = queue.get("items") or queue.get("investigations") or []
+        cross_inv = [
+            it
+            for it in inv_items
+            if isinstance(it, dict)
+            and (it.get("status") or "open") in ("open", "pending", "needs")
+            and it.get("kind") == "cross_artifact_invalid"
+            and (not it.get("target") or it.get("target", {}).get("stage") == stage_id)
+        ]
+        if cross_inv and stage_id in LLM_HANDOFF_STAGES:
+            items.append(
+                _guidance_item(
+                    "cross_validate",
+                    "Cross-artifact validation flagged issues — review investigation queue",
+                    "todo",
+                    action="story_board",
+                    kind="story_board",
+                )
+            )
+    if stage_id in ("mix_flow1", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):
+        items.append(
+            _guidance_item(
+                "placement_qa",
+                "Review sound_design/placement_adjustments.json before export",
+                "todo",
+            )
+        )
+    return items
 
 
 def _open_investigation_count(ctx: RunContext) -> int:
@@ -676,6 +751,7 @@ def build_stage_guidance(
         prerequisites.extend(_llm_upstream_prereq_items(ctx, stage_id))
 
     inv_count = _open_investigation_count(ctx)
+    prerequisites.extend(_llm_hardening_guidance_items(ctx, stage_id))
     if stage_id == "content_context" and inv_count > 0:
         prerequisites.append(
             _guidance_item(

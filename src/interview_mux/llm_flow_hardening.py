@@ -72,6 +72,43 @@ def flow_hardening_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(flow_hardening_cfg(cfg).get("enabled", True))
 
 
+def spend_block_stages(cfg: dict[str, Any] | None = None) -> frozenset[str]:
+    raw = flow_hardening_cfg(cfg).get("spend_block_stages") or []
+    if isinstance(raw, list):
+        return frozenset(str(s) for s in raw)
+    return frozenset()
+
+
+def is_spend_block_stage(stage_key: str, cfg: dict[str, Any] | None = None) -> bool:
+    return stage_key in spend_block_stages(cfg)
+
+
+def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
+    """Block ElevenLabs/mix spend when upstream craft artifacts are incomplete."""
+    if not flow_hardening_enabled() or not is_spend_block_stage(stage_key):
+        return
+    from interview_mux.artifact_completeness import artifact_status
+    from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
+
+    if stage_key.startswith("elevenlabs_sfx"):
+        ok, msg = can_run_elevenlabs_generation(ctx)
+        if not ok:
+            raise SystemExit(msg or "G1.5: prompt approval required before ElevenLabs generation.")
+        rel = "sound_design/elevenlabs_prompts.json"
+        if artifact_status(rel, ctx) != "complete":
+            raise SystemExit(
+                f"Spend gate: {rel} incomplete. Run elevenlabs_prompt_craft and approve prompts first."
+            )
+    if stage_key in ("mix_flow1", "mix_flow2"):
+        if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
+            flow = "flow1" if stage_key == "mix_flow1" else "flow2"
+            from interview_mux.sdp_cross_validate import validate_pre_mix
+
+            errors = validate_pre_mix(ctx, flow)
+            if errors:
+                raise SystemExit(f"Mix gate: {'; '.join(errors[:3])}")
+
+
 def is_critical_stage(stage_key: str) -> bool:
     return stage_key in ALL_CRITICAL_LLM_STAGES
 

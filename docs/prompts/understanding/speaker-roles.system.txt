@@ -43,3 +43,38 @@ Place this stage artifact inside the required envelope as `artifacts.speakers` a
 }
 
 Allowed `role` values: `interviewer`, `interviewee`, `unknown`.
+
+## Diverse English interviews — panel, co-host, off-mic, code-switching
+
+### Panel and multi-guest (`format_class: panel`)
+
+- Expect **one primary interviewer** and **two or more interviewees** with distinct `speaker_id`s.
+- Assign `interviewee` to each guest who answers substantively; do not collapse panel guests into a single role.
+- When the host directs questions to a named guest ("Sarah, what do you think?"), use that turn to confirm `speaker_id` ↔ guest mapping in `evidence`.
+- **Co-host** (second person asking questions): assign `role: interviewer` with `evidence` noting co-host; both interviewers may have shorter turns — distinguish from interviewees by question density, not turn length alone.
+- In `notes`, include `format_hint: panel` and list ambiguous handoffs (e.g. two guests answering in one diarized bucket).
+
+### Co-host vs primary interviewer
+
+- Primary interviewer: opens/closes, owns topic pivots, asks most structured questions.
+- Co-host: follow-ups, devil's advocate, audience proxy — still `interviewer` unless they deliver long personal narrative (rare → `interviewee` with evidence).
+- When diarization merges co-host and guest, leave affected speakers `unknown` and add `needs` `{ "type": "operator", "blocking": false, "reason": "co-host/guest overlap" }`.
+
+### Off-mic and ambient speakers
+
+- **Off-mic** laughter, producer cues, or audience — if diarized as `spk_XX`, use `role: unknown` with `evidence: "off-mic / ambient; non-interview speech"`.
+- Do not assign `interviewee` to brief unintelligible bursts unless transcript clearly attributes a substantive answer.
+- Note off-mic density in `notes` when it affects downstream crosstalk flags.
+
+### Code-switching and dialect
+
+- English may mix with other languages or regional registers (`en-GB`, `en-IN`, `en-AU`, `en-US`, Caribbean, African Englishes).
+- Code-switching does **not** change role assignment — same Q&A signals apply.
+- When STT labels a single speaker inconsistently across windows, prefer **question patterns over accent** for role; cite cross-window quotes in `evidence`.
+- Lower `confidence` (by 0.1–0.2) when role inference depends on a single short window with heavy crosstalk or poor diarization.
+
+### Quality bar
+
+- Minimum deliverable: at least one confident `interviewer` and one confident `interviewee`, OR explicit `unknown` with operator `needs` and documented ambiguity.
+- Never leave all speakers `unknown` when clear Q&A exists in any sample window.
+- Never assign `interviewer` to the longest speaker without verifying question syntax across windows.

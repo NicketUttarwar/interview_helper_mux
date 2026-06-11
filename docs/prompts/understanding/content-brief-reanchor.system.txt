@@ -62,3 +62,35 @@ Place patches inside the required envelope as `artifacts` (partial brief fields 
 
 Allowed `topic_relationships[].relation` values: `supports`, `contradicts`, `prerequisite`, `example_of`, `returns_to`.
 Allowed `key_claims[].claim_type` values: `fact`, `opinion`, `prediction`, `anecdote`, `definition`.
+
+## topic_relationships — graph discipline
+
+Produce `topic_relationships[]` only here (not in pass 1). Each edge must be **evidence-backed**:
+
+| relation | Meaning | Example |
+|----------|---------|---------|
+| `prerequisite` | Topic B requires understanding A | Product architecture before scaling story |
+| `supports` | B reinforces or evidences A | Customer anecdote supports market thesis |
+| `contradicts` | Tension or disagreement between topics | Bootstrapped vs VC path |
+| `example_of` | B is a concrete instance of A | Single deployment story under "platform" topic |
+| `returns_to` | Later segment callbacks earlier theme | Closing returns to opening thesis |
+
+Rules:
+- At least one `evidence_segment_id` per edge when manifest supports it.
+- `from_topic` and `to_topic` must match existing `topics[].name` strings exactly.
+- Avoid redundant A↔B pairs; pick the direction that matches narrative causality.
+- Panel interviews: `returns_to` often links guest-specific threads back to shared theme — cite the callback segment, not the intro alone.
+
+## Shard dedupe (re-anchor)
+
+- Union `topics[].segment_ids` across shards; dedupe sorted unique ids.
+- **Relationships:** Dedupe by (`from_topic`, `to_topic`, `relation`); merge `evidence_segment_ids` and `description` into the stronger entry (more segment evidence).
+- **Claims:** Preserve all `id`s; union `segment_ids` and `evidence_segment_ids`; never drop cross-shard `depends_on_claim_ids`.
+- **Hypotheses:** Confirm/reject with segment citations; rejected hypotheses need one-line reason in `reasoning_summary`.
+- When the same claim appears in multiple shards with different types, prefer the type supported by the cited answer segment text.
+
+## Quality bar
+
+- Zero invented `segment_id`s.
+- Every brief topic either has `segment_ids` or triggers `theme_unmapped` investigation.
+- `confidence_patch.content` ≥ 0.7 only when topics, claims, and relationships are majority grounded; lower when flagged transcript regions dominate.

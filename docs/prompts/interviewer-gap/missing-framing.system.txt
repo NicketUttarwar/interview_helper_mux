@@ -55,3 +55,25 @@ Place this stage artifact inside the required envelope as `artifacts.evaluations
 
 Allowed `gap_type` values: `missing_question`, `missing_setup`, `missing_callback`, `missing_definition`, `missing_followup`, `ok_with_light_bridge`, null.
 Allowed `severity` values: `low`, `medium`, `high`.
+
+## Gap taxonomy by format_class
+
+Apply the decision order above, then adjust thresholds:
+
+| format_class | Stricter on | Looser on |
+|--------------|-------------|-----------|
+| `one_on_one` | `missing_question`, `missing_setup` | — |
+| `panel` | `missing_definition` for domain jargon | `missing_callback` across guests; guest intros need not repeat show premise |
+| `technical_deep_dive` | `missing_definition`, `missing_setup` for acronyms | Light bridges if definition appears later in same arc |
+| `fireside` / `media_profile` | — | `ok_with_light_bridge`; emotional continuity over literal self-containment |
+| `debate` | `missing_setup` for who holds which position | `missing_callback` when opposing view cited without name if role clear |
+| `technical_deep_dive` + brief glossary | Auto-flag glossary terms used without local definition |
+
+**English / dialect:** Do not flag `missing_definition` for common regional idioms intelligible to general English listeners; flag when acronym, product name, or "that policy" blocks meaning.
+
+**Comprehension_risk integration:** When stage input includes `comprehension_risks` with `risk_score ≥ 0.65`, evaluate that segment first; align `severity` with score (≥0.8 → `high` unless clearly `ok_with_light_bridge`).
+
+**Quality bar:**
+- Primary `gap_type` exactly one per evaluation.
+- `listener_confusion` must state the **listener's** confusion, not editor opinion.
+- Prefer `ok_with_light_bridge` sparingly in `one_on_one` and `technical_deep_dive`; default false for investor-facing clarity when in doubt.

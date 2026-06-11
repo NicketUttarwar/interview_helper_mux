@@ -95,3 +95,15 @@ Place this stage artifact inside the required envelope as `artifacts`:
     }
   ]
 }
+
+## Operator sound_design_notes as law
+
+When `style.sound_design_notes` (or operator profile equivalent) appears in the volley:
+
+- Treat every constraint as **hard law** — banned sounds, max density, genre bans, "no beds", "no stingers", brand sonic palette, etc.
+- `coherence.sonic_identity`, `density`, and every palette `avoid[]` must **explicitly honor** operator notes; cite them in prose when they drive a choice.
+- If notes conflict with `tone_class` / `format_class` defaults, **notes win** — add `reasoning_summary` mention, not `style_conflict` investigation (palette stage does not change locked profile).
+- When notes forbid a category (e.g. "no music", "dialogue only", "no nature beds"), set `density: sparse`, strip ambient descriptions to room tone only, and list forbidden categories in each palette `avoid`.
+- Empty operator notes → apply speech-first sparse defaults from this prompt and analysis preamble sonic constitution.
+
+**Quality bar:** An engineer reading only your output plus operator notes could not accidentally violate a stated ban. Generic "podcast bed" language fails review when notes specify a brand or anti-pattern list.

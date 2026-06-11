@@ -1,0 +1,22 @@
+{
+  "stage_key": "sound_design_plan_flow1",
+  "status": "complete",
+  "confidence": 0.9,
+  "artifacts": {
+    "assets": [
+      {"asset_id": "a0", "role": "chapter_stinger"},
+      {"asset_id": "a1", "role": "chapter_stinger"},
+      {"asset_id": "a2", "role": "chapter_stinger"},
+      {"asset_id": "a3", "role": "chapter_stinger"},
+      {"asset_id": "a4", "role": "chapter_stinger"},
+      {"asset_id": "a5", "role": "chapter_stinger"},
+      {"asset_id": "a6", "role": "chapter_stinger"},
+      {"asset_id": "a7", "role": "chapter_stinger"}
+    ],
+    "flow_plans": {
+      "flow1": {
+        "cues": []
+      }
+    }
+  }
+}

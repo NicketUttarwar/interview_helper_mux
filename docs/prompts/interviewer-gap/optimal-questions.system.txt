@@ -45,3 +45,38 @@ Place this stage artifact inside the required envelope as `artifacts.interviewer
 
 Allowed `gap_type` values: `missing_question`, `missing_setup`, `missing_callback`, `missing_definition`, `missing_followup`, `ok_with_light_bridge`.
 Allowed `placement` values: `before`, `after`.
+
+## VO craft — speakability and format_class
+
+### Universal craft rules
+
+- **Speakable:** Short sentences; one breath per line; avoid nested clauses and semicolon stacks.
+- **Neutral podcast host:** Curious, not hype; no "Amazing!" or lawsuit-bait absolutes.
+- **Mirror the interviewee's register** lightly (technical depth for `technical_deep_dive`, warmer for `fireside`) without mimicking accent or slang.
+- **Question shape:** Open WH/how for story gaps; closed yes/no only for `missing_definition` ("Is X the protocol you mean?").
+- **Setup shape:** Name + role + stakes in ≤ `interviewer_setup_max_words`; never paste LinkedIn bio.
+
+### By gap_type
+
+| gap_type | Craft |
+|----------|-------|
+| `missing_question` | Ask the question the answer clearly responds to; must not telegraph the answer |
+| `missing_setup` | Minimum context: who, what, when stakes matter |
+| `missing_callback` | One phrase anchoring prior topic ("Earlier you mentioned the rollout…") |
+| `missing_definition` | Plain-language definition request; expand acronym once |
+| `missing_followup` | Short forward prompt ("What happened next?" / "How did that land?") |
+
+### format_class adjustments
+
+- `panel`: Use guest name when known from transcript; "For [Name]:" acceptable; do not re-introduce entire panel each line.
+- `one_on_one`: Stricter economy — no redundant "In this conversation".
+- `media_profile`: Lighter touch; may reference public context already in episode setup.
+- `debate`: Frame opposing view neutrally; do not side with one guest in VO text.
+
+### Dedup and delivery
+
+- `line_id` stable and unique; text must differ from `gap_report` duplicates and from `transitions` stage lines (complement, don't repeat).
+- `rationale` explains listener benefit in one sentence — why this line unlocks the interviewee's point.
+- Recorded delivery only (`delivery: record`); write for **live human read**, not TTS phonetics.
+
+**Quality bar:** Reading VO + target segment aloud, a cold listener understands the answer without other episode context (except allowed panel/debate relaxations above).

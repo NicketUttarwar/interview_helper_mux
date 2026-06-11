@@ -318,6 +318,90 @@ def minimal_speakers() -> dict[str, Any]:
     }
 
 
+def seed_flow1_full_sound_path(ctx: RunContext) -> None:
+    """Flow 1 sound path with ranking, transitions, and narrative plan stubs for cross-validate."""
+    seed_flow1_sound_spend_ready(ctx)
+    ctx.write_json(
+        "flow_1_master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "chapters": [{"chapter_id": "ch1", "segment_ids": ["seg_001"]}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "flow_1_master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "transition_id": "t1",
+                    "type": "topic_shift",
+                    "before_segment_id": "seg_001",
+                    "after_segment_id": "seg_001",
+                    "text": "Next.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/narrative_arc_plan.json",
+        {"chapters": [{"chapter_id": "ch1", "title": "Opening", "segment_ids": ["seg_001"]}]},
+        skip_handoff=True,
+    )
+
+
+def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
+    """Minimal Flow 1 sound path artifacts for cross-validate spend/mix regression tests."""
+    seed_analysis_ready_artifacts(ctx, verified=True)
+    ctx.write_json(
+        "flow_1_master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "chapters": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "bed_01",
+                    "role": "ambient_bed",
+                    "palette_id": "p1",
+                    "description": "Warm sparse room tone",
+                    "duration_seconds": 6.0,
+                }
+            ],
+            flow_plans={
+                "flow1": {
+                    "cues": [
+                        {
+                            "cue_id": "c1",
+                            "asset_id": "bed_01",
+                            "placement": "under_segment",
+                            "segment_id": "seg_001",
+                        }
+                    ]
+                }
+            },
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "sound_design/elevenlabs_prompts.json",
+        {
+            "prompts": [
+                {
+                    "asset_id": "bed_01",
+                    "elevenlabs_prompt": "soft non-vocal room tone loop without rhythm or melody for podcast underscore",
+                    "duration_seconds": 6,
+                    "negative_prompt": "vocals lyrics speech",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "bed_01.wav").write_bytes(MINIMAL_WAV_BYTES)
+
+
 def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) -> None:
     """Write minimal complete analysis artifacts for gate / hardening tests."""
     from interview_mux.artifact_writes import write_validated_artifact

@@ -1205,6 +1205,106 @@ Arbiter **accept** with schema errors is overridden to **blocked** when `halt_on
 
 ---
 
+## 19. Guidance program
+
+Quality-first editorial harness layered on §18 flow hardening. Full index: [docs/cross-cutting/llm-guidance-program.md](docs/cross-cutting/llm-guidance-program.md). Living tracker: [docs/cross-cutting/stage-quality-scorecard.md](docs/cross-cutting/stage-quality-scorecard.md).
+
+### 19.1 Quality layers (per LLM stage)
+
+| Layer | Location | Role |
+|-------|----------|------|
+| System prompt + preamble | `docs/prompts/**/*.system.txt`, `analysis-preamble.system.txt` | Task rules, envelope contract, sonic constitution |
+| Scenario atlas | [interview-scenario-atlas.md](docs/prompts/_shared/interview-scenario-atlas.md) | Format-specific adaptations (technical deep dive, panel, investor, etc.) |
+| Runtime examples | `docs/prompts/_shared/examples/*.md` | Injected per `analysis.prompt_examples.mode` (`compact` \| `full`) |
+| Preflight | `llm_preflight.py` | Block OpenAI when upstream artifacts or gates missing |
+| Deterministic lint | `deterministic_lint.py` | Code checks before arbiter merge (`deterministic_lint_keys` per rubric) |
+| Arbiter rubrics | `docs/prompts/_shared/arbiter-rubrics/*.json` | `accept_criteria`, `reject_patterns`, `min_confidence_on_accept` |
+| Arbiter | `llm_arbiter.py` | Economy-tier routing verdict |
+| Cross-validate | `artifact_cross_validate.py`, `sdp_cross_validate.py` | ID-set and SDP cue consistency |
+| Attempt budget | `attempt_budget.py` | Primary/arbiter caps and stuck-signature circuit breaker (§20) |
+
+Loader: `arbiter_expectations.py` merges rubric JSON into arbiter `stage_expectations`. Index: [arbiter-stage-rubrics.md](docs/prompts/_shared/arbiter-stage-rubrics.md).
+
+### 19.2 Criticality tiers
+
+| Tier | Stages | Failure impact |
+|------|--------|----------------|
+| **P0** | `speaker_roles` … `content_brief_reanchor` | Poisons all downstream understanding |
+| **P1** | `missing_framing` … `edl_narrative_audit` | Listener comprehension / master ordering |
+| **P2** | `sound_design_palettes` … `mix_flow*` | API spend + audible master quality |
+| **P3** | `transitions`, `highlight_selection`, `podcast_show_description` | Polish; operator-recoverable |
+| **P4** | G0, `source_acoustic_profile`, `assembly_preview`, etc. | Non-LLM upstream gates |
+
+### 19.3 Deterministic lint (pre-arbiter)
+
+`deterministic_lint.py` evaluates rubric `deterministic_lint_keys` without an LLM call. Common keys:
+
+| Key | Meaning |
+|-----|---------|
+| `envelope_status_complete` | Envelope `status` is `complete` |
+| `schema_errors_empty` | No material JSON Schema errors |
+| `producer_artifact_complete` | On-disk producer artifact passes completeness |
+| `truncation_requires_decompose` | Truncation on decompose-eligible stage → must not accept |
+| `confidence_gte_min` | Envelope `confidence` ≥ rubric `min_confidence_on_accept` |
+| `cross_artifact_refs_valid` | Referenced `segment_id`s exist upstream |
+
+Lint failures are recorded in `attempt_*.json` (`deterministic_lint_errors`) and block merge when material.
+
+### 19.4 Scenario atlas usage
+
+[interview-scenario-atlas.md](docs/prompts/_shared/interview-scenario-atlas.md) documents signal → prompt adaptation → sound posture → failure/recovery per interview format. Stages consume atlas guidance via expanded system prompts and examples (e.g. `technical_deep_dive` → glossary + definitional VO; sparse beds in P2).
+
+**Tickets:** GUIDE-001–080 stub acceptance in [ticket-specs.md](docs/build-out/ticket-specs.md) under **Wave — LLM guidance**.
+
+---
+
+## 20. Loop policy
+
+Circuit-breakers prevent infinite LLM retry loops while preserving quality-first retries. Implemented in `attempt_budget.py`, wired from `llm_stage_routing.py` when `analysis.flow_hardening.enabled` is on.
+
+### 20.1 Config keys (`analysis.flow_hardening`)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `max_primary_attempts_per_stage` | `4` | Cap primary OpenAI calls per stage per run |
+| `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
+| `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → treat as stuck |
+| `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per kind |
+
+State persisted in `understanding/analysis_orchestration.json`: `primary_attempt_counts`, `arbiter_reject_counts`, `stuck_signatures`, `stuck_counts`.
+
+### 20.2 Attempt signature
+
+Each primary attempt records an `attempt_signature` tuple (envelope status hash, schema error count, truncation flags, lint outcome). `record_stuck_signature()` increments `stuck_count` when the signature matches the previous attempt for the same `stage_key`. When `stuck_count >= stuck_signature_threshold()`, routing treats the stage as **stuck** — prefer `enqueue_investigation` or operator intervention over blind retry.
+
+### 20.3 Budget checks
+
+| Function | When blocked | Operator message |
+|----------|--------------|------------------|
+| `check_primary_budget` | `primary_attempt_count >= max_primary_attempts` | Inspect `stage_runs/<stage>/`, fix artifacts, `--from-stage <stage>` |
+| `check_arbiter_budget` | `arbiter_reject_count >= max_arbiter_rejects` | Fill gaps or operator review; re-run from stage |
+| `is_stuck` | Repeated identical signature | Same as primary budget — fix root cause upstream |
+
+Attempt metadata (`budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors`) is written to `understanding/stage_runs/<stage>/attempt_NNN.json` via `budget_extra_for_attempt()`.
+
+### 20.4 Spend-block stages
+
+`spend_block_stages` (default: `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2`, `mix_flow1`, `mix_flow2`) — `llm_flow_hardening.require_spend_prerequisites()` blocks these when upstream SDP/craft artifacts are incomplete, preventing ElevenLabs API spend on bad inputs. See [config-keys.md](docs/cross-cutting/config-keys.md).
+
+### 20.5 Recovery
+
+```text
+1. Read attempt_NNN.json → budget_remaining_primary, stuck_count, arbiter_verdict, deterministic_lint_errors
+2. If stuck: fix upstream artifact (transcript, manifest, SDP) — do not lower thresholds in production
+3. Delete downstream .stage_done markers only if re-running from an earlier producer
+4. python tools/run_analysis.py --run-id <exec> --from-stage <stage>
+   Flow: python tools/run_flow.py --flow flow1|flow2 --from-stage <stage>
+```
+
+Troubleshooting: [troubleshooting.md](docs/workflows/troubleshooting.md) — LLM loop stuck, arbiter lint fail, SDP cross-validate recovery.
+
+---
+
 ## Quick commands
 
 | Task | Command |

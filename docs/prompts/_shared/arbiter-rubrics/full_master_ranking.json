@@ -1,0 +1,25 @@
+{
+  "stage_key": "full_master_ranking",
+  "severity": "high",
+  "accept_criteria": [
+    "Selection order follows narrative_arc_plan chapter sequence",
+    "Ranked segments cover arc without incoherent jumps",
+    "Each ranked item references valid manifest segment_ids",
+    "Shard/collate batches merge into single coherent master order"
+  ],
+  "reject_patterns": [
+    "Incoherent order vs narrative_arc_plan chapters",
+    "Truncation with partial ranking and no decompose",
+    "segment_ids not in manifest or boundaries",
+    "Duplicate or missing segments in final ranking"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": true,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "cross_artifact_refs_valid",
+    "segment_coverage_ratio"
+  ]
+}

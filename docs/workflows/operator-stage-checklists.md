@@ -78,7 +78,30 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Envelope `status` | `complete` or acceptable `partial` before advancing | Read `attempt_*.json`; fix `needs` of type `operator` |
 | `blocked` | Rare; has explicit reason | Unblock per envelope or edit profile and `--from-stage` |
 | Iteration cap | `analysis_orchestration.json` not stuck maxing every stage | Widen input or simplify profile; check OpenAI errors in logs |
-| Arbiter verdict (when implemented) | `arbiter_result.verdict` is `accept` before trusting artifacts | See `attempt_*.json`; `decompose` → check `shard_count`; `enqueue_investigation` → queue |
+| Arbiter verdict | `arbiter_result.verdict` is `accept` before merge | `retry_uptier` / `reject` → read rubric in `docs/prompts/_shared/arbiter-rubrics/<stage>.json` |
+| Deterministic lint | `deterministic_lint_errors` empty in latest `attempt_*.json` | Fix listed keys (schema, caps, ID grounding) before re-run — [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) |
+| Attempt budget | `attempt_budget_exhausted` absent; `attempt_signature` not repeating | Raise limits in `analysis.flow_hardening` only after fixing root cause — [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) |
+| Stuck signature | Same `attempt_signature` &lt; `stuck_signature_threshold` | Investigation enqueued; do not infinite uptier — check `gui_log.jsonl` |
+
+**Program index:** [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) · **Export audit:** `python tools/export_llm_calls.py --run-id <exec_id> --format markdown` includes stage-run lint/arbiter appendix.
+
+---
+
+## LLM quality hardening (per stage)
+
+Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` is true. **Hard** checkpoints block the pipeline with `SystemExit`.
+
+| Stage | Pass | If fail |
+|-------|------|--------|
+| `sound_design_palettes` | Palettes grounded to manifest `segment_id`s; `coherence.sonic_identity` set | `--from-stage sound_design_palettes`; fix orphan palette segments |
+| `sound_design_plan_flow1` | SDP `assets[]` ≤ cap; flow1 cues reference `selection` ids | `--from-stage sound_design_plan_flow1` |
+| `sound_design_plan_flow2` | flow2 cues match highlight ranks; asset cap | `--from-stage sound_design_plan_flow2` |
+| `full_master_ranking` | Ordered ids ⊆ manifest; chapter membership valid | `--from-stage full_master_ranking` |
+| `transitions` | Transition targets valid; no fuzzy duplicate of `gap_report` VO | `--from-stage transitions` |
+| `edl_narrative_audit` | `verdict` not `fail` before `edl_flow1` | Re-run ranking/transitions/audit per recommendations |
+| `elevenlabs_prompt_craft` | SDP `assets[]` non-empty; `elevenlabs_prompts.json` on disk (**pre-spend hard**) | Complete plan stages; approve G1.5 when enabled |
+| `elevenlabs_sfx_flow1` / `_flow2` | One WAV per `asset_id` before mix (**pre-mix hard**) | Re-run craft + SFX; check `sound_design/assets/` |
+| `mix_flow1` / `mix_flow2` | Spend gate satisfied; optional `placement_adjustments.json` reviewed | Listen preview first; fix SDP levels — [post-generation-placement.md](../cross-cutting/post-generation-placement.md) |
 
 ---
 

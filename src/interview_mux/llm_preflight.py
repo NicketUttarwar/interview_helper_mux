@@ -175,6 +175,87 @@ def _preflight_pre_flow1(ctx: RunContext) -> list[str]:
     return errors
 
 
+def _preflight_sound_design_palettes(ctx: RunContext) -> list[str]:
+    errors = _check_upstream_artifacts(ctx, ("understanding/content_brief.json", "segments/manifest.json"))
+    if ctx.artifact_exists("understanding/content_brief.json"):
+        brief = ctx.read_json("understanding/content_brief.json")
+        if not str((brief or {}).get("thesis", "")).strip():
+            errors.append("content_brief missing thesis before palettes")
+    return errors
+
+
+def _preflight_sound_design_plan_flow1(ctx: RunContext) -> list[str]:
+    errors = _check_upstream_artifacts(
+        ctx,
+        (
+            "understanding/sound_design_plan.json",
+            "flow_1_master/selection.json",
+            "flow_1_master/narrative_plan.json",
+        ),
+    )
+    if ctx.artifact_exists("understanding/sound_design_plan.json"):
+        sdp = ctx.read_json("understanding/sound_design_plan.json")
+        if not (sdp.get("palettes") or []):
+            errors.append("SDP palettes empty before flow1 plan")
+        if not str((sdp.get("coherence") or {}).get("sonic_identity", "")).strip():
+            errors.append("SDP coherence.sonic_identity missing")
+    return errors
+
+
+def _preflight_sound_design_plan_flow2(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(
+        ctx,
+        ("understanding/sound_design_plan.json", "flow_2_highlights/selection.json"),
+    )
+
+
+def _preflight_elevenlabs_prompt_craft(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return ["understanding/sound_design_plan.json missing"]
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    if not (sdp.get("assets") or []):
+        errors.append("SDP assets[] empty before prompt craft")
+    return errors
+
+
+def _preflight_edl_narrative_audit(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(
+        ctx,
+        (
+            "flow_1_master/selection.json",
+            "flow_1_master/narrative_plan.json",
+            "flow_1_master/coverage_audit.json",
+        ),
+    )
+
+
+def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(ctx, ("flow_1_master/coverage_audit.json",))
+
+
+def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(
+        ctx,
+        ("flow_1_master/narrative_plan.json", "flow_1_master/coverage_audit.json"),
+    )
+
+
+def _preflight_highlight_selection(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(
+        ctx,
+        ("segments/manifest.json", "understanding/content_brief.json", "understanding/gap_report.json"),
+    )
+
+
+def _preflight_transitions(ctx: RunContext) -> list[str]:
+    return _check_upstream_artifacts(ctx, ("flow_1_master/selection.json",))
+
+
+def _preflight_topic_coverage(ctx: RunContext) -> list[str]:
+    return _preflight_pre_flow1(ctx)
+
+
 _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "speaker_roles": _preflight_speaker_roles,
     "content_context": _preflight_content_context,
@@ -183,5 +264,14 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "content_brief_reanchor": _preflight_content_brief_reanchor,
     "missing_framing": _preflight_missing_framing,
     "optimal_questions": _preflight_optimal_questions,
-    "topic_coverage_audit": _preflight_pre_flow1,
+    "sound_design_palettes": _preflight_sound_design_palettes,
+    "topic_coverage_audit": _preflight_topic_coverage,
+    "narrative_arc_plan": _preflight_narrative_arc_plan,
+    "full_master_ranking": _preflight_full_master_ranking,
+    "highlight_selection": _preflight_highlight_selection,
+    "transitions": _preflight_transitions,
+    "sound_design_plan_flow1": _preflight_sound_design_plan_flow1,
+    "sound_design_plan_flow2": _preflight_sound_design_plan_flow2,
+    "elevenlabs_prompt_craft": _preflight_elevenlabs_prompt_craft,
+    "edl_narrative_audit": _preflight_edl_narrative_audit,
 }

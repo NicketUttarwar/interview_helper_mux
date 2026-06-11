@@ -19,7 +19,7 @@ from interview_mux.gates import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import _build_stage_list
-from run_fixtures import init_run_meta_for_test, patch_executions_root, populated_analysis_state
+from run_fixtures import init_run_meta_for_test, patch_executions_root, seed_analysis_ready_artifacts
 
 COMPLETE_SPEAKERS = {
     "speakers": [
@@ -68,9 +68,7 @@ def test_analysis_profile_action_required_after_analysis(tmp_path, monkeypatch) 
     ctx = RunContext(create=True)
     init_run_meta_for_test(ctx)
     ensure_analysis_workspace(ctx)
-    ctx.mark_done("optimal_questions")
-    state = populated_analysis_state(ctx.run_id)
-    ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
+    seed_analysis_ready_artifacts(ctx)
 
     assert analysis_profile_ready_for_review(ctx)
     assert _stage_status(ctx, "analysis_profile") == "action_required"
@@ -85,9 +83,7 @@ def test_profile_gate_pending_requires_populated_profile(tmp_path, monkeypatch) 
 
     assert not check_profile_gate_pending(ctx)
 
-    ctx.mark_done("optimal_questions")
-    state = populated_analysis_state(ctx.run_id)
-    ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
+    seed_analysis_ready_artifacts(ctx)
 
     assert check_profile_gate_pending(ctx)
 
