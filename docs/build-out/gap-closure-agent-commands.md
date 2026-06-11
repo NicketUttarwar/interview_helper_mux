@@ -10,6 +10,8 @@
 
 **Status (quality follow-up):** **Phase 6 (Commands 1–13) is complete** — doc sweep (Command 13) landed; run **[final verification](#final-verification-run-once-after-all-commands)** once if not already done.
 
+**Note:** Historical prompts below reference `web/static/app.js`. The shipped GUI is React in [`frontend/`](../../frontend/) (Vite → `web/static/`). Treat `app.js` paths as superseded unless you are auditing archive text.
+
 ### How to use
 
 1. Run **Step 0** (shell only — no Agent chat) once if `.venv/` is missing.

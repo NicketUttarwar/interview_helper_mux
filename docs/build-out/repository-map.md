@@ -99,6 +99,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `runner.py` | Background execute → `gui_job.json` | BUILD-015 |
 | `stages.py` | Stage metadata for UI | BUILD-014 |
 | `static/` | Vite-built React SPA (`index.html`, `assets/*`) — source in `frontend/` | BUILD-014 |
+| `gui_bundle.py` | Static bundle integrity (`needs_gui_build`) for `run.sh` / prerequisites | — |
 
 ### Value analysis (`src/interview_mux/value_analysis/`)
 

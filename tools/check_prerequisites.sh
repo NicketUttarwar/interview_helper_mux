@@ -124,4 +124,27 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
   fi
 fi
 
+_STATIC_INDEX="$ROOT/src/interview_mux/web/static/index.html"
+if [[ -d .venv ]]; then
+  if python - <<'PY'
+from interview_mux.gui_bundle import needs_gui_build
+raise SystemExit(0 if needs_gui_build() else 1)
+PY
+  then
+    if [[ "${CHECK_GUI_BUNDLE:-0}" == "1" ]]; then
+      echo "ERROR: GUI static bundle missing or incomplete (index.html references assets not on disk)." >&2
+      echo "  Run: ./scripts/build_gui.sh" >&2
+      echo "  See SETUP.md § GUI dependencies" >&2
+      exit 1
+    fi
+    echo "WARN: GUI static bundle missing or incomplete — run ./scripts/build_gui.sh before ./scripts/run.sh"
+  fi
+elif [[ ! -f "$_STATIC_INDEX" ]]; then
+  if [[ "${CHECK_GUI_BUNDLE:-0}" == "1" ]]; then
+    echo "ERROR: GUI static bundle not built (no .venv to verify; missing $_STATIC_INDEX)" >&2
+    exit 1
+  fi
+  echo "WARN: GUI static bundle may be missing — run ./scripts/build_gui.sh after bootstrap"
+fi
+
 echo "Prerequisites OK."

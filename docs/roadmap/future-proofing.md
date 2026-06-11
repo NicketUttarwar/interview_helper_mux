@@ -45,12 +45,12 @@ Rubrics, moonshot model families, templates, per-stage notes: [pipeline/value-an
 
 | Capability | ON |
 |------------|-----|
-| G1.5 prompt review gate (`g1_5_require_prompt_approval`) | Yes — GUI + API + `g15_prompt_review.py` (flag default off) |
-| Value-analysis spike scoring CLI | Yes — `tools/run_value_spike.py` (**tooling only**; not a default pipeline stage) |
-| Value-features extractor CLI | Yes — `tools/extract_value_features.py` → `understanding/value_features.json` (**tooling only**) |
-| Value-features auto-extract after `content_context` | Yes — `value_analysis.auto_extract_after_content_context` (default off; not on default pipeline path) |
+| G1.5 prompt review gate (`g1_5_require_prompt_approval`) | Yes — GUI + API + `g15_prompt_review.py` (shipped default **on**) |
+| Value-analysis spike scoring CLI | Yes — `tools/run_value_spike.py` (**tooling only**; not a separate pipeline stage) |
+| Value-features extractor CLI | Yes — `tools/extract_value_features.py` → `understanding/value_features.json` |
+| Value-features auto-extract after `content_context` | Yes — `value_analysis.auto_extract_after_content_context` (shipped default **on**; hook in `understanding.run_content_context`) |
 | Stage enrichment signals in LLM context | Yes — `stage_enrichment.py` → `pause_ladder_hints`, `emphasis_regions`, `quotability_signals`, `value_features_summary` |
-| Specialist orchestration loop | Yes — `analysis.specialists.enabled` (default off) |
+| Specialist orchestration loop | Yes — `analysis.specialists.enabled` (shipped default **on**) |
 | Show description evidence QC | Yes — `show_description_qc.py`, `tools/validate_show_description.py`, `show_description_qc.strict` |
 | Primary LLM `json_object` response format | Yes — all primary/shard/collate/specialist calls in `llm_runner.py` |
 

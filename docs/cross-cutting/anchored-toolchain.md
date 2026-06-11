@@ -76,7 +76,7 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 | `jsonschema` | 4.26.0 | Artifact validation (`prompt_validation.py`) |
 | `filelock` | 3.29.0 | Atomic JSON writes |
 | `httpx` | 0.28.1 | (transitive) OpenAI HTTP |
-| `numpy` | 2.4.6 | Audio metrics (planned / optional stages) |
+| `numpy` | 2.4.6 | Audio metrics, value-analysis extract, mix helpers (shipped) |
 | `pyloudnorm` | 0.2.0 | Mastering-bus LUFS (BUILD-071); QA uses ffmpeg `loudnorm` (BUILD-070) |
 | `pydub` | 0.25.1 | Mix engine (`mix_flow1`, `mix_flow2` — BUILD-065, shipped) |
 | `soundfile` | 0.13.1 | WAV I/O helpers |

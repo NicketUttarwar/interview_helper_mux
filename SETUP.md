@@ -89,6 +89,10 @@ cd ..
 
 `./scripts/build_gui.sh` runs `npm ci` automatically when `node_modules` is missing or Rollup fails to load; it also checks Node arch vs `uname -m`.
 
+**Static bundle:** Vite writes hashed files to `src/interview_mux/web/static/assets/`. `./scripts/run.sh` rebuilds when `index.html` references missing assets (`interview_mux.gui_bundle`). The bundle is **committed** in git (operator-media ignore uses `/ASSETS/` at repo root only — not `web/static/assets/`). After frontend edits: `./scripts/build_gui.sh` and commit `static/` changes.
+
+`./tools/check_prerequisites.sh` warns when the bundle is incomplete; set `CHECK_GUI_BUNDLE=1` to fail instead of warn.
+
 After changing JSON Schemas under `docs/cross-cutting/json-schemas/`, regenerate GUI validators and rebuild:
 
 ```bash

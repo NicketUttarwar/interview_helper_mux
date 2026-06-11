@@ -161,9 +161,9 @@ Recommended follow-up when editing the local prompt/code:
 
 ---
 
-## Config keys (planned)
+## Config keys
 
-Add under `local_llm` in `config/app.defaults.json` when implementing — see [config-keys.md](./config-keys.md#local_llm-planned).
+Shipped under `local_llm` in `config/app.defaults.json` — see [config-keys.md](./config-keys.md#local_llm).
 
 | Key | Default | Purpose |
 |-----|---------|---------|

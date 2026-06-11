@@ -17,17 +17,17 @@ Per-stage notes (if needed): [sections/](./sections/).
 
 ## Tooling (feature-flagged)
 
-Optional R&D CLIs — **not** registered in [`pipeline.py`](../../src/interview_mux/pipeline.py). Enable locally in `config/app.defaults.json` (or secrets overlay); see [config-keys.md](../../cross-cutting/config-keys.md).
+Deterministic extract + spike CLIs — **not** registered as separate stages in [`pipeline.py`](../../src/interview_mux/pipeline.py). Shipped defaults in `config/app.defaults.json` have the master switch and auto-extract **on**; see [config-keys.md](../../cross-cutting/config-keys.md).
 
 **Execution guide:** [g15-and-value-analysis-execution.md](../../build-out/g15-and-value-analysis-execution.md) (Track B commands, file checklist).
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `value_analysis.enabled` | `false` | Master switch; when `false`, CLIs exit 0 with a message |
+| `value_analysis.enabled` | `true` | Master switch; when `false`, CLIs exit 0 with a message |
 | `value_analysis.spike_scoring` | `true` | Allows `tools/run_value_spike.py` when master is on |
 | `value_analysis.transcript_features` | `true` | Transcript profile in `extract_value_features` |
-| `value_analysis.audio_features` | `false` | Audio profile (`ingest/normalized.wav`) in extractor |
-| `value_analysis.auto_extract_after_content_context` | `false` | After successful `content_context`, write `understanding/value_features.json` when master + this flag on |
+| `value_analysis.audio_features` | `true` | Audio profile (`ingest/normalized.wav`) in extractor |
+| `value_analysis.auto_extract_after_content_context` | `true` | After successful `content_context`, write `understanding/value_features.json` when master + this flag on |
 
 **Spike scoring** — aggregate scorecard JSON (LEX / COM / CRE rubric):
 
@@ -47,7 +47,7 @@ python tools/extract_value_features.py --run-id exec_001_a1b2c3d4e5f6_20260523T1
 
 Module: `src/interview_mux/value_analysis/extract.py` (`extract_and_write_value_features`, `maybe_auto_extract_value_features`).
 
-With `value_analysis.enabled` and `auto_extract_after_content_context` set locally, a normal `content_context` run also writes the artifact (no separate CLI).
+With shipped defaults, a normal `content_context` run also writes the artifact (no separate CLI). Set either flag to `false` in `config/app.defaults.json` to disable.
 
 Record spike outcomes in [spike-results-and-winners.md](./spike-results-and-winners.md).
 
@@ -55,4 +55,4 @@ Record spike outcomes in [spike-results-and-winners.md](./spike-results-and-winn
 
 ## Build-out
 
-Optional R&D — not on default delivery path. Product backlog: [steps-forward.md](../../build-out/steps-forward.md) · [future-proofing.md](../../roadmap/future-proofing.md).
+Auto-extract and enrichment signals are on the default analysis path when flags are on. Moonshot spikes (SSL, CLAP, etc.) remain optional R&D: [steps-forward.md](../../build-out/steps-forward.md) · [future-proofing.md](../../roadmap/future-proofing.md).

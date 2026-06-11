@@ -10,6 +10,22 @@
 
 ---
 
+## Automated verification (code / CI)
+
+These checks do not replace sections 1–5 below (real `exec_*` + listen tests), but should pass before manual sign-off:
+
+| Check | Command |
+|-------|---------|
+| Prerequisites + pip-audit | `./tools/check_prerequisites.sh` |
+| GUI bundle present | `CHECK_GUI_BUNDLE=1 ./tools/check_prerequisites.sh` |
+| Stage parity | `pytest tests/test_stage_parity.py -q` |
+| GUI gitignore + bundle | `pytest tests/test_gui_bundle.py -q` |
+| Full unit suite | `pytest tests/ -q` |
+
+**2026 audit fixes:** `/ASSETS/` gitignore anchor (no longer ignores `web/static/assets/`); `interview_mux.gui_bundle.needs_gui_build()` in `run.sh`; static bundle committed under `src/interview_mux/web/static/assets/`.
+
+---
+
 ## How to use
 
 1. Fresh machine or clean venv: follow [smoke-test.md](../workflows/smoke-test.md) prerequisites.
@@ -165,6 +181,8 @@ Follow [smoke-test.md](../workflows/smoke-test.md) end-to-end on one fixture int
 
 ## Sign-off record
 
+**Manual sections 1–5** below require a real interview WAV and operator time — complete on your machine before release candidate.
+
 | Field | Value |
 |-------|--------|
 | Date | |
@@ -172,5 +190,6 @@ Follow [smoke-test.md](../workflows/smoke-test.md) end-to-end on one fixture int
 | `exec_*` (flow1/2/3) | |
 | Git commit (optional) | |
 | Notes | |
+| Automated suite (2026 audit) | `pytest tests/ -q` — 372 passed; `CHECK_GUI_BUNDLE=1 ./tools/check_prerequisites.sh` OK |
 
 **Maintainer:** When all sections are checked, mark fresh-clone items in [implementation-guide.md](./implementation-guide.md) and [steps-forward.md](./steps-forward.md), and link this file from [AGENTS.md](../../AGENTS.md) / [INDEX.md](../INDEX.md).

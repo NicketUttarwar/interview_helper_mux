@@ -64,9 +64,25 @@ fi
 pip install -q "$ROOT"
 
 _CURRENT_STEP="gui_build"
-if [[ ! -f "$ROOT/src/interview_mux/web/static/index.html" ]]; then
-  echo "Building React GUI (first run or missing static bundle) ..."
+if "$VENV/bin/python" - <<'PY'
+from interview_mux.gui_bundle import needs_gui_build
+raise SystemExit(0 if needs_gui_build() else 1)
+PY
+then
+  if ! command -v npm >/dev/null 2>&1; then
+    _bash_fatal "GUI static bundle is missing or incomplete and npm is not installed. See SETUP.md § GUI dependencies."
+    exit 1
+  fi
+  echo "Building React GUI (missing or stale static bundle) ..."
   "$ROOT/scripts/build_gui.sh"
+  if "$VENV/bin/python" - <<'PY'
+from interview_mux.gui_bundle import needs_gui_build
+raise SystemExit(0 if needs_gui_build() else 1)
+PY
+  then
+    _bash_fatal "GUI build finished but bundle is still incomplete. Run: ./scripts/build_gui.sh"
+    exit 1
+  fi
 fi
 
 if [[ "${1:-}" == "--cli" ]]; then

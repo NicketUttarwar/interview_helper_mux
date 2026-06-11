@@ -9,8 +9,8 @@
 **How to use**
 
 1. Open **Agent mode** in Cursor.
-2. **Command 1 is done** (build-out + cross-cutting coherence) — start at **Command 2** unless you are re-auditing.
-3. Run **one command per chat**, top-down (2 → 3 → …).
+2. **Commands 1–7 and 9–15 are done** — only **Command 8** (optional SSL moonshot) remains for R&D.
+3. Re-run a done command only when docs drift after a code PR.
 4. Copy the **Agent prompt** block; `@`-attach listed docs.
 5. Use **Done when** checks only (no pytest required for this guide unless a command says otherwise).
 6. Update [README.md](./README.md), [repository-map.md](./repository-map.md), and [doc-maintenance.md](./doc-maintenance.md) when a command closes a gap.
@@ -27,16 +27,16 @@ Command 1 covered build-out + selected cross-cutting docs. **Commands 2 and 9** 
 |------------|---------|
 | `docs/build-out/*` (README, implementation-guide, stage-registry, steps-forward, repository-map, full-application-flow, g15 guide) | **1** ✓ |
 | `docs/cross-cutting/podcast-quality-roadmap.md`, `json-schema-coverage.md` | **1** ✓ |
-| `docs/pipeline.md`, `docs/README.md`, `docs/INDEX.md` | **2** |
-| `docs/workflows/operator-stage-checklists.md`, `troubleshooting.md`, `operator-gates.md` (if drift) | **2**, **4** (narrative rows), **5** (G1.5 rows), **9** (final grep) |
-| `docs/cross-cutting/sound-design.md`, `anchored-toolchain.md`, `artifact-layout.md`, `source-derived-sonic-mix-profile.md` | **2**, **3** (schema matrix), **8** (deps if SSL promoted) |
-| `docs/pipeline/*/README.md` (assembly, scoring, publishing, audio_editing, …) | **2**, **4** (narrative QC), **9** (parity vs `pipeline.py`) |
-| `docs/prompts/README.md`, `analysis-stage-matrix.md` | **2**, **9** |
-| `docs/workflows/gui-surface-map.md`, `api-reference.md`, `elevenlabs-integration-guide.md` | **5**, **9** |
-| `docs/cross-cutting/evaluation-metrics.md` | **4**, **9** |
-| `docs/pipeline/value-analysis/*` | **7**, **8** |
-| `docs/build-out/definition-of-done-signoff.md` | **9** |
-| `docs/roadmap/future-proofing.md`, `config-keys.md` | **6**, **8** |
+| `docs/pipeline.md`, `docs/README.md`, `docs/INDEX.md` | **2** ✓ |
+| `docs/workflows/operator-stage-checklists.md`, `troubleshooting.md`, `operator-gates.md` (if drift) | **2** ✓, **4** ✓, **5** ✓, **9** ✓ |
+| `docs/cross-cutting/sound-design.md`, `anchored-toolchain.md`, `artifact-layout.md`, `source-derived-sonic-mix-profile.md` | **2** ✓, **3** ✓, **8** (deps if SSL promoted) |
+| `docs/pipeline/*/README.md` (assembly, scoring, publishing, audio_editing, …) | **2** ✓, **4** ✓, **9** ✓ |
+| `docs/prompts/README.md`, `analysis-stage-matrix.md` | **2** ✓, **9** ✓ |
+| `docs/workflows/gui-surface-map.md`, `api-reference.md`, `elevenlabs-integration-guide.md` | **5** ✓, **9** ✓ |
+| `docs/cross-cutting/evaluation-metrics.md` | **4** ✓, **9** ✓ |
+| `docs/pipeline/value-analysis/*` | **7** ✓, **8** (optional) |
+| `docs/build-out/definition-of-done-signoff.md` | **9** ✓ |
+| `docs/roadmap/future-proofing.md`, `config-keys.md` | **6** ✓, **8** (optional) |
 
 ---
 
@@ -50,7 +50,7 @@ Command 1 covered build-out + selected cross-cutting docs. **Commands 2 and 9** 
 | Assembly Wave 6 (067–069): EDL + VO, NLE overrides, assembly preview | Shipped |
 | Mastering QA (070–071), pre-clean stage + GUI offers (019, 072) | Shipped |
 | Smart LLM routing (073), source acoustic profile (082) | Shipped |
-| G1.5 approve gate + prompt review API/GUI | Shipped — `g15_prompt_review.py`, `app.js` craft panel |
+| G1.5 approve gate + prompt review API/GUI | Shipped — `g15_prompt_review.py`, `frontend/…/ElevenLabsPromptReviewPanel.tsx` |
 | G1.5 listen-result API + post-listen GUI (`POST …/listen-result`, Pass/Fail panels) | **Shipped** |
 | Value-analysis CLIs (`run_value_spike.py`, `extract_value_features.py`) | Shipped — **not** on default `pipeline.py` |
 | Value-features read-only GUI on `content_context` | Shipped — when `value_analysis.enabled` |
@@ -99,7 +99,9 @@ Follow @docs/build-out/doc-maintenance.md. No operator-facing strings outside gu
 
 ---
 
-## Command 2 — Documentation hub sweep (operator + pipeline docs)
+## Command 2 — Documentation hub sweep (**done**)
+
+Historical agent prompt preserved below. Re-run only after doc drift.
 
 Finish doc coherence **outside** Command 1 scope: entrypoint hubs, operator workflows, pipeline stage READMEs, and cross-cutting specs that still say "planned" or "speech-only mux".
 
@@ -148,7 +150,9 @@ Follow @docs/build-out/doc-maintenance.md. No operator-facing strings outside gu
 
 ---
 
-## Command 3 — Artifact schema validation at boundaries
+## Command 3 — Artifact schema validation at boundaries (**done**)
+
+Shipped — see [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md) validator table, `prompt_validation.py`, `tools/verify_edl.py`.
 
 Wire JSON Schema checks where artifacts are **written or consumed**, without changing mux semantics.
 
@@ -184,7 +188,9 @@ Do not add default pipeline stages.
 
 ---
 
-## Command 4 — Flow 1 narrative QA validators
+## Command 4 — Flow 1 narrative QA validators (**done**)
+
+Shipped — `narrative_qc.py`, `tools/validate_narrative.py`, `gates.py` strict hooks.
 
 Automate the **Flow 1 narrative** checks in [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) (coverage topics, non-empty chapters).
 
@@ -254,7 +260,7 @@ No new pipeline stages.
 
 ## Command 6 — Optional: auto-extract value features after analysis (**shipped**)
 
-Keep value-analysis **off** the default path; opt-in hook when `value_analysis.enabled` and `value_analysis.auto_extract_after_content_context` (default `false`). Implementation: `src/interview_mux/value_analysis/extract.py` + hook in `understanding.run_content_context`.
+Hook in `understanding.run_content_context` when `value_analysis.enabled` and `value_analysis.auto_extract_after_content_context` (shipped default **on**). Implementation: `src/interview_mux/value_analysis/extract.py`.
 
 **Agent prompt:**
 
@@ -285,7 +291,9 @@ Explicitly do not enable flags in defaults — local operator opt-in only.
 
 ---
 
-## Command 7 — Value-analysis spike documentation sprint
+## Command 7 — Value-analysis spike documentation sprint (**done**)
+
+See [spike-results-and-winners.md](../pipeline/value-analysis/spike-results-and-winners.md) and `tests/fixtures/value_analysis/spike_*.json`.
 
 Fill [spike-results-and-winners.md](../pipeline/value-analysis/spike-results-and-winners.md) for TBD sections using existing CLIs (no new ML deps).
 
@@ -316,7 +324,9 @@ Do not wire spikes into pipeline.py. Do not add SSL/CLAP dependencies in this co
 
 ---
 
-## Command 8 — Moonshot spike: SSL idea-density curves (optional R&D)
+## Command 8 — Moonshot spike: SSL idea-density curves (**optional — not started**)
+
+Only remaining item in this queue. Proceed only if spike-results recommend SSL for a section.
 
 Time-boxed **T0** prototype per [future-proofing.md](../roadmap/future-proofing.md). Only proceed if Command 7 recommends SSL for a section.
 
