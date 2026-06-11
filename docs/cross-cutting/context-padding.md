@@ -4,7 +4,9 @@ OpenAI calls use a **system prompt** (preamble + stage) plus a **multi-turn user
 
 **Smart routing (shipped):** [llm-orchestration.md](./llm-orchestration.md) adds `full` \| `shard` \| `collate` volley profiles for map-reduce sub-calls on decompose-eligible stages.
 
-**Local framing (plan):** [local-llm-tier.md](./local-llm-tier.md) — optional MLX pass to compress priors into ≤2 volley turns before OpenAI.
+**Local framing (shipped):** [local-llm-tier.md](./local-llm-tier.md) — optional MLX pass to compress priors into ≤2 volley turns before OpenAI.
+
+**Volley memory index (shipped):** `understanding/context_index.json` v2 stores queryable `volley_entries` (stage conclusions, investigations, profile digests, shard summaries). Runtime resolution via `context_resolver.py` when `analysis.context_index.prefer_index_over_legacy_summaries` is `true`. GUI: Pipeline → **Volley** sub-tab.
 
 ## Message structure
 
@@ -27,7 +29,7 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 |-------|-------------------|---------------|----------------|
 | `speaker_roles` | none | operator notes only | none |
 | `content_context` | speaker roles | identity, notes | ≤2 blocking |
-| `boundary_detection` | speaker roles, content_context | themes, thesis | segment/theme kinds |
+| `boundary_detection` | speaker roles, content_context | themes, narrative (thesis) | segment/theme kinds |
 | `segment_classification` | content_context, boundary_detection | themes, narrative, speakers | theme/segment kinds |
 | `content_brief_reanchor` | content_context, segment_classification | themes, narrative, hypotheses | theme kinds ≤2 |
 | `sound_design_palettes` | content_context, content_brief_reanchor, segment_classification | themes, narrative, style, operator_notes | theme kinds ≤2 |
@@ -44,11 +46,11 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `elevenlabs_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
 | `sfx_brief` | highlight_selection | style, narrative | — |
-| `podcast_show_description` | content_context, speaker_roles, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
+| `podcast_show_description` | speaker_roles, content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
 
 See [prompts/analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md). Per-stage volley profile: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
-## Volley profiles (target)
+## Volley profiles (shipped)
 
 | Profile | When | Assistant prior turns | Investigations | Input shaping |
 |---------|------|----------------------|----------------|---------------|
@@ -102,7 +104,7 @@ Limits in `config/app.defaults.json` → `analysis.context`:
 }
 ```
 
-`understanding/context_index.json` also sets `max_user_json_chars: 96000` for padding budget metadata.
+`understanding/context_index.json` (v2) is the **runtime volley brain**: synced `stage_plans`, `padding_rules`, `artifacts_registry`, and append-only `volley_entries[]`. Populated on arbiter-accept merge; backfill via `tools/backfill_volley_index.py`. Char budget defaults mirror `analysis.context` caps.
 
 ## Audit
 

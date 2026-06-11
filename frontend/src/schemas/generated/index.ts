@@ -22,6 +22,7 @@ import { transcript_disfluencies_jsonSchema } from "./transcript_disfluencies_js
 import { transcript_review_queue_jsonSchema } from "./transcript_review_queue_jsonSchema";
 import { understanding_analysis_state_jsonSchema } from "./understanding_analysis_state_jsonSchema";
 import { understanding_content_brief_jsonSchema } from "./understanding_content_brief_jsonSchema";
+import { understanding_context_index_jsonSchema } from "./understanding_context_index_jsonSchema";
 import { understanding_gap_evaluations_jsonSchema } from "./understanding_gap_evaluations_jsonSchema";
 import { understanding_gap_report_jsonSchema } from "./understanding_gap_report_jsonSchema";
 import { understanding_investigation_queue_jsonSchema } from "./understanding_investigation_queue_jsonSchema";
@@ -51,6 +52,7 @@ export const artifactWriteSchemas: Record<string, z.ZodTypeAny> = {
   "transcript/review_queue.json": transcript_review_queue_jsonSchema,
   "understanding/analysis_state.json": understanding_analysis_state_jsonSchema,
   "understanding/content_brief.json": understanding_content_brief_jsonSchema,
+  "understanding/context_index.json": understanding_context_index_jsonSchema,
   "understanding/gap_evaluations.json": understanding_gap_evaluations_jsonSchema,
   "understanding/gap_report.json": understanding_gap_report_jsonSchema,
   "understanding/investigation_queue.json": understanding_investigation_queue_jsonSchema,

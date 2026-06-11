@@ -7,6 +7,7 @@ import { NlePanel } from "../workspace/NlePanel";
 import { ProfilePanel } from "../workspace/ProfilePanel";
 import { ArtifactEditor } from "../workspace/ArtifactEditor";
 import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
+import { VolleyMemoryPanel } from "../workspace/VolleyMemoryPanel";
 import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
 import { JourneyShell } from "../journey/JourneyShell";
 
@@ -16,6 +17,7 @@ const TOOL_TABS: { id: PipelineSubTab; label: string; tooltip: string }[] = [
   { id: "profile", label: "Profile JSON", tooltip: "Analysis profile editor" },
   { id: "files", label: "Files", tooltip: "Artifact file editor" },
   { id: "llm_calls", label: "Debug", tooltip: "LLM call audit" },
+  { id: "volley_memory", label: "Volley", tooltip: "Volley Q&A memory index" },
 ];
 
 export function PipelineTab() {
@@ -74,6 +76,7 @@ export function PipelineTab() {
               {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
               {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
               {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
+              {pipelineSubTab === "volley_memory" ? <VolleyMemoryPanel /> : null}
 
               <details className="pipeline-tools-drawer panel">
                 <summary>Tools &amp; editors</summary>

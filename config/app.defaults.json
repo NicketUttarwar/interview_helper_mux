@@ -186,6 +186,12 @@
       "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8
     },
+    "context_index": {
+      "enabled": true,
+      "sync_plans_on_ensure": true,
+      "write_on_accept": true,
+      "prefer_index_over_legacy_summaries": false
+    },
     "prompt_thresholds": {
       "pause_split_ms": 700,
       "short_question_max_words": 12,

@@ -238,6 +238,31 @@ def prepare_volley_for_llm(
 
     if framing.used_local and framing.volley_turns:
         volley = apply_local_framing_to_volley(volley, framing.volley_turns)
+        try:
+            from interview_mux.context_resolver import (
+                append_local_framing_entry,
+                context_index_enabled,
+                write_on_accept,
+            )
+
+            if context_index_enabled() and write_on_accept():
+                attempt = 1
+                orch_path = ctx.path("understanding", "analysis_orchestration.json")
+                if orch_path.is_file():
+                    attempt = int(
+                        (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
+                            stage_key, 1
+                        )
+                    )
+                append_local_framing_entry(
+                    ctx,
+                    stage_key=stage_key,
+                    attempt=attempt,
+                    turns=framing.volley_turns,
+                    model_id=framing.model_id,
+                )
+        except Exception:
+            pass
         if framing.escalate and framing.reason:
             ctx.log(
                 f"Local LLM framed {stage_key} volley ({framing.volley_turn_count} turns); "

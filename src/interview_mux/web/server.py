@@ -224,6 +224,21 @@ class LlmCallRecordUpdateBody(BaseModel):
     raw_response: str | None = None
 
 
+class VolleyEntryBody(BaseModel):
+    kind: str = "stage_conclusion"
+    role: str = "assistant"
+    content: str = ""
+    source: dict[str, Any] | None = None
+    tags: list[str] = Field(default_factory=list)
+    scope: dict[str, Any] | None = None
+
+
+class VolleyEntryPatchBody(BaseModel):
+    content: str | None = None
+    tags: list[str] | None = None
+    scope: dict[str, Any] | None = None
+
+
 class TranscriptChunkBody(BaseModel):
     text: str
     reviewed: bool = True
@@ -790,6 +805,64 @@ def create_app() -> FastAPI:
             detail=json.dumps({"path": body.path}),
         )
         return {"ok": True, "record": doc}
+
+    @app.get("/api/runs/{run_id}/context-index")
+    def get_context_index(run_id: str) -> dict[str, Any]:
+        from interview_mux.context_index_gui import get_context_index_summary
+
+        ctx = _ctx(run_id)
+        return get_context_index_summary(ctx)
+
+    @app.post("/api/runs/{run_id}/context-index/entries")
+    def post_context_index_entry(run_id: str, body: VolleyEntryBody) -> dict[str, Any]:
+        from interview_mux.context_index_gui import create_volley_entry
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            try:
+                entry = create_volley_entry(ctx, body.model_dump())
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ctx.log("Created volley memory entry from GUI.", level="info", stage="volley_memory")
+            return {"ok": True, "entry": entry}
+
+    @app.put("/api/runs/{run_id}/context-index/entries/{entry_id}")
+    def put_context_index_entry(run_id: str, entry_id: str, body: VolleyEntryPatchBody) -> dict[str, Any]:
+        from interview_mux.context_index_gui import put_volley_entry
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            try:
+                entry = put_volley_entry(ctx, entry_id, body.model_dump(exclude_unset=True))
+            except FileNotFoundError:
+                raise HTTPException(404, f"Volley entry not found: {entry_id}") from None
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ctx.log(f"Updated volley entry {entry_id} from GUI.", level="info", stage="volley_memory")
+            return {"ok": True, "entry": entry}
+
+    @app.post("/api/runs/{run_id}/context-index/entries/{entry_id}/invalidate")
+    def invalidate_context_index_entry(run_id: str, entry_id: str) -> dict[str, Any]:
+        from interview_mux.context_index_gui import invalidate_volley_entry
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            try:
+                entry = invalidate_volley_entry(ctx, entry_id)
+            except FileNotFoundError:
+                raise HTTPException(404, f"Volley entry not found: {entry_id}") from None
+            ctx.log(f"Invalidated volley entry {entry_id}.", level="info", stage="volley_memory")
+            return {"ok": True, "entry": entry}
+
+    @app.post("/api/runs/{run_id}/context-index/rebuild")
+    def rebuild_context_index_route(run_id: str) -> dict[str, Any]:
+        from interview_mux.context_index_gui import rebuild_context_index
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            result = rebuild_context_index(ctx)
+            ctx.log("Rebuilt volley memory index from disk.", level="info", stage="volley_memory")
+            return {"ok": True, **result}
 
     @app.get("/api/runs/{run_id}/artifact")
     def get_artifact(run_id: str, path: str) -> Any:

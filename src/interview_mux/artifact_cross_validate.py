@@ -304,3 +304,9 @@ def invalidate_stage_summaries(ctx: RunContext, stage_keys: tuple[str, ...]) -> 
     for key in stage_keys:
         summaries.pop(key, None)
     save_analysis_state(ctx, state)
+    try:
+        from interview_mux.context_resolver import invalidate_entries_for_stages
+
+        invalidate_entries_for_stages(ctx, stage_keys)
+    except Exception:
+        pass

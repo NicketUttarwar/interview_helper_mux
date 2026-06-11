@@ -89,7 +89,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `operator/investigation_queue.json` | Investigation status edits |
 | `operator/artifacts/*.json` | Mirrors of other GUI-edited artifacts |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
-| `understanding/context_index.json` | context padding index |
+| `understanding/context_index.json` | Volley memory index v2 (`stage_plans`, `volley_entries`, `padding_rules`, `artifacts_registry`) — [context-padding.md](./context-padding.md) |
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
 | `understanding/llm_calls/index.jsonl` | Index of every OpenAI call (label, path) — [llm-call-record-framework.md](./llm-call-record-framework.md) |
 | `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.json` | Full request/response + volley per API call |

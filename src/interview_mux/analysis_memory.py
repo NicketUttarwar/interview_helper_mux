@@ -15,6 +15,7 @@ from interview_mux.config import merged_config
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
 
+CONTEXT_INDEX_SCHEMA_VERSION = 2
 SCHEMA_VERSION = 1
 
 ANALYSIS_STATE_PATH = "understanding/analysis_state.json"
@@ -98,13 +99,20 @@ def default_investigation_queue() -> dict[str, Any]:
 
 
 def default_context_index(run_id: str) -> dict[str, Any]:
+    from interview_mux.context_resolver import ARTIFACTS_REGISTRY, default_padding_rules
+
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": CONTEXT_INDEX_SCHEMA_VERSION,
         "run_id": run_id,
         "artifacts": {},
-        "padding_rules": {
-            "always_include": ["analysis_state_summary", "open_investigations"],
-            "max_user_json_chars": 96000,
+        "stage_plans": {},
+        "artifacts_registry": {k: list(v) for k, v in ARTIFACTS_REGISTRY.items()},
+        "padding_rules": default_padding_rules(),
+        "volley_entries": [],
+        "meta": {
+            "plans_synced_at": None,
+            "entries_count": 0,
+            "last_updated_at": _now(),
         },
     }
 
@@ -141,17 +149,21 @@ def default_sound_design_plan() -> dict[str, Any]:
 
 def _build_context_index_from_plans(run_id: str) -> dict[str, Any]:
     from interview_mux.context_volley import STAGE_PLANS
+    from interview_mux.context_resolver import ARTIFACTS_REGISTRY, default_padding_rules
 
     idx = default_context_index(run_id)
     stage_plans: dict[str, Any] = {}
     for key, plan in STAGE_PLANS.items():
         stage_plans[key] = {
+            "task_line": plan.task_line,
             "prior_stages": list(plan.prior_stages),
             "profile_keys": list(plan.profile_keys),
             "investigation_kinds": sorted(plan.investigation_kinds),
             "max_investigations": plan.max_investigations,
         }
     idx["stage_plans"] = stage_plans
+    idx["artifacts_registry"] = {k: list(v) for k, v in ARTIFACTS_REGISTRY.items()}
+    idx["meta"]["plans_synced_at"] = _now()
     return idx
 
 
@@ -172,6 +184,14 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
             _build_context_index_from_plans(ctx.run_id),
             **scaffold,
         )
+    else:
+        from interview_mux.context_resolver import context_index_cfg, migrate_context_index_v1_to_v2, sync_stage_plans
+
+        if context_index_cfg().get("sync_plans_on_ensure", True):
+            raw = ctx.read_json(CONTEXT_INDEX_PATH)
+            migrated = migrate_context_index_v1_to_v2(raw, ctx.run_id)
+            synced = sync_stage_plans(ctx, migrated)
+            ctx.write_json(CONTEXT_INDEX_PATH, synced, **scaffold)
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
         ctx.write_json(ORCHESTRATION_PATH, default_orchestration(), **scaffold)
     if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
@@ -203,6 +223,23 @@ def save_analysis_state(ctx: RunContext, state: dict[str, Any], *, stage: str | 
     if stage:
         state["meta"]["last_updated_stage"] = stage
     ctx.write_json(ANALYSIS_STATE_PATH, state, stage_key=stage or "analysis_profile")
+    if stage == "operator_gui":
+        try:
+            from interview_mux.context_volley import _format_profile_slice, plan_for_stage
+            from interview_mux.context_resolver import append_profile_digest, context_index_enabled, write_on_accept
+
+            if context_index_enabled() and write_on_accept():
+                plan = plan_for_stage("content_context")
+                digest = _format_profile_slice(state, plan.profile_keys)
+                if digest:
+                    append_profile_digest(
+                        ctx,
+                        stage_key="operator_gui",
+                        content=digest,
+                        profile_keys=plan.profile_keys,
+                    )
+        except Exception:
+            pass
 
 
 def load_queue(ctx: RunContext) -> dict[str, Any]:
@@ -498,6 +535,13 @@ def enqueue_investigations(
         existing_ids.add(iid)
         if use_dedupe:
             existing_keys.add(_investigation_dedupe_key(entry))
+        try:
+            from interview_mux.context_resolver import append_investigation_entry, context_index_enabled, write_on_accept
+
+            if context_index_enabled() and write_on_accept():
+                append_investigation_entry(ctx, investigation=entry, created_by_stage=created_by_stage)
+        except Exception:
+            pass
     save_queue(ctx, queue)
 
 
@@ -517,6 +561,12 @@ def mark_investigation_done(ctx: RunContext, inv_id: str) -> None:
             it["status"] = "done"
             it["resolved_at"] = _now()
     save_queue(ctx, queue)
+    try:
+        from interview_mux.context_resolver import invalidate_investigation_entry
+
+        invalidate_investigation_entry(ctx, inv_id)
+    except Exception:
+        pass
 
 
 def state_summary_for_padding(state: dict[str, Any]) -> dict[str, Any]:
@@ -654,6 +704,47 @@ def apply_envelope_to_memory(
 
         follow = envelope.get("follow_up_investigations") or []
         enqueue_investigations(ctx, follow, created_by_stage=stage_key)
+
+        try:
+            from interview_mux.context_resolver import (
+                append_profile_digest,
+                append_stage_conclusion,
+                context_index_enabled,
+                link_entries_to_latest_call,
+                profile_digest_from_memory_updates,
+                write_on_accept,
+            )
+
+            if context_index_enabled() and write_on_accept():
+                orch_path = ctx.path("understanding", "analysis_orchestration.json")
+                attempt_n = 1
+                if orch_path.is_file():
+                    attempt_n = int(
+                        (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
+                            stage_key, 1
+                        )
+                    )
+                if envelope.get("reasoning_summary"):
+                    append_stage_conclusion(
+                        ctx,
+                        stage_key=stage_key,
+                        attempt=attempt_n,
+                        reasoning_summary=str(envelope["reasoning_summary"]),
+                    )
+                digest = profile_digest_from_memory_updates(envelope.get("memory_updates"))
+                if digest:
+                    from interview_mux.context_volley import plan_for_stage
+
+                    plan = plan_for_stage(stage_key)
+                    append_profile_digest(
+                        ctx,
+                        stage_key=stage_key,
+                        content=digest,
+                        profile_keys=plan.profile_keys,
+                    )
+                link_entries_to_latest_call(ctx, stage_key=stage_key, attempt=attempt_n)
+        except Exception:
+            pass
 
     save_analysis_state(ctx, state, stage=stage_key)
     return state

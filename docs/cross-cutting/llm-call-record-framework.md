@@ -100,8 +100,9 @@ Each file contains:
 | `volley.turns` | `user` / `assistant` only — inject into `build_message_volley` |
 | `links.attempt_artifact` | Related `understanding/stage_runs/.../attempt_*.json` |
 | `links.relative_path` | Path from run root |
+| `links.volley_entry_ids` | (optional) Related `context_index.json` `volley_entries[].entry_id` when written on same accept |
 
----
+When a primary call is accepted, matching `volley_entries` may reference this record via `source.llm_call_path` and `source.call_id`. GUI: Pipeline → **Volley** → **Open LLM call** deep-links to **Debug** tab.
 
 ## Volley reconstruction
 

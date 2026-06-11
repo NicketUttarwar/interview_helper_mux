@@ -103,14 +103,25 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
     ),
     "topic_coverage_audit": StageContextPlan(
         task_line="Audit topic and claim coverage across segments.",
-        prior_stages=("content_context", "segment_classification"),
+        prior_stages=(
+            "content_context",
+            "segment_classification",
+            "missing_framing",
+            "optimal_questions",
+        ),
         profile_keys=("themes", "narrative", "major_questions"),
-        max_investigations=1,
+        investigation_kinds=frozenset({"theme_unmapped"}),
+        max_investigations=2,
     ),
     "narrative_arc_plan": StageContextPlan(
         task_line="Plan narrative arc, chapters, and ordering constraints.",
-        prior_stages=("topic_coverage_audit", "content_context"),
-        profile_keys=("themes", "narrative", "style", "hypotheses"),
+        prior_stages=(
+            "topic_coverage_audit",
+            "optimal_questions",
+            "missing_framing",
+            "content_context",
+        ),
+        profile_keys=("themes", "narrative", "style", "major_questions", "hypotheses"),
         max_investigations=1,
     ),
     "full_master_ranking": StageContextPlan(
@@ -184,6 +195,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "Write a third-person podcast show description (~200 words) grounded in the content brief."
         ),
         prior_stages=(
+            "speaker_roles",
             "content_context",
             "segment_classification",
             "missing_framing",
@@ -204,7 +216,24 @@ def _char_limit(key: str, default: int) -> int:
     return int(_context_cfg().get(key, default))
 
 
-def plan_for_stage(stage_key: str) -> StageContextPlan:
+def plan_for_stage(stage_key: str, ctx: RunContext | None = None) -> StageContextPlan:
+    if ctx is not None:
+        try:
+            from interview_mux.context_resolver import context_index_enabled, load_context_index
+
+            if context_index_enabled():
+                idx = load_context_index(ctx, write=False)
+                raw = (idx.get("stage_plans") or {}).get(stage_key)
+                if raw:
+                    return StageContextPlan(
+                        task_line=str(raw.get("task_line") or f"Complete stage: {stage_key}."),
+                        prior_stages=tuple(raw.get("prior_stages") or ()),
+                        profile_keys=tuple(raw.get("profile_keys") or ()),
+                        investigation_kinds=frozenset(raw.get("investigation_kinds") or []),
+                        max_investigations=int(raw.get("max_investigations", 2)),
+                    )
+        except Exception:
+            pass
     return STAGE_PLANS.get(
         stage_key,
         StageContextPlan(
@@ -228,9 +257,20 @@ def build_message_volley(
 
     Prior work is synthetic assistant prose; only this stage's raw data appears in the last user turn.
     """
-    plan = plan_for_stage(stage_key)
+    plan = plan_for_stage(stage_key, ctx)
     state = load_analysis_state(ctx)
     messages: list[dict[str, str]] = []
+
+    resolved = None
+    try:
+        from interview_mux.context_resolver import resolve_volley_context
+
+        resolved = resolve_volley_context(
+            ctx, stage_key, stage_input, profile=profile, task_kind="primary"
+        )
+    except Exception:
+        resolved = None
+    use_index = bool(resolved and resolved.get("use_index") and resolved.get("middle_turns"))
 
     if profile == "collate" and stage_input.get("mode") == "collate":
         messages.extend(_build_collate_volley(ctx, stage_key, plan, stage_input, state))
@@ -253,21 +293,24 @@ def build_message_volley(
         if parent_line:
             messages.append({"role": "assistant", "content": parent_line})
 
-    prior_stages = plan.prior_stages if profile == "full" else plan.prior_stages[:1]
-    prior_text = _format_prior_conclusions(ctx, prior_stages, state)
-    if prior_text:
-        messages.append({"role": "assistant", "content": prior_text})
+    if use_index and resolved:
+        messages.extend(resolved["middle_turns"])
+    else:
+        prior_stages = plan.prior_stages if profile == "full" else plan.prior_stages[:1]
+        prior_text = _format_prior_conclusions(ctx, prior_stages, state)
+        if prior_text:
+            messages.append({"role": "assistant", "content": prior_text})
 
-    profile_text = _format_profile_slice(state, plan.profile_keys)
-    if profile_text and profile == "full":
-        verified = (state.get("meta") or {}).get("operator_verified")
-        label = "Operator-verified profile" if verified else "Interview profile (draft — may refine)"
-        messages.append({"role": "user", "content": f"## {label}\n{profile_text}"})
+        profile_text = _format_profile_slice(state, plan.profile_keys)
+        if profile_text and profile == "full":
+            verified = (state.get("meta") or {}).get("operator_verified")
+            label = "Operator-verified profile" if verified else "Interview profile (draft — may refine)"
+            messages.append({"role": "user", "content": f"## {label}\n{profile_text}"})
 
-    inv_plan = plan if profile == "full" else StageContextPlan(task_line=plan.task_line, max_investigations=0)
-    inv_text = _format_investigations(ctx, stage_key, inv_plan)
-    if inv_text:
-        messages.append({"role": "user", "content": inv_text})
+        inv_plan = plan if profile == "full" else StageContextPlan(task_line=plan.task_line, max_investigations=0)
+        inv_text = _format_investigations(ctx, stage_key, inv_plan)
+        if inv_text:
+            messages.append({"role": "user", "content": inv_text})
 
     shaped = _shape_stage_input(stage_key, stage_input)
     data_block = json.dumps(shaped, indent=2, ensure_ascii=False)

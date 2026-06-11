@@ -572,7 +572,43 @@ export type PipelineSubTab =
   | "timeline"
   | "profile"
   | "files"
-  | "llm_calls";
+  | "llm_calls"
+  | "volley_memory";
+
+export interface VolleyEntry {
+  entry_id: string;
+  kind: string;
+  role: string;
+  content: string;
+  source?: {
+    stage_key?: string;
+    attempt?: number;
+    task_kind?: string;
+    call_id?: string;
+    llm_call_path?: string;
+    investigation_id?: string;
+  };
+  tags?: string[];
+  scope?: { consumer_stages?: string[]; investigation_kinds?: string[] };
+  status: string;
+  char_count?: number;
+  operator_edited?: boolean;
+}
+
+export interface ContextIndexSummary {
+  index: {
+    schema_version?: number;
+    volley_entries?: VolleyEntry[];
+    stage_plans?: Record<string, unknown>;
+    padding_rules?: Record<string, unknown>;
+  };
+  stats: {
+    total: number;
+    by_kind: Record<string, number>;
+    by_status: Record<string, number>;
+  };
+  rebuild_stats?: Record<string, number>;
+}
 
 export interface StoryBoardData {
   analysis_state: AnalysisState;

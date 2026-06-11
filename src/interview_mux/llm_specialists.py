@@ -232,6 +232,25 @@ def _persist_specialist_output(
     base.mkdir(parents=True, exist_ok=True)
     out_path = base / f"specialist_{spec_key}.json"
     out_path.write_text(json.dumps(env, indent=2), encoding="utf-8")
+    try:
+        from interview_mux.context_resolver import append_specialist_finding, context_index_enabled, write_on_accept
+        from interview_mux.context_volley import STAGE_PLANS
+
+        if context_index_enabled() and write_on_accept():
+            summary = str(env.get("reasoning_summary") or "")
+            if not summary:
+                artifacts = env.get("artifacts") or {}
+                summary = f"artifacts: {list(artifacts.keys())}"
+            consumers = [sk for sk, plan in STAGE_PLANS.items() if stage_key in plan.prior_stages]
+            append_specialist_finding(
+                ctx,
+                parent_stage=stage_key,
+                specialist_key=spec_key,
+                summary=summary,
+                consumer_stages=consumers,
+            )
+    except Exception:
+        pass
 
 
 def maybe_run_pre_stage_specialists(

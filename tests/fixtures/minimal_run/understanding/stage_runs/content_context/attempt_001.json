@@ -1,0 +1,11 @@
+{
+  "stage": "content_context",
+  "attempt": 1,
+  "envelope": {
+    "status": "complete",
+    "reasoning_summary": "Identified thesis and three topic clusters from transcript.",
+    "artifacts": { "content_brief": { "thesis": "AI tooling" } },
+    "memory_updates": {}
+  },
+  "arbiter_result": { "verdict": "accept" }
+}

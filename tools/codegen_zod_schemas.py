@@ -18,6 +18,7 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "understanding/speakers.json": "artifacts/speakers_artifact.schema.json",
     "understanding/sound_design_plan.json": "sound_design_plan.schema.json",
     "understanding/investigation_queue.json": "investigation_queue.schema.json",
+    "understanding/context_index.json": "context_index.schema.json",
     "understanding/gap_evaluations.json": "artifacts/gap_evaluations_artifact.schema.json",
     "understanding/gap_report.json": "gap_report.schema.json",
     "understanding/source_acoustic_profile.json": "source_acoustic_profile.schema.json",

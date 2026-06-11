@@ -4547,3 +4547,37 @@ code {
 .run-item-hash-row {
   margin-top: 0.35rem;
 }
+
+.volley-memory-panel .volley-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.volley-memory-panel .volley-table th,
+.volley-memory-panel .volley-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.volley-memory-panel .volley-table tr.expanded {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.volley-memory-panel .volley-preview {
+  max-width: 28rem;
+  color: var(--muted);
+}
+
+.volley-memory-panel .volley-editor {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+}
+
+.volley-filters {
+  margin: 0.75rem 0;
+}

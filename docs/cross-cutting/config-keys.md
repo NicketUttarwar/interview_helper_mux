@@ -194,6 +194,21 @@ Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (sh
 
 ---
 
+## `analysis.context_index.*`
+
+Volley Q&A memory — [context-padding.md](./context-padding.md), `context_resolver.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch for index read/write |
+| `sync_plans_on_ensure` | `true` | Refresh `stage_plans` from code `STAGE_PLANS` on workspace ensure |
+| `write_on_accept` | `true` | Append `volley_entries` on arbiter-accept merge |
+| `prefer_index_over_legacy_summaries` | `false` | When `true`, `build_message_volley` uses index entries instead of legacy `_format_*` fallbacks only |
+
+Rollout: ship with `prefer_index_over_legacy_summaries: false` (dual-write); enable after backfill smoke on real runs.
+
+---
+
 ## `analysis.flow_hardening`
 
 Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening). Implemented in `llm_flow_hardening.py`, `llm_preflight.py`, `artifact_cross_validate.py`.

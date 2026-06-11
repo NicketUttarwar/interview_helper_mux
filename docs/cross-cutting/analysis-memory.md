@@ -53,13 +53,32 @@ GUI profile saves record edited paths in `meta.operator_locked_fields`. Locked f
 
 | Path | Purpose |
 |------|---------|
-| `understanding/context_index.json` | Token padding rules and artifact registry |
+| `understanding/context_index.json` | **Volley memory index (v2)** — synced `stage_plans`, `volley_entries[]`, `padding_rules`, `artifacts_registry`; runtime brain for `build_message_volley` when `prefer_index_over_legacy_summaries` is enabled |
 | `understanding/analysis_orchestration.json` | Iteration limits and per-stage attempt counts |
 | `understanding/stage_runs/<stage>/attempt_NNN.json` | Full LLM envelopes (audit) |
 
 ## What gets sent to OpenAI
 
-Not the whole memory file. `context_volley.py` selects prior conclusions, profile slices, investigations, and shaped stage JSON per step. See [context-padding.md](./context-padding.md).
+Not the whole memory file. `context_volley.py` selects prior conclusions, profile slices, investigations, and shaped stage JSON per step. When enabled, `context_resolver.py` reads active entries from `context_index.json` instead of only `meta.stage_summaries`. See [context-padding.md](./context-padding.md).
+
+## Volley entries (context_index v2)
+
+On arbiter-accept merge, the pipeline appends structured entries:
+
+| `kind` | Written when | Used by |
+|--------|--------------|---------|
+| `stage_conclusion` | `reasoning_summary` accepted | Prior assistant turns (`full` / `collate` profiles) |
+| `profile_digest` | `memory_updates` or operator profile save | Profile user turns |
+| `investigation` | Investigation queue enqueue | Investigation user turns |
+| `shard_summary` | Shard/collate decompose | Collate assistant turns |
+| `specialist_finding` | Specialist post/pre passes | Downstream priors |
+| `local_framing` | MLX volley compression | Audit only (optional) |
+
+**Invalidation:** `invalidate_stage_summaries()` and manifest cross-validate mark matching entries `invalidated`. Re-accept supersedes prior `stage_conclusion` for the same stage.
+
+**Operator edit:** GUI Pipeline → **Volley** sub-tab; edits set `operator_edited: true` and clear downstream handoff acks for edited upstream conclusions.
+
+**Backfill:** `python tools/backfill_volley_index.py --run-id <exec_id>` from `stage_runs/` + `stage_summaries`.
 
 ## Merge rules
 

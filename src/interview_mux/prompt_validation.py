@@ -259,6 +259,10 @@ def validate_elevenlabs_prompts(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("elevenlabs_prompts_artifact.schema.json", data)
 
 
+def validate_context_index(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("context_index.schema.json", data)
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
@@ -288,6 +292,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "transcript/disfluencies.json": validate_disfluencies,
     "segments/nle_edits.json": validate_nle_edits,
     "understanding/investigation_queue.json": validate_investigation_queue,
+    "understanding/context_index.json": validate_context_index,
 }
 
 

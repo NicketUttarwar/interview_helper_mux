@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "run_id": "exec_test_minimal",
+  "stage_plans": {},
+  "padding_rules": { "max_user_json_chars": 96000 },
+  "volley_entries": [],
+  "meta": {}
+}

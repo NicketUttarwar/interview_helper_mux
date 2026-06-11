@@ -54,6 +54,8 @@ Use the `run_id` from the GUI step above. For headless-only setups, `INPUT_AUDIO
 
 **Optional spot-check:** `understanding/stage_runs/<stage>/attempt_001.json` may include `arbiter_result.verdict: accept` and `shard_count` > 0 when decompose fires — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
 
+**Volley memory (optional):** After `content_context` accepts, open Pipeline → **Volley** — confirm `stage_conclusion` entries exist in `understanding/context_index.json`. Edit an entry, save, and confirm downstream handoff ack clears. Backfill older runs: `python tools/backfill_volley_index.py --run-id <exec_id>`. Enable index reads in config: `analysis.context_index.prefer_index_over_legacy_summaries: true` (default `false` for rollout).
+
 Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
 - `ingest/normalized.wav`

@@ -69,6 +69,20 @@ def run_shards_then_collate(
             task_kind=f"shard_{shard_idx:03d}",
             truncation_flags=truncation_flags_for_volley(volley),
         )
+        try:
+            from interview_mux.context_resolver import append_shard_summary, context_index_enabled, write_on_accept
+
+            if context_index_enabled() and write_on_accept():
+                append_shard_summary(
+                    ctx,
+                    stage_key=stage_key,
+                    attempt=parent_attempt,
+                    shard_label=str(shard.get("label") or f"shard_{shard_idx}"),
+                    reasoning_summary=str(env.get("reasoning_summary") or ""),
+                    segment_ids=list(shard.get("segment_ids") or []),
+                )
+        except Exception:
+            pass
 
     min_ratio = float(flow_hardening_cfg().get("shard_min_success_ratio", 0.75))
     if flow_hardening_enabled() and len(ok_shards) / plan_len < min_ratio:

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContextIndex",
+  "type": "object",
+  "required": ["schema_version", "run_id", "stage_plans", "padding_rules", "volley_entries"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "run_id": { "type": "string" },
+    "stage_plans": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "task_line": { "type": "string" },
+          "prior_stages": { "type": "array", "items": { "type": "string" } },
+          "profile_keys": { "type": "array", "items": { "type": "string" } },
+          "investigation_kinds": { "type": "array", "items": { "type": "string" } },
+          "max_investigations": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "padding_rules": {
+      "type": "object",
+      "properties": {
+        "max_user_json_chars": { "type": "integer", "minimum": 1000 },
+        "max_volley_middle_chars_full": { "type": "integer", "minimum": 500 },
+        "max_volley_middle_chars_shard": { "type": "integer", "minimum": 100 },
+        "max_entries_per_kind": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "artifacts_registry": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "volley_entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/volley_entry" }
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "plans_synced_at": { "type": "string" },
+        "entries_count": { "type": "integer" },
+        "last_updated_at": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "volley_entry": {
+      "type": "object",
+      "required": ["entry_id", "kind", "role", "content", "status"],
+      "properties": {
+        "entry_id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "stage_conclusion",
+            "investigation",
+            "profile_digest",
+            "shard_summary",
+            "specialist_finding",
+            "artifact_digest",
+            "local_framing"
+          ]
+        },
+        "role": { "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "source": {
+          "type": "object",
+          "properties": {
+            "stage_key": { "type": "string" },
+            "attempt": { "type": "integer" },
+            "task_kind": { "type": "string" },
+            "call_id": { "type": "string" },
+            "llm_call_path": { "type": "string" },
+            "investigation_id": { "type": "string" }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "consumer_stages": { "type": "array", "items": { "type": "string" } },
+            "investigation_kinds": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "status": { "enum": ["active", "superseded", "invalidated"] },
+        "supersedes": { "type": ["string", "null"] },
+        "char_count": { "type": "integer", "minimum": 0 },
+        "recorded_at": { "type": "string" },
+        "operator_edited": { "type": "boolean" }
+      }
+    }
+  }
+}

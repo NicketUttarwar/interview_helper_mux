@@ -29,6 +29,7 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | Placement QA (post-SFX) | [post-generation-placement.md](../cross-cutting/post-generation-placement.md), `placement_qa.py`, `sound_design.placement_qa_enabled` in [config-keys.md](../cross-cutting/config-keys.md) |
 | LLM call export CLI | `tools/export_llm_calls.py`, [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md), [gui-surface-map.md](../workflows/gui-surface-map.md) Debug tab |
 | LLM routing debug API | `GET /api/runs/{id}/llm-routing`, `llm_routing_debug.py`, [api-reference.md](../workflows/api-reference.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md) |
+| Volley memory / `STAGE_PLANS` | **Code source of truth:** `STAGE_PLANS` in `context_volley.py`. Sync table in [context-padding.md](../cross-cutting/context-padding.md). CI: `python tools/audit_stage_plans_doc.py`. Index: [analysis-memory.md](../cross-cutting/analysis-memory.md) |
 | Golden envelope fixtures | `tests/fixtures/llm_envelopes/`, `tests/test_llm_envelope_fixtures.py`, `deterministic_lint.py` |
 | Config / secrets key | [config-keys.md](../cross-cutting/config-keys.md), `config/templates/secrets.env.example` |
 | Narrative QC / EDL validators | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md), [json-schema-coverage.md](../cross-cutting/json-schema-coverage.md), `tools/validate_narrative.py`, `tools/validate_edl.py`, `tools/verify_edl.py` |

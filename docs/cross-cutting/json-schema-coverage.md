@@ -51,6 +51,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [transcript_review.schema.json](./json-schemas/transcript_review.schema.json) | `review_queue.json` shape |
 | [disfluencies.schema.json](./json-schemas/disfluencies.schema.json) | `transcript/disfluencies.json` catalog |
 | [investigation_queue.schema.json](./json-schemas/investigation_queue.schema.json) | Queue file |
+| [context_index.schema.json](./json-schemas/context_index.schema.json) | `understanding/context_index.json` volley memory v2 |
 | [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
@@ -65,6 +66,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
 | `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
 | `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
+| `validate_context_index` | `understanding/context_index.json` | Yes |
 | `validate_content_brief` | `understanding/content_brief.json` | Yes |
 | `validate_speakers` | `understanding/speakers.json` | Yes |
 | `validate_boundaries` | `segments/boundaries.json` | Yes |

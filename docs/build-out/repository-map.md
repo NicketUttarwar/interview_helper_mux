@@ -47,6 +47,9 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `analysis_orchestrator.py` | Investigation queue drain after LLM stages | BUILD-018 |
 | `analysis_memory.py` | `analysis_state.json`, profile, queue | BUILD-018 |
 | `context_volley.py` | LLM message volleys per stage | BUILD-013 |
+| `context_resolver.py` | Runtime volley Q&A index read/write (`context_index.json`) | volley memory |
+| `context_index_gui.py` | GUI/API for volley entry CRUD | volley memory |
+| `backfill_volley_index.py` | Backfill `volley_entries` from `stage_runs` | volley memory |
 | `prompt_validation.py` | JSON schema validation; `ARTIFACT_WRITE_VALIDATORS`, `STAGE_ARTIFACT_DISK_PATHS` | BUILD-001 |
 | `artifact_completeness.py` | Gap-fill context, merge, `artifact_status`, incomplete re-run | artifact generation |
 | `artifact_writes.py` | `write_validated_artifact` — merge + validate before disk | artifact generation |

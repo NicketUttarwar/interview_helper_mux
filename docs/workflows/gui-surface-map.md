@@ -24,7 +24,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | `PipelineCommandCenter` + `PipelineStepList` + main pane | Primary view: **`StageDetail`** (step detail). **Tools drawer:** Story board \| Timeline \| Profile JSON \| Files \| **Debug** (`LlmCallsPanel`) |
+| **Pipeline** | `PipelineCommandCenter` + `PipelineStepList` + main pane | Primary view: **`StageDetail`** (step detail). **Tools drawer:** Story board \| Timeline \| Profile JSON \| Files \| **Debug** (`LlmCallsPanel`) \| **Volley** (`VolleyMemoryPanel`) |
 | **Pipeline** | **Phase guidance banner** | `journey.phase_guidance[phase]` — goal, progress, top orange actions |
 | **Pipeline** | **Stage guidance panel** | `stages[].guidance` — prerequisites, actions, unlocks on every stage detail |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
@@ -79,6 +79,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 | **Profile JSON** | `ProfilePanel` | Analysis profile form | When `profile_ready_for_review` or profile verified |
 | **Files** | `ArtifactEditor` | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
 | **Debug** | `LlmCallsPanel` | LLM call record index/editor + routing summary tab (`GET …/llm-calls`, `GET …/llm-routing`) | Power-user audit path |
+| **Volley** | `VolleyMemoryPanel` | Volley Q&A memory index — view/edit/invalidate entries, rebuild from disk (`GET/PUT/POST …/context-index/*`) | Operator steering of prior context |
 
 **Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required` / handoff pending; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. Blocking G0/G0.5 gates show inline first; modal is optional via **Review in full-screen panel**.
 

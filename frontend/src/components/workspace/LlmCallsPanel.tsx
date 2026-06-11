@@ -302,6 +302,14 @@ export function LlmCallsPanel() {
     [run, records],
   );
 
+  useEffect(() => {
+    const path = sessionStorage.getItem("volley_llm_call_path");
+    if (!path || !index) return;
+    sessionStorage.removeItem("volley_llm_call_path");
+    setExpandedCalls((prev) => new Set([...prev, path]));
+    void loadRecord(path);
+  }, [index, loadRecord]);
+
   const toggleCall = async (path: string) => {
     const next = new Set(expandedCalls);
     if (next.has(path)) {
