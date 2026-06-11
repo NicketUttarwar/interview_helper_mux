@@ -418,19 +418,51 @@ def enqueue_style_conflicts(
     enqueue_investigations(ctx, items, created_by_stage=stage_key)
 
 
+def _investigation_dedupe_key(item: dict[str, Any]) -> tuple[str, str, str]:
+    action = item.get("suggested_action") or {}
+    target = item.get("target") or {}
+    seg = ""
+    if isinstance(target, dict):
+        seg = str(target.get("segment_id") or "")
+    return (
+        str(item.get("kind") or ""),
+        str(action.get("stage") or action.get("type") or ""),
+        seg,
+    )
+
+
 def enqueue_investigations(
     ctx: RunContext,
     items: list[dict[str, Any]],
     *,
     created_by_stage: str,
+    dedupe: bool | None = None,
 ) -> None:
     if not items:
         return
+    from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
+
+    use_dedupe = dedupe
+    if use_dedupe is None:
+        use_dedupe = flow_hardening_enabled() and flow_hardening_cfg().get(
+            "investigation_dedupe", True
+        )
+
     queue = load_queue(ctx)
     existing_ids = {it.get("id") for it in queue.get("items") or []}
+    existing_keys: set[tuple[str, str, str]] = set()
+    if use_dedupe:
+        for it in queue.get("items") or []:
+            if it.get("status") == "open":
+                existing_keys.add(_investigation_dedupe_key(it))
+
     for raw in items:
         if not raw:
             continue
+        if use_dedupe:
+            key = _investigation_dedupe_key(raw)
+            if key in existing_keys:
+                continue
         iid = raw.get("id") or _next_inv_id(queue)
         while iid in existing_ids:
             iid = _next_inv_id(queue)
@@ -449,6 +481,8 @@ def enqueue_investigations(
         }
         queue.setdefault("items", []).append(entry)
         existing_ids.add(iid)
+        if use_dedupe:
+            existing_keys.add(_investigation_dedupe_key(entry))
     save_queue(ctx, queue)
 
 
@@ -599,8 +633,8 @@ def apply_envelope_to_memory(
             state.setdefault("confidence", {})
             state["confidence"]["overall"] = float(conf)
 
-    follow = envelope.get("follow_up_investigations") or []
-    enqueue_investigations(ctx, follow, created_by_stage=stage_key)
+        follow = envelope.get("follow_up_investigations") or []
+        enqueue_investigations(ctx, follow, created_by_stage=stage_key)
 
     save_analysis_state(ctx, state, stage=stage_key)
     return state
@@ -710,6 +744,9 @@ def sync_gaps_to_state(ctx: RunContext, evaluations: dict[str, Any]) -> None:
 
 
 def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.artifact_completeness import artifact_status
+    from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_enabled
+
     state = load_analysis_state(ctx)
     queue = load_queue(ctx)
     blockers: list[str] = []
@@ -718,6 +755,11 @@ def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
         blockers.append(f"{len(open_blocking)} open blocking investigation(s)")
     if not state.get("themes"):
         blockers.append("No themes in analysis_state — run content_context or add manually")
+    if flow_hardening_enabled():
+        for rel in ANALYSIS_READY_ARTIFACT_PATHS:
+            st = artifact_status(rel, ctx)
+            if st != "complete":
+                blockers.append(f"{rel} is {st}")
     ready = len(blockers) == 0 and ctx.is_done("optimal_questions")
     state.setdefault("completion", {})
     state["completion"]["analysis_ready"] = ready

@@ -43,7 +43,6 @@ def run_missing_framing(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_gaps_to_state(c, a),
     )
-    ctx.mark_done("missing_framing")
 
 
 def run_optimal_questions(ctx: RunContext) -> None:
@@ -85,7 +84,6 @@ def run_optimal_questions(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("optimal_questions")
 
 
 def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:

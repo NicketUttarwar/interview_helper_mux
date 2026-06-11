@@ -186,6 +186,16 @@
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,
       "max_highlight_clips": 5
+    },
+    "flow_hardening": {
+      "enabled": true,
+      "strict_critical_stages": true,
+      "preflight_enabled": true,
+      "cross_validate_enabled": true,
+      "halt_on_schema_errors_with_accept": true,
+      "investigation_dedupe": true,
+      "shard_min_success_ratio": 0.75,
+      "inner_retry_require_delta": true
     }
   }
 }

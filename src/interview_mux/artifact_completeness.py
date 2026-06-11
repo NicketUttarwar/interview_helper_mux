@@ -127,9 +127,11 @@ def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
 
 def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
     if not data:
-        return ["gaps"]
-    if not (data.get("gaps") or data.get("items")):
-        return ["gaps"]
+        return ["interviewer_lines"]
+    if "interviewer_lines" not in data:
+        return ["interviewer_lines"]
+    if not isinstance(data.get("interviewer_lines"), list):
+        return ["interviewer_lines"]
     return []
 
 
@@ -200,8 +202,14 @@ def artifact_ready_for_review(rel_path: str, ctx: RunContext) -> bool:
 
 def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
     """True after understanding analysis populated the interview profile."""
+    from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_enabled
+
     if not ctx.is_done("optimal_questions"):
         return False
+    if flow_hardening_enabled():
+        for rel in ANALYSIS_READY_ARTIFACT_PATHS:
+            if artifact_status(rel, ctx) != "complete":
+                return False
     if not ctx.artifact_exists("understanding/analysis_state.json"):
         return False
     raw = ctx.read_json("understanding/analysis_state.json")

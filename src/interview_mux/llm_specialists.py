@@ -107,6 +107,10 @@ def _specialists_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def apply_segment_topic_patches(ctx: RunContext, patches: list[Any]) -> int:
     """Merge specialist topic patches into segments/manifest.json."""
+    from interview_mux.artifact_cross_validate import invalidate_stage_summaries
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled
+    from interview_mux.pipeline import ANALYSIS_ORDER
+
     if not patches or not ctx.artifact_exists("segments/manifest.json"):
         return 0
     manifest = ctx.read_json("segments/manifest.json")
@@ -128,7 +132,21 @@ def apply_segment_topic_patches(ctx: RunContext, patches: list[Any]) -> int:
         applied += 1
     if applied:
         manifest["segments"] = list(by_id.values())
-        ctx.write_json("segments/manifest.json", manifest)
+        if flow_hardening_enabled():
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            write_validated_artifact(
+                ctx,
+                "segments/manifest.json",
+                manifest,
+                merge_from_disk=False,
+                stage_key="segment_classification",
+            )
+            downstream = tuple(ANALYSIS_ORDER[ANALYSIS_ORDER.index("missing_framing") : ANALYSIS_ORDER.index("optimal_questions") + 1])
+            ctx.clear_from("missing_framing", ANALYSIS_ORDER)
+            invalidate_stage_summaries(ctx, downstream)
+        else:
+            ctx.write_json("segments/manifest.json", manifest)
     return applied
 
 
@@ -216,11 +234,21 @@ def maybe_run_pre_stage_specialists(
             outputs.append({"specialist": spec_key, "envelope": env})
             _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
         except Exception as exc:
+            from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
+            level = "action" if flow_hardening_enabled() and spec_key == "comprehension_risk_blind" else "warning"
             ctx.log(
                 f"Pre-stage specialist {spec_key} failed: {exc}",
-                level="warning",
+                level=level,
                 stage=stage_key,
             )
+            if flow_hardening_enabled() and spec_key == "comprehension_risk_blind":
+                enqueue_specialist_investigation(
+                    ctx,
+                    parent_stage=stage_key,
+                    specialist_key=spec_key,
+                    question=f"Pre-stage specialist failed: {exc}",
+                )
     return outputs
 
 

@@ -334,6 +334,10 @@ def run_analysis(
                 continue
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
+        if name in ALL_LLM_STAGES:
+            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+            maybe_require_upstream_llm_progress(ctx, name)
         from interview_mux.write_staging import run_wrapped_stage
 
         token = active_pipeline_stage.set(name)
@@ -344,6 +348,9 @@ def run_analysis(
         pause_after_stage_if_needed(ctx, name)
         if name in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, llm_runners)
+            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+
+            maybe_cross_validate_after_stage(ctx, name)
         if until_stage and name == until_stage:
             break
         if name == "transcript_review_build" and check_transcript_review_pending(ctx):
@@ -393,7 +400,10 @@ def run_flow1(
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
+    from interview_mux.gates import require_analysis_artifacts_complete
+
     require_g1_clear(ctx)
+    require_analysis_artifacts_complete(ctx)
     require_flow1_extended_gates(ctx, from_stage=from_stage)
     if from_stage:
         ctx.clear_from(from_stage, FLOW1_ORDER)
@@ -423,7 +433,10 @@ def run_flow2(
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
+    from interview_mux.gates import require_analysis_artifacts_complete
+
     require_g1_clear(ctx)
+    require_analysis_artifacts_complete(ctx)
     require_selected_flow_flow2(ctx)
     if from_stage:
         ctx.clear_from(from_stage, FLOW2_ORDER)
@@ -446,7 +459,10 @@ def run_flow3(
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
+    from interview_mux.gates import require_analysis_artifacts_complete
+
     require_g1_clear(ctx)
+    require_analysis_artifacts_complete(ctx)
     if from_stage:
         ctx.clear_from(from_stage, FLOW3_ORDER)
 
@@ -500,6 +516,10 @@ def _run_steps(
             continue
         if preclean_hook is not None:
             preclean_hook(name)
+        if name in ALL_LLM_STAGES:
+            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+            maybe_require_upstream_llm_progress(ctx, name)
         from interview_mux.write_staging import run_wrapped_stage
 
         token = active_pipeline_stage.set(name)
@@ -510,5 +530,8 @@ def _run_steps(
         pause_after_stage_if_needed(ctx, name)
         if name in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, flow_llm_runners)
+            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+
+            maybe_cross_validate_after_stage(ctx, name)
         if until_stage and name == until_stage:
             break

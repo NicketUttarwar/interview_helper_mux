@@ -83,7 +83,6 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         persist,
     )
     maybe_run_post_stage_specialists(ctx, "full_master_ranking", build_input(ctx))
-    ctx.mark_done("full_master_ranking")
 
 
 def run_transitions(ctx: RunContext) -> None:
@@ -106,7 +105,6 @@ def run_transitions(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("transitions")
 
 
 def run_podcast_sfx_brief(ctx: RunContext) -> None:
@@ -135,4 +133,3 @@ def run_podcast_sfx_brief(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("podcast_sfx_brief")

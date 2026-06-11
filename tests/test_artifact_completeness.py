@@ -92,9 +92,49 @@ def test_should_run_stage_when_gaps_remain(tmp_path, monkeypatch):
     assert should_run_stage_for_artifact(ctx, "content_context") is True
 
 
+def test_analysis_profile_ready_requires_complete_artifacts(tmp_path, monkeypatch):
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+    from run_fixtures import isolated_run_ctx, patch_merged_config, populated_analysis_state
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "ready_gate")
+    ctx.mark_done("optimal_questions")
+    state = populated_analysis_state(ctx.run_id, verified=True)
+    ctx.write_json("understanding/analysis_state.json", state)
+    assert analysis_profile_ready_for_review(ctx) is False
+
+
 def test_validate_artifact_write_content_brief_registered():
     errors = validate_artifact_write(
         "understanding/content_brief.json",
         {"thesis": "ok", "topics": [{"name": "n", "summary": "s"}]},
     )
     assert errors == []
+
+
+def test_gap_report_empty_interviewer_lines_is_complete(tmp_path, monkeypatch):
+    from run_fixtures import minimal_gap_report
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        merge_from_disk=False,
+        stage_key="optimal_questions",
+    )
+    assert artifact_status("understanding/gap_report.json", ctx) == "complete"
+
+
+def test_seed_analysis_ready_with_empty_gap_report(tmp_path, monkeypatch):
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+    from run_fixtures import isolated_run_ctx, patch_merged_config, seed_analysis_ready_artifacts
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "seed_ready")
+    seed_analysis_ready_artifacts(ctx, verified=True)
+    assert artifact_status("understanding/gap_report.json", ctx) == "complete"
+    assert analysis_profile_ready_for_review(ctx) is True

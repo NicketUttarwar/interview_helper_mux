@@ -65,6 +65,35 @@ See [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md).
 
 ---
 
+## LLM stage gate — flow hardening
+
+**When:** Any **critical** LLM stage fails completion truth (`complete_llm_stage_or_halt`) or cross-artifact validation at a segmentation boundary.
+
+**Trigger:** Envelope not `complete`, producer artifact incomplete, preflight failure, or cross-artifact mismatch. GUI maps `SystemExit` to job status **`gate`**.
+
+**Prompt operator:**
+
+1. Read the gate message for `stage_key` and artifact path
+2. Open `understanding/stage_runs/<stage>/attempt_*.json` and the producer JSON cited
+3. Fix upstream artifacts (G0 transcript, speakers, manifest, gap files) or use **Fill gaps**
+4. Re-run from that stage: `python tools/run_analysis.py --run-id … --from-stage <stage>` (or Flow equivalent)
+
+**Skip / soften:** Set `analysis.flow_hardening.enabled: false` for legacy dev scripts; or `strict_critical_stages: false` to log without halting critical stages.
+
+See [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening), [troubleshooting.md](./troubleshooting.md).
+
+---
+
+## Analysis artifacts gate — flow entry
+
+**When:** Starting Flow 1 / 2 / 3 with hardening enabled.
+
+**Trigger:** Any analysis-ready artifact not `complete` (`require_analysis_artifacts_complete`).
+
+**Action:** Finish analysis through `optimal_questions` with complete on-disk artifacts before flows.
+
+---
+
 ## Profile gate — Flow 1 extended (BUILD-081)
 
 **When:** Before `topic_coverage_audit` (first Flow 1 extended stage), when `run_meta.json` has `selected_flow: flow1`.

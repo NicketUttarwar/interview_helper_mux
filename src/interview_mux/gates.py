@@ -183,11 +183,47 @@ def require_profile_verified_for_flow1_extended(ctx: RunContext) -> None:
     )
 
 
+def check_analysis_artifacts_gate_pending(ctx: RunContext) -> bool:
+    """True when flow hardening is on and analysis-ready artifacts are incomplete."""
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
+    if not flow_hardening_enabled():
+        return False
+    return not analysis_profile_ready_for_review(ctx)
+
+
+def require_analysis_artifacts_complete(ctx: RunContext) -> None:
+    """Require analysis critical artifacts complete before flow entry (flow hardening)."""
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+    from interview_mux.artifact_cross_validate import validate_cross_artifacts
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
+    if not flow_hardening_enabled():
+        return
+    errors = validate_cross_artifacts(ctx, "pre_flow1")
+    if errors:
+        summary = "; ".join(errors[:4])
+        raise SystemExit(
+            f"Analysis artifacts gate: {summary}. "
+            "Complete analysis stages and Fill gaps before starting flows."
+        )
+    if not analysis_profile_ready_for_review(ctx):
+        raise SystemExit(
+            "Analysis artifacts gate: interview profile not ready for review. "
+            f"→ {ctx.path('understanding/analysis_state.json')}"
+        )
+
+
 def require_flow1_extended_gates(ctx: RunContext, *, from_stage: str | None = None) -> None:
     """Enforce G2 flow1 selection and profile verification before topic_coverage_audit."""
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
     require_selected_flow_flow1(ctx)
     if _flow1_will_run_topic_coverage(ctx, from_stage):
         require_profile_verified_for_flow1_extended(ctx)
+        if flow_hardening_enabled():
+            require_analysis_artifacts_complete(ctx)
 
 
 def narrative_qc_strict_enabled() -> bool:

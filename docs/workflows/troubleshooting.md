@@ -33,6 +33,21 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 
 ---
 
+## LLM flow hardening gates
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| `LLM stage gate (…)` / job status `gate` | Critical stage envelope or artifact not acceptable | `understanding/stage_runs/<stage>/attempt_*.json`, producer JSON, `gui_log.jsonl` | Fix cited artifact; `--from-stage <stage>` |
+| `Cross-artifact gate (…)` | Manifest/boundary/gap segment_ids inconsistent | `segments/manifest.json`, `segments/boundaries.json`, `gap_evaluations.json` | Re-run segmentation or gaps from failing stage |
+| `Analysis artifacts gate` at flow start | Analysis incomplete under hardening | `analysis_state.json` `completion.blockers` | Complete analysis; **Fill gaps** on partial JSON |
+| Preflight blocked (no OpenAI call) | Missing transcript, G0, or upstream artifact | `gui_log.jsonl` preflight line | Clear G0; ensure prerequisite stage artifacts exist |
+| Investigation rerun stays open | Rerun did not improve artifact | `investigation_queue.json`, stage artifact status | Fix root cause; manual rerun or specialist |
+| Shard collate blocked | `< shard_min_success_ratio` shards succeeded | `stage_runs/<stage>/` shard attempts | Fix shard inputs or lower ratio (dev only) |
+
+Set `analysis.flow_hardening.enabled: false` only for intentional legacy/dev runs. See [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening).
+
+---
+
 ## LLM artifacts and validation
 
 | Symptom | Likely cause | Inspect | Action |

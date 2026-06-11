@@ -15,6 +15,9 @@ from interview_mux.analysis_memory import (
 from interview_mux.config import merged_config
 from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.local_llm_config import skip_openai_when_local_satisfied
+from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
+from interview_mux.llm_preflight import run_preflight
+from interview_mux.model_registry import stage_severity
 from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley_for_llm
 from interview_mux.llm_arbiter import run_llm_arbiter
 from interview_mux.llm_shard_plans import (
@@ -190,6 +193,43 @@ def _run_primary_with_volley_retries(
     return envelope, volley, all_errors
 
 
+def _apply_schema_accept_hardening(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any],
+    schema_errors: list[str],
+) -> None:
+    """Reject arbiter accept when artifacts fail schema under flow hardening."""
+    if not flow_hardening_enabled():
+        return
+    if not flow_hardening_cfg().get("halt_on_schema_errors_with_accept", True):
+        return
+    if not schema_errors:
+        return
+    if str(arbiter_result.get("verdict", "")).strip() != "accept":
+        return
+    envelope["status"] = "blocked"
+    envelope.setdefault("needs", [])
+    envelope["needs"].append(
+        {
+            "type": "rerun_stage",
+            "stage": stage_key,
+            "reason": f"Schema errors after arbiter accept: {'; '.join(schema_errors[:3])}",
+            "blocking": True,
+        }
+    )
+    arbiter_result["verdict"] = "enqueue_investigation"
+    arbiter_result["reasoning_summary"] = (
+        "Overridden: accept with schema errors blocked by flow_hardening."
+    )
+    ctx.log(
+        f"Stage {stage_key}: arbiter accept overridden — schema errors remain.",
+        level="warning",
+        stage=stage_key,
+    )
+
+
 def _maybe_enqueue_truncation(
     ctx: RunContext,
     stage_key: str,
@@ -217,6 +257,37 @@ def _maybe_enqueue_truncation(
     )
 
 
+def _preflight_blocked_envelope(
+    stage_key: str,
+    errors: list[str],
+) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any], list[str]]:
+    reason = errors[0] if errors else "preflight failed"
+    envelope: dict[str, Any] = {
+        "status": "blocked",
+        "artifacts": {},
+        "memory_updates": {},
+        "needs": [
+            {
+                "type": "rerun_stage",
+                "stage": stage_key,
+                "reason": reason,
+                "blocking": True,
+            }
+        ],
+        "follow_up_investigations": [],
+        "reasoning_summary": f"Preflight blocked: {reason}",
+        "_routing_meta": {"preflight_blocked": True},
+    }
+    arbiter_result = {
+        "verdict": "enqueue_investigation",
+        "confidence": 0.0,
+        "gaps": errors[:4],
+        "shard_plan": [],
+        "reasoning_summary": "Skipped OpenAI — preflight failed.",
+    }
+    return envelope, [], arbiter_result, errors
+
+
 def run_llm_stage_with_routing(
     ctx: RunContext,
     stage_key: str,
@@ -230,6 +301,17 @@ def run_llm_stage_with_routing(
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
+    if flow_hardening_enabled() and flow_hardening_cfg().get("preflight_enabled", True):
+        pf_errors = run_preflight(stage_key, ctx)
+        if pf_errors:
+            ctx.log(
+                f"Stage {stage_key}: preflight failed — {pf_errors[0]}",
+                level="warning",
+                stage=stage_key,
+            )
+            env, volley, arb, errs = _preflight_blocked_envelope(stage_key, pf_errors)
+            return env, volley, arb, errs, 0, None
+
     if stage_key == "content_context" and should_proactive_decompose_content_context(stage_input):
         shard_plan, shard_plan_source = build_deterministic_shard_plan(
             stage_key,
@@ -249,18 +331,67 @@ def run_llm_stage_with_routing(
                 parent_attempt=attempt,
             )
             schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
-            arbiter_result = {
-                "verdict": "accept",
-                "confidence": 0.85,
-                "gaps": [],
-                "shard_plan": shard_plan,
-                "reasoning_summary": "Proactive shard/collate for long transcript.",
+            default_tier = resolve_model(stage_key, "primary").tier
+            arbiter_result = run_llm_arbiter(
+                ctx=ctx,
+                stage_key=stage_key,
+                attempt_number=attempt,
+                envelope=envelope,
+                schema_errors=schema_errors,
+                context_chars=sum(len(m.get("content", "")) for m in volley),
+                truncation_flags=truncation_flags_for_volley(volley),
+                stage_expectations={
+                    "severity": "high" if default_tier == "flagship" else "medium",
+                    "default_tier": default_tier,
+                    "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
+                },
+            )
+            envelope["_routing_meta"] = {
+                "routed_via_collate": True,
+                "shard_plan_source": shard_plan_source,
+                "proactive_decompose": True,
             }
+            _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
             return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
     volley, local_framing = prepare_volley_for_llm(
         ctx, stage_key, stage_input, profile="full", task_kind="primary"
     )
+    truncation_flags = truncation_flags_for_volley(volley)
+    if (
+        flow_hardening_enabled()
+        and stage_severity(stage_key) == "high"
+        and truncation_flags
+    ):
+        ctx.log(
+            f"Stage {stage_key}: high-severity truncation — blocking primary, need decompose.",
+            level="warning",
+            stage=stage_key,
+        )
+        envelope = {
+            "status": "blocked",
+            "artifacts": {},
+            "memory_updates": {},
+            "needs": [
+                {
+                    "type": "decompose",
+                    "stage": stage_key,
+                    "reason": f"Evidence truncated: {', '.join(truncation_flags[:3])}",
+                    "blocking": True,
+                }
+            ],
+            "follow_up_investigations": [],
+            "reasoning_summary": "Truncation hard-block before primary.",
+        }
+        arbiter_result = {
+            "verdict": "decompose",
+            "confidence": 0.9,
+            "gaps": truncation_flags,
+            "shard_plan": [],
+            "reasoning_summary": "Flow hardening: high-severity stage with truncated context.",
+        }
+        return envelope, volley, arbiter_result, [], 0, None
+
     envelope, volley, schema_errors = _run_primary_with_openai_fallback(
         ctx,
         stage_key,
@@ -371,7 +502,22 @@ def run_llm_stage_with_routing(
             )
             routed_via_collate = True
             schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
-            arbiter_result = {**arbiter_result, "verdict": "accept", "reasoning_summary": "Collate merged shards."}
+            arbiter_result = run_llm_arbiter(
+                ctx=ctx,
+                stage_key=stage_key,
+                attempt_number=attempt,
+                envelope=envelope,
+                schema_errors=schema_errors,
+                context_chars=sum(len(m.get("content", "")) for m in volley),
+                truncation_flags=truncation_flags,
+                stage_expectations={
+                    "severity": "high" if default_tier == "flagship" else "medium",
+                    "default_tier": resolve_model(stage_key, "primary", bump_tier=bump_tier).tier,
+                    "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
+                },
+            )
+            if str(arbiter_result.get("verdict", "")).strip() != "accept":
+                envelope["status"] = "blocked"
         else:
             envelope.setdefault("follow_up_investigations", [])
             envelope["follow_up_investigations"].append(
@@ -401,6 +547,7 @@ def run_llm_stage_with_routing(
         envelope["status"] = "blocked"
 
     _maybe_enqueue_truncation(ctx, stage_key, truncation_flags, envelope, arbiter_result)
+    _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
 
     envelope["_routing_meta"] = {
         "routed_via_collate": routed_via_collate,

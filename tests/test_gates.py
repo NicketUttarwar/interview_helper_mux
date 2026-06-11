@@ -7,21 +7,20 @@ from interview_mux.gates import (
     check_transcript_review_pending,
     check_profile_gate_pending,
     is_operator_profile_verified,
+    require_analysis_artifacts_complete,
     require_flow1_extended_gates,
     require_profile_verified_for_flow1_extended,
     require_selected_flow_flow2,
     set_selected_flow,
 )
+from run_fixtures import patch_merged_config
 from interview_mux.analysis_memory import default_analysis_state
 from interview_mux.run_context import RunContext
-from run_fixtures import ctx_from_fixture, isolated_run_ctx, populated_analysis_state
+from run_fixtures import ctx_from_fixture, isolated_run_ctx, seed_analysis_ready_artifacts
 
 
 def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
-    ctx.path("understanding").mkdir(parents=True, exist_ok=True)
-    ctx.mark_done("optimal_questions")
-    state = populated_analysis_state(ctx.run_id, verified=verified)
-    ctx.write_json("understanding/analysis_state.json", state)
+    seed_analysis_ready_artifacts(ctx, verified=verified)
 
 
 def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):
@@ -122,3 +121,11 @@ def test_check_g1_vo_accepts_line_id_or_segment_id_wav(tmp_path):
     (pickup_dir / "line_001.wav").unlink()
     (pickup_dir / "seg_001.wav").touch()
     assert check_g1_vo(ctx) == []
+
+
+def test_require_analysis_artifacts_complete_raises_when_incomplete(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "run_artifacts_gate")
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx.mark_done("optimal_questions")
+    with pytest.raises(SystemExit, match="Analysis artifacts gate"):
+        require_analysis_artifacts_complete(ctx)

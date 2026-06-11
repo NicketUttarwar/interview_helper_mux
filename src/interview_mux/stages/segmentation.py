@@ -33,7 +33,6 @@ def run_boundaries(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("boundary_detection")
 
 
 def run_classification(ctx: RunContext) -> None:
@@ -72,4 +71,3 @@ def run_classification(ctx: RunContext) -> None:
         persist,
     )
     maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))
-    ctx.mark_done("segment_classification")

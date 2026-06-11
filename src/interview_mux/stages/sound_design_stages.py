@@ -60,7 +60,6 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("sound_design_palettes")
 
 
 def run_sound_design_plan_flow1(ctx: RunContext) -> None:
@@ -105,7 +104,6 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("sound_design_plan_flow1")
 
 
 def run_sound_design_plan_flow2(ctx: RunContext) -> None:
@@ -147,7 +145,6 @@ def run_sound_design_plan_flow2(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("sound_design_plan_flow2")
 
 
 def run_elevenlabs_prompt_craft(ctx: RunContext) -> None:
@@ -192,7 +189,6 @@ def run_elevenlabs_prompt_craft(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("elevenlabs_prompt_craft")
 
 
 def _load_sound_design_plan(ctx: RunContext) -> dict:

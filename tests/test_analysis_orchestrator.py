@@ -41,6 +41,32 @@ def test_apply_needs_reruns_invokes_runner(tmp_path):
     assert called == ["segment_classification"]
 
 
+def test_drain_investigation_rerun_not_marked_done_on_no_improvement(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_drain_fail")
+    ctx.path("understanding").mkdir(parents=True, exist_ok=True)
+    ctx.write_json(
+        "understanding/investigation_queue.json",
+        {
+            "items": [
+                {
+                    "id": "inv_rerun",
+                    "kind": "rerun_stage",
+                    "status": "open",
+                    "question": "retry content context",
+                    "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
+                }
+            ]
+        },
+    )
+
+    def failing_runner() -> None:
+        pass
+
+    drain_investigation_queue(ctx, {"content_context": failing_runner})
+    queue = ctx.read_json("understanding/investigation_queue.json")
+    assert queue["items"][0]["status"] == "open"
+
+
 def test_drain_investigation_queue_run_specialist(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_drain_spec")
     ctx.path("understanding").mkdir(parents=True, exist_ok=True)

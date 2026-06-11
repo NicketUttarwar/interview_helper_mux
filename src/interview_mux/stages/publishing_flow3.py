@@ -103,7 +103,6 @@ def run_podcast_show_description(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("podcast_show_description")
     ctx.log(
         "Show description JSON ready — run export or full Flow 3 for plain-text copy.",
         level="success",

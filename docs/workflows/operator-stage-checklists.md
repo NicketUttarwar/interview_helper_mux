@@ -14,6 +14,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **LLM smart routing (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md) · per-stage tiers: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
+**Flow hardening (preflight):** [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening) — deterministic prerequisites before flagship OpenAI calls.
+
 **Toolchain:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) — venv from `requirements.lock`, `check_prerequisites.sh` + `pip-audit`.
 
 **Support bundle:** `gui_log.jsonl` tail (what the operator saw) + latest `understanding/stage_runs/<stage>/attempt_*.json` (what the model returned).
@@ -77,6 +79,23 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | `blocked` | Rare; has explicit reason | Unblock per envelope or edit profile and `--from-stage` |
 | Iteration cap | `analysis_orchestration.json` not stuck maxing every stage | Widen input or simplify profile; check OpenAI errors in logs |
 | Arbiter verdict (when implemented) | `arbiter_result.verdict` is `accept` before trusting artifacts | See `attempt_*.json`; `decompose` → check `shard_count`; `enqueue_investigation` → queue |
+
+---
+
+## LLM preflight (before OpenAI)
+
+| Stage | Prerequisite | If fail |
+|-------|--------------|--------|
+| `speaker_roles` | `transcript/full.json` populated; G0 complete | Finish transcript review |
+| `content_context` | Transcript length ≥ ~80 chars; G0 complete | Extend transcript or complete G0 |
+| `boundary_detection` | `speakers.json` with ≥1 `interviewer` | Re-run `speaker_roles` or edit speakers |
+| `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
+| `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
+| `missing_framing` | Manifest segments; `content_brief` on disk | Re-anchor brief or re-classify segments |
+| `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
+| Flow LLM stages | Analysis-ready artifacts all `complete` | Finish analysis; **Fill gaps** |
+
+**Note:** `gap_report.json` with `"interviewer_lines": []` is valid when no VO lines are needed — the report is still `complete`.
 
 ---
 

@@ -434,13 +434,15 @@ def _summary_from_accepted_attempt(
     if not path.is_file():
         return ""
     try:
+        from interview_mux.analysis_memory import should_merge_envelope
+
         doc = json.loads(path.read_text(encoding="utf-8"))
         env = doc.get("envelope") or {}
-        verdict = (doc.get("arbiter_result") or {}).get("verdict")
-        if verdict and verdict not in ("accept",) and not doc.get("routed_via_collate"):
-            routing = (doc.get("envelope") or {}).get("_routing_meta") or {}
-            if not routing.get("routed_via_collate"):
-                return ""
+        arbiter_result = doc.get("arbiter_result") or {}
+        routing = env.get("_routing_meta") or {}
+        routed_via_collate = bool(doc.get("routed_via_collate") or routing.get("routed_via_collate"))
+        if not should_merge_envelope(arbiter_result, env, routed_via_collate=routed_via_collate):
+            return ""
         return (env.get("reasoning_summary") or "")[:500]
     except Exception:
         return ""

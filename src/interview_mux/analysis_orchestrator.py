@@ -188,10 +188,18 @@ def drain_investigation_queue(
             )
             try:
                 stage_input = input_fn(ctx, str(parent_stage))
-                run_specialist(ctx, str(spec_key), str(parent_stage), stage_input)
+                env = run_specialist(ctx, str(spec_key), str(parent_stage), stage_input)
             except Exception as exc:
                 ctx.log(
                     f"Investigation specialist {spec_key} failed: {exc}",
+                    level="warning",
+                    stage="orchestrator",
+                )
+                continue
+            if not isinstance(env, dict) or env.get("status") not in ("complete", "partial"):
+                ctx.log(
+                    f"Investigation {item.get('id')}: specialist {spec_key} did not return "
+                    f"parseable envelope (status={env.get('status') if isinstance(env, dict) else '?'})",
                     level="warning",
                     stage="orchestrator",
                 )
@@ -201,13 +209,30 @@ def drain_investigation_queue(
 
         st = parent_stage
         if st and st in stage_runners:
+            from interview_mux.artifact_completeness import artifact_status
+            from interview_mux.llm_flow_hardening import producer_artifact_path
+
+            rel = producer_artifact_path(st)
+            before_status = artifact_status(rel, ctx) if rel else None
             ctx.log(
                 f"Investigation {item.get('id')}: re-running {st} — {item.get('question', '')[:80]}",
                 level="info",
                 stage="orchestrator",
             )
             stage_runners[st]()
-            mark_investigation_done(ctx, item["id"])
+            after_status = artifact_status(rel, ctx) if rel else None
+            improved = ctx.is_done(st) and after_status == "complete"
+            if not improved and before_status and after_status and after_status != before_status:
+                improved = after_status == "complete"
+            if improved:
+                mark_investigation_done(ctx, item["id"])
+            else:
+                ctx.log(
+                    f"Investigation {item.get('id')}: {st} rerun did not improve artifact "
+                    f"({before_status} → {after_status}) — leaving open",
+                    level="warning",
+                    stage="orchestrator",
+                )
 
 
 def orchestrate_after_llm_stage(

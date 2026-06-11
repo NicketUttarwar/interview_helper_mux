@@ -9,12 +9,17 @@ from interview_mux.analysis_memory import (
 from interview_mux.context_volley import build_message_volley
 from interview_mux import llm_stage_routing, llm_subtasks
 from interview_mux.stages import analysis_stage
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, patch_merged_config
 
 
 def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_073")
     ensure_analysis_workspace(ctx)
+    monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "strict_critical_stages": False}}},
+    )
 
     calls: list[tuple[str, str]] = []
 
@@ -58,7 +63,20 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
             }
         raise AssertionError(f"unexpected task_kind {task_kind}")
 
+    arbiter_calls = 0
+
     def fake_run_llm_arbiter(**_kwargs):
+        nonlocal arbiter_calls
+        arbiter_calls += 1
+        if arbiter_calls > 1:
+            return {
+                "verdict": "accept",
+                "confidence": 0.9,
+                "gaps": [],
+                "shard_plan": [],
+                "suggested_investigation": None,
+                "reasoning_summary": "collate accepted",
+            }
         return {
             "verdict": "decompose",
             "confidence": 0.9,
@@ -102,6 +120,11 @@ def test_analysis_stage_decompose_records_arbiter_and_shards(tmp_path, monkeypat
 def test_uptier_cap_blocks_third_retry(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_073_uptier")
     ensure_analysis_workspace(ctx)
+    monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "strict_critical_stages": False}}},
+    )
     assert uptier_budget_remaining(ctx, "missing_framing") == 2
 
     def fake_run_prompt_envelope(stage_key, prompt_rel, **kwargs):
@@ -144,6 +167,11 @@ def test_uptier_cap_blocks_third_retry(tmp_path, monkeypatch):
 def test_enqueue_investigation_does_not_merge_memory(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_084_merge")
     ensure_analysis_workspace(ctx)
+    monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "strict_critical_stages": False}}},
+    )
     state_before = load_analysis_state(ctx)
     themes_before = list(state_before.get("themes") or [])
 
@@ -189,6 +217,46 @@ def test_enqueue_investigation_does_not_merge_memory(tmp_path, monkeypatch):
         {"verdict": "enqueue_investigation"},
         {"status": "blocked"},
     )
+
+
+def test_shard_min_success_ratio_blocks_collate(tmp_path, monkeypatch):
+    from run_fixtures import patch_merged_config
+
+    ctx = isolated_run_ctx(tmp_path, "run_shard_ratio")
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "shard_min_success_ratio": 0.75}}},
+    )
+    shard_plan = [
+        {"label": "a", "segment_ids": ["seg_1"]},
+        {"label": "b", "segment_ids": ["seg_2"]},
+        {"label": "c", "segment_ids": ["seg_3"]},
+        {"label": "d", "segment_ids": ["seg_4"]},
+    ]
+
+    def fake_shard_envelope(stage_key, prompt_rel, **kwargs):
+        task = kwargs.get("task_kind", "primary")
+        if task == "shard":
+            return {"status": "blocked", "artifacts": {}, "needs": []}
+        return {
+            "status": "complete",
+            "artifacts": {"gap_evaluations": [{"segment_id": "seg_1", "self_explanatory": True}]},
+            "needs": [],
+        }
+
+    monkeypatch.setattr(llm_subtasks, "run_prompt_envelope", fake_shard_envelope)
+    monkeypatch.setattr(llm_subtasks, "prepare_volley_for_llm", lambda *_a, **_k: ([], None))
+
+    env, count = llm_subtasks.run_shards_then_collate(
+        ctx,
+        stage_key="missing_framing",
+        prompt_rel="interviewer-gap/missing-framing.system.txt",
+        stage_input={"segments": {"segments": []}},
+        shard_plan=shard_plan,
+    )
+    assert count == 4
+    assert env["status"] == "blocked"
+    assert any("shard_min_success_ratio" in str(n.get("reason", "")) for n in env.get("needs") or [])
 
 
 def test_collate_volley_has_assistant_per_shard(tmp_path):

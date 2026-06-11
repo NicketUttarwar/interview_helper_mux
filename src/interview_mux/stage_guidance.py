@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.gates import (
+    check_analysis_artifacts_gate_pending,
     check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
@@ -299,6 +300,61 @@ def _flow_prereqs(
     return items
 
 
+def _analysis_artifacts_gate_prereqs(ctx: RunContext) -> list[dict[str, Any]]:
+    """Flow-hardening gate: analysis artifacts must be complete before flows."""
+    if not check_analysis_artifacts_gate_pending(ctx):
+        return [
+            _guidance_item(
+                "analysis_artifacts",
+                "Analysis artifacts complete (flow hardening)",
+                "done",
+                kind="run",
+            )
+        ]
+    blockers: list[str] = []
+    if ctx.artifact_exists("understanding/analysis_state.json"):
+        completion = (ctx.read_json("understanding/analysis_state.json") or {}).get("completion") or {}
+        raw = completion.get("blockers") or []
+        if isinstance(raw, list):
+            blockers = [str(b) for b in raw[:2]]
+    hint = f": {', '.join(blockers)}" if blockers else ""
+    return [
+        _guidance_item(
+            "analysis_artifacts",
+            f"Analysis artifacts complete (flow hardening){hint}",
+            "todo",
+            stage_id="optimal_questions",
+            kind="run",
+        )
+    ]
+
+
+def _llm_upstream_prereq_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
+    """When hardening is on, surface incomplete upstream LLM producer artifacts."""
+    from interview_mux.artifact_completeness import artifact_status
+    from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE, flow_hardening_enabled, producer_artifact_path
+
+    if not flow_hardening_enabled() or stage_id not in LLM_HANDOFF_STAGES:
+        return []
+    upstream = LLM_UPSTREAM_STAGE.get(stage_id)
+    if not upstream:
+        return []
+    rel = producer_artifact_path(upstream)
+    if not rel:
+        return []
+    if artifact_status(rel, ctx) == "complete":
+        return []
+    return [
+        _guidance_item(
+            "upstream_artifact",
+            f"Re-run upstream stage {upstream} or Fill gaps ({rel})",
+            "todo",
+            stage_id=upstream,
+            kind="run",
+        )
+    ]
+
+
 def _stage_actions(
     stage_id: str,
     status: str,
@@ -582,6 +638,7 @@ def build_stage_guidance(
                 stage_id="optimal_questions",
             )
         )
+        prerequisites.extend(_analysis_artifacts_gate_prereqs(ctx))
     elif stage_id == "g1_vo_pickup":
         prerequisites.append(
             _guidance_item(
@@ -611,6 +668,12 @@ def build_stage_guidance(
         prerequisites.extend(
             _flow_prereqs(ctx, stage_id, flow_sel, g1, profile_pending)
         )
+
+    info = STAGE_BY_ID.get(stage_id)
+    if info and info.phase in ("flow1", "flow2", "flow3"):
+        prerequisites.extend(_analysis_artifacts_gate_prereqs(ctx))
+    if stage_id in LLM_HANDOFF_STAGES:
+        prerequisites.extend(_llm_upstream_prereq_items(ctx, stage_id))
 
     inv_count = _open_investigation_count(ctx)
     if stage_id == "content_context" and inv_count > 0:

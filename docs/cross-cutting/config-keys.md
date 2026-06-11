@@ -168,6 +168,25 @@ Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (sh
 
 ---
 
+## `analysis.flow_hardening`
+
+Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening). Implemented in `llm_flow_hardening.py`, `llm_preflight.py`, `artifact_cross_validate.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch (`false` = legacy always `mark_done`) |
+| `strict_critical_stages` | `true` | `SystemExit` on critical LLM stage failure |
+| `preflight_enabled` | `true` | Deterministic checks before OpenAI |
+| `cross_validate_enabled` | `true` | Cross-artifact checks at segmentation boundaries |
+| `halt_on_schema_errors_with_accept` | `true` | Arbiter accept + schema errors → blocked |
+| `investigation_dedupe` | `true` | Dedupe open investigations by kind+stage+target |
+| `shard_min_success_ratio` | `0.75` | Min fraction of successful shards before collate |
+| `inner_retry_require_delta` | `true` | Stop inner retries when volley/errors unchanged |
+
+When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
+
+---
+
 ## `analysis.specialists.enabled`
 
 When `true` (shipped default), runs economy-tier specialist passes after `missing_framing` (pre), `segment_classification`, `topic_coverage_audit`, and `full_master_ranking` (post); enqueues investigations when thresholds are met. Omit `pilot_stages` to run all mapped stages globally.

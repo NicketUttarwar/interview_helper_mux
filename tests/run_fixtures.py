@@ -24,6 +24,9 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.journey_orchestrator",
     "interview_mux.journey_state",
     "interview_mux.disfluency.config",
+    "interview_mux.llm_flow_hardening",
+    "interview_mux.llm_preflight",
+    "interview_mux.artifact_cross_validate",
 )
 
 
@@ -263,6 +266,109 @@ def minimal_gap_report(*lines: dict[str, Any]) -> dict[str, Any]:
     if not lines:
         return {"interviewer_lines": []}
     return {"interviewer_lines": list(lines)}
+
+
+def minimal_gap_evaluations(*evaluations: dict[str, Any]) -> dict[str, Any]:
+    """Schema-valid understanding/gap_evaluations.json."""
+    if not evaluations:
+        evaluations = (
+            {
+                "segment_id": "seg_001",
+                "self_explanatory": True,
+                "gap_type": "ok_with_light_bridge",
+                "listener_confusion": "",
+                "severity": "low",
+            },
+        )
+    return {"evaluations": list(evaluations)}
+
+
+def minimal_content_brief(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "thesis": "A clear thesis for testing.",
+        "topics": [
+            {
+                "name": "Topic A",
+                "summary": "Summary of topic A.",
+                "segment_ids": ["seg_001"],
+            }
+        ],
+        "topic_relationships": [{"from": "Topic A", "to": "Topic A", "relation": "supports"}],
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_speakers() -> dict[str, Any]:
+    return {
+        "speakers": [
+            {
+                "speaker_id": "spk_0",
+                "role": "interviewer",
+                "confidence": 0.95,
+                "evidence": ["Opening question pattern"],
+            },
+            {
+                "speaker_id": "spk_1",
+                "role": "interviewee",
+                "confidence": 0.92,
+                "evidence": ["Extended answers"],
+            },
+        ]
+    }
+
+
+def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) -> None:
+    """Write minimal complete analysis artifacts for gate / hardening tests."""
+    from interview_mux.artifact_writes import write_validated_artifact
+
+    ctx.path("understanding").mkdir(parents=True, exist_ok=True)
+    ctx.path("segments").mkdir(parents=True, exist_ok=True)
+    write_validated_artifact(
+        ctx,
+        "understanding/speakers.json",
+        minimal_speakers(),
+        merge_from_disk=False,
+        stage_key="speaker_roles",
+    )
+    write_validated_artifact(
+        ctx,
+        "understanding/content_brief.json",
+        minimal_content_brief(),
+        merge_from_disk=False,
+        stage_key="content_brief_reanchor",
+    )
+    write_validated_artifact(
+        ctx,
+        "segments/manifest.json",
+        minimal_manifest(),
+        merge_from_disk=False,
+        stage_key="segment_classification",
+    )
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_evaluations.json",
+        minimal_gap_evaluations(),
+        merge_from_disk=False,
+        stage_key="missing_framing",
+    )
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        merge_from_disk=False,
+        stage_key="optimal_questions",
+    )
+    state = populated_analysis_state(ctx.run_id, verified=verified)
+    state["completion"] = {"analysis_ready": True, "blockers": []}
+    write_validated_artifact(
+        ctx,
+        "understanding/analysis_state.json",
+        state,
+        merge_from_disk=False,
+        stage_key="content_context",
+    )
+    ctx.mark_done("optimal_questions")
 
 
 def minimal_flow2_selection(**patch: Any) -> dict[str, Any]:

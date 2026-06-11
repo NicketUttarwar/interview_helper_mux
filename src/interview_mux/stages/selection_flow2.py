@@ -34,7 +34,6 @@ def run_highlight_selection(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("highlight_selection")
 
 
 def run_sfx_brief(ctx: RunContext) -> None:
@@ -62,4 +61,3 @@ def run_sfx_brief(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("sfx_brief")

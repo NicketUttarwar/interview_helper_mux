@@ -84,3 +84,28 @@ def test_phase_guidance_includes_all_phases(tmp_path) -> None:
     for phase in OPERATOR_PHASES:
         assert phase in phase_guidance
         assert phase_guidance[phase]["goal"]
+
+
+def test_flow_stage_shows_analysis_artifacts_gate_when_incomplete(tmp_path, monkeypatch) -> None:
+    from run_fixtures import patch_merged_config
+
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "gate_incomplete")
+    init_run_meta_for_test(ctx)
+    guidance = build_stage_guidance(ctx, "topic_coverage_audit", status="pending", flow="flow1")
+    labels = [p["label"] for p in guidance["prerequisites"]]
+    assert any("Analysis artifacts complete" in label for label in labels)
+    assert any(p["label"].startswith("Analysis artifacts complete") and p["status"] == "todo" for p in guidance["prerequisites"])
+
+
+def test_flow_stage_shows_analysis_artifacts_gate_done_when_ready(tmp_path, monkeypatch) -> None:
+    from run_fixtures import patch_merged_config, seed_analysis_ready_artifacts
+
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "gate_ready")
+    init_run_meta_for_test(ctx)
+    seed_analysis_ready_artifacts(ctx, verified=True)
+    guidance = build_stage_guidance(ctx, "topic_coverage_audit", status="pending", flow="flow1")
+    gate_items = [p for p in guidance["prerequisites"] if p.get("id") == "analysis_artifacts"]
+    assert gate_items
+    assert gate_items[0]["status"] == "done"

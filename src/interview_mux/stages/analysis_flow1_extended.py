@@ -33,7 +33,6 @@ def run_topic_coverage(ctx: RunContext) -> None:
         persist,
     )
     maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", build_input(ctx))
-    ctx.mark_done("topic_coverage_audit")
 
 
 def run_narrative_arc(ctx: RunContext) -> None:
@@ -58,4 +57,3 @@ def run_narrative_arc(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("narrative_arc_plan")

@@ -66,7 +66,6 @@ def run_speaker_roles(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_speakers_to_state(c, a if "speakers" in a else {"speakers": a.get("speakers", [])}),
     )
-    ctx.mark_done("speaker_roles")
 
 
 def run_content_context(ctx: RunContext) -> None:
@@ -91,9 +90,9 @@ def run_content_context(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
     )
-    maybe_auto_extract_value_features(ctx)
-    maybe_enqueue_orchestration_investigations(ctx)
-    ctx.mark_done("content_context")
+    if ctx.is_done("content_context"):
+        maybe_auto_extract_value_features(ctx)
+        maybe_enqueue_orchestration_investigations(ctx)
 
 
 def run_content_brief_reanchor(ctx: RunContext) -> None:
@@ -117,7 +116,6 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
     )
-    ctx.mark_done("content_brief_reanchor")
 
 
 def run_source_acoustic_profile(ctx: RunContext) -> None:

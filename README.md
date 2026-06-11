@@ -105,7 +105,7 @@ Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-key
 
 **Defaults worth knowing:** `local_llm.enabled: true` (macOS bootstrap installs weights; non-macOS falls back to OpenAI-only volleys). `value_analysis.enabled: true` in shipped defaults (GUI panel + optional auto-extract after `content_context`). Strict QC: `narrative_qc`, `edl_qc`, `edl_narrative_qc`, `show_description_qc`, `nle_edits` — see config file.
 
-LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared analysis envelope; model tiers and OpenAI API IDs are centralized in [docs/cross-cutting/model-routing.md](docs/cross-cutting/model-routing.md) and [docs/cross-cutting/llm-stage-model-matrix.md](docs/cross-cutting/llm-stage-model-matrix.md).
+LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared analysis envelope. **Full LLM architecture** (volley, memory, OpenAI + local MLX, artifacts, arbiter): [LLM-ANALYSIS-ARCHITECTURE.md](LLM-ANALYSIS-ARCHITECTURE.md). Tier registry: [docs/cross-cutting/model-routing.md](docs/cross-cutting/model-routing.md) · [docs/cross-cutting/llm-stage-model-matrix.md](docs/cross-cutting/llm-stage-model-matrix.md).
 
 ---
 
@@ -126,6 +126,7 @@ LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared anal
 
 | Resource | Link |
 |----------|------|
+| **LLM analysis architecture** | [LLM-ANALYSIS-ARCHITECTURE.md](LLM-ANALYSIS-ARCHITECTURE.md) |
 | **Setup** | [SETUP.md](SETUP.md) |
 | Doc hub | [docs/INDEX.md](docs/INDEX.md) |
 | Operator journey | [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) |

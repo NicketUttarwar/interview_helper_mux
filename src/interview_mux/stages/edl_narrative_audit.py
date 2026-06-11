@@ -40,4 +40,3 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
         build_input,
         persist,
     )
-    ctx.mark_done("edl_narrative_audit")

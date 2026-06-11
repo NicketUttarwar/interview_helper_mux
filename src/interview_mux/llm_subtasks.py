@@ -4,6 +4,7 @@ from typing import Any
 
 from interview_mux.analysis_memory import record_stage_attempt
 from interview_mux.context_volley import truncation_flags_for_volley
+from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE
 from interview_mux.prompt_validation import validate_stage_artifacts
@@ -23,6 +24,10 @@ def run_shards_then_collate(
     parent_attempt: int = 1,
 ) -> tuple[dict[str, Any], int]:
     shard_outputs: list[dict[str, Any]] = []
+    ok_shards: list[dict[str, Any]] = []
+    failed_count = 0
+    plan_len = max(len(shard_plan[:8]), 1)
+
     for shard_idx, shard in enumerate(shard_plan[:8], start=1):
         shard_input = _slice_stage_input(stage_key, stage_input, shard)
         volley, _ = prepare_volley_for_llm(
@@ -36,15 +41,25 @@ def run_shards_then_collate(
             task_kind="shard",
             call_attempt=parent_attempt,
         )
-        shard_outputs.append(
-            {
-                "label": shard.get("label"),
-                "segment_ids": shard.get("segment_ids") or [],
-                "start_ms": shard.get("start_ms"),
-                "end_ms": shard.get("end_ms"),
-                "envelope": env,
-            }
-        )
+        shard_entry = {
+            "label": shard.get("label"),
+            "segment_ids": shard.get("segment_ids") or [],
+            "start_ms": shard.get("start_ms"),
+            "end_ms": shard.get("end_ms"),
+            "envelope": env,
+        }
+        shard_outputs.append(shard_entry)
+        schema_errors = validate_stage_artifacts(stage_key, env.get("artifacts") or {})
+        if env.get("status") == "complete" and not schema_errors:
+            ok_shards.append(shard_entry)
+        else:
+            failed_count += 1
+            ctx.log(
+                f"Shard {shard_idx}/{plan_len} for {stage_key} failed "
+                f"(status={env.get('status')}, schema_errors={schema_errors[:2]})",
+                level="warning",
+                stage=stage_key,
+            )
         record_stage_attempt(
             ctx,
             stage_key,
@@ -55,10 +70,41 @@ def run_shards_then_collate(
             truncation_flags=truncation_flags_for_volley(volley),
         )
 
+    min_ratio = float(flow_hardening_cfg().get("shard_min_success_ratio", 0.75))
+    if flow_hardening_enabled() and len(ok_shards) / plan_len < min_ratio:
+        ctx.log(
+            f"Stage {stage_key}: shard success ratio {len(ok_shards)}/{plan_len} "
+            f"below minimum {min_ratio}",
+            level="warning",
+            stage=stage_key,
+        )
+        return (
+            {
+                "status": "blocked",
+                "artifacts": {},
+                "memory_updates": {},
+                "needs": [
+                    {
+                        "type": "rerun_stage",
+                        "stage": stage_key,
+                        "reason": (
+                            f"shard_min_success_ratio: {len(ok_shards)}/{plan_len} "
+                            f"shards complete (need {min_ratio})"
+                        ),
+                        "blocking": True,
+                    }
+                ],
+                "follow_up_investigations": [],
+                "reasoning_summary": f"Collate skipped — {failed_count} shard(s) failed.",
+            },
+            len(shard_outputs),
+        )
+
+    collate_shards = ok_shards if ok_shards else shard_outputs
     collate_input = {
         "mode": "collate",
         "stage_key": stage_key,
-        "shard_outputs": shard_outputs,
+        "shard_outputs": collate_shards,
         "instruction": "Merge shard outputs into one final stage envelope.",
     }
     collate_volley, _ = prepare_volley_for_llm(
@@ -79,7 +125,7 @@ def run_shards_then_collate(
         collate_env,
         context_volley=collate_volley,
         task_kind="collate",
-        shard_count=len(shard_outputs),
+        shard_count=len(collate_shards),
         truncation_flags=truncation_flags_for_volley(collate_volley),
     )
     artifacts = collate_env.get("artifacts") or {}

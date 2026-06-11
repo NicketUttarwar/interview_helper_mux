@@ -62,7 +62,10 @@ def test_theme_coverage_specialist_applies_patches(tmp_path):
     assert manifest["segments"][0]["topic_tags"] == ["t1"]
 
 
-def test_apply_segment_topic_patches_merges_manifest(tmp_path):
+def test_apply_segment_topic_patches_merges_manifest(tmp_path, monkeypatch):
+    from run_fixtures import patch_merged_config
+
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
     ctx = isolated_run_ctx(tmp_path, "run_patch")
     ctx.write_json("segments/manifest.json", {"segments": [_segment("seg_2", ["old"])]})
     applied = apply_segment_topic_patches(
@@ -150,3 +153,60 @@ def test_emphasis_coverage_specialist_enqueues(tmp_path):
         envelope={"artifacts": {"emphasis_coverage": {"gaps": [{"segment_id": "seg_2"}]}}},
     )
     assert count == 1
+
+
+def test_pre_stage_specialist_failure_enqueues_investigation(tmp_path, monkeypatch):
+    from run_fixtures import patch_merged_config
+
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True}, "specialists": {"enabled": True}}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "run_pre_fail")
+    cfg = {
+        "analysis": {
+            "flow_hardening": {"enabled": True},
+            "specialists": {"enabled": True, "pilot_stages": ["missing_framing"]},
+        }
+    }
+    with patch("interview_mux.llm_specialists.run_specialist", side_effect=RuntimeError("boom")):
+        outputs = maybe_run_pre_stage_specialists(ctx, "missing_framing", {"segments": {}}, cfg=cfg)
+    assert outputs == []
+    queue = ctx.read_json("understanding/investigation_queue.json")
+    items = [i for i in (queue.get("items") or []) if i.get("status") == "open"]
+    assert any(i.get("suggested_action", {}).get("specialist") == "comprehension_risk_blind" for i in items)
+
+
+def test_apply_segment_topic_patches_invalidates_downstream_with_hardening(tmp_path, monkeypatch):
+    from interview_mux.artifact_writes import write_validated_artifact
+    from run_fixtures import minimal_manifest, patch_merged_config
+
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "run_patch_hard")
+    write_validated_artifact(
+        ctx,
+        "segments/manifest.json",
+        minimal_manifest("seg_1"),
+        merge_from_disk=False,
+        stage_key="segment_classification",
+    )
+    ctx.mark_done("missing_framing")
+    ctx.mark_done("optimal_questions")
+    from run_fixtures import populated_analysis_state
+
+    state = populated_analysis_state(ctx.run_id)
+    state.setdefault("meta", {})["stage_summaries"] = {
+        "missing_framing": {"status": "complete"},
+        "optimal_questions": {"status": "complete"},
+    }
+    ctx.write_json("understanding/analysis_state.json", state)
+    applied = apply_segment_topic_patches(
+        ctx,
+        [{"segment_id": "seg_1", "topic_tags": ["new_topic"]}],
+    )
+    assert applied == 1
+    assert not ctx.is_done("missing_framing")
+    assert not ctx.is_done("optimal_questions")
+    summaries = (ctx.read_json("understanding/analysis_state.json").get("meta") or {}).get("stage_summaries") or {}
+    assert "missing_framing" not in summaries
+    assert "optimal_questions" not in summaries
