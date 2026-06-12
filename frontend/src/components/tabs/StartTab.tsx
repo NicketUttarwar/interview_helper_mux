@@ -41,6 +41,8 @@ export function StartTab() {
     clearSession,
     openRunLoading,
     sessionReady,
+    homeRefreshing,
+    showToast,
   } = useApp();
   const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
   const intentEnabled = config?.journey_ui?.intent_at_start !== false;
@@ -159,8 +161,17 @@ export function StartTab() {
       <section className="panel panel-compact">
         <div className="panel-head">
           <h3>Source audio</h3>
-          <button type="button" className="btn ghost sm" onClick={() => void refreshHome()}>
-            Refresh
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={homeRefreshing}
+            onClick={() => {
+              void refreshHome().catch((e) => {
+                showToast(e instanceof Error ? e.message : "Refresh failed");
+              });
+            }}
+          >
+            {homeRefreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         <div className="asset-list">

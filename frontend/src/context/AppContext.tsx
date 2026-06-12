@@ -68,6 +68,7 @@ interface AppContextValue {
   sessionReady: boolean;
   sessionLoadError: string | null;
   openRunLoading: boolean;
+  homeRefreshing: boolean;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
   openArtifactInEditor: (path: string) => void;
@@ -154,6 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [openRunLoading, setOpenRunLoading] = useState(false);
+  const [homeRefreshing, setHomeRefreshing] = useState(false);
   const [shownPrecleanOffers, setShownPrecleanOffers] = useState<Set<string>>(
     () => new Set(),
   );
@@ -291,18 +293,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const refreshHome = useCallback(async () => {
-    const [assetsRes, runsRes, session] = await Promise.all([
-      api<{ files: AssetFile[] }>("/api/assets"),
-      api<{ runs: RunSummary[] }>("/api/runs"),
-      api<{ log?: LogEntry[]; active?: { run_id?: string } | null }>(
-        "/api/session",
-      ).catch(() => ({ log: [] as LogEntry[], active: null as null })),
+    setHomeRefreshing(true);
+    const errors: string[] = [];
+    const track = <T,>(
+      promise: Promise<T>,
+      onOk: (value: T) => void,
+      errorLabel: string,
+    ) =>
+      promise
+        .then(onOk)
+        .catch((reason) => {
+          errors.push(
+            reason instanceof ApiError
+              ? `${errorLabel}: ${reason.message}`
+              : `${errorLabel}: request failed`,
+          );
+        });
+
+    await Promise.allSettled([
+      track(
+        api<{ files?: AssetFile[] }>("/api/assets"),
+        (data) => setAssets(data.files ?? []),
+        "Source audio",
+      ),
+      track(
+        api<{ runs?: RunSummary[] }>("/api/runs?enrich=1&enrich_limit=50"),
+        (data) => setRuns(data.runs ?? []),
+        "Executions",
+      ),
+      track(
+        api<{ log?: LogEntry[]; active?: { run_id?: string } | null }>(
+          "/api/session",
+        ),
+        (session) => {
+          setHomeLog(session.log?.slice(-5) || []);
+          setServerActiveRunId(session.active?.run_id ?? null);
+        },
+        "Session",
+      ),
     ]);
-    setAssets(assetsRes.files);
-    setRuns(runsRes.runs);
-    setHomeLog(session.log?.slice(-5) || []);
-    setServerActiveRunId(session.active?.run_id ?? null);
-  }, []);
+
+    setHomeRefreshing(false);
+    if (errors.length) showToast(errors.join(" · "));
+  }, [showToast]);
 
   const pollLog = useCallback(async () => {
     if (!runId) return;
@@ -876,6 +909,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessionReady,
     sessionLoadError,
     openRunLoading,
+    homeRefreshing,
     setActiveTab,
     setPipelineSubTab: setPipelineSubTabWrapped,
     openArtifactInEditor,

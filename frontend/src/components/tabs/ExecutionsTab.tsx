@@ -5,8 +5,17 @@ import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
 
 export function ExecutionsTab() {
-  const { runs, runId, run, refreshHome, openRun, showToast, sessionReady, openRunLoading } =
-    useApp();
+  const {
+    runs,
+    runId,
+    run,
+    refreshHome,
+    openRun,
+    showToast,
+    sessionReady,
+    openRunLoading,
+    homeRefreshing,
+  } = useApp();
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
@@ -32,8 +41,17 @@ export function ExecutionsTab() {
               Pipeline.
             </p>
           </div>
-          <button type="button" className="btn ghost sm" onClick={() => void refreshHome()}>
-            Refresh
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={homeRefreshing}
+            onClick={() => {
+              void refreshHome().catch((e) => {
+                showToast(e instanceof Error ? e.message : "Refresh failed");
+              });
+            }}
+          >
+            {homeRefreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         {activeHash ? (

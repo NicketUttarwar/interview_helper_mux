@@ -429,29 +429,38 @@ def create_app() -> FastAPI:
         return {"assets_root": assets.relative_to(repo_root()).as_posix(), "files": files}
 
     @app.get("/api/runs")
-    def list_runs() -> dict[str, Any]:
-        runs = [RunContext.summarize_run(rid) for rid in RunContext.list_runs()]
-        runs.sort(key=lambda r: r.get("execution_number") or 0, reverse=True)
-        for r in runs:
+    def list_runs(enrich: bool = False, enrich_limit: int = 50) -> dict[str, Any]:
+        runs: list[dict[str, Any]] = []
+        for rid in RunContext.list_runs():
             try:
-                ctx = RunContext(r["run_id"], create=False)
-                flow = get_selected_flow(ctx)
-                stages = _build_stage_list(
-                    ctx,
-                    flow,
-                    check_g1_vo(ctx),
-                    check_transcript_review_pending(ctx),
-                    is_operator_profile_verified(ctx),
-                    check_profile_gate_pending(ctx),
-                )
-                done = sum(1 for s in stages if s["status"] == "done")
-                r["progress"] = {"done": done, "total": len(stages)}
-                r["last_stage"] = next((s["title"] for s in reversed(stages) if s["status"] == "done"), None)
-                log_entries = read_log(ctx.run_dir, tail=1)
-                if log_entries:
-                    r["last_log"] = log_entries[-1]
+                runs.append(RunContext.summarize_run(rid))
             except Exception:
-                r["progress"] = {"done": 0, "total": 0}
+                runs.append({"run_id": rid, "progress": {"done": 0, "total": 0}})
+        runs.sort(key=lambda r: r.get("execution_number") or 0, reverse=True)
+        if enrich:
+            for r in runs[: max(enrich_limit, 0)]:
+                try:
+                    ctx = RunContext(r["run_id"], create=False)
+                    flow = get_selected_flow(ctx)
+                    stages = _build_stage_list(
+                        ctx,
+                        flow,
+                        check_g1_vo(ctx),
+                        check_transcript_review_pending(ctx),
+                        is_operator_profile_verified(ctx),
+                        check_profile_gate_pending(ctx),
+                    )
+                    done = sum(1 for s in stages if s["status"] == "done")
+                    r["progress"] = {"done": done, "total": len(stages)}
+                    r["last_stage"] = next(
+                        (s["title"] for s in reversed(stages) if s["status"] == "done"),
+                        None,
+                    )
+                    log_entries = read_log(ctx.run_dir, tail=1)
+                    if log_entries:
+                        r["last_log"] = log_entries[-1]
+                except Exception:
+                    r["progress"] = {"done": 0, "total": 0}
         return {"runs": runs}
 
     @app.post("/api/runs")
