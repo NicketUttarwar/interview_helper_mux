@@ -2,7 +2,7 @@
 
 **Start here** for the happy path from interview WAV to podcast master, highlight reel, or show description. Engineers: [AGENTS.md](../../AGENTS.md). Gates: [operator-gates.md](./operator-gates.md). Problems: [troubleshooting.md](./troubleshooting.md).
 
-The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`.
+The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`. **Live status bar** (all tabs) is the single command surface; **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
 
 **In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The workflow bar uses **Phase N of 7** (Prepare → Export); the pipeline left rail uses **pipeline step N of M** for individual stages — these numbers are different on purpose.
 
@@ -50,7 +50,7 @@ Go deeper: [analysis-memory.md](../cross-cutting/analysis-memory.md).
 
 ---
 
-## Phase: Complete
+## Phase: Record & choose
 
 **Goal:** Fill missing voice and confirm deliverable.
 
@@ -118,7 +118,7 @@ Must match `journey_orchestrator.py` constants (tested in `tests/test_journey_or
 | NEXT_ACTION_SHIP_DESC | Export show description |
 | NEXT_ACTION_DONE | Deliverable ready — listen or export |
 
-When not blocked, `journey.next_action` matches `execute_hint.label` (single primary CTA string). GUI **command bar** (all tabs) shows status + primary button.
+When not blocked, `journey.next_action` matches `execute_hint.label` (single primary CTA string). **LiveStatusBar** (all tabs) shows status + primary button; Pipeline **ActivityLogPanel** shows step-scoped logs.
 
 ## Journey log kinds
 

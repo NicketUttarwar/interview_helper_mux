@@ -15,6 +15,24 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 
 ---
 
+## GUI session persistence (`ASSETS/.gui/active_execution.json`)
+
+Written by `PUT /api/session/active`. Restored on `GET /api/session` → browser refresh and `./scripts/run.sh` restart (when `MUX_FRESH_SESSION=0`).
+
+| Field | Values | Purpose |
+|-------|--------|---------|
+| `run_id` | execution id | Active run pointer |
+| `selected_stage_id` | stage id | Pipeline sidebar focus |
+| `active_tab` | `start` \| `executions` \| `pipeline` \| `logs` | Main tab |
+| `pipeline_sub_tab` | `stage` \| `story` \| `timeline` \| … | Pipeline tool row |
+| `activity_log_tab` | `live` \| `step` \| `all` | Inline activity panel tab |
+| `activity_log_collapsed` | bool | Collapse Pipeline activity column |
+| `source_locked` | bool | Session source lock (default true when run active) |
+
+No new `journey_ui.*` keys were added for the activity panel — tab/collapse state uses session fields above.
+
+---
+
 ## Top-level
 
 | Key | Used by | If wrong |

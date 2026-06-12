@@ -147,7 +147,11 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       <h3 className="stage-outputs-title">Review outputs before saving</h3>
       <p className="hint">
         <strong>{stage.title}</strong> staged {paths.length} file{paths.length === 1 ? "" : "s"}.
-        Preview, edit if needed, then save to disk.
+        Preview, edit if needed, then save to disk. Approve and discard events appear in the
+        activity panel for this step.
+      </p>
+      <p className="hint sm">
+        When write approval is pending, the live status bar shows the primary review action.
       </p>
 
       <div className="write-approval-layout">

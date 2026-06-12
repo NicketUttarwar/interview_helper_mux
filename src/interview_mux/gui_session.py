@@ -35,6 +35,7 @@ VALID_ACTIVE_TABS = frozenset({"start", "executions", "pipeline", "logs"})
 VALID_PIPELINE_SUB_TABS = frozenset(
     {"stage", "story", "timeline", "profile", "files", "llm_calls", "volley_memory"}
 )
+VALID_ACTIVITY_LOG_TABS = frozenset({"live", "step", "all"})
 
 
 def set_active_execution(run_id: str, **extra: Any) -> dict[str, Any]:
@@ -58,7 +59,15 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
     if not run_id:
         raise ValueError("run_id required to update active session")
     payload: dict[str, Any] = {**current, "run_id": str(run_id)}
-    for key in ("selected_stage_id", "active_tab", "pipeline_sub_tab", "source_locked", "input_audio_path"):
+    for key in (
+        "selected_stage_id",
+        "active_tab",
+        "pipeline_sub_tab",
+        "source_locked",
+        "input_audio_path",
+        "activity_log_tab",
+        "activity_log_collapsed",
+    ):
         if key in updates:
             payload[key] = updates[key]
     tab = payload.get("active_tab")
@@ -67,6 +76,9 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
     sub = payload.get("pipeline_sub_tab")
     if sub is not None and sub not in VALID_PIPELINE_SUB_TABS:
         raise ValueError(f"Invalid pipeline_sub_tab: {sub}")
+    log_tab = payload.get("activity_log_tab")
+    if log_tab is not None and log_tab not in VALID_ACTIVITY_LOG_TABS:
+        raise ValueError(f"Invalid activity_log_tab: {log_tab}")
     payload["updated_at"] = datetime.now(timezone.utc).isoformat()
     write_json(active_execution_path(), payload)
     return payload

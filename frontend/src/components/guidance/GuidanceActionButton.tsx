@@ -7,9 +7,18 @@ interface Props {
 }
 
 export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props) {
-  const { selectStage, openActionModal, setPipelineSubTab, setActiveTab } = useApp();
+  const { run, selectStage, openActionModal, setPipelineSubTab, setActiveTab } = useApp();
 
   if (item.status !== "todo") return null;
+
+  const journeyHint = run?.journey?.execute_hint;
+  if (
+    item.kind === "checkpoint" &&
+    journeyHint?.action === "checkpoint" &&
+    (!item.stage_id || journeyHint.stage_id === item.stage_id)
+  ) {
+    return null;
+  }
 
   const onClick = () => {
     switch (item.kind || item.action) {

@@ -9,7 +9,7 @@ import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { ActionMarker } from "../guidance/ActionMarker";
 
 export function PipelineStepList() {
-  const { run, selectedStageId, selectStage, apiGrants, jobRunning } = useApp();
+  const { run, selectedStageId, selectStage, apiGrants, jobRunning, pinSelectedStage } = useApp();
 
   const nav = useMemo(
     () =>
@@ -33,13 +33,21 @@ export function PipelineStepList() {
           const status = stageNavStatus(entry, run, selectedStageId, nav.focusStageId);
           const isSelected = entry.stage.id === selectedStageId;
           const hasAction = stageHasTodoActions(entry.stage);
+          const isRunning =
+            jobRunning &&
+            (run.job?.current_stage === entry.stage.id ||
+              run.job?.stage === entry.stage.id);
+          const navStatus = isRunning ? "running" : status;
           return (
             <li key={entry.stage.id}>
               <button
                 type="button"
-                className={`pipeline-step-row status-${status}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}`}
-                onClick={() => void selectStage(entry.stage.id)}
-                aria-current={status === "current" ? "step" : undefined}
+                className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}`}
+                onClick={() => {
+                  pinSelectedStage();
+                  void selectStage(entry.stage.id);
+                }}
+                aria-current={navStatus === "current" || isRunning ? "step" : undefined}
               >
                 <span className="pipeline-step-num" aria-hidden>
                   {status === "done" ? "✓" : entry.number}

@@ -1,8 +1,18 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
+import { isJobActivelyRunning } from "../../utils/jobStatus";
+
+function jobStatusLabel(status?: string): string | null {
+  if (!status || status === "idle" || status === "complete") return null;
+  if (status === "running" || status === "running_with_warnings") return "Running";
+  if (status === "error") return "Failed";
+  if (status === "interrupted") return "Interrupted";
+  if (status === "gate" || status === "needs_operator") return "Paused";
+  return status.replace(/_/g, " ");
+}
 
 export function ExecutionsTab() {
   const {
@@ -15,10 +25,12 @@ export function ExecutionsTab() {
     sessionReady,
     openRunLoading,
     homeRefreshing,
+    setActiveTab,
   } = useApp();
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
+  const activeJobStatus = run?.job?.status;
 
   const tryOpenRun = (id: string) => {
     if (!sessionReady || openRunLoading) return;
@@ -27,7 +39,19 @@ export function ExecutionsTab() {
       return;
     }
     setLoadingRunId(id);
-    void openRun(id).finally(() => setLoadingRunId(null));
+    return openRun(id).finally(() => setLoadingRunId(null));
+  };
+
+  const openLogsForRun = (id: string, e: MouseEvent) => {
+    e.stopPropagation();
+    if (sessionLocked && id !== runId) {
+      showToast("Clear session (Menu) before opening a different execution.");
+      return;
+    }
+    void (async () => {
+      if (id !== runId) await tryOpenRun(id);
+      setActiveTab("logs");
+    })();
   };
 
   return (
@@ -69,9 +93,10 @@ export function ExecutionsTab() {
             <p className="empty-state">No runs yet.</p>
           ) : (
             runs.map((r) => {
-              const prog = r.progress
-                ? `${r.progress.done}/${r.progress.total}`
-                : "";
+              const done = r.progress?.done ?? 0;
+              const total = r.progress?.total ?? 0;
+              const prog = total ? `${done}/${total}` : "";
+              const pct = total ? Math.round((done / total) * 100) : 0;
               const isActive = r.run_id === runId;
               const isDisabled =
                 !sessionReady || openRunLoading || (sessionLocked && !isActive);
@@ -82,6 +107,11 @@ export function ExecutionsTab() {
               const runHash = sourceHashShort(r);
               const hashMatchesActive =
                 Boolean(activeHash && runHash && activeHash === runHash);
+              const jobStatus = isActive
+                ? activeJobStatus
+                : r.job_status;
+              const statusLabel = jobStatusLabel(jobStatus);
+              const showLock = sessionLocked && !isActive;
               return (
                 <div
                   key={r.run_id}
@@ -107,6 +137,18 @@ export function ExecutionsTab() {
                         #{r.execution_number ?? "?"} · {r.run_id}
                         {isActive ? " · active" : ""}
                       </strong>
+                      {showLock ? (
+                        <span className="run-lock-pill" title="Session locked to another run">
+                          🔒
+                        </span>
+                      ) : null}
+                      {statusLabel ? (
+                        <span
+                          className={`run-job-pill status-${jobStatus}${isJobActivelyRunning({ status: jobStatus }) ? " running" : ""}`}
+                        >
+                          {statusLabel}
+                        </span>
+                      ) : null}
                       {hashMatchesActive ? (
                         <span className="run-same-audio-pill">Same audio</span>
                       ) : null}
@@ -116,6 +158,18 @@ export function ExecutionsTab() {
                       {prog ? ` · ${prog} stages` : ""}
                       {r.selected_flow ? ` · ${r.selected_flow}` : ""}
                     </div>
+                    {total > 0 ? (
+                      <div
+                        className="run-progress-bar"
+                        role="progressbar"
+                        aria-valuenow={pct}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${pct}% stages complete`}
+                      >
+                        <span className="run-progress-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    ) : null}
                     {runHash ? (
                       <div className="run-item-hash-row">
                         <SourceAudioHashBadge
@@ -126,7 +180,16 @@ export function ExecutionsTab() {
                         />
                       </div>
                     ) : null}
-                    {lastLog ? <div className="asset-meta muted">{lastLog}</div> : null}
+                    {lastLog ? (
+                      <button
+                        type="button"
+                        className="asset-meta muted run-last-log"
+                        onClick={(e) => openLogsForRun(r.run_id, e)}
+                        title="Open Logs tab"
+                      >
+                        {lastLog}
+                      </button>
+                    ) : null}
                   </div>
                   <button
                     type="button"

@@ -31,6 +31,15 @@ export function TranscriptReviewPanel() {
   }, [loadTranscriptReview]);
 
   const chunks = transcriptReview?.chunks || [];
+
+  if (loading) {
+    return (
+      <div className="gate-loading-skeleton panel-inset" aria-busy>
+        <p className="hint">Loading transcript review queue…</p>
+      </div>
+    );
+  }
+
   const idx = Math.min(index, Math.max(0, chunks.length - 1));
   const chunk = chunks[idx];
 

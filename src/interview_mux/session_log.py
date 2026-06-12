@@ -53,7 +53,13 @@ def append_log(
     return entry
 
 
-def read_log(run_dir: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
+def read_log(
+    run_dir: Path,
+    *,
+    tail: int | None = None,
+    stage: str | None = None,
+    since_ts: str | None = None,
+) -> list[dict[str, Any]]:
     path = log_path(run_dir)
     if not path.is_file():
         return []
@@ -65,9 +71,14 @@ def read_log(run_dir: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            entries.append(json.loads(line))
+            entry = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if stage and entry.get("stage") != stage:
+            continue
+        if since_ts and str(entry.get("ts", "")) <= since_ts:
+            continue
+        entries.append(entry)
     if tail is not None and tail > 0:
         return entries[-tail:]
     return entries

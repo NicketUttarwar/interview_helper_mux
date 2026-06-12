@@ -29,6 +29,9 @@ export function StageReuseOfferCard({
   const submit = async (action: "accept" | "decline", sourceRunId?: string) => {
     if (!runId || submitting) return;
     setSubmitting(true);
+    if (action === "accept") {
+      showToast(`Reusing ${stage.title} from ${sourceRunId}…`);
+    }
     try {
       await api(`/api/runs/${runId}/stages/${stage.id}/reuse`, {
         method: "POST",

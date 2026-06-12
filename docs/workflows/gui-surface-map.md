@@ -16,18 +16,18 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | Compact status bar | Execution, job status (including **Reuse or run fresh**, **Review before save**), source file, **audio hash** chip (click-to-copy), updated |
-| **Workflow step bar** (top) | Command bar + phase chips | Running / blocked / handoff / next CTA from `journey` on all tabs |
+| Header | **`LiveStatusBar`** (sticky, all tabs) | Single status surface: running step N/M, phase chips, one primary CTA, error chip, batch progress bar, run meta, Menu |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
-| Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
+| Header | **Mute** / **Menu** | Mute attention sounds; **View full log**, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | `PipelineCommandCenter` + `PipelineStepList` + main pane | Primary view: **`StageDetail`** (step detail). **Tools drawer:** Story board \| Timeline \| Profile JSON \| Files \| **Debug** (`LlmCallsPanel`) \| **Volley** (`VolleyMemoryPanel`) |
-| **Pipeline** | **Phase guidance banner** | `journey.phase_guidance[phase]` — goal, progress, top orange actions |
-| **Pipeline** | **Stage guidance panel** | `stages[].guidance` — prerequisites, actions, unlocks on every stage detail |
-| **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, auto-scroll |
-| Footer | Mini log strip | 2–3 latest lines; click → Logs tab; polls every 2s while run active |
+| **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
+| **Pipeline** | **`PipelineCommandCenter`** | Read-only context: step title, status line, phase goal (no duplicate Run button) |
+| **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
+| **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
+| **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
+| Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
 | Modals | `OperatorActionModal` | Full-screen duplicate of blocking gate UI — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; selects blocking stage via `findPendingFocusStage`. Reuse and write-approval panels stay on `StageDetail` when modal closed. |
 | Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
@@ -36,7 +36,11 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **API consent:** GUI sends `api_consents` on every execute (assumes configured providers). Optional persist to `ASSETS/.gui/api_consent.json` via `POST /api/session/api-consent` for cross-relaunch convenience. Backend `runner.start` can reject execute when required providers are not granted (`job.status: needs_operator`).
 
-**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, and `pipeline_sub_tab`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start.
+**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start — **`LiveStatusBar`** shows **Run interrupted**, not Idle.
+
+**Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active.
+
+**Terminology:** Job complete → **Step finished**; operator phase `complete` → **Record & choose**; stage done → **Done**.
 
 **Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`; **Retry load** when the run id is set but data failed to load.
 

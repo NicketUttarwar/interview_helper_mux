@@ -212,9 +212,10 @@ function CallEditor({
 }
 
 export function LlmCallsPanel() {
-  const { run, showToast, appendClientLog } = useApp();
+  const { run, showToast, appendClientLog, selectedStageId } = useApp();
   const [index, setIndex] = useState<LlmCallsIndex | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expandingAll, setExpandingAll] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
   const [importanceFilter, setImportanceFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -254,6 +255,17 @@ export function LlmCallsPanel() {
   useEffect(() => {
     void loadIndex();
   }, [loadIndex]);
+
+  useEffect(() => {
+    if (selectedStageId && index?.stages.includes(selectedStageId)) {
+      setStageFilter(selectedStageId);
+    }
+  }, [selectedStageId, index?.stages]);
+
+  const failedRouting = useMemo(
+    () => routingAttempts.filter((a) => a.verdict === "fail" || a.verdict === "error"),
+    [routingAttempts],
+  );
 
   const filteredTree = useMemo(() => {
     if (!index) return { stages: [] as string[], tree: {} as LlmCallsIndex["tree"] };
@@ -360,8 +372,9 @@ export function LlmCallsPanel() {
     }
   };
 
-  const expandAll = () => {
+  const expandAll = async () => {
     if (!index) return;
+    setExpandingAll(true);
     setExpandedStages(new Set(filteredTree.stages));
     const attempts = new Set<string>();
     const calls = new Set<string>();
@@ -373,11 +386,15 @@ export function LlmCallsPanel() {
     }
     setExpandedAttempts(attempts);
     setExpandedCalls(calls);
-    void Promise.all([...calls].map((p) => loadRecord(p))).catch(() => {
+    try {
+      await Promise.all([...calls].map((p) => loadRecord(p)));
+    } catch {
       const msg = "Some calls failed to load";
       showToast(msg);
       appendClientLog(msg, "warning");
-    });
+    } finally {
+      setExpandingAll(false);
+    }
   };
 
   const collapseAll = () => {
@@ -402,14 +419,35 @@ export function LlmCallsPanel() {
           <button type="button" className="btn ghost sm" onClick={() => void loadIndex()}>
             Refresh
           </button>
-          <button type="button" className="btn ghost sm" onClick={expandAll}>
-            Expand all
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={expandingAll || !index}
+            onClick={() => void expandAll()}
+          >
+            {expandingAll ? "Loading calls…" : "Expand all"}
           </button>
           <button type="button" className="btn ghost sm" onClick={collapseAll}>
             Collapse all
           </button>
         </div>
       </header>
+
+      {failedRouting.length ? (
+        <div className="llm-routing-errors panel-inset">
+          <strong>Routing failures</strong>
+          <ul>
+            {failedRouting.slice(0, 5).map((a, i) => (
+              <li key={i}>
+                {a.stage} · {a.task_kind || "primary"} — {a.verdict}
+                {(a.deterministic_lint_errors || []).slice(0, 1).map((e) => (
+                  <span className="muted"> · {e.slice(0, 80)}</span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="llm-filters">
         <label>

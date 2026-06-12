@@ -59,6 +59,8 @@ export interface RunSummary {
   selected_flow?: string;
   progress?: { done: number; total: number };
   last_log?: LogEntry;
+  job_status?: string;
+  last_stage?: string;
   outputs?: string[];
 }
 
@@ -188,8 +190,19 @@ export interface JobState {
   status?: string;
   mode?: string;
   stage?: string;
+  current_stage?: string;
+  stage_index?: number;
+  stage_total?: number;
+  stages_planned?: string[];
   message?: string;
   updated_at?: string;
+  error?: string;
+  traceback?: string;
+  last_error?: {
+    message: string;
+    stage?: string | null;
+    traceback_excerpt?: string | null;
+  };
   missing_api_providers?: string[];
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
   needs_stage_reuse?: boolean;
@@ -575,6 +588,62 @@ export type PipelineSubTab =
   | "llm_calls"
   | "volley_memory";
 
+export type WorkflowStepId = "start" | OperatorPhase;
+
+export type ActivityKind =
+  | "idle"
+  | "no_run"
+  | "running"
+  | "gate"
+  | "error"
+  | "interrupted"
+  | "handoff"
+  | "write_approval"
+  | "reuse"
+  | "blocked"
+  | "ready"
+  | "done";
+
+/** Activity log panel stream identifiers (Live | This step | All). */
+export type LogStreamTab = "live" | "step" | "all";
+
+/** Alias for stream tab ids used in filters and session persistence. */
+export type LogStream = LogStreamTab;
+
+export interface LogFilterPreset {
+  stage?: string;
+  level?: string;
+  stream?: LogStreamTab;
+}
+
+export interface LiveStatus {
+  activityKind: ActivityKind;
+  headline: string;
+  subline: string;
+  pipelineStep: {
+    number: number | null;
+    total: number;
+    title: string;
+    phaseLabel: string;
+  } | null;
+  workflowPhase: {
+    index: number;
+    total: number;
+    id: WorkflowStepId;
+    label: string;
+  };
+  runningStageId: string | null;
+  focusStageId: string | null;
+  primaryLabel: string | null;
+  primaryDisabled: boolean;
+  secondaryLabel: string | null;
+  onPrimary: (() => void) | null;
+  onSecondary: (() => void) | null;
+  errorCount: number;
+  jobProgress: { index: number; total: number } | null;
+  lastError: JobState["last_error"] | null;
+}
+
 export interface SessionActive {
   run_id?: string;
   selected_stage_id?: string | null;
@@ -583,6 +652,8 @@ export interface SessionActive {
   source_locked?: boolean;
   input_audio_path?: string;
   updated_at?: string;
+  activity_log_tab?: LogStreamTab;
+  activity_log_collapsed?: boolean;
 }
 
 export interface OpenRunOptions {

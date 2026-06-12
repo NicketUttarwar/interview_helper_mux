@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../../context/AppContext";
+import { useLiveStatus } from "../../hooks/useLiveStatus";
 import { formatBytes } from "../../utils";
 import { InfoTooltip } from "../InfoTooltip";
 import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
@@ -43,10 +44,34 @@ export function StartTab() {
     sessionReady,
     homeRefreshing,
     showToast,
+    jobRunning,
+    selectedStageId,
+    logEntries,
+    apiGrants,
+    executeJob,
+    openActionModal,
+    acknowledgeHandoff,
+    setPipelineSubTab,
   } = useApp();
   const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
   const intentEnabled = config?.journey_ui?.intent_at_start !== false;
   const sessionLocked = Boolean(runId);
+
+  const live = useLiveStatus(run, {
+    jobRunning,
+    selectedStageId,
+    logEntries,
+    apiGrants,
+    onExecute: (body) => void executeJob(body),
+    onOpenCheckpoint: () => openActionModal(),
+    onAcknowledgeHandoff: () => void acknowledgeHandoff(),
+    onGoLogs: () => setActiveTab("logs"),
+    onGoStart: () => setActiveTab("start"),
+    onGoPipeline: () => {
+      setActiveTab("pipeline");
+      setPipelineSubTab("stage");
+    },
+  });
 
   if (runId && !run) {
     return (
@@ -95,6 +120,10 @@ export function StartTab() {
             Source audio is locked for this session. Continue in Pipeline — use{" "}
             <strong>Menu → Clear session</strong> only when you want to start over.
           </p>
+          <p className="hint start-live-subline">
+            <strong>{live.headline}</strong>
+            {live.subline ? <> — {live.subline}</> : null}
+          </p>
         </section>
         <section className="panel panel-compact source-locked-panel">
           <h3>
@@ -139,7 +168,7 @@ export function StartTab() {
         <section className="panel panel-compact">
           <h3>
             Output type
-            <InfoTooltip text="You can change this later at the Complete step (G2)." />
+            <InfoTooltip text="You can change this later at Record & choose (G2)." />
           </h3>
           <div className="flow-intent-cards">
             {INTENT_CARDS.map((c) => (
@@ -197,7 +226,7 @@ export function StartTab() {
                 <button
                   type="button"
                   className="btn primary sm btn-start"
-                  data-testid="new-execution"
+                  data-testid={`start-execution-${f.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void startRun(f.path, intentEnabled ? flowIntent : undefined);

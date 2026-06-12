@@ -124,15 +124,15 @@ export function GateActions({ stage }: Props) {
       ) : null}
 
       {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
-        <QcSummaryCard qcKey="narrative_qc" />
+        <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />
       ) : null}
 
       {stage.id === "edl_flow1" || stage.id === "edl_narrative_audit" ? (
-        <QcSummaryCard qcKey="edl_narrative_qc" />
+        <QcSummaryCard qcKey="edl_narrative_qc" stageId={stage.id} />
       ) : null}
 
       {stage.id === "podcast_show_description" ? (
-        <QcSummaryCard qcKey="show_description_qc" />
+        <QcSummaryCard qcKey="show_description_qc" stageId={stage.id} />
       ) : null}
 
       {stage.id === "content_context" &&
@@ -162,7 +162,15 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
       .catch(() => setBlocked(false));
   }, [run, stage.id]);
 
-  if (blocked === null) return <div className="gate-actions" />;
+  if (blocked === null) {
+    return (
+      <div className="gate-actions">
+        <p className="hint gate-loading">
+          <span className="spinner-inline" aria-hidden /> Checking ElevenLabs approval…
+        </p>
+      </div>
+    );
+  }
 
   if (blocked) {
     return (

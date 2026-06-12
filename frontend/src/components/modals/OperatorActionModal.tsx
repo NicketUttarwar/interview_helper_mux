@@ -71,12 +71,19 @@ export function OperatorActionModal() {
     handoffPaths.length > 0 &&
     !run.handoff_ack?.[selectedStage.id];
   const continueEnabled = checkpointContinueEnabled(run, selectedStage, apiGrants);
+  const statusSubline =
+    run.journey?.next_action ||
+    run.job?.message ||
+    (selectedStage.status === "action_required" ? "Complete the items below to continue." : "");
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal-card panel modal-lg">
         <div className="modal-head">
-          <h3>{title}</h3>
+          <div>
+            <h3>{title}</h3>
+            {statusSubline ? <p className="hint modal-status-subline">{statusSubline}</p> : null}
+          </div>
           <button type="button" className="btn ghost sm" onClick={closeActionModal} aria-label="Close">
             Close
           </button>
@@ -84,11 +91,23 @@ export function OperatorActionModal() {
         {actionSummary ? <p className="hint modal-summary">{actionSummary}</p> : null}
 
         <div className="modal-body-scroll">
-          <StageReuseSection stage={selectedStage} />
-          <WriteApprovalPanel stage={selectedStage} />
-          <StageGuidancePanel stage={selectedStage} />
-          {showHandoff ? <HandoffPanel /> : null}
-          <GateActions stage={selectedStage} />
+          <section id="modal-reuse">
+            <StageReuseSection stage={selectedStage} />
+          </section>
+          <section id="modal-write-approval">
+            <WriteApprovalPanel stage={selectedStage} />
+          </section>
+          <section id="modal-guidance">
+            <StageGuidancePanel stage={selectedStage} />
+          </section>
+          {showHandoff ? (
+            <section id="modal-handoff">
+              <HandoffPanel />
+            </section>
+          ) : null}
+          <section id="modal-gates">
+            <GateActions stage={selectedStage} />
+          </section>
         </div>
 
         <div className="modal-actions modal-footer">

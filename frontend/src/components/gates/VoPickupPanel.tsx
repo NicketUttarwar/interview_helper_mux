@@ -3,7 +3,7 @@ import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
-  const { run, runId, refreshRun, selectStage, executeJob, showToast } = useApp();
+  const { run, runId, refreshRun, selectStage, executeJob, showToast, appendClientLog } = useApp();
   const recorderRef = useRef<{ media: MediaRecorder | null; chunks: Blob[] }>({
     media: null,
     chunks: [],
@@ -14,6 +14,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
 
   const uploadVoFile = async (lineId: string, file: Blob) => {
     if (!runId) return;
+    appendClientLog(`Uploading VO for line ${lineId}…`, "action");
     const fd = new FormData();
     fd.append("file", file);
     await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });

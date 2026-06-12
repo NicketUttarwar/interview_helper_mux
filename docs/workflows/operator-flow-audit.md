@@ -13,7 +13,7 @@ Companion to [operator-journey.md](./operator-journey.md) (happy path) and [gui-
 | **Pipeline** | Pipeline step list + `StageDetail` (stage panel, redo, gates) + sub-tabs (Story, Timeline, Profile, Files, Debug) |
 | **Logs** | Full `gui_log.jsonl` viewer |
 
-**Chrome:** Status header, **command bar**, **execution status banner**, action modal, API consent, confirm dialog, log strip.
+**Chrome:** Live status bar, action modal, API consent, confirm dialog, activity teaser (non-Pipeline tabs).
 
 Checkpoint modal uses `findPendingFocusStage()` so the correct gate panel shows on **every tab**, including Logs.
 
@@ -74,6 +74,24 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 10–20 | Medium/low polish | Reuse config flag, value-features API, QC hints, Pipeline resume, 409 handling, docs — see [gui-surface-map.md](./gui-surface-map.md) |
 | 21 | Resume / refresh silent failures | `openRun` error toasts, `sessionReady` gate, stale job reconcile, UI chrome in `active_execution.json` |
 | 22 | Half-loaded session stuck | Start/Pipeline **Retry load** + **Clear session** recovery panels |
+| 23 | Status "Complete" misleading | Job → **Step finished**; phase → **Record & choose**; stage → **Done** |
+| 24 | Stale job during poll | Merge `GET /job` into `run.job` each tick; batch `stage_index/total` in `gui_job.json` |
+| 25 | `interrupted` shown as Idle | LiveStatusBar **Run interrupted** branch |
+| 26 | Logs only in footer | Pipeline **ActivityLogPanel** (Live / This step / All) + **ActivityTeaser** on other tabs |
+| 27 | Duplicate Run/checkpoint CTAs | Single primary CTA in **LiveStatusBar**; command center read-only |
+| 28 | Sidebar ≠ running stage | Auto-select `job.stage` unless operator pinned sidebar (30s) |
+| 29 | ElevenLabs listen silent no-op | Inline audio ref + toast in **ElevenLabsPostListenPanel** / **StageAudioActions** |
+| 30 | QC fail only hints redo | **QcSummaryCard** inline redo + activity log link |
+| 31 | Audio quality drawer dead-end | **Open checkpoint** action in **AudioQualityDrawer** |
+| 32 | Executions list opaque | Job status pill, progress bar, clickable **last_log** → Logs |
+| 33 | Duplicate tab badges | Pipeline action badge removed — **LiveStatusBar** owns primary CTA badge |
+| 34 | Session UI not restored | `activity_log_tab` + `activity_log_collapsed` in `active_execution.json` |
+| 35 | Timeline QC isolated | **TimelineQcChecklist** links to Pipeline activity log |
+| 36 | Desktop timeline surprise | Dismissible desktop-first hint in **TimelineWorkspace** |
+| 37 | LLM debug buried | **StageDetail** → Open full debug; **LlmCallsPanel** routing failures + stage filter |
+| 38 | Volley table cramped | Expand chevron column + horizontal scroll hint |
+| 39 | Write approval invisible mid-run | Live status bar + activity panel copy in **WriteApprovalPanel** |
+| 40 | NLE apply progress unclear | **ApplyEditsPanel** + **LiveStatusBar** running state during `nle_apply` |
 
 ---
 

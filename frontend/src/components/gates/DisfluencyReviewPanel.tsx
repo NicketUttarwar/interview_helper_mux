@@ -48,14 +48,20 @@ export function DisfluencyReviewPanel() {
   }, [run?.run_id]);
 
   if (!config?.disfluency_extract_enabled) {
-    return <p className="hint">Disfluency extract is disabled in config.</p>;
+    return (
+      <p className="hint">
+        Disfluency extract is disabled. Enable <code>disfluency_extract.enabled</code> in{" "}
+        <code>config/app.defaults.json</code> — see{" "}
+        <code>docs/cross-cutting/config-keys.md</code>.
+      </p>
+    );
   }
 
   if (loading) {
     return (
-      <p className="hint">
-        Review detected filler clips — confirm events to include in restore, or reject false positives.
-      </p>
+      <div className="gate-loading-skeleton panel-inset" aria-busy>
+        <p className="hint">Loading disfluency review…</p>
+      </div>
     );
   }
 

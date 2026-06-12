@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
@@ -10,6 +10,7 @@ import type { StageInfo } from "../../types";
 
 export function ElevenLabsPostListenPanel({ stage }: { stage: StageInfo }) {
   const { run, refreshRun, showToast } = useApp();
+  const inlineRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = useMemo(
     () =>
@@ -41,21 +42,30 @@ export function ElevenLabsPostListenPanel({ stage }: { stage: StageInfo }) {
     await refreshRun();
   };
 
-  const playAsset = (path: string) => {
-    const player = document.querySelector(".audio-player") as HTMLAudioElement | null;
-    if (!player) return;
+  const playAsset = async (path: string) => {
     const url = `/api/runs/${run.run_id}/audio?path=${encodeURIComponent(path)}`;
-    player.src = url;
-    player.currentTime = 0;
-    void player.play().catch(() => {});
+    const player = document.querySelector(".audio-player") as HTMLAudioElement | null;
+    const target = player || inlineRef.current;
+    if (!target) {
+      showToast("Could not play audio — no player available.");
+      return;
+    }
+    target.src = url;
+    target.currentTime = 0;
+    try {
+      await target.play();
+    } catch {
+      showToast("Could not play audio — check path or open Files tab.");
+    }
   };
 
   return (
     <div className="quality-offer-card el-post-listen-card">
+      <audio ref={inlineRef} className="stage-inline-audio hidden" aria-hidden />
       <h4>Post-listen QA (advisory)</h4>
       <p className="muted">
         Listen to each generated asset, then record pass or fail. Optional note is stored
-        in <code>run_meta.json</code> and the log panel.
+        in <code>run_meta.json</code> and the activity panel.
       </p>
       {assets.map(({ asset_id, path }) => (
         <PostListenRow
@@ -63,7 +73,7 @@ export function ElevenLabsPostListenPanel({ stage }: { stage: StageInfo }) {
           assetId={asset_id}
           path={path}
           prev={latest.get(asset_id)}
-          onListen={() => playAsset(path)}
+          onListen={() => void playAsset(path)}
           onSubmit={submitListen}
         />
       ))}

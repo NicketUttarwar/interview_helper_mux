@@ -10,6 +10,7 @@ import { stageDescriptionParts } from "../../utils/stageDescription";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { getHandoffPathsLocal } from "../../utils/checkpoint";
 import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
+import { StageActivityStrip } from "../activity/StageActivityStrip";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
 import type { LlmRoutingAttempt } from "../../types";
@@ -20,13 +21,13 @@ export function StageDetail() {
     config,
     selectedStage,
     selectedStageId,
-    openActionModal,
     actionModalOpen,
     jobRunning,
     apiGrants,
     selectStage,
     redoFromStage,
     appendClientLog,
+    setPipelineSubTab,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
 
@@ -86,14 +87,20 @@ export function StageDetail() {
   }
 
   const stepEntry = nav.numberedStages.find((n) => n.stage.id === selectedStage.id);
+  const isRunningThisStage =
+    jobRunning &&
+    (run?.job?.current_stage === selectedStage.id ||
+      run?.job?.stage === selectedStage.id);
   const statusLabel =
-    selectedStage.status === "done"
-      ? "Complete"
-      : selectedStage.status === "action_required"
-        ? "Needs your input"
-        : selectedStage.status === "locked"
-          ? "Locked"
-          : "Ready to run";
+    isRunningThisStage
+      ? "Running"
+      : selectedStage.status === "done"
+        ? "Done"
+        : selectedStage.status === "action_required"
+          ? "Needs your input"
+          : selectedStage.status === "locked"
+            ? "Locked"
+            : "Ready to run";
 
   const handoffPaths = getHandoffPathsLocal(selectedStage, run?.log_tail);
   const showHandoff =
@@ -135,6 +142,8 @@ export function StageDetail() {
 
       <StageGuidancePanel stage={selectedStage} stepNumber={stepEntry?.number ?? null} />
 
+      <StageActivityStrip />
+
       {!actionModalOpen ? (
         <>
           <StageReuseSection stage={selectedStage} />
@@ -147,13 +156,6 @@ export function StageDetail() {
           <h3 className="stage-outputs-title">Your action</h3>
           <GateActions stage={selectedStage} />
           {showHandoff ? <HandoffPanel /> : null}
-          {selectedStage.status === "action_required" ? null : showHandoff ? (
-            <div className="stage-detail-actions">
-              <button type="button" className="btn primary sm" onClick={openActionModal}>
-                Review in full-screen panel
-              </button>
-            </div>
-          ) : null}
         </div>
       ) : (
         <GateActions stage={selectedStage} />
@@ -189,7 +191,16 @@ export function StageDetail() {
 
       {llmAttempts.length > 0 ? (
         <div className="llm-routing-panel">
-          <h3 className="stage-outputs-title">LLM routing</h3>
+          <div className="stage-outputs-title-row">
+            <h3 className="stage-outputs-title">LLM routing</h3>
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={() => setPipelineSubTab("llm_calls")}
+            >
+              Open full debug
+            </button>
+          </div>
           <ul className="llm-routing-list">
             {llmAttempts.map((r, i) => (
               <li key={i}>

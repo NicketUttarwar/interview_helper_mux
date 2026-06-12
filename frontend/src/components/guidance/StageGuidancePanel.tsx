@@ -1,7 +1,6 @@
 import type { GuidanceItem, StageInfo } from "../../types";
 import { ActionMarker } from "./ActionMarker";
 import { GuidanceActionButton } from "./GuidanceActionButton";
-import { RunStageButton } from "./RunStageButton";
 import { findNextRunnableStage } from "../../utils/preclean";
 import { useApp } from "../../context/AppContext";
 
@@ -14,7 +13,6 @@ function GuidanceList({
   title,
   items,
   stage,
-  stepNumber,
   prereqsMet,
 }: {
   title: string;
@@ -45,7 +43,7 @@ function GuidanceList({
             <span className="stage-guidance-label">{item.label}</span>
             <span className="stage-guidance-item-actions">
               {item.kind === "run" && item.status === "todo" && canRunHere ? (
-                <RunStageButton stageId={stage.id} stepNumber={stepNumber} />
+                <span className="hint sm">Use Run in the status bar above</span>
               ) : (
                 <GuidanceActionButton item={item} />
               )}
@@ -62,7 +60,7 @@ export function StageGuidancePanel({ stage, stepNumber }: Props) {
   if (!guidance) {
     return (
       <div className="stage-guidance panel-inset">
-        <p className="hint">Run this stage to produce outputs. Progress appears in Logs.</p>
+        <p className="hint">Run this stage to produce outputs. Progress appears in the activity panel.</p>
       </div>
     );
   }

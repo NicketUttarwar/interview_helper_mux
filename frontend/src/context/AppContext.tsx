@@ -16,6 +16,8 @@ import type {
   ExecuteBody,
   JobState,
   LogEntry,
+  LogFilterPreset,
+  LogStreamTab,
   OpenRunOptions,
   PipelineSubTab,
   RunData,
@@ -69,6 +71,13 @@ interface AppContextValue {
   sessionLoadError: string | null;
   openRunLoading: boolean;
   homeRefreshing: boolean;
+  activityLogTab: LogStreamTab;
+  activityLogCollapsed: boolean;
+  logFilterPreset: LogFilterPreset | null;
+  setActivityLogTab: (tab: LogStreamTab) => void;
+  setActivityLogCollapsed: (collapsed: boolean) => void;
+  setLogFilterPreset: (preset: LogFilterPreset | null) => void;
+  pinSelectedStage: () => void;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
   openArtifactInEditor: (path: string) => void;
@@ -159,6 +168,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [shownPrecleanOffers, setShownPrecleanOffers] = useState<Set<string>>(
     () => new Set(),
   );
+  const [activityLogTab, setActivityLogTabState] = useState<LogStreamTab>("live");
+  const [activityLogCollapsed, setActivityLogCollapsedState] = useState(false);
+  const [logFilterPreset, setLogFilterPresetState] = useState<LogFilterPreset | null>(
+    null,
+  );
 
   const logCountRef = useRef(0);
   const bootGenRef = useRef(0);
@@ -167,6 +181,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectedStageIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<AppTab>("start");
   const pipelineSubTabRef = useRef<PipelineSubTab>("stage");
+  const activityLogTabRef = useRef<LogStreamTab>("live");
+  const activityLogCollapsedRef = useRef(false);
   const lastNotifiedTsRef = useRef<string | null>(null);
   const lastActionRequiredIdRef = useRef<string | null>(null);
   const jobStatusPrevRef = useRef<string | null>(null);
@@ -174,6 +190,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userDismissedActionRef = useRef(false);
+  const userPinnedStageAtRef = useRef<number | null>(null);
+  const runRefreshTickRef = useRef(0);
 
   const selectedStage = useMemo(
     () => run?.stages.find((s) => s.id === selectedStageId),
@@ -208,6 +226,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     pipelineSubTabRef.current = pipelineSubTab;
   }, [pipelineSubTab]);
+  useEffect(() => {
+    activityLogTabRef.current = activityLogTab;
+  }, [activityLogTab]);
+  useEffect(() => {
+    activityLogCollapsedRef.current = activityLogCollapsed;
+  }, [activityLogCollapsed]);
+
+  const pinSelectedStage = useCallback(() => {
+    userPinnedStageAtRef.current = Date.now();
+  }, []);
 
   const persistSessionUi = useCallback(() => {
     const rid = runIdRef.current;
@@ -222,9 +250,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           selected_stage_id: selectedStageIdRef.current,
           active_tab: activeTabRef.current,
           pipeline_sub_tab: pipelineSubTabRef.current,
+          activity_log_tab: activityLogTabRef.current,
+          activity_log_collapsed: activityLogCollapsedRef.current,
         }),
       }).catch(() => {});
     }, 200);
+  }, []);
+
+  const setActivityLogTab = useCallback(
+    (tab: LogStreamTab) => {
+      setActivityLogTabState(tab);
+      activityLogTabRef.current = tab;
+      persistSessionUi();
+    },
+    [persistSessionUi],
+  );
+
+  const setActivityLogCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setActivityLogCollapsedState(collapsed);
+      activityLogCollapsedRef.current = collapsed;
+      persistSessionUi();
+    },
+    [persistSessionUi],
+  );
+
+  const setLogFilterPreset = useCallback((preset: LogFilterPreset | null) => {
+    setLogFilterPresetState(preset);
   }, []);
 
   const setActiveTab = useCallback(
@@ -337,13 +389,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (errors.length) showToast(errors.join(" · "));
   }, [showToast]);
 
-  const pollLog = useCallback(async () => {
+  const pollLog = useCallback(async (force?: boolean) => {
     if (!runId) return;
     try {
       const data = await api<{ entries: LogEntry[] }>(
         `/api/runs/${runId}/log?tail=500`,
       );
-      if (data.entries?.length !== logCountRef.current) {
+      if (force || data.entries?.length !== logCountRef.current) {
         renderLogWithAlerts(data.entries);
         setRun((prev) =>
           prev ? { ...prev, log_tail: data.entries } : prev,
@@ -377,12 +429,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [runId, renderLogWithAlerts]);
 
   const selectStage = useCallback(
-    async (stageId: string) => {
+    async (stageId: string, opts?: { pinned?: boolean }) => {
+      if (opts?.pinned !== false) {
+        userPinnedStageAtRef.current = Date.now();
+      }
       setSelectedStageId(stageId);
       selectedStageIdRef.current = stageId;
       persistSessionUi();
     },
     [persistSessionUi],
+  );
+
+  const maybeAutoSelectRunningStage = useCallback(
+    (job: JobState | null | undefined) => {
+      if (!job || !isJobActivelyRunning(job)) return;
+      const stageId = job.current_stage || job.stage;
+      if (!stageId) return;
+      const pinnedAt = userPinnedStageAtRef.current;
+      if (pinnedAt && Date.now() - pinnedAt < 30_000) return;
+      if (selectedStageIdRef.current === stageId) return;
+      setSelectedStageId(stageId);
+      selectedStageIdRef.current = stageId;
+    },
+    [],
   );
 
   const focusPendingStage = useCallback(async () => {
@@ -402,12 +471,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const job = await api<JobState>(`/api/runs/${rid}/job`);
       const active = isJobActivelyRunning(job);
       setJobRunning(active);
+      setRun((prev) => (prev ? { ...prev, job } : prev));
+      maybeAutoSelectRunningStage(job);
       return job;
     } catch {
       setJobRunning(false);
       return null;
     }
-  }, []);
+  }, [maybeAutoSelectRunningStage]);
 
   const startJobPoll = useCallback(() => {
     stopJobPoll();
@@ -416,12 +487,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const job = await syncJobRunning(runId);
       if (!isJobActivelyRunning(job)) return;
       setJobRunning(true);
+      runRefreshTickRef.current = 0;
       jobPollRef.current = setInterval(async () => {
         try {
           const polled = await api<JobState>(`/api/runs/${runId}/job`);
+          setRun((prev) => (prev ? { ...prev, job: polled } : prev));
+          maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
             await refreshRun();
             stopJobPoll();
+            void focusPendingStage();
             if (
               polled.status === "awaiting_write_approval" ||
               polled.awaiting_write_approval
@@ -431,12 +506,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 playAttentionPing(alertsMuted);
               }
             }
+          } else {
+            runRefreshTickRef.current += 1;
+            if (runRefreshTickRef.current % 5 === 0) {
+              await refreshRun();
+            }
           }
-          await pollLog();
+          await pollLog(true);
         } catch {
           stopJobPoll();
         }
-      }, 1200);
+      }, 1000);
     })();
   }, [
     runId,
@@ -446,6 +526,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     openActionModal,
     alertsMuted,
     syncJobRunning,
+    maybeAutoSelectRunningStage,
+    focusPendingStage,
   ]);
 
   const executeJob = useCallback(
@@ -826,6 +908,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             activeTab: active.active_tab ?? "pipeline",
             pipelineSubTab: active.pipeline_sub_tab ?? "stage",
           });
+          if (active.activity_log_tab) {
+            setActivityLogTabState(active.activity_log_tab as LogStreamTab);
+            activityLogTabRef.current = active.activity_log_tab as LogStreamTab;
+          }
+          if (typeof active.activity_log_collapsed === "boolean") {
+            setActivityLogCollapsedState(active.activity_log_collapsed);
+            activityLogCollapsedRef.current = active.activity_log_collapsed;
+          }
           if (gen !== bootGenRef.current) return;
           if (serverRestarted && runIdRef.current) {
             const rid = runIdRef.current;
@@ -852,6 +942,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopJobPoll();
     };
   }, []);
+
+  useEffect(() => {
+    if (logPollRef.current) clearInterval(logPollRef.current);
+    if (!runId) return;
+    logPollRef.current = setInterval(() => {
+      void pollLog();
+    }, jobRunning ? 1000 : 2000);
+    return () => {
+      if (logPollRef.current) clearInterval(logPollRef.current);
+    };
+  }, [runId, jobRunning, pollLog]);
 
   useEffect(() => {
     if (!run) return;
@@ -910,6 +1011,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessionLoadError,
     openRunLoading,
     homeRefreshing,
+    activityLogTab,
+    activityLogCollapsed,
+    logFilterPreset,
+    setActivityLogTab,
+    setActivityLogCollapsed,
+    setLogFilterPreset,
+    pinSelectedStage,
     setActiveTab,
     setPipelineSubTab: setPipelineSubTabWrapped,
     openArtifactInEditor,

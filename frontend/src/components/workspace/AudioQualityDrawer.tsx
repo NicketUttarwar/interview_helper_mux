@@ -9,8 +9,13 @@ const CHECKPOINT_LABELS: Record<string, string> = {
   g1_vo_pickup: "After VO pickup (G1)",
 };
 
+const CHECKPOINT_STAGE: Record<string, string> = {
+  before_ingest: "audio_preclean",
+  g1_vo_pickup: "g1_vo_pickup",
+};
+
 export function AudioQualityDrawer() {
-  const { run, runId, config } = useApp();
+  const { run, runId, config, openActionModal, selectStage } = useApp();
   const { recommendedPreclean } = useJourney(run);
   const [open, setOpen] = useState(true);
   const [data, setData] = useState<AudioQualityState | null>(null);
@@ -23,13 +28,25 @@ export function AudioQualityDrawer() {
 
   if (!run || !enabled) return null;
 
+  const openCheckpoint = () => {
+    if (!recommendedPreclean) return;
+    const stageId = CHECKPOINT_STAGE[recommendedPreclean];
+    if (stageId) void selectStage(stageId);
+    openActionModal();
+  };
+
   return (
     <details className="audio-quality-drawer panel" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary>Audio quality (optional)</summary>
       {recommendedPreclean ? (
-        <p className="input-label">
-          Recommended now: {CHECKPOINT_LABELS[recommendedPreclean] ?? recommendedPreclean}
-        </p>
+        <div className="audio-quality-recommended">
+          <p className="input-label">
+            Recommended now: {CHECKPOINT_LABELS[recommendedPreclean] ?? recommendedPreclean}
+          </p>
+          <button type="button" className="btn primary sm" onClick={openCheckpoint}>
+            Open checkpoint
+          </button>
+        </div>
       ) : null}
       <ul className="checkpoint-list">
         {(data?.checkpoints ?? []).map((cp) => (

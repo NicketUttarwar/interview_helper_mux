@@ -28,7 +28,14 @@ function entryJourneyKind(detail: unknown): string | null {
 }
 
 export function LogsTab() {
-  const { logEntries, runId, run, config } = useApp();
+  const {
+    logEntries,
+    runId,
+    run,
+    config,
+    logFilterPreset,
+    setLogFilterPreset,
+  } = useApp();
   const journeyFilterDefault = config?.journey_ui?.journey_log_filter !== false;
   const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
   const [levelFilter, setLevelFilter] = useState<string>("all");
@@ -39,6 +46,13 @@ export function LogsTab() {
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
+
+  useEffect(() => {
+    if (!logFilterPreset) return;
+    if (logFilterPreset.level) setLevelFilter(logFilterPreset.level);
+    if (logFilterPreset.stage) setStageFilter(logFilterPreset.stage);
+    setLogFilterPreset(null);
+  }, [logFilterPreset, setLogFilterPreset]);
 
   const stageFilterOptions = useMemo(() => {
     const ids = new Set<string>();
@@ -103,8 +117,22 @@ export function LogsTab() {
           </span>
         </div>
         <p className="hint logs-command-hint">
-          Current action is in the command bar above. Use filters below to inspect history.
+          Current action is in the live status bar above. Use filters below to inspect history.
         </p>
+        <div className="logs-toolbar-actions">
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() => {
+              setLevelFilter("all");
+              setStageFilter(
+                run?.job?.current_stage || run?.job?.stage || "all",
+              );
+            }}
+          >
+            Jump to active stream
+          </button>
+        </div>
         <div className="logs-filters">
           <label className="logs-filter logs-filter-check">
             <input

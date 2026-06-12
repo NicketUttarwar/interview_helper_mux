@@ -43,6 +43,7 @@ from interview_mux.write_staging import (
     WriteApprovalPending,
     check_write_approval_before_execute,
 )
+from interview_mux.web.job_progress import clear_job_progress, register_job_progress
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 
@@ -64,6 +65,37 @@ class JobRunner:
             if run_id not in self._locks:
                 self._locks[run_id] = Lock()
             return self._locks[run_id]
+
+    def _stage_title(self, stage_id: str | None) -> str:
+        if not stage_id:
+            return "pipeline"
+        info = STAGE_BY_ID.get(stage_id)
+        return info.title if info else stage_id.replace("_", " ")
+
+    def _update_running_stage(
+        self,
+        ctx: RunContext,
+        job_base: dict[str, Any],
+        stage_id: str,
+        *,
+        index: int,
+        total: int,
+        stages_planned: list[str],
+    ) -> None:
+        title = self._stage_title(stage_id)
+        self._write_job(
+            ctx,
+            {
+                **job_base,
+                "status": "running",
+                "stage": stage_id,
+                "current_stage": stage_id,
+                "stage_index": index,
+                "stage_total": total,
+                "stages_planned": stages_planned,
+                "message": f"Running {title}… ({index}/{total})",
+            },
+        )
 
     def _write_job(self, ctx: RunContext, payload: dict[str, Any]) -> None:
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -370,22 +402,57 @@ class JobRunner:
             ctx = RunContext(run_id, create=False)
             label = stage or from_stage or mode
             info = STAGE_BY_ID.get(label or "")
+            stage_ids = self._stages_for_execute(
+                ctx,
+                mode=mode,
+                stage=stage,
+                from_stage=from_stage,
+                until_stage=until_stage,
+                nle_full_refresh=nle_full_refresh,
+                nle_apply_mode=nle_apply_mode,
+            )
+            job_base: dict[str, Any] = {
+                "mode": mode,
+                "stage": stage,
+                "flow": flow,
+                "from_stage": from_stage or stage,
+                "until_stage": until_stage,
+                "nle_full_refresh": nle_full_refresh,
+                "nle_apply_mode": nle_apply_mode,
+            }
+            total = len(stage_ids) or 1
+            if stage_ids:
+                job_base["stages_planned"] = stage_ids
+                job_base["stage_total"] = total
+                job_base["stage_index"] = 0
+
+            def _progress_hook(
+                sid: str,
+                index: int,
+                t: int,
+                planned: list[str],
+            ) -> None:
+                self._update_running_stage(
+                    ctx,
+                    job_base,
+                    sid,
+                    index=index,
+                    total=t,
+                    stages_planned=planned,
+                )
+
+            register_job_progress(run_id, _progress_hook)
             try:
                 msg = info.description if info else f"Running pipeline mode: {mode}"
                 ctx.log(f"Starting: {info.title if info else label}", level="info", stage=label, detail=msg)
-                self._write_job(
+                first_stage = stage_ids[0] if stage_ids else (stage or label)
+                self._update_running_stage(
                     ctx,
-                    {
-                        "status": "running",
-                        "mode": mode,
-                        "stage": stage,
-                        "flow": flow,
-                        "from_stage": from_stage or stage,
-                        "until_stage": until_stage,
-                        "nle_full_refresh": nle_full_refresh,
-                        "nle_apply_mode": nle_apply_mode,
-                        "message": msg,
-                    },
+                    job_base,
+                    str(first_stage),
+                    index=1 if stage_ids else 0,
+                    total=total,
+                    stages_planned=stage_ids,
                 )
                 if mode == "stage" and stage == "transcript_review":
                     transcript_review.mark_transcript_review_complete(ctx)
@@ -457,7 +524,15 @@ class JobRunner:
                         level="info",
                         stage="nle",
                     )
-                    for sid in stages:
+                    for i, sid in enumerate(stages, start=1):
+                        self._update_running_stage(
+                            ctx,
+                            job_base,
+                            sid,
+                            index=i,
+                            total=len(stages),
+                            stages_planned=stages,
+                        )
                         ctx.log(f"NLE apply — running {sid}", level="info", stage=sid)
                         run_single_stage(ctx, sid)
                     refresh_journey_meta(ctx)
@@ -529,6 +604,7 @@ class JobRunner:
                     },
                 )
             finally:
+                clear_job_progress(run_id)
                 dir_lock.release()
                 lock.release()
 

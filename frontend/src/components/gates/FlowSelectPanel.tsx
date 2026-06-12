@@ -45,15 +45,18 @@ export function FlowSelectPanel() {
         </button>
       ) : null}
       <div className="flow-choice">
-        <button type="button" className="btn primary" data-testid="select-flow-flow1" onClick={() => void selectFlow("flow1")}>
-          Flow 1 — Full podcast
-        </button>
-        <button type="button" className="btn primary" data-testid="select-flow-flow2" onClick={() => void selectFlow("flow2")}>
-          Flow 2 — Highlight reel
-        </button>
-        <button type="button" className="btn primary" data-testid="select-flow-flow3" onClick={() => void selectFlow("flow3")}>
-          Flow 3 — Show description
-        </button>
+        {(["flow1", "flow2", "flow3"] as const).map((flow) => (
+          <button
+            key={flow}
+            type="button"
+            className={`btn${intent === flow ? " primary" : " ghost"}`}
+            data-testid={`select-flow-${flow}`}
+            onClick={() => void selectFlow(flow)}
+          >
+            {FLOW_LABELS[flow]}
+            {intent === flow ? " (planned)" : ""}
+          </button>
+        ))}
       </div>
     </>
   );

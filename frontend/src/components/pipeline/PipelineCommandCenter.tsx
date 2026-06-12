@@ -1,21 +1,11 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
-import { isJobActivelyRunning } from "../../utils/jobStatus";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
-import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
 import { firstTodoItem } from "../../utils/stageGuidance";
+import { PHASE_LABELS } from "../../constants/phases";
 
 export function PipelineCommandCenter() {
-  const {
-    run,
-    selectedStageId,
-    jobRunning,
-    runNextStage,
-    openActionModal,
-    acknowledgeHandoff,
-    selectStage,
-    apiGrants,
-  } = useApp();
+  const { run, selectedStageId, jobRunning, apiGrants } = useApp();
 
   const nav = useMemo(
     () =>
@@ -29,34 +19,11 @@ export function PipelineCommandCenter() {
 
   if (!run) return null;
 
-  const jobActive = isJobActivelyRunning(run.job) || jobRunning;
-
-  const onPrimary = () => {
-    if (nav.primaryAction === "handoff") {
-      void acknowledgeHandoff();
-      return;
-    }
-    if (nav.primaryAction === "checkpoint") {
-      if (nav.focusStageId) void selectStage(nav.focusStageId);
-      openActionModal();
-      return;
-    }
-    if (nav.primaryAction === "run_next") {
-      if (nav.nextStage) void selectStage(nav.nextStage.id);
-      void runNextStage();
-    }
-  };
-
-  const primaryLabel =
-    nav.primaryAction === "handoff"
-      ? "Acknowledge & continue"
-      : nav.primaryAction === "checkpoint"
-        ? "Open checkpoint"
-        : nav.primaryAction === "run_next"
-          ? jobActive
-            ? "Running…"
-            : `Run step ${nav.nextNumber ?? ""}`.trim()
-          : null;
+  const phase = run.journey?.phase ?? run.meta?.operator_phase ?? "prepare";
+  const phaseGoal =
+    run.journey?.phase_guidance?.[phase]?.goal ||
+    PHASE_LABELS[phase] ||
+    "";
 
   const topTodo = nav.currentStage?.guidance
     ? firstTodoItem(nav.currentStage.guidance)
@@ -66,7 +33,6 @@ export function PipelineCommandCenter() {
 
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
-      {run ? <PhaseGuidanceBanner run={run} /> : null}
       <div className="pipeline-command-head">
         <div>
           <p className="pipeline-command-eyebrow">
@@ -82,6 +48,9 @@ export function PipelineCommandCenter() {
             {nav.currentStage?.title || nav.nextStage?.title || "Pipeline"}
           </h2>
           <p className="pipeline-command-status">{nav.statusLine}</p>
+          {phaseGoal ? (
+            <p className="hint sm pipeline-command-phase-goal">{phaseGoal}</p>
+          ) : null}
           {topTodo ? (
             <p className="hint pipeline-command-next">
               <span className="action-marker status-todo" aria-hidden>
@@ -91,19 +60,6 @@ export function PipelineCommandCenter() {
             </p>
           ) : nav.nextLine ? (
             <p className="hint pipeline-command-next">{nav.nextLine}</p>
-          ) : null}
-        </div>
-        <div className="pipeline-command-actions">
-          {primaryLabel ? (
-            <button
-              type="button"
-              className="btn primary"
-              data-testid="pipeline-primary-action"
-              disabled={!nav.canRunNext || jobActive}
-              onClick={onPrimary}
-            >
-              {primaryLabel}
-            </button>
           ) : null}
         </div>
       </div>

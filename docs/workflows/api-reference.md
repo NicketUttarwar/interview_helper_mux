@@ -37,13 +37,13 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/config` | — | — | Paths + feature flags — see **`GET /api/config` response** below | — |
 | `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
 | `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
-| `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`, `active_tab`, `pipeline_sub_tab`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
+| `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
 | `PUT` | `/api/session/active` | — | **ActiveBody** | Merged `active_execution.json` payload, or `{ok, active: null}` when `run_id` null | **400** invalid tab; **409** source lock |
 | `DELETE` | `/api/session/active` | — | — | `{ok: true, active: null}` — clears active execution | — |
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
 Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
-| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry) | Per-run errors swallowed → `progress: {0,0}` |
+| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry), `job_status` when `enrich=1` | Per-run errors swallowed → `progress: {0,0}` |
 | `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short` | **404** if `input_audio_path` file missing |
 
 ### `CreateRunBody`
@@ -63,6 +63,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `selected_stage_id` | string \| null | no | Pipeline stage focus |
 | `active_tab` | string \| null | no | `start` \| `executions` \| `pipeline` \| `logs` |
 | `pipeline_sub_tab` | string \| null | no | `stage` \| `story` \| `timeline` \| `profile` \| `files` \| `llm_calls` \| `volley_memory` |
+| `activity_log_tab` | string \| null | no | `live` \| `step` \| `all` — Pipeline inline activity panel tab |
+| `activity_log_collapsed` | bool \| null | no | When `true`, collapses the Pipeline activity log panel |
 
 ### `GET /api/config` response
 
@@ -84,7 +86,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
 | `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]` (each may include `api_providers[]`), `log_tail` | **404** |
-| `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
+| `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage routing summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `shard_count`, `primary_attempt_count`, `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors[]`) from `understanding/stage_runs/` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
@@ -156,7 +158,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `until_stage` | string \| null | For batch modes (`analysis`, `flow1`, `flow2`, `flow3`, `flow1_until_preview`, `flow1_polish`): stop after this stage id (inclusive). Journey hints may set this (e.g. `transcript_review_build` for analysis-until-G0). |
 | `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
 
-**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `idle`. Additional job fields: `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`.
+**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `interrupted`, `idle`. Additional job fields: `current_stage`, `stage_index`, `stage_total`, `stages_planned` (batch progress), `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`. On **`GET /api/runs/{run_id}`**, when `job.status === "error"`, the response includes `job.last_error` with `message`, `stage`, and optional `traceback_excerpt`.
 
 Stage `status` in **`GET /api/runs/{run_id}`** may be `awaiting_write_approval` when `.pending_writes/<stage_id>/` has unapproved files.
 

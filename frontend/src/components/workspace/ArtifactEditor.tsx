@@ -12,7 +12,7 @@ function artifactPaths(stage: StageInfo): string[] {
 }
 
 export function ArtifactEditor() {
-  const { run, selectedStage, refreshRun, showToast, confirm } = useApp();
+  const { run, selectedStage, refreshRun, showToast, confirm, appendClientLog } = useApp();
   const [paths, setPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [editorValue, setEditorValue] = useState("");
@@ -120,6 +120,7 @@ export function ArtifactEditor() {
         });
       }
       showToast("Saved");
+      appendClientLog(`Saved artifact ${selectedPath}`, "success");
       await refreshRun();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Save failed");

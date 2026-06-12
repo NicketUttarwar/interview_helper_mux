@@ -30,6 +30,9 @@ export function HandoffPanel() {
           Acknowledge &amp; continue
         </button>
       </div>
+      <p className="hint sm">
+        Or use <strong>Acknowledge &amp; continue</strong> in the live status bar when a handoff is pending.
+      </p>
       <ul className="handoff-list">
         {paths.map((p) => (
           <li key={p} className="handoff-item">

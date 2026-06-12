@@ -32,8 +32,8 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
   },
   {
     id: "complete",
-    label: "Complete",
-    tooltip: "Record missing voice lines and confirm your output choice.",
+    label: "Record & choose",
+    tooltip: "Record missing voice lines and confirm your output choice (G1/G2).",
     subTab: "stage",
   },
   {

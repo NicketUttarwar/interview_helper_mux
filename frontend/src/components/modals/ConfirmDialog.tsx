@@ -1,7 +1,18 @@
+import { useEffect } from "react";
 import { useApp } from "../../context/AppContext";
 
 export function ConfirmDialog() {
   const { confirmMessage, resolveConfirm } = useApp();
+
+  useEffect(() => {
+    if (!confirmMessage) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") resolveConfirm(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmMessage, resolveConfirm]);
+
   if (!confirmMessage) return null;
 
   return (

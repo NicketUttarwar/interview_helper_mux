@@ -73,6 +73,22 @@ export function useOperatorCommand(
       job?.mode ||
       "pipeline";
 
+    if (job?.status === "interrupted") {
+      return {
+        kind: "error",
+        statusLine: job.message || "Run interrupted — re-run the last step.",
+        primaryLabel: "View logs",
+        primaryDisabled: false,
+        secondaryLabel: run?.journey?.execute_hint?.label || null,
+        onPrimary: onGoLogs,
+        onSecondary:
+          run?.journey?.execute_hint && hintToExecuteBody(run.journey.execute_hint)
+            ? () => onExecute(hintToExecuteBody(run.journey!.execute_hint!)!)
+            : null,
+        handoffStage: null,
+      };
+    }
+
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
       return {
         kind: "running",

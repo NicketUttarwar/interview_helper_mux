@@ -3,7 +3,7 @@ export const PHASE_LABELS: Record<string, string> = {
   start: "Start",
   prepare: "Prepare",
   understand: "Analyze",
-  complete: "Complete",
+  complete: "Record & choose",
   create: "Build",
   polish: "Sound",
   ship: "Export",

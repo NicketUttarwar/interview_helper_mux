@@ -85,6 +85,9 @@ export function ApplyEditsPanel({
   return (
     <div className={`apply-edits-panel${sticky ? " apply-edits-sticky" : ""}`}>
       <p>Timeline edits detected — apply to rebuild selection, EDL, and assembly preview.</p>
+      {applying || jobRunning ? (
+        <p className="hint">Applying — watch progress in the live status bar and Pipeline activity log.</p>
+      ) : null}
 
       <div className="apply-edits-diff">
         <span>{diff.excludedCount} excluded</span>

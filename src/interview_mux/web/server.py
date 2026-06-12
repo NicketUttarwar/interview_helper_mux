@@ -45,6 +45,7 @@ from interview_mux.api_providers import list_providers, all_provider_grants
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents, save_persisted_consent
 from interview_mux.gui_session import (
     VALID_ACTIVE_TABS,
+    VALID_ACTIVITY_LOG_TABS,
     VALID_PIPELINE_SUB_TABS,
     active_run_id,
     assert_session_allows_run_switch,
@@ -176,6 +177,8 @@ class ActiveBody(BaseModel):
     selected_stage_id: str | None = None
     active_tab: str | None = None
     pipeline_sub_tab: str | None = None
+    activity_log_tab: str | None = None
+    activity_log_collapsed: bool | None = None
 
 
 class NleBody(BaseModel):
@@ -384,6 +387,8 @@ def create_app() -> FastAPI:
             raise HTTPException(400, f"Invalid active_tab: {updates['active_tab']}")
         if "pipeline_sub_tab" in updates and updates["pipeline_sub_tab"] not in VALID_PIPELINE_SUB_TABS:
             raise HTTPException(400, f"Invalid pipeline_sub_tab: {updates['pipeline_sub_tab']}")
+        if "activity_log_tab" in updates and updates["activity_log_tab"] not in VALID_ACTIVITY_LOG_TABS:
+            raise HTTPException(400, f"Invalid activity_log_tab: {updates['activity_log_tab']}")
         try:
             assert_session_allows_run_switch(run_id)
         except ValueError as exc:
@@ -459,6 +464,9 @@ def create_app() -> FastAPI:
                     log_entries = read_log(ctx.run_dir, tail=1)
                     if log_entries:
                         r["last_log"] = log_entries[-1]
+                    job = runner.get_job(r["run_id"])
+                    if job.get("status"):
+                        r["job_status"] = job.get("status")
                 except Exception:
                     r["progress"] = {"done": 0, "total": 0}
         return {"runs": runs}
@@ -548,6 +556,16 @@ def create_app() -> FastAPI:
         )
         handoff_ack = meta.get("handoff_ack") or {}
         job = runner.get_job(run_id)
+        if job.get("status") == "error":
+            tb = job.get("traceback") or ""
+            job = {
+                **job,
+                "last_error": {
+                    "message": job.get("message") or job.get("error") or "Job failed",
+                    "stage": job.get("stage") or job.get("current_stage"),
+                    "traceback_excerpt": str(tb)[:2000] if tb else None,
+                },
+            }
         journey = build_journey_snapshot(ctx, job=job, stages=stages)
         intent = get_flow_intent(ctx)
         display_flow = flow or intent
@@ -577,9 +595,21 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/runs/{run_id}/log")
-    def get_log(run_id: str, tail: int = 200) -> dict[str, Any]:
+    def get_log(
+        run_id: str,
+        tail: int = 200,
+        stage: str | None = None,
+        since_ts: str | None = None,
+    ) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        return {"entries": read_log(ctx.run_dir, tail=tail)}
+        return {
+            "entries": read_log(
+                ctx.run_dir,
+                tail=tail,
+                stage=stage or None,
+                since_ts=since_ts or None,
+            )
+        }
 
     @app.post("/api/runs/{run_id}/log")
     def post_log(run_id: str, body: LogBody) -> dict[str, Any]:

@@ -10,7 +10,7 @@ const TABS: { id: AppTab; label: string }[] = [
 ];
 
 export function AppTabs() {
-  const { activeTab, setActiveTab, pendingActionCount, logEntries, sessionReady } = useApp();
+  const { activeTab, setActiveTab, logEntries, sessionReady } = useApp();
   const errorCount = useMemo(
     () => logEntries.filter((e) => e.level === "error").length,
     [logEntries],
@@ -35,9 +35,6 @@ export function AppTabs() {
           onClick={() => setActiveTab(tab.id)}
         >
           {tab.label}
-          {tab.id === "pipeline" && pendingActionCount > 0 ? (
-            <span className="app-tab-badge">{pendingActionCount}</span>
-          ) : null}
           {tab.id === "logs" && unseenErrors > 0 ? (
             <span className="app-tab-badge app-tab-badge-error" title="Errors in log">
               {unseenErrors}

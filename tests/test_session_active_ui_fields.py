@@ -55,3 +55,32 @@ def test_merge_partial_ui_update_preserves_run_id(tmp_path, monkeypatch) -> None
     body = res.json()
     assert body["run_id"] == run_id
     assert body["selected_stage_id"] == "ingest"
+
+
+def test_activity_log_tab_and_collapsed_round_trip(tmp_path, monkeypatch) -> None:
+    client, run_id = _client_with_run(tmp_path, monkeypatch)
+    res = client.put(
+        "/api/session/active",
+        json={
+            "run_id": run_id,
+            "activity_log_tab": "step",
+            "activity_log_collapsed": True,
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["activity_log_tab"] == "step"
+    assert body["activity_log_collapsed"] is True
+
+    session = client.get("/api/session").json()
+    assert session["active"]["activity_log_tab"] == "step"
+    assert session["active"]["activity_log_collapsed"] is True
+
+
+def test_invalid_activity_log_tab_rejected(tmp_path, monkeypatch) -> None:
+    client, run_id = _client_with_run(tmp_path, monkeypatch)
+    res = client.put(
+        "/api/session/active",
+        json={"run_id": run_id, "activity_log_tab": "invalid"},
+    )
+    assert res.status_code == 400

@@ -182,9 +182,12 @@ export function VolleyMemoryPanel() {
       {error ? <p className="error-text">{error}</p> : null}
       {loading && !data ? <p className="hint">Loading…</p> : null}
 
+      <p className="hint sm volley-scroll-hint">Scroll horizontally on narrow screens to see all columns.</p>
+
       <table className="volley-table">
         <thead>
           <tr>
+            <th aria-label="Expand" />
             <th>Kind</th>
             <th>Source</th>
             <th>Status</th>
@@ -199,6 +202,9 @@ export function VolleyMemoryPanel() {
                 className={expandedId === entry.entry_id ? "expanded" : ""}
                 onClick={() => openEntry(entry)}
               >
+                <td className="volley-expand-cell" aria-hidden>
+                  {expandedId === entry.entry_id ? "▼" : "▶"}
+                </td>
                 <td>{entry.kind}</td>
                 <td>{entry.source?.stage_key ?? "—"}</td>
                 <td>{entry.status}</td>
@@ -207,7 +213,7 @@ export function VolleyMemoryPanel() {
               </tr>
               {expandedId === entry.entry_id ? (
                 <tr key={`${entry.entry_id}-edit`}>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <textarea
                       className="volley-editor"
                       rows={6}

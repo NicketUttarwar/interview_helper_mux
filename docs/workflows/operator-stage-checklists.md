@@ -10,7 +10,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
-**Operator status and logs (policy):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — all operator-visible output goes to `gui_log.jsonl` and/or `gui_job.json` via `RunContext.log()`; do not duplicate that policy here.
+**Operator status and logs (policy):** `.cursor/rules/interview-helper-mux.mdc` → **Centralized operator status and logs** — all operator-visible output goes to `gui_log.jsonl` and/or `gui_job.json` via `RunContext.log()`; do not duplicate that policy here. In the GUI, use the **Pipeline activity panel** (Live / This step / All) for per-step filtering; the **Logs** tab remains the full archive.
 
 **Long interviews / caps:** [long-interview-chunking.md](./long-interview-chunking.md).
 

@@ -1,7 +1,20 @@
 import { useApp } from "../../context/AppContext";
 
-export function QcSummaryCard({ qcKey }: { qcKey: string }) {
-  const { run, setActiveTab } = useApp();
+export function QcSummaryCard({
+  qcKey,
+  stageId,
+}: {
+  qcKey: string;
+  stageId?: string;
+}) {
+  const {
+    run,
+    setActiveTab,
+    setPipelineSubTab,
+    setActivityLogTab,
+    selectStage,
+    redoFromStage,
+  } = useApp();
   const summary = run?.meta?.qc_summaries?.[qcKey];
   if (!summary) return null;
 
@@ -11,6 +24,17 @@ export function QcSummaryCard({ qcKey }: { qcKey: string }) {
     show_description_qc: "Show description QC",
   };
   const label = labels[qcKey] || qcKey;
+
+  const openActivity = () => {
+    setActiveTab("pipeline");
+    setPipelineSubTab("stage");
+    setActivityLogTab("live");
+  };
+
+  const redoStep = async () => {
+    if (stageId) await selectStage(stageId);
+    await redoFromStage();
+  };
 
   return (
     <div className={`qc-summary-card ${summary.passed ? "qc-pass" : "qc-fail"}`}>
@@ -28,18 +52,23 @@ export function QcSummaryCard({ qcKey }: { qcKey: string }) {
       ) : null}
       {!summary.passed ? (
         <p className="hint">
-          Fix issues in the Logs tab, edit artifacts in Files if needed, then use{" "}
-          <strong>Redo from this step</strong> below and re-run.
+          Fix issues in the activity log or Files tab, then redo from this step and re-run.
         </p>
       ) : null}
       {!summary.passed ? (
-        <button
-          type="button"
-          className="btn ghost sm"
-          onClick={() => setActiveTab("logs")}
-        >
-          View Logs
-        </button>
+        <div className="stage-audio-actions flow-choice">
+          <button type="button" className="btn ghost sm" onClick={openActivity}>
+            View activity
+          </button>
+          <button type="button" className="btn ghost sm" onClick={() => setActiveTab("logs")}>
+            View Logs
+          </button>
+          {stageId ? (
+            <button type="button" className="btn primary sm" onClick={() => void redoStep()}>
+              Redo from this step
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

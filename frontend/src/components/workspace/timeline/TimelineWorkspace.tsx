@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "../../../context/AppContext";
 import { useTimelineEditor } from "../../../hooks/useTimelineEditor";
 import { formatMs } from "../../../utils";
@@ -19,6 +19,9 @@ import { TranscriptStrip } from "./TranscriptStrip";
 
 export function TimelineWorkspace() {
   const { setPipelineSubTab } = useApp();
+  const [hintDismissed, setHintDismissed] = useState(
+    () => sessionStorage.getItem("timeline_desktop_hint_dismissed") === "1",
+  );
   const editor = useTimelineEditor();
   const {
     run,
@@ -259,6 +262,24 @@ export function TimelineWorkspace() {
 
   return (
     <div className="panel nle-panel timeline-workspace">
+      {!hintDismissed ? (
+        <div className="timeline-desktop-hint banner panel-inset">
+          <p className="hint">
+            Timeline editing is desktop-oriented — use a wide screen, mouse for trim handles, and
+            toolbar shortcuts.
+          </p>
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() => {
+              sessionStorage.setItem("timeline_desktop_hint_dismissed", "1");
+              setHintDismissed(true);
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       <div className="panel-head">
         <h3>Non-linear editor</h3>
         <TimelineToolbar

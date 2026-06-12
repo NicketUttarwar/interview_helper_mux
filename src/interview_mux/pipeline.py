@@ -337,7 +337,21 @@ def run_analysis(
 
     from interview_mux.artifact_completeness import should_run_stage_for_artifact
 
-    for name, fn in list(stages.items())[start_idx:]:
+    stage_items = list(stages.items())[start_idx:]
+    planned: list[str] = []
+    for name, _fn in stage_items:
+        if ctx.is_done(name) and from_stage != name:
+            if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
+                planned.append(name)
+            else:
+                continue
+        else:
+            planned.append(name)
+        if until_stage and name == until_stage:
+            break
+
+    total = len(planned) or 1
+    for idx, (name, fn) in enumerate(stage_items, start=1):
         if ctx.is_done(name) and from_stage != name:
             if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
                 ctx.log(
@@ -349,6 +363,19 @@ def run_analysis(
                 continue
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
+        try:
+            plan_idx = planned.index(name) + 1 if name in planned else idx
+        except ValueError:
+            plan_idx = idx
+        from interview_mux.web.job_progress import notify_stage_start
+
+        notify_stage_start(
+            ctx.run_id,
+            name,
+            index=plan_idx,
+            total=total,
+            stages_planned=planned,
+        )
         if name in ALL_LLM_STAGES:
             from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
 
@@ -519,7 +546,21 @@ def _run_steps(
             raise ValueError(f"Unknown from_stage: {from_stage}")
         start = names.index(from_stage)
     flow_llm_runners = llm_stage_runners(ctx)
-    for name, fn in steps[start:]:
+    slice_steps = steps[start:]
+    planned: list[str] = []
+    for name, _fn in slice_steps:
+        if ctx.is_done(name) and from_stage != name:
+            if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
+                planned.append(name)
+            else:
+                continue
+        else:
+            planned.append(name)
+        if until_stage and name == until_stage:
+            break
+    total = len(planned) or 1
+    plan_idx = 0
+    for name, fn in slice_steps:
         if ctx.is_done(name) and from_stage != name:
             if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
                 ctx.log(
@@ -531,6 +572,17 @@ def _run_steps(
                 continue
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
+        if name in planned:
+            plan_idx = planned.index(name) + 1
+        from interview_mux.web.job_progress import notify_stage_start
+
+        notify_stage_start(
+            ctx.run_id,
+            name,
+            index=plan_idx or 1,
+            total=total,
+            stages_planned=planned,
+        )
         if preclean_hook is not None:
             preclean_hook(name)
         if name in ALL_LLM_STAGES:

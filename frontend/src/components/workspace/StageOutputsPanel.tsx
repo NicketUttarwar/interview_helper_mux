@@ -45,7 +45,7 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
   if (!rows.length && !audioOutputs.length && !apiProviders.length) {
     return (
       <div className="stage-outputs panel nested">
-        <p className="hint">Run this stage to produce outputs. Progress appears in Logs.</p>
+        <p className="hint">Run this stage to produce outputs. Progress appears in the activity panel.</p>
       </div>
     );
   }

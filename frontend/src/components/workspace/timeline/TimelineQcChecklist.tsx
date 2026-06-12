@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { nleHasOperatorEdits } from "../../../utils";
 import type { NleState, RunData, TimelineSegment, VoLine } from "../../../types";
 import { parseSegmentIdFromQcMessage } from "../../../utils/nleHelpers";
+import { useApp } from "../../../context/AppContext";
 
 interface LiveWarning {
   message: string;
@@ -30,6 +31,7 @@ export function TimelineQcChecklist({
   onRestore,
   onOpenReview,
 }: Props) {
+  const { setActiveTab, setPipelineSubTab, setActivityLogTab } = useApp();
   const qc = run?.meta?.qc_summaries || {};
 
   const liveWarnings = useMemo((): LiveWarning[] => {
@@ -99,6 +101,20 @@ export function TimelineQcChecklist({
 
   return (
     <div className="timeline-qc-checklist">
+      <div className="timeline-qc-head">
+        <strong>Timeline QC</strong>
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => {
+            setActiveTab("pipeline");
+            setPipelineSubTab("stage");
+            setActivityLogTab("live");
+          }}
+        >
+          Activity log
+        </button>
+      </div>
       {qcBlocks.map((b) => {
         const summary = qc[b.key as keyof typeof qc] as {
           status?: string;
