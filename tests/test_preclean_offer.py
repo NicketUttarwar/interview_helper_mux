@@ -69,6 +69,8 @@ def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
     _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
     meta = ctx.read_json("run_meta.json")
     assert meta["audio_preclean"]["enabled"] is False
+    assert ctx.is_done("audio_preclean")
+    assert ctx.artifact_exists("preclean/skip.json")
     messages = [e["message"] for e in read_log(ctx.run_dir)]
     assert any("dismissed" in m and "before_ingest" in m for m in messages)
 
@@ -141,6 +143,25 @@ def test_g1_complete_stage_status_done(tmp_path) -> None:
     stages = _build_stage_list(ctx, None, [], False, True, False)
     g1 = next(s for s in stages if s["id"] == "g1_vo_pickup")
     assert g1["status"] == "done"
+
+
+def test_dismiss_unblocks_ingest_guidance(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_907")
+    init_run_meta_for_test(ctx)
+
+    _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
+
+    from interview_mux.stage_guidance import build_stage_guidance
+
+    guidance = build_stage_guidance(ctx, "ingest", status="pending")
+    prereq_todos = [p for p in guidance["prerequisites"] if p.get("status") == "todo"]
+    assert not any(p.get("stage_id") == "audio_preclean" for p in prereq_todos)
+
+    stages = _build_stage_list(ctx, None, [], False, True, False)
+    preclean = next(s for s in stages if s["id"] == "audio_preclean")
+    ingest = next(s for s in stages if s["id"] == "ingest")
+    assert preclean["status"] == "done"
+    assert ingest["status"] == "pending"
 
 
 def test_g1_pickup_preclean_accept_invalidates_vo_ingest(tmp_path, monkeypatch) -> None:

@@ -2815,6 +2815,61 @@ code {
   margin-top: 0.25rem;
 }
 
+.stage-primary-action {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border-radius: 10px;
+  border: 2px solid var(--accent);
+  background: linear-gradient(180deg, rgba(56, 120, 220, 0.14), rgba(56, 120, 220, 0.04));
+}
+
+.stage-primary-action.compact {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+}
+
+.stage-primary-action.waiting {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.stage-primary-action-eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.stage-primary-action.waiting .stage-primary-action-eyebrow {
+  color: var(--muted);
+}
+
+.stage-primary-action-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.stage-primary-btn {
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 0.65rem 1.25rem;
+}
+
+.stage-primary-action-label {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.stage-primary-action-sublabel {
+  margin: 0;
+  max-width: 42rem;
+}
+
 .phase-guidance-head {
   display: flex;
   flex-wrap: wrap;

@@ -14,6 +14,27 @@ PRECLEAN_CHECKPOINTS = frozenset(
     }
 )
 
+OPTIONAL_PIPELINE_STAGES = frozenset({"audio_preclean"})
+
+
+def preclean_checkpoint_decision(meta: dict[str, Any], checkpoint: str) -> str | None:
+    """Return the latest operator decision for a checkpoint: accept, dismiss, or None."""
+    preclean = meta.get("audio_preclean")
+    if not isinstance(preclean, dict):
+        return None
+    decisions = preclean.get("decisions")
+    if not isinstance(decisions, list):
+        return None
+    for row in reversed(decisions):
+        if not isinstance(row, dict):
+            continue
+        if row.get("checkpoint") != checkpoint:
+            continue
+        action = str(row.get("action") or "").strip()
+        if action in {"accept", "dismiss"}:
+            return action
+    return None
+
 
 def preclean_acknowledged(meta: dict[str, Any], checkpoint: str) -> bool:
     preclean = meta.get("audio_preclean")

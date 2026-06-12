@@ -22,6 +22,7 @@ export function LiveStatusBar() {
     logEntries,
     apiGrants,
     executeJob,
+    runNextStage,
     openActionModal,
     acknowledgeHandoff,
     selectStage,
@@ -44,6 +45,7 @@ export function LiveStatusBar() {
     logEntries,
     apiGrants,
     onExecute: (body) => void executeJob(body),
+    onRunNext: () => void runNextStage(),
     onOpenCheckpoint: (stageId) => {
       if (stageId) void selectStage(stageId);
       openActionModal();

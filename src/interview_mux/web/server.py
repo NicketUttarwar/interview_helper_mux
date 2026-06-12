@@ -1993,6 +1993,20 @@ def _record_preclean_offer(
         changed = True
         if action == "accept" and checkpoint == "g1_vo_pickup":
             ctx.log("g1_pickup_preclean_accepted", level="success", stage="g1_vo_pickup")
+        elif action == "dismiss":
+            from interview_mux.stages.audio_preclean import ensure_preclean_skipped
+
+            ensure_preclean_skipped(
+                ctx,
+                checkpoint=checkpoint,
+                scope=str(requested_scope),
+                reason="operator_dismissed",
+            )
+            ctx.log(
+                f"Quality offer dismissed: background noise removal ({checkpoint}, scope={requested_scope}).",
+                level="info",
+                stage="audio_preclean",
+            )
         else:
             verb = "accepted" if action == "accept" else "dismissed"
             ctx.log(

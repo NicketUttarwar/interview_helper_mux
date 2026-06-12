@@ -12,7 +12,6 @@ interface Offer {
 }
 
 export function PrecleanOfferCard({
-  stage,
   offer,
 }: {
   stage: StageInfo;
@@ -61,8 +60,9 @@ export function PrecleanOfferCard({
         await executeJob({ mode: "stage", stage: "audio_preclean" });
       } else {
         showToast("Skipped audio cleaning — continuing with original audio.");
-        if (stage.id === "audio_preclean" || offer.checkpoint === "before_ingest") {
-          await executeJob({ mode: "stage", stage: "audio_preclean" });
+        await refreshRun();
+        if (offer.checkpoint === "before_ingest") {
+          await executeJob({ mode: "stage", stage: "ingest" });
         }
       }
       await refreshRun();

@@ -27,6 +27,7 @@ def test_audio_preclean_skips_when_not_enabled(tmp_path, monkeypatch) -> None:
     out = audio_preclean.run_audio_preclean(ctx)
     assert out is None
     assert ctx.is_done("audio_preclean")
+    assert ctx.artifact_exists("preclean/skip.json")
     assert not ctx.artifact_exists("preclean/isolated.wav")
 
 

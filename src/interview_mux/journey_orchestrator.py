@@ -109,11 +109,20 @@ def _open_investigation_count(ctx: RunContext) -> int:
 
 
 def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, bool]) -> str | None:
+    from interview_mux.operator_quality import preclean_checkpoint_decision
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if phase == "prepare" and not ctx.is_done("ingest"):
+        if ctx.is_done("audio_preclean"):
+            return None
+        if preclean_checkpoint_decision(meta, "before_ingest") == "dismiss":
+            return None
         return "before_ingest"
     if phase == "complete" and not milestones.get("g1_complete"):
         g1_missing = check_g1_vo(ctx)
         if g1_missing:
+            if preclean_checkpoint_decision(meta, "g1_vo_pickup") == "dismiss":
+                return None
             return "g1_vo_pickup"
     return None
 

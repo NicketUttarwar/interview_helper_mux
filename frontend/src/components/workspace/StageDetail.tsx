@@ -140,7 +140,7 @@ export function StageDetail() {
         <span className={`stage-status-pill ${selectedStage.status}`}>{statusLabel}</span>
       </div>
 
-      <StageGuidancePanel stage={selectedStage} stepNumber={stepEntry?.number ?? null} />
+      <StageGuidancePanel stage={selectedStage} />
 
       <StageActivityStrip />
 

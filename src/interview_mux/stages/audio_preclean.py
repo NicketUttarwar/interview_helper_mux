@@ -12,28 +12,79 @@ from interview_mux.elevenlabs_rest import ElevenLabsApiError, isolate_audio
 from interview_mux.run_context import RunContext
 
 
+def write_skip_artifact(
+    ctx: RunContext,
+    *,
+    checkpoint: str,
+    scope: str,
+    reason: str = "operator_dismissed",
+) -> None:
+    """Record that optional pre-clean was skipped — no ElevenLabs outputs required."""
+    from interview_mux.file_store import write_json as fs_write_json
+
+    row: dict[str, Any] = {
+        "status": "skipped",
+        "checkpoint": checkpoint,
+        "scope": scope,
+        "reason": reason,
+        "skipped_at": datetime.now(timezone.utc).isoformat(),
+    }
+    dest = ctx.final_path("preclean/skip.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(dest, row)
+
+
+def ensure_preclean_skipped(
+    ctx: RunContext,
+    *,
+    checkpoint: str,
+    scope: str,
+    reason: str = "operator_dismissed",
+) -> None:
+    """Finalize optional pre-clean without isolation outputs so downstream stages can run."""
+    write_skip_artifact(ctx, checkpoint=checkpoint, scope=scope, reason=reason)
+    if not ctx.is_done("audio_preclean"):
+        ctx.log(
+            f"Audio pre-clean skipped ({checkpoint}, scope={scope}).",
+            level="info",
+            stage="audio_preclean",
+        )
+        ctx.mark_done("audio_preclean", force=True)
+
+
+def preclean_was_skipped(ctx: RunContext) -> bool:
+    if ctx.artifact_exists("preclean/skip.json"):
+        return True
+    if not ctx.is_done("audio_preclean"):
+        return False
+    return not ctx.artifact_exists("preclean/isolated.wav") and not ctx.path(
+        "vo_pickup", "clean"
+    ).is_dir()
+
+
 def run_audio_preclean(ctx: RunContext) -> Path | None:
     """Optionally run ElevenLabs isolation (operator must enable in run_meta)."""
     scope = _selected_scope(ctx)
     if not scope:
-        ctx.log(
-            "Audio pre-clean skipped (quality offer not accepted).",
-            level="info",
-            stage="audio_preclean",
+        checkpoint, skip_scope = _skip_context_from_meta(ctx)
+        ensure_preclean_skipped(
+            ctx,
+            checkpoint=checkpoint,
+            scope=skip_scope,
+            reason="quality_offer_not_accepted",
         )
-        ctx.mark_done("audio_preclean")
         return None
 
     if scope == "vo_pickup":
         return _run_vo_pickup_preclean(ctx)
 
     if scope not in {"full_source", "normalized_rebuild"}:
-        ctx.log(
-            f"Audio pre-clean skipped (unsupported scope: {scope}).",
-            level="info",
-            stage="audio_preclean",
+        ensure_preclean_skipped(
+            ctx,
+            checkpoint="before_ingest",
+            scope=scope,
+            reason="unsupported_scope",
         )
-        ctx.mark_done("audio_preclean")
         return None
 
     source = ctx.path("ingest", "normalized.wav") if scope == "normalized_rebuild" else ctx.input_audio()
@@ -122,12 +173,12 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
     pickup = ctx.path("vo_pickup")
     sources = sorted(p for p in pickup.glob("*.wav") if p.is_file())
     if not sources:
-        ctx.log(
-            "Audio pre-clean skipped: no vo_pickup WAV files found.",
-            level="info",
-            stage="audio_preclean",
+        ensure_preclean_skipped(
+            ctx,
+            checkpoint="g1_vo_pickup",
+            scope="vo_pickup",
+            reason="no_vo_pickup_files",
         )
-        ctx.mark_done("audio_preclean")
         return None
 
     lineage_path = ctx.path("preclean", "lineage.json")
@@ -166,6 +217,27 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
     )
     ctx.mark_done("audio_preclean")
     return None
+
+
+def _skip_context_from_meta(ctx: RunContext) -> tuple[str, str]:
+    checkpoint = "before_ingest"
+    scope = "full_source"
+    if not ctx.artifact_exists("run_meta.json"):
+        return checkpoint, scope
+    meta = ctx.read_json("run_meta.json")
+    preclean = meta.get("audio_preclean")
+    if isinstance(preclean, dict):
+        from interview_mux.operator_quality import preclean_checkpoint_decision
+
+        if preclean_checkpoint_decision(meta, "g1_vo_pickup") == "dismiss":
+            checkpoint = "g1_vo_pickup"
+            scope = "vo_pickup"
+        elif preclean_checkpoint_decision(meta, "before_ingest") == "dismiss":
+            checkpoint = "before_ingest"
+            scope = str(preclean.get("scope") or "full_source")
+        elif str(preclean.get("scope") or "").strip():
+            scope = str(preclean.get("scope") or scope)
+    return checkpoint, scope
 
 
 def _selected_scope(ctx: RunContext) -> str:

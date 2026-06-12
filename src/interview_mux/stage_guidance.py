@@ -165,6 +165,14 @@ def _artifact_checks(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     info = STAGE_BY_ID.get(stage_id)
     if not info:
         return []
+    if stage_id == "audio_preclean":
+        from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+        if preclean_was_skipped(ctx):
+            label = "Pre-clean skipped — original audio will be used"
+            if ctx.artifact_exists("preclean/skip.json"):
+                return [{"path": "preclean/skip.json", "label": label, "status": "done"}]
+            return [{"path": "(skipped)", "label": label, "status": "done"}]
     checks: list[dict[str, Any]] = []
     for path in info.artifacts:
         if not path or path.endswith("/"):
@@ -369,6 +377,16 @@ def _g0_items(transcript_review_pending: bool) -> list[dict[str, Any]]:
     ]
 
 
+def _prior_stage_satisfied(ctx: RunContext, prior: str) -> bool:
+    if ctx.is_done(prior):
+        return True
+    if prior != "audio_preclean":
+        return False
+    from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+    return preclean_was_skipped(ctx)
+
+
 def _prior_stage_items(
     ctx: RunContext,
     stage_id: str,
@@ -380,11 +398,16 @@ def _prior_stage_items(
     prior = _PRIOR_STAGE.get(stage_id)
     if not prior:
         return []
-    if ctx.is_done(prior):
+    if _prior_stage_satisfied(ctx, prior):
+        label = (
+            f"{STAGE_BY_ID[prior].title} skipped or complete"
+            if prior == "audio_preclean"
+            else f"Complete {STAGE_BY_ID[prior].title if prior in STAGE_BY_ID else prior}"
+        )
         return [
             _guidance_item(
                 f"prior_{prior}",
-                f"Complete {STAGE_BY_ID[prior].title if prior in STAGE_BY_ID else prior}",
+                label,
                 "done",
                 stage_id=prior,
             )
@@ -511,6 +534,17 @@ def _llm_upstream_prereq_items(ctx: RunContext, stage_id: str) -> list[dict[str,
             kind="run",
         )
     ]
+
+
+def _effective_stage_status(ctx: RunContext, stage_id: str, status: str) -> str:
+    if stage_id != "audio_preclean" or status != "pending":
+        return status
+    from interview_mux.operator_quality import preclean_checkpoint_decision
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if preclean_checkpoint_decision(meta, "before_ingest") == "dismiss":
+        return "done"
+    return status
 
 
 def _stage_actions(
@@ -871,7 +905,7 @@ def build_stage_guidance(
 
     actions = _stage_actions(
         stage_id,
-        status,
+        _effective_stage_status(ctx, stage_id, status),
         transcript_review_pending=tr_pending,
         prerequisites=prerequisites,
     )

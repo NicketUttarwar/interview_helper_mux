@@ -7,7 +7,8 @@ interface Props {
 }
 
 export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props) {
-  const { run, selectStage, openActionModal, setPipelineSubTab, setActiveTab } = useApp();
+  const { run, selectStage, openActionModal, setPipelineSubTab, setActiveTab, runNextStage } =
+    useApp();
 
   if (item.status !== "todo") return null;
 
@@ -32,6 +33,10 @@ export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props
         if (item.stage_id) void selectStage(item.stage_id);
         openActionModal();
         return;
+      case "run":
+        if (item.stage_id) void selectStage(item.stage_id);
+        void runNextStage();
+        return;
       case "start":
         setActiveTab("start");
         return;
@@ -42,7 +47,9 @@ export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props
   };
 
   const label =
-    item.kind === "profile"
+    item.kind === "run"
+      ? "Run now"
+      : item.kind === "profile"
       ? "Open profile"
       : item.kind === "story_board"
         ? "Open Story Board"

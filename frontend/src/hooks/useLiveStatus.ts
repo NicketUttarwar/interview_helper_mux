@@ -19,6 +19,7 @@ export function useLiveStatus(
     logEntries: LogEntry[];
     apiGrants: Record<string, boolean>;
     onExecute: Parameters<typeof useOperatorCommand>[1]["onExecute"];
+    onRunNext: () => void;
     onOpenCheckpoint: Parameters<typeof useOperatorCommand>[1]["onOpenCheckpoint"];
     onAcknowledgeHandoff: Parameters<typeof useOperatorCommand>[1]["onAcknowledgeHandoff"];
     onGoLogs: () => void;
@@ -28,7 +29,10 @@ export function useLiveStatus(
 ): LiveStatus {
   const cmd = useOperatorCommand(run, {
     jobRunning: opts.jobRunning,
+    selectedStageId: opts.selectedStageId,
+    apiGrants: opts.apiGrants,
     onExecute: opts.onExecute,
+    onRunNext: opts.onRunNext,
     onOpenCheckpoint: opts.onOpenCheckpoint,
     onAcknowledgeHandoff: opts.onAcknowledgeHandoff,
     onGoLogs: opts.onGoLogs,

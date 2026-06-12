@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import type { ExecuteBody, RunData, StageInfo } from "../types";
 import { findHandoffStage, stageTitleForId } from "../utils/checkpoint";
 import { hintToExecuteBody } from "../utils/executeHint";
+import { findNextRunnableStage } from "../utils/preclean";
+import { resolvePipelineNav } from "../utils/pipelineNavigation";
+import { resolveJobStatusContext } from "../utils/operatorStatus";
 
 export type CommandKind =
   | "idle"
@@ -28,7 +31,10 @@ export function useOperatorCommand(
   run: RunData | null,
   opts: {
     jobRunning: boolean;
+    selectedStageId?: string | null;
+    apiGrants?: Record<string, boolean>;
     onExecute: (body: ExecuteBody) => void;
+    onRunNext: () => void;
     onOpenCheckpoint: (stageId?: string) => void;
     onAcknowledgeHandoff: () => void;
     onGoLogs: () => void;
@@ -38,7 +44,10 @@ export function useOperatorCommand(
 ): OperatorCommandState {
   const {
     jobRunning,
+    selectedStageId = null,
+    apiGrants = {},
     onExecute,
+    onRunNext,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
     onGoLogs,
@@ -190,6 +199,53 @@ export function useOperatorCommand(
       };
     }
 
+    const nav = resolvePipelineNav(run, {
+      selectedStageId,
+      jobRunning,
+      apiGrants,
+    });
+    const jobCtx = resolveJobStatusContext(run, jobRunning);
+    const nextRunnable = findNextRunnableStage(run.stages);
+
+    if (nav.primaryAction === "run_next" && nextRunnable && !jobCtx.isRunning) {
+      return {
+        kind: "ready",
+        statusLine: nav.statusLine || nextAction,
+        primaryLabel: `Run ${nextRunnable.title}`,
+        primaryDisabled: false,
+        secondaryLabel: "Open checkpoint",
+        onPrimary: onRunNext,
+        onSecondary: () => onOpenCheckpoint(nextRunnable.id),
+        handoffStage: null,
+      };
+    }
+
+    if (nav.primaryAction === "handoff" && nav.handoffStage) {
+      return {
+        kind: "handoff",
+        statusLine: nav.statusLine || nextAction,
+        primaryLabel: "Acknowledge & continue",
+        primaryDisabled: false,
+        secondaryLabel: "Review outputs",
+        onPrimary: onAcknowledgeHandoff,
+        onSecondary: () => onOpenCheckpoint(nav.handoffStage!.id),
+        handoffStage: nav.handoffStage,
+      };
+    }
+
+    if (nav.primaryAction === "checkpoint" && nav.canRunNext) {
+      return {
+        kind: "blocked",
+        statusLine: nav.statusLine || nextAction,
+        primaryLabel: "Open checkpoint",
+        primaryDisabled: false,
+        secondaryLabel: "Pipeline",
+        onPrimary: () => onOpenCheckpoint(nav.focusStageId || undefined),
+        onSecondary: onGoPipeline,
+        handoffStage: null,
+      };
+    }
+
     if (nextAction) {
       return {
         kind: "ready",
@@ -216,7 +272,10 @@ export function useOperatorCommand(
   }, [
     run,
     jobRunning,
+    selectedStageId,
+    apiGrants,
     onExecute,
+    onRunNext,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
     onGoLogs,
