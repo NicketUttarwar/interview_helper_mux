@@ -10,7 +10,7 @@ const TABS: { id: AppTab; label: string }[] = [
 ];
 
 export function AppTabs() {
-  const { activeTab, setActiveTab, pendingActionCount, logEntries } = useApp();
+  const { activeTab, setActiveTab, pendingActionCount, logEntries, sessionReady } = useApp();
   const errorCount = useMemo(
     () => logEntries.filter((e) => e.level === "error").length,
     [logEntries],
@@ -31,6 +31,7 @@ export function AppTabs() {
           type="button"
           className={`app-tab${activeTab === tab.id ? " active" : ""}`}
           aria-current={activeTab === tab.id ? "page" : undefined}
+          disabled={!sessionReady && tab.id !== "logs"}
           onClick={() => setActiveTab(tab.id)}
         >
           {tab.label}

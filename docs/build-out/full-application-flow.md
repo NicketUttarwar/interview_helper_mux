@@ -71,7 +71,8 @@ flowchart TB
 | Step | Operator does | System runs | Gate / artifact |
 |------|---------------|-------------|-----------------|
 | 1 | Place one or more `.wav` files under `ASSETS/` (recommended: `ASSETS/input/`) | — | — |
-| 2 | `./scripts/run.sh` | FastAPI + static UI | `ASSETS/.gui/server_session.json` |
+| 2 | `./scripts/run.sh` | FastAPI + static UI; reconciles stale `gui_job.json` | `ASSETS/.gui/server_session.json` |
+| 2b | Browser load / refresh | `GET /api/session` → restore run, tab, stage | `ASSETS/.gui/active_execution.json` |
 | 3a | **New:** pick file in **Input audio** (home) | `POST /api/runs` → `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP/` | `run_meta.json` (`input_audio_path`, `source_audio_hash`) |
 | 3b | **Resume:** pick row in **Previous executions** | `PUT /api/session/active` | same `exec_*` folder; logs + `.stage_done` intact |
 | 4 | Optional: accept pre-clean offer | `audio_preclean` | `preclean/isolated.wav` |

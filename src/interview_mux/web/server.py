@@ -44,11 +44,14 @@ from interview_mux.stages import transcript_review
 from interview_mux.api_providers import list_providers, all_provider_grants
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents, save_persisted_consent
 from interview_mux.gui_session import (
+    VALID_ACTIVE_TABS,
+    VALID_PIPELINE_SUB_TABS,
     active_run_id,
     assert_session_allows_run_switch,
     clear_active_execution,
     get_active_execution,
     get_server_session,
+    merge_active_execution,
     set_active_execution,
     source_audio_locked_for_session,
 )
@@ -171,6 +174,8 @@ class ResetBody(BaseModel):
 class ActiveBody(BaseModel):
     run_id: str | None = None
     selected_stage_id: str | None = None
+    active_tab: str | None = None
+    pipeline_sub_tab: str | None = None
 
 
 class NleBody(BaseModel):
@@ -368,15 +373,28 @@ def create_app() -> FastAPI:
 
     @app.put("/api/session/active")
     def put_active(body: ActiveBody) -> dict[str, Any]:
-        if body.run_id:
-            try:
-                assert_session_allows_run_switch(body.run_id)
-            except ValueError as exc:
-                raise HTTPException(409, str(exc)) from exc
-            _ctx(body.run_id)
-            return set_active_execution(body.run_id, selected_stage_id=body.selected_stage_id)
-        clear_active_execution()
-        return {"ok": True, "active": None}
+        updates = body.model_dump(exclude_unset=True)
+        if "run_id" in updates and updates["run_id"] is None:
+            clear_active_execution()
+            return {"ok": True, "active": None}
+        run_id = updates.get("run_id") or active_run_id()
+        if not run_id:
+            raise HTTPException(400, "run_id required")
+        if "active_tab" in updates and updates["active_tab"] not in VALID_ACTIVE_TABS:
+            raise HTTPException(400, f"Invalid active_tab: {updates['active_tab']}")
+        if "pipeline_sub_tab" in updates and updates["pipeline_sub_tab"] not in VALID_PIPELINE_SUB_TABS:
+            raise HTTPException(400, f"Invalid pipeline_sub_tab: {updates['pipeline_sub_tab']}")
+        try:
+            assert_session_allows_run_switch(run_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        _ctx(run_id)
+        if updates.get("run_id") and len(updates) == 1:
+            return set_active_execution(run_id)
+        try:
+            return merge_active_execution(updates if "run_id" in updates else {**updates, "run_id": run_id})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.delete("/api/session/active")
     def delete_active() -> dict[str, Any]:
@@ -1284,7 +1302,11 @@ def create_app() -> FastAPI:
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
         _ctx(run_id)
         if runner.is_running(run_id):
-            raise HTTPException(409, "A job is already running for this run.")
+            raise HTTPException(
+                409,
+                "A job is already running for this run. Watch Logs for progress, "
+                "or refresh the page if the server restarted.",
+            )
         set_active_execution(run_id)
         flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
         return runner.start(

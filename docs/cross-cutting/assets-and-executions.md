@@ -36,7 +36,7 @@ ASSETS/
       …
     exec_002_…/
   .gui/
-    active_execution.json           # last opened run id (+ optional UI focus)
+    active_execution.json           # active run + UI chrome (stage, tab, sub-tab)
     server_session.json             # serve process metadata (pid, port)
 ```
 
@@ -115,7 +115,7 @@ Relaunching the app must be sufficient to resume without re-copying audio or re-
 | Operator visibility | `gui_log.jsonl`, `gui_job.json` |
 | Pipeline artifacts | `ingest/`, `transcript/`, `understanding/`, `segments/`, `flow_*`, `vo_pickup/`, … |
 | Gates | Transcript review queue, gap report, profile JSON (see [operator-gates.md](../workflows/operator-gates.md)) |
-| Optional UI focus | `ASSETS/.gui/active_execution.json` — restored on `GET /api/session` when valid; **Clear session** in the GUI removes this file via `DELETE /api/session/active` |
+| UI session pointer | `ASSETS/.gui/active_execution.json` — fields: `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `source_locked`, `input_audio_path`, `updated_at`. Restored on `GET /api/session` and browser refresh; survives `./scripts/run.sh` restart (default). **Clear session** removes via `DELETE /api/session/active`. Fresh launch: `MUX_FRESH_SESSION=1 ./scripts/run.sh`. |
 
 Deleting an `exec_*` folder is the only supported way to discard a run; there is no separate database.
 

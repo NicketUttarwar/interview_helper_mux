@@ -14,7 +14,10 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | Listen button does nothing | No global `.audio-player` in Stage view | Gate panel inline audio | Use **Listen** again (inline player); check Logs if play fails |
 | Record pickup fails silently | Mic permission denied | Browser site settings | Allow microphone; toast should appear on deny |
 | Clear session but Executions still highlights run | Expected — list is historical | `ASSETS/.gui/active_execution.json` | **Clear session** clears server active pointer; use **Resume server session** on empty Pipeline if needed |
-| Job already running toast | Concurrent `POST …/execute` | `gui_job.json` `status: running` | Wait for job poll; open **Logs** |
+| Resume / Run step does nothing | Half-loaded session or stale `jobRunning` | Browser console; `active_execution.json` | Use **Retry load** on Pipeline/Start; refresh page; restart `./scripts/run.sh` reconciles stale jobs |
+| Wrong tab after refresh | UI chrome not persisted (fixed in current GUI) | `active_execution.json` `active_tab` | Should restore tab/sub-tab; **Clear session** if stuck |
+| Stale `gui_job.json` after server restart | Disk still `running` but thread gone | `gui_job.json` → `interrupted` on serve | Re-run stage; **Run step** should enable after refresh |
+| Job already running toast | Concurrent `POST …/execute` or in-process lock | `gui_job.json`; server lock | Wait for job poll; refresh after restart; open **Logs** |
 | Stuck on **Reuse or run fresh** | `needs_stage_reuse` without decision | `gui_job.json`, action modal | Open **Action** → **Reuse outputs** or **Run fresh instead** |
 | Stuck on **Review before save** | Staged outputs awaiting approve | `.pending_writes/<stage>/`, `gui_job.status: awaiting_write_approval` | Open action modal → preview files → **Save & continue** or **Discard & re-run** |
 | Reuse offer missing | No prior run with same hash + completed stage | `run_meta.source_audio_hash`, prior `.stage_done/` | Complete stage on prior exec first; legacy runs may need same `input_audio_path` |

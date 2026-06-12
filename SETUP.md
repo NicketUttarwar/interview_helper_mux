@@ -310,7 +310,7 @@ interview-mux serve
 | Option / env | Effect |
 |--------------|--------|
 | `--port` / `--host` / `--no-browser` | Passed through to `interview-mux serve` |
-| `MUX_FRESH_SESSION=0` | Keep `ASSETS/.gui/active_execution.json` and related session files across restarts (default `1` clears them) |
+| `MUX_FRESH_SESSION=1` | Clear `ASSETS/.gui/active_execution.json` and related session files on launch (default `0` keeps them for auto-restore) |
 | `./scripts/run.sh --cli …` | Headless: `python -m interview_mux …` without starting the web server |
 
 Default URL: `http://127.0.0.1:8765` (`web_port` in config).

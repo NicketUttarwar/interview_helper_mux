@@ -36,10 +36,51 @@ export function StartTab() {
     run,
     runId,
     setActiveTab,
+    sessionLoadError,
+    retryOpenRun,
+    clearSession,
+    openRunLoading,
+    sessionReady,
   } = useApp();
   const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
   const intentEnabled = config?.journey_ui?.intent_at_start !== false;
-  const sessionLocked = Boolean(runId && run);
+  const sessionLocked = Boolean(runId);
+
+  if (runId && !run) {
+    return (
+      <main className="view tab-view">
+        <section className="panel hero hero-compact">
+          <h2>Session recovery</h2>
+          <p className="hint">
+            The active execution could not be loaded. Retry or clear the session to start over.
+          </p>
+          {sessionLoadError ? (
+            <p className="hint" role="alert">
+              {sessionLoadError}
+            </p>
+          ) : null}
+          <div className="flow-choice">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={!sessionReady || openRunLoading}
+              onClick={() => void retryOpenRun()}
+            >
+              {openRunLoading ? "Loading…" : "Retry load"}
+            </button>
+            <button
+              type="button"
+              className="btn danger ghost"
+              disabled={!sessionReady}
+              onClick={() => void clearSession()}
+            >
+              Clear session
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (sessionLocked && run) {
     const sourcePath = run.meta?.input_audio_path || "Unknown source";

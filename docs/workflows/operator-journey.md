@@ -12,9 +12,11 @@ The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` �
 
 1. Place audio under `ASSETS/input/` (or anywhere under `ASSETS/` except `executions/`).
 2. `./scripts/bootstrap_venv.sh` and `config/secrets/secrets.env` — see [SETUP.md](../../SETUP.md).
-3. `./scripts/run.sh` → **Start** tab.
+3. `./scripts/run.sh` → **Start** tab (or auto-restore last run if one was active).
 
 Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
+
+**Session restore:** Browser refresh and `./scripts/run.sh` restart (default) reload `active_execution.json` — same run, tab, and stage. Use **Menu → Clear session** only when starting over. Opt-in fresh pointer: `MUX_FRESH_SESSION=1 ./scripts/run.sh`.
 
 **Same interview, new execution:** Starting a second run on the same WAV gets the same `source_audio_hash`. The **Executions** tab shows **Same audio** on matching runs. At each stage you can **Reuse outputs** from a prior execution instead of re-running expensive steps — [stage-execution-reuse.md](./stage-execution-reuse.md).
 

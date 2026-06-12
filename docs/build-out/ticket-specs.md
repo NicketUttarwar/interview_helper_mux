@@ -106,7 +106,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-057 — GUI session / active run
 
 - [x] `GET /api/session` returns active run id
-- [x] Active run persisted under `ASSETS/.gui/active_execution.json`; survives `./scripts/run.sh` restart when execution folder intact
+- [x] Active run + UI chrome (`active_tab`, `pipeline_sub_tab`, `selected_stage_id`) persisted under `ASSETS/.gui/active_execution.json`; survives browser refresh and `./scripts/run.sh` restart (default `MUX_FRESH_SESSION=0`)
 
 ---
 

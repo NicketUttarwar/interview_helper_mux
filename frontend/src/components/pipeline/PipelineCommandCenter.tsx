@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
+import { isJobActivelyRunning } from "../../utils/jobStatus";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
 import { firstTodoItem } from "../../utils/stageGuidance";
@@ -28,6 +29,8 @@ export function PipelineCommandCenter() {
 
   if (!run) return null;
 
+  const jobActive = isJobActivelyRunning(run.job) || jobRunning;
+
   const onPrimary = () => {
     if (nav.primaryAction === "handoff") {
       void acknowledgeHandoff();
@@ -50,7 +53,7 @@ export function PipelineCommandCenter() {
       : nav.primaryAction === "checkpoint"
         ? "Open checkpoint"
         : nav.primaryAction === "run_next"
-          ? jobRunning
+          ? jobActive
             ? "Running…"
             : `Run step ${nav.nextNumber ?? ""}`.trim()
           : null;
@@ -96,7 +99,7 @@ export function PipelineCommandCenter() {
               type="button"
               className="btn primary"
               data-testid="pipeline-primary-action"
-              disabled={!nav.canRunNext || jobRunning}
+              disabled={!nav.canRunNext || jobActive}
               onClick={onPrimary}
             >
               {primaryLabel}

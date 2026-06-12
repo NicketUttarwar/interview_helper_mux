@@ -29,22 +29,37 @@ export function PipelineTab() {
     setActiveTab,
     serverActiveRunId,
     openRun,
+    openRunLoading,
+    sessionLoadError,
+    retryOpenRun,
+    sessionReady,
   } = useApp();
 
   if (!runId || !run) {
+    const resumeId = runId || serverActiveRunId;
     return (
       <main className="view tab-view pipeline-empty">
         <section className="panel panel-compact">
           <h2>No active run</h2>
           <p className="hint">Start from the Start tab or resume a previous execution.</p>
+          {sessionLoadError ? (
+            <p className="hint pipeline-load-error" role="alert">
+              {sessionLoadError}
+            </p>
+          ) : null}
           <div className="flow-choice">
-            {serverActiveRunId ? (
+            {resumeId ? (
               <button
                 type="button"
                 className="btn primary"
-                onClick={() => void openRun(serverActiveRunId)}
+                disabled={!sessionReady || openRunLoading}
+                onClick={() => void (runId ? retryOpenRun() : openRun(resumeId))}
               >
-                Resume session
+                {openRunLoading
+                  ? "Loading…"
+                  : runId
+                    ? "Retry load"
+                    : "Resume server session"}
               </button>
             ) : null}
             <button type="button" className="btn primary" onClick={() => setActiveTab("start")}>

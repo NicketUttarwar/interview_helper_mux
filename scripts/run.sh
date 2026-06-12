@@ -104,7 +104,9 @@ PY
 fi
 
 _CURRENT_STEP="gui_session_reset"
-if [[ "${MUX_FRESH_SESSION:-1}" == "1" ]]; then
+# Default 0: keep ASSETS/.gui/active_execution.json across ./scripts/run.sh restarts.
+# Opt-in fresh pointer: MUX_FRESH_SESSION=1 ./scripts/run.sh
+if [[ "${MUX_FRESH_SESSION:-0}" == "1" ]]; then
   GUI_DIR="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config, repo_root
 cfg = merged_config()

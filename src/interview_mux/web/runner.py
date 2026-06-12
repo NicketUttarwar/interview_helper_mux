@@ -69,18 +69,22 @@ class JobRunner:
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         ctx.write_json("gui_job.json", payload)
 
+    def lock_held(self, run_id: str) -> bool:
+        """True when an in-process background job holds the run lock."""
+        lock = self._lock_for(run_id)
+        if lock.acquire(blocking=False):
+            lock.release()
+            return False
+        return True
+
     def get_job(self, run_id: str) -> dict[str, Any]:
-        ctx = RunContext(run_id, create=False)
-        p = ctx.path("gui_job.json")
-        if not p.is_file():
-            return {"status": "idle", "run_id": run_id}
-        data = ctx.read_json("gui_job.json")
-        data["run_id"] = run_id
-        return data
+        from interview_mux.gui_job_reconcile import reconcile_job_if_stale
+
+        return reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
 
     def is_running(self, run_id: str) -> bool:
-        status = self.get_job(run_id).get("status")
-        return status in ("running", "running_with_warnings")
+        """True only when this process is executing a background job for the run."""
+        return self.lock_held(run_id)
 
     @contextmanager
     def run_guard(self, run_id: str) -> Iterator[None]:

@@ -65,13 +65,15 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 1 | Wrong/empty modal on Logs tab | Always `selectStage(findPendingFocusStage)` when modal opens |
 | 2 | Clear session left server active run | `DELETE /api/session/active` + local clear |
 | 3 | Profile lock hint only | CTAs: Open Story Board / Open profile; profile gate **locked** until understanding analysis completes |
-| 4 | Status banner unused | Mounted in `AppShell` below command bar |
+| 4 | Status banner unused | `WorkflowStepBar` is canonical command surface (no separate banner) |
 | 5 | Listen silent no-op | Inline `<audio>` fallback + toast |
 | 6 | Mic errors swallowed | Toast on `getUserMedia` failure |
 | 7 | Disabled Continue unclear | Per-gate hints in modal |
 | 8 | Reuse accept felt stalled | Auto `runNextStage` after accept |
 | 9 | flow_intent vs G2 confusing | **Use planned choice** at G2 |
 | 10–20 | Medium/low polish | Reuse config flag, value-features API, QC hints, Pipeline resume, 409 handling, docs — see [gui-surface-map.md](./gui-surface-map.md) |
+| 21 | Resume / refresh silent failures | `openRun` error toasts, `sessionReady` gate, stale job reconcile, UI chrome in `active_execution.json` |
+| 22 | Half-loaded session stuck | Start/Pipeline **Retry load** + **Clear session** recovery panels |
 
 ---
 

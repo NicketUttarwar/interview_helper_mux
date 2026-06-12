@@ -28,7 +28,11 @@ source .venv/bin/activate
 2. Home → pick a file under **Input audio** (or resume **Previous executions**)
 3. Note `run_id` (e.g. `exec_001_a1b2c3d4e5f6_20260523T120000Z`) from the workspace header — includes a 12-char source-audio hash segment
 
-**Resume check:** stop the server, run `./scripts/run.sh` again, open the same execution from **Previous executions** — stage markers and `gui_log.jsonl` should still be present under `ASSETS/executions/<run_id>/`.
+**Resume check:** stop the server, run `./scripts/run.sh` again — the GUI should **auto-restore** the last active run (tab, stage, sub-tab) from `ASSETS/.gui/active_execution.json`. Stage markers and `gui_log.jsonl` remain under `ASSETS/executions/<run_id>/`.
+
+**Refresh check:** with an active run, refresh the browser — same run, Pipeline tab, stage focus, and log tail should return without clicking Resume.
+
+**Fresh launch:** `MUX_FRESH_SESSION=1 ./scripts/run.sh` clears the session pointer; resume manually from **Executions → Resume**.
 
 **Reuse check (optional):** start a second execution on the same WAV; confirm **Same audio** on Executions tab; at a pending stage, confirm **Previous execution reuse** offers the first run when that stage completed.
 

@@ -43,7 +43,7 @@ These checks do not replace sections 1–5 below (real `exec_*` + listen tests),
 | 1.2 | `./scripts/run.sh` → pick file → **New execution** | New folder `ASSETS/executions/exec_NNN_<timestamp>/` with `run_meta.json` (`input_audio_path` set) |
 | 1.3 | Run at least through `ingest` | `ingest/normalized.wav`, `gui_log.jsonl` lines via `RunContext.log()` only |
 | 1.4 | Stop server (`Ctrl+C`), `./scripts/run.sh` again | Home shows **Previous executions** |
-| 1.5 | Open same `exec_*` | Stage markers, artifacts, and log tail restore; `ASSETS/.gui/active_execution.json` matches |
+| 1.5 | Restart `./scripts/run.sh` or refresh browser | Auto-restore same `exec_*`, tab, stage; markers, artifacts, log tail intact; `active_execution.json` matches |
 
 **No `INPUT_AUDIO_PATH` required** for GUI-created runs. Headless fallback: `secrets.env` / `--run-id` per [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 

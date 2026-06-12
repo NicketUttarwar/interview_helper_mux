@@ -24,6 +24,8 @@ export function WorkflowStepBar() {
     acknowledgeHandoff,
     setActiveTab,
     setPipelineSubTab,
+    showToast,
+    sessionReady,
   } = useApp();
 
   const cmd = useOperatorCommand(run, {
@@ -59,6 +61,12 @@ export function WorkflowStepBar() {
         return;
       }
 
+      if (!run) {
+        showToast("Open an execution from the Executions tab first.");
+        setActiveTab("executions");
+        return;
+      }
+
       setActiveTab("pipeline");
       setPipelineSubTab(def.subTab);
 
@@ -76,7 +84,7 @@ export function WorkflowStepBar() {
         }
       }
     },
-    [run, setActiveTab, setPipelineSubTab, selectStage, openActionModal],
+    [run, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast],
   );
 
   const stepLabel = WORKFLOW_STEPS[activeIndex]?.label ?? "Start";
@@ -143,7 +151,7 @@ export function WorkflowStepBar() {
             type="button"
             className="btn primary sm"
             data-testid="workflow-primary"
-            disabled={cmd.primaryDisabled}
+            disabled={cmd.primaryDisabled || !sessionReady}
             onClick={cmd.onPrimary}
           >
             {cmd.primaryLabel}

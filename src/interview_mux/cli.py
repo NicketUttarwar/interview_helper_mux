@@ -277,6 +277,15 @@ def serve_cmd(
     url = f"http://{host}:{chosen_port}"
     touch_server_session(port=chosen_port, host=host)
 
+    from interview_mux.gui_job_reconcile import reconcile_stale_jobs
+
+    reconciled = reconcile_stale_jobs()
+    if reconciled:
+        console.print(
+            f"[yellow]Reconciled {reconciled} stale background job(s) "
+            f"(server restart).[/yellow]"
+        )
+
     if not no_browser:
         def _open() -> None:
             import time

@@ -17,8 +17,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Zone | Element | Behavior |
 |------|---------|----------|
 | Header | Compact status bar | Execution, job status (including **Reuse or run fresh**, **Review before save**), source file, **audio hash** chip (click-to-copy), updated |
-| Header | **Command bar** | All tabs: running / blocked / handoff / next CTA from `journey` |
-| Below command bar | **Execution status banner** | Running / API consent / blocked / last job error — complements command bar |
+| **Workflow step bar** (top) | Command bar + phase chips | Running / blocked / handoff / next CTA from `journey` on all tabs |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; overflow: revoke API, API chip status, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
@@ -35,9 +34,11 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).
 
-**API consent:** Before `POST …/execute`, GUI prompts once per provider per browser session; optional persist to `ASSETS/.gui/api_consent.json`. Backend `runner.start` rejects execute when required providers are not granted (`job.status: needs_operator`).
+**API consent:** GUI sends `api_consents` on every execute (assumes configured providers). Optional persist to `ASSETS/.gui/api_consent.json` via `POST /api/session/api-consent` for cross-relaunch convenience. Backend `runner.start` can reject execute when required providers are not granted (`job.status: needs_operator`).
 
-**Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`.
+**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, and `pipeline_sub_tab`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start.
+
+**Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`; **Retry load** when the run id is set but data failed to load.
 
 **Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
 
@@ -135,7 +136,7 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 | Health | `GET /api/health` | — | — |
 | Paths / port / feature flags | `GET /api/config` | — | `journey_ui`, `value_analysis_enabled`, `disfluency_*_enabled`, `llm_routing_stage_ids` |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
-| Set active run / stage focus | `PUT /api/session/active` `{ run_id?, selected_stage_id? }` | — | `ASSETS/.gui/active_execution.json`; null `run_id` clears |
+| Set active run / UI chrome | `PUT /api/session/active` `{ run_id?, selected_stage_id?, active_tab?, pipeline_sub_tab? }` | — | `ASSETS/.gui/active_execution.json`; partial merge; null `run_id` clears |
 | Clear active run | `DELETE /api/session/active` | — | removes active execution pointer |
 | Browse input audio | `GET /api/assets` | — | scans `ASSETS/` (skips `executions`, `.gui`) — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md) |
 | List runs | `GET /api/runs` | — | summarizes each `run_meta.json` under `executions_root` |

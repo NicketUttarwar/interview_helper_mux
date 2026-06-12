@@ -1,19 +1,24 @@
+import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
 
 export function ExecutionsTab() {
-  const { runs, runId, run, refreshHome, openRun, showToast } = useApp();
+  const { runs, runId, run, refreshHome, openRun, showToast, sessionReady, openRunLoading } =
+    useApp();
+  const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
 
   const tryOpenRun = (id: string) => {
+    if (!sessionReady || openRunLoading) return;
     if (sessionLocked && id !== runId) {
       showToast("Clear session (Menu) before opening a different execution.");
       return;
     }
-    void openRun(id);
+    setLoadingRunId(id);
+    void openRun(id).finally(() => setLoadingRunId(null));
   };
 
   return (
@@ -50,7 +55,9 @@ export function ExecutionsTab() {
                 ? `${r.progress.done}/${r.progress.total}`
                 : "";
               const isActive = r.run_id === runId;
-              const isDisabled = sessionLocked && !isActive;
+              const isDisabled =
+                !sessionReady || openRunLoading || (sessionLocked && !isActive);
+              const isLoading = loadingRunId === r.run_id;
               const lastLog = r.last_log?.message
                 ? escapeHtml(r.last_log.message).slice(0, 80)
                 : "";
@@ -106,13 +113,13 @@ export function ExecutionsTab() {
                   <button
                     type="button"
                     className="btn primary sm"
-                    disabled={isDisabled}
+                    disabled={isDisabled || isLoading}
                     onClick={(e) => {
                       e.stopPropagation();
                       tryOpenRun(r.run_id);
                     }}
                   >
-                    {isActive ? "Open" : "Resume"}
+                    {isLoading ? "Loading…" : isActive ? "Open" : "Resume"}
                   </button>
                 </div>
               );

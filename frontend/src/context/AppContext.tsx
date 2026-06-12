@@ -16,13 +16,16 @@ import type {
   ExecuteBody,
   JobState,
   LogEntry,
+  OpenRunOptions,
   PipelineSubTab,
   RunData,
   RunSummary,
+  SessionActive,
   StageInfo,
   TimelineData,
   TranscriptReviewState,
 } from "../types";
+import { isJobActivelyRunning } from "../utils/jobStatus";
 import {
   actionSummaryText,
   countPendingActions,
@@ -62,6 +65,9 @@ interface AppContextValue {
   confirmMessage: string | null;
   menuOpen: boolean;
   serverActiveRunId: string | null;
+  sessionReady: boolean;
+  sessionLoadError: string | null;
+  openRunLoading: boolean;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
   openArtifactInEditor: (path: string) => void;
@@ -73,7 +79,8 @@ interface AppContextValue {
   clearSession: () => Promise<void>;
   refreshHome: () => Promise<void>;
   startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
-  openRun: (runId: string, opts?: { quiet?: boolean }) => Promise<void>;
+  openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
+  retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
   executeJob: (body: ExecuteBody) => Promise<void>;
@@ -144,11 +151,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [serverActiveRunId, setServerActiveRunId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
+  const [openRunLoading, setOpenRunLoading] = useState(false);
   const [shownPrecleanOffers, setShownPrecleanOffers] = useState<Set<string>>(
     () => new Set(),
   );
 
   const logCountRef = useRef(0);
+  const bootGenRef = useRef(0);
+  const persistUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  const selectedStageIdRef = useRef<string | null>(null);
+  const activeTabRef = useRef<AppTab>("start");
+  const pipelineSubTabRef = useRef<PipelineSubTab>("stage");
   const lastNotifiedTsRef = useRef<string | null>(null);
   const lastActionRequiredIdRef = useRef<string | null>(null);
   const jobStatusPrevRef = useRef<string | null>(null);
@@ -178,14 +194,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, mergedApiGrants],
   );
 
-  const setActiveTab = useCallback((tab: AppTab) => {
-    setActiveTabState(tab);
+  useEffect(() => {
+    runIdRef.current = runId;
+  }, [runId]);
+  useEffect(() => {
+    selectedStageIdRef.current = selectedStageId;
+  }, [selectedStageId]);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  useEffect(() => {
+    pipelineSubTabRef.current = pipelineSubTab;
+  }, [pipelineSubTab]);
+
+  const persistSessionUi = useCallback(() => {
+    const rid = runIdRef.current;
+    if (!rid) return;
+    if (persistUiTimerRef.current) clearTimeout(persistUiTimerRef.current);
+    persistUiTimerRef.current = setTimeout(() => {
+      void api("/api/session/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: rid,
+          selected_stage_id: selectedStageIdRef.current,
+          active_tab: activeTabRef.current,
+          pipeline_sub_tab: pipelineSubTabRef.current,
+        }),
+      }).catch(() => {});
+    }, 200);
   }, []);
 
-  const openArtifactInEditor = useCallback((path: string) => {
-    setPipelineSubTab("files");
-    window.dispatchEvent(new CustomEvent("handoff-open", { detail: { path } }));
-  }, []);
+  const setActiveTab = useCallback(
+    (tab: AppTab) => {
+      setActiveTabState(tab);
+      activeTabRef.current = tab;
+      persistSessionUi();
+    },
+    [persistSessionUi],
+  );
+
+  const setPipelineSubTabWrapped = useCallback(
+    (tab: PipelineSubTab) => {
+      setPipelineSubTab(tab);
+      pipelineSubTabRef.current = tab;
+      persistSessionUi();
+    },
+    [persistSessionUi],
+  );
+
+  const openArtifactInEditor = useCallback(
+    (path: string) => {
+      setPipelineSubTabWrapped("files");
+      window.dispatchEvent(new CustomEvent("handoff-open", { detail: { path } }));
+    },
+    [setPipelineSubTabWrapped],
+  );
 
   const closeActionModal = useCallback(() => {
     userDismissedActionRef.current = true;
@@ -282,15 +346,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectStage = useCallback(
     async (stageId: string) => {
       setSelectedStageId(stageId);
-      if (runId) {
-        await api("/api/session/active", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ run_id: runId, selected_stage_id: stageId }),
-        }).catch(() => {});
-      }
+      selectedStageIdRef.current = stageId;
+      persistSessionUi();
     },
-    [runId],
+    [persistSessionUi],
   );
 
   const focusPendingStage = useCallback(async () => {
@@ -305,25 +364,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void focusPendingStage();
   }, [focusPendingStage]);
 
+  const syncJobRunning = useCallback(async (rid: string) => {
+    try {
+      const job = await api<JobState>(`/api/runs/${rid}/job`);
+      const active = isJobActivelyRunning(job);
+      setJobRunning(active);
+      return job;
+    } catch {
+      setJobRunning(false);
+      return null;
+    }
+  }, []);
+
   const startJobPoll = useCallback(() => {
     stopJobPoll();
     if (!runId) return;
-    setJobRunning(true);
-    jobPollRef.current = setInterval(async () => {
-      const job = await api<JobState>(`/api/runs/${runId}/job`);
-      if (job.status !== "running" && job.status !== "running_with_warnings") {
-        await refreshRun();
-        stopJobPoll();
-        if (job.status === "awaiting_write_approval" || job.awaiting_write_approval) {
-          if (!userDismissedActionRef.current) {
-            openActionModal();
-            playAttentionPing(alertsMuted);
+    void (async () => {
+      const job = await syncJobRunning(runId);
+      if (!isJobActivelyRunning(job)) return;
+      setJobRunning(true);
+      jobPollRef.current = setInterval(async () => {
+        try {
+          const polled = await api<JobState>(`/api/runs/${runId}/job`);
+          if (!isJobActivelyRunning(polled)) {
+            await refreshRun();
+            stopJobPoll();
+            if (
+              polled.status === "awaiting_write_approval" ||
+              polled.awaiting_write_approval
+            ) {
+              if (!userDismissedActionRef.current) {
+                openActionModal();
+                playAttentionPing(alertsMuted);
+              }
+            }
           }
+          await pollLog();
+        } catch {
+          stopJobPoll();
         }
-      }
-      await pollLog();
-    }, 1200);
-  }, [runId, refreshRun, stopJobPoll, pollLog, openActionModal, alertsMuted]);
+      }, 1200);
+    })();
+  }, [
+    runId,
+    refreshRun,
+    stopJobPoll,
+    pollLog,
+    openActionModal,
+    alertsMuted,
+    syncJobRunning,
+  ]);
 
   const executeJob = useCallback(
     async (body: ExecuteBody) => {
@@ -373,8 +463,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         startJobPoll();
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          showToast("A job is already running — watch Logs for progress.");
-          startJobPoll();
+          showToast(
+            e.message ||
+              "A job is already running — watch Logs for progress, or refresh after a server restart.",
+          );
+          const job = runId ? await syncJobRunning(runId) : null;
+          if (isJobActivelyRunning(job)) startJobPoll();
+          else await refreshRun();
           return;
         }
         showToast(e instanceof Error ? e.message : "Failed to start job");
@@ -389,45 +484,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startJobPoll,
       selectStage,
       openActionModal,
+      syncJobRunning,
     ],
   );
 
   const openRun = useCallback(
-    async (id: string, opts: { quiet?: boolean; force?: boolean } = {}) => {
+    async (id: string, opts: OpenRunOptions = {}) => {
+      if (!sessionReady && opts.quiet) {
+        /* boot path sets sessionReady after */
+      } else if (!sessionReady) {
+        showToast("Session is still loading — try again in a moment.");
+        return;
+      }
       if (runId && id !== runId && !opts.force) {
         showToast("This session is locked to one source. Clear session to open another run.");
         return;
       }
+      const stageId = opts.selectedStageId ?? selectedStageIdRef.current;
+      const tab = opts.activeTab ?? "pipeline";
+      const subTab = opts.pipelineSubTab ?? "stage";
+      setOpenRunLoading(true);
+      setSessionLoadError(null);
       setRunId(id);
-      setActiveTabState("pipeline");
-      setPipelineSubTab("stage");
+      setActiveTabState(tab);
+      activeTabRef.current = tab;
+      setPipelineSubTab(subTab);
+      pipelineSubTabRef.current = subTab;
       userDismissedActionRef.current = false;
-      await api("/api/session/active", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: id, selected_stage_id: selectedStageId }),
-      });
-      const runData = await api<RunData>(`/api/runs/${id}`);
-      setRun(runData);
-      setShownPrecleanOffers(
-        new Set(runData.meta?.audio_preclean?.offered_at || []),
-      );
-      const tl = await api<TimelineData>(`/api/runs/${id}/timeline`).catch(
-        () => null,
-      );
-      setTimeline(tl);
-      renderLogWithAlerts(runData.log_tail || []);
-      if (!selectedStageId && runData.stages.length) {
-        const active = findActiveStage(runData.stages);
-        await selectStage(active?.id || runData.stages[0].id);
-      } else if (selectedStageId) {
-        await selectStage(selectedStageId);
+      try {
+        await api("/api/session/active", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            run_id: id,
+            selected_stage_id: stageId,
+            active_tab: tab,
+            pipeline_sub_tab: subTab,
+          }),
+        });
+        const runData = await api<RunData>(`/api/runs/${id}`);
+        setRun(runData);
+        setShownPrecleanOffers(
+          new Set(runData.meta?.audio_preclean?.offered_at || []),
+        );
+        const tl = await api<TimelineData>(`/api/runs/${id}/timeline`).catch(
+          () => null,
+        );
+        setTimeline(tl);
+        renderLogWithAlerts(runData.log_tail || []);
+        const resolvedStage =
+          stageId ||
+          findActiveStage(runData.stages)?.id ||
+          runData.stages[0]?.id ||
+          null;
+        if (resolvedStage) {
+          setSelectedStageId(resolvedStage);
+          selectedStageIdRef.current = resolvedStage;
+          persistSessionUi();
+        }
+        if (!opts.quiet) {
+          await appendClientLogInternal(id, `Opened execution ${id}`, "info");
+        }
+        const job = await syncJobRunning(id);
+        if (isJobActivelyRunning(job)) startJobPoll();
+        else setJobRunning(false);
+        setServerActiveRunId(id);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Failed to open execution";
+        setSessionLoadError(msg);
+        setRun(null);
+        showToast(msg);
+        throw e;
+      } finally {
+        setOpenRunLoading(false);
       }
-      if (!opts.quiet) appendClientLogInternal(id, `Opened execution ${id}`, "info");
-      startJobPoll();
     },
-    [selectedStageId, renderLogWithAlerts, selectStage, startJobPoll, runId, showToast],
+    [
+      renderLogWithAlerts,
+      startJobPoll,
+      runId,
+      showToast,
+      sessionReady,
+      persistSessionUi,
+      syncJobRunning,
+    ],
   );
+
+  const retryOpenRun = useCallback(async () => {
+    const id = runId || serverActiveRunId;
+    if (!id) return;
+    await openRun(id, { quiet: true, force: true });
+  }, [runId, serverActiveRunId, openRun]);
 
   const appendClientLogInternal = async (
     rid: string | null,
@@ -457,6 +604,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const startRun = useCallback(
     async (inputPath: string, flowIntent?: string) => {
+      if (!sessionReady) {
+        showToast("Session is still loading — try again in a moment.");
+        return;
+      }
       if (runId) {
         showToast("Source audio is locked for this session. Clear session to start over.");
         setActiveTabState("pipeline");
@@ -476,10 +627,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(e instanceof Error ? e.message : "Failed to start run");
       }
     },
-    [appendClientLog, openRun, showToast, runId],
+    [appendClientLog, openRun, showToast, runId, sessionReady],
   );
 
   const clearSession = useCallback(async () => {
+    if (!sessionReady) return;
     stopJobPoll();
     try {
       await api("/api/session/active", { method: "DELETE" });
@@ -491,27 +643,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     }
     setRunId(null);
+    runIdRef.current = null;
     setRun(null);
     setTimeline(null);
     setSelectedStageId(null);
+    selectedStageIdRef.current = null;
     setServerActiveRunId(null);
+    setSessionLoadError(null);
     setActionModalOpen(false);
     setActiveTabState("start");
+    activeTabRef.current = "start";
     await refreshHome();
-  }, [stopJobPoll, refreshHome]);
+  }, [stopJobPoll, refreshHome, sessionReady]);
 
   const acknowledgeHandoff = useCallback(async () => {
     if (!runId) return;
     const stageId =
       (run ? findHandoffStage(run)?.id : null) || selectedStageId || null;
     if (!stageId) return;
-    await api(`/api/runs/${runId}/handoff-ack`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage_id: stageId }),
-    });
-    showToast("Handoff acknowledged.");
-    await refreshRun();
+    try {
+      await api(`/api/runs/${runId}/handoff-ack`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: stageId }),
+      });
+      showToast("Handoff acknowledged.");
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Handoff acknowledgment failed");
+    }
   }, [selectedStageId, runId, run, showToast, refreshRun]);
 
   const runNextStage = useCallback(async () => {
@@ -602,24 +762,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [runId]);
 
   useEffect(() => {
+    const gen = ++bootGenRef.current;
     void (async () => {
-      const cfg = await api<AppConfig>("/api/config");
-      setConfig(cfg);
-      const session = await api<{
-        server?: { started_at?: string };
-        active?: { run_id?: string; selected_stage_id?: string };
-        log?: LogEntry[];
-      }>("/api/session");
-      const startedAt = session.server?.started_at;
-      if (startedAt && localStorage.getItem(GUI_SERVER_STARTED_AT_KEY) !== startedAt) {
-        localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
-      }
-      setServerActiveRunId(session.active?.run_id ?? null);
-      await refreshHome();
-      if (session.log?.length) renderLogWithAlerts(session.log);
-      if (session.active?.run_id) {
-        setSelectedStageId(session.active.selected_stage_id || null);
-        await openRun(session.active.run_id, { quiet: true });
+      try {
+        const cfg = await api<AppConfig>("/api/config");
+        if (gen !== bootGenRef.current) return;
+        setConfig(cfg);
+        const session = await api<{
+          server?: { started_at?: string };
+          active?: SessionActive | null;
+          log?: LogEntry[];
+        }>("/api/session");
+        if (gen !== bootGenRef.current) return;
+        const startedAt = session.server?.started_at;
+        const prevStarted = localStorage.getItem(GUI_SERVER_STARTED_AT_KEY);
+        const serverRestarted = Boolean(startedAt && prevStarted && startedAt !== prevStarted);
+        if (startedAt) localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
+        setServerActiveRunId(session.active?.run_id ?? null);
+        await refreshHome();
+        if (gen !== bootGenRef.current) return;
+        if (session.log?.length) renderLogWithAlerts(session.log);
+        const active = session.active;
+        if (active?.run_id) {
+          const stageId = active.selected_stage_id ?? null;
+          selectedStageIdRef.current = stageId;
+          setSelectedStageId(stageId);
+          await openRun(active.run_id, {
+            quiet: true,
+            selectedStageId: stageId,
+            activeTab: active.active_tab ?? "pipeline",
+            pipelineSubTab: active.pipeline_sub_tab ?? "stage",
+          });
+          if (gen !== bootGenRef.current) return;
+          if (serverRestarted && runIdRef.current) {
+            const rid = runIdRef.current;
+            await syncJobRunning(rid);
+            const runData = await api<RunData>(`/api/runs/${rid}`);
+            setRun(runData);
+            renderLogWithAlerts(runData.log_tail || []);
+          }
+        }
+      } catch (e) {
+        if (gen !== bootGenRef.current) return;
+        const msg = e instanceof Error ? e.message : "Failed to load session";
+        setSessionLoadError(msg);
+        showToast(msg);
+      } finally {
+        if (gen === bootGenRef.current) setSessionReady(true);
       }
     })();
     logPollRef.current = setInterval(() => {
@@ -684,8 +873,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     confirmMessage,
     menuOpen,
     serverActiveRunId,
+    sessionReady,
+    sessionLoadError,
+    openRunLoading,
     setActiveTab,
-    setPipelineSubTab,
+    setPipelineSubTab: setPipelineSubTabWrapped,
     openArtifactInEditor,
     setSelectedAsset,
     setMenuOpen,
@@ -696,6 +888,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshHome,
     startRun,
     openRun,
+    retryOpenRun,
     refreshRun,
     selectStage,
     executeJob,

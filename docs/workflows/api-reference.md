@@ -37,8 +37,8 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/config` | — | — | Paths + feature flags — see **`GET /api/config` response** below | — |
 | `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
 | `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
-| `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
-| `PUT` | `/api/session/active` | — | **ActiveBody** | Result of `set_active_execution`, or `{ok, active: null}` when `run_id` omitted/null | **404** if `run_id` set but not found |
+| `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`, `active_tab`, `pipeline_sub_tab`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
+| `PUT` | `/api/session/active` | — | **ActiveBody** | Merged `active_execution.json` payload, or `{ok, active: null}` when `run_id` null | **400** invalid tab; **409** source lock |
 | `DELETE` | `/api/session/active` | — | — | `{ok: true, active: null}` — clears active execution | — |
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
@@ -55,10 +55,14 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 ### `ActiveBody`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `run_id` | string \| null | no — omit or null to clear active execution |
-| `selected_stage_id` | string \| null | no |
+Partial updates merge into the existing active session (unset fields are preserved). Send `run_id: null` to clear.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|--------|
+| `run_id` | string \| null | no | Omit to update UI fields only; null clears active execution |
+| `selected_stage_id` | string \| null | no | Pipeline stage focus |
+| `active_tab` | string \| null | no | `start` \| `executions` \| `pipeline` \| `logs` |
+| `pipeline_sub_tab` | string \| null | no | `stage` \| `story` \| `timeline` \| `profile` \| `files` \| `llm_calls` \| `volley_memory` |
 
 ### `GET /api/config` response
 

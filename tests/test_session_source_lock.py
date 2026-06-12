@@ -44,3 +44,39 @@ def test_reset_new_input_rejected_when_source_locked(tmp_path, monkeypatch) -> N
     assert res.status_code == 409
     assert "locked" in res.json()["detail"].lower()
     clear_active_execution()
+
+
+def test_ui_fields_do_not_weaken_source_lock(tmp_path, monkeypatch) -> None:
+    from interview_mux.run_context import RunContext
+
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    assets = tmp_path / "ASSETS" / "input"
+    assets.mkdir(parents=True)
+    wav = assets / "interview.wav"
+    wav.write_bytes(b"RIFF")
+    ctx_a = RunContext("exec_003_20260101T000003Z")
+    ctx_a.init_run_meta(str(wav.relative_to(tmp_path)))
+    ctx_b = RunContext("exec_004_20260101T000004Z")
+    ctx_b.init_run_meta(str(wav.relative_to(tmp_path)))
+
+    client = TestClient(create_app())
+    set_active_execution(
+        ctx_a.run_id,
+        source_locked=True,
+        active_tab="pipeline",
+        pipeline_sub_tab="story",
+        selected_stage_id="ingest",
+    )
+    res = client.put(
+        "/api/session/active",
+        json={
+            "run_id": ctx_b.run_id,
+            "active_tab": "executions",
+            "pipeline_sub_tab": "stage",
+        },
+    )
+    assert res.status_code == 409
+    active = client.get("/api/session").json()["active"]
+    assert active["run_id"] == ctx_a.run_id
+    assert active["active_tab"] == "pipeline"
+    clear_active_execution()

@@ -6,6 +6,15 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 
 ---
 
+## Launcher environment (not in `app.defaults.json`)
+
+| Variable | Default | Used by | If wrong |
+|----------|---------|---------|----------|
+| `MUX_FRESH_SESSION` | `0` | `./scripts/run.sh` | `1` clears `ASSETS/.gui/active_execution.json` on every launch (no auto-restore); `0` keeps session pointer for refresh and restart |
+| `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
+
+---
+
 ## Top-level
 
 | Key | Used by | If wrong |

@@ -33,7 +33,7 @@ Place source audio under `ASSETS/input/` (any `.wav`; pick from GUI **Input audi
 
 | Mode | Command |
 |------|---------|
-| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, builds React static bundle if missing, resets GUI session files (unless `MUX_FRESH_SESSION=0`), serves on `web_port` (default **8765**) |
+| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, builds React static bundle if missing, keeps GUI session pointer across restarts (use `MUX_FRESH_SESSION=1` for a fresh launch), serves on `web_port` (default **8765**) |
 | **Serve only** | `source .venv/bin/activate && python -m interview_mux serve` or `interview-mux serve` |
 | **Headless pipeline** | `./scripts/run.sh --cli` then `interview-mux` / `python -m interview_mux` with `--flow`, `--run-id`, `--analysis-only`, etc. |
 | **Stage CLIs** | `python tools/run_analysis.py --run-id <exec_*>` · `python tools/run_flow.py --flow flow1\|flow2\|flow3 --run-id <exec_*>` |

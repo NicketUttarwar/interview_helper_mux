@@ -575,6 +575,24 @@ export type PipelineSubTab =
   | "llm_calls"
   | "volley_memory";
 
+export interface SessionActive {
+  run_id?: string;
+  selected_stage_id?: string | null;
+  active_tab?: AppTab;
+  pipeline_sub_tab?: PipelineSubTab;
+  source_locked?: boolean;
+  input_audio_path?: string;
+  updated_at?: string;
+}
+
+export interface OpenRunOptions {
+  quiet?: boolean;
+  force?: boolean;
+  selectedStageId?: string | null;
+  activeTab?: AppTab;
+  pipelineSubTab?: PipelineSubTab;
+}
+
 export interface VolleyEntry {
   entry_id: string;
   kind: string;

@@ -28,7 +28,8 @@ From repo root:
 | Path | Role |
 |------|------|
 | `src/App.tsx` | Shell layout |
-| `src/context/AppContext.tsx` | Global state, polling, API consent |
+| `src/context/AppContext.tsx` | Global state, session restore (`sessionReady`), UI chrome persistence, job polling |
+| `src/utils/jobStatus.ts` | `isJobActivelyRunning()` — sync UI with server job state |
 | `src/components/guidance/` | Reuse (`StageReuseSection`, `StageReuseOfferCard`), write approval, hash badges |
 | `src/components/gates/TranscriptReviewPanel.tsx` | G0 chunk navigator + bulk edit |
 | `src/components/workspace/TranscriptDockViewer.tsx` | Synced karaoke word editor |

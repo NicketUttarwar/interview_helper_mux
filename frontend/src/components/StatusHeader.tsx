@@ -16,6 +16,7 @@ export function StatusHeader() {
     setMenuOpen,
     clearSession,
     jobRunning,
+    sessionReady,
   } = useApp();
 
   const jobLabel = useMemo(() => {
@@ -59,7 +60,9 @@ export function StatusHeader() {
           </div>
           <div className="status-cell">
             <span className="status-label">Status</span>
-            <span className={`status-value ${jobLabel.cls}`}>{jobLabel.text}</span>
+            <span className={`status-value ${sessionReady ? jobLabel.cls : "running"}`}>
+              {sessionReady ? jobLabel.text : "Loading session…"}
+            </span>
           </div>
           <div className="status-cell">
             <span className="status-label">Source</span>
@@ -116,6 +119,7 @@ export function StatusHeader() {
                   <button
                     type="button"
                     className="btn danger ghost sm block"
+                    disabled={!sessionReady}
                     onClick={() => void clearSession()}
                   >
                     Clear session
