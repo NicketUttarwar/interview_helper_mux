@@ -11,6 +11,10 @@ from interview_mux.run_context import RunContext
 
 MINIMAL_WAV_BYTES = b"RIFF" + b"\x00" * 64
 
+# Stable hash pair for reuse tests (same source audio fingerprint).
+TEST_SOURCE_AUDIO_HASH = "a" * 64
+TEST_SOURCE_AUDIO_HASH_SHORT = "a" * 12
+
 _MERGED_CONFIG_MODULES = (
     "interview_mux.config",
     "interview_mux.run_context",
@@ -89,8 +93,8 @@ def init_run_meta_for_test(
     ctx: RunContext,
     input_audio_path: str = "ASSETS/input/demo.wav",
     *,
-    source_audio_hash: str | None = None,
-    source_audio_hash_short: str | None = None,
+    source_audio_hash: str | None = TEST_SOURCE_AUDIO_HASH,
+    source_audio_hash_short: str | None = TEST_SOURCE_AUDIO_HASH_SHORT,
 ) -> None:
     """Minimal run_meta when run_dir is outside the repo tree (pytest tmp_path)."""
     now = datetime.now(timezone.utc).isoformat()

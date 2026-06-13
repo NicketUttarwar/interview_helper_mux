@@ -25,8 +25,8 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
         <div>
           <h3 className="stage-outputs-title">Previous execution reuse</h3>
           <p className="hint stage-reuse-section-lead">
-            Skip <strong>{stage.title}</strong> by copying outputs from an earlier run on the
-            same source audio WAV.
+            Reuse is offered only when a prior run used the same source audio hash and completed
+            this step with all required outputs. Otherwise run <strong>{stage.title}</strong> fresh.
           </p>
         </div>
         {activeHash ? (

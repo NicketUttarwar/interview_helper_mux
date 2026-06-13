@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from interview_mux.assets_audio import ensure_wav_asset, repo_relative_path
-from interview_mux.config import merged_config, repo_root
+from interview_mux.config import merged_config
 from interview_mux.journey_state import read_run_meta
 from interview_mux.run_context import RunContext
 from interview_mux.source_audio_hash import (
@@ -49,7 +48,7 @@ class ReuseCandidate:
     source_audio_hash_short: str | None = None
     hash_in_run_id: str | None = None
     same_source_audio: bool = False
-    match_kind: Literal["hash", "path", "wav"] | None = None
+    match_kind: Literal["hash"] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -169,6 +168,11 @@ _STAGE_REUSE_OPTIONAL: dict[str, frozenset[str]] = {
     ),
 }
 
+# Glob specs that may legitimately match zero files (stage still reusable).
+_STAGE_REUSE_OPTIONAL_GLOBS: dict[str, frozenset[str]] = {
+    "transcript_review_build": frozenset({"glob:transcript/review_clips/*.wav"}),
+}
+
 
 def stage_reuse_offers_enabled() -> bool:
     if _no_reuse_offers:
@@ -179,48 +183,20 @@ def stage_reuse_offers_enabled() -> bool:
     return bool(cfg.get("enable_stage_reuse_offers", True))
 
 
-def input_audio_path_for_run(ctx: RunContext) -> str | None:
-    path = read_run_meta(ctx).get("input_audio_path")
-    return str(path) if path else None
+def _resolved_source_audio_hash(ctx: RunContext) -> str | None:
+    """Prefer live pipeline-WAV hash; fall back to stored run_meta when disk is unavailable."""
+    return ctx.source_audio_hash(recompute=True) or ctx.source_audio_hash()
 
 
-def _canonical_wav_path_for_run(ctx: RunContext) -> Path | None:
-    raw = input_audio_path_for_run(ctx)
-    if not raw:
-        return None
-    p = Path(raw)
-    if not p.is_absolute():
-        p = repo_root() / p
-    if not p.is_file():
-        return None
-    return ensure_wav_asset(p)
-
-
-def source_audio_match_kind(
-    current: RunContext, source: RunContext
-) -> Literal["hash", "path", "wav"] | None:
-    cur_hash = current.source_audio_hash()
-    src_hash = source.source_audio_hash()
-    if cur_hash and src_hash and hashes_match(cur_hash, src_hash):
-        return "hash"
-    if cur_hash or src_hash:
-        return None
-    cur_path = input_audio_path_for_run(current)
-    src_path = input_audio_path_for_run(source)
-    if cur_path and src_path and cur_path == src_path:
-        return "path"
-    cur_wav = _canonical_wav_path_for_run(current)
-    src_wav = _canonical_wav_path_for_run(source)
-    if cur_wav and src_wav:
-        if repo_relative_path(repo_root(), cur_wav) == repo_relative_path(
-            repo_root(), src_wav
-        ):
-            return "wav"
-    return None
+def source_audio_hashes_match(current: RunContext, source: RunContext) -> bool:
+    """True when both runs have a source-audio hash and they match."""
+    cur_hash = _resolved_source_audio_hash(current)
+    src_hash = _resolved_source_audio_hash(source)
+    return bool(cur_hash and src_hash and hashes_match(cur_hash, src_hash))
 
 
 def runs_share_source_audio(current: RunContext, source: RunContext) -> bool:
-    return source_audio_match_kind(current, source) is not None
+    return source_audio_hashes_match(current, source)
 
 
 def get_reuse_decision(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
@@ -326,24 +302,21 @@ def _expand_spec_paths_fixed(spec: str, ctx: RunContext) -> list[str]:
 def prior_run_has_reusable_stage(source_ctx: RunContext, stage_id: str) -> bool:
     if not source_ctx.is_done(stage_id):
         return False
-    if stage_id == "audio_preclean":
-        return True
-    if stage_id in ("vo_ingest", "g1_vo_pickup"):
-        return source_ctx.is_done(stage_id)
     specs = stage_reuse_output_specs(stage_id)
     optional = _STAGE_REUSE_OPTIONAL.get(stage_id, frozenset())
+    optional_globs = _STAGE_REUSE_OPTIONAL_GLOBS.get(stage_id, frozenset())
     if not specs:
+        if stage_id == "vo_ingest":
+            pickup = source_ctx.path("vo_pickup")
+            return pickup.is_dir() and any(pickup.rglob("*.wav"))
         return True
     for spec in specs:
         if spec in optional:
             continue
         if spec.startswith("glob:"):
             expanded = _expand_spec_paths_fixed(spec, source_ctx)
-            if stage_id.startswith("elevenlabs_sfx"):
-                if not expanded:
-                    return False
-            elif stage_id == "transcript_review_build":
-                pass
+            if spec not in optional_globs and not expanded:
+                return False
             continue
         if spec.endswith("/"):
             expanded = _expand_spec_paths_fixed(spec, source_ctx)
@@ -391,9 +364,9 @@ def _sdp_source_conflict(ctx: RunContext, source_run_id: str, stage_id: str) -> 
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
-    if not input_audio_path_for_run(ctx) and not ctx.source_audio_hash(recompute=True):
+    current_hash = _resolved_source_audio_hash(ctx)
+    if not current_hash:
         return []
-    current_hash = ctx.source_audio_hash(recompute=True)
     candidates: list[ReuseCandidate] = []
     for run_id in RunContext.list_runs():
         if run_id == ctx.run_id:
@@ -401,7 +374,7 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
         if not RunContext.exists(run_id):
             continue
         source = RunContext(run_id, create=False)
-        if not runs_share_source_audio(ctx, source):
+        if not source_audio_hashes_match(ctx, source):
             continue
         if not prior_run_has_reusable_stage(source, stage_id):
             continue
@@ -409,23 +382,13 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
             continue
         meta = read_run_meta(source)
         paths = list_copy_paths_for_stage(source, stage_id)
-        src_hash = source.source_audio_hash() or meta.get("source_audio_hash")
+        src_hash = _resolved_source_audio_hash(source)
         src_short = (
             meta.get("source_audio_hash_short")
             or (hash_short_from_full(src_hash) if src_hash else None)
             or parse_hash_from_run_id(run_id)
         )
         hash_in_id = parse_hash_from_run_id(run_id)
-        match_kind = source_audio_match_kind(ctx, source)
-        same = bool(
-            match_kind == "hash"
-            and current_hash
-            and src_hash
-            and hashes_match(current_hash, src_hash)
-            and hash_in_id
-            and src_short
-            and hash_in_id == src_short
-        )
         candidates.append(
             ReuseCandidate(
                 run_id=run_id,
@@ -435,8 +398,8 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
                 source_audio_hash=str(src_hash) if src_hash else None,
                 source_audio_hash_short=str(src_short) if src_short else None,
                 hash_in_run_id=hash_in_id,
-                same_source_audio=same,
-                match_kind=match_kind,
+                same_source_audio=True,
+                match_kind="hash",
             )
         )
 
@@ -658,7 +621,10 @@ def resolve_before_stage_run(ctx: RunContext, stage_id: str) -> Disposition:
 
     if _auto_reuse_from:
         source = RunContext(_auto_reuse_from, create=False)
-        if prior_run_has_reusable_stage(source, stage_id):
+        if (
+            source_audio_hashes_match(ctx, source)
+            and prior_run_has_reusable_stage(source, stage_id)
+        ):
             record_reuse_decision(
                 ctx, stage_id, action="accept", source_run_id=_auto_reuse_from
             )

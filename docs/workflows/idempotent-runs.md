@@ -29,7 +29,7 @@ Legacy auto-increment `run_001`, `run_002`, … under `data/` remains for old ru
 
 ## Reuse outputs from a prior execution
 
-When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can offer to copy artifacts from another `exec_*` that shares the same `source_audio_hash` (primary) or `input_audio_path` (legacy fallback). Decisions live in `run_meta.stage_reuse`.
+When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can offer to copy artifacts from another `exec_*` that shares the same `source_audio_hash` and has complete outputs for that stage. Decisions live in `run_meta.stage_reuse`.
 
 - GUI: checkpoint modal — [stage-execution-reuse.md](./stage-execution-reuse.md)
 - CLI: `--reuse-from exec_001_…` (auto-accept) or `--no-reuse-offers` (non-TTY default)

@@ -77,13 +77,11 @@ export function StageReuseOfferCard({
           const showAll = expanded[c.run_id];
           const visiblePaths = showAll ? c.paths : c.paths.slice(0, PREVIEW_PATHS);
           const hiddenCount = Math.max(0, c.paths.length - PREVIEW_PATHS);
-          const hashMatched =
-            c.same_source_audio ||
-            Boolean(
-              currentHashShort &&
-                c.source_audio_hash_short &&
-                currentHashShort === c.source_audio_hash_short,
-            );
+          const hashMatched = Boolean(
+            currentHashShort &&
+              c.source_audio_hash_short &&
+              currentHashShort === c.source_audio_hash_short,
+          );
 
           return (
             <li key={c.run_id} className={`stage-reuse-candidate-card${hashMatched ? " matched" : ""}`}>
@@ -94,12 +92,7 @@ export function StageReuseOfferCard({
                       <span className="reuse-match-icon" aria-hidden>
                         ✓
                       </span>
-                      Same source audio as this run (hash verified)
-                    </p>
-                  ) : c.match_kind === "path" || c.match_kind === "wav" ? (
-                    <p className="hint sm reuse-weak-match">
-                      Matched by {c.match_kind === "path" ? "input path" : "canonical WAV"} only —
-                      verify before reusing
+                      Same source audio hash — outputs verified complete
                     </p>
                   ) : null}
                   <div className="stage-reuse-run-title">
@@ -169,7 +162,7 @@ export function StageReuseOfferCard({
 
       <div className="stage-reuse-footer">
         <p className="hint stage-reuse-footer-hint">
-          No match you trust? Run this step fresh to regenerate outputs for the current execution.
+          No prior run with matching hash and complete outputs? Run this step fresh.
         </p>
         <button
           type="button"

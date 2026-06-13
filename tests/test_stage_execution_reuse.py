@@ -19,7 +19,11 @@ from interview_mux.stage_execution_reuse import (
     resolve_before_stage_run,
     reuse_already_applied,
 )
-from run_fixtures import init_run_meta_for_test
+from run_fixtures import (
+    TEST_SOURCE_AUDIO_HASH,
+    TEST_SOURCE_AUDIO_HASH_SHORT,
+    init_run_meta_for_test,
+)
 
 
 def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
@@ -43,7 +47,7 @@ def _ctx_in_root(run_id: str, executions_root: Path) -> RunContext:
     return ctx
 
 
-def test_find_candidates_include_match_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_candidates_require_hash_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_executions_root(monkeypatch, tmp_path)
     prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)
     current = _ctx_in_root("exec_002_20260101T000001Z", tmp_path)
@@ -51,7 +55,40 @@ def test_find_candidates_include_match_kind(tmp_path: Path, monkeypatch: pytest.
     prior.write_json("transcript/speakers.json", {"speakers": []})
     prior.mark_done("transcribe")
     candidates = find_reuse_candidates(current, "transcribe")
-    assert candidates[0].match_kind in ("hash", "path", "wav")
+    assert len(candidates) == 1
+    assert candidates[0].match_kind == "hash"
+    assert candidates[0].same_source_audio is True
+
+
+def test_find_candidates_exclude_hash_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)
+    current = _ctx_in_root("exec_002_20260101T000001Z", tmp_path)
+    init_run_meta_for_test(
+        prior,
+        source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+        source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+    )
+    init_run_meta_for_test(
+        current,
+        source_audio_hash="b" * 64,
+        source_audio_hash_short="b" * 12,
+    )
+    prior.write_json("transcript/full.json", {"segments": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.mark_done("transcribe")
+    assert find_reuse_candidates(current, "transcribe") == []
+
+
+def test_find_candidates_exclude_incomplete_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)
+    current = _ctx_in_root("exec_002_20260101T000001Z", tmp_path)
+    prior.write_json("transcript/full.json", {"segments": []})
+    prior.mark_done("transcribe")
+    assert find_reuse_candidates(current, "transcribe") == []
 
 
 def test_find_candidates_same_input_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,7 +96,12 @@ def test_find_candidates_same_input_only(tmp_path: Path, monkeypatch: pytest.Mon
     prior = _ctx_in_root("exec_001_20260101T000000Z", tmp_path)
     current = _ctx_in_root("exec_002_20260101T000001Z", tmp_path)
     other = _ctx_in_root("exec_003_20260101T000002Z", tmp_path)
-    init_run_meta_for_test(other, input_audio_path="ASSETS/input/other.wav")
+    init_run_meta_for_test(
+        other,
+        input_audio_path="ASSETS/input/other.wav",
+        source_audio_hash="c" * 64,
+        source_audio_hash_short="c" * 12,
+    )
 
     prior.write_json("transcript/full.json", {"segments": []})
     prior.write_json("transcript/speakers.json", {"speakers": []})

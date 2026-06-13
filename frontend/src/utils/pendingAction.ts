@@ -71,7 +71,7 @@ export function resolvePendingAction(
       title: stage ? `${stage.title} — reuse prior outputs?` : "Reuse from prior run?",
       message:
         job.message ||
-        "Pick a previous execution with the same source audio, or run this step fresh.",
+        "Pick a previous execution with the same source audio hash and complete outputs, or run this step fresh.",
       primaryLabel: "Choose reuse or run fresh",
     };
   }

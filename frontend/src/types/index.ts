@@ -183,7 +183,7 @@ export interface ReuseCandidate {
   source_audio_hash_short?: string;
   hash_in_run_id?: string | null;
   same_source_audio?: boolean;
-  match_kind?: "hash" | "path" | "wav" | null;
+  match_kind?: "hash" | null;
 }
 
 export interface JobState {

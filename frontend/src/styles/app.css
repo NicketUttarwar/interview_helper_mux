@@ -2,20 +2,63 @@
   --bg: #0f1117;
   --surface: #171b24;
   --surface-2: #1e2430;
-  --border: #2a3344;
-  --text: #e8ecf4;
-  --muted: #8b95a8;
-  --accent: #5b8def;
-  --accent-hover: #7aa3f5;
-  --success: #3ecf8e;
-  --warning: #f5a623;
-  --danger: #ef6464;
+  --surface-elevated: #252d3d;
+  --border: #3a4558;
+  --border-subtle: #2f3848;
+  --text: #eef2f8;
+  --text-secondary: #c8d0dc;
+  --text-muted: #a8b4c7;
+  --muted: #a8b4c7;
+  --accent: #6b9af5;
+  --accent-hover: #8ab2f8;
+  --accent-dim: color-mix(in srgb, var(--accent) 24%, var(--surface-2));
+  --accent-subtle: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  --success: #4dd99a;
+  --warning: #f5b84a;
+  --danger: #f07070;
   --radius: 10px;
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --status-running: #6b9af5;
+  --status-gate: #f5b84a;
+  --status-error: #f07070;
+  --status-interrupted: #f5b84a;
+  --log-live-pulse: rgba(107, 154, 245, 0.45);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
 }
 
 * { box-sizing: border-box; }
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  color: var(--text);
+}
+
+button {
+  font-size: inherit;
+}
+
+select option {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.hint strong,
+.muted strong,
+.lead strong {
+  color: var(--text-secondary);
+}
 
 body {
   margin: 0;
@@ -51,9 +94,16 @@ code {
   font-weight: 600;
 }
 
+.panel h2,
+.panel h3,
+.panel h4,
+.hero h2 {
+  color: var(--text);
+}
+
 .tagline {
   margin: 0.15rem 0 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
@@ -117,7 +167,7 @@ code {
 .panel-head h3 { margin: 0; }
 
 .hint, .muted {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.875rem;
 }
 
@@ -178,12 +228,35 @@ code {
 }
 
 .btn.ghost {
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  color: var(--text-secondary);
+  border-color: var(--border);
 }
 
-.btn.danger {
+.btn.ghost:hover:not(:disabled) {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.btn.danger.ghost {
   color: var(--danger);
-  border-color: #5a3030;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.btn.danger.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+  color: #ffd4d4;
+}
+
+.btn.danger:not(.ghost) {
+  color: #ffd4d4;
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-2));
+}
+
+.btn.danger:not(.ghost):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface-2));
 }
 
 .btn.sm { padding: 0.35rem 0.65rem; font-size: 0.8rem; }
@@ -206,8 +279,14 @@ code {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.asset-item strong,
+.run-item strong {
+  color: var(--text);
 }
 
 .asset-item:hover, .run-item:hover {
@@ -217,11 +296,12 @@ code {
 .asset-item.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-subtle);
 }
 
 .asset-meta {
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .workspace-layout {
@@ -261,10 +341,19 @@ code {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 2px;
+  color: var(--text-secondary);
 }
 
-.stage-list li:hover { background: var(--surface-2); }
-.stage-list li.active { background: #243049; outline: 1px solid var(--accent); }
+.stage-list li:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.stage-list li.active {
+  background: var(--accent-subtle);
+  color: var(--text);
+  outline: 1px solid var(--accent);
+}
 
 .stage-dot {
   width: 8px;
@@ -1842,10 +1931,15 @@ code {
 .flow-choice .btn { flex: 1; }
 
 .empty-state {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.875rem;
   padding: 1rem;
   text-align: center;
+}
+
+.flow-choice .btn.ghost {
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 /* Status header */
@@ -2345,7 +2439,8 @@ code {
 
 .modal-section-link:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text);
+  background: var(--accent-subtle);
 }
 
 .stage-status-pill.awaiting_write_approval {
@@ -2855,18 +2950,20 @@ code {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
 }
 
 .pipeline-step-row:hover {
   background: var(--surface-2);
+  color: var(--text);
 }
 
 .pipeline-step-row.selected,
 .pipeline-step-row.status-current {
-  background: #243049;
+  background: var(--accent-subtle);
+  color: var(--text);
   border-color: var(--accent);
 }
 
@@ -3096,9 +3193,14 @@ code {
   margin-top: 0.5rem;
 }
 
+.pipeline-tools-tabs .btn {
+  color: var(--text-secondary);
+}
+
 .pipeline-tools-tabs .btn.active {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text);
+  background: var(--accent-subtle);
 }
 
 .stage-detail-step-num {
@@ -3184,13 +3286,6 @@ code {
 }
 
 /* Tab navigation */
-:root {
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-}
-
 .app-tabs {
   display: flex;
   gap: var(--space-1);
@@ -3207,7 +3302,7 @@ code {
   appearance: none;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-muted);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 500;
@@ -3227,9 +3322,14 @@ code {
 
 .app-tab.active {
   color: var(--text);
-  background: var(--surface-2);
+  background: var(--surface-elevated);
   border-color: var(--border);
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.app-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .app-tab-badge {
@@ -3251,7 +3351,7 @@ code {
   appearance: none;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--muted);
+  color: var(--text-muted);
   font: inherit;
   font-size: 0.8rem;
   padding: var(--space-2) var(--space-3);
@@ -3259,10 +3359,15 @@ code {
   cursor: pointer;
 }
 
+.app-subtab:hover {
+  color: var(--text);
+  background: var(--surface-elevated);
+}
+
 .app-subtab.active {
   color: var(--text);
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  background: var(--accent-subtle);
 }
 
 .app-tab-content {
@@ -4104,12 +4209,14 @@ code {
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--muted);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
 }
 
 .journey-phase-chip.active {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
   font-weight: 600;
 }
 
@@ -4158,13 +4265,32 @@ code {
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.flow-intent-card strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.flow-intent-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--surface-elevated);
 }
 
 .flow-intent-card.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-dim);
+  background: var(--accent-dim);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--text);
+}
+
+.flow-intent-card.selected strong {
+  color: #fff;
 }
 
 .deliverable-card {
@@ -4300,8 +4426,8 @@ code {
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
+  background: var(--surface-2);
+  color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
@@ -4311,17 +4437,19 @@ code {
 .workflow-step-chip:hover {
   border-color: var(--accent);
   color: var(--text);
+  background: var(--surface-elevated);
 }
 
 .workflow-step-chip.status-done {
-  opacity: 0.75;
+  opacity: 0.9;
+  color: var(--text-secondary);
 }
 
 .workflow-step-chip.status-active,
 .workflow-step-chip.current {
   background: var(--accent-dim);
   border-color: var(--accent);
-  color: var(--accent);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -4352,10 +4480,10 @@ code {
   width: 1.1rem;
   height: 1.1rem;
   padding: 0;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
+  background: var(--surface-elevated);
+  color: var(--text-muted);
   font-size: 0.75rem;
   cursor: help;
   line-height: 1;
@@ -4363,7 +4491,9 @@ code {
 
 .info-tooltip-trigger:hover,
 .info-tooltip-trigger:focus-visible {
-  color: var(--accent);
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
   outline: none;
 }
 
@@ -4525,19 +4655,20 @@ code {
   font-size: 0.78rem;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
-  background: var(--surface-elevated, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
-  color: var(--text-muted, #9aa0a6);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
 }
 
 .hash-chip-match {
-  border-color: var(--accent, #5b9fd4);
-  color: var(--accent, #5b9fd4);
+  border-color: var(--accent);
+  color: #d6e6ff;
+  background: var(--accent-subtle);
 }
 
 .reuse-hash-match-banner {
   font-size: 0.85rem;
-  color: var(--accent, #5b9fd4);
+  color: #d6e6ff;
   margin-bottom: 0.35rem;
 }
 
@@ -4680,9 +4811,9 @@ code {
   font-size: 0.72rem;
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
-  background: var(--surface-2);
+  background: var(--surface-elevated);
   border: 1px solid var(--border);
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .reuse-hash-match-banner {
@@ -4774,17 +4905,18 @@ code {
   padding: 0.45rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--surface-2);
   cursor: pointer;
   text-align: left;
   font: inherit;
-  color: inherit;
+  color: var(--text);
 }
 
 .write-approval-file-btn:hover,
 .write-approval-file-btn.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  background: var(--accent-subtle);
+  color: var(--text);
 }
 
 .write-approval-kind {
@@ -4793,8 +4925,8 @@ code {
   letter-spacing: 0.04em;
   padding: 0.05rem 0.35rem;
   border-radius: 3px;
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--surface-elevated);
+  color: var(--text-muted);
 }
 
 .write-approval-kind.kind-audio {
@@ -4937,14 +5069,6 @@ code {
 }
 
 /* --- Live status bar & activity log (UX refresh) --- */
-:root {
-  --status-running: #5b8def;
-  --status-gate: #f5a623;
-  --status-error: #ef6464;
-  --status-interrupted: #f5a623;
-  --log-live-pulse: rgba(91, 141, 239, 0.45);
-}
-
 .live-status-bar {
   position: sticky;
   top: 0;
@@ -5098,8 +5222,9 @@ code {
 }
 
 .pipeline-tool-btn.active {
-  background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+  background: var(--accent-subtle);
   border-color: var(--accent);
+  color: var(--text);
 }
 
 .activity-log-panel {
@@ -5139,16 +5264,22 @@ code {
 .activity-log-tab {
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--text);
+  color: var(--text-secondary);
   border-radius: 999px;
   padding: 0.25rem 0.65rem;
   font-size: 0.8rem;
   cursor: pointer;
 }
 
+.activity-log-tab:hover {
+  color: var(--text);
+  background: var(--surface-elevated);
+}
+
 .activity-log-tab.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, var(--surface-2));
+  background: var(--accent-subtle);
+  color: var(--text);
 }
 
 .activity-log-tab.live-stream.active .activity-live-chip {
