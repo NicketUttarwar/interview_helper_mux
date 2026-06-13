@@ -13,6 +13,7 @@ import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
 import { StageActivityStrip } from "../activity/StageActivityStrip";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
+import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
@@ -94,6 +95,8 @@ export function StageDetail() {
   const statusLabel =
     isRunningThisStage
       ? "Running"
+      : selectedStage.status === "awaiting_write_approval"
+        ? "Review before saving"
       : selectedStage.status === "done"
         ? "Done"
         : selectedStage.status === "action_required"
@@ -110,8 +113,10 @@ export function StageDetail() {
 
   const needsCheckpoint =
     selectedStage.status === "action_required" ||
+    selectedStage.status === "awaiting_write_approval" ||
     showHandoff ||
-    (run?.job?.status === "gate" && run.job.stage === selectedStage.id);
+    (run?.job?.status === "gate" && run.job.stage === selectedStage.id) ||
+    stageNeedsPendingAction(run, selectedStage.id, apiGrants);
 
   return (
     <div className="panel stage-detail">
@@ -144,12 +149,8 @@ export function StageDetail() {
 
       <StageActivityStrip />
 
-      {!actionModalOpen ? (
-        <>
-          <StageReuseSection stage={selectedStage} />
-          <WriteApprovalPanel stage={selectedStage} />
-        </>
-      ) : null}
+      {!actionModalOpen ? <StageReuseSection stage={selectedStage} /> : null}
+      {!actionModalOpen ? <WriteApprovalPanel stage={selectedStage} /> : null}
 
       {needsCheckpoint ? (
         <div className="stage-detail-checkpoint panel-inset">

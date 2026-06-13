@@ -179,7 +179,9 @@ export function stageNavStatus(
 ): "done" | "current" | "blocked" | "upcoming" {
   const { stage } = entry;
   if (stage.status === "done") return "done";
-  if (stage.status === "action_required") return "blocked";
+  if (stage.status === "action_required" || stage.status === "awaiting_write_approval") {
+    return "blocked";
+  }
   if (stage.status === "locked") return "upcoming";
   if (
     stage.id === focusStageId ||

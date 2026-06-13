@@ -16,7 +16,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | **`LiveStatusBar`** (sticky, all tabs) | Single status surface: running step N/M, phase chips, one primary CTA, error chip, batch progress bar, run meta, Menu |
+| Header | **`LiveStatusBar`** (sticky, all tabs) | Compact status surface: step headline, phase chips, one primary CTA, error chip, batch progress bar, Mute / Menu |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; **View full log**, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
@@ -28,7 +28,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
-| Modals | `OperatorActionModal` | Full-screen duplicate of blocking gate UI — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; selects blocking stage via `findPendingFocusStage`. Reuse and write-approval panels stay on `StageDetail` when modal closed. |
+| Modals | `OperatorActionModal` | Full-screen duplicate of blocking gate UI — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; **`PendingActionBanner`** (Pipeline command center + non-Pipeline tabs) and **`StageActivityStrip`** CTA surface the same pending action inline; **`ReviewPanelControls`** toggles full-screen vs inline review. Reuse and write-approval panels stay on `StageDetail` when modal closed. |
 | Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 

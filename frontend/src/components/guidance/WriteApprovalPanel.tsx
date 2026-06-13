@@ -3,6 +3,8 @@ import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
+import { resolveJobStatusContext } from "../../utils/operatorStatus";
+import { ReviewPanelControls } from "./ReviewPanelControls";
 import type { StageInfo } from "../../types";
 
 function fileKind(path: string): "audio" | "json" | "text" {
@@ -25,11 +27,22 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [editorValue, setEditorValue] = useState("");
   const [isJson, setIsJson] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
+  const jobCtx = run ? resolveJobStatusContext(run, false) : null;
+  const writePendingForStage = Boolean(
+    jobCtx?.awaitingWriteApproval &&
+      (run?.job?.pending_write_stage === stage.id ||
+        run?.job?.stage === stage.id ||
+        stage.status === "awaiting_write_approval"),
+  );
 
   const loadPaths = useCallback(async () => {
     if (!runId) return;
+    setLoading(true);
+    setLoadError(null);
     try {
       const data = await api<{ paths?: string[] }>(
         `/api/runs/${runId}/pending-writes/${stageId}`,
@@ -37,11 +50,17 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       const p = data.paths || [];
       setPaths(p);
       setSelectedPath((prev) => (prev && p.includes(prev) ? prev : p[0] || ""));
-    } catch {
+      if (!p.length && writePendingForStage) {
+        setLoadError("Staged files are not listed yet — try refresh or open full-screen review.");
+      }
+    } catch (e) {
       setPaths([]);
       setSelectedPath("");
+      setLoadError(e instanceof ApiError ? e.message : "Could not load staged files");
+    } finally {
+      setLoading(false);
     }
-  }, [runId, stageId]);
+  }, [runId, stageId, writePendingForStage]);
 
   useEffect(() => {
     void loadPaths();
@@ -140,20 +159,42 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     }
   };
 
-  if (!paths.length) return null;
+  if (!writePendingForStage && !paths.length && !loading) return null;
 
   return (
-    <section className="write-approval-panel panel-inset" aria-label="Review outputs before saving">
-      <h3 className="stage-outputs-title">Review outputs before saving</h3>
-      <p className="hint">
-        <strong>{stage.title}</strong> staged {paths.length} file{paths.length === 1 ? "" : "s"}.
-        Preview, edit if needed, then save to disk. Approve and discard events appear in the
-        activity panel for this step.
-      </p>
-      <p className="hint sm">
-        When write approval is pending, the live status bar shows the primary review action.
-      </p>
+    <section
+      id="write-approval-panel"
+      className="write-approval-panel panel-inset"
+      aria-label="Review outputs before saving"
+    >
+      <div className="write-approval-head">
+        <div>
+          <h3 className="stage-outputs-title">Review outputs before saving</h3>
+          <p className="hint">
+            <strong>{stage.title}</strong>
+            {paths.length
+              ? ` staged ${paths.length} file${paths.length === 1 ? "" : "s"}.`
+              : " is waiting for your approval before files are saved to disk."}{" "}
+            Preview, edit if needed, then save to disk.
+          </p>
+        </div>
+        <ReviewPanelControls requirePending={false} />
+      </div>
 
+      {loading ? (
+        <p className="hint empty-state">Loading staged files…</p>
+      ) : loadError ? (
+        <div className="write-approval-error">
+          <p className="hint" role="alert">
+            {loadError}
+          </p>
+          <button type="button" className="btn ghost sm" onClick={() => void loadPaths()}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {!paths.length && !loading ? null : (
       <div className="write-approval-layout">
         <ul className="write-approval-file-list">
           {paths.map((p) => {
@@ -200,12 +241,13 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           )}
         </div>
       </div>
+      )}
 
       <div className="write-approval-actions">
         <button
           type="button"
           className="btn primary"
-          disabled={submitting}
+          disabled={submitting || !paths.length}
           onClick={() => void approve()}
         >
           Save &amp; continue

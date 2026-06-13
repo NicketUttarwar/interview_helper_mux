@@ -1,8 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useLiveStatus } from "../hooks/useLiveStatus";
-import { SourceAudioHashBadge } from "./guidance/SourceAudioHashBadge";
-import { formatTs } from "../utils";
+import { resolvePendingAction } from "../utils/pendingAction";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
@@ -96,6 +95,10 @@ export function LiveStatusBar() {
   );
 
   const precleanWarnings = run?.job?.preclean_warnings;
+  const pendingAction = useMemo(
+    () => resolvePendingAction(run, apiGrants),
+    [run, apiGrants],
+  );
   const unseenErrors = useMemo(() => {
     if (live.activityKind === "error") return live.errorCount;
     return live.errorCount;
@@ -137,8 +140,9 @@ export function LiveStatusBar() {
                 type="button"
                 className="btn primary sm action-badge-btn"
                 onClick={openActionModal}
+                title={pendingAction?.message}
               >
-                Action ({pendingActionCount})
+                {pendingAction?.primaryLabel || "Action"} ({pendingActionCount})
               </button>
             ) : null}
             {live.secondaryLabel && live.onSecondary ? (
@@ -157,6 +161,47 @@ export function LiveStatusBar() {
                 {live.primaryLabel}
               </button>
             ) : null}
+            <div className="live-status-menu-actions">
+              <button
+                type="button"
+                className={`btn ghost sm${alertsMuted ? " muted-active" : ""}`}
+                onClick={() => setAlertsMuted(!alertsMuted)}
+              >
+                {alertsMuted ? "Unmute" : "Mute"}
+              </button>
+              <div className="header-menu-wrap">
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  aria-expanded={menuOpen}
+                >
+                  Menu
+                </button>
+                {menuOpen ? (
+                  <div className="header-menu panel">
+                    <button
+                      type="button"
+                      className="btn ghost sm block"
+                      onClick={() => {
+                        setActiveTab("logs");
+                        setMenuOpen(false);
+                      }}
+                    >
+                      View full log
+                    </button>
+                    <button
+                      type="button"
+                      className="btn danger ghost sm block"
+                      disabled={!sessionReady}
+                      onClick={() => void clearSession()}
+                    >
+                      Clear session
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -208,83 +253,6 @@ export function LiveStatusBar() {
               );
             })}
           </ol>
-        </div>
-
-        <div className="live-status-meta status-grid status-grid-compact">
-          <div className="status-cell">
-            <span className="status-label">Run</span>
-            <span className="status-value">
-              {run?.meta?.execution_number
-                ? `#${run.meta.execution_number}`
-                : run?.run_id || "None"}
-            </span>
-          </div>
-          <div className="status-cell">
-            <span className="status-label">Source</span>
-            <span
-              className="status-value muted source-lock-label"
-              title={run?.meta?.input_audio_path}
-            >
-              {run?.meta?.input_audio_path
-                ? `${run.meta.input_audio_path.split("/").pop()} (locked)`
-                : "—"}
-            </span>
-          </div>
-          {run?.meta?.source_audio_hash_short ? (
-            <div className="status-cell status-cell-hash">
-              <span className="status-label">Hash</span>
-              <SourceAudioHashBadge
-                hashShort={run.meta.source_audio_hash_short}
-                hashFull={run.meta.source_audio_hash}
-                label=""
-              />
-            </div>
-          ) : null}
-          <div className="status-cell">
-            <span className="status-label">Updated</span>
-            <span className="status-value muted">{formatTs(run?.meta?.updated_at)}</span>
-          </div>
-          <div className="status-cell actions">
-            <button
-              type="button"
-              className={`btn ghost sm${alertsMuted ? " muted-active" : ""}`}
-              onClick={() => setAlertsMuted(!alertsMuted)}
-            >
-              {alertsMuted ? "Unmute" : "Mute"}
-            </button>
-            <div className="header-menu-wrap">
-              <button
-                type="button"
-                className="btn ghost sm"
-                onClick={() => setMenuOpen(!menuOpen)}
-                aria-expanded={menuOpen}
-              >
-                Menu
-              </button>
-              {menuOpen ? (
-                <div className="header-menu panel">
-                  <button
-                    type="button"
-                    className="btn ghost sm block"
-                    onClick={() => {
-                      setActiveTab("logs");
-                      setMenuOpen(false);
-                    }}
-                  >
-                    View full log
-                  </button>
-                  <button
-                    type="button"
-                    className="btn danger ghost sm block"
-                    disabled={!sessionReady}
-                    onClick={() => void clearSession()}
-                  >
-                    Clear session
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
         </div>
       </div>
 

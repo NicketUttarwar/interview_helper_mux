@@ -1,6 +1,7 @@
 import type { RunData, StageInfo } from "../types";
 import { getHandoffPathsLocal } from "./checkpoint";
 import { resolveJobStatusContext } from "./operatorStatus";
+import { parseFileCountFromMessage } from "./pendingAction";
 import type { PipelineNavState } from "./pipelineNavigation";
 import { firstTodoItem, guidanceHasTodo } from "./stageGuidance";
 
@@ -67,10 +68,13 @@ export function resolveStagePrimaryAction(
       job?.stage === stage.id ||
       stage.status === "awaiting_write_approval")
   ) {
+    const fileCount = parseFileCountFromMessage(job?.message);
     return {
       kind: "checkpoint",
-      label: "Review & approve outputs",
-      sublabel: "Approve staged files before the step is saved to disk.",
+      label: fileCount
+        ? `Review ${fileCount} file${fileCount === 1 ? "" : "s"}`
+        : "Review & approve outputs",
+      sublabel: "Listen or preview staged files, then save to disk to continue.",
       disabled: false,
       targetStageId: stage.id,
     };

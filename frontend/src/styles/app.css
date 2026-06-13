@@ -2202,6 +2202,157 @@ code {
   font-weight: 500;
 }
 
+.global-pending-action-wrap {
+  padding: 0 0.75rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.pending-action-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface-2));
+}
+
+.pending-action-banner.compact {
+  margin-bottom: 0;
+  padding: 0.55rem 0.75rem;
+  gap: 0.5rem 0.75rem;
+}
+
+.pending-action-banner.kind-write_approval {
+  border-color: var(--warning);
+}
+
+.pending-action-banner.kind-gate,
+.pending-action-banner.kind-blocked {
+  border-color: var(--danger, #e57373);
+  background: color-mix(in srgb, var(--danger, #e57373) 12%, var(--surface-2));
+}
+
+.pending-action-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pending-action-copy {
+  flex: 1;
+  min-width: 200px;
+}
+
+.pending-action-title {
+  margin: 0 0 0.2rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.pending-action-message {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.pending-action-hint {
+  margin: 0.35rem 0 0;
+}
+
+.pending-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.review-panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.review-panel-status {
+  font-size: 0.82rem;
+}
+
+.write-approval-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.write-approval-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.stage-activity-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.stage-activity-cta-text {
+  margin: 0;
+  font-size: 0.88rem;
+  flex: 1;
+  min-width: 180px;
+}
+
+.modal-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.modal-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0 0.65rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.65rem;
+}
+
+.modal-section-link {
+  font-size: 0.82rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+}
+
+.modal-section-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stage-status-pill.awaiting_write_approval {
+  background: color-mix(in srgb, var(--warning) 25%, transparent);
+  color: var(--warning);
+}
+
 .checkpoint-panel {
   margin-top: 1rem;
   padding: 1rem;
@@ -4800,7 +4951,7 @@ code {
   z-index: 100;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0.75rem 1rem;
+  padding: 0.35rem 0.75rem 0.4rem;
 }
 
 .live-status-bar.kind-running {
@@ -4822,16 +4973,16 @@ code {
 
 .live-status-headline-row {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
 .live-status-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  margin-top: 0.45rem;
+  margin-top: 0;
   flex-shrink: 0;
   background: var(--muted);
 }
@@ -4848,25 +4999,36 @@ code {
 
 .live-status-headlines {
   flex: 1;
-  min-width: 200px;
+  min-width: 160px;
 }
 
 .live-status-headline {
   margin: 0;
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25;
 }
 
 .live-status-subline {
-  margin: 0.15rem 0 0;
-  font-size: 0.85rem;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
 .live-status-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.35rem;
   align-items: center;
+}
+
+.live-status-menu-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.15rem;
+  padding-left: 0.35rem;
+  border-left: 1px solid var(--border);
 }
 
 .live-status-error-chip {
@@ -4875,10 +5037,10 @@ code {
 }
 
 .live-status-progress {
-  height: 3px;
+  height: 2px;
   background: var(--surface-2);
   border-radius: 2px;
-  margin: 0.5rem 0 0.75rem;
+  margin: 0.3rem 0 0.25rem;
   overflow: hidden;
 }
 
@@ -4889,17 +5051,31 @@ code {
 }
 
 .live-status-phase-row {
-  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.live-status-phase-label {
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .live-status-chips {
-  margin-top: 0.35rem;
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
 }
 
-.live-status-meta {
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+.live-status-bar .workflow-step-chip {
+  padding: 0.12rem 0.4rem;
+  font-size: 0.68rem;
+}
+
+.live-status-bar .workflow-step-check {
+  font-size: 0.6rem;
 }
 
 .live-status-error-detail {

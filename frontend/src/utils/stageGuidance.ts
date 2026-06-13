@@ -7,7 +7,9 @@ export function guidanceHasTodo(guidance?: StageGuidance | null): boolean {
 }
 
 export function stageHasTodoActions(stage: StageInfo): boolean {
-  if (stage.status === "action_required") return true;
+  if (stage.status === "action_required" || stage.status === "awaiting_write_approval") {
+    return true;
+  }
   return guidanceHasTodo(stage.guidance);
 }
 

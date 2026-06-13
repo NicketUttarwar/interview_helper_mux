@@ -5,6 +5,8 @@ import { firstTodoItem } from "../../utils/stageGuidance";
 import { resolveStagePrimaryAction } from "../../utils/stagePrimaryAction";
 import { resolvePrecleanOffer } from "../../utils/preclean";
 import { PHASE_LABELS } from "../../constants/phases";
+import { PendingActionBanner } from "../guidance/PendingActionBanner";
+import { resolvePendingAction } from "../../utils/pendingAction";
 
 export function PipelineCommandCenter() {
   const {
@@ -51,6 +53,8 @@ export function PipelineCommandCenter() {
     });
   }, [actionStage, run, nav, jobRunning]);
 
+  const pendingAction = useMemo(() => resolvePendingAction(run, apiGrants), [run, apiGrants]);
+
   const onHeaderClick = () => {
     if (!headerAction || headerAction.disabled) return;
     switch (headerAction.kind) {
@@ -86,6 +90,7 @@ export function PipelineCommandCenter() {
 
   const showHeaderBtn =
     headerAction &&
+    !pendingAction &&
     !jobRunning &&
     (headerAction.kind === "run" ||
       headerAction.kind === "checkpoint" ||
@@ -94,6 +99,7 @@ export function PipelineCommandCenter() {
 
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
+      <PendingActionBanner />
       <div className="pipeline-command-head">
         <div>
           <p className="pipeline-command-eyebrow">

@@ -5,6 +5,7 @@ import { hintToExecuteBody } from "../utils/executeHint";
 import { findNextRunnableStage } from "../utils/preclean";
 import { resolvePipelineNav } from "../utils/pipelineNavigation";
 import { resolveJobStatusContext } from "../utils/operatorStatus";
+import { resolvePendingAction } from "../utils/pendingAction";
 
 export type CommandKind =
   | "idle"
@@ -234,10 +235,11 @@ export function useOperatorCommand(
     }
 
     if (nav.primaryAction === "checkpoint" && nav.canRunNext) {
+      const pending = resolvePendingAction(run, apiGrants);
       return {
         kind: "blocked",
         statusLine: nav.statusLine || nextAction,
-        primaryLabel: "Open checkpoint",
+        primaryLabel: pending?.primaryLabel || "Open checkpoint",
         primaryDisabled: false,
         secondaryLabel: "Pipeline",
         onPrimary: () => onOpenCheckpoint(nav.focusStageId || undefined),

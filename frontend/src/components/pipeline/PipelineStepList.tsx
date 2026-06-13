@@ -63,7 +63,9 @@ export function PipelineStepList() {
                     {entry.phaseLabel} · step {entry.number}
                     {entry.stage.status === "action_required"
                       ? " · needs you"
-                      : entry.stage.status === "locked"
+                      : entry.stage.status === "awaiting_write_approval"
+                        ? " · review"
+                        : entry.stage.status === "locked"
                         ? " · locked"
                         : entry.stage.status === "done"
                           ? " · done"

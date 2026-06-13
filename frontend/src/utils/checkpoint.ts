@@ -89,6 +89,9 @@ export function continueHintForStage(stageId: string): string {
     case "elevenlabs_sfx_flow2":
       return "Listen to outputs and pass or fail the sound check above.";
     default:
+      if (stageId === "ingest" || stageId.endsWith("_ingest")) {
+        return "Preview staged files, then Save & continue to write them to disk.";
+      }
       return "Complete the required steps above before continuing.";
   }
 }
