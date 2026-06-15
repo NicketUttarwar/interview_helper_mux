@@ -1,0 +1,28 @@
+{
+  "stage_key": "sfx_prompt_craft",
+  "severity": "low",
+  "accept_criteria": [
+    "MMAudio text-to-audio prompts with separate positive and negative fields",
+    "Prompt text maps to sound_design_plan assets with stable asset_ids",
+    "No cloud API references or video-conditioning language",
+    "Durations within role bands and MMAudio generation clamp",
+    "CFG and negative_prompt suitable for documentary speech-first mixing",
+    "Prompt language preserves sonic_context scenario posture and tag provenance alignment"
+  ],
+  "reject_patterns": [
+    "Merged-only negatives (Avoid clauses only in positive sfx_prompt)",
+    "Melody, beat, or hook language on ambient_bed roles",
+    "Prompts referencing cues absent from sound_design_plan",
+    "ElevenLabs, music_v2, or REST API references",
+    "Schema errors on required prompt craft fields",
+    "Crafted prompts drift from sonic_context scenario or use ungrounded thematic tags"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

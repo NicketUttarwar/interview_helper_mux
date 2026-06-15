@@ -32,7 +32,7 @@ cd /path/to/interview_helper_mux
 source .venv/bin/activate
 ./tools/check_prerequisites.sh
 cp config/templates/secrets.env.example config/secrets/secrets.env
-# Edit config/secrets/secrets.env — OPENAI_API_KEY, ELEVENLABS_API_KEY, AWS_*
+# Edit config/secrets/secrets.env — OPENAI_API_KEY, , AWS_*
 mkdir -p ASSETS/input
 # Place a test WAV, e.g. ASSETS/input/interview.wav
 ```
@@ -367,7 +367,7 @@ Read first:
 @docs/cross-cutting/podcast-quality-roadmap.md
 @src/interview_mux/stages/assembly_flow1.py
 
-Deliver: flow_1_master/assembly_preview.wav before ElevenLabs spend; GUI listen action; ctx.log() when ready.
+Deliver: flow_1_master/assembly_preview.wav before MMAudio SFX generation; GUI listen action; ctx.log() when ready.
 
 Update gui-surface-map, api-reference if routes added. doc-maintenance.
 
@@ -391,7 +391,7 @@ ffprobe -hide_banner "ASSETS/executions/${EXEC_ID}/flow_1_master/assembly_previe
 | # | Goal | Tickets |
 |---|------|---------|
 | ~~9~~ | ~~Sound Design Plan schema + palettes~~ — **done** | BUILD-060–061 |
-| ~~10~~ | ~~Flow 1/2 plan stages + ElevenLabs craft~~ — **done** | BUILD-062–064 |
+| ~~10~~ | ~~Flow 1/2 plan stages + MMAudio prompt craft~~ — **done** | BUILD-062–064 |
 | ~~11~~ | ~~Real mix engine (beds, stingers, ducking)~~ — **done** | BUILD-065–066 |
 | ~~12~~ | ~~Source-derived sonic profile~~ — **done** | BUILD-082 |
 
@@ -454,7 +454,7 @@ test -f "ASSETS/executions/${EXEC_ID}/understanding/sound_design_plan.json"
 
 ---
 
-### Step #10 — Flow plans + ElevenLabs craft (BUILD-062, 063, 064) — **shipped**
+### Step #10 — Flow plans + MMAudio prompt craft (BUILD-062, 063, 064) — **shipped**
 
 Use **three agent sessions** unless you explicitly want one combined PR.
 
@@ -478,15 +478,15 @@ Read: @docs/build-out/ticket-specs.md @docs/cross-cutting/sound-design.md @src/i
 **Agent prompt — BUILD-064:**
 
 ```text
-Implement BUILD-064 only — ElevenLabs prompt craft + generate (one WAV per asset_id).
+Implement BUILD-064 only — MMAudio SFX prompt craft + generate (one WAV per asset_id).
 
 Read:
 @docs/build-out/ticket-specs.md (BUILD-064)
-@docs/cross-cutting/elevenlabs-integration-guide.md
-@src/interview_mux/elevenlabs_rest.py
+@docs/cross-cutting/local-audio-stack.md
+@src/interview_mux/maudio_runner.py
 @docs/prompts/sound_design/
 
-REST via elevenlabs_rest only (no SDK). OpenAI craft → elevenlabs_prompts.json; respect duration_seconds from plan.
+REST via maudio_runner only (no SDK). OpenAI craft → sfx_prompts.json; respect duration_seconds from plan.
 ```
 
 **Verify (step #10):**
@@ -554,7 +554,7 @@ Read first:
 @docs/cross-cutting/source-derived-sonic-mix-profile.md
 @docs/build-out/stage-registry.md
 
-Deliver: understanding/source_acoustic_profile.json; consumed by sound_design_palettes (BUILD-061) and ElevenLabs craft (BUILD-064) per spec.
+Deliver: understanding/source_acoustic_profile.json; consumed by sound_design_palettes (BUILD-061) and MMAudio prompt craft (BUILD-064) per spec.
 
 Update pipeline.py, web/stages.py, prompts if new LLM stage. doc-maintenance.
 ```
@@ -635,7 +635,7 @@ python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master
 
 | # | Goal | Tickets |
 |---|------|---------|
-| ~~15~~ | ~~`audio_preclean` stage (ElevenLabs isolation)~~ — **done** | BUILD-019 |
+| ~~15~~ | ~~`audio_preclean` stage (DeepFilterNet preclean)~~ — **done** | BUILD-019 |
 | ~~16~~ | ~~GUI offers at documented checkpoints + pickup-only scope~~ — **done** | BUILD-072 |
 
 ### Step #15 — audio_preclean stage (BUILD-019) — **shipped**
@@ -643,13 +643,13 @@ python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master
 **Agent prompt:**
 
 ```text
-Implement BUILD-019 only — audio_preclean stage (ElevenLabs isolation, optional).
+Implement BUILD-019 only — audio_preclean stage (DeepFilterNet preclean, optional).
 
 Read first:
 @docs/build-out/ticket-specs.md (BUILD-019)
 @docs/pipeline/audio_preclean/README.md
-@docs/cross-cutting/elevenlabs-integration-guide.md
-@src/interview_mux/elevenlabs_rest.py
+@docs/cross-cutting/local-audio-stack.md
+@src/interview_mux/maudio_runner.py
 
 Constraints: never auto-enable pre-clean; operator must accept quality offer.
 Stage before ingest when enabled; REST only.
@@ -795,12 +795,12 @@ ls docs/pipeline/value-analysis/
 Implement G1.5 SFX prompt review panel (steps-forward #20) as part of BUILD-066 sound-design GUI wire-up.
 
 Read first:
-@docs/cross-cutting/elevenlabs-integration-guide.md
+@docs/cross-cutting/local-audio-stack.md
 @docs/build-out/ticket-specs.md (BUILD-066)
 @docs/workflows/gui-surface-map.md
 @src/interview_mux/web/static/
 
-Deliver: operator can review/edit ElevenLabs prompts before generation; outcomes via ctx.log(); api-reference + gui-surface-map updated.
+Deliver: operator can review/edit MMAudio prompts before generation; outcomes via ctx.log(); api-reference + gui-surface-map updated.
 
 Depends on BUILD-064/066 foundation — if missing, implement minimal review UI stub with clear log messages.
 ```
@@ -810,7 +810,7 @@ Depends on BUILD-064/066 foundation — if missing, implement minimal review UI 
 ```bash
 source .venv/bin/activate
 ./scripts/run.sh
-# Manual: open SFX review panel before elevenlabs generate; approve → generation runs
+# Manual: open SFX review panel before mmaudio_sfx_flow; approve → generation runs
 grep -i "G1.5\|sfx.*review\|prompt review" docs/workflows/gui-surface-map.md
 ```
 

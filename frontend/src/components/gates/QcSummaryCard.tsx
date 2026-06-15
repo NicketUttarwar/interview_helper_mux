@@ -22,6 +22,7 @@ export function QcSummaryCard({
     narrative_qc: "Flow 1 narrative QC",
     edl_narrative_qc: "Flow 1 EDL narrative QC",
     show_description_qc: "Show description QC",
+    mix_intelligibility: "Mix intelligibility QC",
   };
   const label = labels[qcKey] || qcKey;
 

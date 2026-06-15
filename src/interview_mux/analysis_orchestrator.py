@@ -36,7 +36,7 @@ FLOW_LLM_STAGES = frozenset(
         "transitions",
         "sound_design_plan_flow1",
         "sound_design_plan_flow2",
-        "elevenlabs_prompt_craft",
+        "sfx_prompt_craft",
         "edl_narrative_audit",
         "highlight_selection",
         "podcast_show_description",

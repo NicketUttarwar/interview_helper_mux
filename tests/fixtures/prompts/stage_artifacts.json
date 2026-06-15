@@ -236,13 +236,24 @@
       }
     }
   },
-  "elevenlabs_prompt_craft": {
+  "sfx_prompt_craft": {
     "prompts": [
       {
         "asset_id": "chapter_stinger_warm",
-        "elevenlabs_prompt": "Create a warm, minimal chapter stinger with no vocals.",
+        "sfx_prompt": "Create a warm, minimal chapter stinger with no vocals.",
         "duration_seconds": 1.6,
         "negative_prompt": "No voices, no speech, no crowd noises."
+      }
+    ]
+  },
+  "sfx_prompt_refine": {
+    "prompts": [
+      {
+        "asset_id": "chapter_stinger_warm",
+        "sfx_prompt": "Revised warm minimal chapter stinger, documentary mix role, no vocals.",
+        "duration_seconds": 1.6,
+        "negative_prompt": "no vocals, no speech, no lyrics, no humming, no drum loop",
+        "regression_notes": "Strengthened negative after listen fail"
       }
     ]
   },

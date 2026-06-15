@@ -11,7 +11,20 @@
       "properties": {
         "sonic_identity": { "type": "string" },
         "primary_mood": { "type": "string" },
-        "density": { "type": "string" }
+        "density": { "type": "string" },
+        "scenario_bucket": {
+          "type": "string",
+          "description": "Atlas bucket from sonic_context (e.g. panel, fireside)."
+        },
+        "tag_lineage": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "tag_id values from sonic_context used when planning palettes."
+        },
+        "sonic_context_hash": {
+          "type": "string",
+          "description": "Hash of understanding/sonic_context.json at palette/plan time."
+        }
       },
       "additionalProperties": true
     },
@@ -35,7 +48,16 @@
           "segment_ids": { "type": "array", "items": { "type": "string" } },
           "ambient_description": { "type": "string" },
           "accent_description": { "type": "string" },
-          "avoid": { "type": "array", "items": { "type": "string" } }
+          "avoid": { "type": "array", "items": { "type": "string" } },
+          "tag_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "References tag_registry[].tag_id in sonic_context."
+          },
+          "sonic_bucket": {
+            "type": "string",
+            "enum": ["ambient_territory", "accent_texture", "transition_family"]
+          }
         },
         "additionalProperties": true
       }
@@ -51,7 +73,24 @@
           "palette_id": { "type": "string" },
           "description": { "type": "string" },
           "duration_seconds": { "type": "number", "minimum": 0.1 },
-          "reuse_note": { "type": "string" }
+          "reuse_note": { "type": "string" },
+          "generation_notes": {
+            "type": "string",
+            "description": "Optional MMAudio hints: loop seam, trim tail ms, intended CFG band, ducking"
+          },
+          "tag_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "scenario_constraints": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "cue_opportunity_refs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Opaque refs to sonic_context cue_opportunities (kind+segment_id or rank pair)."
+          }
         },
         "additionalProperties": true
       }

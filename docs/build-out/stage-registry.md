@@ -26,7 +26,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Shared analysis
 
-**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `speaker_roles` → ...
+**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `speaker_roles` → ... → `content_brief_reanchor` → `sonic_context_build` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -40,6 +40,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `boundary_detection` | shipped | `segmentation.py` | BUILD-024 | `segments/boundaries.json` | `segmentation/boundary-detection` |
 | `segment_classification` | shipped | `segmentation.py` | BUILD-024 | `segments/manifest.json` | `segmentation/segment-classification` |
 | `content_brief_reanchor` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` (patch) | `understanding/content-brief-reanchor` |
+| `sonic_context_build` | shipped | `stages/sonic_context_stages.py` | BUILD-SFX-01 | `understanding/sonic_context.json` | deterministic build from brief/profile/segments |
 | `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` |
 | `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
 | `vo_ingest` | shipped (on-demand) | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline; **not in `ANALYSIS_ORDER`** — triggered by next batch execute after G1 or `mode: stage` | — |
@@ -66,7 +67,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Flow 1 — full master podcast
 
-**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_narrative_audit` → `edl_flow1` → `assembly_preview` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow1` → `mix_flow1` → `master_flow1`
+**Default order (`FLOW1_ORDER` in `pipeline.py`):** `topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_narrative_audit` → `edl_flow1` → `assembly_preview` → `sfx_prompt_craft` → `mmaudio_sfx_flow1` → `mix_flow1` → `master_flow1`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -79,8 +80,9 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `edl_narrative_audit` | shipped | `edl_narrative_audit.py` | EDL narrative QC | `flow_1_master/edl_narrative_audit.json` | `selection/edl-narrative-audit` |
 | `edl_flow1` | shipped | `assembly_flow1.py` | BUILD-035, **067** | `flow_1_master/edl.json` — speech + `vo_pickup` + transition events | — |
 | `assembly_preview` | shipped | `assembly_flow1.py` | BUILD-069 | `flow_1_master/assembly_preview.wav` (speech + VO, no SFX) | — |
-| `elevenlabs_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/elevenlabs_prompts.json` | craft per `asset_id` |
-| `elevenlabs_sfx_flow1` | shipped | `sfx_elevenlabs.py` | BUILD-034, **064** | `sound_design/assets/*.wav` (+ legacy `flow_1_master/sfx/`) | REST generate |
+| `sfx_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/sfx_prompts.json` | craft per `asset_id` |
+| `sfx_prompt_refine` | shipped (optional) | `sound_design_stages.py` | MMAudio stack | updated `sfx_prompts.json` | `sound_design/sfx-prompt-refine` — **not in default FLOW order**; API `POST …/sfx-prompts/refine` or `auto_refine_enabled` |
+| `mmaudio_sfx_flow1` | shipped | `sfx_mmaudio.py` | BUILD-034, **064** | `sound_design/assets/*.wav` (+ legacy `flow_1_master/sfx/`) | local MMAudio generate |
 | `mix_flow1` | shipped | `assembly_flow1.py` → `sound_design.mix_flow1` | BUILD-035, **065**, **066**, 067 | `flow_1_master/assembly.wav` — speech + VO + SDP overlays | — |
 | `master_flow1` | shipped | `mastering.py` | BUILD-036, **071** | `flow_1_master/master.wav` | — |
 | `podcast_sfx_brief` | shipped (v1 legacy) | `selection_flow1.py` | BUILD-033 | `flow_1_master/podcast_sfx_brief.json` | `assembly/podcast-sfx-brief` — **not in `FLOW1_ORDER`** |
@@ -94,14 +96,15 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Flow 2 — highlight reel
 
-**Default order (`FLOW2_ORDER`):** `highlight_selection` → `sound_design_plan_flow2` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow2` → `mix_flow2` → `master_flow2`
+**Default order (`FLOW2_ORDER`):** `highlight_selection` → `sound_design_plan_flow2` → `sfx_prompt_craft` → `mmaudio_sfx_flow2` → `mix_flow2` → `master_flow2`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
 | `highlight_selection` | shipped | `selection_flow2.py` | BUILD-040 | `flow_2_highlights/selection.json` | `selection/highlight-selection` |
 | `sound_design_plan_flow2` | shipped | `sound_design_stages.py` | BUILD-063 | SDP `assets` + `flow_plans.flow2.cues` | `sound_design/plan-flow2` |
-| `elevenlabs_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/elevenlabs_prompts.json` | craft per `asset_id` |
-| `elevenlabs_sfx_flow2` | shipped | `sfx_elevenlabs.py` | BUILD-042, **064** | `sound_design/assets/*.wav` (+ legacy `flow_2_highlights/sfx/`) | REST generate |
+| `sfx_prompt_craft` | shipped | `sound_design_stages.py` | BUILD-064 | `sound_design/sfx_prompts.json` | craft per `asset_id` |
+| `sfx_prompt_refine` | shipped (optional) | `sound_design_stages.py` | MMAudio stack | updated `sfx_prompts.json` | `sound_design/sfx-prompt-refine` — **not in default FLOW order** |
+| `mmaudio_sfx_flow2` | shipped | `sfx_mmaudio.py` | BUILD-042, **064** | `sound_design/assets/*.wav` (+ legacy `flow_2_highlights/sfx/`) | local MMAudio generate |
 | `mix_flow2` | shipped | `assembly_flow2.py` → `sound_design.mix_flow2` | BUILD-043, **065**, **066** | `flow_2_highlights/assembly.wav` — montage + SDP transitions | — |
 | `master_flow2` | shipped | `mastering.py` | BUILD-044 | `flow_2_highlights/master.wav` | — |
 | `sfx_brief` | shipped (v1 legacy) | `selection_flow2.py` | BUILD-041 | `flow_2_highlights/sfx_brief.json` | `assembly/sfx-brief` — **not in `FLOW2_ORDER`** |

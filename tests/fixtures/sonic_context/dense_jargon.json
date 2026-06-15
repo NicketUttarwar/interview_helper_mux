@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "expert_interview",
+    "tone_class": "technical",
+    "atlas_bucket": "dense_jargon",
+    "sound_posture": {
+      "bed_density": "none",
+      "stinger_cap_per_minute": 1
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "focused",
+    "density_hint": "none",
+    "room_character": "dry_close_mic"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "high_term_density",
+      "kind": "acoustic",
+      "keywords": ["jargon", "definitions", "cognitive load"],
+      "segment_ids": ["seg_012"],
+      "provenance": ["understanding/value_features.json"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "vo_bridge",
+      "segment_id": "seg_012",
+      "confidence": 0.7,
+      "provenance": ["understanding/gap_report.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "skip",
+    "adaptive_max_assets_flow1": 3,
+    "adaptive_max_assets_flow2": 2,
+    "duration_bands_by_role": {
+      "chapter_stinger": [1, 2],
+      "vo_bridge": [2, 4]
+    }
+  },
+  "avoid_hard": ["rhythmic beds", "ear-candy accents"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": ["seg_012"],
+    "disfluency_restore": [],
+    "comprehension_risk": ["seg_012"]
+  }
+}

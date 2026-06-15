@@ -207,13 +207,32 @@ def _preflight_sound_design_plan_flow2(ctx: RunContext) -> list[str]:
     )
 
 
-def _preflight_elevenlabs_prompt_craft(ctx: RunContext) -> list[str]:
+def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     if not ctx.artifact_exists("understanding/sound_design_plan.json"):
         return ["understanding/sound_design_plan.json missing"]
     sdp = ctx.read_json("understanding/sound_design_plan.json")
-    if not (sdp.get("assets") or []):
+    assets = sdp.get("assets") or []
+    if not assets:
         errors.append("SDP assets[] empty before prompt craft")
+    from interview_mux.config import merged_config
+
+    mcfg = merged_config().get("mmaudio") or {}
+    min_s = float(mcfg.get("min_duration_sec", 3.0))
+    max_s = float(mcfg.get("max_duration_sec", 8.0))
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        role = str(asset.get("role") or "")
+        if not role:
+            errors.append(f"SDP asset {asset.get('asset_id')} missing role before craft")
+        dur = asset.get("duration_seconds")
+        if dur is not None:
+            d = float(dur)
+            if d < min_s - 0.5 or d > max_s + 0.5:
+                errors.append(
+                    f"SDP asset {asset.get('asset_id')} duration {d}s outside MMAudio plan band"
+                )
     return errors
 
 
@@ -270,6 +289,13 @@ def _preflight_topic_coverage(ctx: RunContext) -> list[str]:
     return _preflight_pre_flow1(ctx)
 
 
+def _preflight_sfx_prompt_refine(ctx: RunContext) -> list[str]:
+    errors = _preflight_sfx_prompt_craft(ctx)
+    if not ctx.artifact_exists("sound_design/sfx_prompts.json"):
+        errors.append("sound_design/sfx_prompts.json missing before refine")
+    return errors
+
+
 _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "speaker_roles": _preflight_speaker_roles,
     "content_context": _preflight_content_context,
@@ -286,7 +312,8 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "transitions": _preflight_transitions,
     "sound_design_plan_flow1": _preflight_sound_design_plan_flow1,
     "sound_design_plan_flow2": _preflight_sound_design_plan_flow2,
-    "elevenlabs_prompt_craft": _preflight_elevenlabs_prompt_craft,
+    "sfx_prompt_craft": _preflight_sfx_prompt_craft,
+    "sfx_prompt_refine": _preflight_sfx_prompt_refine,
     "edl_narrative_audit": _preflight_edl_narrative_audit,
     "podcast_show_description": _preflight_podcast_show_description,
 }

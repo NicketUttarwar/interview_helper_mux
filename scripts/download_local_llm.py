@@ -25,7 +25,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VENV = ROOT / ".venv"
+MLX_VENV = ROOT / "ASSETS" / "local_llm" / "venv"
+VENV = MLX_VENV if MLX_VENV.is_dir() else ROOT / ".venv"
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -63,7 +64,7 @@ def _ensure_venv() -> Path:
     py = VENV / "bin" / "python"
     if not py.is_file():
         print(
-            "Missing .venv — run ./scripts/bootstrap_venv.sh first.",
+            "Missing MLX venv — run ./scripts/bootstrap_venv.sh first.",
             file=sys.stderr,
         )
         sys.exit(1)

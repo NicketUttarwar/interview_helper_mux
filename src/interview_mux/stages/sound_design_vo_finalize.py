@@ -73,6 +73,7 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
         raise SystemExit(f"sound_design_vo_finalize: invalid SDP after adjust: {errors[0]}")
     _validate_sound_design_plan(plan)
     ctx.write_json(sdp_path, plan)
+    _patch_sonic_context_vo_bridges(ctx, plan)
     ctx.log(
         f"vo_finalize: adjusted={adjusted} skipped={skipped}",
         level="success",
@@ -88,3 +89,64 @@ def _gap_line(gap_report: dict[str, Any], line_id: str) -> dict[str, Any] | None
         if isinstance(line, dict) and str(line.get("line_id") or "") == line_id:
             return line
     return None
+
+
+def _patch_sonic_context_vo_bridges(ctx: RunContext, plan: dict[str, Any]) -> None:
+    """Patch sonic_context vo_bridge cue opportunities with measured durations (fail-open)."""
+    rel = "understanding/sonic_context.json"
+    if not ctx.artifact_exists(rel):
+        return
+    doc = ctx.read_json(rel)
+    if not isinstance(doc, dict):
+        return
+    flow1 = ((plan.get("flow_plans") or {}).get("flow1") or {})
+    cues = flow1.get("cues") if isinstance(flow1.get("cues"), list) else []
+    assets_by_id = {
+        str(a.get("asset_id")): a
+        for a in (plan.get("assets") or [])
+        if isinstance(a, dict) and a.get("asset_id")
+    }
+    measured_by_segment: dict[str, dict[str, Any]] = {}
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        dur = cue.get("measured_duration_ms")
+        if dur is None:
+            continue
+        seg = str(cue.get("segment_id") or cue.get("before_segment_id") or cue.get("after_segment_id") or "")
+        asset_id = str(cue.get("asset_id") or "")
+        asset = assets_by_id.get(asset_id, {})
+        if str(asset.get("role") or "") != "vo_bridge" and not cue.get("line_id"):
+            continue
+        if seg:
+            measured_by_segment[seg] = {
+                "measured_duration_ms": int(dur),
+                "asset_id": asset_id or None,
+                "line_id": str(cue.get("line_id") or "") or None,
+            }
+
+    opportunities = doc.get("cue_opportunities") if isinstance(doc.get("cue_opportunities"), list) else []
+    patched = 0
+    for row in opportunities:
+        if not isinstance(row, dict) or str(row.get("kind") or "") != "vo_bridge":
+            continue
+        seg = str(row.get("segment_id") or "")
+        patch = measured_by_segment.get(seg)
+        if not patch:
+            continue
+        row["measured_duration_ms"] = patch["measured_duration_ms"]
+        if patch.get("asset_id"):
+            row["asset_id"] = patch["asset_id"]
+        if patch.get("line_id"):
+            row["line_id"] = patch["line_id"]
+        patched += 1
+    if patched:
+        from interview_mux.sonic_context import compute_sonic_context_hash
+
+        doc["sonic_context_hash"] = compute_sonic_context_hash(doc)
+        ctx.write_json(rel, doc)
+        ctx.log(
+            f"vo_finalize: patched {patched} vo_bridge cue_opportunit(ies) in sonic_context",
+            level="info",
+            stage="sound_design_vo_finalize",
+        )

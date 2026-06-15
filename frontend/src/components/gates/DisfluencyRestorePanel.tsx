@@ -40,7 +40,7 @@ export function DisfluencyRestorePanel({ stageId }: Props) {
     <div className="disfluency-restore-panel">
       <p className="hint">
         {confirmedCount} confirmed filler event(s). When enabled, EDL splits speech and inserts disfluency clips at
-        source times.
+        source times. Stingers and ambient beds overlapping filler windows may be dropped at mix time.
       </p>
       <label className="toggle-row">
         <input type="checkbox" checked={enabled} onChange={() => void toggle()} />

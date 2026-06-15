@@ -13,7 +13,7 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 | Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix_flow1`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL; **extended EDL narrative QC** after flagship `edl_narrative_audit` | Deeper operator edit UX |
 | Assembly Flow 2 | **`mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
 | Flow 3 publishing | Third-person show description JSON + markdown (BUILD-045–046, 080) | Same |
-| SFX | SDP + **`elevenlabs_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
+| SFX | SDP + **`sfx_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
 | NLE GUI | Mouse-first editor: smart presets, review queue, filters, undo history, transcript selection trim, partial apply modes (`trim_only` / `structural` / `full_refresh`), assembly A/B preview; feeds ranking + EDL (BUILD-068) | Extended listen-study metrics + deeper craft loops |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks); EDL timeline QC (`validate_edl`); extended EDL narrative QC (`validate_narrative --include-edl`) | Extended listen-study metrics |
 | Pre-clean | **`audio_preclean`** + **GUI offers** at roadmap checkpoints (never auto-enabled) | Same pattern at any new checkpoint |
@@ -28,11 +28,11 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 
 1. **Gap report → EDL** — **shipped:** `vo_pickup` and gap placements in `edl.json`.
 2. **NLE → selection** — **shipped:** `nle_edits.json` overrides applied in `full_master_ranking` and `edl_flow1`.
-3. **Speech preview** — **shipped:** `assembly_preview.wav` (speech + VO, no ElevenLabs) after ranking for operator listen-before-SFX.
+3. **Speech preview** — **shipped:** `assembly_preview.wav` (speech + VO, no MMAudio SFX) after ranking for operator listen-before-SFX.
 
 ### Wave B — Coherent sound + mix (BUILD-060–066) — **done**
 
-See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md), and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-done).
+See [sound-design.md](./sound-design.md), [local-audio-stack.md](./local-audio-stack.md), and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-done).
 
 **Shipped:** SDP init + palettes, flow plans, craft/generate, `mix_flow1`/`mix_flow2` in pipeline + GUI.
 
@@ -51,7 +51,7 @@ See [sound-design.md](./sound-design.md), [elevenlabs-integration-guide.md](./el
 
 ### Wave D — Audio pre-clean (BUILD-019 + BUILD-072) — **done**
 
-- `audio_preclean` stage shipped (ElevenLabs REST, optional).
+- `audio_preclean` stage shipped (local MMAudio, optional).
 - **Quality offers** at two checkpoints — see [audio pre-clean](../pipeline/audio_preclean/README.md#when-the-operator-is-offered-pre-clean).
 - Pickup-only scope (`vo_pickup`) when operator records gap-fill lines at G1.
 

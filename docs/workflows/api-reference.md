@@ -85,7 +85,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
-| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `elevenlabs_generated_assets[]`, `selected_flow`, `transcript_review_*`, `g1_*`, `analysis_complete`, `job`, `stages[]` (each may include `api_providers[]`), `log_tail` | **404** |
+| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, `selected_flow`, … | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage routing summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `shard_count`, `primary_attempt_count`, `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors[]`) from `understanding/stage_runs/` | **404** |
@@ -119,12 +119,15 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |
-| `GET` | `/api/runs/{run_id}/elevenlabs-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
-| `PUT` | `/api/runs/{run_id}/elevenlabs-prompts` | — | **ArtifactBody** (`path` must be `sound_design/elevenlabs_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
-| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/approve` | — | **ElevenLabsPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `elevenlabs_prompts_approved` | **404** missing prompts artifact |
-| `POST` | `/api/runs/{run_id}/elevenlabs-prompts/listen-result` | — | **ElevenLabsListenResultBody** (`asset_id`, `result`: `pass`\|`fail`, optional `note`) | `ok`, `entry`, `elevenlabs_listen_results[]`; appends `run_meta.elevenlabs_listen_results`; logs `elevenlabs_post_listen_pass` or `elevenlabs_post_listen_fail` | **400** invalid body |
+| `GET` | `/api/runs/{run_id}/sfx-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
+| `PUT` | `/api/runs/{run_id}/sfx-prompts` | — | **ArtifactBody** (`path` must be `sound_design/sfx_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
+| `POST` | `/api/runs/{run_id}/sfx-prompts/approve` | — | **SfxPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `sfx_prompts_approved` | **404** missing prompts artifact |
+| `POST` | `/api/runs/{run_id}/sfx-prompts/listen-result` | — | **SfxListenResultBody** (`asset_id`, `result`: `pass`\|`fail`, optional `note`, optional `mode`: `post_listen`\|`under_speech`) | `post_listen` (default): `ok`, `entry`, `sfx_listen_results[]`; appends `run_meta.sfx_listen_results`; logs `sfx_post_listen_pass` or `sfx_post_listen_fail`. `under_speech`: `ok`, `entry`, `speech_under_listen_results[]`; appends `run_meta.speech_under_listen_results` | **400** invalid body |
+| `POST` | `/api/runs/{run_id}/sfx-prompts/refine` | — | **SfxPromptRefineBody** (`asset_ids?`, `force?`) | `ok`, `prompts[]`, `review`, `refined_asset_ids` — runs LLM `sfx_prompt_refine` | **409** job running |
+| `POST` | `/api/runs/{run_id}/sfx-prompts/regenerate` | — | **SfxPromptRegenBody** (`asset_ids[]`) | Sets `sfx_regen_asset_ids`, clears stage done, starts `mmaudio_sfx_flow*` | **400** empty ids, **409** job running |
+| `GET` | `/api/runs/{run_id}/sfx-qa` | — | — | `mmaudio_qa.json` contents (`version`, `assets[]` with verdict/reasons) | — |
 
-**G1.5 (optional):** When `g1_5_require_prompt_approval` is true in merged config, `can_generate` is false until approve; `elevenlabs_sfx_flow*` stages raise at runtime if unapproved. Review UI is on stage `elevenlabs_prompt_craft`. **Post-listen** Pass/Fail is advisory (`POST …/listen-result`); panels on `elevenlabs_prompt_craft` and `elevenlabs_sfx_flow*` — see [gui-surface-map.md](./gui-surface-map.md#elevenlabs-operator-journey-sfx--g15).
+**G1.5 response fields:** `GET /sfx-prompts` also returns `mmaudio_qa`, `generation_meta` (per-asset CFG/seed from last run).
 | `POST` | `/api/runs/{run_id}/execute` | — | **ExecuteBody** | `ok`, `run_id`, `mode` (immediate ack; work runs in thread); or `ok: false`, `needs_api_consent` if providers not granted | **409** job already running, **404** |
 | `GET` | `/api/runs/{run_id}/job` | — | — | `gui_job.json` payload or `{status: idle, run_id}` | — |
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
@@ -144,6 +147,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `POST` | `/api/runs/{run_id}/vo/{line_id}` | — | **multipart** field `file` (WAV) | `ok`, `path`, `g1_missing` | **404** |
 | `POST` | `/api/runs/{run_id}/reset` | — | **ResetBody** | `ok: true` | **400** missing both fields, **404** audio |
 | `GET` | `/api/runs/{run_id}/audio` | `path` (required); optional `pending=1`, `pending_stage=<stage_id>` | — | Binary file (final path, or staged copy when pending query set) | **404**, **400** |
+| `GET` | `/api/runs/{run_id}/audio/sfx-under-speech` | `asset_id` (required) | — | Best-effort preview render for `SfxPostListenPanel` under-speech audition | **404** when preview backend unavailable or asset missing |
 | `GET` | `/api/runs/{run_id}/source-audio` | — | — | Original input from `run_meta.json` | **404** |
 
 ### `ExecuteBody`
@@ -156,7 +160,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
 | `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
 | `until_stage` | string \| null | For batch modes (`analysis`, `flow1`, `flow2`, `flow3`, `flow1_until_preview`, `flow1_polish`): stop after this stage id (inclusive). Journey hints may set this (e.g. `transcript_review_build` for analysis-until-G0). |
-| `api_consents` | object \| null | Map `openai` \| `aws` \| `elevenlabs` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
+| `api_consents` | object \| null | Map `openai` \| `aws` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
 
 **Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `interrupted`, `idle`. Additional job fields: `current_stage`, `stage_index`, `stage_total`, `stages_planned` (batch progress), `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`. On **`GET /api/runs/{run_id}`**, when `job.status === "error"`, the response includes `job.last_error` with `message`, `stage`, and optional `traceback_excerpt`.
 
@@ -168,7 +172,7 @@ When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
 
-**ElevenLabs sound-design stages (`elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2`):** one REST `POST /v1/music` per unique SDP `asset_id` (`model_id`: `music_v2`, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
+**MMAudio sound-design stages (`mmaudio_sfx_flow1` / `mmaudio_sfx_flow2`):** local MMAudio text-to-audio per asset per unique SDP `asset_id` (variant `large_44k_v2` default, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
 
 **Mix stages (`mix_flow1` / `mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `FLOW1_ORDER` / `FLOW2_ORDER`.
 
@@ -203,7 +207,7 @@ Exactly one of `data` or `text` required.
 | `action` | string | `offer` \| `accept` \| `dismiss` |
 | `scope` | string \| null | Optional override: `full_source` \| `vo_pickup` \| `normalized_rebuild` |
 
-### `ElevenLabsPromptApproveBody`
+### `SfxPromptApproveBody`
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -325,6 +329,8 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 **`AcousticProfileOverridesBody`:** `{ overrides: {…}, invalidate_from?: string }` — merges operator overrides into `understanding/source_acoustic_profile.json`; optional pipeline invalidation after save. Logs `acoustic_profile_override_saved`.
 
 `POST …/recompute-acoustic-profile` re-runs deterministic DSP from ingest/transcript. Logs `acoustic_profile_recomputed` to `gui_log.jsonl`.
+
+`SonicContextPanel` reads `understanding/sonic_context.json` through the generic artifact route (`GET /api/runs/{run_id}/artifact?path=understanding/sonic_context.json`).
 
 ---
 

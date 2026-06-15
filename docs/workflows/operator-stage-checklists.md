@@ -1,12 +1,12 @@
 # Operator stage checklists
 
-Use these after each automated stage (or before a gate) so the run stays **correct before expensive steps** (Flow 1 extended analysis, ElevenLabs, long re-runs). Gates (G0–G2) remain authoritative — see [operator-gates.md](./operator-gates.md).
+Use these after each automated stage (or before a gate) so the run stays **correct before expensive steps** (Flow 1 extended analysis, MMAudio SFX, long re-runs). Gates (G0–G2) remain authoritative — see [operator-gates.md](./operator-gates.md).
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
 **Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
 
-**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on ElevenLabs stages · QC card reminder on ranking/EDL/show-description stages.
+**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
 
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
@@ -103,8 +103,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `full_master_ranking` | Ordered ids ⊆ manifest; chapter membership valid | `--from-stage full_master_ranking` |
 | `transitions` | Transition targets valid; no fuzzy duplicate of `gap_report` VO | `--from-stage transitions` |
 | `edl_narrative_audit` | `verdict` not `fail` before `edl_flow1` | Re-run ranking/transitions/audit per recommendations |
-| `elevenlabs_prompt_craft` | SDP `assets[]` non-empty; `elevenlabs_prompts.json` on disk (**pre-spend hard**) | Complete plan stages; approve G1.5 when enabled |
-| `elevenlabs_sfx_flow1` / `_flow2` | One WAV per `asset_id` before mix (**pre-mix hard**) | Re-run craft + SFX; check `sound_design/assets/` |
+| `sfx_prompt_craft` | SDP `assets[]` non-empty; `sfx_prompts.json` on disk (**pre-spend hard**) | Complete plan stages; approve G1.5 when enabled |
+| `mmaudio_sfx_flow1` / `_flow2` | One WAV per `asset_id` before mix (**pre-mix hard**) | Re-run craft + SFX; check `sound_design/assets/` |
 | `mix_flow1` / `mix_flow2` | Spend gate satisfied; optional `placement_adjustments.json` reviewed | Listen preview first; fix SDP levels — [post-generation-placement.md](../cross-cutting/post-generation-placement.md) |
 
 ---
@@ -252,16 +252,16 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl_flow1` |
 | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
 | `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl_flow1`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
-| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before ElevenLabs |
+| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before MMAudio SFX generation |
 | `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 | `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
 
 ---
 
-## ElevenLabs (SFX + isolation)
+## MMAudio SFX + DeepFilterNet preclean
 
-**Canonical guide:** [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md). Default path: SDP `assets[]` → `sound_design/assets/{asset_id}.wav` → `mix_flow1` / `mix_flow2`. Legacy v1: per-cue `sfx/*.wav` and `podcast_sfx_brief` / `sfx_brief` (single-stage rerun only).
+**Canonical guide:** [local-audio-stack.md](../cross-cutting/local-audio-stack.md). Default path: SDP `assets[]` → `sound_design/assets/{asset_id}.wav` → `mix_flow1` / `mix_flow2`. Legacy v1: per-cue `sfx/*.wav` and `podcast_sfx_brief` / `sfx_brief` (single-stage rerun only).
 
 ### Pre-spend (before any generation API call)
 
@@ -270,9 +270,9 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Flow selected | G2 done; `run_meta.selected_flow` set | Complete G2 |
 | Preview first | `assembly_preview.wav` listened before SFX spend | `--from-stage assembly_preview`; fix EDL / VO before craft |
 | Plan exists | Flow 1: SDP `flow_plans.flow1` + `assets[]` (`sound_design_plan_flow1`); Flow 2: SDP `flow_plans.flow2` or v1 `sfx_brief.json`; craft follows plan | Re-run `sound_design_plan_flow1` / `_flow2` or v1 brief stages |
-| **G1.5** (shipped; if `g1_5_require_prompt_approval`) | Operator approved `elevenlabs_prompts.json` in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
-| Craft quality | No vocals/lyrics in prompts; durations match role bands | [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md); regression: [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) |
-| Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md); GUI **Pass** on craft/SFX panel or log `elevenlabs_post_listen_pass` |
+| **G1.5** (shipped; if `g1_5_require_prompt_approval`) | Operator approved `sfx_prompts.json` in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
+| Craft quality | No vocals/lyrics in prompts; durations match role bands | [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md); regression: [sfx-prompt-regression.md](../prompts/_shared/examples/sfx-prompt-regression.md) |
+| Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/local-audio-stack.md); GUI **Pass** on craft/SFX panel or log `sfx_post_listen_pass` |
 | Asset count | Target: ≤6 Flow 1 / ≤4 Flow 2 unique `asset_id`s | Trim SDP plan |
 | Cost sanity | # API calls = unique assets (target), not # cues | Fix plan reuse |
 
@@ -280,19 +280,19 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| API key | Non-401 on generation | Rotate `ELEVENLABS_API_KEY` in `secrets.env` |
+| API key | Non-401 on generation | Rotate `` in `secrets.env` |
 | Quota / rate limit | 429 → backoff; serial or ≤2 parallel | [troubleshooting.md](./troubleshooting.md) |
 | Output files | v1: `sfx/*.wav`; target: `sound_design/assets/{asset_id}.wav` | Re-run SFX stage; check paths |
 | Idempotency | Unchanged plan hash → skip regen | Delete asset only if plan changed |
-| Audit | Target: `sound_design/elevenlabs_prompts.json` present | Re-run craft stage |
+| Audit | Target: `sound_design/sfx_prompts.json` present | Re-run craft stage |
 
 ### Post-generation (advisory post-listen GUI)
 
 | Check | Pass | If fail |
 |-------|------|--------|
 | Listen each asset | Play `sound_design/assets/{asset_id}.wav` (or flow `sfx/` mirror) in GUI | Re-run **Generate SFX** after craft edits |
-| Post-listen QA | Click **Pass** in **Post-listen QA** panel; optional note | Click **Fail** + note; regen via craft/SFX or [influence tuning](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
-| Audit trail | `run_meta.elevenlabs_listen_results[]` and `gui_log.jsonl` (`elevenlabs_post_listen_pass` / `fail`) | Re-submit from GUI; does not block pipeline |
+| Post-listen QA | Click **Pass** in **Post-listen QA** panel; optional note | Click **Fail** + note; regen via craft/SFX or [influence tuning](../cross-cutting/local-audio-stack.md) |
+| Audit trail | `run_meta.sfx_listen_results[]` and `gui_log.jsonl` (`sfx_post_listen_pass` / `fail`) | Re-submit from GUI; does not block pipeline |
 | Theme fit | Asset matches palette / `sonic_identity` | Regen asset (≤2 retries) — [sound-design.md § Post-generation](../cross-cutting/sound-design.md#post-generation-analysis-and-adaptive-placement) |
 | Speech mask | Bed does not bury words in densest segment | Lower `level_db`; increase duck |
 | Transitions | Flow 2 cuts feel connected | Adjust crossfade 80–200 ms or transition level |
@@ -348,8 +348,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 |-------|------|--------|
 | `sound_design_palettes` | Stage done marker exists and SDP has non-empty `coherence.sonic_identity` + `palettes[]` | Re-run `python tools/run_analysis.py --run-id <id> --from-stage sound_design_palettes`; then inspect `understanding/sound_design_plan.json` |
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
-| G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [ElevenLabs pre-spend](#elevenlabs-sfx--isolation) |
-| Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) · `sound_design/placement_adjustments.json` |
+| G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [MMAudio pre-generation](#mmaudio-sfx--preclean) |
+| Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [local-audio-stack.md](../cross-cutting/local-audio-stack.md) · `sound_design/placement_adjustments.json` |
 | Mix path | `mix_flow1` / `mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix_flow1` or `mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 
 ---

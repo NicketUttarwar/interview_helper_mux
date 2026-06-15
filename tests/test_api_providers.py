@@ -15,7 +15,7 @@ from interview_mux.run_context import RunContext
 def test_stage_api_providers_transcribe_uses_aws() -> None:
     assert "aws" in stage_api_providers("transcribe")
     assert "openai" in stage_api_providers("speaker_roles")
-    assert "elevenlabs" in stage_api_providers("elevenlabs_sfx_flow1")
+    assert stage_api_providers("mmaudio_sfx_flow1") == ()
 
 
 def test_missing_consents() -> None:

@@ -1,4 +1,4 @@
-"""Crossfade, duration, and WAV chunk helpers for mix and ElevenLabs paths."""
+"""Crossfade, duration, and WAV chunk helpers for mix and MMAudio paths."""
 
 from __future__ import annotations
 

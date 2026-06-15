@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -19,6 +20,47 @@ from interview_mux.llm_call_record import (
     reconstruct_volley_from_calls,
 )
 from interview_mux.run_context import RunContext
+
+_SOUND_LLM_STAGES = frozenset(
+    {
+        "sound_design_palettes",
+        "sound_design_plan_flow1",
+        "sound_design_plan_flow2",
+        "sfx_prompt_craft",
+        "sfx_prompt_refine",
+        "edl_narrative_audit",
+        "podcast_sfx_brief",
+        "sfx_brief",
+    }
+)
+
+
+def _sonic_context_hash(run_dir: Path) -> str:
+    path = run_dir / "understanding" / "sonic_context.json"
+    if not path.is_file():
+        return ""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return ""
+    if isinstance(doc, dict) and doc.get("sonic_context_hash"):
+        return str(doc["sonic_context_hash"])
+    return ""
+
+
+def _record_markdown_with_sonic_hash(
+    record: dict[str, Any],
+    *,
+    sonic_hash: str,
+) -> str:
+    md = record_to_markdown(record)
+    if not sonic_hash or record.get("stage_key") not in _SOUND_LLM_STAGES:
+        return md
+    lines = md.splitlines()
+    if len(lines) >= 2 and lines[1] == "":
+        lines.insert(2, f"- **sonic_context_hash:** `{sonic_hash}`")
+        return "\n".join(lines) + ("\n" if md.endswith("\n") else "")
+    return f"- **sonic_context_hash:** `{sonic_hash}`\n\n{md}"
 
 
 def _stage_run_audit_appendix(run_dir: Path, stage_filter: str | None) -> str:
@@ -101,7 +143,10 @@ def main() -> None:
         lines = [json.dumps(rec, ensure_ascii=False) for rec in records]
         out = "\n".join(lines) + ("\n" if lines else "")
     else:
-        parts = [record_to_markdown(rec) for rec in records]
+        sonic_hash = _sonic_context_hash(run_dir)
+        parts = [
+            _record_markdown_with_sonic_hash(rec, sonic_hash=sonic_hash) for rec in records
+        ]
         audit = _stage_run_audit_appendix(run_dir, args.stage)
         if audit:
             parts.append(audit)

@@ -2,6 +2,10 @@
 
 Complete this guide **before** `./scripts/run.sh`. The run script creates or refreshes `.venv`, installs Python deps, and builds the React GUI on first launch if needed — but it cannot substitute for system tools, cloud credentials, or optional model downloads you choose up front.
 
+**Single install command:** `./scripts/bootstrap_venv.sh` creates the core `.venv` plus all isolated local stacks under `ASSETS/` (MLX, DeepFilterNet, MMAudio), clones upstream audio repos, runs verify gates, and writes `install.json` manifests. If you delete any venv, re-run this one script.
+
+Per-stack requirements: `requirements.txt` (core), `requirements-local-mlx.txt`, `requirements-local-deepfilter.txt`, `requirements-local-mmaudio.txt`. See [Local audio stack](#local-audio-stack) and [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md).
+
 ---
 
 ## Quick checklist (before `./scripts/run.sh`)
@@ -17,6 +21,7 @@ Complete this guide **before** `./scripts/run.sh`. The run script creates or ref
 | Source WAV | Yes (first run) | `ASSETS/input/<name>.wav` (or resume a prior `exec_*`) |
 | GUI dependencies + build | Yes | `cd frontend && npm ci` then `./scripts/build_gui.sh` (or let `run.sh` build on first launch) |
 | Local MLX LLM (Apple Silicon) | Recommended on macOS | Installed by `bootstrap_venv.sh` — [Local LLM](#local-llm-apple-silicon-default-on) |
+| Local audio stack (DeepFilterNet + MMAudio) | Yes for preclean/SFX | Installed by `bootstrap_venv.sh` — [Local audio stack](#local-audio-stack) |
 | Value-analysis flags | No | Shipped defaults are on — [Value analysis](#value-analysis) |
 
 ---
@@ -30,7 +35,7 @@ Complete this guide **before** `./scripts/run.sh`. The run script creates or ref
 | **ffmpeg** + **ffprobe** on `PATH` | Ingest, mix, mastering, QC |
 | **AWS CLI** authenticated | `transcribe` stage uploads to S3 and polls AWS Transcribe |
 | **Node.js 20+** and **npm** | Build `frontend/` → `src/interview_mux/web/static/` |
-| **OpenAI**, **ElevenLabs**, **AWS** credentials | See [Config](#2-config) |
+| **OpenAI**, **AWS** credentials | See [Config](#2-config) — no cloud audio API for SFX or preclean |
 
 Pinned Python versions and CVE policy: [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md).
 
@@ -133,9 +138,10 @@ Edit at minimum:
 | Variable | Used for |
 |----------|----------|
 | `OPENAI_API_KEY` | Analysis and flow LLM stages (after optional local MLX volley framing) |
-| `ELEVENLABS_API_KEY` | SFX generation, optional audio pre-clean / isolation |
 | `AWS_S3_BUCKET` | Transcribe job input/output |
 | `AWS_DEFAULT_REGION` | Transcribe + S3 |
+
+MMAudio SFX generation is local-only in the shipped stack (`ASSETS/local_mmaudio/...`) and does not require a cloud audio API key.
 
 Optional secrets:
 
@@ -240,6 +246,42 @@ python scripts/download_local_llm.py --verify
 ```
 
 Docs: [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.md).
+
+---
+
+## Local audio stack
+
+**Default:** `audio_preclean.provider: deepfilternet` and local MMAudio for SFX stages. Bootstrap clones [DeepFilterNet](https://github.com/rikorose/deepfilternet) and [MMAudio](https://github.com/hkchengrex/MMAudio) into separate gitignored trees and builds isolated venvs.
+
+```bash
+./scripts/bootstrap_venv.sh
+# or manual:
+./scripts/clone_local_audio_repos.sh
+bash scripts/lib/bootstrap_local_runtimes.sh
+```
+
+Verify:
+
+```bash
+ASSETS/local_deepfilter/venv/bin/python scripts/download_deepfilter.py --verify
+ASSETS/local_mmaudio/venv/bin/python scripts/download_mmaudio.py --verify
+# optional inference smoke (GPU/MPS recommended):
+ASSETS/local_mmaudio/venv/bin/python scripts/download_mmaudio.py --verify --smoke-generate
+```
+
+**Manual MMAudio SFX smoke:** approve prompts on `sfx_prompt_craft` → run `mmaudio_sfx_flow1` → check `sound_design/mmaudio_qa.json` → post-listen in GUI (solo + under-speech preview via `GET …/audio/sfx-under-speech`). Tier-2 CLAP QA is **on by default** (`mmaudio.semantic_qa_enabled: true`); re-bootstrap the MMAudio venv so `transformers` + `librosa` are installed (first run downloads `laion/clap-htsat-fused`). CLAP fail-open: missing deps/timeouts set `semantic_qa_verdict=skipped`. See [sfx-prompt-regression.md](docs/prompts/_shared/examples/sfx-prompt-regression.md).
+
+| Path | Purpose |
+|------|---------|
+| `ASSETS/local_deepfilter/DeepFilterNet/` | Upstream clone |
+| `ASSETS/local_deepfilter/venv/` | DeepFilterNet venv |
+| `ASSETS/local_mmaudio/MMAudio/` | Upstream clone |
+| `ASSETS/local_mmaudio/venv/` | MMAudio venv |
+| `ASSETS/local_*/install.json` | Bootstrap verify manifest |
+
+**Existing runs:** Re-run from `sfx_prompt_craft` if artifacts used legacy `elevenlabs_*` stage markers or old `sound_design/elevenlabs_prompts.json`.
+
+Docs: [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md).
 
 ---
 

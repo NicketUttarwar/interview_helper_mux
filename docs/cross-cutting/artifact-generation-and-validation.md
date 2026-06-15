@@ -94,7 +94,7 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 | `transitions` | `flow_1_master/transitions.json` |
 | `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json` |
 | `sound_design_plan_flow1` / `flow2` | `understanding/sound_design_plan.json` |
-| `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
+| `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
 | `sfx_brief` | `flow_2_highlights/sfx_brief.json` |
 | `podcast_show_description` | `flow_3_description/show_description.json` |
 | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` |

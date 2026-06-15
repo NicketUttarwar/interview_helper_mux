@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,8 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.disfluency.config",
     "interview_mux.llm_flow_hardening",
     "interview_mux.llm_preflight",
+    "interview_mux.gates",
+    "interview_mux.stages.sound_design_stages",
     "interview_mux.artifact_cross_validate",
 )
 
@@ -388,12 +391,12 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
         skip_handoff=True,
     )
     ctx.write_json(
-        "sound_design/elevenlabs_prompts.json",
+        "sound_design/sfx_prompts.json",
         {
             "prompts": [
                 {
                     "asset_id": "bed_01",
-                    "elevenlabs_prompt": "soft non-vocal room tone loop without rhythm or melody for podcast underscore",
+                    "sfx_prompt": "soft non-vocal room tone loop without rhythm or melody for podcast underscore",
                     "duration_seconds": 6,
                     "negative_prompt": "vocals lyrics speech",
                 }
@@ -404,6 +407,27 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     assets_dir = ctx.path("sound_design", "assets")
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "bed_01.wav").write_bytes(MINIMAL_WAV_BYTES)
+
+
+def seed_from_sonic_fixture(
+    ctx: RunContext,
+    fixture_name: str,
+    *,
+    seed_base: bool = True,
+) -> dict[str, Any]:
+    """Load tests/fixtures/sonic_context/{fixture_name}.json into the run."""
+    fixture_path = Path(__file__).parent / "fixtures" / "sonic_context" / f"{fixture_name}.json"
+    if not fixture_path.is_file():
+        raise FileNotFoundError(f"Missing sonic fixture: {fixture_path}")
+    doc = json.loads(fixture_path.read_text(encoding="utf-8"))
+    if seed_base:
+        ctx.path("understanding").mkdir(parents=True, exist_ok=True)
+        if not ctx.artifact_exists("understanding/content_brief.json"):
+            ctx.write_json("understanding/content_brief.json", minimal_content_brief(), skip_handoff=True)
+        if not ctx.artifact_exists("segments/manifest.json"):
+            ctx.write_json("segments/manifest.json", minimal_manifest(), skip_handoff=True)
+    ctx.write_json("understanding/sonic_context.json", doc, skip_handoff=True)
+    return doc
 
 
 def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) -> None:

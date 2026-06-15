@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "sonic_context_hash": "abc123",
+  "built_from": [
+    "understanding/content_brief.json",
+    "understanding/source_acoustic_profile.json",
+    "segments/manifest.json"
+  ],
+  "scenario": {
+    "format_class": "one_on_one",
+    "tone_class": "reflective",
+    "atlas_bucket": "one_on_one",
+    "sound_posture": {
+      "bed_density": "sparse",
+      "stinger_cap_per_minute": 2
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "hopeful",
+    "density_hint": "sparse",
+    "room_character": "dry_intimate"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "founder_origin",
+      "kind": "topic",
+      "keywords": ["founder", "startup", "early"],
+      "segment_ids": ["seg_001", "seg_002"],
+      "emotional_valence": "reflective",
+      "confidence": 0.9,
+      "provenance": ["content_brief.topics[0]", "segments/manifest.topic_tags"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "chapter_boundary",
+      "segment_id": "seg_010",
+      "confidence": 0.85,
+      "provenance": ["flow_1_master/narrative_plan.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "sparse",
+    "adaptive_max_assets_flow1": 6,
+    "adaptive_max_assets_flow2": 4,
+    "stinger_cap_per_minute": 2,
+    "duration_bands_by_role": {
+      "ambient_bed": [5, 8],
+      "chapter_stinger": [1.0, 2.5],
+      "transition_stinger": [0.8, 2.0],
+      "vo_bridge": [2, 6]
+    }
+  },
+  "avoid_hard": ["trailer whoosh", "crowd chanting"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

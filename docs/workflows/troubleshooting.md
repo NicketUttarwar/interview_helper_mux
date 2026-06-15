@@ -77,7 +77,7 @@ Symptoms from `attempt_budget.py` and `deterministic_lint.py` when quality-first
 | `min_row_count_met` | Empty speakers/boundaries when transcript warrants rows | `speakers.json`, `boundaries.json`, transcript duration | Re-run `speaker_roles` / `boundary_detection` with full volley |
 | `truncation_requires_decompose` | Volley capped; stage is decompose-eligible | `truncation_flags` in attempt | Allow `decompose` path or reduce input size upstream |
 | Low-confidence accept downgraded | `confidence < min_confidence_on_accept` | `stage_expectations` in arbiter payload | Tighten volley evidence or fix partial coverage |
-| `Mix gate:` on `mix_flow*` | `block_mix_without_sfx_when_enabled: true` and WAVs missing | `sound_design/assets/`, `pre_mix_*` cross-validate errors | Re-run `elevenlabs_sfx_flow*`; set `block_mix_without_sfx_when_enabled: false` only for dry-mix dev |
+| `Mix gate:` on `mix_flow*` | `block_mix_without_sfx_when_enabled: true` and WAVs missing | `sound_design/assets/`, `pre_mix_*` cross-validate errors | Re-run `mmaudio_sfx_flow*`; set `block_mix_without_sfx_when_enabled: false` only for dry-mix dev |
 
 Lint reference: [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) deterministic lint keys table.
 
@@ -87,9 +87,9 @@ Lint reference: [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubr
 |---------|----------------|---------|--------|
 | `Cross-artifact gate (post_sound_palettes)` | Palette `segment_id` ∉ manifest or missing `sonic_identity` | `understanding/sound_design_plan.json` `palettes`, `coherence` | Re-run `sound_design_palettes`; fix manifest first if ids wrong |
 | `post_sound_plan_flow1` / `flow2` fail | Cue anchors reference missing selection ranks or assets over cap | SDP `cues[]`, `flow_1_master/selection.json` or Flow 2 `selection.json` | Re-run `sound_design_plan_flow*` after fixing ranking/highlights |
-| `pre_elevenlabs_spend` blocked | Craft prompts missing or `asset_id` mismatch | `elevenlabs_prompts.json`, SDP `assets[]` | Re-run `elevenlabs_prompt_craft`; verify G1.5 approval if enabled |
-| `pre_mix_flow1` / `pre_mix_flow2` fail | Generated WAV missing for planned `asset_id` | `sound_design/assets/`, `.stage_done/elevenlabs_sfx_*` | Re-run generate stage; check `spend_block_stages` prerequisites |
-| Placement QA hints ignored | Beds too hot or wrong duck | `sound_design/placement_adjustments.json`, `gui_log.jsonl` | Adjust SDP cue levels; confirm `sound_design.placement_qa_enabled: true`; re-run `elevenlabs_sfx_flow*` or mix after editing adjustments |
+| `pre_sfx_generation` blocked | Craft prompts missing or `asset_id` mismatch | `sfx_prompts.json`, SDP `assets[]` | Re-run `sfx_prompt_craft`; verify G1.5 approval if enabled |
+| `pre_mix_flow1` / `pre_mix_flow2` fail | Generated WAV missing for planned `asset_id` | `sound_design/assets/`, `.stage_done/mmaudio_sfx_*` | Re-run generate stage; check `spend_block_stages` prerequisites |
+| Placement QA hints ignored | Beds too hot or wrong duck | `sound_design/placement_adjustments.json`, `gui_log.jsonl` | Adjust SDP cue levels; confirm `sound_design.placement_qa_enabled: true`; re-run `mmaudio_sfx_flow*` or mix after editing adjustments |
 
 Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_prerequisites()`. Recovery playbook: fix cited producer → delete downstream `.stage_done` only if needed → `--from-stage` at failing producer.
 
@@ -227,23 +227,23 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | No VO in `master.wav` | Missing `vo_pickup/` files, EDL gap placements, or mix skipped | `flow_1_master/edl.json`, `vo_pickup/`, `.stage_done/mix_flow1` | Match WAV filenames to `gap_report`; `--from-stage edl_flow1` then `assembly_preview`; re-run `mix_flow1` — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
-| SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/elevenlabs_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
-| SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `elevenlabs_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
+| SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/mmaudio_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
+| SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `sfx_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
 | Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 
 ---
 
-## ElevenLabs (SFX / isolation — API)
+## MMAudio SFX + DeepFilterNet preclean
 
-**Canonical guide:** [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md). **Checklists:** [operator-stage-checklists.md § ElevenLabs](./operator-stage-checklists.md#elevenlabs-sfx--isolation).
+**Canonical guide:** [local-audio-stack.md](../cross-cutting/local-audio-stack.md). **Checklists:** [operator-stage-checklists.md § MMAudio SFX](./operator-stage-checklists.md#mmaudio-sfx--preclean).
 
 ### HTTP / API
 
 | If you see | Meaning | Inspect | Action |
 |------------|---------|---------|--------|
-| `401` / `Unauthorized` | Bad or missing API key | `ELEVENLABS_API_KEY` | Fix secrets; reload env; **do not retry** |
+| `401` / `Unauthorized` | Bad or missing API key | `` | Fix secrets; reload env; **do not retry** |
 | `429` / `rate limit` / `too many requests` | Quota or burst cap | Logs, dashboard | Backoff 2^n s (n=1..5); ≤2 parallel; serialize assets |
-| `402` / payment (varies by vendor copy) | Billing / plan | ElevenLabs account | Stop generation; resolve billing |
+| `402` / payment (varies by vendor copy) | Billing / plan | removed cloud audio billing (use local MMAudio) | Stop generation; resolve billing |
 | `5xx` / timeout | Server or network | Payload size, proxy | Retry 5s, 15s, 45s (max 3); then placeholder WAV (target) |
 | Timeout / empty body | Network or large file | Isolation file duration | Retry once; for isolation use streaming/chunking when implemented |
 
@@ -252,14 +252,14 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | SFX unused in master | Missing assets or mix not run | SDP `assets[]`, `sound_design/assets/`, `.stage_done/mix_flow*` | Re-run craft → generate → `mix_flow1` / `mix_flow2`; check cue `asset_id` references — [stage-registry](../build-out/stage-registry.md) |
-| Random / trailer feel | Weak craft or legacy v1 brief path | SDP + `elevenlabs_prompts.json` | Default: SDP + craft; tune [prompt_influence](../cross-cutting/elevenlabs-prompt-influence-tuning.md) |
-| Wrong timbre after regen | Variance or influence | `elevenlabs_prompts.json` | [Regression appendix](../prompts/_shared/examples/elevenlabs-prompt-regression.md); rewrite prompt |
-| Voice in generated bed | Weak craft | `elevenlabs_prompts.json` | Regen; strengthen `negative_prompt`; block policy strings |
+| Random / trailer feel | Weak craft or legacy v1 brief path | SDP + `sfx_prompts.json` | Default: SDP + craft; tune [prompt_influence](../cross-cutting/local-audio-stack.md) |
+| Wrong timbre after regen | Variance or influence | `sfx_prompts.json` | [Regression appendix](../prompts/_shared/examples/sfx-prompt-regression.md); rewrite prompt |
+| Voice in generated bed | Weak craft | `sfx_prompts.json` | Regen; strengthen `negative_prompt`; block policy strings |
 | Bed buries speech | Level / duck too hot | SDP cues `level_db`, `duck_under_speech_db` | Post-gen: lower bed −4 dB or duck +4 dB — [sound-design.md](../cross-cutting/sound-design.md) |
 | Harsh montage cuts | Fixed concat / no crossfade | Flow 2 selection ranks | Post-gen: 80–200 ms crossfade; lower transition level |
 | Isolation underwater | Over-processing | A/B raw vs `preclean/isolated.wav` | Disable pre-clean; try `rnnoise_local` |
 | Cost spike | Per-cue v1 or regen loop | # API calls vs unique `asset_id`s | Enforce reuse; idempotent skip; G1.5 approval |
-| Regen loop | Plan hash not updating | SDP + `elevenlabs_prompts.json` | Fix craft; cap 2 regens per asset |
+| Regen loop | Plan hash not updating | SDP + `sfx_prompts.json` | Fix craft; cap 2 regens per asset |
 
 ### Spend controls
 

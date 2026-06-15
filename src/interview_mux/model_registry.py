@@ -52,7 +52,8 @@ LOW_SEVERITY_STAGES = {
     "podcast_sfx_brief",
     "sfx_brief",
     "sound_design_palettes",
-    "elevenlabs_prompt_craft",
+    "sfx_prompt_craft",
+    "sfx_prompt_refine",
 }
 
 

@@ -32,6 +32,7 @@ ARTIFACTS_REGISTRY: dict[str, tuple[str, ...]] = {
     "boundary_detection": ("segments/boundaries.json",),
     "segment_classification": ("segments/manifest.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
+    "sonic_context_build": ("understanding/sonic_context.json",),
     "sound_design_palettes": ("understanding/sound_design_plan.json",),
     "missing_framing": ("understanding/gap_evaluations.json",),
     "optimal_questions": ("understanding/gap_report.json",),
@@ -44,7 +45,7 @@ ARTIFACTS_REGISTRY: dict[str, tuple[str, ...]] = {
     "sound_design_plan_flow1": ("understanding/sound_design_plan.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
     "edl_narrative_audit": ("flow_1_master/edl_narrative_audit.json",),
-    "elevenlabs_prompt_craft": ("sound_design/elevenlabs_prompts.json",),
+    "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
     "sfx_brief": ("flow_2_highlights/sfx_brief.json",),
     "podcast_show_description": ("flow_3_description/show_description.json",),
 }

@@ -14,7 +14,7 @@
 |------|--------|-----|
 | **P0** | `speaker_roles`, `content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor` | Errors poison all downstream work |
 | **P1** | `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit` | Listener comprehension |
-| **P2** | `sound_design_palettes`, `sound_design_plan_flow1/2`, `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow*`, `mix_flow*` | API spend + master quality |
+| **P2** | `sound_design_palettes`, `sound_design_plan_flow1/2`, `sfx_prompt_craft`, `mmaudio_sfx_flow*`, `mix_flow*` | API spend + master quality |
 | **P3** | `transitions`, `highlight_selection`, `podcast_show_description` | Polish; operator-recoverable |
 | **P4** | G0, `source_acoustic_profile`, `disfluency_extract`, `sound_design_vo_finalize`, `assembly_preview` | Upstream non-LLM gates |
 

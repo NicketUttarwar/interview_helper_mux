@@ -16,9 +16,9 @@
 
 | Command | Status | Action |
 |---------|--------|--------|
-| **A5** — Post-listen log hook | **Shipped** | `POST /api/runs/{run_id}/elevenlabs-prompts/listen-result` → `run_meta.elevenlabs_listen_results[]` |
+| **A5** — Post-listen log hook | **Shipped** | `POST /api/runs/{run_id}/sfx-prompts/listen-result` → `run_meta.sfx_listen_results[]` |
 | **B5** — GUI value_features panel | **Shipped** | [`frontend/src/components/gates/ValueFeaturesPanel.tsx`](../../frontend/src/components/gates/ValueFeaturesPanel.tsx) on `content_context` when `value_analysis.enabled` |
-| **Command 5** — Post-listen GUI | **Shipped** | [`frontend/src/components/gates/ElevenLabsPostListenPanel.tsx`](../../frontend/src/components/gates/ElevenLabsPostListenPanel.tsx) on craft + SFX stages |
+| **Command 5** — Post-listen GUI | **Shipped** | [`frontend/src/components/gates/SfxPostListenPanel.tsx`](../../frontend/src/components/gates/SfxPostListenPanel.tsx) on craft + SFX stages |
 
 Everything else from the original guide is **done** — see [Shipped checklist](#shipped-checklist) below.
 
@@ -30,11 +30,11 @@ Everything else from the original guide is **done** — see [Shipped checklist](
 flowchart TB
   subgraph g15 [Track A G1.5 — shipped]
     CFG1[g1_5_require_prompt_approval]
-    API[GET PUT POST elevenlabs-prompts]
+    API[GET PUT POST sfx-prompts]
     LISTEN[POST listen-result + post-listen GUI]
     GUI[React craft + SFX panels]
-    PREFLIGHT[can_run_elevenlabs_generation]
-    SFX[sfx_elevenlabs.run_sfx_generation]
+    PREFLIGHT[can_generate]
+    SFX[sfx_mmaudio.run_sfx_generation]
     CFG1 --> API
     API --> GUI
     LISTEN --> GUI
@@ -68,12 +68,12 @@ flowchart TB
 | File | Role |
 |------|------|
 | `src/interview_mux/g15_prompt_review.py` | Gate + validation + SDP warnings |
-| `src/interview_mux/stages/sfx_elevenlabs.py` | Calls `require_elevenlabs_generation` |
+| `src/interview_mux/stages/sfx_mmaudio.py` | Calls `require_sfx_generation` |
 | `src/interview_mux/web/runner.py` | Pre-flight before SFX stages |
 | `src/interview_mux/web/server.py` | GET/PUT/POST hardened (`warnings`, schema on PUT); **POST listen-result** |
-| `frontend/src/components/gates/ElevenLabsPromptReviewPanel.tsx` | Craft review panel |
-| `frontend/src/components/gates/ElevenLabsPostListenPanel.tsx` | Post-listen Pass/Fail on craft + SFX stages |
-| `frontend/src/components/gates/ElevenLabsBlockedPanel.tsx` | G1.5 blocked state CTA |
+| `frontend/src/components/gates/SfxPromptReviewPanel.tsx` | Craft review panel |
+| `frontend/src/components/gates/SfxPostListenPanel.tsx` | Post-listen Pass/Fail on craft + SFX stages |
+| `frontend/src/components/gates/SfxBlockedPanel.tsx` | G1.5 blocked state CTA |
 | Docs | `operator-gates.md`, `gui-surface-map.md`, checklists, troubleshooting, `sound-design.md`, guardrails |
 
 ### Track B — Value-analysis (complete)
@@ -97,7 +97,7 @@ flowchart TB
 
 | Key | Default | Effect |
 |-----|---------|--------|
-| `g1_5_require_prompt_approval` | `true` | When `true`, block ElevenLabs SFX until GUI approve |
+| `g1_5_require_prompt_approval` | `true` | When `true`, block MMAudio SFX until GUI approve |
 | `value_analysis.enabled` | `true` | Master switch for VA tools + GUI panel |
 | `value_analysis.spike_scoring` | `true` | Allow `run_value_spike.py` when enabled |
 | `value_analysis.transcript_features` | `true` | Transcript profile in extractor |
@@ -119,4 +119,4 @@ Documented in [config-keys.md](../cross-cutting/config-keys.md).
 
 - [remaining-build-commands.md](./remaining-build-commands.md) — optional R&D queue
 - [value-analysis/README.md](../pipeline/value-analysis/README.md) — rubrics and tooling flags
-- [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md) — G1.5 operator journey
+- [local-audio-stack.md](../cross-cutting/local-audio-stack.md) — G1.5 operator journey

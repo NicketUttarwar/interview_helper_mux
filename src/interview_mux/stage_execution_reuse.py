@@ -118,8 +118,8 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "edl_narrative_audit": ("flow_1_master/edl_narrative_audit.json",),
     "edl_flow1": ("flow_1_master/edl.json",),
     "assembly_preview": ("flow_1_master/assembly_preview.wav",),
-    "elevenlabs_prompt_craft": ("sound_design/elevenlabs_prompts.json",),
-    "elevenlabs_sfx_flow1": (
+    "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
+    "mmaudio_sfx_flow1": (
         "glob:sound_design/assets/*.wav",
         "glob:flow_1_master/sfx/*.wav",
     ),
@@ -127,7 +127,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "master_flow1": ("flow_1_master/master.wav",),
     "highlight_selection": ("flow_2_highlights/selection.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
-    "elevenlabs_sfx_flow2": (
+    "mmaudio_sfx_flow2": (
         "glob:sound_design/assets/*.wav",
         "glob:flow_2_highlights/sfx/*.wav",
     ),

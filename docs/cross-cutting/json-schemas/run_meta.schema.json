@@ -36,8 +36,40 @@
     "journey_milestones": { "type": "object" },
     "preview_listened_at": { "type": "string" },
     "audio_preclean": { "type": "object" },
-    "elevenlabs_prompt_review": { "type": "object" },
-    "elevenlabs_listen_results": { "type": "array" },
+    "sfx_prompt_review": { "type": "object" },
+    "sfx_listen_results": { "type": "array" },
+    "sfx_regen_asset_ids": { "type": "array", "items": { "type": "string" } },
+    "sfx_generation_meta": { "type": "object" },
+    "sfx_refine_attempts": { "type": "object" },
+    "sfx_generation_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "asset_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "at": { "type": "string" },
+          "stage": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "sonic_context_hash": {
+      "type": "string",
+      "description": "Hash of understanding/sonic_context.json at last sound spend."
+    },
+    "post_listen_gate_state": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["soft", "warn", "block_mix"] },
+        "blocked_assets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "updated_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "qc_summaries": { "type": "object" }
   },
   "additionalProperties": true

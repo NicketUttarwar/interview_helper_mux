@@ -18,7 +18,7 @@
 | shared-segmentation | Neural VAD pause ladder (`pause_ladder_vad`) | listener-first, idea-first | 2026-05-28 | fixture spike |
 | shared-gaps-and-vo | Blind comprehension-risk scoring (`comprehension_risk_blind`) | listener-first, idea-first | 2026-05-28 | fixture spike |
 | flow1-extended-narrative | Acoustic emphasis coverage (`acoustic_emphasis_coverage`) | listener-first, idea-first | 2026-05-28 | fixture spike |
-| flow1-sound-and-mix | SDP + OpenAI craft + ElevenLabs per asset_id (`sdp_craft_path`) | listener-first, idea-first | 2026-05-28 | fixture spike |
+| flow1-sound-and-mix | SDP + OpenAI craft + MMAudio per asset_id (`sdp_craft_path`) | listener-first, idea-first | 2026-05-28 | fixture spike |
 | flow2-highlights | Paralinguistic × quotability fusion (`paralinguistic_quotability`) | listener-first, idea-first | 2026-05-28 | fixture spike |
 | flow3-show-description | Evidence-anchored show notes (`evidence_anchored_hype`) | listener-first, idea-first | 2026-05-28 | fixture spike |
 | cross-orchestration-memory | Acoustic anomaly + text ambiguity queue (`acoustic_anomaly_investigations`) | listener-first, idea-first | 2026-05-28 | fixture spike |
@@ -127,9 +127,9 @@ Fixture: `tests/fixtures/value_analysis/spike_flow1_sound.json`
 
 | Rank | Candidate | Score | Outcome | Mechanism | Moonshot | Section fit |
 |------|-----------|-------|---------|-------------|----------|-------------|
-| 1 | SDP + OpenAI craft + ElevenLabs per asset_id | 3.9 | 3.889 | 4.0 | 3.667 | 4.0 |
+| 1 | SDP + OpenAI craft + MMAudio per asset_id | 3.9 | 3.889 | 4.0 | 3.667 | 4.0 |
 | 2 | No external tool; prompt-only editorial pattern | 3.4 | 3.222 | 4.0 | 2.667 | 4.0 |
-| 3 | v1 podcast_sfx_brief → ElevenLabs (no craft) | 3.342 | 3.222 | 3.5 | 3.333 | 4.0 |
+| 3 | v1 podcast_sfx_brief → MMAudio (legacy) (no craft) | 3.342 | 3.222 | 3.5 | 3.333 | 4.0 |
 
 Stable across profiles. **Promote** `sdp_craft_path`. **Park** v1 brief-direct path (fast but weaker COM). **Kill** prompt-only SFX (no sonic intent fit).
 
@@ -218,8 +218,8 @@ Command 8 gate: proceed only if Command 7 recommends SSL for a section. Command 
 | H-ING-01 | Park | T0 spike (2026-05-28): Command 7 did not recommend SSL; no lift vs `audio` profile without heavy deps — see [§ H-ING-01 T0](#h-ing-01-t0-spike--ssl-idea-density) |
 | H-ING-04 | Park | Alternate ASR + forced alignment T1; revisit after ingest winner ships |
 | H-SEG-01 | Park | Wav2Vec2 boundary fusion deferred — SSL out of scope for fixture sprint |
-| H-F2-01 | Park | CLAP text-query retrieval deferred — CLAP out of scope for fixture sprint |
-| H-F1S-01 | Park | CLAP sting matching deferred — CLAP out of scope for fixture sprint |
+| H-F2-01 | Park | CLAP text-query retrieval deferred — optional Tier 2 semantic QA now shipped opt-in via `mmaudio.semantic_qa_enabled` (supersedes parked spike) |
+| H-F1S-01 | Park | CLAP sting matching deferred — use opt-in CLAP in `semantic_audio_qa.py` when tuning; not default-on |
 | H-ORC-01 | Park | Chunked embedding spine T1; ship after investigation trigger wins |
 | H-ORC-03 | Park | T2 moonshot; needs 90m+ planted-contradiction fixture |
 | prompt_only_pattern (all sections) | Kill | Baseline floor only; no novel evidence channel (MEC-A ≤ 1) |

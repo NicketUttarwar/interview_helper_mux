@@ -64,7 +64,7 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `sfx_brief` | flagship | low |
 | `sound_design_plan_flow1` | flagship | high |
 | `sound_design_plan_flow2` | flagship | high |
-| `elevenlabs_prompt_craft` | flagship | low |
+| `sfx_prompt_craft` | flagship | low |
 
 Sound-design stage details: [sound-design.md](./sound-design.md).
 
@@ -125,6 +125,6 @@ Default **flagship** on first pass for:
 - Flow 3 podcast show description (`podcast_show_description`)
 - Sound-design plan stages (`sound_design_plan_flow1`, `sound_design_plan_flow2`)
 
-Keep **economy** for speaker/content pass, transitions, SFX briefs, ElevenLabs prompt craft, and all **arbiter** / **shard** sub-calls.
+Keep **economy** for speaker/content pass, transitions, SFX briefs, MMAudio SFX prompt craft, and all **arbiter** / **shard** sub-calls.
 
 Use **standard** for segmentation cascade (boundaries → classification) unless arbiter requests upgrade or decompose.

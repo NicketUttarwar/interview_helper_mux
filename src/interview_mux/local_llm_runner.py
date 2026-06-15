@@ -1,52 +1,27 @@
-"""MLX local inference for volley framing (lazy-loaded; optional dependency)."""
+"""MLX local inference for volley framing (subprocess via ASSETS/local_llm/venv)."""
 
 from __future__ import annotations
 
-import time
-from pathlib import Path
+import json
 from typing import Any
 
-from interview_mux.local_llm_config import (
-    max_tokens,
-    resolve_model_id,
-    resolve_model_path,
-)
+from interview_mux.local_llm_config import max_tokens, resolve_model_id, resolve_model_path
+from interview_mux.local_runtime import LocalRuntimeUnavailable, run_runtime_script
 from interview_mux.run_context import RunContext
 
-_MODEL_CACHE: dict[str, tuple[Any, Any]] = {}
 
-
-class LocalLlmUnavailable(Exception):
-    """Raised when mlx-lm is missing or weights are not on disk."""
+class LocalLlmUnavailable(LocalRuntimeUnavailable):
+    """Raised when mlx-lm venv is missing or weights are not on disk."""
 
 
 def mlx_available() -> bool:
+    from interview_mux.local_runtime import resolve_venv_python
+
     try:
-        import mlx_lm  # noqa: F401
-
+        resolve_venv_python("mlx")
         return True
-    except ImportError:
+    except LocalRuntimeUnavailable:
         return False
-
-
-def load_local_model(model_path: str | None = None, *, cfg: dict[str, Any] | None = None) -> tuple[Any, Any]:
-    """Load (or return cached) MLX model + tokenizer."""
-    if not mlx_available():
-        raise LocalLlmUnavailable("mlx-lm is not installed (Apple Silicon: pip install mlx-lm)")
-
-    from mlx_lm import load
-
-    resolved = Path(model_path) if model_path else resolve_model_path(cfg)
-    cache_key = str(resolved)
-    if cache_key not in _MODEL_CACHE:
-        if not resolved.is_dir():
-            raise LocalLlmUnavailable(
-                f"Local model weights not found at {resolved}. "
-                f"Run: python scripts/select_local_llm.py --download "
-                f"(or: python scripts/download_local_llm.py --model {resolve_model_id(cfg)!r})"
-            )
-        _MODEL_CACHE[cache_key] = load(cache_key)
-    return _MODEL_CACHE[cache_key]
 
 
 def generate_local_chat(
@@ -59,50 +34,54 @@ def generate_local_chat(
     cfg: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
-    Run one local chat completion. Returns (raw_text, meta).
-    Always raises LocalLlmUnavailable on missing deps/weights — callers must fall back to OpenAI path.
+    Run one local chat completion via subprocess. Returns (raw_text, meta).
+    Raises LocalLlmUnavailable on missing deps/weights.
     """
-    from mlx_lm import generate
-
     model_id = resolve_model_id(cfg)
-    model, tokenizer = load_local_model(cfg=cfg)
-    limit = max_tokens_override if max_tokens_override is not None else max_tokens(cfg)
-
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-    if getattr(tokenizer, "chat_template", None):
-        prompt = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
+    model_path = resolve_model_path(cfg)
+    if not model_path.is_dir():
+        raise LocalLlmUnavailable(
+            f"Local model weights not found at {model_path}. "
+            f"Run: python scripts/select_local_llm.py --download "
+            f"(or: python scripts/download_local_llm.py --model {model_id!r})"
         )
-    else:
-        prompt = f"{system}\n\nUser:\n{user}\n\nAssistant:\n"
 
-    started = time.perf_counter()
-    raw = generate(
-        model,
-        tokenizer,
-        prompt=prompt,
-        max_tokens=limit,
-        verbose=False,
+    limit = max_tokens_override if max_tokens_override is not None else max_tokens(cfg)
+    stdin_payload = json.dumps(
+        {
+            "system": system,
+            "user": user,
+            "max_tokens": limit,
+            "model_path": str(model_path),
+        }
     )
-    latency_ms = int((time.perf_counter() - started) * 1000)
-    text = raw if isinstance(raw, str) else str(raw)
-    approx_tokens = max(1, len(text) // 4)
+    proc = run_runtime_script(
+        "mlx",
+        "tools/local_llm_infer.py",
+        [],
+        stdin_data=stdin_payload,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()[:500]
+        raise LocalLlmUnavailable(f"Local LLM subprocess failed: {err}")
 
-    meta = {
-        "model_id": model_id,
-        "model_path": str(resolve_model_path(cfg)),
-        "latency_ms": latency_ms,
-        "tokens_approx": approx_tokens,
-        "max_tokens": limit,
-    }
+    try:
+        result = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise LocalLlmUnavailable(f"Local LLM returned invalid JSON: {exc}") from exc
+
+    if result.get("error"):
+        raise LocalLlmUnavailable(str(result["error"]))
+
+    text = str(result.get("text") or "")
+    meta = dict(result.get("meta") or {})
+    meta.setdefault("model_id", model_id)
+    meta.setdefault("model_path", str(model_path))
+
     if ctx:
         ctx.log(
-            f"Local LLM {stage_key}: {latency_ms}ms, ~{approx_tokens} tokens",
+            f"Local LLM {stage_key}: {meta.get('latency_ms', '?')}ms, "
+            f"~{meta.get('tokens_approx', '?')} tokens",
             level="debug",
             stage=stage_key,
         )

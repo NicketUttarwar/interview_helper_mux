@@ -23,8 +23,8 @@ from interview_mux.analysis_memory import (
 )
 from interview_mux.config import merged_config, repo_root
 from interview_mux.value_analysis.config import value_analysis_enabled
-from interview_mux.g15_prompt_review import (
-    sdp_asset_id_warnings,
+from interview_mux.sfx_prompt_review import (
+    prompt_completeness_warnings,
     validate_prompts_payload,
 )
 from interview_mux.prompt_validation import validate_artifact_write
@@ -83,12 +83,13 @@ from interview_mux.operator_snapshots import (
     mirror_artifact_to_operator,
     persist_operator_acoustic_overrides,
     persist_operator_analysis_profile,
-    persist_operator_elevenlabs_listen_results,
-    persist_operator_elevenlabs_prompts,
+    persist_operator_sfx_listen_results,
+    persist_operator_sfx_prompts,
     persist_operator_flow_selection,
     persist_operator_investigation_queue,
     persist_operator_preclean,
 )
+from interview_mux.sonic_context import compact_for_volley as compact_sonic_context, load_sonic_context
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -297,14 +298,24 @@ class StageReuseBody(BaseModel):
     source_run_id: str | None = None
 
 
-class ElevenLabsPromptApproveBody(BaseModel):
+class SfxPromptApproveBody(BaseModel):
     approved_by: str | None = None
 
 
-class ElevenLabsListenResultBody(BaseModel):
+class SfxListenResultBody(BaseModel):
     asset_id: str = Field(min_length=1)
     result: str = Field(pattern="^(pass|fail)$")
     note: str | None = None
+    mode: str = Field(default="post_listen", pattern="^(post_listen|under_speech)$")
+
+
+class SfxPromptRefineBody(BaseModel):
+    asset_ids: list[str] | None = None
+    force: bool = False
+
+
+class SfxPromptRegenBody(BaseModel):
+    asset_ids: list[str] = Field(min_length=1)
 
 
 def create_app() -> FastAPI:
@@ -569,11 +580,14 @@ def create_app() -> FastAPI:
         journey = build_journey_snapshot(ctx, job=job, stages=stages)
         intent = get_flow_intent(ctx)
         display_flow = flow or intent
+        from interview_mux.legacy_stage_warnings import legacy_sfx_warnings
+
         return {
             "run_id": run_id,
             "meta": meta,
             "handoff_ack": handoff_ack,
-            "elevenlabs_generated_assets": _discover_generated_sfx_assets(ctx),
+            "sfx_generated_assets": _discover_generated_sfx_assets(ctx),
+            "legacy_migration_warnings": legacy_sfx_warnings(ctx),
             "selected_flow": flow,
             "flow_intent": intent,
             "transcript_review_pending": tr_pending,
@@ -1195,10 +1209,10 @@ def create_app() -> FastAPI:
             "stage_done": ctx.is_done(stage_id),
         }
 
-    @app.get("/api/runs/{run_id}/elevenlabs-prompts")
-    def get_elevenlabs_prompts(run_id: str) -> dict[str, Any]:
+    @app.get("/api/runs/{run_id}/sfx-prompts")
+    def get_sfx_prompts(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        path = "sound_design/elevenlabs_prompts.json"
+        path = "sound_design/sfx_prompts.json"
         if not ctx.artifact_exists(path):
             raise HTTPException(404, f"Artifact not found: {path}")
         data = ctx.read_json(path)
@@ -1206,8 +1220,11 @@ def create_app() -> FastAPI:
         review = _read_prompt_review_meta(ctx)
         review_required = bool(merged_config().get("g1_5_require_prompt_approval", False))
         approved = bool(review.get("approved"))
-        warnings = sdp_asset_id_warnings(ctx, rows)
-        listen_results = _read_elevenlabs_listen_results(ctx)
+        warnings = prompt_completeness_warnings(ctx, rows)
+        listen_results = _read_sfx_listen_results(ctx)
+        mmaudio_qa = _read_mmaudio_qa(ctx)
+        generation_meta = _read_sfx_generation_meta(ctx)
+        sonic_context = load_sonic_context(ctx)
         return {
             "path": path,
             "prompts": rows,
@@ -1217,13 +1234,16 @@ def create_app() -> FastAPI:
             "warnings": warnings,
             "listen_results": listen_results,
             "generated_assets": _discover_generated_sfx_assets(ctx),
+            "mmaudio_qa": mmaudio_qa,
+            "generation_meta": generation_meta,
+            "sonic_context": compact_sonic_context(sonic_context) if sonic_context else None,
         }
 
-    @app.put("/api/runs/{run_id}/elevenlabs-prompts")
-    def put_elevenlabs_prompts(run_id: str, body: ArtifactBody) -> dict[str, Any]:
+    @app.put("/api/runs/{run_id}/sfx-prompts")
+    def put_sfx_prompts(run_id: str, body: ArtifactBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        if body.path != "sound_design/elevenlabs_prompts.json":
-            raise HTTPException(400, "This endpoint only supports sound_design/elevenlabs_prompts.json")
+        if body.path != "sound_design/sfx_prompts.json":
+            raise HTTPException(400, "This endpoint only supports sound_design/sfx_prompts.json")
         if not isinstance(body.data, dict):
             raise HTTPException(400, "Prompt payload must be a JSON object with prompts[].")
         rows = body.data.get("prompts")
@@ -1240,25 +1260,25 @@ def create_app() -> FastAPI:
             approved_at=None,
         )
         ctx.log(
-            "ElevenLabs prompts edited in review panel; approval reset.",
+            "SFX prompts edited in review panel; approval reset.",
             level="info",
-            stage="elevenlabs_prompt_craft",
+            stage="sfx_prompt_craft",
             detail=f"rows={len(rows)}",
         )
         if body.invalidate_from:
             runner.invalidate_from(run_id, body.invalidate_from)
-        warnings = sdp_asset_id_warnings(ctx, rows)
-        persist_operator_elevenlabs_prompts(
+        warnings = prompt_completeness_warnings(ctx, rows)
+        persist_operator_sfx_prompts(
             ctx,
             {"prompts": rows, "review": review},
-            source="elevenlabs_prompts_put",
+            source="sfx_prompts_put",
         )
         return {"ok": True, "path": body.path, "review": review, "warnings": warnings}
 
-    @app.post("/api/runs/{run_id}/elevenlabs-prompts/approve")
-    def approve_elevenlabs_prompts(run_id: str, body: ElevenLabsPromptApproveBody) -> dict[str, Any]:
+    @app.post("/api/runs/{run_id}/sfx-prompts/approve")
+    def approve_sfx_prompts(run_id: str, body: SfxPromptApproveBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        path = "sound_design/elevenlabs_prompts.json"
+        path = "sound_design/sfx_prompts.json"
         if not ctx.artifact_exists(path):
             raise HTTPException(404, f"Artifact not found: {path}")
         data = ctx.read_json(path)
@@ -1272,37 +1292,52 @@ def create_app() -> FastAPI:
         asset_ids = [str(row.get("asset_id")) for row in rows if isinstance(row, dict) and row.get("asset_id")]
         detail = {"approved_by": review.get("approved_by"), "asset_ids": asset_ids}
         ctx.log(
-            "elevenlabs_prompts_approved",
+            "sfx_prompts_approved",
             level="success",
-            stage="elevenlabs_prompt_craft",
+            stage="sfx_prompt_craft",
             detail=str(detail),
         )
-        warnings = sdp_asset_id_warnings(ctx, rows)
+        warnings = prompt_completeness_warnings(ctx, rows)
         for w in warnings:
-            ctx.log(w, level="warning", stage="elevenlabs_prompt_craft")
-        persist_operator_elevenlabs_prompts(
+            ctx.log(w, level="warning", stage="sfx_prompt_craft")
+        persist_operator_sfx_prompts(
             ctx,
             {"prompts": rows, "review": review},
-            source="elevenlabs_prompts_approve",
+            source="sfx_prompts_approve",
         )
         return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
 
-    @app.post("/api/runs/{run_id}/elevenlabs-prompts/listen-result")
-    def post_elevenlabs_listen_result(run_id: str, body: ElevenLabsListenResultBody) -> dict[str, Any]:
+    @app.post("/api/runs/{run_id}/sfx-prompts/listen-result")
+    def post_sfx_listen_result(run_id: str, body: SfxListenResultBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         asset_id = body.asset_id.strip()
         if not asset_id:
             raise HTTPException(400, "asset_id is required")
-        entry, results = _append_elevenlabs_listen_result(
+        if body.mode == "under_speech":
+            entry, results = _append_speech_under_listen_result(
+                ctx,
+                asset_id=asset_id,
+                result=body.result,
+                note=body.note,
+            )
+            ctx.log(
+                "speech_under_listen_result_recorded",
+                level="info",
+                stage="mix_flow1",
+                detail=entry,
+            )
+            return {"ok": True, "entry": entry, "speech_under_listen_results": results}
+
+        entry, results = _append_sfx_listen_result(
             ctx,
             asset_id=asset_id,
             result=body.result,
             note=body.note,
         )
         event = (
-            "elevenlabs_post_listen_pass"
+            "sfx_post_listen_pass"
             if body.result == "pass"
-            else "elevenlabs_post_listen_fail"
+            else "sfx_post_listen_fail"
         )
         detail: dict[str, str] = {"asset_id": asset_id}
         if body.note:
@@ -1312,8 +1347,78 @@ def create_app() -> FastAPI:
             level="success" if body.result == "pass" else "warning",
             detail=str(detail),
         )
-        persist_operator_elevenlabs_listen_results(ctx, source="elevenlabs_listen_result")
-        return {"ok": True, "entry": entry, "elevenlabs_listen_results": results}
+        persist_operator_sfx_listen_results(ctx, source="sfx_listen_result")
+        from interview_mux.gates import sync_post_listen_gate_state
+        from interview_mux.stages.sfx_mmaudio import maybe_auto_refine
+
+        gate_state = sync_post_listen_gate_state(ctx)
+        auto_refined: list[str] = []
+        if body.result == "fail":
+            flow = get_selected_flow(ctx)
+            stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
+            with _guarded_run(run_id):
+                auto_refined = maybe_auto_refine(ctx, stage)
+        return {
+            "ok": True,
+            "entry": entry,
+            "sfx_listen_results": results,
+            "post_listen_gate_state": gate_state,
+            "auto_refined_asset_ids": auto_refined,
+        }
+
+    @app.post("/api/runs/{run_id}/sfx-prompts/refine")
+    def post_sfx_prompt_refine(run_id: str, body: SfxPromptRefineBody) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.stages.sfx_mmaudio import grant_auto_refine_override
+            from interview_mux.stages.sound_design_stages import run_sfx_prompt_refine
+
+            asset_ids = [a.strip() for a in (body.asset_ids or []) if a.strip()]
+            if body.force or asset_ids:
+                grant_auto_refine_override(ctx, asset_ids)
+            run_sfx_prompt_refine(ctx, asset_ids=body.asset_ids)
+            data = ctx.read_json("sound_design/sfx_prompts.json")
+            rows = data.get("prompts") if isinstance(data, dict) else []
+            review = _read_prompt_review_meta(ctx)
+            return {
+                "ok": True,
+                "prompts": rows,
+                "review": review,
+                "refined_asset_ids": body.asset_ids or [],
+            }
+
+    @app.post("/api/runs/{run_id}/sfx-prompts/regenerate")
+    def post_sfx_prompt_regenerate(run_id: str, body: SfxPromptRegenBody) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            asset_ids = [a.strip() for a in body.asset_ids if a.strip()]
+            if not asset_ids:
+                raise HTTPException(400, "asset_ids required")
+
+            def patch(m: dict[str, Any]) -> None:
+                m["sfx_regen_asset_ids"] = sorted(set(asset_ids))
+
+            ctx.mutate_run_meta(patch)
+            flow = get_selected_flow(ctx)
+            stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
+            marker = ctx.final_path(".stage_done", stage)
+            if marker.is_file():
+                marker.unlink()
+            ctx.log(
+                "sfx_regen_requested",
+                level="info",
+                stage=stage,
+                detail={"asset_ids": asset_ids},
+            )
+            if runner.is_running(run_id):
+                raise HTTPException(409, "A job is already running for this run.")
+            set_active_execution(run_id)
+            return runner.start(run_id, mode="stage", stage=stage, from_stage=stage)
+
+    @app.get("/api/runs/{run_id}/sfx-qa")
+    def get_sfx_qa(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        return _read_mmaudio_qa(ctx)
 
     @app.post("/api/runs/{run_id}/handoff-ack")
     def handoff_ack(run_id: str, body: HandoffAckBody) -> dict[str, Any]:
@@ -1693,6 +1798,22 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "Provide from_stage or new_input_audio_path.")
         return {"ok": True}
 
+    @app.get("/api/runs/{run_id}/audio/sfx-under-speech")
+    def serve_sfx_under_speech(run_id: str, asset_id: str) -> FileResponse:
+        ctx = _ctx(run_id)
+        aid = asset_id.strip()
+        if not aid:
+            raise HTTPException(400, "asset_id required")
+        from interview_mux.sound_design import render_sfx_under_speech_preview
+
+        try:
+            preview = render_sfx_under_speech_preview(ctx, aid)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(404, f"Preview unavailable: {exc}") from exc
+        return FileResponse(preview, media_type="audio/wav", filename=preview.name)
+
     @app.get("/api/runs/{run_id}/audio")
     def serve_audio(
         run_id: str,
@@ -1751,6 +1872,9 @@ def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
         ctx.clear_from("sound_design_plan_flow1", FLOW1_ORDER)
     elif flow == "flow2":
         ctx.clear_from("sound_design_plan_flow2", FLOW2_ORDER)
+    from interview_mux.analysis_memory import invalidate_sonic_context
+
+    invalidate_sonic_context(ctx, reason="pace_class_changed", stage="source_acoustic_profile")
     return cleared
 
 
@@ -1980,7 +2104,7 @@ def _record_preclean_offer(
             changed = True
         preclean["enabled"] = action == "accept"
         preclean["scope"] = requested_scope
-        preclean["provider"] = "elevenlabs"
+        preclean["provider"] = "deepfilternet"
         preclean["requested_at"] = now
         decisions.append(
             {
@@ -2030,12 +2154,26 @@ def _default_scope_for_checkpoint(checkpoint: str) -> str:
     return "full_source"
 
 
-def _read_elevenlabs_listen_results(ctx: RunContext) -> list[dict[str, Any]]:
+def _read_sfx_listen_results(ctx: RunContext) -> list[dict[str, Any]]:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    results = meta.get("elevenlabs_listen_results")
+    results = meta.get("sfx_listen_results")
     if not isinstance(results, list):
         return []
     return [r for r in results if isinstance(r, dict)]
+
+
+def _read_mmaudio_qa(ctx: RunContext) -> dict[str, Any]:
+    path = "sound_design/mmaudio_qa.json"
+    if not ctx.artifact_exists(path):
+        return {"version": 1, "assets": []}
+    doc = ctx.read_json(path)
+    return doc if isinstance(doc, dict) else {"version": 1, "assets": []}
+
+
+def _read_sfx_generation_meta(ctx: RunContext) -> dict[str, Any]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    gm = meta.get("sfx_generation_meta")
+    return gm if isinstance(gm, dict) else {}
 
 
 def _discover_generated_sfx_assets(ctx: RunContext) -> list[dict[str, str]]:
@@ -2052,7 +2190,7 @@ def _discover_generated_sfx_assets(ctx: RunContext) -> list[dict[str, str]]:
 
 def _read_prompt_review_meta(ctx: RunContext) -> dict[str, Any]:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    review = meta.get("elevenlabs_prompt_review")
+    review = meta.get("sfx_prompt_review")
     if not isinstance(review, dict):
         return {"approved": False, "approved_by": None, "approved_at": None}
     return {
@@ -2076,12 +2214,12 @@ def _set_prompt_review_meta(
         "approved_at": approved_at,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    meta["elevenlabs_prompt_review"] = review
+    meta["sfx_prompt_review"] = review
     ctx.write_json("run_meta.json", meta)
     return review
 
 
-def _append_elevenlabs_listen_result(
+def _append_speech_under_listen_result(
     ctx: RunContext,
     *,
     asset_id: str,
@@ -2089,7 +2227,7 @@ def _append_elevenlabs_listen_result(
     note: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    results = meta.get("elevenlabs_listen_results")
+    results = meta.get("speech_under_listen_results")
     if not isinstance(results, list):
         results = []
     entry: dict[str, Any] = {
@@ -2100,6 +2238,30 @@ def _append_elevenlabs_listen_result(
     if note:
         entry["note"] = note
     results.append(entry)
-    meta["elevenlabs_listen_results"] = results
+    meta["speech_under_listen_results"] = results
+    ctx.write_json("run_meta.json", meta)
+    return entry, results
+
+
+def _append_sfx_listen_result(
+    ctx: RunContext,
+    *,
+    asset_id: str,
+    result: str,
+    note: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    results = meta.get("sfx_listen_results")
+    if not isinstance(results, list):
+        results = []
+    entry: dict[str, Any] = {
+        "asset_id": asset_id,
+        "result": result,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    if note:
+        entry["note"] = note
+    results.append(entry)
+    meta["sfx_listen_results"] = results
     ctx.write_json("run_meta.json", meta)
     return entry, results

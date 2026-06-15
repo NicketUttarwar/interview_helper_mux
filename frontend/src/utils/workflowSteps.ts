@@ -45,7 +45,7 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
   {
     id: "polish",
     label: "Sound",
-    tooltip: "Add sound design and mix the final audio.",
+    tooltip: "Add SFX, review under-speech blend, and mix the final audio.",
     subTab: "stage",
   },
   {

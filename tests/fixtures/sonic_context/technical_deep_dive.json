@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "technical_deep_dive",
+    "tone_class": "analytical",
+    "atlas_bucket": "technical_deep_dive",
+    "sound_posture": {
+      "bed_density": "none",
+      "stinger_cap_per_minute": 1
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "precise",
+    "density_hint": "none",
+    "room_character": "dry_studio"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "dense_explainer",
+      "kind": "topic",
+      "keywords": ["architecture", "latency", "systems"],
+      "segment_ids": ["seg_014"],
+      "provenance": ["segments/manifest.topic_tags"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "vo_bridge",
+      "segment_id": "seg_014",
+      "confidence": 0.74,
+      "provenance": ["understanding/gap_report.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "skip",
+    "adaptive_max_assets_flow1": 3,
+    "adaptive_max_assets_flow2": 2,
+    "duration_bands_by_role": {
+      "chapter_stinger": [1, 2],
+      "vo_bridge": [2, 4]
+    }
+  },
+  "avoid_hard": ["continuous beds", "musical pulse"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": ["seg_014"],
+    "disfluency_restore": [],
+    "comprehension_risk": ["seg_014"]
+  }
+}

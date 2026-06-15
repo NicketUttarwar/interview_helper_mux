@@ -40,7 +40,7 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 | `sound_design_palettes` | [sound_design_palettes.json](./arbiter-rubrics/sound_design_palettes.json) | low | no |
 | `sound_design_plan_flow1` | [sound_design_plan_flow1.json](./arbiter-rubrics/sound_design_plan_flow1.json) | high | no |
 | `sound_design_plan_flow2` | [sound_design_plan_flow2.json](./arbiter-rubrics/sound_design_plan_flow2.json) | high | no |
-| `elevenlabs_prompt_craft` | [elevenlabs_prompt_craft.json](./arbiter-rubrics/elevenlabs_prompt_craft.json) | low | no |
+| `sfx_prompt_craft` | [sfx_prompt_craft.json](./arbiter-rubrics/sfx_prompt_craft.json) | low | no |
 | `podcast_sfx_brief` | [podcast_sfx_brief.json](./arbiter-rubrics/podcast_sfx_brief.json) | low | no |
 | `sfx_brief` | [sfx_brief.json](./arbiter-rubrics/sfx_brief.json) | low | no |
 
@@ -60,7 +60,7 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 |----------|---------------------------|--------|
 | **high** | Listener confusion, wrong master, or wasted API spend | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `highlight_selection`, `sound_design_plan_flow1`, `sound_design_plan_flow2`, `podcast_show_description` |
 | **medium** | Downstream patch cost; decompose often fixes | `boundary_detection`, `segment_classification`, `content_brief_reanchor` |
-| **low** | Operator-recoverable or spend-adjacent | `speaker_roles`, `sound_design_palettes`, `transitions`, `elevenlabs_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
+| **low** | Operator-recoverable or spend-adjacent | `speaker_roles`, `sound_design_palettes`, `transitions`, `sfx_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
 
 ---
 
@@ -100,7 +100,7 @@ Non-LLM stages, meta, and specialists do not have rubric files:
 
 - `_arbiter` (uses compact contract, not a producer rubric)
 - `comprehension_risk_blind`, `theme_coverage_pass`, `emphasis_coverage_pass` (specialist passes)
-- `transcript_review`, `disfluency_extract`, `source_acoustic_profile`, `mix_flow*`, `elevenlabs_sfx_flow*`
+- `transcript_review`, `disfluency_extract`, `source_acoustic_profile`, `mix_flow*`, `mmaudio_sfx_flow*`
 
 ---
 

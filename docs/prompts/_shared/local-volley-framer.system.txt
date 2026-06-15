@@ -32,7 +32,7 @@ Always set **`escalate: true`** for pipeline stages that require editorial judgm
 
 **P1 — gaps, selection, assembly:** `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `highlight_selection`, `transitions`, `edl_narrative_audit`
 
-**P2 — sound design & publish:** `theme_palettes`, `plan_flow1`, `plan_flow2`, `elevenlabs_prompt_craft`, `podcast_show_description`
+**P2 — sound design & publish:** `theme_palettes`, `plan_flow1`, `plan_flow2`, `sfx_prompt_craft`, `podcast_show_description`
 
 Also escalate when: truncation flags, low prior confidence, operator locked fields in conflict, or shard collate merge.
 

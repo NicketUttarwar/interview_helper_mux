@@ -1,0 +1,4 @@
+# ASSETS/local_mmaudio/venv — install torch via bootstrap with hardware index first
+# MMAudio itself is pip install -e from ASSETS/local_mmaudio/MMAudio
+transformers>=4.36.0
+librosa>=0.10.0

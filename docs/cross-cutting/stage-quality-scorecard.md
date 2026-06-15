@@ -56,9 +56,9 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | `sound_design_palettes` | P2 | shipped | shipped | shipped | `post_sound_palettes` | shipped | full | shipped | shipped |
 | `sound_design_plan_flow1` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped | shipped |
 | `sound_design_plan_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped | shipped |
-| `elevenlabs_prompt_craft` | P2 | shipped | shipped | shipped | `pre_elevenlabs_spend` | shipped | compact | shipped | shipped |
-| `elevenlabs_sfx_flow1` | P2 | — | — | — | `pre_mix_flow1` | partial | doc_only | — | shipped |
-| `elevenlabs_sfx_flow2` | P2 | — | — | — | `pre_mix_flow2` | partial | doc_only | — | shipped |
+| `sfx_prompt_craft` | P2 | shipped | shipped | shipped | `pre_sfx_generation` | shipped | compact | shipped | shipped |
+| `mmaudio_sfx_flow1` | P2 | — | — | — | `pre_mix_flow1` | partial | doc_only | — | shipped |
+| `mmaudio_sfx_flow2` | P2 | — | — | — | `pre_mix_flow2` | partial | doc_only | — | shipped |
 | `mix_flow1` | P2 | — | — | placement_apply | `pre_mix_flow1` | — | doc_only | — | shipped |
 | `mix_flow2` | P2 | — | — | placement_apply | `pre_mix_flow2` | — | doc_only | — | shipped |
 | `podcast_sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped | shipped |

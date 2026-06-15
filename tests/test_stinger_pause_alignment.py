@@ -7,6 +7,8 @@ from pydub.generators import Sine
 
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import (
+    _laughter_windows_from_value_features,
+    _nudge_away_from_laughter,
     flow1_overlays_from_sdp,
     resolve_stinger_position_ms,
 )
@@ -73,6 +75,45 @@ def test_resolve_stinger_respects_prefer_flag() -> None:
     segment = _segment("seg_a", start_ms=700, end_ms=2000)
     pos = resolve_stinger_position_ms(segment, transcript, _profile(prefer=False), placement="before_segment")
     assert pos is None
+
+
+def test_laughter_windows_extracted_from_value_features() -> None:
+    vf = {
+        "profiles": {
+            "transcript": {
+                "quality_trajectory_flags": [
+                    {"label": "laughter_burst", "start_ms": 850, "end_ms": 1100},
+                ]
+            }
+        }
+    }
+    windows = _laughter_windows_from_value_features(vf)
+    assert windows == [(850, 1100)]
+
+
+def test_resolve_stinger_nudges_away_from_laughter_window() -> None:
+    transcript = {
+        "words": [
+            {"text": "one", "start_ms": 0, "end_ms": 200},
+            {"text": "two", "start_ms": 700, "end_ms": 900},
+            {"text": "three", "start_ms": 1000, "end_ms": 1200},
+        ]
+    }
+    segment = _segment("seg_b", start_ms=1000, end_ms=3000)
+    laughter = [(880, 920)]
+    pos = resolve_stinger_position_ms(
+        segment,
+        transcript,
+        _profile(),
+        placement="before_segment",
+        laughter_windows=laughter,
+    )
+    assert pos == 1300
+
+
+def test_nudge_away_from_laughter_returns_none_when_blocked() -> None:
+    windows = [(0, 5000)]
+    assert _nudge_away_from_laughter(1000, windows, buffer_ms=200) is None
 
 
 def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkeypatch) -> None:

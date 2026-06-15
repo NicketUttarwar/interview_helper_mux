@@ -27,9 +27,9 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
 | [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) | Pinned Python/system/API versions, anchor lock, `pip-audit`, Context7 |
 | [cross-cutting/llm-orchestration.md](./cross-cutting/llm-orchestration.md) | Smart LLM routing: arbiter, tiers, shard/collate (BUILD-073) |
 | [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) | Per-stage model tier matrix |
-| [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) | ElevenLabs REST SFX + isolation + GUI journey |
-| [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) | `prompt_influence` tuning table |
-| [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) | Golden prompt regression QA |
+| [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) | local MMAudio SFX + isolation + GUI journey |
+| [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) | `prompt_influence` tuning table |
+| [prompts/_shared/examples/sfx-prompt-regression.md](./prompts/_shared/examples/sfx-prompt-regression.md) | Golden prompt regression QA |
 | [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
 | [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) | `app.defaults.json` + secrets keys reference |
 | [workflows/](./workflows/) | Gates, idempotency, stage reuse, smoke test |

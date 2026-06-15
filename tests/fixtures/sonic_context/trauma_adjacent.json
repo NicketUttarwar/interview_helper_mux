@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "sensitive_interview",
+    "tone_class": "careful",
+    "atlas_bucket": "trauma_adjacent",
+    "sound_posture": {
+      "bed_density": "none",
+      "stinger_cap_per_minute": 0
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "gentle",
+    "density_hint": "none",
+    "room_character": "quiet_neutral_room"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "safety_first",
+      "kind": "emotional",
+      "keywords": ["care", "safety", "non-triggering"],
+      "segment_ids": ["seg_016"],
+      "provenance": ["understanding/content_brief.json"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "emotional_beat",
+      "segment_id": "seg_016",
+      "confidence": 0.72,
+      "provenance": ["segments/manifest.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "skip",
+    "adaptive_max_assets_flow1": 1,
+    "adaptive_max_assets_flow2": 1,
+    "duration_bands_by_role": {
+      "vo_bridge": [2, 4],
+      "outro": [1, 2]
+    }
+  },
+  "avoid_hard": ["sharp stingers", "sudden impacts"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": ["seg_016"],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

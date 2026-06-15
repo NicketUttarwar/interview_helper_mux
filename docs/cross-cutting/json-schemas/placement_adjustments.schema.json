@@ -9,15 +9,36 @@
       "type": "array",
       "items": {
         "type": "object",
+        "required": ["asset_id"],
         "properties": {
           "asset_id": { "type": "string" },
+          "cue_id": { "type": "string" },
           "role": { "type": "string" },
           "action": { "type": "string" },
           "reason": { "type": "string" },
           "suggested_level_db_delta": { "type": "number" },
-          "suggested_crossfade_ms": { "type": "integer" }
-        }
+          "suggested_crossfade_ms": { "type": "integer" },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "rule_id": { "type": "string" },
+              "source_artifact": { "type": "string" },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "scenario_override": {
+            "type": "boolean",
+            "description": "True when adjustment came from atlas scenario policy."
+          },
+          "adaptive_level_source": {
+            "type": "string",
+            "enum": ["sap_percentile", "operator", "default", "mmaudio_qa"]
+          }
+        },
+        "additionalProperties": true
       }
     }
-  }
+  },
+  "additionalProperties": true
 }

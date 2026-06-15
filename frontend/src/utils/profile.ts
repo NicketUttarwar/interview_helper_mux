@@ -1,4 +1,4 @@
-import type { AnalysisState } from "../types";
+import type { AnalysisState, SonicContextData, SonicContextTag } from "../types";
 
 export function themesToText(themes: AnalysisState["themes"]): string {
   return (themes || [])
@@ -64,9 +64,9 @@ export function textToQuestions(text: string): Array<{
     }));
 }
 
-export function collectElevenLabsPromptEdits<
+export function collectSfxPromptEdits<
   T extends {
-    elevenlabs_prompt?: string;
+    sfx_prompt?: string;
     negative_prompt?: string;
     prompt_influence?: number;
   },
@@ -86,7 +86,7 @@ export function collectElevenLabsPromptEdits<
         : row.prompt_influence;
     return {
       ...row,
-      elevenlabs_prompt: promptText.trim(),
+      sfx_prompt: promptText.trim(),
       negative_prompt: negative.trim(),
       prompt_influence: Number.isFinite(influence)
         ? Math.min(1, Math.max(0, influence as number))
@@ -95,7 +95,7 @@ export function collectElevenLabsPromptEdits<
   });
 }
 
-export function latestElevenLabsListenByAsset(
+export function latestSfxListenByAsset(
   listenResults: Array<{ asset_id?: string; result?: string; at?: string; note?: string }>,
 ): Map<string, { result?: string; at?: string; note?: string }> {
   const map = new Map<string, { result?: string; at?: string; note?: string }>();
@@ -105,7 +105,7 @@ export function latestElevenLabsListenByAsset(
   return map;
 }
 
-export function collectElevenLabsGeneratedAssets(
+export function collectSfxGeneratedAssets(
   runAssets: Array<{ asset_id: string; path: string }> | undefined,
   stageAudioOutputs: string[] | undefined,
 ): Array<{ asset_id: string; path: string }> {
@@ -121,4 +121,21 @@ export function collectElevenLabsGeneratedAssets(
     if (base && !paths.has(base)) paths.set(base, p);
   }
   return [...paths.entries()].map(([asset_id, path]) => ({ asset_id, path }));
+}
+
+export function summarizeSonicContextScenario(sonic: SonicContextData | null): string {
+  if (!sonic) return "Not available";
+  const bucket = sonic.scenario?.atlas_bucket || "unknown";
+  const policy = sonic.mix_policy?.underscore_policy || "—";
+  const flow1 = sonic.mix_policy?.adaptive_max_assets_flow1;
+  const flow2 = sonic.mix_policy?.adaptive_max_assets_flow2;
+  const flowBits = [flow1, flow2].some((v) => typeof v === "number")
+    ? `max assets f1/f2 ${flow1 ?? "—"}/${flow2 ?? "—"}`
+    : null;
+  return [bucket, `underscore ${policy}`, flowBits].filter(Boolean).join(" · ");
+}
+
+export function sonicTagProvenanceText(tag: SonicContextTag): string {
+  if (!Array.isArray(tag.provenance) || !tag.provenance.length) return "—";
+  return tag.provenance.join(", ");
 }

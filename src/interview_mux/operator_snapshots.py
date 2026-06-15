@@ -23,8 +23,10 @@ SNAPSHOT_PATHS: dict[str, str] = {
     "flow_selection": f"{OPERATOR_DIR}/flow_selection.json",
     "preclean_decisions": f"{OPERATOR_DIR}/preclean_decisions.json",
     "stage_reuse_decisions": f"{OPERATOR_DIR}/stage_reuse_decisions.json",
-    "elevenlabs_prompts": f"{OPERATOR_DIR}/elevenlabs_prompts.json",
-    "elevenlabs_listen_results": f"{OPERATOR_DIR}/elevenlabs_listen_results.json",
+    "sfx_prompts": f"{OPERATOR_DIR}/sfx_prompts.json",
+    "sfx_listen_results": f"{OPERATOR_DIR}/sfx_listen_results.json",
+    "mmaudio_qa": f"{OPERATOR_DIR}/mmaudio_qa.json",
+    "sfx_generation_meta": f"{OPERATOR_DIR}/sfx_generation_meta.json",
     "investigation_queue": f"{OPERATOR_DIR}/investigation_queue.json",
 }
 
@@ -268,10 +270,10 @@ def append_operator_stage_reuse(
     write_operator_snapshot(ctx, "stage_reuse_decisions", doc, source=source)
 
 
-def persist_operator_elevenlabs_prompts(ctx: RunContext, payload: dict[str, Any], *, source: str) -> None:
+def persist_operator_sfx_prompts(ctx: RunContext, payload: dict[str, Any], *, source: str) -> None:
     write_operator_snapshot(
         ctx,
-        "elevenlabs_prompts",
+        "sfx_prompts",
         {
             "version": 1,
             "run_id": ctx.run_id,
@@ -283,12 +285,12 @@ def persist_operator_elevenlabs_prompts(ctx: RunContext, payload: dict[str, Any]
     )
 
 
-def persist_operator_elevenlabs_listen_results(ctx: RunContext, *, source: str) -> None:
+def persist_operator_sfx_listen_results(ctx: RunContext, *, source: str) -> None:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    results = meta.get("elevenlabs_listen_results") or []
+    results = meta.get("sfx_listen_results") or []
     write_operator_snapshot(
         ctx,
-        "elevenlabs_listen_results",
+        "sfx_listen_results",
         {
             "version": 1,
             "run_id": ctx.run_id,
@@ -298,6 +300,37 @@ def persist_operator_elevenlabs_listen_results(ctx: RunContext, *, source: str) 
         },
         source=source,
     )
+
+
+def persist_operator_mmaudio_snapshots(ctx: RunContext, *, source: str) -> None:
+    if ctx.artifact_exists("sound_design/mmaudio_qa.json"):
+        write_operator_snapshot(
+            ctx,
+            "mmaudio_qa",
+            {
+                "version": 1,
+                "run_id": ctx.run_id,
+                "saved_at": _now_iso(),
+                "source": source,
+                "mmaudio_qa": ctx.read_json("sound_design/mmaudio_qa.json"),
+            },
+            source=source,
+        )
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    gen_meta = meta.get("sfx_generation_meta")
+    if isinstance(gen_meta, dict) and gen_meta:
+        write_operator_snapshot(
+            ctx,
+            "sfx_generation_meta",
+            {
+                "version": 1,
+                "run_id": ctx.run_id,
+                "saved_at": _now_iso(),
+                "source": source,
+                "sfx_generation_meta": gen_meta,
+            },
+            source=source,
+        )
 
 
 def persist_operator_investigation_queue(ctx: RunContext, *, source: str) -> None:

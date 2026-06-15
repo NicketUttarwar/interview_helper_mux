@@ -137,13 +137,13 @@ def test_run_flow1_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
     )
     monkeypatch.setattr(
         pipeline.sound_design_stages,
-        "run_elevenlabs_prompt_craft",
-        _stub_stage(called, "elevenlabs_prompt_craft"),
+        "run_sfx_prompt_craft",
+        _stub_stage(called, "sfx_prompt_craft"),
     )
     monkeypatch.setattr(
-        pipeline.sfx_elevenlabs,
+        pipeline.sfx_mmaudio,
         "run_sfx_generation",
-        lambda _ctx, profile: called.append(f"elevenlabs_sfx_{profile}"),
+        lambda _ctx, profile: called.append(f"mmaudio_sfx_{profile}"),
     )
     monkeypatch.setattr(
         pipeline.assembly_flow1,
@@ -168,8 +168,8 @@ def test_run_flow1_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
         "edl_narrative_audit",
         "edl_flow1",
         "assembly_preview",
-        "elevenlabs_prompt_craft",
-        "elevenlabs_sfx_podcast",
+        "sfx_prompt_craft",
+        "mmaudio_sfx_podcast",
         "mix_flow1",
         "master_flow1",
     ]
@@ -194,13 +194,13 @@ def test_run_flow2_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
     )
     monkeypatch.setattr(
         pipeline.sound_design_stages,
-        "run_elevenlabs_prompt_craft",
-        _stub_stage(called, "elevenlabs_prompt_craft"),
+        "run_sfx_prompt_craft",
+        _stub_stage(called, "sfx_prompt_craft"),
     )
     monkeypatch.setattr(
-        pipeline.sfx_elevenlabs,
+        pipeline.sfx_mmaudio,
         "run_sfx_generation",
-        lambda _ctx, profile: called.append(f"elevenlabs_sfx_{profile}"),
+        lambda _ctx, profile: called.append(f"mmaudio_sfx_{profile}"),
     )
     monkeypatch.setattr(
         pipeline.assembly_flow2,
@@ -218,8 +218,8 @@ def test_run_flow2_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
     assert called == [
         "highlight_selection",
         "sound_design_plan_flow2",
-        "elevenlabs_prompt_craft",
-        "elevenlabs_sfx_montage",
+        "sfx_prompt_craft",
+        "mmaudio_sfx_montage",
         "mix_flow2",
         "master_flow2",
     ]
@@ -246,6 +246,22 @@ def test_run_flow3_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, m
     pipeline.run_flow3(ctx)
 
     assert called == ["podcast_show_description", "export_show_description"]
+
+
+def test_sound_design_disabled_skips_spend_stages(tmp_path, monkeypatch):
+    from interview_mux.stages import sound_design_stages
+    from run_fixtures import isolated_run_ctx, patch_merged_config, seed_analysis_ready_artifacts
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"sound_design": {"enabled": False}})
+    ctx = isolated_run_ctx(tmp_path, "pipeline_sd_off")
+    seed_analysis_ready_artifacts(ctx)
+
+    sound_design_stages.run_sound_design_palettes(ctx)
+    sound_design_stages.run_sfx_prompt_craft(ctx)
+
+    assert ctx.is_done("sound_design_palettes")
+    assert ctx.is_done("sfx_prompt_craft")
 
 
 def test_run_analysis_smoke_uses_fixture_without_external_calls(tmp_path, monkeypatch):

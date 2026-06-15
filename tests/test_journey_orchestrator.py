@@ -70,6 +70,49 @@ def test_build_journey_snapshot_smoke(smoke_ctx):
     assert "blocking" in snap
     assert "milestones" in snap
     assert isinstance(snap["milestones"]["g0_complete"], bool)
+    for key in ("sfx_generated", "sfx_listen_complete", "placement_qa_ready"):
+        assert key in snap["milestones"]
+
+
+def test_journey_milestones_sfx_generated(tmp_path, monkeypatch):
+    from interview_mux.gates import set_selected_flow
+    from interview_mux.journey_state import compute_milestones
+    from run_fixtures import isolated_run_ctx, seed_flow1_sound_spend_ready
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "journey_sfx")
+    set_selected_flow(ctx, "flow1")
+    seed_flow1_sound_spend_ready(ctx)
+    ctx.mark_done("mmaudio_sfx_flow1")
+    ms = compute_milestones(ctx)
+    assert ms["sfx_generated"] is True
+    assert ms["sfx_listen_complete"] is True
+    assert ms["placement_qa_ready"] is False
+
+
+def test_execute_hint_flow2_polish_skips_preview(tmp_path, monkeypatch):
+    from interview_mux.gates import set_selected_flow
+    from interview_mux.journey_orchestrator import execute_hint
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "journey_f2")
+    set_selected_flow(ctx, "flow2")
+    ctx.mark_done("highlight_selection")
+    ctx.mark_done("sfx_prompt_craft")
+    milestones = {
+        "g0_complete": True,
+        "g1_complete": True,
+        "g2_complete": True,
+        "sfx_approved": True,
+        "sfx_generated": False,
+        "sfx_listen_complete": True,
+        "preview_ready": False,
+        "preview_listened": False,
+    }
+    hint = execute_hint("polish", "flow2", "flow2", milestones)
+    assert hint is not None
+    assert hint.get("from_stage") == "mmaudio_sfx_flow2"
 
 
 def test_execute_hint_prepare(smoke_ctx):

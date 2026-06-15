@@ -100,7 +100,7 @@ export function mapGateToStage(id: string): string {
 export const ALL_API_CONSENTS: Record<string, boolean> = {
   openai: true,
   aws: true,
-  elevenlabs: true,
+  
 };
 
 export const VALUE_FEATURES_PATH = "understanding/value_features.json";

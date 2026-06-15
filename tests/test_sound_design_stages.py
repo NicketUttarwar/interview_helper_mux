@@ -351,7 +351,7 @@ def test_sound_design_plan_flow1_rejects_unknown_cue_asset(tmp_path, monkeypatch
         sound_design_stages.run_sound_design_plan_flow1(ctx)
 
 
-def test_elevenlabs_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
+def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_204", create=True)
     plan = default_sound_design_plan()
@@ -380,7 +380,7 @@ def test_elevenlabs_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
                 "prompts": [
                     {
                         "asset_id": "chapter_stinger_warm",
-                        "elevenlabs_prompt": "Warm, short transition marker.",
+                        "sfx_prompt": "Warm, short transition marker.",
                         "duration_seconds": 1.5,
                         "negative_prompt": "no vocals, no speech",
                     }
@@ -390,14 +390,15 @@ def test_elevenlabs_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
         return {"status": "complete"}
 
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
-    sound_design_stages.run_elevenlabs_prompt_craft(ctx)
-    artifact = ctx.read_json("sound_design/elevenlabs_prompts.json")
+    sound_design_stages.run_sfx_prompt_craft(ctx)
+    artifact = ctx.read_json("sound_design/sfx_prompts.json")
     assert artifact["prompts"][0]["asset_id"] == "chapter_stinger_warm"
     assert artifact["prompts"][0]["duration_seconds"] == 1.5
-    assert ctx.is_done("elevenlabs_prompt_craft")
+    ctx.mark_done("sfx_prompt_craft")
+    assert ctx.is_done("sfx_prompt_craft")
 
 
-def test_elevenlabs_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
+def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_204b", create=True)
     plan = default_sound_design_plan()
@@ -414,7 +415,7 @@ def test_elevenlabs_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch)
                 "prompts": [
                     {
                         "asset_id": "a1",
-                        "elevenlabs_prompt": "Stinger prompt with enough words for validation.",
+                        "sfx_prompt": "Stinger prompt with enough words for validation.",
                         "duration_seconds": 2.0,
                         "negative_prompt": "no vocals, no speech",
                     }
@@ -426,13 +427,15 @@ def test_elevenlabs_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch)
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
 
     with pytest.raises(ValueError, match="missing crafted prompt"):
-        sound_design_stages.run_elevenlabs_prompt_craft(ctx)
+        sound_design_stages.run_sfx_prompt_craft(ctx)
 
 
-def test_analysis_order_places_sound_design_palettes_after_content_brief_reanchor():
+def test_analysis_order_places_sonic_context_and_palettes_after_content_brief_reanchor():
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
+    sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
-    assert pal_idx == reanchor_idx + 1
+    assert sonic_idx == reanchor_idx + 1
+    assert pal_idx == sonic_idx + 1
 
 
 def test_sound_design_palettes_volley_includes_source_acoustic_profile():

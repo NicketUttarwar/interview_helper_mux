@@ -30,7 +30,8 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
     "sound_design_plan_flow1": "sound_design_plan_flow1_artifact.schema.json",
     "sound_design_plan_flow2": "sound_design_plan_flow2_artifact.schema.json",
-    "elevenlabs_prompt_craft": "elevenlabs_prompts_artifact.schema.json",
+    "sfx_prompt_craft": "sfx_prompts_artifact.schema.json",
+    "sfx_prompt_refine": "sfx_prompts_artifact.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
     "podcast_show_description": "show_description_artifact.schema.json",
 }
@@ -54,7 +55,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "podcast_sfx_brief": "flow_1_master/podcast_sfx_brief.json",
     "sound_design_plan_flow1": "understanding/sound_design_plan.json",
     "sound_design_plan_flow2": "understanding/sound_design_plan.json",
-    "elevenlabs_prompt_craft": "sound_design/elevenlabs_prompts.json",
+    "sfx_prompt_craft": "sound_design/sfx_prompts.json",
     "sfx_brief": "flow_2_highlights/sfx_brief.json",
     "podcast_show_description": "flow_3_description/show_description.json",
 }
@@ -255,8 +256,23 @@ def validate_show_description(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("show_description_artifact.schema.json", data)
 
 
-def validate_elevenlabs_prompts(data: dict[str, Any]) -> list[str]:
-    return _validate_by_artifact_schema("elevenlabs_prompts_artifact.schema.json", data)
+def validate_sfx_prompts(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("sfx_prompts_artifact.schema.json", data)
+
+
+def validate_sonic_context(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/sonic_context.json`."""
+    return _validate_dict(data, _load_root_schema("sonic_context.schema.json"))
+
+
+def validate_mmaudio_qa(data: dict[str, Any]) -> list[str]:
+    """Validate `sound_design/mmaudio_qa.json`."""
+    return _validate_by_artifact_schema("mmaudio_qa.schema.json", data)
+
+
+def validate_placement_adjustments(data: dict[str, Any]) -> list[str]:
+    """Validate `sound_design/placement_adjustments.json`."""
+    return _validate_dict(data, _load_root_schema("placement_adjustments.schema.json"))
 
 
 def validate_context_index(data: dict[str, Any]) -> list[str]:
@@ -277,6 +293,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "flow_2_highlights/sfx_brief.json": validate_sfx_montage_brief,
     "flow_3_description/show_description.json": validate_show_description,
     "understanding/source_acoustic_profile.json": validate_source_acoustic_profile,
+    "understanding/sonic_context.json": validate_sonic_context,
     "understanding/analysis_state.json": validate_analysis_state,
     "understanding/sound_design_plan.json": validate_sound_design_plan,
     "understanding/content_brief.json": validate_content_brief,
@@ -285,7 +302,9 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/gap_report.json": validate_gap_report,
     "segments/boundaries.json": validate_boundaries,
     "segments/manifest.json": validate_manifest,
-    "sound_design/elevenlabs_prompts.json": validate_elevenlabs_prompts,
+    "sound_design/sfx_prompts.json": validate_sfx_prompts,
+    "sound_design/mmaudio_qa.json": validate_mmaudio_qa,
+    "sound_design/placement_adjustments.json": validate_placement_adjustments,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
     "transcript/review_queue.json": validate_transcript_review_queue,

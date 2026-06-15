@@ -98,11 +98,11 @@ Use a run with G2 = `flow2` (new execution or change flow in GUI before flow sta
 
 | Check | How |
 |-------|-----|
-| Artifacts | `flow_1_master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `elevenlabs_sfx_*` |
+| Artifacts | `flow_1_master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `mmaudio_sfx_*` |
 | Listen | `master.wav`: VO bridges (if G1 lines existed), beds/stingers audible — not dry speech-only |
 | Metrics | `python tools/verify_master.py <path-to-master.wav>` exits 0 (Flow 1: −16 LUFS ±1; Flow 2: −14 LUFS ±1) |
 
-Optional: `assembly_preview.wav` (speech + VO, no ElevenLabs) listened **before** SFX spend.
+Optional: `assembly_preview.wav` (speech + VO, no MMAudio SFX) listened **before** SFX spend.
 
 - [ ] Flow 1 listen + `verify_master`  
 - [ ] Flow 2 listen + `verify_master`  
@@ -215,9 +215,9 @@ From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [st
 |-------|---------------------|
 | `sound_design_palettes` | `coherence.sonic_identity` matches interview tone (not generic trailer) |
 | `sound_design_plan_flow1` / `flow2` | Cue count within caps; placements anchor to real segment/rank boundaries |
-| `assembly_preview` | Speech + VO intelligible; no SFX yet — **listen before ElevenLabs spend** |
-| `elevenlabs_prompt_craft` | Prompts instrumental; no voice/policy leaks; G1.5 approved if enabled |
-| `elevenlabs_sfx_flow*` | Generated beds/stingers match prompt intent on spot-listen (2 assets minimum) |
+| `assembly_preview` | Speech + VO intelligible; no SFX yet — **listen before MMAudio SFX generation** |
+| `sfx_prompt_craft` | Prompts instrumental; no voice/policy leaks; G1.5 approved if enabled |
+| `mmaudio_sfx_flow*` | Generated beds/stingers match prompt intent on spot-listen (2 assets minimum) |
 | `mix_flow*` → `master_*` | Beds duck under speech; VO bridges present; not dry speech-only |
 
 - [ ] `assembly_preview` listened before SFX generation
@@ -243,6 +243,26 @@ From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [st
 | Spend block | Craft/generate did not run with incomplete SDP (no wasted API calls) |
 
 - [ ] P4 upstream gates verified on fixture run
+
+---
+
+## 6. Nine-scenario sonic listen matrix (BUILD-SFX-17)
+
+Use `tests/fixtures/sonic_context/*.json` atlas buckets as listen posture references. On a real `exec_*` run, spot-check one representative interview per bucket (or nearest match) before SFX spend:
+
+| Atlas bucket | Listen posture | Pass if |
+|--------------|----------------|---------|
+| `one_on_one` | Sparse beds; soft stingers | Speech always forward; no trailer hits |
+| `panel` | No beds under overlap/crosstalk | Beds absent on multi-speaker overlap segments |
+| `fireside` | Minimal beds; gentle rises | Warm, not hype; no percussion stabs |
+| `technical_deep_dive` | No beds; rare stingers | No cinematic drama or cartoon SFX |
+| `media_profile` | Sparse; broadcast-neutral | No tabloid/sensational cues |
+| `debate` | No beds; very low stinger rate | No conflict-escalating impacts |
+| `noisy_room` | No beds; no bright risers | Nothing masks already-difficult speech |
+| `dense_jargon` | Minimal; no lyrical beds | No harmonic clutter over terminology |
+| `trauma_adjacent` | No beds/stingers on flagged segments | No playful motifs or loud transients |
+
+- [ ] 6. Nine-scenario matrix spot-checked (note bucket + `run_id` in sign-off record)
 
 ---
 

@@ -35,7 +35,9 @@ from interview_mux.local_llm_selection import (  # noqa: E402
     write_selection_manifest,
 )
 
-VENV_PY = ROOT / ".venv" / "bin" / "python"
+VENV_PY = ROOT / "ASSETS" / "local_llm" / "venv" / "bin" / "python"
+if not VENV_PY.is_file():
+    VENV_PY = ROOT / ".venv" / "bin" / "python"
 
 
 def _ensure_llmfit() -> None:

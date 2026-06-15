@@ -95,12 +95,12 @@ def test_lint_craft_rejects_short_prompt(tmp_path, monkeypatch):
             "prompts": [
                 {
                     "asset_id": "bed_01",
-                    "elevenlabs_prompt": "short",
+                    "sfx_prompt": "short",
                     "duration_seconds": 6,
                     "negative_prompt": "no vocals",
                 }
             ]
         }
     }
-    errors = deterministic_lint("elevenlabs_prompt_craft", envelope, ctx)
+    errors = deterministic_lint("sfx_prompt_craft", envelope, ctx)
     assert any("40 words" in e or "under" in e for e in errors)

@@ -64,7 +64,7 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 
 ## Flow 1 — Full master podcast
 
-**Intent:** Complete episode covering **all usable interview material**, ordered for the best podcast listen, with subtle ElevenLabs SFX.
+**Intent:** Complete episode covering **all usable interview material**, ordered for the best podcast listen, with subtle MMAudio SFX.
 
 ### Stage sequence (after G2)
 
@@ -75,8 +75,8 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 5. **Sound design plan (Flow 1)** — SDP `assets` + `flow_plans.flow1.cues` — [sound-design.md](./cross-cutting/sound-design.md)
 6. **EDL narrative audit** — local-volley + flagship review of final timeline readiness (`edl_narrative_audit`)
 7. **EDL** — speech + VO + gap placements with extended narrative QC (`edl_flow1`)
-8. **Assembly preview** — speech + VO listen before ElevenLabs spend (`assembly_preview.wav`)
-9. **ElevenLabs prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
+8. **Assembly preview** — speech + VO listen before MMAudio SFX generation (`assembly_preview.wav`)
+9. **MMAudio SFX prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
 10. **Mix** — `mix_flow1` → `assembly.wav` (speech + VO + beds + stingers)
 11. **Master** — `master_flow1` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
 
@@ -96,7 +96,7 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 
 1. **Highlight selection**
 2. **Sound design plan (Flow 2)** — SDP `assets` + `flow_plans.flow2.cues`
-3. **ElevenLabs prompt craft + SFX** — montage assets
+3. **MMAudio SFX prompt craft + SFX** — montage assets
 4. **Mix** — `mix_flow2` → `assembly.wav` (cold open + shared between-clip transition)
 5. **Master** — `master_flow2` → −14 LUFS
 

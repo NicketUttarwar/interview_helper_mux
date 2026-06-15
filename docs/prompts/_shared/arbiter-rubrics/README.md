@@ -61,7 +61,7 @@ Each rubric is a single JSON object:
 |----------|--------|
 | **high** | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `highlight_selection`, `sound_design_plan_flow1`, `sound_design_plan_flow2`, `podcast_show_description` |
 | **medium** | `boundary_detection`, `segment_classification`, `content_brief_reanchor` |
-| **low** | `speaker_roles`, `sound_design_palettes`, `transitions`, `elevenlabs_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
+| **low** | `speaker_roles`, `sound_design_palettes`, `transitions`, `sfx_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
 
 ### Decompose-eligible stages
 

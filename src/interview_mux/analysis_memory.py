@@ -955,3 +955,29 @@ def mark_operator_verified(ctx: RunContext, verified: bool = True) -> None:
     if verified:
         state["meta"]["operator_locked_fields"] = _all_lockable_profile_fields()
     save_analysis_state(ctx, state, stage="operator")
+
+
+def invalidate_sonic_context(ctx: RunContext, *, reason: str, stage: str = "invalidation") -> bool:
+    """Remove stale sonic_context artifact when upstream analysis/sound inputs change."""
+    rel = "understanding/sonic_context.json"
+    if not ctx.artifact_exists(rel):
+        return False
+    path = ctx.final_path(*rel.split("/"))
+    if not path.is_file():
+        return False
+    path.unlink()
+
+    def patch(meta: dict[str, Any]) -> None:
+        meta.pop("sonic_context_hash", None)
+        meta.pop("sfx_generation_plan_hashes", None)
+
+    if ctx.artifact_exists("run_meta.json"):
+        ctx.mutate_run_meta(patch)
+
+    ctx.log(
+        "invalidated understanding/sonic_context.json",
+        level="warning",
+        stage=stage,
+        detail={"reason": reason},
+    )
+    return True

@@ -34,7 +34,7 @@ Applies for the **entire** repository build-out (Waves 0–7). Details and accep
 | **Context7** | Before writing/changing Python or shell that calls third-party libs/APIs: MCP **`user-context7`** → `resolve-library-id` → `query-docs`. Use pins from **`docs/cross-cutting/anchored-toolchain.md`** / `requirements.lock`. Do not rely on training-data API shapes. |
 | **Python** | 3.12 in **`.venv`** at repo root; bootstrap **`scripts/bootstrap_venv.sh`**. On this machine prefer **`/opt/homebrew/bin/python3.12`**. |
 | **AWS** | **`aws` CLI subprocess only** — no boto3, no AWS SDK packages. Assume CLI installed and authenticated. |
-| **ElevenLabs** | REST via **`interview_mux.elevenlabs_rest`** — no ElevenLabs SDK. Canonical spec: **`docs/cross-cutting/elevenlabs-integration-guide.md`**. |
+| **Local audio** | Preclean + SFX via isolated ASSETS venvs — **`docs/cross-cutting/local-audio-stack.md`**. DeepFilterNet (`deepfilter_runner`), MMAudio (`mmaudio_runner`), MLX (`local_llm_runner` subprocess). No ElevenLabs / cloud audio API. |
 | **Secrets** | Load from **`config/secrets/secrets.env`** — never commit, never hardcode. New keys → **`docs/cross-cutting/config-keys.md`**. |
 | **Media** | Default input **`./ASSETS/`** (gitignored). If missing, ask for full path. Runs under **`ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP`** (source-audio fingerprint) or legacy **`exec_*` / `data/run_*`**. Reuse + write approval: **`docs/workflows/stage-execution-reuse.md`**, **`docs/workflows/gui-surface-map.md`**. |
 | **Prompts** | Load from **`docs/prompts/`**; stage keys must match **`pipeline.py`** / **`stage-registry.md`**. Do not drift copy without updating specs + examples. |
@@ -60,7 +60,7 @@ Until build-out tickets close the matching gap in **`repository-map.md`**:
 
 - **Flow 1 `master.wav`:** built via **`mix_flow1`** (speech + VO + SDP beds/stingers) → **`master_flow1`** (BUILD-065–066). Legacy `mux_flow1` is a single-stage rerun alias only.
 - **Flow 2 `master.wav`:** built via **`mix_flow2`** montage + SDP transitions (BUILD-065).
-- **Sound path default:** SDP chain (`sound_design_palettes` → `sound_design_plan_flow*` → `elevenlabs_prompt_craft` → `elevenlabs_sfx_flow*` → `mix_flow*`). Legacy **`podcast_sfx_brief`**, **`sfx_brief`**, and **`mux_flow*`** are rerun aliases only — not the default operator path.
+- **Sound path default:** SDP chain (`sound_design_palettes` → `sound_design_plan_flow*` → `sfx_prompt_craft` → `mmaudio_sfx_flow*` → `mix_flow*`). Legacy **`podcast_sfx_brief`**, **`sfx_brief`**, and **`mux_flow*`** are rerun aliases only — not the default operator path.
 - **Flow 3:** text-only show description (`flow_3_description/`); no `master.wav`. **`run_flow3`** requires shared analysis complete (`require_analysis_artifacts_complete`) but **not** Flow 1 ranking or Flow 2 selection — analysis-only prerequisites documented in [stage-registry.md](../../docs/build-out/stage-registry.md) Flow 3.
 - **Pre-clean:** stage shipped (BUILD-019); GUI checkpoint offers BUILD-072.
 - **LLM routing:** tier-aware `model_registry` + economy arbiter + shard/collate (BUILD-073).

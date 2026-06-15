@@ -57,7 +57,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
-| `g1_5_require_prompt_approval` | `g15_prompt_review`, `sfx_elevenlabs`, GUI `/elevenlabs-prompts` | When `true` (shipped default), blocks ElevenLabs SFX until operator approves crafted prompts |
+| `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly_flow1`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly_flow1`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl_flow1` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
@@ -259,7 +259,7 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 
 When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
 
-**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2`, `mix_flow1`, `mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no ElevenLabs call. Override list only for dev; production should keep defaults.
+**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx_flow1`, `mmaudio_sfx_flow2`, `mix_flow1`, `mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
 
 **Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
 
@@ -348,7 +348,6 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_DEFAULT_REGION` / `AWS_REGION` | Transcribe / S3 wrong region |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
-| `ELEVENLABS_API_KEY` | SFX + isolation fail — see [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) |
 | `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — optional for main pipeline |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
@@ -363,7 +362,10 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 |-----|---------|---------|----------|
 | `max_assets_flow1` | `6` | `sound_design.py` Flow 1 plan | Too many cues → API cost; too few → thin master |
 | `max_assets_flow2` | `4` | `sound_design.py` Flow 2 plan | Montage under-designed or over-spent |
-| `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `elevenlabs_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
+| `max_palettes` | `3` | `sound_design_palettes` planning bounds | Over-broad palette spread or constrained thematic coverage |
+| `use_adaptive_caps` | `true` | `sound_design` planners + sonic context posture | Ignores scenario-based cap tuning when false |
+| `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
+| `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `mmaudio_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
 
 `placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. Does not auto-rewrite the plan; operator or re-run adjusts.
 
@@ -376,6 +378,8 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.crossfade_ms_flow1` / `mix.crossfade_ms_flow2` | `sound_design.py` speech/overlay concat | Harsh or overly long crossfades (base ms before adaptive scaling) |
 | `mix.crossfade_ms_assembly_preview` | `assembly_flow1.run_preview`, `audio_preclean.py` chunk merge | Preview clip seams audible or mushy |
 | `mix.adaptive_crossfade` | `audio_timeline.append_with_crossfade` via `sound_design.py` | When `true` (default), crossfade length scales 80–200 ms from tail/head energy |
+| `mix.adaptive_level_from_sap` | `sound_design.py` mix level defaults from source acoustic profile | Missed speech-first level adaptation by pace/policy |
+| `mix.scenario_overlay_rules` | `sound_design.py` scenario-specific overlay behavior | Overlay cadence ignores scenario posture constraints |
 | `mix.word_boundary_cuts` | `sound_design.py` EDL/highlight slices | When `true`, nudge slice ends to transcript word boundaries |
 | `mix.word_boundary_margin_ms` / `mix.word_boundary_max_shift_ms` | `audio_timeline.snap_cut_to_word_boundary` | Too small → mid-word cuts remain; too large → clips drift from EDL |
 | `mix.normalize_vo_pickup` | `gaps.ingest_vo_pickup` | When `true`, writes loudnorm copies under `vo_pickup/normalized/` |
@@ -386,9 +390,73 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 
 ## `audio_preclean`
 
-| Key | Used by | If wrong |
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `audio_preclean.provider` | `deepfilternet` | `preclean/provider.json`, lineage | Wrong provider label in artifacts |
+| `audio_preclean.chunk_max_bytes` | `52428800` | `audio_preclean.py` chunking before DeepFilterNet | Oversized sources chunked more/less than expected |
+| `audio_preclean.local_fallback_enabled` | `true` | `stages/audio_preclean.py` | When `true` (default), DeepFilterNet failure falls back to ffmpeg `afftdn` denoise (`provider: ffmpeg_local`) |
+
+See [local-audio-stack.md](./local-audio-stack.md) · [audio_preclean README](../pipeline/audio_preclean/README.md).
+
+---
+
+## `local_runtimes`
+
+Isolated venv paths — [local-audio-stack.md](./local-audio-stack.md).
+
+| Key | Default | If wrong |
 |-----|---------|----------|
-| `audio_preclean.local_fallback_enabled` | `stages/audio_preclean.py` | When `true` (default), ElevenLabs failure falls back to ffmpeg `afftdn` denoise (`provider: rnnoise_local`) |
+| `local_runtimes.mlx.venv_dir` | `ASSETS/local_llm/venv` | MLX subprocess fails — re-run `bootstrap_venv.sh` |
+| `local_runtimes.deepfilter.venv_dir` | `ASSETS/local_deepfilter/venv` | Preclean DeepFilterNet subprocess fails |
+| `local_runtimes.mmaudio.venv_dir` | `ASSETS/local_mmaudio/venv` | MMAudio SFX subprocess fails |
+| `local_runtimes.*.enabled` | `true` | When `false`, `local_runtime` raises for that stack |
+
+---
+
+## `deepfilter`
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `deepfilter.repo_dir` | `ASSETS/local_deepfilter/DeepFilterNet` | `deepfilter_runner`, bootstrap | Clone missing → enhance fails |
+| `deepfilter.model` | `DeepFilterNet3` | `tools/deepfilter_enhance.py` | Wrong model load |
+| `deepfilter.postfilter` | `false` | enhance CLI | Extra post-filter stage |
+| `deepfilter.compensate_delay` | `true` | enhance CLI | Alignment vs latency tradeoff |
+| `deepfilter.request_timeout_sec` | `600` | `local_runtime` subprocess timeout | Hung or premature timeout |
+
+---
+
+## `mmaudio`
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `mmaudio.repo_dir` | `ASSETS/local_mmaudio/MMAudio` | `mmaudio_runner`, bootstrap | Clone missing → generation fails |
+| `mmaudio.model_id` | `large_44k_v2` | `mmaudio_generate.py` | Wrong HF weights |
+| `mmaudio.device` | `auto` | local MMAudio runtime device choice | Wrong backend selection / avoidable runtime failures |
+| `mmaudio.default_duration_sec` | `8.0` | craft/generate fallback duration | Unexpected clip length when role duration absent |
+| `mmaudio.min_duration_sec` / `max_duration_sec` | `3.0` / `8.0` | `mmaudio_runner.clamp_duration_seconds` | Clamped generation length |
+| `mmaudio.duration_bands_by_role` | role map | craft validation and plan-duration sanity | Role-specific lengths drift from product timing policy |
+| `mmaudio.theme_fit_threshold` | `0.6` | post-generation thematic QA checks | Too lenient/strict thematic acceptance |
+| `mmaudio.silence_rms_threshold` | `0.001` | silence/near-silence QA detection | False silence passes or noisy rejects |
+| `mmaudio.semantic_qa_enabled` | `true` | Tier-2 CLAP text–audio similarity via `tools/clap_similarity.py` in MMAudio venv | Requires MMAudio venv bootstrap; fail-open when CLAP unavailable |
+| `mmaudio.semantic_qa_threshold` | `0.18` | Minimum CLAP cosine similarity for pass | Low scores warn or fail depending on `semantic_qa_fail_on_low` |
+| `mmaudio.semantic_qa_fail_on_low` | `false` | When true, sub-threshold CLAP scores set `verdict=fail` | Stricter auto-refine/regenerate loop |
+| `mmaudio.semantic_qa_model_id` | `laion/clap-htsat-fused` | Hugging Face CLAP model id | Model download size / runtime |
+| `mmaudio.semantic_qa_timeout_sec` | `120` | Per-asset CLAP subprocess timeout | Timeouts skip Tier-2 with `semantic_qa_verdict=skipped` |
+| `mmaudio.cfg_strength_default` | `4.5` | `resolve_cfg_strength` | Global CFG fallback |
+| `mmaudio.cfg_strength_by_role` | role map | `resolve_cfg_strength` | Per-role adherence |
+| `mmaudio.num_steps` | `25` | `mmaudio_generate.py` | Quality vs speed |
+| `mmaudio.seed_strategy` | `asset_id_hash` | `resolve_seed` | `fixed` / `random` / `asset_id_hash` |
+| `mmaudio.fixed_seed` | `42` | `resolve_seed` when strategy `fixed` | Reproducibility |
+| `mmaudio.legacy_influence_prose` | `false` | append influence to positive prompt | legacy prose-influence fallback |
+| `mmaudio.auto_refine_enabled` | `true` | `sfx_mmaudio.maybe_auto_refine` | LLM refine after QA/listen fail |
+| `mmaudio.auto_refine_max_attempts_per_asset` | `2` | refine loop cap | Runaway LLM spend |
+| `mmaudio.auto_refine_on_qa_fail` / `on_listen_fail` | `true` | auto-refine triggers | Which failures invoke refine |
+| `mmaudio.auto_refine_on_trauma` | `true` | auto-refine for `trauma_adjacent` without manual override | Set `false` to require per-asset `sfx_auto_refine_override` |
+| `mmaudio.request_timeout_sec` | `900` | `local_runtime` subprocess timeout | Long generations time out |
+
+Craft artifact optional fields (`sound_design/sfx_prompts.json`): `mmaudio_variant`, `cfg_strength`, `num_steps`, `seed`, `regression_notes` — see [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md).
+
+Optional lock files: `requirements-local-mlx.txt`, `requirements-local-deepfilter.txt`, `requirements-local-mmaudio.txt` — regenerate with `pip-compile` when pinning local stacks.
 
 ---
 
@@ -397,18 +465,6 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | Key | Used by | If wrong |
 |-----|---------|----------|
 | `nle_edits.strict` | `nle_state.save_nle`, GUI NLE PUT | When `true`, invalid `segments/nle_edits.json` raises HTTP 400 instead of warn-only |
-
----
-
-## `elevenlabs`
-
-| Key | Used by | If wrong |
-|-----|---------|----------|
-| `elevenlabs.music_model_id` | `elevenlabs_rest.generate_music` | Wrong model (use `music_v2` for current sound-design path) |
-| `elevenlabs.force_instrumental` | `elevenlabs_rest.generate_music` | `false` may yield vocals in beds/stingers |
-| `elevenlabs.request_timeout_sec` | `elevenlabs_rest.py` REST calls | Hung or premature timeout on isolation/Music compose |
-| `elevenlabs.max_retries` | `elevenlabs_rest.py` | Too few retries → flaky generation; too many → slow failures |
-| `elevenlabs.max_upload_bytes` | `elevenlabs_rest.py`, `audio_preclean.py` chunk policy | Oversized WAV rejected or chunked before POST |
 
 ---
 

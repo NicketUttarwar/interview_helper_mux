@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
+from interview_mux.sonic_context import load_sonic_context
 
 _GENERIC_THEMES = frozenset(
     {"leadership", "innovation", "success", "journey", "passion", "vision", "impact"}
@@ -14,6 +15,12 @@ _GENERIC_THEMES = frozenset(
 _SPEECH_LYRICS_PATTERNS = (
     re.compile(r"\b(says|saying|spoken|narrator|voice over|lyrics?|verse|chorus)\b", re.I),
     re.compile(r'"[^"]{8,}"'),
+)
+_FORBIDDEN_MMAUDIO_STRINGS = (
+    re.compile(r"elevenlabs", re.I),
+    re.compile(r"music_v2", re.I),
+    re.compile(r"/v1/", re.I),
+    re.compile(r"POST\s+https?://", re.I),
 )
 _ROLE_DURATION_BANDS: dict[str, tuple[float, float]] = {
     "ambient_bed": (4.0, 8.0),
@@ -23,6 +30,7 @@ _ROLE_DURATION_BANDS: dict[str, tuple[float, float]] = {
     "vo_bridge": (1.0, 2.0),
     "accent_foley": (0.6, 1.5),
 }
+_DIEGETIC_HINTS = re.compile(r"\b(diegetic|street|traffic|crowd|cafe|restaurant|office chatter|sirens?)\b", re.I)
 
 
 def _manifest_ids(ctx: RunContext) -> set[str]:
@@ -204,6 +212,11 @@ def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> l
     for p in palettes:
         if not isinstance(p, dict):
             continue
+        keywords = [str(k).strip().lower() for k in (p.get("keywords") or []) if str(k).strip()]
+        if keywords:
+            overlap = set(keywords) & _sonic_tag_keywords(ctx)
+            if not overlap:
+                errors.append(f"palette {p.get('palette_id')} keywords lack sonic_context provenance")
         seg_ids = p.get("segment_ids") or []
         if not seg_ids:
             errors.append(f"palette {p.get('palette_id')} has no segment_ids")
@@ -249,6 +262,16 @@ def _lint_sound_design_plan_flow1(artifacts: dict[str, Any], ctx: RunContext) ->
             seg = cue.get("segment_id")
             if seg and str(seg) not in palette_seg_ids:
                 errors.append(f"bed cue on segment {seg} outside palette mapping")
+    chapter_cues = [
+        c for c in cues if isinstance(c, dict) and str(c.get("placement")) in {"after_segment", "before_segment"}
+    ]
+    chapter_assets = {
+        str(c.get("asset_id"))
+        for c in chapter_cues
+        if isinstance(c, dict) and str(c.get("asset_id")) in asset_ids
+    }
+    if len(chapter_cues) > 1 and len(chapter_assets) > 1:
+        errors.append("chapter_stinger reuse expected: multiple chapter cues should share one stinger asset")
     return errors
 
 
@@ -273,31 +296,83 @@ def _lint_sound_design_plan_flow2(artifacts: dict[str, Any], ctx: RunContext) ->
             r = cue.get(key)
             if r is not None and ranks and int(r) not in ranks:
                 errors.append(f"cue rank {key}={r} not in highlight selection")
+    between = [c for c in cues if isinstance(c, dict) and c.get("placement") == "between_clips"]
+    transition_assets = {
+        str(c.get("asset_id")) for c in between if isinstance(c, dict) and c.get("asset_id")
+    }
+    if len(between) > 1 and len(transition_assets) > 1:
+        errors.append("transition_stinger reuse expected: between_clips cues should share one transition asset")
     return errors
 
 
-def _lint_elevenlabs_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
+def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
     errors: list[str] = []
     prompts = artifacts.get("prompts") or []
     if not prompts:
         return ["no crafted prompts"]
+    mmaudio_cfg = (merged_config().get("mmaudio") or {})
+    min_gen = float(mmaudio_cfg.get("min_duration_sec", 3.0))
+    max_gen = float(mmaudio_cfg.get("max_duration_sec", 8.0))
+    sonic_keywords = _sonic_tag_keywords(_ctx)
+    allow_diegetic = bool((merged_config().get("sound_design") or {}).get("allow_diegetic_ambient", False))
     for row in prompts:
         if not isinstance(row, dict):
             continue
-        text = str(row.get("elevenlabs_prompt", ""))
+        aid = row.get("asset_id")
+        text = str(row.get("sfx_prompt", ""))
+        neg = str(row.get("negative_prompt", ""))
         words = len(text.split())
         if words < 40:
-            errors.append(f"prompt for {row.get('asset_id')} under 40 words ({words})")
+            errors.append(f"prompt for {aid} under 40 words ({words})")
+        neg_words = len(neg.split())
+        if neg_words < 12:
+            errors.append(f"negative_prompt for {aid} under 12 words ({neg_words})")
+        if neg_words > 60:
+            errors.append(f"negative_prompt for {aid} over 60 words ({neg_words})")
+        neg_low = neg.lower()
+        if not any(tok in neg_low for tok in ("vocal", "speech", "lyric")):
+            errors.append(f"negative_prompt for {aid} must ban vocals/speech/lyrics")
+        for field_name, field_text in (("sfx_prompt", text), ("negative_prompt", neg)):
+            for pat in _FORBIDDEN_MMAUDIO_STRINGS:
+                if pat.search(field_text):
+                    errors.append(f"{field_name} for {aid} contains forbidden API reference")
+                    break
+        if re.search(r"\bavoid:\b", text, re.I) or re.search(r"\bno vocals\b", text, re.I):
+            errors.append(f"positive prompt for {aid} should not contain Avoid/no vocals clauses")
+        if sonic_keywords:
+            prompt_tokens = {w.lower() for w in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", text)}
+            if not (prompt_tokens & sonic_keywords):
+                errors.append(f"prompt for {aid} has low keyword overlap with sonic_context tags")
         for pat in _SPEECH_LYRICS_PATTERNS:
             if pat.search(text):
-                errors.append(f"prompt for {row.get('asset_id')} contains speech/lyrics pattern")
+                errors.append(f"prompt for {aid} contains speech/lyrics pattern")
                 break
-        dur = float(row.get("duration_seconds") or 0)
         role = str(row.get("role", ""))
+        if role == "ambient_bed" and not allow_diegetic and _DIEGETIC_HINTS.search(text):
+            errors.append(f"prompt for {aid} requests diegetic ambient while disabled")
+        dur = float(row.get("duration_seconds") or 0)
         band = _ROLE_DURATION_BANDS.get(role)
         if band and dur and not (band[0] <= dur <= band[1]):
             errors.append(f"duration {dur}s out of band for role {role}")
+        if dur and not (min_gen <= dur <= max_gen + 0.5):
+            errors.append(f"duration {dur}s outside MMAudio plan clamp")
+        cfg = row.get("cfg_strength")
+        if cfg is not None and not (2.0 <= float(cfg) <= 8.0):
+            errors.append(f"cfg_strength for {aid} outside 2.0–8.0")
     return errors
+
+
+def _sonic_tag_keywords(ctx: RunContext) -> set[str]:
+    sonic = load_sonic_context(ctx) or {}
+    out: set[str] = set()
+    for row in sonic.get("tag_registry") or []:
+        if not isinstance(row, dict):
+            continue
+        for keyword in row.get("keywords") or []:
+            token = str(keyword or "").strip().lower()
+            if token:
+                out.add(token)
+    return out
 
 
 def _gap_report_vo_lines(ctx: RunContext) -> list[str]:
@@ -601,7 +676,8 @@ _LINTERS: dict[str, Any] = {
     "sound_design_palettes": _lint_sound_design_palettes,
     "sound_design_plan_flow1": _lint_sound_design_plan_flow1,
     "sound_design_plan_flow2": _lint_sound_design_plan_flow2,
-    "elevenlabs_prompt_craft": _lint_elevenlabs_prompt_craft,
+    "sfx_prompt_craft": _lint_sfx_prompt_craft,
+    "sfx_prompt_refine": _lint_sfx_prompt_craft,
     "transitions": _lint_transitions,
     "full_master_ranking": _lint_full_master_ranking,
     "highlight_selection": _lint_highlight_selection,

@@ -72,7 +72,7 @@ Go deeper: [interviewer-gap README](../pipeline/interviewer-gap/README.md).
 | flow2 | **Select highlight clips** |
 | flow3 | **Generate show description** |
 
-**Listen** to `assembly_preview.wav` before spending on ElevenLabs. Click **I've listened — continue to sound** on the deliverable card.
+**Listen** to `assembly_preview.wav` before MMAudio SFX generation. Click **I've listened — continue to sound** on the deliverable card.
 
 Express Flow 1: Create CTA + Polish CTA (sound) + Ship CTA (master).
 
@@ -80,10 +80,10 @@ Express Flow 1: Create CTA + Polish CTA (sound) + Ship CTA (master).
 
 ## Phase: Polish
 
-1. Optional **G1.5:** Approve ElevenLabs prompts when enabled.
-2. **Add sound and export** — craft → SFX → mix.
+1. Optional **G1.5:** Approve MMAudio prompts when enabled (`g1_5_require_prompt_approval`).
+2. **Add sound and export** — craft → generate SFX → optional post-listen QA, refine, or per-asset regen → mix.
 
-Go deeper: [operator-sound-and-mix.md](./operator-sound-and-mix.md) · [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md).
+Go deeper: [operator-sound-and-mix.md](./operator-sound-and-mix.md) · [local-audio-stack.md](../cross-cutting/local-audio-stack.md) · [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
 
 ---
 

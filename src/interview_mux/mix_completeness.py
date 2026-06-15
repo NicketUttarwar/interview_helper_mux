@@ -38,6 +38,9 @@ def enforce_mix_completeness(
 
     vo = sorted({str(x) for x in (missing_vo or []) if x})
     sfx = sorted({str(x) for x in (missing_sfx or []) if x})
+    qa_missing = _missing_sfx_from_mmaudio_qa(ctx)
+    if qa_missing:
+        sfx = sorted(set(sfx) | qa_missing)
     if not vo and not sfx:
         return
 
@@ -57,3 +60,25 @@ def enforce_mix_completeness(
             f"{stage}: cannot continue with missing mix assets ({'; '.join(parts)}). "
             "Record VO, regenerate SFX, or set mix.completeness_gate.mode to warn."
         )
+
+
+def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:
+    rel = "sound_design/mmaudio_qa.json"
+    if not ctx.artifact_exists(rel):
+        return set()
+    doc = ctx.read_json(rel)
+    rows = doc.get("assets") if isinstance(doc, dict) else []
+    out: set[str] = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        aid = str(row.get("asset_id") or "").strip()
+        if not aid:
+            continue
+        status = str(row.get("generation_status") or "").lower()
+        if status in {"failed", "placeholder"}:
+            out.add(aid)
+            continue
+        if row.get("silence_detected") is True:
+            out.add(aid)
+    return out

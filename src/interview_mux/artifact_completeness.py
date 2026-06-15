@@ -135,6 +135,15 @@ def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
     return []
 
 
+def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["assets"]
+    assets = data.get("assets")
+    if not isinstance(assets, list):
+        return ["assets"]
+    return []
+
+
 STAGE_GAP_RULES: dict[str, GapRule] = {
     "content_brief_reanchor": _gaps_content_brief_reanchor,
 }
@@ -157,7 +166,8 @@ ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
     "flow_2_highlights/selection.json": _gaps_generic_nonempty,
     "flow_2_highlights/sfx_brief.json": _gaps_generic_nonempty,
     "flow_3_description/show_description.json": _gaps_generic_nonempty,
-    "sound_design/elevenlabs_prompts.json": _gaps_generic_nonempty,
+    "sound_design/sfx_prompts.json": _gaps_generic_nonempty,
+    "sound_design/mmaudio_qa.json": _gaps_mmaudio_qa,
 }
 
 
@@ -190,9 +200,27 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     data = raw if isinstance(raw, dict) else None
     schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
     semantic = compute_gaps(rel_path, data, stage_key=_status_stage_key(rel_path, ctx))
+    if rel_path == "sound_design/mmaudio_qa.json" and data:
+        semantic.extend([Gap(path=p, reason="incomplete") for p in _mmaudio_qa_wav_parity_gaps(ctx, data)])
     if schema_errors or semantic:
         return "partial"
     return "complete"
+
+
+def _mmaudio_qa_wav_parity_gaps(ctx: RunContext, data: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    assets = data.get("assets") if isinstance(data.get("assets"), list) else []
+    qa_ids = {
+        str(row.get("asset_id"))
+        for row in assets
+        if isinstance(row, dict) and row.get("asset_id")
+    }
+    wav_ids = {p.stem for p in ctx.path("sound_design", "assets").glob("*.wav")}
+    for aid in sorted(wav_ids - qa_ids):
+        out.append(f"assets_missing_qa:{aid}")
+    for aid in sorted(qa_ids - wav_ids):
+        out.append(f"qa_missing_wav:{aid}")
+    return out
 
 
 def artifact_ready_for_review(rel_path: str, ctx: RunContext) -> bool:

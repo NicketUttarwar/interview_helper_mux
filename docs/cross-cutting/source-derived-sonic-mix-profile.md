@@ -2,7 +2,7 @@
 
 **Status:** Shipped — `source_acoustic_profile` stage in `understanding.py` writes `understanding/source_acoustic_profile.json`. Defines how **acoustic and pacing signals** from each interview’s source audio and transcript become a **stable per-run profile** that guides underscore, SFX, and mix decisions for a homogeneous, speech-first episode.
 
-**Related:** [sound-design.md](./sound-design.md) (SDP + roles), [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) (generation + post-analysis), [analysis-memory.md](./analysis-memory.md) (semantic profile), [context-padding.md](./context-padding.md) (LLM volleys), [artifact-layout.md](./artifact-layout.md).
+**Related:** [sound-design.md](./sound-design.md) (SDP + roles), [local-audio-stack.md](./local-audio-stack.md) (generation + post-analysis), [analysis-memory.md](./analysis-memory.md) (semantic profile), [context-padding.md](./context-padding.md) (LLM volleys), [artifact-layout.md](./artifact-layout.md).
 
 ---
 
@@ -14,10 +14,10 @@ Every run is a **different** interview: speaker, room, mic, language rhythm, and
 |-----------|---------|
 | **Derive once** | Compute acoustic/pacing features after ingest + transcription (and optional preclean). Reuse the same artifact for analysis LLM context, Wave 5 sound design, flow SFX briefs, and future mux duck automation. |
 | **Complement speech** | Generated beds and stingers should **support** dialogue — density, ducking, and **placement on phrase boundaries** matter more than locking musical BPM to words-per-minute. |
-| **Speech-first** | All generated assets share one **mix grammar** (level bands, midrange discipline, no hooks under words). See [sound-design.md § Musical structure](./sound-design.md#musical-structure-for-elevenlabs-prompts). |
+| **Speech-first** | All generated assets share one **mix grammar** (level bands, midrange discipline, no hooks under words). See [sound-design.md § Musical structure](./sound-design.md#musical-structure-for-sfx-prompts). |
 | **Semantic + acoustic** | `analysis_state` / `content_brief` carry **what** the interview is about; this profile carries **how** it sounds and **how fast** it moves. Neither replaces the other. |
 | **Operator override** | Verified `analysis_state.style` and `style.sound_design_notes` win over automatic suggestions. |
-| **Music-heavy sources** | If the raw interview already contains score or strong bed, the profile should flag **sparse or skip** underscore — see [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md). |
+| **Music-heavy sources** | If the raw interview already contains score or strong bed, the profile should flag **sparse or skip** underscore — see [local-audio-stack.md](./local-audio-stack.md). |
 
 ### Pacing: complement vs literal BPM = WPM
 
@@ -80,7 +80,7 @@ The acoustic profile **informs** LLM stages (optional summary injected into voll
 
 **Path:** `understanding/source_acoustic_profile.json`
 
-**Stage key:** `source_acoustic_profile` — runs once after `transcribe` + `transcript_review_build` (and after `audio_preclean` when enabled), before `speaker_roles`; consumed by `sound_design_palettes` and `elevenlabs_prompt_craft`.
+**Stage key:** `source_acoustic_profile` — runs once after `transcribe` + `transcript_review_build` (and after `audio_preclean` when enabled), before `speaker_roles`; consumed by `sound_design_palettes` and `sfx_prompt_craft`.
 
 ### Invalidation
 
@@ -91,7 +91,7 @@ Re-derive when any of these change (bump `derived_from` hashes):
 - `transcript/full.json` or `transcript/corrections.json` applied to timings
 - Operator clicks **Recompute acoustic profile** in GUI (`POST …/recompute-acoustic-profile`) or edits `operator_overrides` via the SAP panel
 
-Do **not** re-derive per ElevenLabs asset or per cue.
+Do **not** re-derive per MMAudio asset or per cue.
 
 ### Document shape (informative)
 
@@ -131,7 +131,7 @@ One contract per run so beds, stingers, and accents feel like the same “show�
 | `tempo_feel_bpm` | `null` unless montage policy + `brisk`/`dense` |
 | `underscore_policy` | `normal` \| `sparse` \| `skip` |
 
-Maps conceptually to SDP `coherence.density` and per-asset `musical_intent` in [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt).
+Maps conceptually to SDP `coherence.density` and per-asset `musical_intent` in [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt).
 
 ---
 
@@ -153,7 +153,7 @@ flowchart TB
   end
   subgraph sound [Sound design]
     SDP[sound_design_plan.json]
-    EL[elevenlabs_prompts.json]
+    EL[sfx_prompts.json]
     WAV[sound_design/assets]
   end
   subgraph flow [Flow outputs]
@@ -181,7 +181,7 @@ flowchart TB
 
 1. `ingest` → `transcription` → **`source_acoustic_profile`**
 2. Wave 2 LLM stages may receive a **compact prose summary** of pacing + mix_contract in the volley ([context-padding.md](./context-padding.md) — future `STAGE_PLANS` row).
-3. Wave 5: `sound_design_palettes` / plan / `elevenlabs_prompt_craft` read `source_acoustic_profile` + semantic profile.
+3. Wave 5: `sound_design_palettes` / plan / `sfx_prompt_craft` read `source_acoustic_profile` + semantic profile.
 4. Post-generation QA and mux use `mix_contract` + per-cue placement hints.
 
 ---
@@ -193,7 +193,7 @@ flowchart TB
 | `content_context` (optional) | `pace_class`, `prompt_tokens.tone` | Align brief pacing language with measured speech |
 | `sound_design_palettes` | `room_timbre_hint`, `mix_contract`, semantic themes | Richer `ambient_description`; `coherence.density` |
 | `sound_design_plan_flow*` | `stinger_max_per_minute`, `placement_hints` | Cue density and placement types |
-| `elevenlabs_prompt_craft` | `prompt_tokens`, `musical_intent` hints, `mix_contract` | 80–220 word prompts; `tempo_feel_bpm` only when allowed |
+| `sfx_prompt_craft` | `prompt_tokens`, `musical_intent` hints, `mix_contract` | 80–220 word prompts; `tempo_feel_bpm` only when allowed |
 | `podcast_sfx_brief` / `sfx_brief` (v1) | Compact summary | Until full SDP ships |
 | Post-gen analysis | Theme fit + **intelligibility under measured duck** | Regen / level_db tweaks |
 | `mix_flow*` / `mux_flow*` | `duck_under_speech_db`, pause-aligned stinger placement | SAP-driven duck + pause-tail alignment in `sound_design.py` |
@@ -206,7 +206,7 @@ flowchart TB
 | `content_context` | `pace_class` + one-line pacing summary | shipped (`pacing_one_liner` in `understanding.py`) |
 | `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`acoustic_profile.compact_for_volley` via `context_volley.py`) |
 | `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | shipped (`compact_for_volley` in plan stage `build_input`) |
-| `elevenlabs_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
+| `sfx_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
 | `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | shipped (`selection_flow1.run_podcast_sfx_brief`) |
 
 Keep under ~500 tokens prose per injection — numeric fields as short bullets.
@@ -218,14 +218,14 @@ Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 | `sound_design_palettes` | `room_timbre_hint`, `mix_contract`, `pace_class`, `prompt_tokens` | `understanding/source_acoustic_profile.json` |
 | `sound_design_plan_flow1` | `placement_hints`, `stinger_max_per_minute`, `mix_contract` | same |
 | `sound_design_plan_flow2` | `placement_hints`, `mix_contract`, montage density hints | same |
-| `elevenlabs_prompt_craft` | `prompt_tokens`, `musical_intent`, `mix_contract`, `pace_class` | same |
+| `sfx_prompt_craft` | `prompt_tokens`, `musical_intent`, `mix_contract`, `pace_class` | same |
 | `mix_flow1` / `mix_flow2` | `duck_under_speech_db`, pause-tail placement via `mix_contract` | same (not re-injected at mix; read from disk in `sound_design.py`) |
 
 ---
 
 ## Holistic integration with generated assets
 
-All ElevenLabs outputs for a run should obey the **same** `mix_contract`:
+All MMAudio outputs for a run should obey the **same** `mix_contract`:
 
 1. **Level** — Beds and stingers generated with language that assumes the run’s `bed_level_db_range` and duck depth (craft stage).
 2. **Spectrum** — Shared midrange policy; beds avoid masking 1–4 kHz ([sound-design.md](./sound-design.md)).
@@ -331,6 +331,6 @@ Informative only — not validated in CI until schema ships.
 ## See also
 
 - [sound-design.md](./sound-design.md) — SDP, musical_intent, post-generation
-- [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — API, theme fit QA
+- [local-audio-stack.md](./local-audio-stack.md) — API, theme fit QA
 - [roadmap/future-proofing.md](../roadmap/future-proofing.md) — prosody / pacing R&D
 - [pipeline/understanding/README.md](../pipeline/understanding/README.md) — analysis stage outputs

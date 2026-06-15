@@ -114,7 +114,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-019 — Audio pre-clean
 
-- [x] `stages/audio_preclean.py` calls ElevenLabs isolation REST
+- [x] `stages/audio_preclean.py` calls DeepFilterNet preclean REST
 - [x] Writes `preclean/isolated.wav` + `lineage.json` (full source); `vo_pickup/clean/` + lineage for pickup scope
 - [x] Invalidates downstream from ingest (or vo_ingest for pickup-only) on operator accept
 - [x] GUI offers at checkpoints in [audio_preclean/README.md](../pipeline/audio_preclean/README.md) — **BUILD-072**
@@ -171,7 +171,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 - [x] `podcast_sfx_brief.json` generated
 - [x] Superseded by SDP flow plan (BUILD-062) on default Flow 1 path
 
-### BUILD-034 — ElevenLabs SFX flow1
+### BUILD-034 — MMAudio SFX flow1
 
 - [x] WAV per brief line via REST
 - [x] One WAV per `asset_id` (BUILD-064)
@@ -193,7 +193,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 - [x] `selection.json`, `sfx_brief.json`
 
-### BUILD-042 — ElevenLabs SFX flow2
+### BUILD-042 — MMAudio SFX flow2
 
 - [x] Montage profile generation
 
@@ -291,9 +291,9 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 - [x] Persist validates full SDP schema; cues must reference known `asset_id` values
 - [x] Prompt: [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt)
 
-### BUILD-064 — ElevenLabs prompt craft + generate
+### BUILD-064 — MMAudio SFX prompt craft + generate
 
-- [x] OpenAI craft stage → `elevenlabs_prompts.json`
+- [x] OpenAI craft stage → `sfx_prompts.json`
 - [x] One REST call per unique `asset_id`
 - [x] Respects `duration_seconds` from plan
 
@@ -306,8 +306,20 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 ### BUILD-066 — Pipeline + GUI wire-up
 
 - [x] Stage order updated in `pipeline.py` and `web/stages.py` (`mix_flow1` / `mix_flow2` canonical; `mux_flow*` legacy aliases)
-- [x] Optional G1.5 SFX prompt review panel (`elevenlabs_prompt_craft` + `/api/runs/{id}/elevenlabs-prompts*`; `g1_5_require_prompt_approval`)
+- [x] Optional G1.5 SFX prompt review panel (`sfx_prompt_craft` + `/api/runs/{id}/sfx-prompts*`; `g1_5_require_prompt_approval`)
 - [x] v1 brief stages aliased or removed from default path (`podcast_sfx_brief` / `sfx_brief` single-stage only)
+
+### BUILD-SFX-17 — Holistic gap closure sign-off
+
+- [x] `sonic_context_hash` in MMAudio plan-hash payload and LLM export headers (`tools/export_llm_calls.py`)
+- [x] Compact `sonic_context` in `edl_narrative_audit` stage input
+- [x] Unified listen-result API (`mode`: `post_listen` \| `under_speech`; removed `/speech-under-listen` stub)
+- [x] Nine-scenario pytest matrix (`tests/fixtures/sonic_context/*.json`, `test_sonic_context.py`)
+- [x] Scenario mix tests (`test_sound_design_scenario.py`, `test_sfx_gates.py`)
+- [x] Operator docs: 9-scenario sign-off matrix, post-listen block smoke, placement formulas
+- [x] Example corpus: per-atlas palette Good blocks + sfx-prompt-regression pass/fail pairs
+
+**Verify:** `pytest tests/test_sonic_context.py tests/test_sound_design_scenario.py tests/test_sfx_gates.py -q`
 
 ---
 
@@ -325,7 +337,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-069 — Assembly preview
 
-- [x] `assembly_preview.wav` — speech + VO, no ElevenLabs
+- [x] `assembly_preview.wav` — speech + VO, no MMAudio SFX
 - [x] GUI listen action before SFX spend
 
 ### BUILD-070 — verify_master LUFS/peak
@@ -422,7 +434,7 @@ Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-pro
 ### GUIDE-061–070 — Cross-validate, preflight, spend gates
 
 - [x] `artifact_cross_validate.py` checkpoints for segmentation, gaps, flow entry
-- [x] `sdp_cross_validate.py` checkpoints: `post_sound_palettes`, `post_sound_plan_flow*`, `pre_elevenlabs_spend`, `pre_mix_flow*`
+- [x] `sdp_cross_validate.py` checkpoints: `post_sound_palettes`, `post_sound_plan_flow*`, `pre_sfx_generation`, `pre_mix_flow*`
 - [x] `spend_block_stages` blocks craft/generate/mix without complete upstream SDP
 - [x] Preflight covers all P0/P1 producer dependencies
 - [x] [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18–§20 complete
@@ -430,7 +442,7 @@ Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-pro
 ### GUIDE-071–080 — Placement QA, monitoring, verification
 
 - [x] `placement_qa.py` + `sound_design.placement_qa_enabled` documented
-- [x] `sound_design/placement_adjustments.json` written after `elevenlabs_sfx_flow*` when enabled; applied at mix via `apply_placement_adjustments`
+- [x] `sound_design/placement_adjustments.json` written after `mmaudio_sfx_flow*` when enabled; applied at mix via `apply_placement_adjustments`
 - [x] Legacy `podcast_sfx_brief` / `sfx_brief` / `mux_flow*` marked non-default in rules + `stage_guidance.py`
 - [x] [logic-tree.md](../logic-tree.md) SDP branch mermaid
 - [x] [definition-of-done-signoff.md](./definition-of-done-signoff.md) quality-first listen checklist per tier

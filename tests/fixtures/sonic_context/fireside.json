@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "fireside",
+    "tone_class": "warm",
+    "atlas_bucket": "fireside",
+    "sound_posture": {
+      "bed_density": "sparse",
+      "stinger_cap_per_minute": 1
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "intimate",
+    "density_hint": "sparse",
+    "room_character": "warm_room_tone"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "personal_reflection",
+      "kind": "emotional",
+      "keywords": ["reflection", "trust", "calm"],
+      "segment_ids": ["seg_008"],
+      "provenance": ["understanding/content_brief.json"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "emotional_beat",
+      "segment_id": "seg_008",
+      "confidence": 0.82,
+      "provenance": ["segments/manifest.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "sparse",
+    "adaptive_max_assets_flow1": 4,
+    "adaptive_max_assets_flow2": 2,
+    "duration_bands_by_role": {
+      "ambient_bed": [5, 8],
+      "vo_bridge": [2, 6]
+    }
+  },
+  "avoid_hard": ["bright synthetic arps"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

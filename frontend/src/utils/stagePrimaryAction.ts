@@ -117,7 +117,7 @@ export function resolveStagePrimaryAction(
     return {
       kind: "waiting",
       label: "Choose an option below",
-      sublabel: "Skip cleaning to keep original audio, or run ElevenLabs isolation.",
+      sublabel: "Skip cleaning to keep original audio, or run MMAudio isolation.",
       disabled: true,
     };
   }

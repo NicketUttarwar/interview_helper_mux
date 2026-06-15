@@ -14,6 +14,41 @@ from run_fixtures import (
 )
 
 
+def test_pre_master_flow1_with_seeded_assets(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "cv_pre_master")
+    seed_flow1_sound_spend_ready(ctx)
+    from interview_mux.sdp_cross_validate import validate_pre_master
+
+    assert validate_pre_master(ctx, "flow1") == []
+
+
+def test_pre_master_flow1_flags_post_listen_fail(tmp_path, monkeypatch):
+    from interview_mux.sdp_cross_validate import validate_pre_master
+    from run_fixtures import patch_merged_config
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(
+        monkeypatch,
+        {"sound_design": {"post_listen_gate_mode": "block_mix"}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "cv_pre_master_listen")
+    seed_flow1_sound_spend_ready(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["sfx_listen_results"] = [{"asset_id": "bed_01", "result": "fail"}]
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    errors = validate_pre_master(ctx, "flow1")
+    assert any("post_listen failed" in e for e in errors)
+
+
+def test_validate_cross_artifacts_pre_master_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "cv_pre_master_x")
+    seed_flow1_sound_spend_ready(ctx)
+    errors = validate_cross_artifacts(ctx, "pre_master_flow1")
+    assert errors == []
+
+
 def test_post_segmentation_boundary_not_in_manifest(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_seg")
@@ -67,11 +102,11 @@ def test_post_sound_palettes_missing_segment(tmp_path, monkeypatch):
     assert any("seg_999" in e for e in errors)
 
 
-def test_pre_elevenlabs_spend_passes_with_seeded_sound_path(tmp_path, monkeypatch):
+def test_pre_sfx_generation_passes_with_seeded_sound_path(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_spend_ok")
     seed_flow1_sound_spend_ready(ctx)
-    errors = validate_cross_artifacts(ctx, "pre_elevenlabs_spend")
+    errors = validate_cross_artifacts(ctx, "pre_sfx_generation")
     assert errors == []
 
 

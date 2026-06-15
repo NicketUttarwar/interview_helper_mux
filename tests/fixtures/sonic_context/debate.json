@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "debate",
+    "tone_class": "tense",
+    "atlas_bucket": "debate",
+    "sound_posture": {
+      "bed_density": "none",
+      "stinger_cap_per_minute": 1
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "urgent",
+    "density_hint": "none",
+    "room_character": "live_stage_dry"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "contested_claims",
+      "kind": "topic",
+      "keywords": ["debate", "rebuttal", "contrast"],
+      "segment_ids": ["seg_020"],
+      "provenance": ["segments/manifest.topic_tags"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "tension_peak",
+      "segment_id": "seg_020",
+      "confidence": 0.77,
+      "provenance": ["segments/manifest.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "skip",
+    "adaptive_max_assets_flow1": 3,
+    "adaptive_max_assets_flow2": 2,
+    "duration_bands_by_role": {
+      "chapter_stinger": [1, 2],
+      "transition_stinger": [0.8, 1.8]
+    }
+  },
+  "avoid_hard": ["crowd cheer", "sports horn"],
+  "segment_flags": {
+    "overlap_high": ["seg_020"],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

@@ -1,8 +1,8 @@
 # Post-generation placement spec
 
-How generated SFX assets are placed on the timeline **after** ElevenLabs returns WAVs. Initial SDP cues specify intent; the mix engine (`src/interview_mux/sound_design.py`) and operator listen QA adapt overlap, trim, and alignment using transcript timing and `source_acoustic_profile`.
+How generated SFX assets are placed on the timeline **after** `mmaudio_sfx_flow*` writes WAVs. Initial SDP cues specify intent; the mix engine (`src/interview_mux/sound_design.py`) and operator listen QA adapt overlap, trim, and alignment using transcript timing and `source_acoustic_profile`.
 
-**Principle:** Generation produces **candidates**; placement is decided at mux time. See also [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) § Post-generation.
+**Principle:** Generation produces **candidates**; placement is decided at mux time. See also [local-audio-stack.md](./local-audio-stack.md) § Post-generation.
 
 ---
 
@@ -10,7 +10,7 @@ How generated SFX assets are placed on the timeline **after** ElevenLabs returns
 
 ```mermaid
 flowchart LR
-    SDP[sound_design_plan] --> GEN[elevenlabs_sfx_flow*]
+    SDP[sound_design_plan] --> GEN[mmaudio_sfx_flow*]
     GEN --> QA[Post-listen QA]
     QA --> MIX[mix_flow*]
     MIX --> MASTER[master_flow*]
@@ -19,7 +19,7 @@ flowchart LR
 | Phase | Owner | Output |
 |-------|-------|--------|
 | Plan | `sound_design_plan_flow*` | Cue anchors + `level_db` + `placement` |
-| Generate | `elevenlabs_sfx_flow*` | `sound_design/assets/{asset_id}.wav` |
+| Generate | `mmaudio_sfx_flow*` | `sound_design/assets/{asset_id}.wav`, `sound_design/mmaudio_qa.json` |
 | Place | `mix_flow*` | `assembly.wav` with aligned overlays |
 
 Config defaults: `config/app.defaults.json` → `mix_engine`, `disfluency_restore`, `sound_design`.
@@ -38,7 +38,7 @@ Speech montage and clip joins use equal-power crossfade via `append_with_crossfa
 | Flow 2 montage | `mix_engine.crossfade_ms_flow2` | **120 ms** | Highlight clip joins |
 | Assembly preview | `mix_engine.crossfade_ms_assembly_preview` | **80 ms** | Speech + VO only preview |
 | Disfluency restore | `disfluency_restore.crossfade_ms` | **30 ms** | Spliced filler clips |
-| Preclean chunks | `audio_timeline` concat | **80 ms** | ElevenLabs isolation chunk merge |
+| Preclean chunks | `audio_timeline` concat | **80 ms** | DeepFilterNet preclean chunk merge |
 
 ### Adaptive crossfade
 
@@ -57,7 +57,7 @@ When `mix_engine.adaptive_crossfade: true` (default), the engine shortens crossf
 
 | Symptom | Action | Log token |
 |---------|--------|-----------|
-| Audible double-hit at join | Increase crossfade +20 ms | `elevenlabs_mix_adjust` |
+| Audible double-hit at join | Increase crossfade +20 ms | `mmaudio_mix_adjust` |
 | Montage feels sluggish | Decrease crossfade −20 ms (floor 60 ms) | same |
 | Spectral jump between clips | Lengthen crossfade; lower transition `level_db` | same |
 
@@ -73,6 +73,22 @@ When `sound_design.placement_qa_enabled: true`, `run_placement_qa()` may emit `s
 | Flow 2 highlight joins | `between_clips` cue `crossfade_ms` via `resolve_between_clip_transition()` | `mix_engine.crossfade_ms_flow2` (120 ms) |
 
 Log line when applied: `placement_qa: applied level to N cue(s), crossfade to M cue(s)`.
+
+### Adaptive bed level (`mix.adaptive_level_from_sap`)
+
+When enabled (default), `flow1_overlays_from_sdp()` adjusts bed `level_db` via `_adaptive_bed_level_db()`:
+
+| SAP `speech_active_ratio` | Effective bed ceiling |
+|---------------------------|------------------------|
+| ≥ 0.75 | `min(default_level_db, -26 dB)` |
+| ≥ 0.60 | `min(default_level_db, -24 dB)` |
+| else | `default_level_db` from SDP cue |
+
+Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech-first default; extra −2 dB for `panel`, `trauma_adjacent`, `noisy_room` buckets).
+
+### Scenario crossfade override (`mix_policy.crossfade_ms_flow2`)
+
+`sonic_context.compute_mix_policy()` may set per-atlas `crossfade_ms_flow2` (e.g. `media_profile`: 80 ms, `fireside`: 180 ms). `mix_flow2()` prefers this over `mix_engine.crossfade_ms_flow2` when present; Flow 1 speech joins still use `mix_engine.crossfade_ms_flow1` unless cue-level `crossfade_ms` is set by placement QA.
 
 ---
 
@@ -178,13 +194,13 @@ From [interview-scenario-atlas.md](../prompts/_shared/interview-scenario-atlas.m
 | Flow 2 montage | Cuts connected, not random SFX |
 | Master peak | No clip; speech bus loudest |
 
-Record in `run_meta.elevenlabs_listen_results[]` and `gui_log.jsonl` (`elevenlabs_post_listen_pass` / `fail`).
+Record in `run_meta.sfx_listen_results[]` and `gui_log.jsonl` (`sfx_post_listen_pass` / `fail`).
 
 ---
 
 ## Placement QA (deterministic hints)
 
-When `sound_design.placement_qa_enabled: true`, `placement_qa.py` runs after **`elevenlabs_sfx_flow*`** (when WAVs exist) and on mix refresh. It writes **`sound_design/placement_adjustments.json`** with conservative level/crossfade hints (missing WAV, suspiciously small file, default bed duck).
+When `sound_design.placement_qa_enabled: true`, `placement_qa.py` runs after **`mmaudio_sfx_flow*`** (merging `mmaudio_qa` hints) and on mix refresh. It writes **`sound_design/placement_adjustments.json`** with conservative level/crossfade hints (missing WAV, suspiciously small file, default bed duck).
 
 At mix, `apply_placement_adjustments()` reads that file and applies `suggested_level_db_delta` / `suggested_crossfade_ms` to SDP cue copies before `flow1_overlays_from_sdp` / Flow 2 overlay builders compute final `level_db`. Cue validation against the plan remains `post_sound_plan_*` cross-validate — placement QA does not run at plan persist (no WAVs yet).
 
@@ -195,7 +211,7 @@ At mix, `apply_placement_adjustments()` reads that file and applies `suggested_l
 | Function | File | Role |
 |----------|------|------|
 | `run_placement_qa` / `apply_placement_adjustments` | `placement_qa.py` | Post-SFX hints + mix-time apply |
-| `maybe_run_placement_qa` | `placement_qa.py` | Called from `sfx_elevenlabs.py` after generation |
+| `maybe_run_placement_qa` | `placement_qa.py` | Called from `sfx_mmaudio.py` after generation |
 | `flow1_overlays_from_sdp` | `sound_design.py` | Bed loop/trim + stinger overlays |
 | `resolve_stinger_position_ms` | `sound_design.py` | Pause-tail alignment |
 | `_append_mix_clip` | `sound_design.py` | Crossfade speech joins |

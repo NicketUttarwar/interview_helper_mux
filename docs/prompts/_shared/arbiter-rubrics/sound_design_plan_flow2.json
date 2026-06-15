@@ -5,13 +5,15 @@
     "Flow2 plan aligns with highlight selection beats and palettes",
     "Short-form sonic choices respect clip duration and hook structure",
     "Palette references match upstream sound_design_plan",
-    "Plan is complete for all selected highlights"
+    "Plan is complete for all selected highlights",
+    "Transition/cold-open choices align with sonic_context scenario posture and tag provenance"
   ],
   "reject_patterns": [
     "Plan omits highlights present in flow_2_highlights/selection.json",
     "Palette or theme ids inconsistent with upstream plan",
     "Sonic choices that clash with highlight hook intent",
-    "Schema errors on required flow2 plan fields"
+    "Schema errors on required flow2 plan fields",
+    "Flow2 cues are disconnected from sonic_context cue opportunities or tag provenance"
   ],
   "min_confidence_on_accept": 0.75,
   "decompose_eligible": false,

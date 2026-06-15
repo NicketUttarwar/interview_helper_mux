@@ -145,8 +145,8 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 7. `edl_narrative_audit`
 8. `edl_flow1`
 9. `assembly_preview`
-10. `elevenlabs_prompt_craft`
-11. `elevenlabs_sfx_flow1`
+10. `sfx_prompt_craft`
+11. `mmaudio_sfx_flow1`
 12. `mix_flow1`
 13. `master_flow1`
 
@@ -158,8 +158,8 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 
 1. `highlight_selection`
 2. `sound_design_plan_flow2`
-3. `elevenlabs_prompt_craft`
-4. `elevenlabs_sfx_flow2`
+3. `sfx_prompt_craft`
+4. `mmaudio_sfx_flow2`
 5. `mix_flow2` *(legacy alias: `mux_flow2` for single-stage rerun)*
 6. `master_flow2`
 

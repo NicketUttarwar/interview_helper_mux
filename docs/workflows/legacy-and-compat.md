@@ -23,7 +23,7 @@ Still runnable via `POST …/execute` with `mode: stage`:
 | Legacy id | Replacement |
 |-----------|-------------|
 | `mux_flow1` / `mux_flow2` | `mix_flow1` / `mix_flow2` |
-| `podcast_sfx_brief` / `sfx_brief` | SDP + `elevenlabs_prompt_craft` |
+| `podcast_sfx_brief` / `sfx_brief` | SDP + `sfx_prompt_craft` |
 
 Not in default `FLOW1_ORDER` / `FLOW2_ORDER`.
 

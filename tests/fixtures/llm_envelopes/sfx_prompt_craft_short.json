@@ -1,0 +1,14 @@
+{
+  "stage_key": "sfx_prompt_craft",
+  "expected_substring": "under 40 words",
+  "artifacts": {
+    "prompts": [
+      {
+        "asset_id": "sting_a",
+        "sfx_prompt": "too short",
+        "duration_seconds": 1.5,
+        "negative_prompt": "no vocals"
+      }
+    ]
+  }
+}

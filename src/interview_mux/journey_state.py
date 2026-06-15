@@ -12,9 +12,10 @@ from interview_mux.gates import (
     check_transcript_review_pending,
     get_selected_flow,
 )
-from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
+from interview_mux.sfx_prompt_review import can_run_sfx_generation
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
+from interview_mux.sonic_context import load_sonic_context
 
 
 def _require_preview_listen() -> bool:
@@ -64,9 +65,9 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "highlight_selection": "create",
     "sound_design_plan_flow2": "create",
     "podcast_show_description": "create",
-    "elevenlabs_prompt_craft": "polish",
-    "elevenlabs_sfx_flow1": "polish",
-    "elevenlabs_sfx_flow2": "polish",
+    "sfx_prompt_craft": "polish",
+    "mmaudio_sfx_flow1": "polish",
+    "mmaudio_sfx_flow2": "polish",
     "mix_flow1": "polish",
     "mix_flow2": "polish",
     "export_show_description": "ship",
@@ -95,6 +96,56 @@ def get_flow_intent(ctx: RunContext) -> str | None:
     if intent in ("flow1", "flow2", "flow3"):
         return intent
     return None
+
+
+def _post_listen_gate_active() -> bool:
+    sound_cfg = merged_config().get("sound_design") or {}
+    mode = str(sound_cfg.get("post_listen_gate_mode", "warn")).lower()
+    return mode in {"block", "block_mix"}
+
+
+def _compute_sfx_generated(ctx: RunContext, selected: str | None) -> bool:
+    if selected not in ("flow1", "flow2"):
+        return False
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return False
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict) and a.get("asset_id")]
+    if not assets:
+        return False
+    stage = "mmaudio_sfx_flow1" if selected == "flow1" else "mmaudio_sfx_flow2"
+    if not ctx.is_done(stage):
+        return False
+    for asset in assets:
+        aid = str(asset.get("asset_id"))
+        if not ctx.path("sound_design", "assets", f"{aid}.wav").is_file():
+            return False
+    return True
+
+
+def _compute_sfx_listen_complete(ctx: RunContext, selected: str | None) -> bool:
+    if not _post_listen_gate_active():
+        return True
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return True
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    asset_ids = [
+        str(a.get("asset_id"))
+        for a in (sdp.get("assets") or [])
+        if isinstance(a, dict) and a.get("asset_id")
+    ]
+    if not asset_ids:
+        return True
+    meta = read_run_meta(ctx)
+    listen = meta.get("sfx_listen_results") or []
+    latest: dict[str, str] = {}
+    for row in listen:
+        if isinstance(row, dict) and row.get("asset_id"):
+            latest[str(row.get("asset_id"))] = str(row.get("result") or "")
+    for aid in asset_ids:
+        if latest.get(aid) != "pass":
+            return False
+    return True
 
 
 def compute_milestones(ctx: RunContext) -> dict[str, bool]:
@@ -129,7 +180,7 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     preview_listened = bool(meta.get("preview_listened_at"))
 
     sfx_approved = True
-    ok, _ = can_run_elevenlabs_generation(ctx)
+    ok, _ = can_run_sfx_generation(ctx)
     if selected in ("flow1", "flow2"):
         sfx_approved = ok
 
@@ -148,6 +199,10 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         "preview_ready": preview_ready,
         "preview_listened": preview_listened,
         "sfx_approved": sfx_approved,
+        "sonic_context_ready": bool(load_sonic_context(ctx)),
+        "sfx_generated": _compute_sfx_generated(ctx, selected),
+        "sfx_listen_complete": _compute_sfx_listen_complete(ctx, selected),
+        "placement_qa_ready": ctx.artifact_exists("sound_design/placement_adjustments.json"),
         "master_exported": master_exported,
     }
     computed.update({k: v for k, v in base.items() if k in computed})
@@ -183,7 +238,7 @@ def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None =
             return "ship"
         if ctx.is_done("mix_flow2") or ctx.is_done("master_flow2"):
             return "ship"
-        if ctx.is_done("elevenlabs_prompt_craft") or ctx.is_done("highlight_selection"):
+        if ctx.is_done("sfx_prompt_craft") or ctx.is_done("highlight_selection"):
             if ctx.is_done("highlight_selection") and not ctx.is_done("master_flow2"):
                 return "polish"
         if ctx.is_done("highlight_selection"):
@@ -195,7 +250,7 @@ def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None =
         return "ship"
     if ctx.is_done("mix_flow1") or ctx.is_done("master_flow1"):
         return "ship"
-    if ms.get("preview_ready") and not ctx.is_done("elevenlabs_sfx_flow1"):
+    if ms.get("preview_ready") and not ctx.is_done("mmaudio_sfx_flow1"):
         if ms.get("preview_listened") or not _require_preview_listen():
             return "polish"
         return "create"

@@ -6,7 +6,7 @@ Use sound design to **underline ideas** and emotional truth—never decoration t
 
 ## 2. Signals used today (context only)
 
-`podcast_sfx_brief`, ElevenLabs generation, v1 mux limits per [sound-design.md](../../../cross-cutting/sound-design.md) and [podcast-quality-roadmap.md](../../../cross-cutting/podcast-quality-roadmap.md).
+`podcast_sfx_brief`, MMAudio generation, v1 mux limits per [sound-design.md](../../../cross-cutting/sound-design.md) and [podcast-quality-roadmap.md](../../../cross-cutting/podcast-quality-roadmap.md).
 
 **Optional (tooling):** When `value_analysis.enabled`, `tools/extract_value_features.py` may write `understanding/value_features.json` (transcript/audio proxies) to inform spikes — not consumed by the default pipeline.
 
@@ -42,7 +42,7 @@ Use sound design to **underline ideas** and emotional truth—never decoration t
 
 ## 7. Spike winner (fixture sprint)
 
-**Promote:** `sdp_craft_path` (SDP + OpenAI craft + ElevenLabs) — [spike-results § flow1 sound](../spike-results-and-winners.md#flow1-sound-and-mix). Fixture: `tests/fixtures/value_analysis/spike_flow1_sound.json`. Metric: [value-metrics-library §1.4 — Clip A/B](../value-metrics-library.md#4-clip-ab-protocol) (LEX-B sonic trust).
+**Promote:** `sdp_craft_path` (SDP + OpenAI craft + MMAudio) — [spike-results § flow1 sound](../spike-results-and-winners.md#flow1-sound-and-mix). Fixture: `tests/fixtures/value_analysis/spike_flow1_sound.json`. Metric: [value-metrics-library §1.4 — Clip A/B](../value-metrics-library.md#4-clip-ab-protocol) (LEX-B sonic trust).
 
 ## Related
 

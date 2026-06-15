@@ -1,6 +1,6 @@
 # Sound design — guardrails and edge cases (BUILD-060+)
 
-**When to use:** Wave 5 sound design (prompt files shipped). Spec: [sound-design.md](../../cross-cutting/sound-design.md), [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md). Examples: [sound-design.examples.md](../_shared/examples/sound-design.examples.md). This doc is **settings + rails + breadth**, not a large example library.
+**When to use:** Wave 5 sound design (prompt files shipped). Spec: [sound-design.md](../../cross-cutting/sound-design.md), [local-audio-stack.md](../../cross-cutting/local-audio-stack.md). Examples: [sound-design.examples.md](../_shared/examples/sound-design.examples.md). This doc is **settings + rails + breadth**, not a large example library.
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Knob | Risk if wrong | Guard |
 |------|----------------|-------|
-| `sound_design.enabled` | Spend on SFX when operator wants dry review | Default off or explicit opt-in; respect assembly-preview-first flow when BUILD-069 exists |
+| `sound_design.enabled` | Spend on SFX when operator wants dry review | Stage gating checks this before SFX/mix spend **(enforced)**; respect assembly-preview-first flow when BUILD-069 exists |
 | `max_assets_flow1` / `max_assets_flow2` | API cost + timbral soup | Cap enforced in code **(enforced)** via `deterministic_lint` + `post_sound_plan_*` cross-validate |
-| `g1_5_require_prompt_approval` (G1.5, shipped) | Surprise spend | When true, block ElevenLabs until operator approves crafted prompts in GUI **(enforced)** via `pre_elevenlabs_spend` |
-| `allow_diegetic_ambient` | Music mistaken for “room” | If false, reject beds that imply performance; document in SDP `avoid` |
+| `g1_5_require_prompt_approval` (G1.5, shipped) | Surprise spend | When true, block MMAudio SFX until operator approves crafted prompts in GUI **(enforced)** via `pre_sfx_generation` |
+| `allow_diegetic_ambient` | Music mistaken for “room” | If false, reject diegetic/performance-like ambients in plan/craft **(enforced)** and document bans in SDP `avoid` |
 
 ---
 
@@ -49,7 +49,7 @@
 
 ---
 
-## ElevenLabs prompt craft — edge cases
+## MMAudio SFX prompt craft — edge cases
 
 | Situation | Bad outcome | Rail |
 |-----------|-------------|------|
@@ -82,7 +82,7 @@
 ## Related
 
 - [README.md](./README.md) — stage → prompt file map
-- [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md) — API + post-analysis playbook
+- [local-audio-stack.md](../../cross-cutting/local-audio-stack.md) — API + post-analysis playbook
 - [sound-design.md](../../cross-cutting/sound-design.md) — SDP shape and waves
-- [operator-stage-checklists.md](../../workflows/operator-stage-checklists.md) — ElevenLabs pre/post spend
+- [operator-stage-checklists.md](../../workflows/operator-stage-checklists.md) — MMAudio pre/post generation
 - [prompts README — Example packs](../README.md#example-packs) — index of pattern packs + this doc

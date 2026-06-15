@@ -64,7 +64,7 @@ Stage ids and modules: [docs/build-out/stage-registry.md](docs/build-out/stage-r
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/bootstrap_venv.sh` | Create `.venv`, install `requirements.lock`, editable package; on macOS also MLX + local LLM weights via `select_local_llm.py` |
+| `scripts/bootstrap_venv.sh` | **Single setup entry:** core `.venv` + `ASSETS/local_{llm,deepfilter,mmaudio}/venv`, clone repos, verify gates — see [local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) |
 | `scripts/run.sh` | Venv + deps + GUI build if needed → `python -m interview_mux serve` (`--cli` for headless). Bootstrap and pipeline **errors** print to **stderr** on the invoking terminal; full operator log stays in each run’s `gui_log.jsonl`. |
 | `scripts/build_gui.sh` | `npm run build` in `frontend/` → `src/interview_mux/web/static/` |
 | `scripts/select_local_llm.py` | llmfit hardware pick + optional `--download` / `--verify` |
@@ -116,7 +116,7 @@ LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared anal
 | Waves 0–7 (analysis, G0–G2, flows 1–3, sound design, EDL/assembly, extended EDL narrative QC, mastering, pre-clean, smart LLM routing BUILD-073/084, source acoustic profile) | **Shipped** in code |
 | Journey UI (phase sidebar, story board, preclean drawer, express flow1) | **Shipped** (`journey_ui` in config) |
 | Gap-closure track GC-00–GC-D1 | **Shipped** — [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) |
-| Open work | Mostly **documentation** sweeps and manual release sign-off — [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (Commands 2–9) |
+| Open work | Mostly **manual release sign-off** and listen-test QA — [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) |
 
 **v1 honesty:** Mix quality and operator polish still trail the target in [docs/cross-cutting/podcast-quality-roadmap.md](docs/cross-cutting/podcast-quality-roadmap.md). Listen-test every `master.wav`; run `verify_master.py`, `validate_narrative.py --include-edl`, and `verify_edl.py` before calling a run done. Release checklist: [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md).
 
@@ -131,7 +131,8 @@ LLM prompts live under [docs/prompts/](docs/prompts/) and return the shared anal
 | Doc hub | [docs/INDEX.md](docs/INDEX.md) |
 | Operator journey | [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) |
 | Gates (G0, G1, G2, G1.5) | [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md) |
-| GUI ↔ API | [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) · [api-reference.md](docs/workflows/api-reference.md) |
+| GUI ↔ API | [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) · [docs/workflows/api-reference.md](docs/workflows/api-reference.md) |
+| Local audio (MMAudio + DeepFilterNet) | [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) · [mmaudio-prompt-tuning.md](docs/cross-cutting/mmaudio-prompt-tuning.md) |
 | Pipeline overview | [docs/pipeline.md](docs/pipeline.md) |
 | Stage registry | [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) |
 | Full application flow | [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) |

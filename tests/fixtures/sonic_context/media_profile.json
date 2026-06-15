@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "media_profile",
+    "tone_class": "narrative",
+    "atlas_bucket": "media_profile",
+    "sound_posture": {
+      "bed_density": "minimal",
+      "stinger_cap_per_minute": 2
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "curious",
+    "density_hint": "minimal",
+    "room_character": "neutral_control_room"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "career_turning_point",
+      "kind": "theme",
+      "keywords": ["profile", "journey", "turning point"],
+      "segment_ids": ["seg_011"],
+      "provenance": ["understanding/content_brief.json"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "chapter_boundary",
+      "segment_id": "seg_011",
+      "confidence": 0.79,
+      "provenance": ["flow_1_master/narrative_plan.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "sparse",
+    "adaptive_max_assets_flow1": 5,
+    "adaptive_max_assets_flow2": 3,
+    "duration_bands_by_role": {
+      "ambient_bed": [5, 8],
+      "chapter_stinger": [1, 2.5]
+    }
+  },
+  "avoid_hard": ["tabloid stingers"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

@@ -112,8 +112,11 @@ PY
 fi
 
 if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
-  if ! python -c "import mlx_lm" 2>/dev/null; then
-    echo "WARN: local_llm is on by default but mlx-lm is not installed — re-run ./scripts/bootstrap_venv.sh"
+  MLX_PY="$ROOT/ASSETS/local_llm/venv/bin/python"
+  if [[ ! -x "$MLX_PY" ]]; then
+    echo "WARN: MLX venv missing at ASSETS/local_llm/venv — re-run ./scripts/bootstrap_venv.sh"
+  elif ! "$MLX_PY" -c "import mlx_lm" 2>/dev/null; then
+    echo "WARN: local_llm enabled but mlx-lm missing in MLX venv — re-run ./scripts/bootstrap_venv.sh"
   else
     if ! command -v llmfit >/dev/null 2>&1; then
       echo "WARN: llmfit not on PATH — install: brew install AlexsJones/llmfit/llmfit (or see SETUP.md § Local LLM)"
@@ -122,6 +125,31 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
       echo "WARN: local LLM weights not found under ASSETS/local_llm/models — run: python scripts/select_local_llm.py --download"
     fi
   fi
+fi
+
+if [[ "${CHECK_LOCAL_RUNTIMES:-0}" == "1" ]]; then
+  for stack in deepfilter mmaudio; do
+    py="$ROOT/ASSETS/local_${stack}/venv/bin/python"
+    repo=""
+    if [[ "$stack" == "deepfilter" ]]; then
+      repo="$ROOT/ASSETS/local_deepfilter/DeepFilterNet"
+    else
+      repo="$ROOT/ASSETS/local_mmaudio/MMAudio"
+    fi
+    if [[ ! -x "$py" ]]; then
+      echo "ERROR: missing $stack venv python: $py" >&2
+      exit 1
+    fi
+    if [[ ! -d "$repo/.git" ]]; then
+      echo "ERROR: missing cloned repo: $repo" >&2
+      exit 1
+    fi
+    manifest="$ROOT/ASSETS/local_${stack}/install.json"
+    if [[ ! -f "$manifest" ]]; then
+      echo "WARN: missing install.json for $stack — re-run bootstrap_local_runtimes"
+    fi
+  done
+  echo "Local audio runtimes: OK"
 fi
 
 _STATIC_INDEX="$ROOT/src/interview_mux/web/static/index.html"

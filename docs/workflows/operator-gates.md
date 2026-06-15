@@ -2,7 +2,7 @@
 
 Mandatory human checkpoints. Agents **must stop** at these gates — do not auto-continue.
 
-**Quality offers** (optional, non-blocking) are separate from gates — see [Quality improvement offers](#quality-improvement-offers-not-gates) and [audio pre-clean](../pipeline/audio_preclean/README.md). ElevenLabs/ffmpeg pins: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
+**Quality offers** (optional, non-blocking) are separate from gates — see [Quality improvement offers](#quality-improvement-offers-not-gates) and [audio pre-clean](../pipeline/audio_preclean/README.md). ffmpeg / local audio stack pins: [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
 ---
 
@@ -14,7 +14,7 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 |-----------|---------------------|
 | **Checkpoint banner** | Amber strip when your input is required |
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
-| **API consent** | **Shipped default:** session execute sends `api_consents: { openai, aws, elevenlabs: true }` (see `frontend/src/utils/index.ts`). Optional consent modal CSS exists but is not wired — operators must have keys in `config/secrets/secrets.env`. Future: per-provider modal per original spec. |
+| **API consent** | **Shipped default:** session execute sends `api_consents: { openai, openai, aws }` (see `frontend/src/utils/index.ts`). Optional consent modal CSS exists but is not wired — operators must have keys in `config/secrets/secrets.env`. Future: per-provider modal per original spec. |
 | **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Review AI-generated outputs** lists those files; edit in **File editor** if needed, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
 | **Stage execution reuse** | Before each automated stage (when candidates exist), **Previous execution reuse** offers copying outputs from a prior `exec_*` with the same `source_audio_hash`. **Reuse outputs** or **Run fresh instead**. Controlled by `journey_ui.enable_stage_reuse_offers` (default `true`). Not a gate — does not replace G0–G2. |
 | **Write approval** | After each automated stage (when enabled), **Review outputs before saving** lists files in `.pending_writes/<stage>/`; preview, edit, **Save & continue** or **Discard & re-run**. Controlled by `journey_ui.require_write_approval_per_stage` (default `true`). Applies to reused copies too. |
@@ -173,19 +173,19 @@ python tools/run_flow.py --flow flow2
 python tools/run_flow.py --flow flow3 --run-id <exec_id>
 ```
 
-Flow 3 does not require ElevenLabs or mastering. Profile verification is **recommended** before `podcast_show_description` — see [publishing/README.md](../pipeline/publishing/README.md).
+Flow 3 does not require MMAudio SFX or mastering. Profile verification is **recommended** before `podcast_show_description` — see [publishing/README.md](../pipeline/publishing/README.md).
 
 ---
 
 ## G1.5 — Sound design prompt approval (optional, shipped)
 
-**When:** After `elevenlabs_prompt_craft`, **before** `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` generation spend.
+**When:** After `sfx_prompt_craft`, **before** `mmaudio_sfx_flow1` / `mmaudio_sfx_flow2` generation spend.
 
-**Trigger:** `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (default `false`).
+**Trigger:** `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (shipped default `true`).
 
-**Action:** Operator reviews and edits `sound_design/elevenlabs_prompts.json` on the **Craft ElevenLabs prompts** stage panel; **Approve** sets `run_meta.json` → `elevenlabs_prompt_review.approved`. Generation is blocked in GUI and at runtime until approved.
+**Action:** Operator reviews and edits `sound_design/sfx_prompts.json` on the **Craft MMAudio prompts** stage panel; **Approve** sets `run_meta.json` → `sfx_prompt_review.approved`. Generation is blocked in GUI and at runtime until approved.
 
-See [gui-surface-map.md](./gui-surface-map.md#elevenlabs-operator-journey-sfx--g15) · [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
+See [gui-surface-map.md](./gui-surface-map.md#mmaudio-operator-journey-sfx--g15) · [local-audio-stack.md § GUI operator journey](../cross-cutting/local-audio-stack.md#gui-operator-journey).
 
 ---
 

@@ -14,7 +14,7 @@ from interview_mux.api_providers import (
     stage_api_providers,
 )
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents
-from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
+from interview_mux.sfx_prompt_review import can_run_sfx_generation
 from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
 from interview_mux.nle_state import load_nle, nle_edit_categories
@@ -210,8 +210,8 @@ class JobRunner:
                 order = order[: order.index(until_stage) + 1]
             elif mode == "flow1_until_preview" and "assembly_preview" in order:
                 order = order[: order.index("assembly_preview") + 1]
-            elif mode == "flow1_polish" and "elevenlabs_prompt_craft" in order:
-                order = order[order.index("elevenlabs_prompt_craft") :]
+            elif mode == "flow1_polish" and "sfx_prompt_craft" in order:
+                order = order[order.index("sfx_prompt_craft") :]
             return [s for s in order if not ctx.is_done(s)]
         return []
 
@@ -467,13 +467,15 @@ class JobRunner:
                     refresh_journey_meta(ctx)
                 elif mode in ("flow1", "flow1_until_preview", "flow1_polish"):
                     set_selected_flow(ctx, "flow1")
+                    if mode == "flow1_polish":
+                        self._preflight_flow1_polish(ctx, job_base)
                     ctx.log("Running Flow 1 — full master podcast pipeline…", level="info", stage="flow1")
                     us = until_stage
                     fs = from_stage or stage
                     if mode == "flow1_until_preview" and not us:
                         us = "assembly_preview"
                     if mode == "flow1_polish" and not fs:
-                        fs = "elevenlabs_prompt_craft"
+                        fs = "sfx_prompt_craft"
                     run_flow1(
                         ctx,
                         from_stage=fs,
@@ -611,12 +613,29 @@ class JobRunner:
         Thread(target=_run, daemon=True).start()
         return {"ok": True, "run_id": run_id, "mode": mode}
 
+    def _preflight_flow1_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
+        """Block flow1_polish when post-listen or mmaudio QA gates are not clear."""
+        from interview_mux.gates import check_post_listen_gate_pending, require_post_listen_clear
+        from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
+
+        failed_listen = check_post_listen_gate_pending(ctx)
+        if failed_listen:
+            msg = (
+                f"Flow 1 polish blocked: post_listen failures for {', '.join(failed_listen[:6])}. "
+                "Mark Pass in the post-listen panel before continuing."
+            )
+            ctx.log(msg, level="error", stage="flow1_polish")
+            self._write_job(ctx, {**job_base, "status": "gate", "message": msg, "stage": "flow1_polish"})
+            raise SystemExit(msg)
+        require_post_listen_clear(ctx, stage="flow1_polish")
+        require_spend_artifacts_complete(ctx, "mix_flow1")
+
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
-        if stage in ("elevenlabs_sfx_flow1", "elevenlabs_sfx_flow2"):
-            ok, message = can_run_elevenlabs_generation(ctx)
+        if stage in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+            ok, message = can_run_sfx_generation(ctx)
             if not ok:
                 ctx.log(message, level="warning", stage=stage)
                 raise RuntimeError(message)
@@ -672,5 +691,16 @@ class JobRunner:
                 continue
             seen.add(key)
             clear_stage_reuse_from(ctx, stage_id, order)
+        if stage_id in {
+            "source_acoustic_profile",
+            "content_context",
+            "content_brief_reanchor",
+            "segment_classification",
+            "sound_design_palettes",
+            "sonic_context_build",
+        }:
+            from interview_mux.analysis_memory import invalidate_sonic_context
+
+            invalidate_sonic_context(ctx, reason=f"invalidate_from:{stage_id}", stage=stage_id)
 
 runner = JobRunner()

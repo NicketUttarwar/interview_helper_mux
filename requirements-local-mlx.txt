@@ -1,0 +1,4 @@
+# ASSETS/local_llm/venv — macOS Apple Silicon only
+mlx-lm>=0.21.0
+mlx>=0.22.0
+huggingface_hub>=0.26.0,<1

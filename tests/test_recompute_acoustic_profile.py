@@ -56,7 +56,7 @@ def test_recompute_invalidates_sound_design_on_pace_change(tmp_path, monkeypatch
     ctx.mark_done("sound_design_palettes")
     ctx.mark_done("missing_framing")
     ctx.mark_done("sound_design_plan_flow1")
-    ctx.mark_done("elevenlabs_prompt_craft")
+    ctx.mark_done("sfx_prompt_craft")
 
     _mock_recompute_to_pace(monkeypatch, "dense")
     patch_server_ctx(monkeypatch, ctx)
@@ -72,7 +72,7 @@ def test_recompute_invalidates_sound_design_on_pace_change(tmp_path, monkeypatch
     assert not ctx.is_done("sound_design_palettes")
     assert not ctx.is_done("missing_framing")
     assert not ctx.is_done("sound_design_plan_flow1")
-    assert not ctx.is_done("elevenlabs_prompt_craft")
+    assert not ctx.is_done("sfx_prompt_craft")
 
     invalidation_logs = [
         e
@@ -84,7 +84,7 @@ def test_recompute_invalidates_sound_design_on_pace_change(tmp_path, monkeypatch
     assert "sound_design_palettes" in cleared
     assert "missing_framing" in cleared
     assert "sound_design_plan_flow1" in cleared
-    assert "elevenlabs_prompt_craft" in cleared
+    assert "sfx_prompt_craft" in cleared
 
 
 def test_recompute_skips_invalidation_when_pace_unchanged(tmp_path, monkeypatch) -> None:

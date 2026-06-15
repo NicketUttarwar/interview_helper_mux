@@ -1,6 +1,6 @@
 # Assembly and mux
 
-Combine speech, interviewer VO pickup, transitions, and ElevenLabs SFX into `assembly.wav`, then master export.
+Combine speech, interviewer VO pickup, transitions, and MMAudio SFX into `assembly.wav`, then master export.
 
 **North star:** [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md)
 
@@ -24,7 +24,7 @@ Module: `src/interview_mux/sound_design.py` — `mix_flow1` / `mix_flow2`.
 |--------|----------|
 | BUILD-067 | **Shipped:** `edl.json` includes `vo_pickup`, gap `placement`, transition anchors |
 | BUILD-068 | **Shipped:** `segments/nle_edits.json` → `selection.json` + EDL segment bounds |
-| BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before ElevenLabs spend |
+| BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before MMAudio SFX generation |
 | EDL narrative QC | **Shipped:** `edl_narrative_audit` + `edl_narrative_qc` verify final EDL narrative semantics before write |
 
 Stage ids and mix tables: [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
@@ -60,7 +60,7 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 
 ## Tools
 
-**ffmpeg**, **pydub**, **ElevenLabs REST** `POST /v1/music` Music v2 (`elevenlabs_rest.py`) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [elevenlabs-integration-guide.md](../../cross-cutting/elevenlabs-integration-guide.md)
+**ffmpeg**, **pydub**, **local MMAudio** `POST /v1/music` Music v2 (`maudio_runner.py`) — [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [local-audio-stack.md](../../cross-cutting/local-audio-stack.md)
 
 **QA (Flow 1):**
 
@@ -77,7 +77,7 @@ python tools/validate_narrative.py --run-id <exec_id> --include-edl   # upstream
 - `edl_narrative_qc.py` — final EDL narrative semantics
 - `stages/edl_narrative_audit.py` — local-volley + flagship semantic audit before EDL
 - `assembly_flow2.py` — `run_micro_assembly` → `mix_flow2`
-- `sfx_elevenlabs.py`, `sound_design_stages.py`
+- `sfx_mmaudio.py`, `sound_design_stages.py`
 
 ---
 

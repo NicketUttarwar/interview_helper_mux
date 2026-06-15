@@ -316,7 +316,7 @@ Sensitive personal history, grief, abuse, discrimination; dignity and consent po
 - **highlight_selection:** Exclude clips that retraumatize without context; no cold-open on disclosure peak.
 - **transitions:** No cheerful pivots; acknowledge weight before topic shift.
 - **podcast_show_description:** Content warnings when disclosure is central; no clickbait.
-- **elevenlabs_prompt_craft:** No triumphant stingers after heavy segments.
+- **sfx_prompt_craft:** No triumphant stingers after heavy segments.
 
 ### Sound posture
 

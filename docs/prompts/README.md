@@ -44,7 +44,7 @@ prompts/
     ├── theme-palettes.system.txt
     ├── plan-flow1.system.txt
     ├── plan-flow2.system.txt
-    ├── elevenlabs-prompt-craft.system.txt
+    ├── sfx-prompt-craft.system.txt
     └── guardrails-and-edge-cases.md
 ```
 
@@ -69,11 +69,11 @@ Runtime compact injection is intentionally narrower than this reference list: by
 | Podcast show description | [podcast-show-description.examples.md](./_shared/examples/podcast-show-description.examples.md) |
 | Transitions | [transitions.examples.md](./_shared/examples/transitions.examples.md) |
 | Podcast + montage SFX briefs | [sfx-briefs.examples.md](./_shared/examples/sfx-briefs.examples.md) |
-| Sound design + ElevenLabs craft | [sound-design.examples.md](./_shared/examples/sound-design.examples.md) |
-| ElevenLabs regression (golden prompts) | [elevenlabs-prompt-regression.md](./_shared/examples/elevenlabs-prompt-regression.md) |
+| Sound design + MMAudio prompt craft | [sound-design.examples.md](./_shared/examples/sound-design.examples.md) |
+| MMAudio regression (golden prompts) | [sfx-prompt-regression.md](./_shared/examples/sfx-prompt-regression.md) |
 | Sound design (guardrails) | [sound_design/guardrails-and-edge-cases.md](./sound_design/guardrails-and-edge-cases.md) |
 
-**Guard:** When you change rules in a `.system.txt`, update the matching `.examples.md` in the same PR. For **sound_design**, also see [elevenlabs-integration-guide.md](../cross-cutting/elevenlabs-integration-guide.md).
+**Guard:** When you change rules in a `.system.txt`, update the matching `.examples.md` in the same PR. For **sound_design**, also see [local-audio-stack.md](../cross-cutting/local-audio-stack.md).
 
 ## Invocation order
 
@@ -98,9 +98,9 @@ Orchestrator: inner retries per stage + investigation queue drain. Target: + arb
 
 Flow stages use the same envelope; read memory but single pass (no inner loop).
 
-**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_narrative_audit` → `edl_flow1` → assembly preview → `elevenlabs_prompt_craft` → generate → **`mix_flow1`** → master
+**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_narrative_audit` → `edl_flow1` → assembly preview → `sfx_prompt_craft` → generate → **`mix_flow1`** → master
 
-**Flow 2:** highlight-selection → `sound_design/plan-flow2` → `elevenlabs_prompt_craft` → generate → **`mix_flow2`** → master
+**Flow 2:** highlight-selection → `sound_design/plan-flow2` → `sfx_prompt_craft` → generate → **`mix_flow2`** → master
 
 **Flow 3:** `publishing/podcast-show-description` → `export_show_description`
 

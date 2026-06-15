@@ -24,7 +24,7 @@ STAGE_EXAMPLE_FILES: dict[str, str] = {
     "transitions": "_shared/examples/transitions.examples.md",
     "sound_design_plan_flow1": "_shared/examples/sound-design-plan-flow1.examples.md",
     "sound_design_plan_flow2": "_shared/examples/sound-design-plan-flow2.examples.md",
-    "elevenlabs_prompt_craft": "_shared/examples/elevenlabs-prompt-regression.md",
+    "sfx_prompt_craft": "_shared/examples/sfx-prompt-regression.md",
     "podcast_show_description": "_shared/examples/podcast-show-description.examples.md",
     "podcast_sfx_brief": "_shared/examples/sfx-briefs.examples.md",
     "sfx_brief": "_shared/examples/sfx-briefs.examples.md",
@@ -32,7 +32,7 @@ STAGE_EXAMPLE_FILES: dict[str, str] = {
 
 COMPACT_EXAMPLE_MAX_CHARS_BY_STAGE: dict[str, int] = {
     "content_context": 1200,
-    "elevenlabs_prompt_craft": 2500,
+    "sfx_prompt_craft": 2500,
     "full_master_ranking": 1000,
     "sound_design_plan_flow1": 1000,
     "sound_design_plan_flow2": 900,

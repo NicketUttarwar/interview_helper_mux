@@ -7,6 +7,9 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "sonic_identity": z.string(),
   "primary_mood": z.string(),
   "density": z.string(),
+  "scenario_bucket": z.string().optional(),
+  "tag_lineage": z.array(z.string()).optional(),
+  "sonic_context_hash": z.string().optional(),
 }),
   "palettes": z.array(z.object({
   "palette_id": z.string(),
@@ -16,6 +19,8 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "ambient_description": z.string(),
   "accent_description": z.string(),
   "avoid": z.array(z.string()),
+  "tag_ids": z.array(z.string()).optional(),
+  "sonic_bucket": z.enum(["ambient_territory", "accent_texture", "transition_family"]).optional(),
 })),
   "assets": z.array(z.object({
   "asset_id": z.string(),
@@ -24,6 +29,10 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "description": z.string(),
   "duration_seconds": z.number(),
   "reuse_note": z.string().optional(),
+  "generation_notes": z.string().optional(),
+  "tag_ids": z.array(z.string()).optional(),
+  "scenario_constraints": z.array(z.string()).optional(),
+  "cue_opportunity_refs": z.array(z.string()).optional(),
 })),
   "flow_plans": z.object({
   "flow1": z.object({

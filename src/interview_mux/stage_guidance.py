@@ -16,6 +16,7 @@ from interview_mux.gates import (
 from interview_mux.journey_state import OPERATOR_PHASES, stage_operator_phase
 from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
+from interview_mux.sonic_context import load_sonic_context
 from interview_mux.web.stages import STAGE_BY_ID
 
 # Stages blocked until G0 transcript review clears (matches pipeline.require_transcript_review_clear).
@@ -48,7 +49,7 @@ LLM_HANDOFF_STAGES = frozenset(
         "highlight_selection",
         "edl_narrative_audit",
         "podcast_show_description",
-        "elevenlabs_prompt_craft",
+        "sfx_prompt_craft",
     }
 )
 
@@ -86,7 +87,8 @@ STAGE_UNLOCKS: dict[str, str] = {
     "content_context": "Segment boundaries",
     "boundary_detection": "Segment classification",
     "segment_classification": "Content brief re-anchor",
-    "content_brief_reanchor": "Sound design palettes",
+    "content_brief_reanchor": "Sonic context build",
+    "sonic_context_build": "Sound design palettes",
     "sound_design_palettes": "Gap evaluation",
     "missing_framing": "Interviewer script and gap report",
     "optimal_questions": "Complete phase — G1 VO pickup if record lines exist",
@@ -102,10 +104,10 @@ STAGE_UNLOCKS: dict[str, str] = {
     "sound_design_vo_finalize": "EDL narrative audit",
     "edl_narrative_audit": "Edit decision list (EDL)",
     "edl_flow1": "Assembly preview (speech + VO, no SFX)",
-    "assembly_preview": "Sound phase — listen before ElevenLabs spend",
-    "elevenlabs_prompt_craft": "ElevenLabs SFX generation",
-    "elevenlabs_sfx_flow1": "Mix assembly",
-    "elevenlabs_sfx_flow2": "Mix assembly",
+    "assembly_preview": "Sound phase — listen before MMAudio SFX generation",
+    "sfx_prompt_craft": "MMAudio SFX generation",
+    "mmaudio_sfx_flow1": "Mix assembly",
+    "mmaudio_sfx_flow2": "Mix assembly",
     "mix_flow1": "Master export",
     "mix_flow2": "Master export",
     "master_flow1": "Deliverable ready — listen or export",
@@ -288,7 +290,7 @@ def _stage_reuse_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str
 
 
 def _post_listen_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
-    if stage_id not in ("elevenlabs_prompt_craft", "elevenlabs_sfx_flow1", "elevenlabs_sfx_flow2"):
+    if stage_id not in ("sfx_prompt_craft", "mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
         return []
     if not ctx.artifact_exists("run_meta.json"):
         return [
@@ -299,7 +301,7 @@ def _post_listen_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str
             )
         ]
     meta = ctx.read_json("run_meta.json")
-    results = meta.get("elevenlabs_listen_results") or []
+    results = meta.get("sfx_listen_results") or []
     if results:
         return [
             _guidance_item(
@@ -645,13 +647,13 @@ def _stage_actions(
         )
         return actions
 
-    if stage_id in ("elevenlabs_prompt_craft",) and status in ("pending", "done"):
+    if stage_id in ("sfx_prompt_craft",) and status in ("pending", "done"):
         actions.append(
             _guidance_item(
                 "approve_prompts",
-                "Review and approve ElevenLabs prompts (G1.5 if enabled)",
+                "Review and approve MMAudio prompts (G1.5 if enabled)",
                 "todo" if status != "done" else "waiting",
-                stage_id="elevenlabs_prompt_craft",
+                stage_id="sfx_prompt_craft",
                 kind="prompt_review",
             )
         )
@@ -661,7 +663,7 @@ def _stage_actions(
             )
         return actions
 
-    if stage_id in ("elevenlabs_sfx_flow1", "elevenlabs_sfx_flow2"):
+    if stage_id in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
         if status == "pending" and not blocked:
             actions.append(
                 _guidance_item("run", "Run this step", "todo", action="run", kind="run")
@@ -861,6 +863,23 @@ def build_stage_guidance(
         prerequisites.extend(_prior_stage_items(ctx, stage_id, transcript_review_pending=tr_pending))
         prerequisites.extend(
             _flow_prereqs(ctx, stage_id, flow_sel, g1, profile_pending)
+        )
+    if stage_id in {"sound_design_palettes", "sound_design_plan_flow1", "sound_design_plan_flow2", "sfx_prompt_craft"}:
+        sonic = load_sonic_context(ctx)
+        status = "done" if isinstance(sonic, dict) else "todo"
+        label = "Sonic context built from latest analysis"
+        if isinstance(sonic, dict):
+            bucket = ((sonic.get("scenario") or {}).get("atlas_bucket")) if isinstance(sonic.get("scenario"), dict) else None
+            if bucket:
+                label += f" ({bucket})"
+        prerequisites.append(
+            _guidance_item(
+                "sonic_context",
+                label,
+                status,
+                stage_id="sonic_context_build",
+                kind="run",
+            )
         )
 
     info = STAGE_BY_ID.get(stage_id)

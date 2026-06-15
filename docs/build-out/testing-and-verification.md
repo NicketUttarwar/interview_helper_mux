@@ -45,7 +45,7 @@ cd frontend && npm run build          # Zod validators must compile
 | `test_gates.py` | Profile gate, G1 VO, flow selection, transcript review pending |
 | `test_pipeline.py` | Flow 1/2/3 + analysis order smoke (stubbed stages, `fixtures/runs/base_smoke`) |
 | `test_build073_llm_routing.py` | Arbiter + shard/collate routing |
-| `test_g1_5_prompt_review.py` | ElevenLabs prompt review API (GET/PUT/approve) |
+| `test_g1_5_prompt_review.py` | MMAudio SFX prompt review API (GET/PUT/approve) |
 | `test_preclean_offer.py` | BUILD-072 pre-clean offer API + run_meta |
 | `test_source_audio_hash.py` | Pipeline WAV SHA-256, hash in run id parsing |
 | `test_run_context_hash_id.py` | `allocate_run_id(source_hash=…)`, `run_meta` hash fields |
@@ -60,8 +60,8 @@ cd frontend && npm run build          # Zod validators must compile
 | `test_mix_acoustic_profile.py` | SAP-driven duck / stinger policy in mix |
 | `test_transcript_review_schema.py` | `validate_transcript_review_queue` fail-fast |
 | `test_runner_preclean_gate.py` | `record_qc_summary` merge, runner preclean gate, strict NLE |
-| `test_elevenlabs_chunk_policy.py` | ElevenLabs upload byte limit contract |
-| `test_elevenlabs_music.py` | Music v2 compose payload, duration clamp, prompt-influence prose |
+| `test_mmaudio_runner.py` | MMAudio runner / local generation contract |
+| `test_mmaudio_runner.py` | Music v2 compose payload, duration clamp, prompt-influence prose |
 | `test_audio_preclean.py` | Pre-clean enable/skip, vo_pickup scope, chunked isolation path |
 | `test_gap_closure_smoke.py` | Smoke fixture validators + qc_summaries on fixture run dir |
 | `test_source_acoustic_profile.py` | SAP stage output shape |
@@ -184,7 +184,7 @@ python tools/run_flow.py --flow flow3 --run-id <id>
 |-------|--------|
 | SDP valid | JSON schema validate `sound_design_plan.json` |
 | Asset reuse | Multiple cues share one `asset_id`; one WAV on disk |
-| No voice in SFX | Listen + [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md) |
+| No voice in SFX | Listen + [sfx-prompt-regression.md](../prompts/_shared/examples/sfx-prompt-regression.md) |
 | Ducking | Speech intelligible over beds (manual QA) |
 
 ---

@@ -41,14 +41,17 @@ def test_audio_preclean_runs_when_enabled(tmp_path, monkeypatch) -> None:
     meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
     ctx.write_json("run_meta.json", meta)
 
-    monkeypatch.setattr(audio_preclean, "require_secret", lambda _: "test-key")
-    monkeypatch.setattr(audio_preclean, "isolate_audio", lambda **_: src.read_bytes())
+    def fake_enhance(input_path, output_path, **kwargs):
+        output_path.write_bytes(input_path.read_bytes())
+
+    monkeypatch.setattr(audio_preclean, "enhance_wav", fake_enhance)
 
     out = audio_preclean.run_audio_preclean(ctx)
     assert out == ctx.path("preclean", "isolated.wav")
     assert out.is_file()
     assert ctx.artifact_exists("preclean/lineage.json")
-    assert ctx.artifact_exists("preclean/provider.json")
+    provider = ctx.read_json("preclean/provider.json")
+    assert provider["provider"] == "deepfilternet"
 
 
 def test_audio_preclean_vo_pickup_scope(tmp_path, monkeypatch) -> None:
@@ -64,8 +67,10 @@ def test_audio_preclean_vo_pickup_scope(tmp_path, monkeypatch) -> None:
     meta["audio_preclean"] = {"enabled": True, "scope": "vo_pickup"}
     ctx.write_json("run_meta.json", meta)
 
-    monkeypatch.setattr(audio_preclean, "require_secret", lambda _: "test-key")
-    monkeypatch.setattr(audio_preclean, "isolate_audio", lambda **_: pickup.read_bytes())
+    def fake_enhance(input_path, output_path, **kwargs):
+        output_path.write_bytes(input_path.read_bytes())
+
+    monkeypatch.setattr(audio_preclean, "enhance_wav", fake_enhance)
 
     out = audio_preclean.run_audio_preclean(ctx)
     assert out is None
@@ -88,19 +93,15 @@ def test_audio_preclean_chunk_path_for_oversized_wav(tmp_path, monkeypatch) -> N
     meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
     ctx.write_json("run_meta.json", meta)
 
-    monkeypatch.setattr(audio_preclean, "require_secret", lambda _: "test-key")
-    monkeypatch.setattr(
-        "interview_mux.elevenlabs_rest._max_upload_bytes",
-        lambda: 500,
-    )
-    monkeypatch.setattr(
-        audio_preclean,
-        "isolate_audio",
-        lambda **kwargs: kwargs["audio_bytes"],
-    )
+    monkeypatch.setattr(audio_preclean, "_chunk_max_bytes", lambda: 500)
+
+    def fake_enhance(input_path, output_path, **kwargs):
+        output_path.write_bytes(input_path.read_bytes())
+
+    monkeypatch.setattr(audio_preclean, "enhance_wav", fake_enhance)
 
     out = audio_preclean.run_audio_preclean(ctx)
     assert out == ctx.path("preclean", "isolated.wav")
     assert out.is_file()
     log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
-    assert "elevenlabs_chunked_isolation" in log_text
+    assert "deepfilter_chunked_enhance" in log_text

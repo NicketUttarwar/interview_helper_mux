@@ -80,7 +80,7 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 26 | Logs only in footer | Pipeline **ActivityLogPanel** (Live / This step / All) + **ActivityTeaser** on other tabs |
 | 27 | Duplicate Run/checkpoint CTAs | Single primary CTA in **LiveStatusBar**; command center read-only |
 | 28 | Sidebar ≠ running stage | Auto-select `job.stage` unless operator pinned sidebar (30s) |
-| 29 | ElevenLabs listen silent no-op | Inline audio ref + toast in **ElevenLabsPostListenPanel** / **StageAudioActions** |
+| 29 | MMAudio post-listen silent no-op | Inline audio ref + toast in **SfxPostListenPanel** / **StageAudioActions** |
 | 30 | QC fail only hints redo | **QcSummaryCard** inline redo + activity log link |
 | 31 | Audio quality drawer dead-end | **Open checkpoint** action in **AudioQualityDrawer** |
 | 32 | Executions list opaque | Job status pill, progress bar, clickable **last_log** → Logs |

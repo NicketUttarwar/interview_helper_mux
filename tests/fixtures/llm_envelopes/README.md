@@ -19,7 +19,7 @@ Minimal envelope JSON files used by `tests/test_llm_envelope_fixtures.py` to ass
 | `content_context_empty_thesis.json` | `content_context` | Empty thesis |
 | `content_context_low_confidence.json` | `content_context` | `confidence_gte_min` (full-stack) |
 | `edl_narrative_audit_bad_verdict.json` | `edl_narrative_audit` | Bad QC verdict |
-| `elevenlabs_prompt_craft_short.json` | `elevenlabs_prompt_craft` | Short prompt |
+| `sfx_prompt_craft_short.json` | `sfx_prompt_craft` | Short prompt |
 | `full_master_ranking_orphan.json` | `full_master_ranking` | Orphan selection id |
 | `highlight_selection_over_cap.json` | `highlight_selection` | Over cap |
 | `missing_framing_low_coverage.json` | `missing_framing` | `segment_coverage_ratio` (full-stack) |

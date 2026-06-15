@@ -26,12 +26,6 @@ PROVIDERS: dict[str, ApiProviderInfo] = {
         description="Speech-to-text with speaker diarization via the AWS CLI.",
         cost_hint="Billed by AWS for audio minutes transcribed.",
     ),
-    "elevenlabs": ApiProviderInfo(
-        id="elevenlabs",
-        label="ElevenLabs",
-        description="Optional source pre-clean and sound-effect generation.",
-        cost_hint="Billed per generation by your ElevenLabs account.",
-    ),
 }
 
 

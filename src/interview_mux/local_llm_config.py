@@ -131,7 +131,7 @@ ALWAYS_ESCALATE_STAGES = frozenset(
         "sound_design_palettes",
         "sound_design_plan_flow1",
         "sound_design_plan_flow2",
-        "elevenlabs_prompt_craft",
+        "sfx_prompt_craft",
         "highlight_selection",
     }
 )

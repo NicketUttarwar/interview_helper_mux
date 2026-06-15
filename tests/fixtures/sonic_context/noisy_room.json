@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "field_interview",
+    "tone_class": "pragmatic",
+    "atlas_bucket": "noisy_room",
+    "sound_posture": {
+      "bed_density": "none",
+      "stinger_cap_per_minute": 1
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "grounded",
+    "density_hint": "none",
+    "room_character": "noisy_ambient_floor"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "high_noise_floor",
+      "kind": "acoustic",
+      "keywords": ["noise floor", "room hum", "speech priority"],
+      "segment_ids": ["seg_004"],
+      "provenance": ["understanding/source_acoustic_profile.json"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "chapter_boundary",
+      "segment_id": "seg_009",
+      "confidence": 0.68,
+      "provenance": ["flow_1_master/narrative_plan.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "skip",
+    "adaptive_max_assets_flow1": 2,
+    "adaptive_max_assets_flow2": 2,
+    "duration_bands_by_role": {
+      "chapter_stinger": [1, 1.8],
+      "transition_stinger": [0.8, 1.5]
+    }
+  },
+  "avoid_hard": ["extra ambience beds"],
+  "segment_flags": {
+    "overlap_high": [],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

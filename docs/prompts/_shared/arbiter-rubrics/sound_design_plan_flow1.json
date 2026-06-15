@@ -5,13 +5,15 @@
     "Flow1 plan matches sound_design_palettes and master selection structure",
     "Sonic density and palette usage are consistent with brief tone_class",
     "Chapter-level design decisions cite segment or theme evidence",
-    "Coherence.sonic_identity aligns with upstream palettes artifact"
+    "Coherence.sonic_identity aligns with upstream palettes artifact",
+    "Cue placement and asset rationale align with sonic_context scenario posture and tag provenance"
   ],
   "reject_patterns": [
     "Density or palette mismatch vs upstream sound_design_plan palettes",
     "Plan references themes absent from palettes or content_brief",
     "Contradictory sonic_identity vs palettes coherence block",
-    "Schema errors on required flow1 plan fields"
+    "Schema errors on required flow1 plan fields",
+    "Cues or assets conflict with sonic_context scenario posture or use ungrounded tags"
   ],
   "min_confidence_on_accept": 0.75,
   "decompose_eligible": false,

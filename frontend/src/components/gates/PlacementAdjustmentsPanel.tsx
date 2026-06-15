@@ -8,15 +8,23 @@ type PlacementAdjustment = {
   asset_id?: string;
   action?: string;
   reason?: string;
+  mmaudio_qa_verdict?: string;
   suggested_level_db_delta?: number;
   suggested_crossfade_ms?: number;
+  suggested_trim_ms?: number;
+  provenance?: {
+    rule_id?: string;
+    source_artifact?: string;
+    detail?: string;
+  };
+  scenario_override?: boolean;
 };
 
 const PLACEMENT_STAGES = new Set([
   "mix_flow1",
   "mix_flow2",
-  "elevenlabs_sfx_flow1",
-  "elevenlabs_sfx_flow2",
+  "mmaudio_sfx_flow1",
+  "mmaudio_sfx_flow2",
 ]);
 
 export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
@@ -54,6 +62,10 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
     );
   }
   if (!adjustments.length) return null;
+  const hasProvenance = adjustments.some((row) => Boolean(row.provenance));
+  const hasScenarioOverride = adjustments.some(
+    (row) => row.scenario_override !== undefined,
+  );
 
   return (
     <div className="quality-offer-card placement-qa-card">
@@ -65,9 +77,12 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
         <thead>
           <tr>
             <th>Asset</th>
+            <th>QA</th>
             <th>Action</th>
             <th>Level Δ</th>
             <th>Crossfade</th>
+            {hasProvenance ? <th>Provenance</th> : null}
+            {hasScenarioOverride ? <th>Scenario override</th> : null}
             <th>Reason</th>
           </tr>
         </thead>
@@ -76,6 +91,11 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
             <tr key={i}>
               <td>
                 <code>{escapeHtml(row.asset_id || "—")}</code>
+              </td>
+              <td>
+                {row.mmaudio_qa_verdict
+                  ? escapeHtml(row.mmaudio_qa_verdict)
+                  : "—"}
               </td>
               <td>{escapeHtml(row.action || "—")}</td>
               <td>
@@ -86,6 +106,22 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
               <td>
                 {row.suggested_crossfade_ms != null ? `${row.suggested_crossfade_ms} ms` : "—"}
               </td>
+              {hasProvenance ? (
+                <td className="muted sm">
+                  {row.provenance
+                    ? [
+                        row.provenance.rule_id,
+                        row.provenance.source_artifact,
+                        row.provenance.detail,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "—"}
+                </td>
+              ) : null}
+              {hasScenarioOverride ? (
+                <td>{row.scenario_override == null ? "—" : row.scenario_override ? "yes" : "no"}</td>
+              ) : null}
               <td className="muted sm">{escapeHtml(row.reason || "—")}</td>
             </tr>
           ))}

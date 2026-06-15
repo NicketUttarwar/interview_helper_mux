@@ -9,13 +9,14 @@ import {
 } from "../../utils";
 
 export function AcousticProfilePanel() {
-  const { run, refreshRun, showToast, confirm } = useApp();
+  const { run, refreshRun, showToast, confirm, selectStage } = useApp();
   const [paceOverride, setPaceOverride] = useState("");
   const [policyOverride, setPolicyOverride] = useState("");
   const [derivedPace, setDerivedPace] = useState("—");
   const [derivedPolicy, setDerivedPolicy] = useState("—");
   const [status, setStatus] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [invalidateHint, setInvalidateHint] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!run) return;
@@ -66,19 +67,32 @@ export function AcousticProfilePanel() {
 
   const saveOverrides = async (overrides: Record<string, string>) => {
     if (!run) return;
+    const hasOverrides = Object.keys(overrides).length > 0;
+    const body: { overrides: Record<string, string>; invalidate_from?: string } = {
+      overrides,
+    };
+    if (hasOverrides) body.invalidate_from = "sound_design_palettes";
+
     const res = await api<{ effective?: Record<string, string> }>(
       `/api/runs/${run.run_id}/acoustic-profile/overrides`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ overrides }),
+        body: JSON.stringify(body),
       },
     );
     const eff = res?.effective || {};
     setStatus(
       `Saved — effective pace=${eff.pace_class || "—"} underscore=${eff.underscore_policy || "—"}`,
     );
-    showToast("Acoustic overrides saved");
+    if (hasOverrides) {
+      showToast(
+        "Overrides saved — downstream sound design invalidated. Re-run from Sound design palettes.",
+      );
+      setInvalidateHint(true);
+    } else {
+      showToast("Acoustic overrides cleared");
+    }
     await refreshRun();
     await loadProfile();
   };
@@ -94,6 +108,12 @@ export function AcousticProfilePanel() {
           Tune pace and underscore policy without re-running DSP. Leave blank to use
           derived values.
         </p>
+        {invalidateHint ? (
+          <p className="hint sm">
+            Pace or policy overrides invalidate palettes and downstream sound design. Re-run
+            from <strong>Sound design palettes</strong>.
+          </p>
+        ) : null}
         {!loaded ? (
           <p className="hint">
             Run <strong>Source acoustic profile</strong> first.
@@ -161,6 +181,15 @@ export function AcousticProfilePanel() {
               >
                 Clear overrides
               </button>
+              {invalidateHint ? (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => void selectStage("sound_design_palettes")}
+                >
+                  Open sound design palettes
+                </button>
+              ) : null}
             </div>
             <p className="save-status">{status}</p>
           </div>

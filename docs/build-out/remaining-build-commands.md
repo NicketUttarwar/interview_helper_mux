@@ -32,7 +32,7 @@ Command 1 covered build-out + selected cross-cutting docs. **Commands 2 and 9** 
 | `docs/cross-cutting/sound-design.md`, `anchored-toolchain.md`, `artifact-layout.md`, `source-derived-sonic-mix-profile.md` | **2** ✓, **3** ✓, **8** (deps if SSL promoted) |
 | `docs/pipeline/*/README.md` (assembly, scoring, publishing, audio_editing, …) | **2** ✓, **4** ✓, **9** ✓ |
 | `docs/prompts/README.md`, `analysis-stage-matrix.md` | **2** ✓, **9** ✓ |
-| `docs/workflows/gui-surface-map.md`, `api-reference.md`, `elevenlabs-integration-guide.md` | **5** ✓, **9** ✓ |
+| `docs/workflows/gui-surface-map.md`, `api-reference.md`, `local-audio-stack.md` | **5** ✓, **9** ✓ |
 | `docs/cross-cutting/evaluation-metrics.md` | **4** ✓, **9** ✓ |
 | `docs/pipeline/value-analysis/*` | **7** ✓, **8** (optional) |
 | `docs/build-out/definition-of-done-signoff.md` | **9** ✓ |
@@ -50,7 +50,7 @@ Command 1 covered build-out + selected cross-cutting docs. **Commands 2 and 9** 
 | Assembly Wave 6 (067–069): EDL + VO, NLE overrides, assembly preview | Shipped |
 | Mastering QA (070–071), pre-clean stage + GUI offers (019, 072) | Shipped |
 | Smart LLM routing (073), source acoustic profile (082) | Shipped |
-| G1.5 approve gate + prompt review API/GUI | Shipped — `g15_prompt_review.py`, `frontend/…/ElevenLabsPromptReviewPanel.tsx` |
+| G1.5 approve gate + prompt review API/GUI | Shipped — `g15_prompt_review.py`, `frontend/…/SfxPromptReviewPanel.tsx` |
 | G1.5 listen-result API + post-listen GUI (`POST …/listen-result`, Pass/Fail panels) | **Shipped** |
 | Value-analysis CLIs (`run_value_spike.py`, `extract_value_features.py`) | Shipped — **not** on default `pipeline.py` |
 | Value-features read-only GUI on `content_context` | Shipped — when `value_analysis.enabled` |
@@ -226,7 +226,7 @@ No pytest required for this command.
 
 ## Command 5 — G1.5 post-listen pass/fail GUI — **Shipped**
 
-Post-listen Pass/Fail panels on `elevenlabs_prompt_craft` and `elevenlabs_sfx_flow*`; `GET …/runs/{id}` includes `elevenlabs_generated_assets`.
+Post-listen Pass/Fail panels on `sfx_prompt_craft` and `mmaudio_sfx_flow*`; `GET …/runs/{id}` includes `sfx_generated_assets`.
 
 **Agent prompt:**
 
@@ -234,27 +234,27 @@ Post-listen Pass/Fail panels on `elevenlabs_prompt_craft` and `elevenlabs_sfx_fl
 G1.5 post-listen GUI only — wire existing listen-result API.
 
 Read:
-@src/interview_mux/web/server.py (post_elevenlabs_listen_result, run_meta.elevenlabs_listen_results)
-@src/interview_mux/web/static/app.js (elevenlabs_sfx_flow1/2 panels, G1.5 craft panel)
-@docs/cross-cutting/elevenlabs-integration-guide.md
+@src/interview_mux/web/server.py (post_sfx_listen_result, run_meta.sfx_listen_results)
+@src/interview_mux/web/static/app.js (mmaudio_sfx_flow1/2 panels, G1.5 craft panel)
+@docs/cross-cutting/local-audio-stack.md
 @docs/workflows/gui-surface-map.md
 @docs/workflows/api-reference.md
 @docs/workflows/operator-stage-checklists.md
 
 Deliver:
 - After operator plays sound_design/assets/{asset_id}.wav (or flow sfx mirror), show Pass / Fail + optional note
-- POST /api/runs/{run_id}/elevenlabs-prompts/listen-result with { asset_id, result, note? }
-- Surface run_meta.elevenlabs_listen_results[] in craft or SFX stage panel (read-only history)
+- POST /api/runs/{run_id}/sfx-prompts/listen-result with { asset_id, result, note? }
+- Surface run_meta.sfx_listen_results[] in craft or SFX stage panel (read-only history)
 - ctx.log via server already exists — ensure GUI refreshes log panel
 - Update g15-and-value-analysis-execution.md: Command 5 shipped
-- Update elevenlabs-integration-guide.md: replace "GUI (planned)" steps with shipped panels + post-listen flow
+- Update local-audio-stack.md: replace "GUI (planned)" steps with shipped panels + post-listen flow
 - Add Pass/If fail rows to operator-stage-checklists.md for post-listen (advisory)
 
 Respect g1_5_require_prompt_approval — post-listen is advisory unless product adds a hard gate later.
 No new pipeline stages.
 ```
 
-**Done when:** Manual GUI path: listen → pass/fail → entry in `run_meta.json` and `gui_log.jsonl`; api-reference + gui-surface-map + elevenlabs-integration-guide document the flow.
+**Done when:** Manual GUI path: listen → pass/fail → entry in `run_meta.json` and `gui_log.jsonl`; api-reference + gui-surface-map + mmaudio-prompt-tuning.md document the flow.
 
 ---
 
@@ -402,6 +402,24 @@ No code changes unless a checklist item reveals a real bug — then file a one-l
 **Done when:** `definition-of-done-signoff.md` exists; implementation-guide DoD reflects reality; repository-map has no stale gap rows; repo-wide grep returns no stale operator-facing claims (per exclusions above).
 
 **Status:** Shipped — see [definition-of-done-signoff.md](./definition-of-done-signoff.md).
+
+---
+
+## Command 16 — BUILD-SFX-17 Holistic gap closure (**shipped**)
+
+**Goal:** Close remaining SFX audit gaps — sonic-context wiring, test matrix, operator docs, regression examples.
+
+**Scope:** WS7–WS10 of holistic SFX gap closure plan (EDL audit input, export headers, listen API, 9-scenario tests, sign-off docs, example corpus).
+
+**Verify:**
+
+```bash
+pytest tests/test_sonic_context.py tests/test_sound_design_scenario.py tests/test_sfx_gates.py tests/test_stage_parity.py -q
+```
+
+**Done when:** BUILD-SFX-17 block in [ticket-specs.md](./ticket-specs.md) checked; [definition-of-done-signoff.md](./definition-of-done-signoff.md) 9-scenario matrix present.
+
+**Status:** Shipped.
 
 ---
 

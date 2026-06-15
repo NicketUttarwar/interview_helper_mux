@@ -33,7 +33,7 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `podcast_sfx_brief` | `artifacts/podcast_sfx_artifact.schema.json` | |
 | `sound_design_plan_flow1` | `artifacts/sound_design_plan_flow1_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
 | `sound_design_plan_flow2` | `artifacts/sound_design_plan_flow2_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
-| `elevenlabs_prompt_craft` | `artifacts/elevenlabs_prompts_artifact.schema.json` | Writes `sound_design/elevenlabs_prompts.json` |
+| `sfx_prompt_craft` | `artifacts/sfx_prompts_artifact.schema.json` | Writes `sound_design/sfx_prompts.json` |
 | `sfx_brief` | `artifacts/sfx_montage_artifact.schema.json` | |
 | `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3 |
 
@@ -53,6 +53,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [investigation_queue.schema.json](./json-schemas/investigation_queue.schema.json) | Queue file |
 | [context_index.schema.json](./json-schemas/context_index.schema.json) | `understanding/context_index.json` volley memory v2 |
 | [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
+| [sonic_context.schema.json](./json-schemas/sonic_context.schema.json) | `understanding/sonic_context.json` — tags, scenario policy, cue opportunities (BUILD-SFX-01) |
+| [artifacts/mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) | `sound_design/mmaudio_qa.json` post-generation QA |
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
@@ -80,7 +82,10 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_highlights_selection` | `flow_2_highlights/selection.json` | Yes |
 | `validate_sfx_montage_brief` | `flow_2_highlights/sfx_brief.json` | Yes |
 | `validate_show_description` | `flow_3_description/show_description.json` | Yes |
-| `validate_elevenlabs_prompts` | `sound_design/elevenlabs_prompts.json` | Yes |
+| `validate_sfx_prompts` | `sound_design/sfx_prompts.json` | Yes |
+| `validate_sonic_context` | `understanding/sonic_context.json` | Yes (BUILD-SFX-01) |
+| `validate_mmaudio_qa` | `sound_design/mmaudio_qa.json` | Yes (BUILD-SFX-01) |
+| `validate_placement_adjustments` | `sound_design/placement_adjustments.json` | Yes (BUILD-SFX-01) |
 | `validate_run_meta` | `run_meta.json` | Yes |
 | `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
 | `validate_disfluencies` | `transcript/disfluencies.json` | Yes |
@@ -120,6 +125,9 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | Envelope `artifacts` from LLM stages | Per-stage rows above | Yes |
 | `understanding/analysis_state.json` | `analysis_state.schema.json` | Yes (GUI + `write_json`) |
 | `understanding/sound_design_plan.json` | `sound_design_plan.schema.json` | Yes (init + Wave 5 persist) |
+| `understanding/sonic_context.json` | `sonic_context.schema.json` | Yes (`sonic_context_build` + cross-validate) |
+| `sound_design/mmaudio_qa.json` | `mmaudio_qa.schema.json` | Yes (post-`mmaudio_sfx_flow*`) |
+| `sound_design/placement_adjustments.json` | `placement_adjustments.schema.json` | Yes (mix-time QA hints) |
 | `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |
 | `run_meta.json` | `run_meta.schema.json` | Yes (`write_json`) |
 | `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |

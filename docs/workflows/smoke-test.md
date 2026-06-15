@@ -18,7 +18,7 @@ source .venv/bin/activate
 
 ## Config
 
-- `config/secrets/secrets.env` has `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `AWS_S3_BUCKET`, `AWS_DEFAULT_REGION`
+- `config/secrets/secrets.env` has `OPENAI_API_KEY`, ``, `AWS_S3_BUCKET`, `AWS_DEFAULT_REGION`
 - `aws sts get-caller-identity` succeeds
 - At least one `.wav` under `ASSETS/` (recommended: `ASSETS/input/interview.wav`)
 
@@ -115,6 +115,19 @@ cat ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_3_description/
 ```
 
 Spec: [publishing/README.md](../pipeline/publishing/README.md).
+
+## MMAudio SFX path (optional)
+
+After Flow 1 reaches polish with sound design enabled:
+
+1. `sfx_prompt_craft` → approve prompts (G1.5 if `g1_5_require_prompt_approval`).
+2. `mmaudio_sfx_flow1` → `sound_design/assets/*.wav`, `sound_design/mmaudio_qa.json`.
+3. GUI post-listen pass/fail; optional refine (`POST /sfx-prompts/refine`) and per-asset regenerate.
+4. When `sound_design.post_listen_gate_mode` is `block`, confirm mix is blocked after a deliberate listen fail (`Mix gate: post_listen_gate_mode=block` in log).
+5. When `mix.intelligibility_qc.enabled`, confirm `QcSummaryCard` shows `mix_intelligibility` on mix/master stages after `mix_flow1`.
+6. `mix_flow1` → `master_flow1`; listen master under speech.
+
+See [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
 
 ## Pass criteria
 

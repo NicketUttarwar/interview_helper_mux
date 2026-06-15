@@ -122,7 +122,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 |-------|--------|--------|
 | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 | `selection/topic-coverage-audit`, `narrative-arc-plan` |
 | `full_master_ranking`, `transitions`, `podcast_sfx_brief` | BUILD-031–033 | `selection/*`, `assembly/*` |
-| `elevenlabs_sfx_flow1` | BUILD-034 | ElevenLabs REST |
+| `mmaudio_sfx_flow1` | BUILD-034 | local MMAudio |
 | `edl_flow1`, `mux_flow1`, `master_flow1` | BUILD-035–036 | — |
 
 **Requires:** G1 clear, `selected_flow: flow1` (G2). **Profile gate (BUILD-081):** `meta.operator_verified: true` in `analysis_state.json` before `topic_coverage_audit` — [operator-gates.md](../workflows/operator-gates.md#profile-gate--flow-1-extended-build-081).
@@ -137,7 +137,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 | Stage | Ticket |
 |-------|--------|
-| `highlight_selection`, `sfx_brief`, `elevenlabs_sfx_flow2`, `mux_flow2`, `master_flow2` | BUILD-040–044 |
+| `highlight_selection`, `sfx_brief`, `mmaudio_sfx_flow2`, `mux_flow2`, `master_flow2` | BUILD-040–044 |
 
 **Verify:** smoke-test Flow 2 section.
 
@@ -173,7 +173,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 **Spec:** [sound-design.md](../cross-cutting/sound-design.md) · **Prompts:** [prompts/sound_design/](../prompts/sound_design/)
 
-**Shipped:** `sound_design_palettes`, flow plans, `elevenlabs_prompt_craft`, `mix_flow1`/`mix_flow2` in `pipeline.py` + GUI; G1.5 prompt review panel.
+**Shipped:** `sound_design_palettes`, flow plans, `sfx_prompt_craft`, `mix_flow1`/`mix_flow2` in `pipeline.py` + GUI; G1.5 prompt review panel.
 
 **Verify:** `master.wav` contains beds + stingers + VO; one WAV per `asset_id`; ducking applied.
 

@@ -216,7 +216,7 @@ export interface RunData {
   run_id: string;
   meta?: RunMeta;
   handoff_ack?: Record<string, string>;
-  elevenlabs_generated_assets?: Array<{ asset_id: string; path: string }>;
+  sfx_generated_assets?: Array<{ asset_id: string; path: string }>;
   selected_flow?: string;
   flow_intent?: string;
   display_flow?: string;
@@ -264,7 +264,12 @@ export interface RunMeta {
     { passed: boolean; strict?: boolean; errors?: string[] }
   >;
   disfluency_restore?: { enabled?: boolean };
-  elevenlabs_listen_results?: ElevenLabsListenResult[];
+  sfx_listen_results?: SfxListenResult[];
+  post_listen_gate_state?: {
+    mode?: "soft" | "warn" | "block_mix";
+    blocked_assets?: string[];
+    updated_at?: string;
+  };
   stage_reuse?: Record<
     string,
     {
@@ -275,7 +280,7 @@ export interface RunMeta {
   >;
 }
 
-export interface ElevenLabsListenResult {
+export interface SfxListenResult {
   asset_id: string;
   result: "pass" | "fail";
   at: string;
@@ -487,20 +492,56 @@ export interface AnalysisProfileResponse {
   completion?: { blockers?: string[] };
 }
 
-export interface ElevenLabsPromptRow {
+export interface SfxPromptRow {
   asset_id?: string;
   role?: string;
   duration_seconds?: number;
   prompt_influence?: number;
-  elevenlabs_prompt?: string;
+  cfg_strength?: number;
+  num_steps?: number;
+  seed?: number;
+  mmaudio_variant?: string;
+  mmaudio_qa_verdict?: string;
+  mmaudio_qa_action?: string;
+  regression_notes?: string;
+  sfx_prompt?: string;
   negative_prompt?: string;
 }
 
-export interface ElevenLabsPromptsResponse {
+export type SfxBlockReasonKind = "g1_5" | "qa_fail" | "spend" | "venv";
+
+export interface SfxBlockReason {
+  kind: SfxBlockReasonKind;
+  message: string;
+  asset_ids?: string[];
+}
+
+export interface MmaudioQaRow {
+  asset_id?: string;
+  verdict?: string;
+  reasons?: string[];
+  action?: string;
+  generation_status?: string;
+  theme_fit_score?: number;
+  semantic_qa_verdict?: string;
+  semantic_qa_skipped_reason?: string;
+  semantic_similarity?: number;
+  spectral_bucket_match?: boolean;
+  recommended_action?: string;
+  suggested_trim_ms?: number;
+  suggested_level_db_delta?: number;
+  suggested_crossfade_ms?: number;
+}
+
+export interface SfxPromptsResponse {
   path?: string;
-  prompts: ElevenLabsPromptRow[];
+  prompts: SfxPromptRow[];
   listen_results?: Array<Record<string, unknown>>;
   generated_assets?: string[];
+  mmaudio_qa?: { version?: number; assets?: MmaudioQaRow[] };
+  block_reasons?: (string | SfxBlockReason)[];
+  sonic_context?: SonicContextData | null;
+  generation_meta?: Record<string, Record<string, unknown>>;
   review?: {
     approved?: boolean;
     approved_by?: string;
@@ -519,7 +560,41 @@ export interface PlacementAdjustmentsArtifact {
     reason?: string;
     suggested_level_db_delta?: number;
     suggested_crossfade_ms?: number;
+    provenance?: {
+      rule_id?: string;
+      source_artifact?: string;
+      detail?: string;
+    };
+    scenario_override?: boolean;
   }>;
+}
+
+export interface SonicContextTag {
+  tag_id: string;
+  kind?: string;
+  keywords?: string[];
+  segment_ids?: string[];
+  emotional_valence?: string;
+  confidence?: number;
+  provenance?: string[];
+}
+
+export interface SonicContextData {
+  version?: number;
+  sonic_context_hash?: string;
+  scenario?: {
+    atlas_bucket?: string;
+    format_class?: string;
+    tone_class?: string;
+  };
+  tag_registry?: SonicContextTag[];
+  mix_policy?: {
+    underscore_policy?: string;
+    adaptive_max_assets_flow1?: number;
+    adaptive_max_assets_flow2?: number;
+    stinger_cap_per_minute?: number;
+  };
+  avoid_hard?: string[];
 }
 
 export interface LlmRoutingResponse {

@@ -1,16 +1,16 @@
 # Coherent sound design (shipped)
 
-**Status:** Wave 5 shipped — SDP palettes + flow plans, ElevenLabs craft/generate per `asset_id`, and `mix_flow1` / `mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
+**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix_flow1` / `mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
 
 **Build tickets:** [Wave 5 — done](../build-out/README.md#wave-5--coherent-sound-design-done)
 
 **Prompt-stage guardrails:** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md)
 
-**ElevenLabs canonical guide:** [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — API, spend, post-analysis, doc inventory.
+**Local audio stack:** [local-audio-stack.md](./local-audio-stack.md) — DeepFilterNet preclean + MMAudio SFX (local venvs).
 
-**Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, ElevenLabs `/v1`, `openai` for craft stages).
+**Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, local MMAudio subprocess, `openai` for craft stages).
 
-**Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [elevenlabs-prompt-craft](../prompts/sound_design/elevenlabs-prompt-craft.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
+**Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [sfx-prompt-craft](../prompts/sound_design/sfx-prompt-craft.system.txt), [sfx-prompt-refine](../prompts/sound_design/sfx-prompt-refine.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
 
 **Per-interview acoustic baseline (shipped, BUILD-082):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
 
@@ -22,7 +22,7 @@
 |-----|--------|
 | SFX chosen only at end of flow | Misses themes from `content_brief`, segment `topic_tags`, VO placement |
 | One new WAV per brief line | No sonic cohesion; montage sounds unrelated |
-| Fixed 2s ElevenLabs duration | Ignores `duration_ms` in brief |
+| Fixed 2s legacy duration | Ignores `duration_ms` in brief |
 | Flow 2 concat by `sfx_001` index | Cold open after clip 0; ignores `from_clip_rank` |
 | Flow 1 mux ignores SFX + VO | Generated files unused |
 | Ducking / beds in prompts only | Never applied in mix |
@@ -35,7 +35,7 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 
 1. **Discover** sonic opportunities during analysis (themes, entities, beats, gaps, VO).
 2. **Plan** when, where, why, and how loud — with **reusable `asset_id`s**.
-3. **Craft** ElevenLabs prompts via OpenAI (shared sonic identity).
+3. **Craft** SFX prompts via OpenAI (shared sonic identity).
 4. **Generate** one file per `asset_id` (same WAV referenced by many cues).
 5. **Mix** with ducking, semantic placement, VO bridges.
 
@@ -52,7 +52,7 @@ Supporting:
 | Path | Purpose |
 |------|---------|
 | `sound_design/assets/{asset_id}.wav` | One generated file per reusable asset |
-| `sound_design/elevenlabs_prompts.json` | Crafted prompts per asset (audit) |
+| `sound_design/sfx_prompts.json` | Crafted prompts per asset (audit) |
 | `flow_1_master/podcast_sfx_brief.json` | Legacy export (optional compat) |
 | `flow_2_highlights/sfx_brief.json` | Legacy export (optional compat) |
 
@@ -149,7 +149,7 @@ Supporting:
 | `cold_open` / `outro` | Once each (may share asset with transition) | Flow 2 |
 | `accent_foley` | Sparse; optional | Either |
 
-**Rule:** Multiple cues → same `asset_id` → one ElevenLabs generation → coherent master.
+**Rule:** Multiple cues → same `asset_id` → one MMAudio generation → coherent master.
 
 ---
 
@@ -166,7 +166,7 @@ flowchart TB
   VO --> VO_CUES[VO bridge cues]
   G2[G2 flow] --> FPLAN[flow plan stage]
   FPLAN --> SDP
-  SDP --> CRAFT[elevenlabs_prompt_craft]
+  SDP --> CRAFT[sfx_prompt_craft]
   CRAFT --> GEN[generate per asset_id]
   GEN --> MIX[mix_flow1 / mix_flow2]
 ```
@@ -179,18 +179,19 @@ flowchart TB
 | D | `sound_design_generate_flow*` | SDP assets | `sound_design/assets/*.wav` |
 | E | `mux_flow*` | SDP + EDL/selection + VO | `assembly.wav` |
 
-**Gate (shipped, optional):** **G1.5** — when `g1_5_require_prompt_approval: true`, operator reviews cue list / prompt craft before ElevenLabs spend ([operator-gates.md](../workflows/operator-gates.md#g15--sound-design-prompt-approval-optional-shipped)).
+**Gate (shipped, optional):** **G1.5** — when `g1_5_require_prompt_approval: true`, operator reviews cue list / prompt craft before MMAudio SFX generation ([operator-gates.md](../workflows/operator-gates.md#g15--sound-design-prompt-approval-optional-shipped)).
 
 ---
 
 ## LLM stages and prompts
 
-| Stage | Model tier (target) | Prompt file |
-|-------|---------------------|-------------|
-| `sound_design_palettes` | economy | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
+| Stage | Model tier (shipped default) | Prompt file |
+|-------|------------------------------|-------------|
+| `sound_design_palettes` | flagship | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
 | `sound_design_plan_flow1` | flagship | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
 | `sound_design_plan_flow2` | flagship | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
-| `elevenlabs_prompt_craft` | economy | [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt) |
+| `sfx_prompt_craft` | flagship | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
+| `sfx_prompt_refine` | flagship | [sfx-prompt-refine.system.txt](../prompts/sound_design/sfx-prompt-refine.system.txt) |
 
 Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
@@ -213,37 +214,40 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 - Cold open `before_timeline`; optional outro `after_timeline`.
 - Energy via `level_db`, not unrelated SFX per cut.
 
-### ElevenLabs prompt craft
+### MMAudio prompt craft
 
 - Input: `assets[]` + `coherence`.
-- Output per asset: `elevenlabs_prompt`, `duration_seconds`, `negative_prompt` (no voices/lyrics).
-- Ensures consistent “library” timbre before API calls.
+- Output per asset: `sfx_prompt`, `duration_seconds`, `negative_prompt` (separate MMAudio API field).
+- Optional: `prompt_influence`, `cfg_strength`, `mmaudio_variant`, `num_steps`, `seed`, `regression_notes`.
+- See [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md).
 
 ---
 
-## Generation (`sound_design/generate`)
+## Generation (`mmaudio_sfx_flow*`)
 
 For each unique `asset_id` referenced by active flow cues:
 
-1. Run prompt craft (if not cached in `elevenlabs_prompts.json`).
-2. `POST https://api.elevenlabs.io/v1/music` via `interview_mux.elevenlabs_rest.generate_music` (`prompt`, `music_length_ms`, `model_id`: `music_v2`, `force_instrumental`; craft `prompt_influence` mapped to prompt prose).
-3. Write `sound_design/assets/{asset_id}.wav` (normalize to mono 48 kHz WAV if API returns MPEG).
+1. Run prompt craft (if not cached in `sound_design/sfx_prompts.json`).
+2. Local MMAudio text-to-audio via `mmaudio_runner.generate_text_to_audio` (`prompt`, `negative_prompt`, `cfg_strength`, `num_steps`, `seed`, variant `large_44k_v2` default).
+3. Write `sound_design/assets/{asset_id}.wav` (44 kHz native → resampled 48 kHz mono).
+4. Run `mmaudio_asset_qa` → `sound_design/mmaudio_qa.json`; merge hints into `placement_adjustments.json`.
 
-**Tuning / QA:** [elevenlabs-prompt-influence-tuning.md](./elevenlabs-prompt-influence-tuning.md) · [elevenlabs-prompt-regression.md](../prompts/_shared/examples/elevenlabs-prompt-regression.md)
-4. On failure → silent ffmpeg placeholder (length from `duration_seconds`).
-5. Skip regen if file exists and `generated[asset_id]` unchanged (idempotent reruns).
+**Tuning / QA:** [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md) · [sfx-prompt-regression.md](../prompts/_shared/examples/sfx-prompt-regression.md)
+
+5. On failure → silent ffmpeg placeholder (length from `duration_seconds`).
+6. Partial regen via `run_meta.sfx_regen_asset_ids` or API `POST /sfx-prompts/regenerate`.
 
 **Not** one file per cue (`sfx_001`, `sfx_002`).
 
 ---
 
-## Musical structure for ElevenLabs prompts
+## Musical structure for MMAudio prompts
 
 Musical language in prompts must serve **speech-first podcast clarity**, not standalone music production.
 
 ### musical_intent schema (craft stage)
 
-Stored on each row in `sound_design/elevenlabs_prompts.json` when the asset uses pitch motion:
+Stored on each row in `sound_design/sfx_prompts.json` when the asset uses pitch motion:
 
 | Field | Values | Default for beds |
 |-------|--------|------------------|
@@ -272,7 +276,7 @@ Stored on each row in `sound_design/elevenlabs_prompts.json` when the asset uses
 | `cold_open` | Slightly stronger gesture than transition | Lyrics, chant, recognizable tune |
 | `vo_bridge` | High-passed air only | Any pitch competing with VO formants |
 
-Craft prompts must **verbalize** these constraints in prose even when `musical_intent` is present — the API receives `elevenlabs_prompt` text only.
+Craft prompts must **verbalize** these constraints in prose even when `musical_intent` is present — the API receives `sfx_prompt` text only.
 
 ---
 
@@ -280,7 +284,7 @@ Craft prompts must **verbalize** these constraints in prose even when `musical_i
 
 **Status:** Operator workflow (post-listen QA). Mix placement and ducking ship in `sound_design.py` (`mix_flow1`, `mix_flow2`).
 
-Initial ElevenLabs output is a **candidate**. Final timeline placement uses analysis **after** generation against interview themes, keywords, operator notes (`style.sound_design_notes`), and the speech stem.
+Initial MMAudio output is a **candidate**. Final timeline placement uses analysis **after** generation against interview themes, keywords, operator notes (`style.sound_design_notes`), and the speech stem.
 
 ### Workflow
 
@@ -324,7 +328,7 @@ flowchart LR
 
 Log approve / regen / level change in `gui_log.jsonl`. When enabled, G1.5 (`g1_5_require_prompt_approval`) covers **pre-spend** prompt review; this phase is **post-listen**.
 
-Full playbook: [elevenlabs-integration-guide.md § Post-generation](./elevenlabs-integration-guide.md#post-generation-analysis-and-adaptive-placement).
+Full playbook: [local-audio-stack.md § Post-generation](./local-audio-stack.md#post-generation-analysis-and-adaptive-placement).
 
 ---
 
@@ -374,7 +378,7 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
 | Planning | `podcast_sfx_brief` / `sfx_brief` at end | SDP + palettes + flow plans |
 | Reuse | Per-cue `sfx/*.wav` | `asset_id` → one WAV |
 | Thematic beds | Prompt only | `under_segment` + palette map |
-| ElevenLabs | Raw `description`, 2s fixed | Crafted prompt + variable duration |
+| Legacy brief | Raw `description`, 2s fixed | Crafted prompt + variable duration |
 | Flow 1 mix | `mux_flow1` alias / legacy concat | `mix_flow1` — speech + VO + beds + stingers |
 | Flow 2 mix | Index-based `sfx_i` | `mix_flow2` — cold open + shared transition |
 
@@ -388,7 +392,7 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
   "max_assets_flow1": 6,
   "max_assets_flow2": 4,
   "allow_diegetic_ambient": true,
-  "g1_5_require_prompt_approval": false
+  "g1_5_require_prompt_approval": true
 }
 ```
 
@@ -398,9 +402,9 @@ Add `style.sound_design_notes` to `analysis_state.json` for operator overrides (
 
 ## Related
 
-- [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) — canonical ElevenLabs API + operations
+- [local-audio-stack.md](./local-audio-stack.md) — canonical MMAudio local stack + [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md)
 - [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md) — worked prompts
 - v1 prompts: `docs/prompts/assembly/podcast-sfx-brief.system.txt`, `sfx-brief.system.txt`
-- v1 code: `sfx_elevenlabs.py`, `selection_flow1.py`, `assembly_flow1.py`, `assembly_flow2.py`
+- v1 code: `sfx_mmaudio.py`, `selection_flow1.py`, `assembly_flow1.py`, `assembly_flow2.py`
 - [analysis-memory.md](./analysis-memory.md) — profile feeds all LLM stages
 - [artifact-layout.md](./artifact-layout.md) — run folder layout (SDP path + schema link)

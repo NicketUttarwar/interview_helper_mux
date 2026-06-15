@@ -2,7 +2,7 @@
 
 **Status:** Authoritative for **all** dependency versions referenced in `docs/`.  
 **Scope:** Python runtime, pip packages, system binaries, external HTTP API surfaces, and optional research libraries.  
-**Not in scope:** Operator secrets, per-account OpenAI model availability, or ElevenLabs account tier limits.
+**Not in scope:** Operator secrets, per-account OpenAI model availability, or removed cloud audio APIs (ElevenLabs removed; SFX is local MMAudio).
 
 **Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt`, **`requirements.lock`**, `pip-audit` in `check_prerequisites.sh`)
 
@@ -17,7 +17,7 @@
 | **Vulnerability gate** | `./tools/check_prerequisites.sh` runs **`pip-audit`** against `requirements.lock` (and fails on known CVEs at or above configured severity). Re-run after any lock refresh. |
 | **Context7 for code** | Agents implementing or changing Python that calls third-party APIs/libraries **must** resolve docs via **Context7** using the **exact** package version from `requirements.lock` (see [Context7](#context7-for-implementers)). |
 | **AWS** | Application code uses **`aws` CLI subprocess only** — no boto3. Pin CLI major in docs; operators verify with `aws --version`. |
-| **ElevenLabs** | Application code uses **REST** (`urllib`) — no ElevenLabs Python SDK in pipeline stages. Pin **API base path** `/v1` here. |
+| **Local audio** | SFX via **MMAudio** subprocess (`mmaudio_runner`); preclean via **DeepFilterNet** — no cloud audio REST in pipeline stages. |
 
 When you change a pinned version, update **`requirements.lock`**, this doc’s `last_verified` date, and any Context7 library queries in the same PR.
 
@@ -94,7 +94,7 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 | Package | Reason |
 |---------|--------|
 | `boto3`, `botocore` | AWS via CLI only |
-| `elevenlabs` (SDK) | ElevenLabs via REST (`elevenlabs_rest.py`) |
+| `elevenlabs` (SDK) | Removed — was ElevenLabs REST; use local MMAudio |
 
 ---
 
@@ -104,7 +104,7 @@ Pin **minimum** versions; operators may run newer patch releases if `check_prere
 
 | Binary | Anchored minimum | Verified example | Used by |
 |--------|------------------|------------------|---------|
-| **ffmpeg** | **8.0** | 8.1.1 | ingest, assembly, transcript clips, ElevenLabs normalize |
+| **ffmpeg** | **8.0** | 8.1.1 | ingest, assembly, transcript clips, MMAudio resample |
 | **ffprobe** | **8.0** (ships with ffmpeg) | 8.1.1 | `verify_master.py`, probing |
 | **aws** CLI | **2.30** | 2.34.18 | Transcribe, S3 upload/download |
 
@@ -117,10 +117,9 @@ Install on macOS (example): `brew install ffmpeg awscli` — then confirm versio
 | Service | Anchored surface | Client in repo |
 |---------|------------------|----------------|
 | **OpenAI** | Chat Completions; model IDs in [model-routing.md](./model-routing.md#model-tier-registry) | `openai` SDK → `llm_runner.py` |
-| **ElevenLabs** | `https://api.elevenlabs.io/v1` — `POST /music` (`model_id`: `music_v2`), `POST /audio-isolation` | `elevenlabs_rest.py` |
 | **AWS Transcribe** | Batch jobs via `aws transcribe` CLI; S3 via `aws s3` | `transcribe_aws.py` |
 
-Do not bump ElevenLabs path to `/v2` without updating `ELEVENLABS_API_BASE` and [elevenlabs-integration-guide.md](./elevenlabs-integration-guide.md) in the same change.
+Local MMAudio and DeepFilterNet run as subprocesses in isolated venvs — see [local-audio-stack.md](./local-audio-stack.md). No ElevenLabs HTTP surface.
 
 ---
 

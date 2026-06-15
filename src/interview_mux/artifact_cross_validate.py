@@ -15,9 +15,13 @@ HARD_CHECKPOINTS = frozenset(
         "pre_flow1",
         "post_sound_plan_flow1",
         "post_sound_plan_flow2",
-        "pre_elevenlabs_spend",
+        "post_sonic_context",
+        "pre_sfx_generation",
+        "post_mmaudio_qa",
         "pre_mix_flow1",
         "pre_mix_flow2",
+        "pre_master_flow1",
+        "pre_master_flow2",
         "post_ranking",
         "post_edl_audit_fail",
     }
@@ -27,15 +31,18 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "segment_classification": "post_segmentation",
     "content_brief_reanchor": "post_reanchor",
     "missing_framing": "post_gaps",
+    "sonic_context_build": "post_sonic_context",
     "sound_design_palettes": "post_sound_palettes",
     "full_master_ranking": "post_ranking",
     "transitions": "post_transitions",
     "sound_design_plan_flow1": "post_sound_plan_flow1",
     "sound_design_plan_flow2": "post_sound_plan_flow2",
-    "elevenlabs_prompt_craft": "pre_elevenlabs_spend",
+    "sfx_prompt_craft": "pre_sfx_generation",
     "edl_narrative_audit": "post_edl_audit",
-    "elevenlabs_sfx_flow1": "pre_mix_flow1",
-    "elevenlabs_sfx_flow2": "pre_mix_flow2",
+    "mmaudio_sfx_flow1": "pre_mix_flow1",
+    "mmaudio_sfx_flow2": "pre_mix_flow2",
+    "master_flow1": "pre_master_flow1",
+    "master_flow2": "pre_master_flow2",
 }
 
 
@@ -53,6 +60,10 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         from interview_mux.sdp_cross_validate import validate_post_sound_palettes
 
         return validate_post_sound_palettes(ctx)
+    if checkpoint == "post_sonic_context":
+        from interview_mux.sdp_cross_validate import validate_post_sonic_context
+
+        return validate_post_sonic_context(ctx)
     if checkpoint == "post_sound_plan_flow1":
         from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow1
 
@@ -61,10 +72,14 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow2
 
         return validate_post_sound_plan_flow2(ctx)
-    if checkpoint == "pre_elevenlabs_spend":
-        from interview_mux.sdp_cross_validate import validate_pre_elevenlabs_spend
+    if checkpoint == "pre_sfx_generation":
+        from interview_mux.sdp_cross_validate import validate_pre_sfx_generation
 
-        return validate_pre_elevenlabs_spend(ctx)
+        return validate_pre_sfx_generation(ctx)
+    if checkpoint == "post_mmaudio_qa":
+        from interview_mux.sdp_cross_validate import validate_post_mmaudio_qa
+
+        return validate_post_mmaudio_qa(ctx)
     if checkpoint == "pre_mix_flow1":
         from interview_mux.sdp_cross_validate import validate_pre_mix
 
@@ -73,6 +88,14 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         from interview_mux.sdp_cross_validate import validate_pre_mix
 
         return validate_pre_mix(ctx, "flow2")
+    if checkpoint == "pre_master_flow1":
+        from interview_mux.sdp_cross_validate import validate_pre_master
+
+        return validate_pre_master(ctx, "flow1")
+    if checkpoint == "pre_master_flow2":
+        from interview_mux.sdp_cross_validate import validate_pre_master
+
+        return validate_pre_master(ctx, "flow2")
     if checkpoint == "post_ranking":
         return _validate_post_ranking(ctx)
     if checkpoint == "post_transitions":

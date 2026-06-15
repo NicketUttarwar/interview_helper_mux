@@ -33,16 +33,17 @@
 19. [docs/build-out/testing-and-verification.md](docs/build-out/testing-and-verification.md) — verify each wave
 20. [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) — manual release-candidate checklist (ASSETS, G2×3 flows, mix listen, pre-clean, parity)
 
-## Audio / STT / ElevenLabs (when implementing those areas)
+## Audio / local stacks (preclean + SFX + MLX)
 
-- [docs/pipeline/transcription/transcript-review.md](docs/pipeline/transcription/transcript-review.md) — G0 gate, synced dock word editor, fuzzy similar-word replace
-- [docs/pipeline/transcription/disfluency-extract.md](docs/pipeline/transcription/disfluency-extract.md) — G0.5 filler extract/review; `disfluency_catalog` in LLM stages
+- [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) — DeepFilterNet preclean + MMAudio SFX (local venvs)
+- [docs/cross-cutting/sonic-context.md](docs/cross-cutting/sonic-context.md) — scenario posture, tag provenance, cue opportunities for sound planning
+- [docs/pipeline/audio_preclean/README.md](docs/pipeline/audio_preclean/README.md) — optional noise reduction
+- [docs/cross-cutting/mmaudio-prompt-tuning.md](docs/cross-cutting/mmaudio-prompt-tuning.md) — CFG, negative prompts, operator tune loop
+- [docs/prompts/_shared/examples/sfx-prompt-regression.md](docs/prompts/_shared/examples/sfx-prompt-regression.md) — post-listen QA appendix
+- [docs/pipeline/transcription/transcript-review.md](docs/pipeline/transcription/transcript-review.md) — G0 gate
+- [docs/pipeline/transcription/disfluency-extract.md](docs/pipeline/transcription/disfluency-extract.md) — G0.5 filler extract/review
 - [docs/pipeline/assembly_and_mux/disfluency-restore.md](docs/pipeline/assembly_and_mux/disfluency-restore.md) — EDL/mix restore
 - [docs/pipeline/transcription/stt-and-diarization.md](docs/pipeline/transcription/stt-and-diarization.md)
-- [docs/pipeline/transcription/source-separation-and-enhancement.md](docs/pipeline/transcription/source-separation-and-enhancement.md)
-- [docs/cross-cutting/elevenlabs-integration-guide.md](docs/cross-cutting/elevenlabs-integration-guide.md)
-- [docs/cross-cutting/elevenlabs-prompt-influence-tuning.md](docs/cross-cutting/elevenlabs-prompt-influence-tuning.md)
-- [docs/prompts/_shared/examples/elevenlabs-prompt-regression.md](docs/prompts/_shared/examples/elevenlabs-prompt-regression.md)
 
 ## LLM call records (audit / copy-paste)
 

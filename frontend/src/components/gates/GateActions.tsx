@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import type { StageInfo } from "../../types";
+import { getSfxPrompts } from "../../api/client";
+import type { SfxBlockReason, StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { StageAudioActions } from "./StageAudioActions";
 import { AnalysisProfileGate } from "./AnalysisProfileGate";
@@ -13,15 +13,31 @@ import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
 import { QcSummaryCard } from "./QcSummaryCard";
 import { ValueFeaturesPanel } from "./ValueFeaturesPanel";
-import { ElevenLabsPromptReviewPanel } from "./ElevenLabsPromptReviewPanel";
-import { ElevenLabsPostListenPanel } from "./ElevenLabsPostListenPanel";
+import { SfxPromptReviewPanel } from "./SfxPromptReviewPanel";
+import { SfxPostListenPanel } from "./SfxPostListenPanel";
 import { PlacementAdjustmentsPanel } from "./PlacementAdjustmentsPanel";
-import { ElevenLabsBlockedPanel } from "./ElevenLabsBlockedPanel";
+import { SfxBlockedPanel } from "./SfxBlockedPanel";
+import { SonicContextPanel } from "./SonicContextPanel";
 import { resolvePrecleanOffer } from "../../utils/preclean";
+import { collectSfxBlockReasons } from "../../utils/sfxBlockReasons";
 
 interface Props {
   stage: StageInfo;
 }
+
+const SONIC_CONTEXT_STAGES = new Set([
+  "source_acoustic_profile",
+  "sound_design_palettes",
+  "sound_design_plan_flow1",
+  "sound_design_plan_flow2",
+]);
+
+const MIX_INTELLIGIBILITY_STAGES = new Set([
+  "mix_flow1",
+  "mix_flow2",
+  "master_flow1",
+  "master_flow2",
+]);
 
 export function GateActions({ stage }: Props) {
   const { run, config, timeline, setPipelineSubTab } = useApp();
@@ -77,16 +93,16 @@ export function GateActions({ stage }: Props) {
     );
   }
 
-  if (stage.id === "elevenlabs_prompt_craft") {
+  if (stage.id === "sfx_prompt_craft") {
     return (
       <div className="gate-actions">
-        <ElevenLabsPromptReviewPanel stage={stage} />
-        <ElevenLabsPostListenPanel stage={stage} />
+        <SfxPromptReviewPanel stage={stage} />
+        <SfxPostListenPanel stage={stage} />
       </div>
     );
   }
 
-  if (stage.id === "elevenlabs_sfx_flow1" || stage.id === "elevenlabs_sfx_flow2") {
+  if (stage.id === "mmaudio_sfx_flow1" || stage.id === "mmaudio_sfx_flow2") {
     return <SfxGatePanel stage={stage} />;
   }
 
@@ -118,6 +134,7 @@ export function GateActions({ stage }: Props) {
       ) : null}
 
       {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
+      {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
 
       {stage.id === "edl_flow1" || stage.id === "assembly_preview" ? (
         <DisfluencyRestorePanel stageId={stage.id} />
@@ -135,6 +152,14 @@ export function GateActions({ stage }: Props) {
         <QcSummaryCard qcKey="show_description_qc" stageId={stage.id} />
       ) : null}
 
+      {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
+        <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+      ) : null}
+
+      {stage.id === "mix_flow1" || stage.id === "mix_flow2" ? (
+        <SfxPostListenPanel stage={stage} />
+      ) : null}
+
       {stage.id === "content_context" &&
       (config?.value_analysis_enabled || run.meta?.qc_summaries) ? (
         <ValueFeaturesPanel />
@@ -148,25 +173,27 @@ export function GateActions({ stage }: Props) {
 function SfxGatePanel({ stage }: { stage: StageInfo }) {
   const { run, selectStage } = useApp();
   const [blocked, setBlocked] = useState<boolean | null>(null);
+  const [blockReasons, setBlockReasons] = useState<SfxBlockReason[]>([]);
 
   useEffect(() => {
     if (!run) return;
-    void api<{ review_required?: boolean; can_generate?: boolean }>(
-      `/api/runs/${run.run_id}/elevenlabs-prompts`,
-    )
+    void getSfxPrompts(run.run_id)
       .then((review) => {
-        setBlocked(
-          Boolean(review?.review_required && review?.can_generate === false),
-        );
+        const reasons = collectSfxBlockReasons(review);
+        setBlocked(Boolean(review?.review_required && review?.can_generate === false));
+        setBlockReasons(reasons);
       })
-      .catch(() => setBlocked(false));
+      .catch(() => {
+        setBlocked(false);
+        setBlockReasons([]);
+      });
   }, [run, stage.id]);
 
   if (blocked === null) {
     return (
       <div className="gate-actions">
         <p className="hint gate-loading">
-          <span className="spinner-inline" aria-hidden /> Checking ElevenLabs approval…
+          <span className="spinner-inline" aria-hidden /> Checking MMAudio approval…
         </p>
       </div>
     );
@@ -175,8 +202,9 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
   if (blocked) {
     return (
       <div className="gate-actions">
-        <ElevenLabsBlockedPanel
-          onOpen={() => void selectStage("elevenlabs_prompt_craft")}
+        <SfxBlockedPanel
+          reasons={blockReasons}
+          onOpen={() => void selectStage("sfx_prompt_craft")}
         />
       </div>
     );
@@ -185,7 +213,7 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
   const offer = resolvePrecleanOffer(stage, run?.meta);
   return (
     <div className="gate-actions">
-      <ElevenLabsPostListenPanel stage={stage} />
+      <SfxPostListenPanel stage={stage} />
       <PlacementAdjustmentsPanel stage={stage} />
       {offer ? <PrecleanOfferCard stage={stage} offer={offer} /> : null}
     </div>

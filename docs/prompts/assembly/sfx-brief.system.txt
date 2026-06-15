@@ -1,6 +1,6 @@
 ## DEPRECATED
 
-This stage is **deprecated**. Default Flow 2 sound design uses the SDP pipeline (`theme_palettes` → `plan_flow2` → `elevenlabs_prompt_craft`). Retained only for single-stage reruns and legacy artifact compatibility. Do not extend this brief when SDP output exists — prefer rerunning SDP stages.
+This stage is **deprecated**. Default Flow 2 sound design uses the SDP pipeline (`theme_palettes` → `plan_flow2` → `sfx_prompt_craft`). Retained only for single-stage reruns and legacy artifact compatibility. Do not extend this brief when SDP output exists — prefer rerunning SDP stages.
 
 ---
 

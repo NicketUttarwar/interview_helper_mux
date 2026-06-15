@@ -53,7 +53,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `prompt_validation.py` | JSON schema validation; `ARTIFACT_WRITE_VALIDATORS`, `STAGE_ARTIFACT_DISK_PATHS` | BUILD-001 |
 | `artifact_completeness.py` | Gap-fill context, merge, `artifact_status`, incomplete re-run | artifact generation |
 | `artifact_writes.py` | `write_validated_artifact` — merge + validate before disk | artifact generation |
-| `elevenlabs_rest.py` | REST SFX (no SDK) | BUILD-034, 042 |
+| `maudio_runner.py` | REST SFX (no SDK) | BUILD-034, 042 |
 | `nle_state.py` | `segments/nle_edits.json` | BUILD-068 (ranking + EDL) |
 | `acoustic_profile.py` | Shared SAP load, `mix_contract`, volley compact helpers | gap-closure GC-F1 |
 | `audio_timeline.py` | WAV duration, crossfade concat, chunk-by-bytes | gap-closure GC-F1 |
@@ -101,15 +101,15 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
 | `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
 | `selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
-| `sfx_elevenlabs.py` | `elevenlabs_sfx_flow1/2` | BUILD-034, 042 |
+| `sfx_mmaudio.py` | `mmaudio_sfx_flow1/2` | BUILD-034, 042 |
 | `sound_design.py` | `mix_flow1`, `mix_flow2` | BUILD-065 |
 | `assembly_flow1.py` | `edl_flow1`, `mux_flow1` → `mix_flow1` | BUILD-035, 065, 067, 068 |
 | `assembly_flow2.py` | `mux_flow2` → `mix_flow2` | BUILD-043, 065 |
 | `mastering.py` | `master_flow1`, `master_flow2` | BUILD-036, 050 |
-| `audio_preclean.py` | ElevenLabs isolation (optional) | BUILD-019 |
+| `audio_preclean.py` | DeepFilterNet preclean (optional) | BUILD-019 |
 | `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
 | `edl_narrative_audit.py` | `edl_narrative_audit` flagship Flow 1 audit | EDL narrative QC |
-| `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `elevenlabs_prompt_craft` | BUILD-061–064 |
+| `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `sfx_prompt_craft` | BUILD-061–064 |
 | `sound_design_vo_finalize.py` | `sound_design_vo_finalize` — VO bridge measured durations | gap-closure GC-A3 |
 
 ### Web GUI (`src/interview_mux/web/`)

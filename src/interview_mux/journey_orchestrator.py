@@ -23,6 +23,7 @@ from interview_mux.journey_state import (
     stage_operator_phase,
 )
 from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS
+from interview_mux.sonic_context import load_sonic_context
 from interview_mux.custom_run_handoff import (
     handoff_between_stages_enabled,
     handoff_review_message,
@@ -43,6 +44,10 @@ NEXT_ACTION_CREATE_FLOW1 = "Build episode order → preview"
 NEXT_ACTION_CREATE_FLOW2 = "Select highlight clips"
 NEXT_ACTION_CREATE_FLOW3 = "Generate show description"
 NEXT_ACTION_POLISH_PREVIEW = "Listen to preview, then approve sound"
+NEXT_ACTION_POLISH_CRAFT = "Review and approve SFX prompts"
+NEXT_ACTION_POLISH_GENERATE = "Generate SFX assets"
+NEXT_ACTION_POLISH_LISTEN = "Complete post-listen QA"
+NEXT_ACTION_POLISH_PLACEMENT = "Review placement adjustments"
 NEXT_ACTION_POLISH_SFX = "Add sound and mix"
 NEXT_ACTION_SHIP_MASTER = "Export master"
 NEXT_ACTION_SHIP_DESC = "Export show description"
@@ -323,16 +328,66 @@ def execute_hint(
         if flow == "flow3":
             return None
         if flow == "flow2":
+            if not milestones.get("sfx_approved"):
+                return {
+                    "action": "checkpoint",
+                    "stage_id": "sfx_prompt_craft",
+                    "label": NEXT_ACTION_POLISH_CRAFT,
+                }
+            if not milestones.get("sfx_generated"):
+                return {
+                    "action": "execute",
+                    "mode": "flow2",
+                    "from_stage": "mmaudio_sfx_flow2",
+                    "label": NEXT_ACTION_POLISH_GENERATE,
+                }
+            if not milestones.get("sfx_listen_complete"):
+                return {
+                    "action": "checkpoint",
+                    "stage_id": "mmaudio_sfx_flow2",
+                    "label": NEXT_ACTION_POLISH_LISTEN,
+                }
             return {
                 "action": "execute",
                 "mode": "flow2",
-                "from_stage": "elevenlabs_prompt_craft",
+                "from_stage": "sfx_prompt_craft",
                 "label": NEXT_ACTION_POLISH_SFX,
+            }
+        if milestones.get("preview_ready") and not milestones.get("preview_listened") and _require_preview_listen():
+            return {
+                "action": "checkpoint",
+                "stage_id": "assembly_preview",
+                "label": NEXT_ACTION_POLISH_PREVIEW,
+            }
+        if not milestones.get("sfx_approved"):
+            return {
+                "action": "checkpoint",
+                "stage_id": "sfx_prompt_craft",
+                "label": NEXT_ACTION_POLISH_CRAFT,
+            }
+        if not milestones.get("sfx_generated"):
+            return {
+                "action": "execute",
+                "mode": "flow1",
+                "from_stage": "mmaudio_sfx_flow1",
+                "label": NEXT_ACTION_POLISH_GENERATE,
+            }
+        if not milestones.get("sfx_listen_complete"):
+            return {
+                "action": "checkpoint",
+                "stage_id": "mmaudio_sfx_flow1",
+                "label": NEXT_ACTION_POLISH_LISTEN,
+            }
+        if not milestones.get("placement_qa_ready"):
+            return {
+                "action": "checkpoint",
+                "stage_id": "mix_flow1",
+                "label": NEXT_ACTION_POLISH_PLACEMENT,
             }
         return {
             "action": "execute",
             "mode": "flow1",
-            "from_stage": "elevenlabs_prompt_craft",
+            "from_stage": "sfx_prompt_craft",
             "label": NEXT_ACTION_POLISH_SFX,
         }
 
@@ -386,13 +441,26 @@ def _next_action(
             return NEXT_ACTION_CREATE_FLOW3
         if flow_intent == "flow2":
             return NEXT_ACTION_CREATE_FLOW2
-        if milestones.get("preview_ready") and not milestones.get("preview_listened"):
-            if _require_preview_listen():
-                return NEXT_ACTION_POLISH_PREVIEW
+        if (
+            flow_intent == "flow1"
+            and milestones.get("preview_ready")
+            and not milestones.get("preview_listened")
+            and _require_preview_listen()
+        ):
+            return NEXT_ACTION_POLISH_PREVIEW
         return NEXT_ACTION_CREATE_FLOW1
     if phase == "polish":
         if not milestones.get("sfx_approved"):
-            return NEXT_ACTION_POLISH_PREVIEW
+            return NEXT_ACTION_POLISH_CRAFT
+        if not milestones.get("sfx_generated"):
+            return NEXT_ACTION_POLISH_GENERATE
+        if not milestones.get("sfx_listen_complete"):
+            return NEXT_ACTION_POLISH_LISTEN
+        if flow_intent == "flow1" and milestones.get("preview_ready") and not milestones.get("preview_listened"):
+            if _require_preview_listen():
+                return NEXT_ACTION_POLISH_PREVIEW
+        if not milestones.get("placement_qa_ready"):
+            return NEXT_ACTION_POLISH_PLACEMENT
         return NEXT_ACTION_POLISH_SFX
     if phase == "ship":
         if flow_intent == "flow3":
@@ -485,9 +553,23 @@ def build_journey_snapshot(
         "deliverable": _deliverable_preview(ctx, selected_flow or flow_intent),
         "phase_progress": phase_progress(ctx, stages),
         "open_investigations": _open_investigation_count(ctx),
-        "sound_labels": list(SOUND_LABELS),
+        "sound_labels": _sound_labels(ctx),
         "phase_guidance": _build_phase_guidance(ctx, stages),
     }
+
+
+def _sound_labels(ctx: RunContext) -> list[str]:
+    sonic = load_sonic_context(ctx) or {}
+    scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
+    posture = scenario.get("sound_posture") if isinstance(scenario.get("sound_posture"), dict) else {}
+    labels = list(SOUND_LABELS)
+    bucket = str(scenario.get("atlas_bucket") or "").strip()
+    if bucket:
+        labels.append(f"atlas:{bucket}")
+    bed = str(posture.get("bed_density") or "").strip()
+    if bed:
+        labels.append(f"bed:{bed}")
+    return labels
 
 
 def _build_phase_guidance(

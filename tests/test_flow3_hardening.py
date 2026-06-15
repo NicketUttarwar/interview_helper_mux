@@ -45,11 +45,11 @@ def test_podcast_show_description_preflight_flow3_missing_brief(tmp_path, monkey
     assert any("content_brief" in e for e in errors)
 
 
-def test_elevenlabs_prompt_craft_upstream_by_flow(tmp_path, monkeypatch):
+def test_sfx_prompt_craft_upstream_by_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_el_up")
     set_selected_flow(ctx, "flow1")
-    assert resolve_llm_upstream_stage(ctx, "elevenlabs_prompt_craft") == "sound_design_plan_flow1"
+    assert resolve_llm_upstream_stage(ctx, "sfx_prompt_craft") == "sound_design_plan_flow1"
 
     set_selected_flow(ctx, "flow2")
-    assert resolve_llm_upstream_stage(ctx, "elevenlabs_prompt_craft") == "sound_design_plan_flow2"
+    assert resolve_llm_upstream_stage(ctx, "sfx_prompt_craft") == "sound_design_plan_flow2"

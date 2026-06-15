@@ -240,7 +240,10 @@ __marimo__/
 
 
 
-# Heavy operator media + local MLX weights (ASSETS/local_llm/models/, hf_cache/, selection.json)
+# Heavy operator media + local stacks (gitignored under /ASSETS/):
+#   ASSETS/local_llm/models/, hf_cache/, selection.json, venv/
+#   ASSETS/local_deepfilter/DeepFilterNet/, venv/, install.json
+#   ASSETS/local_mmaudio/MMAudio/, venv/, install.json
 # Anchored to repo root — unanchored ASSETS/ matched web/static/assets/ on case-insensitive FS.
 /ASSETS/
 /ASSETS/*

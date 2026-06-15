@@ -10,9 +10,11 @@ from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manife
 def test_analysis_order_includes_content_brief_reanchor():
     seg_idx = ANALYSIS_ORDER.index("segment_classification")
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
+    sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert reanchor_idx == seg_idx + 1
-    assert pal_idx == reanchor_idx + 1
+    assert sonic_idx == reanchor_idx + 1
+    assert pal_idx == sonic_idx + 1
 
 
 def test_decompose_eligible_includes_content_brief_reanchor():

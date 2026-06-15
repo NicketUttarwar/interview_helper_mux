@@ -35,7 +35,7 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | podcast_sfx_brief | assembly/podcast-sfx-brief | flagship | full |
 | sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |
 | sound_design_plan_flow2 | sound_design/plan-flow2 | flagship | full |
-| elevenlabs_prompt_craft | sound_design/elevenlabs-prompt-craft | flagship | full |
+| sfx_prompt_craft | sound_design/sfx-prompt-craft | flagship | full |
 | highlight_selection | selection/highlight-selection | flagship | full / shard / collate |
 | sfx_brief | assembly/sfx-brief | flagship | full |
 

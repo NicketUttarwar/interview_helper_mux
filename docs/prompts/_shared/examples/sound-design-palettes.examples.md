@@ -54,6 +54,36 @@ Pair with: `sound_design/theme-palettes.system.txt` · [sound-design.examples.md
 
 ---
 
+## Good — nine atlas scenarios (concise reference)
+
+Use one palette cluster per scenario; map `segment_ids` from manifest tags. `scenario_bucket` should match `understanding/sonic_context.json` → `scenario.atlas_bucket`.
+
+| Scenario | `palette_id` hint | `ambient_description` posture | `stinger_color` |
+|----------|-------------------|------------------------------|-----------------|
+| `one_on_one` | `intimate_room` | Dry close-mic room tone; loopable; no melody | Soft mid rise ≤1.5s |
+| `panel` | `forum_neutral` | Minimal bed; avoid overlap segments | Single soft punctuation only |
+| `fireside` | `warm_hearth` | Gentle air; no percussion | Slow swell; no hype |
+| `technical_deep_dive` | `lab_neutral` | None or ultra-thin HVAC | Rare; non-dramatic |
+| `media_profile` | `broadcast_clean` | Sparse; non-sensational | Broadcast-neutral bump |
+| `debate` | `studio_dry` | No continuous bed | No conflict-escalating hits |
+| `noisy_room` | *(skip beds)* | Prefer no bed — speech already masked | No bright risers |
+| `dense_jargon` | `focus_air` | Minimal; no lyrical harmonic content | Short; non-melodic |
+| `trauma_adjacent` | `quiet_support` | No bed on flagged segments | Forbidden on trauma segments |
+
+**Example (`trauma_adjacent` — Good):**
+
+```json
+{
+  "palette_id": "quiet_support",
+  "segment_ids": ["seg_016"],
+  "topic_tags": ["care", "safety"],
+  "ambient_description": "Near-silent neutral room air only where explicitly safe; no rhythmic content.",
+  "stinger_color": "none on trauma-flagged segments"
+}
+```
+
+---
+
 ## Bad — invented palette without segments
 
 ```json
@@ -77,7 +107,7 @@ Pair with: `sound_design/theme-palettes.system.txt` · [sound-design.examples.md
 }
 ```
 
-**Why:** Not actionable for `elevenlabs_prompt_craft` or mix contract; arbiter reject.
+**Why:** Not actionable for `sfx_prompt_craft` or mix contract; arbiter reject.
 
 ---
 

@@ -5370,3 +5370,63 @@ code {
     max-height: 400px;
   }
 }
+
+/* SFX prompt / post-listen panels (renamed from el-* legacy classes) */
+.sfx-post-listen-card,
+.el-post-listen-card {
+  margin-top: 0.75rem;
+}
+
+.sfx-post-listen-row,
+.el-post-listen-row {
+  margin-top: 0.5rem;
+}
+
+.sfx-post-listen-history,
+.el-post-listen-history {
+  margin-top: 0.75rem;
+}
+
+.sfx-post-listen-note,
+.el-post-listen-note {
+  margin-top: 0.35rem;
+  width: 100%;
+}
+
+.sfx-prompt-influence,
+.el-prompt-influence,
+.sfx-prompt-text,
+.el-prompt-text,
+.sfx-negative-prompt,
+.el-negative-prompt {
+  width: 100%;
+}
+
+.sfx-block-mix-banner {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.sfx-qa-metrics {
+  font-family: var(--font-mono, monospace);
+}
+
+.sfx-sonic-header {
+  margin-top: 0.35rem;
+}
+
+.sfx-blocked-card .sfx-block-reasons {
+  margin: 0.5rem 0;
+}
+
+.sfx-block-reason-group {
+  margin-bottom: 0.5rem;
+}
+
+.sfx-block-reason-group h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+}

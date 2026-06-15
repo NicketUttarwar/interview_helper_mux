@@ -51,6 +51,7 @@ ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
 | `understanding/content_brief.json` | Yes | Content brief — thesis, topics, typed `key_claims`, `topic_relationships` (synced to memory) |
 | `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; schema: [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json); expanded by Wave 5 stages) |
 | `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — [source_acoustic_profile.schema.json](./json-schemas/source_acoustic_profile.schema.json); [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/sonic_context.json` | Yes | Consolidated sonic tags, scenario policy, cue opportunities — [sonic_context.schema.json](./json-schemas/sonic_context.schema.json); built by `sonic_context_build` (BUILD-SFX-01+) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |
 
@@ -84,8 +85,8 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `operator/flow_selection.json` | G2 flow choice |
 | `operator/preclean_decisions.json` | Pre-clean accept/dismiss history |
 | `operator/stage_reuse_decisions.json` | Stage reuse accept/decline log |
-| `operator/elevenlabs_prompts.json` | ElevenLabs prompt review edits |
-| `operator/elevenlabs_listen_results.json` | Post-listen pass/fail results |
+| `operator/sfx_prompts.json` | MMAudio SFX prompt review edits |
+| `operator/sfx_listen_results.json` | Post-listen pass/fail results |
 | `operator/investigation_queue.json` | Investigation status edits |
 | `operator/artifacts/*.json` | Mirrors of other GUI-edited artifacts |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
@@ -109,9 +110,10 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 
 | Path | Stage |
 |------|-------|
-| `sound_design/elevenlabs_prompts.json` | `elevenlabs_prompt_craft` (canonical; operator mirror at `operator/elevenlabs_prompts.json`) |
-| `sound_design/placement_adjustments.json` | post-SFX placement QA hints; applied at mix via `apply_placement_adjustments` |
-| `sound_design/assets/{asset_id}.wav` | ElevenLabs generated beds/stingers (canonical SDP path) |
+| `sound_design/sfx_prompts.json` | `sfx_prompt_craft` (canonical; operator mirror at `operator/sfx_prompts.json`) |
+| `sound_design/mmaudio_qa.json` | post-`mmaudio_sfx_flow*` deterministic QA — [mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) |
+| `sound_design/placement_adjustments.json` | post-SFX placement QA hints; applied at mix via `apply_placement_adjustments` — [placement_adjustments.schema.json](./json-schemas/placement_adjustments.schema.json) |
+| `sound_design/assets/{asset_id}.wav` | MMAudio generated beds/stingers (canonical SDP path) |
 
 ## Flow 1 — `flow_1_master/`
 
@@ -136,7 +138,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 |------|-------|
 | `selection.json` | ≤5 clips |
 | `sfx_brief.json` | montage SFX spec |
-| `sfx/*.wav` | ElevenLabs generated |
+| `sfx/*.wav` | MMAudio generated |
 | `assembly.wav` | pre-master mix (`mix_flow2`) |
 | `master.wav` | final export |
 

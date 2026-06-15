@@ -74,7 +74,7 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW
 | `sound_design_palettes` | low | **flagship** | primary, arbiter | full | no | — | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
 | `sound_design_plan_flow1` | high | flagship | primary, arbiter | full | no | density / palette mismatch | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
 | `sound_design_plan_flow2` | high | flagship | primary, arbiter | full | no | — | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
-| `elevenlabs_prompt_craft` | low | **flagship** | primary, arbiter | full | no | policy / voice bleed | [elevenlabs-prompt-craft.system.txt](../prompts/sound_design/elevenlabs-prompt-craft.system.txt) |
+| `sfx_prompt_craft` | low | **flagship** | primary, arbiter | full | no | policy / voice bleed | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
 
 ---
 

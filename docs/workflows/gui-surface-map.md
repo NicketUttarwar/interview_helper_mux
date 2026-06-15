@@ -88,6 +88,14 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 **Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required` / handoff pending; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. Blocking G0/G0.5 gates show inline first; modal is optional via **Review in full-screen panel**.
 
+### Sonic context panel (`SonicContextPanel`)
+
+| Component | APIs | Artifacts |
+|-----------|------|-----------|
+| `SonicContextPanel` | `GET /api/runs/{run_id}/artifact?path=understanding/sonic_context.json` | `understanding/sonic_context.json` |
+
+Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_palettes` stage detail as a compact scenario/tag provenance view.
+
 ### G0 transcript review (`TranscriptReviewPanel`)
 
 | Component | File | APIs | Operator actions |
@@ -162,7 +170,7 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 | Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `until_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Preview listened milestone | `assembly_preview` polish CTA | `POST …/milestones/preview-listened` | `gui_log.jsonl` | `run_meta.journey.preview_listened_at` when `require_preview_listen` |
 | Acoustic profile overrides | `source_acoustic_profile` | `PATCH …/acoustic-profile/overrides`, `POST …/recompute-acoustic-profile` | `gui_log.jsonl` | `understanding/source_acoustic_profile.json` → `operator_overrides` |
-| Placement QA hints | `elevenlabs_sfx_flow*`, `mix_flow*` | *(read)* `sound_design/placement_adjustments.json` | — | `PlacementAdjustmentsPanel` after SFX/mix when `sound_design.placement_qa_enabled` |
+| Placement QA hints | `mmaudio_sfx_flow*`, `mix_flow*` | *(read)* `sound_design/placement_adjustments.json` | — | `PlacementAdjustmentsPanel` after SFX/mix when `sound_design.placement_qa_enabled` |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
 ---
@@ -203,6 +211,7 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 | STT review prep | `transcript_review_build` | `transcript/review_queue.json`, clips |
 | Disfluency extract | `disfluency_extract` | `transcript/disfluencies.json`, `transcript/disfluency_clips/` |
 | Source acoustic profile | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
+| Sonic context build | `sonic_context_build` | `understanding/sonic_context.json` |
 | Speaker roles | `speaker_roles` | `understanding/speakers.json` |
 | Content understanding | `content_context` | `understanding/content_brief.json` |
 | Segment boundaries | `boundary_detection` | `segments/boundaries.json` |
@@ -232,31 +241,36 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: 
 | 1 | VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
 | 1 | EDL | `edl_flow1` | `flow_1_master/edl.json` |
 | 1 | Assembly preview | `assembly_preview` | `flow_1_master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
-| 1 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
-| 1 | Generate SFX | `elevenlabs_sfx_flow1` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_1_master/sfx/`) |
+| 1 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
+| 1 | Generate SFX | `mmaudio_sfx_flow1` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_1_master/sfx/`) |
 | 1 | Mix assembly | `mix_flow1` | `flow_1_master/assembly.wav` |
 | 1 | Master export | `master_flow1` | `flow_1_master/master.wav` |
 | 2 | Highlight selection | `highlight_selection` | `flow_2_highlights/selection.json` |
 | 2 | Sound design plan | `sound_design_plan_flow2` | `understanding/sound_design_plan.json` |
-| 2 | Craft ElevenLabs prompts | `elevenlabs_prompt_craft` | `sound_design/elevenlabs_prompts.json` |
-| 2 | Generate SFX | `elevenlabs_sfx_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_2_highlights/sfx/`) |
+| 2 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
+| 2 | Generate SFX | `mmaudio_sfx_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_2_highlights/sfx/`) |
 | 2 | Mix assembly | `mix_flow2` | `flow_2_highlights/assembly.wav` |
 | 2 | Master export | `master_flow2` | `flow_2_highlights/master.wav` |
 | 1 / 2 | Master QA (post-flow, automatic) | `verify_master` | `gui_log.jsonl` (`stage: verify_master`); validates `flow_*_*/master.wav` LUFS + true peak |
 | 3 | Show description | `podcast_show_description` | `flow_3_description/show_description.json` |
 | 3 | Export blurb | `export_show_description` | `flow_3_description/show_description.md` |
 
-### ElevenLabs operator journey (SFX + G1.5)
+### MMAudio operator journey (SFX + G1.5)
 
 **G1.5 (shipped):** Optional pre-spend prompt review when `g1_5_require_prompt_approval: true` in merged config.
 
-Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [elevenlabs-integration-guide.md § GUI operator journey](../cross-cutting/elevenlabs-integration-guide.md#gui-operator-journey).
+Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [local-audio-stack.md § GUI operator journey](../cross-cutting/local-audio-stack.md#gui-operator-journey).
 
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
-| **G1.5 prompt review** (optional) | `elevenlabs_prompt_craft` | `GET/PUT …/elevenlabs-prompts`, `POST …/elevenlabs-prompts/approve` | `gui_log.jsonl` (`elevenlabs_prompt_craft`) | `sound_design/elevenlabs_prompts.json`, `run_meta.json` → `elevenlabs_prompt_review` |
-| **Post-listen QA** (advisory) | `elevenlabs_prompt_craft`, `elevenlabs_sfx_flow1`, `elevenlabs_sfx_flow2` | `POST …/elevenlabs-prompts/listen-result`; `GET …/runs/{id}` → `elevenlabs_generated_assets` | `elevenlabs_post_listen_pass` / `elevenlabs_post_listen_fail` | `run_meta.json` → `elevenlabs_listen_results[]` |
-| **Generate SFX** blocked when G1.5 required | `elevenlabs_sfx_flow1` / `elevenlabs_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+| **G1.5 prompt review** (optional) | `sfx_prompt_craft` | `GET/PUT …/sfx-prompts`, `POST …/sfx-prompts/approve` | `gui_log.jsonl` (`sfx_prompt_craft`) | `sound_design/sfx_prompts.json`, `run_meta.json` → `sfx_prompt_review` |
+| **Post-listen QA** (advisory; **block_mix** when configured) | `sfx_prompt_craft`, `mmaudio_sfx_flow1`, `mmaudio_sfx_flow2`, **`mix_flow1`**, **`mix_flow2`** | `POST …/sfx-prompts/listen-result` (`mode`: `post_listen` \| `under_speech`); `GET …/sfx-prompts` → `mmaudio_qa`, `listen_results` | `sfx_post_listen_pass` / `sfx_post_listen_fail`; under-speech → `speech_under_listen_result_recorded` | `run_meta.json` → `sfx_listen_results[]` or `speech_under_listen_results[]` |
+| **Auto-refine / regen** (optional) | `sfx_prompt_craft`, `mmaudio_sfx_flow*` | `POST …/sfx-prompts/refine`, `POST …/sfx-prompts/regenerate`, `GET …/sfx-qa` | `sfx_prompts_refined`, `sfx_regen_requested` | updated `sfx_prompts.json`, `sound_design/mmaudio_qa.json` |
+| **Generate SFX** blocked when G1.5 required | `mmaudio_sfx_flow1` / `mmaudio_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+
+`SfxPostListenPanel` per asset shows: `verdict`, `theme_fit_score`, `semantic_qa_verdict`, `semantic_similarity`, `recommended_action`, `spectral_bucket_match` (from `mmaudio_qa`). When `post_listen_gate_mode` is `block`, failed listen/QA shows a blocking banner on mix stages.
+
+`SfxPostListenPanel` also attempts under-speech audition via `GET /api/runs/{run_id}/audio/sfx-under-speech?asset_id=...`; record under-speech checks with `POST …/sfx-prompts/listen-result` and `mode=under_speech`. UI falls back to solo asset playback when unavailable.
 
 ### QC summary cards (gap-closure)
 
@@ -267,6 +281,7 @@ When `run_meta.qc_summaries` is populated by narrative/EDL/show QC gates:
 | `full_master_ranking`, `edl_flow1` | `narrative_qc` | `gates.check_narrative_qc` |
 | `edl_narrative_audit`, `edl_flow1` | `edl_narrative_qc` | `gates.check_edl_narrative_qc` |
 | `podcast_show_description` | `show_description_qc` | `gates.check_show_description_qc` |
+| `mix_flow1`, `mix_flow2`, `master_flow1`, `master_flow2` | `mix_intelligibility` | `run_meta.qc_summaries.mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
 
 ### Source acoustic profile
 
@@ -274,14 +289,14 @@ When `run_meta.qc_summaries` is populated by narrative/EDL/show QC gates:
 |--------------|------------|-----|-------|
 | Recompute profile | `source_acoustic_profile` | `POST …/recompute-acoustic-profile` | Re-runs DSP profile from ingest/transcript |
 
-Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before ElevenLabs spend. Post-listen pass/fail does **not** block generation or mix unless product adds a hard gate later. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
+Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or override) to require approval before MMAudio SFX generation. Post-listen pass/fail does **not** block generation or mix unless product adds a hard gate later. Legacy stage ids `mux_flow1` / `mux_flow2` and v1 `podcast_sfx_brief` / `sfx_brief` remain runnable via `mode: stage` only.
 
 | Shipped |
 |---------|
 | G1.5 inline panel (edit prompts, `prompt_influence`, approve, SDP warnings) |
 | Post-listen panel: Listen → Pass/Fail + optional note; read-only listen history |
 | Schema validation on PUT; `can_generate` blocks SFX stages when G1.5 required |
-| Log: `elevenlabs_prompts_approved`, edit resets approval; post-listen pass/fail events |
+| Log: `sfx_prompts_approved`, edit resets approval; post-listen pass/fail events |
 
 ---
 

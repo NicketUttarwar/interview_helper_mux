@@ -43,7 +43,7 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `sound_design_plan_flow1` | full_master_ranking, narrative_arc_plan, transitions, optimal_questions | style, themes, narrative | — |
 | `sound_design_plan_flow2` | highlight_selection | style, themes, narrative | — |
 | `edl_narrative_audit` | full_master_ranking, narrative_arc_plan, topic_coverage_audit, transitions, missing_framing, sound_design_plan_flow1 | style, themes, narrative, major_questions | ≤1 |
-| `elevenlabs_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
+| `sfx_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
 | `sfx_brief` | highlight_selection | style, narrative | — |
 | `podcast_show_description` | speaker_roles, content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
@@ -80,7 +80,7 @@ Heavy fields are stripped per stage:
 - `sound_design_palettes` gets compact brief + manifest + optional existing SDP stub; no raw transcript
 - `sound_design_plan_flow1` / `sound_design_plan_flow2` get compact `sound_design_plan`, selection/highlights, transitions (flow1), not full transcript
 - `edl_narrative_audit` gets slim ranking, narrative plan, coverage audit, transitions, gap summaries, SDP plan — not raw transcript
-- `elevenlabs_prompt_craft` gets compact SDP `assets[]` and coherence; not full transcript
+- `sfx_prompt_craft` gets compact SDP `assets[]` and coherence; not full transcript
 - `podcast_sfx_brief` / `sfx_brief` get compact `selection` (order or highlights), not full transcript
 - `podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
 

@@ -505,7 +505,7 @@ def run_preview(ctx: RunContext) -> Path:
             stage="assembly_preview",
         )
     ctx.log(
-        f"Assembly preview ready (speech + VO, crossfade_ms={crossfade_ms}, clips={len(clips)}) — listen before ElevenLabs spend.",
+        f"Assembly preview ready (speech + VO, crossfade_ms={crossfade_ms}, clips={len(clips)}) — listen before MMAudio SFX generation.",
         level="success",
         stage="assembly_preview",
         detail=str(preview),

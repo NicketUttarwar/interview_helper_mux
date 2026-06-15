@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": {
+    "format_class": "panel",
+    "tone_class": "energetic",
+    "atlas_bucket": "panel",
+    "sound_posture": {
+      "bed_density": "minimal",
+      "stinger_cap_per_minute": 3
+    }
+  },
+  "sonic_identity_seed": {
+    "primary_mood": "focused",
+    "density_hint": "minimal",
+    "room_character": "dry_forum"
+  },
+  "tag_registry": [
+    {
+      "tag_id": "multi_voice_turns",
+      "kind": "theme",
+      "keywords": ["panel", "turn-taking", "moderation"],
+      "segment_ids": ["seg_003"],
+      "provenance": ["segments/manifest.topic_tags"]
+    }
+  ],
+  "cue_opportunities": [
+    {
+      "kind": "chapter_boundary",
+      "segment_id": "seg_010",
+      "confidence": 0.8,
+      "provenance": ["flow_1_master/narrative_plan.json"]
+    }
+  ],
+  "mix_policy": {
+    "underscore_policy": "sparse",
+    "adaptive_max_assets_flow1": 5,
+    "adaptive_max_assets_flow2": 3,
+    "duration_bands_by_role": {
+      "ambient_bed": [5, 8],
+      "chapter_stinger": [1, 2.5]
+    }
+  },
+  "avoid_hard": ["overhyped trailer hits"],
+  "segment_flags": {
+    "overlap_high": ["seg_006"],
+    "trauma_adjacent": [],
+    "jargon_dense": [],
+    "disfluency_restore": [],
+    "comprehension_risk": []
+  }
+}

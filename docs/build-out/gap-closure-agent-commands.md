@@ -117,7 +117,7 @@ flowchart TB
     SRV[web/server.py]
     RUN[web/runner.py]
     JS[web/static/app.js]
-    EL[elevenlabs_rest.py]
+    EL[maudio_runner.py]
   end
 
   AP --> SD
@@ -165,7 +165,7 @@ Phases 0–5 (GC-00 through GC-D1) are the **original 16-command program** (ship
 | 3 Analysis | **GC-B1** | Value pipeline wiring | GC-F3, GC-A4 | [x] | Value extract + gap volley wiring |
 | 4 Operator | **GC-C1** | Recompute SAP API + runner preclean gate | GC-F1, GC-F3, OQ | [x] | Recompute API + runner gate |
 | 4 Operator | **GC-C2** | NLE UX + GUI QC panels + before_sfx_spend | GC-F2, GC-F3, GC-C1 | [x] | GUI QC panels + preclean offers |
-| 4 Operator | **GC-C3** | ElevenLabs chunk resilience | GC-F1 (audio_timeline) | [x] | Chunk isolation path |
+| 4 Operator | **GC-C3** | DeepFilterNet / WAV chunk resilience | GC-F1 (audio_timeline) | [x] | Chunk isolation path |
 | 5 Tests | **GC-T1** | Integration tests | all above | [x] | Full test suite + smoke fixture |
 | 5 Docs | **GC-D1** | Documentation closure | GC-T1 | [x] | Doc sweep |
 | 6 | **GC-Q1** | GC-T1 gaps: smoke fixture + chunk test | GC-D1 | [x] | Smoke fixture + test files |
@@ -207,7 +207,7 @@ Single authoritative **[config/app.defaults.json](config/app.defaults.json)** wi
 "_comment_mix_engine": "crossfade_ms_*, duck defaults",
 "_comment_quality_gates": "G1.5, narrative_qc, show_description_qc, nle_edits.strict, preclean ack",
 "_comment_value_analysis": "deterministic extract flags — no SSL",
-"_comment_elevenlabs": "upload limits, timeouts, chunk policy",
+"_comment_mmaudio_legacy_removed": "upload limits, timeouts, chunk policy",
 "_comment_analysis": "volley caps, thresholds",
 "_comment_web": "port, GUI behavior flags"
 ```
@@ -319,7 +319,8 @@ Deliver:
 Add _comment_* headers and new keys with SAFE defaults (strict false):
   mix: {crossfade_ms_flow1: 100, crossfade_ms_flow2: 120, crossfade_ms_assembly_preview: 80, require_preclean_acknowledgment: true}
   nle_edits: {strict: true}
-  elevenlabs: {max_upload_bytes: 52428800, request_timeout_sec: 120, max_retries: 3}
+  mmaudio: {request_timeout_sec: 900, model_id: large_44k_v2}
+  (legacy `elevenlabs` config block removed — see `mmaudio` in app.defaults.json)
   (keep existing keys; reorganize with _comment sections)
 
 ### 5. run_meta.schema.json — add optional qc_summaries object
@@ -603,7 +604,7 @@ Read:
 Deliver:
 ### Preclean
 1. resolvePrecleanOffer: assembly_preview → before_sfx_spend checkpoint (register in server allowed_checkpoints if not from GC-C1)
-2. Prompt: "Clean source before ElevenLabs SFX spend?"
+2. Prompt: "Clean source before MMAudio SFX spend?"
 
 ### NLE (GC-F2 strict errors surfaced)
 3. save NLE failure → toast with errors[0]; excluded segments CSS .nle-excluded strikethrough
@@ -613,7 +614,7 @@ Deliver:
 ### QC panels (reads run_meta.qc_summaries from GC-F3)
 6. full_master_ranking + edl_flow1 panels: render narrative_qc pass/fail card from qc_summaries.narrative_qc
 7. podcast_show_description panel: show_description_qc card
-8. elevenlabs_sfx_flow* / craft panel: G1.5 banner when g1_5_require_prompt_approval && !can_run_elevenlabs_generation
+8. mmaudio_sfx_flow* / craft panel: G1.5 banner when g1_5_require_prompt_approval && !can_generate
 
 ### Recompute button
 9. source_acoustic_profile panel: "Recompute profile" → POST recompute-acoustic-profile → refresh
@@ -627,25 +628,25 @@ Update gui-surface-map.md, operator-stage-checklists.md, operator-gates.md (befo
 
 ---
 
-## GC-C3 — ElevenLabs chunk resilience (uses audio_timeline.chunk_wav_by_max_bytes)
+## GC-C3 — DeepFilterNet / WAV chunk resilience (uses audio_timeline.chunk_wav_by_max_bytes)
 
 ```text
 REST operational limits — reuse audio_timeline chunk + concat_with_crossfade for reassembly.
 
 Read:
-@src/interview_mux/elevenlabs_rest.py
+@src/interview_mux/maudio_runner.py
 @src/interview_mux/audio_timeline.py chunk_wav_by_max_bytes, concat_clips_with_crossfade
 @src/interview_mux/stages/audio_preclean.py
-@src/interview_mux/stages/sfx_elevenlabs.py
-@config/app.defaults.json elevenlabs.*
-@docs/cross-cutting/elevenlabs-integration-guide.md
+@src/interview_mux/stages/sfx_mmaudio.py
+@config/app.defaults.json mmaudio.* (see config-keys.md; legacy `elevenlabs` block removed)
+@docs/cross-cutting/local-audio-stack.md
 
 Deliver:
-1. elevenlabs_rest.py: read timeout/max_retries from config; apply urllib timeout; size guard before POST with human-readable error
-2. audio_preclean full_source path: if wav > max_upload_bytes → chunk_wav_by_max_bytes → isolate each → concat isolated with crossfade_ms=80 → write preclean/isolated.wav; ctx.log elevenlabs_chunked_isolation chunks=N
+1. maudio_runner.py: read timeout/max_retries from config; apply urllib timeout; size guard before POST with human-readable error
+2. audio_preclean full_source path: if wav > max_upload_bytes → chunk_wav_by_max_bytes → isolate each → concat isolated with crossfade_ms=80 → write preclean/isolated.wav; ctx.log deepfilter_chunked_preclean chunks=N
 3. sfx generate: if prompt path somehow exceeds limit, fail with actionable message (no chunk for SFX unless trivial)
-4. elevenlabs-integration-guide.md: replace streaming TBD with chunk policy table
-5. tests/test_elevenlabs_chunk_policy.py mocking REST (no live API)
+4. local-audio-stack.md: replace streaming TBD with chunk policy table
+5. tests/test_mmaudio_runner.py mocking REST (no live API)
 
 Import chunk helpers — do NOT copy ffmpeg segment logic into audio_preclean.py.
 ```
@@ -667,7 +668,7 @@ Read:
 @tests/test_transcript_review_schema.py
 @tests/test_gates.py
 @tests/test_runner_preclean_gate.py
-@tests/test_elevenlabs_chunk_policy.py
+@tests/test_mmaudio_runner.py
 @docs/build-out/testing-and-verification.md
 
 Deliver:
@@ -722,7 +723,7 @@ Follow doc-maintenance.md.
 | Anti-pattern | Correct approach |
 |--------------|------------------|
 | Copy-paste ffprobe duration in vo_finalize | `audio_timeline.wav_duration_ms` |
-| Inline pydub crossfade in elevenlabs chunk merge | `concat_clips_with_crossfade` |
+| Inline pydub crossfade in WAV chunk merge | `concat_clips_with_crossfade` |
 | Read SAP JSON directly in 5 files | `acoustic_profile.load_profile(ctx)` |
 | Restructure app.defaults.json in every command | F1 skeleton, F3 production values only |
 | Build GUI QC before gates write qc_summaries | F3 before C2 |
@@ -741,7 +742,7 @@ After all commands complete and [final verification](#final-verification-run-onc
 4. Block/auto-warn on schema-invalid NLE and review queue
 5. Show preclean offers at all roadmap checkpoints including before SFX spend
 6. Stop step-through runner until preclean offer acknowledged at mix/master gates
-7. Survive oversized interview WAV via ElevenLabs chunk isolation
+7. Survive oversized interview WAV via DeepFilterNet / WAV chunk isolation
 8. Pass `pytest tests/ -q` (final verification) and manual [definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) §3 listen check
 
 ---
@@ -829,10 +830,10 @@ Deliver:
    - assert record_qc_summary merge on run_meta
 3. tests/test_audio_preclean_chunk.py (or extend test_audio_preclean.py):
    - monkeypatch isolate_audio; oversized wav triggers chunk path
-   - assert ctx.log contains elevenlabs_chunked_isolation
+   - assert ctx.log contains deepfilter_chunked_preclean
 4. Update testing-and-verification.md with gap-closure + Phase 6 test file list
 
-No live ElevenLabs API in tests.
+No live MMAudio GPU tests in CI (mocked subprocess).
 ```
 
 **Done when:** Smoke fixture, `test_gap_closure_smoke.py`, and chunk test code exist per deliverable. **Continue to Command 2.** *(pytest deferred to final verification.)*
@@ -1157,7 +1158,7 @@ Read:
 @docs/build-out/stage-registry.md (FLOW1_ORDER line ~66)
 @docs/workflows/operator-stage-checklists.md
 @docs/workflows/operator-gates.md
-@docs/cross-cutting/elevenlabs-integration-guide.md (chunk policy TBD)
+@docs/cross-cutting/local-audio-stack.md (chunk policy TBD)
 @docs/build-out/testing-and-verification.md
 @docs/cross-cutting/source-derived-sonic-mix-profile.md (Recompute GUI future → shipped)
 
@@ -1165,7 +1166,7 @@ Deliver:
 1. stage-registry FLOW1_ORDER: insert sound_design_vo_finalize after sound_design_plan_flow1
 2. operator-stage-checklists: vo_finalize, QC cards, before_sfx_spend, recompute button, strict-gate recovery steps
 3. operator-gates: before_sfx_spend row
-4. elevenlabs-integration-guide: chunk policy table (max_upload_bytes, chunk+concat, no SFX chunk)
+4. mmaudio-prompt-tuning.md: chunk policy table (max_upload_bytes, chunk+concat, no SFX chunk)
 5. Mark Commands 1–13 [x] in this file as each completes
 
 rg stale: sound_design_vo_finalize.*planned|chunk policy TBD|Recompute GUI.*future

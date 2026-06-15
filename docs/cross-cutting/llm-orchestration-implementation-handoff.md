@@ -89,7 +89,7 @@
 
 ## Non-goals (this implementation track)
 
-- Changing AWS Transcribe, ElevenLabs REST, or STT paths
+- Changing AWS Transcribe, local MMAudio, or STT paths
 - boto3
 - Automatic Responses API migration
 - Editing prompts to embed model names

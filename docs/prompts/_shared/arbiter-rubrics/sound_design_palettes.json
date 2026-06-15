@@ -5,13 +5,15 @@
     "Palettes align with themes from content_brief and analysis_state",
     "Sonic identity and palette entries are internally consistent",
     "No palette references themes absent from upstream brief",
-    "Coherence fields present for downstream sound_design_plan stages"
+    "Coherence fields present for downstream sound_design_plan stages",
+    "Palette tags and segment mappings can be traced to sonic_context tag_registry provenance and scenario posture"
   ],
   "reject_patterns": [
     "Empty palettes when themes exist upstream",
     "Palette theme ids that do not match brief topic or theme ids",
     "Contradictory sonic_identity across palette rows",
-    "Schema errors on required palette or coherence fields"
+    "Schema errors on required palette or coherence fields",
+    "Palette keywords or segment_ids are not traceable to sonic_context tag_registry provenance"
   ],
   "min_confidence_on_accept": 0.75,
   "decompose_eligible": false,

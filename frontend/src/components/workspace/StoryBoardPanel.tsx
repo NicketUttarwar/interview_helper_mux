@@ -19,7 +19,7 @@ function investigationItems(queue: Record<string, unknown>): Array<Record<string
 }
 
 export function StoryBoardPanel() {
-  const { runId, refreshRun, config, setPipelineSubTab } = useApp();
+  const { runId, run, refreshRun, config, setPipelineSubTab } = useApp();
   const [data, setData] = useState<StoryBoardData | null>(null);
   const [form, setForm] = useState<ProfileFormState | null>(null);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
@@ -150,6 +150,16 @@ export function StoryBoardPanel() {
         <p className="sap-strip">
           Sonic profile: {sap.pace_class ?? "—"} · beds {sap.bed_density ?? "—"} · stingers{" "}
           {sap.stinger_policy ?? "—"}
+        </p>
+      ) : null}
+      {(run?.journey?.sound_labels || []).length ? (
+        <p className="muted sm">
+          Sound labels:{" "}
+          {(run?.journey?.sound_labels || []).map((label) => (
+            <span key={label} className="badge" style={{ marginRight: "0.35rem" }}>
+              {label}
+            </span>
+          ))}
         </p>
       ) : null}
       {config?.value_analysis_enabled && data.value_features ? (

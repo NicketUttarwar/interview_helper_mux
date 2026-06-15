@@ -138,9 +138,9 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
                     "enabled": True,
                     "block_mix_without_sfx_when_enabled": True,
                     "spend_block_stages": [
-                        "elevenlabs_prompt_craft",
-                        "elevenlabs_sfx_flow1",
-                        "elevenlabs_sfx_flow2",
+                        "sfx_prompt_craft",
+                        "mmaudio_sfx_flow1",
+                        "mmaudio_sfx_flow2",
                         "mix_flow1",
                         "mix_flow2",
                     ],

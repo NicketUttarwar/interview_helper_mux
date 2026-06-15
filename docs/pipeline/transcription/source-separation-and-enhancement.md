@@ -2,7 +2,7 @@
 
 **Separation** tries to split a mixed recording into **sources** (e.g., speech vs music). **Denoise / enhancement** reduces noise while keeping speech intelligible. They overlap (some models do both).
 
-This repo’s **product-level optional** path for **speech isolation** is documented under [audio_preclean](../audio_preclean/README.md) (ElevenLabs + RNNoise fallback). **Pinned:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md). Catalog libraries below are not locked until added there. **Ingest** still expects a sane `normalized.wav` for STT regardless of chain.
+This repo’s **product-level optional** path for **speech isolation** is documented under [audio_preclean](../audio_preclean/README.md) (DeepFilterNet (+ ffmpeg fallback) fallback). **Pinned:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md). Catalog libraries below are not locked until added there. **Ingest** still expects a sane `normalized.wav` for STT regardless of chain.
 
 ---
 
@@ -13,7 +13,7 @@ This repo’s **product-level optional** path for **speech isolation** is docume
 | Hiss / stationary noise | Classical DSP + RNNoise-class models | Yes | Some APIs |
 | Reverb reduction | Dereverb models (specialized) | Partial | Yes |
 | Music in background | Demucs-style separation; or gate music-heavy segments | Yes (OSS) | Yes (APIs) |
-| “Make VO pickup cleaner” | Light denoise / isolation on **short** clips | Yes | ElevenLabs isolation (spec’d) |
+| “Make VO pickup cleaner” | Light denoise / isolation on **short** clips | Yes | DeepFilterNet preclean (spec’d) |
 | Broadcast polish | Full mastering chain (EQ, comp, limiter) — see [mastering_and_export](../mastering_and_export/README.md) | DAW / ffmpeg | Cloud mastering services |
 
 ---
@@ -35,7 +35,7 @@ This repo’s **product-level optional** path for **speech isolation** is docume
 
 | Service type | Role |
 |--------------|------|
-| **ElevenLabs Audio Isolation** | Speech-focused background reduction (same vendor as SFX) — see [audio_preclean](../audio_preclean/README.md). |
+| **DeepFilterNet noise reduction** | Speech-focused background reduction (same vendor as SFX) — see [audio_preclean](../audio_preclean/README.md). |
 | **Adobe / iZotope / Acon Digital** | Pro denoise / dereverb in DAW | Operator manual path; not wired in repo. |
 | **Cloud “speech enhancement” APIs** | Various vendors package RNNoise-class or bespoke models | Evaluate latency + data residency. |
 

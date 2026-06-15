@@ -14,6 +14,7 @@ from interview_mux.analysis_memory import (
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
+from interview_mux.sonic_context import compact_for_volley as compact_sonic_context
 
 # Pipeline order for "prior conclusions" (assistant turns)
 _ANALYSIS_PRIORS = (
@@ -184,9 +185,15 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         profile_keys=("style", "narrative"),
         max_investigations=0,
     ),
-    "elevenlabs_prompt_craft": StageContextPlan(
-        task_line="Craft one ElevenLabs Music v2 prompt per planned asset_id.",
+    "sfx_prompt_craft": StageContextPlan(
+        task_line="Craft one MMAudio text-to-audio prompt per asset_id (positive + negative + mix role).",
         prior_stages=("sound_design_plan_flow1", "sound_design_plan_flow2"),
+        profile_keys=("style", "themes", "narrative"),
+        max_investigations=0,
+    ),
+    "sfx_prompt_refine": StageContextPlan(
+        task_line="Refine failed MMAudio prompts for specific asset_ids using QA and listen feedback.",
+        prior_stages=("sfx_prompt_craft",),
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
     ),
@@ -810,6 +817,8 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         "sfx_brief",
     ):
         return _slim_flow_input(raw, stage_key)
+    if stage_key in ("sfx_prompt_craft", "sfx_prompt_refine"):
+        return _slim_sfx_input(raw, stage_key)
     return _drop_heavy_keys(raw)
 
 
@@ -830,6 +839,10 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["selection"] = _compact_selection(raw["selection"], stage_key)
     if "sound_design_plan" in raw and stage_key in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
         out["sound_design_plan"] = _compact_sound_design_plan_for_flow(raw["sound_design_plan"])
+        if "sonic_context" in raw and isinstance(raw["sonic_context"], dict):
+            compact = compact_sonic_context(raw["sonic_context"])
+            if compact:
+                out["sonic_context"] = compact
     if "transitions" in raw and stage_key in ("podcast_sfx_brief", "sound_design_plan_flow1"):
         out["transitions"] = raw["transitions"]
     if "interviewer_sample_lines" in raw and stage_key == "transitions":
@@ -853,6 +866,28 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         sap = raw.get("source_acoustic_profile")
         if isinstance(sap, dict):
             out["source_acoustic_profile"] = sap
+    return out
+
+
+def _slim_sfx_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if "coherence" in raw:
+        out["coherence"] = raw.get("coherence")
+    if stage_key == "sfx_prompt_craft":
+        out["assets"] = raw.get("assets") or []
+    if stage_key == "sfx_prompt_refine":
+        out["failed_assets"] = raw.get("failed_assets") or []
+        out["mmaudio_qa"] = raw.get("mmaudio_qa") or []
+        out["listen_results"] = raw.get("listen_results") or []
+    sap = _compact_source_acoustic_profile(raw.get("source_acoustic_profile"))
+    if sap:
+        out["source_acoustic_profile"] = sap
+    if "sonic_context" in raw and isinstance(raw["sonic_context"], dict):
+        compact = compact_sonic_context(raw["sonic_context"])
+        if compact:
+            out["sonic_context"] = compact
+    if raw.get("operator_style_sound_design_notes"):
+        out["operator_style_sound_design_notes"] = raw.get("operator_style_sound_design_notes")
     return out
 
 

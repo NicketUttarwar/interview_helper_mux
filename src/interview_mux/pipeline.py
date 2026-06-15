@@ -41,9 +41,10 @@ from interview_mux.stages import publishing_flow3
 from interview_mux.stages import segmentation
 from interview_mux.stages import selection_flow1
 from interview_mux.stages import selection_flow2
+from interview_mux.stages import sonic_context_stages
 from interview_mux.stages import sound_design_stages
 from interview_mux.stages import sound_design_vo_finalize
-from interview_mux.stages import sfx_elevenlabs
+from interview_mux.stages import sfx_mmaudio
 from interview_mux.stages import transcribe_aws
 from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
@@ -61,6 +62,7 @@ ANALYSIS_ORDER = [
     "boundary_detection",
     "segment_classification",
     "content_brief_reanchor",
+    "sonic_context_build",
     "sound_design_palettes",
     "missing_framing",
     "optimal_questions",
@@ -76,8 +78,8 @@ FLOW1_ORDER = [
     "edl_narrative_audit",
     "edl_flow1",
     "assembly_preview",
-    "elevenlabs_prompt_craft",
-    "elevenlabs_sfx_flow1",
+    "sfx_prompt_craft",
+    "mmaudio_sfx_flow1",
     "mix_flow1",
     "master_flow1",
 ]
@@ -85,8 +87,8 @@ FLOW1_ORDER = [
 FLOW2_ORDER = [
     "highlight_selection",
     "sound_design_plan_flow2",
-    "elevenlabs_prompt_craft",
-    "elevenlabs_sfx_flow2",
+    "sfx_prompt_craft",
+    "mmaudio_sfx_flow2",
     "mix_flow2",
     "master_flow2",
 ]
@@ -110,6 +112,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),
         "segment_classification": lambda: segmentation.run_classification(ctx),
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
+        "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
         "missing_framing": lambda: gaps.run_missing_framing(ctx),
         "optimal_questions": lambda: gaps.run_optimal_questions(ctx),
@@ -128,8 +131,8 @@ def _flow1_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
         "edl_flow1": assembly_flow1.run_edl,
         "assembly_preview": assembly_flow1.run_preview,
-        "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
-        "elevenlabs_sfx_flow1": lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="podcast"),
+        "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
+        "mmaudio_sfx_flow1": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
         "mix_flow1": assembly_flow1.run_mix_flow1,
         "master_flow1": mastering.run_master_flow1,
     }
@@ -139,8 +142,8 @@ def _flow2_stage_fns(ctx: RunContext) -> dict[str, Any]:
     return {
         "highlight_selection": selection_flow2.run_highlight_selection,
         "sound_design_plan_flow2": lambda: sound_design_stages.run_sound_design_plan_flow2(ctx),
-        "elevenlabs_prompt_craft": lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx),
-        "elevenlabs_sfx_flow2": lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="montage"),
+        "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
+        "mmaudio_sfx_flow2": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="montage"),
         "mix_flow2": assembly_flow2.run_mix_flow2,
         "master_flow2": mastering.run_master_flow2,
     }
@@ -169,11 +172,11 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         disfluency.mark_disfluency_review_complete(ctx)
         return
     if stage == "podcast_sfx_brief":
-        # v1 legacy — not in FLOW1_ORDER; SDP + elevenlabs_prompt_craft is the default path.
+        # v1 legacy — not in FLOW1_ORDER; SDP + sfx_prompt_craft is the default path.
         selection_flow1.run_podcast_sfx_brief(ctx)
         return
     if stage == "sfx_brief":
-        # v1 legacy — not in FLOW2_ORDER; SDP + elevenlabs_prompt_craft is the default path.
+        # v1 legacy — not in FLOW2_ORDER; SDP + sfx_prompt_craft is the default path.
         selection_flow2.run_sfx_brief(ctx)
         return
     if stage == "mux_flow1":
@@ -181,6 +184,9 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         return
     if stage == "mux_flow2":
         assembly_flow2.run_micro_assembly(ctx)
+        return
+    if stage == "sfx_prompt_refine":
+        sound_design_stages.run_sfx_prompt_refine(ctx)
         return
 
     if stage in ANALYSIS_ORDER:
@@ -287,6 +293,7 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         "sfx_brief",
         "mux_flow1",
         "mux_flow2",
+        "sfx_prompt_refine",
     ) and _guard_stage_reuse(ctx, stage):
         from interview_mux.write_staging import (
             after_stage_write_check,
@@ -462,8 +469,8 @@ def run_flow1(
         ("edl_narrative_audit", lambda: edl_narrative_audit.run_edl_narrative_audit(ctx)),
         ("edl_flow1", assembly_flow1.run_edl),
         ("assembly_preview", assembly_flow1.run_preview),
-        ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),
-        ("elevenlabs_sfx_flow1", lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="podcast")),
+        ("sfx_prompt_craft", lambda: sound_design_stages.run_sfx_prompt_craft(ctx)),
+        ("mmaudio_sfx_flow1", lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast")),
         ("mix_flow1", assembly_flow1.run_mix_flow1),
         ("master_flow1", mastering.run_master_flow1),
     ]
@@ -488,8 +495,8 @@ def run_flow2(
     steps = [
         ("highlight_selection", selection_flow2.run_highlight_selection),
         ("sound_design_plan_flow2", lambda: sound_design_stages.run_sound_design_plan_flow2(ctx)),
-        ("elevenlabs_prompt_craft", lambda: sound_design_stages.run_elevenlabs_prompt_craft(ctx)),
-        ("elevenlabs_sfx_flow2", lambda: sfx_elevenlabs.run_sfx_generation(ctx, profile="montage")),
+        ("sfx_prompt_craft", lambda: sound_design_stages.run_sfx_prompt_craft(ctx)),
+        ("mmaudio_sfx_flow2", lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="montage")),
         ("mix_flow2", assembly_flow2.run_mix_flow2),
         ("master_flow2", mastering.run_master_flow2),
     ]

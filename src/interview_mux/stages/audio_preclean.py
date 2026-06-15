@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from interview_mux.config import require_secret
-from interview_mux.elevenlabs_rest import ElevenLabsApiError, isolate_audio
+from interview_mux.deepfilter_runner import DeepFilterUnavailable, enhance_wav
 from interview_mux.run_context import RunContext
 
 
@@ -19,7 +18,7 @@ def write_skip_artifact(
     scope: str,
     reason: str = "operator_dismissed",
 ) -> None:
-    """Record that optional pre-clean was skipped — no ElevenLabs outputs required."""
+    """Record that optional pre-clean was skipped — no preclean outputs required."""
     from interview_mux.file_store import write_json as fs_write_json
 
     row: dict[str, Any] = {
@@ -41,7 +40,7 @@ def ensure_preclean_skipped(
     scope: str,
     reason: str = "operator_dismissed",
 ) -> None:
-    """Finalize optional pre-clean without isolation outputs so downstream stages can run."""
+    """Finalize optional pre-clean without outputs so downstream stages can run."""
     write_skip_artifact(ctx, checkpoint=checkpoint, scope=scope, reason=reason)
     if not ctx.is_done("audio_preclean"):
         ctx.log(
@@ -63,7 +62,7 @@ def preclean_was_skipped(ctx: RunContext) -> bool:
 
 
 def run_audio_preclean(ctx: RunContext) -> Path | None:
-    """Optionally run ElevenLabs isolation (operator must enable in run_meta)."""
+    """Optionally run DeepFilterNet noise reduction (operator must enable in run_meta)."""
     scope = _selected_scope(ctx)
     if not scope:
         checkpoint, skip_scope = _skip_context_from_meta(ctx)
@@ -105,28 +104,26 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         ctx.mark_done("audio_preclean")
         return out_path
 
-    provider_name = "elevenlabs"
+    provider_name = "deepfilternet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        api_key = require_secret("ELEVENLABS_API_KEY")
-        if source.stat().st_size > _max_upload_from_config():
+        if source.stat().st_size > _chunk_max_bytes():
             ctx.log(
-                "elevenlabs_chunked_isolation: source exceeds upload limit — chunking",
+                "deepfilter_chunked_enhance: source exceeds chunk_max_bytes — chunking",
                 level="info",
                 stage="audio_preclean",
             )
-        isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
-        _write_audio_as_wav(out_path, isolated_bytes)
+        _enhance_source_to_output(ctx=ctx, source=source, output=out_path)
     except Exception as exc:
         if not _local_fallback_enabled():
             raise
         ctx.log(
-            f"ElevenLabs pre-clean failed ({exc}); using local rnnoise_local fallback",
+            f"DeepFilterNet pre-clean failed ({exc}); using ffmpeg_local fallback",
             level="warning",
             stage="audio_preclean",
         )
         _local_denoise_fallback(source, out_path)
-        provider_name = "rnnoise_local"
+        provider_name = "ffmpeg_local"
     _write_provider(ctx, scope, provider=provider_name)
     _write_full_source_lineage(ctx=ctx, source=source, source_sha=src_hash, scope=scope, output=out_path)
     ctx.log(
@@ -191,20 +188,31 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
         ctx.mark_done("audio_preclean")
         return None
 
-    api_key = require_secret("ELEVENLABS_API_KEY")
     clean_dir = pickup / "clean"
     clean_dir.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
     for source in sources:
-        isolated_bytes = _read_isolation_bytes(api_key=api_key, source=source)
         dest = clean_dir / source.name
-        _write_audio_as_wav(dest, isolated_bytes)
+        try:
+            _enhance_source_to_output(ctx=ctx, source=source, output=dest)
+            provider = "deepfilternet"
+        except Exception as exc:
+            if not _local_fallback_enabled():
+                raise
+            ctx.log(
+                f"DeepFilterNet pickup failed for {source.name} ({exc}); ffmpeg_local fallback",
+                level="warning",
+                stage="audio_preclean",
+            )
+            _local_denoise_fallback(source, dest)
+            provider = "ffmpeg_local"
         entries.append(
             {
                 "source_path": str(source),
                 "source_sha256": _sha256(source),
                 "output_path": f"vo_pickup/clean/{source.name}",
                 "output_sha256": _sha256(dest),
+                "provider": provider,
             }
         )
 
@@ -264,7 +272,7 @@ def _can_skip_full_source(
     return (
         lineage.get("scope") == scope
         and lineage.get("source_sha256") == source_sha
-        and lineage.get("provider") == "elevenlabs"
+        and lineage.get("provider") in {"deepfilternet", "ffmpeg_local"}
     )
 
 
@@ -275,7 +283,9 @@ def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
         lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    if lineage.get("scope") != "vo_pickup" or lineage.get("provider") != "elevenlabs":
+    if lineage.get("scope") != "vo_pickup":
+        return False
+    if lineage.get("provider") not in {"deepfilternet", "ffmpeg_local"}:
         return False
     files = lineage.get("files")
     if not isinstance(files, list):
@@ -296,59 +306,35 @@ def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
     return True
 
 
-def _max_upload_from_config() -> int:
-    from interview_mux.elevenlabs_rest import _max_upload_bytes
+def _chunk_max_bytes() -> int:
+    from interview_mux.config import merged_config
 
-    return _max_upload_bytes()
+    row = merged_config().get("audio_preclean") or {}
+    return int(row.get("chunk_max_bytes", 52_428_800))
 
 
-def _read_isolation_bytes(*, api_key: str, source: Path) -> bytes:
+def _enhance_source_to_output(*, ctx: RunContext, source: Path, output: Path) -> None:
     from interview_mux.audio_timeline import chunk_wav_by_max_bytes, concat_clips_with_crossfade
     from interview_mux.config import merged_config
-    from interview_mux.elevenlabs_rest import _max_upload_bytes
     from interview_mux.sound_design import load_audio
 
-    max_bytes = _max_upload_bytes()
-    raw = source.read_bytes()
-    if len(raw) <= max_bytes:
-        try:
-            return isolate_audio(api_key=api_key, audio_bytes=raw, filename=source.name)
-        except ElevenLabsApiError as exc:
-            raise RuntimeError(f"Audio pre-clean failed via ElevenLabs REST: {exc}") from exc
+    max_bytes = _chunk_max_bytes()
+    if source.stat().st_size <= max_bytes:
+        enhance_wav(source, output, ctx=ctx)
+        return
 
     work = source.parent / "_preclean_chunks"
     chunks = chunk_wav_by_max_bytes(source, max_bytes, work_dir=work)
-    isolated_segments: list = []
+    enhanced_segments: list = []
     for i, chunk_path in enumerate(chunks):
-        chunk_bytes = chunk_path.read_bytes()
-        try:
-            iso = isolate_audio(api_key=api_key, audio_bytes=chunk_bytes, filename=chunk_path.name)
-        except ElevenLabsApiError as exc:
-            raise RuntimeError(f"Audio pre-clean chunk {i} failed: {exc}") from exc
-        tmp = work / f"isolated_{i:03d}.wav"
-        _write_audio_as_wav(tmp, iso)
-        isolated_segments.append(load_audio(tmp))
+        tmp = work / f"enhanced_{i:03d}.wav"
+        enhance_wav(chunk_path, tmp, ctx=ctx)
+        enhanced_segments.append(load_audio(tmp))
     crossfade = int((merged_config().get("mix") or {}).get("crossfade_ms_assembly_preview", 80))
-    merged = concat_clips_with_crossfade(isolated_segments, crossfade)
-    out_tmp = work / "merged_isolated.wav"
+    merged = concat_clips_with_crossfade(enhanced_segments, crossfade)
+    out_tmp = work / "merged_enhanced.wav"
     merged.export(str(out_tmp), format="wav")
-    return out_tmp.read_bytes()
-
-
-def _write_audio_as_wav(path: Path, data: bytes) -> None:
-    if data[:4] == b"RIFF":
-        path.write_bytes(data)
-        return
-    tmp = path.with_suffix(".isolation.tmp")
-    tmp.write_bytes(data)
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(tmp), "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(path)],
-            check=True,
-            capture_output=True,
-        )
-    finally:
-        tmp.unlink(missing_ok=True)
+    output.write_bytes(out_tmp.read_bytes())
 
 
 def _local_fallback_enabled() -> bool:
@@ -359,7 +345,7 @@ def _local_fallback_enabled() -> bool:
 
 
 def _local_denoise_fallback(source: Path, out_path: Path) -> None:
-    """Offline denoise via ffmpeg (documented as rnnoise_local provider)."""
+    """Offline denoise via ffmpeg (documented as ffmpeg_local provider)."""
     filters = ["afftdn=nf=-25", "highpass=f=80", "lowpass=f=12000"]
     subprocess.run(
         [
@@ -383,13 +369,16 @@ def _local_denoise_fallback(source: Path, out_path: Path) -> None:
     )
 
 
-def _write_provider(ctx: RunContext, scope: str, *, provider: str = "elevenlabs") -> None:
+def _write_provider(ctx: RunContext, scope: str, *, provider: str = "deepfilternet") -> None:
     row: dict[str, Any] = {
         "provider": provider,
         "scope": scope,
     }
-    if provider == "elevenlabs":
-        row["api_path"] = "/v1/audio-isolation"
+    if provider == "deepfilternet":
+        from interview_mux.config import merged_config
+
+        cfg = merged_config().get("deepfilter") or {}
+        row["model"] = cfg.get("model", "DeepFilterNet3")
     else:
         row["filter_chain"] = "afftdn,highpass=80,lowpass=12000"
     ctx.write_json("preclean/provider.json", row)
@@ -398,8 +387,12 @@ def _write_provider(ctx: RunContext, scope: str, *, provider: str = "elevenlabs"
 def _write_full_source_lineage(
     *, ctx: RunContext, source: Path, source_sha: str, scope: str, output: Path
 ) -> None:
+    from interview_mux.config import merged_config
+
+    preclean_cfg = merged_config().get("audio_preclean") or {}
+    provider = str(preclean_cfg.get("provider") or "deepfilternet")
     lineage: dict[str, Any] = {
-        "provider": "elevenlabs",
+        "provider": provider,
         "scope": scope,
         "source_path": str(source),
         "source_sha256": source_sha,
@@ -411,8 +404,12 @@ def _write_full_source_lineage(
 
 
 def _write_vo_pickup_lineage(ctx: RunContext, entries: list[dict[str, Any]]) -> None:
+    from interview_mux.config import merged_config
+
+    preclean_cfg = merged_config().get("audio_preclean") or {}
+    provider = str(preclean_cfg.get("provider") or "deepfilternet")
     lineage: dict[str, Any] = {
-        "provider": "elevenlabs",
+        "provider": provider,
         "scope": "vo_pickup",
         "files": entries,
         "created_at": datetime.now(timezone.utc).isoformat(),

@@ -24,17 +24,17 @@ Flat hub for **interview_helper_mux**.
 - [pipeline.md](./pipeline.md) — three output flows, operator gates
 - [logic-tree.md](./logic-tree.md) — gap detection and decisions
 - [prompts/README.md](./prompts/README.md) — LLM prompt tree
-- [prompts/sound_design/README.md](./prompts/sound_design/README.md) — sound-design LLM stages + ElevenLabs craft
+- [prompts/sound_design/README.md](./prompts/sound_design/README.md) — sound-design LLM stages + MMAudio prompt craft
 - [prompts/sound_design/guardrails-and-edge-cases.md](./prompts/sound_design/guardrails-and-edge-cases.md) — SDP/mix guardrails (Wave 5)
-- [prompts/_shared/examples/sound-design.examples.md](./prompts/_shared/examples/sound-design.examples.md) — rich ElevenLabs prompt examples
+- [prompts/_shared/examples/sound-design.examples.md](./prompts/_shared/examples/sound-design.examples.md) — rich MMAudio prompt examples
 
 ## Cross-cutting
 
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — **pinned** Python, system binaries, API surfaces, lock + CVE gate + Context7
 - [cross-cutting/anchored-requirements.lock](./cross-cutting/anchored-requirements.lock) — doc snapshot of lock pins (install from repo-root `requirements.lock`)
-- [cross-cutting/elevenlabs-integration-guide.md](./cross-cutting/elevenlabs-integration-guide.md) — **canonical** ElevenLabs REST SFX + isolation, GUI journey, post-analysis
-- [cross-cutting/elevenlabs-prompt-influence-tuning.md](./cross-cutting/elevenlabs-prompt-influence-tuning.md) — `prompt_influence` symptom table
-- [prompts/_shared/examples/elevenlabs-prompt-regression.md](./prompts/_shared/examples/elevenlabs-prompt-regression.md) — golden prompts + must-not-hear QA
+- [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — **canonical** local MMAudio SFX + DeepFilterNet preclean, GUI journey, post-analysis
+- [cross-cutting/mmaudio-prompt-tuning.md](./cross-cutting/mmaudio-prompt-tuning.md) — CFG, negative prompts, refine/regen operator loop
+- [prompts/_shared/examples/sfx-prompt-regression.md](./prompts/_shared/examples/sfx-prompt-regression.md) — golden prompts + must-not-hear QA
 - [cross-cutting/podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target master, priority waves, quality offers
 - [cross-cutting/analysis-memory.md](./cross-cutting/analysis-memory.md) — per-interview profile, operator edits
 - [cross-cutting/artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod validation
@@ -61,7 +61,7 @@ Flat hub for **interview_helper_mux**.
 ## Pipeline stages
 
 - [pipeline/capture/README.md](./pipeline/capture/README.md)
-- [pipeline/audio_preclean/README.md](./pipeline/audio_preclean/README.md) — optional background-noise removal (ElevenLabs)
+- [pipeline/audio_preclean/README.md](./pipeline/audio_preclean/README.md) — optional background-noise removal (DeepFilterNet)
 - [pipeline/ingest/README.md](./pipeline/ingest/README.md)
 - [pipeline/transcription/README.md](./pipeline/transcription/README.md)
 - [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)

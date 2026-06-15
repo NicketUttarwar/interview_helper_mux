@@ -1,11 +1,11 @@
-# Sound design & ElevenLabs examples (reference)
+# Sound design & MMAudio examples (reference)
 
 Worked patterns for Wave 5 stages and prompt craft. Pair with:
 
-- [elevenlabs-prompt-craft.system.txt](../../sound_design/elevenlabs-prompt-craft.system.txt)
-- [elevenlabs-integration-guide.md](../../../cross-cutting/elevenlabs-integration-guide.md)
-- **[elevenlabs-prompt-regression.md](./elevenlabs-prompt-regression.md)** — golden prompts + must-not-hear checklists per role
-- **[elevenlabs-prompt-influence-tuning.md](../../../cross-cutting/elevenlabs-prompt-influence-tuning.md)** — symptom → `prompt_influence` → regen vs rewrite
+- [sfx-prompt-craft.system.txt](../../sound_design/sfx-prompt-craft.system.txt)
+- [local-audio-stack.md](../../../cross-cutting/local-audio-stack.md)
+- **[sfx-prompt-regression.md](./sfx-prompt-regression.md)** — golden prompts + must-not-hear checklists per role
+- **[local-audio-stack.md](../../../cross-cutting/local-audio-stack.md)** — symptom → `prompt_influence` → regen vs rewrite
 
 ---
 
@@ -23,7 +23,7 @@ Worked patterns for Wave 5 stages and prompt craft. Pair with:
 
 > Farm sounds outside.
 
-**Why:** No space, duration, exclusions, or loop guidance — ElevenLabs will hallucinate vocals or cartoon animals.
+**Why:** No space, duration, exclusions, or loop guidance — MMAudio may hallucinate vocals or cartoon animals.
 
 ### Bad — invented theme
 
@@ -71,9 +71,9 @@ Different `asset_id` per `between_clips` with different descriptions.
 
 ---
 
-## ElevenLabs craft — ambient_bed
+## MMAudio craft — ambient_bed
 
-### Good — `elevenlabs_prompt` (excerpt pattern)
+### Good — `sfx_prompt` (excerpt pattern)
 
 > This sound supports a warm documentary interview about family farming, sitting far under clear dialogue. Imagine an outdoor pasture at dawn twenty meters from the listener: a gentle dry-grass wind layer, very subtle, with one distant bird call appearing roughly every ten seconds, and an occasional faint wooden creak like a distant gate, never close or sharp. The texture is organic and dry, no reverb tail longer than one second, no low-end rumble below eighty hertz, energy concentrated below six kilohertz so spoken words stay forward in the mix. The eight-second texture must loop seamlessly with no click at the wrap point, no rhythmic pulse, no beat, no melody, no human presence, designed to be ducked eighteen to twenty-four decibels under speech. Emotional color is hopeful and calm, not sentimental or cinematic trailer.
 
@@ -91,7 +91,7 @@ Different `asset_id` per `between_clips` with different descriptions.
 
 ---
 
-## ElevenLabs craft — chapter_stinger
+## MMAudio craft — chapter_stinger
 
 ### Good
 
@@ -107,7 +107,7 @@ Different `asset_id` per `between_clips` with different descriptions.
 
 ---
 
-## ElevenLabs craft — transition_stinger (Flow 2)
+## MMAudio craft — transition_stinger (Flow 2)
 
 ### Good
 
@@ -117,7 +117,7 @@ Different `asset_id` per `between_clips` with different descriptions.
 
 ---
 
-## ElevenLabs craft — vo_bridge
+## MMAudio craft — vo_bridge
 
 ### Good
 

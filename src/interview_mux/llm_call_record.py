@@ -45,7 +45,7 @@ def _phase_for_stage(stage_key: str) -> str:
         "podcast_sfx_brief",
         "sound_design_palettes",
         "sound_design_plan_flow1",
-        "elevenlabs_prompt_craft",
+        "sfx_prompt_craft",
     }
     flow2 = {"highlight_selection", "sfx_brief", "sound_design_plan_flow2"}
     flow3 = {"podcast_show_description"}

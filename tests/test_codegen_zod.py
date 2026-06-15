@@ -23,4 +23,6 @@ def test_codegen_zod_schemas_writes_registry():
     assert OUT_INDEX.is_file()
     text = OUT_INDEX.read_text(encoding="utf-8")
     assert "sound_design/placement_adjustments.json" in text
+    assert "understanding/sonic_context.json" in text
+    assert "sound_design/mmaudio_qa.json" in text
     assert "run_meta.json" in text

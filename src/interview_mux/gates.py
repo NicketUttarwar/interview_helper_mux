@@ -18,6 +18,64 @@ def _gate_exit(ctx: RunContext, message: str, *, stage: str, level: str = "error
     raise SystemExit(message)
 
 
+def sync_post_listen_gate_state(ctx: RunContext) -> dict:
+    """Persist post_listen_gate_state on run_meta from listen results and optional QA block."""
+    sound_cfg = merged_config().get("sound_design") or {}
+    raw_mode = str(sound_cfg.get("post_listen_gate_mode", "warn")).lower()
+    mode = "block_mix" if raw_mode == "block" else raw_mode
+    if mode not in {"soft", "warn", "block_mix"}:
+        mode = "warn"
+
+    blocked = set(check_post_listen_gate_pending(ctx))
+    if bool(sound_cfg.get("block_mix_on_mmaudio_qa_fail", False)):
+        from interview_mux.mmaudio_asset_qa import load_mmaudio_qa
+
+        qa = load_mmaudio_qa(ctx)
+        for row in qa.get("assets") or []:
+            if isinstance(row, dict) and row.get("verdict") == "fail":
+                aid = str(row.get("asset_id") or "")
+                if aid:
+                    blocked.add(aid)
+
+    state = {
+        "mode": mode,
+        "blocked_assets": sorted(blocked),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    def patch(meta: dict) -> None:
+        meta["post_listen_gate_state"] = state
+
+    ctx.mutate_run_meta(patch)
+    return state
+
+
+def check_post_listen_gate_pending(ctx: RunContext) -> list[str]:
+    """Return asset_ids with failed listen results when post_listen gate is blocking."""
+    sound_cfg = merged_config().get("sound_design") or {}
+    post_listen_mode = str(sound_cfg.get("post_listen_gate_mode", "warn")).lower()
+    if post_listen_mode not in {"block", "block_mix"}:
+        return []
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    listen = meta.get("sfx_listen_results") or []
+    latest: dict[str, str] = {}
+    for row in listen:
+        if isinstance(row, dict) and row.get("asset_id"):
+            latest[str(row.get("asset_id"))] = str(row.get("result") or "")
+    return sorted(aid for aid, result in latest.items() if result == "fail")
+
+
+def require_post_listen_clear(ctx: RunContext, *, stage: str) -> None:
+    failed = check_post_listen_gate_pending(ctx)
+    if failed:
+        _gate_exit(
+            ctx,
+            f"Post-listen gate: failed listen result(s) for {', '.join(failed[:6])}. "
+            "Re-listen in the GUI and mark Pass before mix.",
+            stage=stage,
+        )
+
+
 def check_transcript_review_pending(ctx: RunContext) -> bool:
     """True when STT review queue exists but operator has not signed off."""
     if ctx.is_done("transcript_review"):
@@ -146,8 +204,8 @@ _FLOW1_ORDER = (
     "edl_narrative_audit",
     "edl_flow1",
     "assembly_preview",
-    "elevenlabs_prompt_craft",
-    "elevenlabs_sfx_flow1",
+    "sfx_prompt_craft",
+    "mmaudio_sfx_flow1",
     "mix_flow1",
     "master_flow1",
 )

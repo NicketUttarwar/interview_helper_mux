@@ -1,0 +1,25 @@
+{
+  "stage_key": "sfx_prompt_refine",
+  "severity": "low",
+  "accept_criteria": [
+    "Refined prompts address QA or listen failure modes",
+    "Positive and negative prompts remain separate MMAudio fields",
+    "Vocal and speech bans preserved or strengthened in negative_prompt",
+    "Only failed asset_ids updated; durations unchanged from plan",
+    "Refinements maintain sonic_context scenario posture and provenance-grounded theme intent"
+  ],
+  "reject_patterns": [
+    "Weakening vocal/speech bans in negative_prompt",
+    "Changing duration_seconds beyond plan asset",
+    "ElevenLabs or cloud API references",
+    "Melody or beat language added to ambient_bed rows",
+    "Refine output introduces scenario/tag drift from sonic_context or removes provenance-aligned intent"
+  ],
+  "min_confidence_on_accept": 0.7,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete"
+  ]
+}

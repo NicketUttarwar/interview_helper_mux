@@ -60,7 +60,7 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "sound_design_plan_flow1": "full_master_ranking",
     "sound_design_plan_flow2": "highlight_selection",
     "edl_narrative_audit": "sound_design_plan_flow1",
-    # podcast_show_description and elevenlabs_prompt_craft resolved per selected_flow — see resolve_llm_upstream_stage
+    # podcast_show_description and sfx_prompt_craft resolved per selected_flow — see resolve_llm_upstream_stage
 }
 
 
@@ -73,7 +73,7 @@ def resolve_llm_upstream_stage(ctx: RunContext, stage_key: str) -> str | None:
         if flow == "flow3":
             return "optimal_questions"
         return "full_master_ranking"
-    if stage_key == "elevenlabs_prompt_craft":
+    if stage_key == "sfx_prompt_craft":
         if flow == "flow2":
             return "sound_design_plan_flow2"
         return "sound_design_plan_flow1"
@@ -101,26 +101,48 @@ def is_spend_block_stage(stage_key: str, cfg: dict[str, Any] | None = None) -> b
 
 
 def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
-    """Block ElevenLabs/mix spend when upstream craft artifacts are incomplete."""
+    """Block SFX/mix spend when upstream craft artifacts are incomplete."""
     if not flow_hardening_enabled() or not is_spend_block_stage(stage_key):
         return
     from interview_mux.artifact_completeness import artifact_status
-    from interview_mux.g15_prompt_review import can_run_elevenlabs_generation
+    from interview_mux.sfx_prompt_review import can_run_sfx_generation
 
-    if stage_key.startswith("elevenlabs_sfx"):
-        ok, msg = can_run_elevenlabs_generation(ctx)
+    if stage_key.startswith("mmaudio_sfx"):
+        ok, msg = can_run_sfx_generation(ctx)
         if not ok:
-            exit_msg = msg or "G1.5: prompt approval required before ElevenLabs generation."
+            exit_msg = msg or "G1.5: prompt approval required before SFX generation."
             ctx.log(exit_msg, level="error", stage=stage_key)
             raise SystemExit(exit_msg)
-        rel = "sound_design/elevenlabs_prompts.json"
+        rel = "sound_design/sfx_prompts.json"
         if artifact_status(rel, ctx) != "complete":
             exit_msg = (
-                f"Spend gate: {rel} incomplete. Run elevenlabs_prompt_craft and approve prompts first."
+                f"Spend gate: {rel} incomplete. Run sfx_prompt_craft and approve prompts first."
             )
             ctx.log(exit_msg, level="error", stage=stage_key)
             raise SystemExit(exit_msg)
     if stage_key in ("mix_flow1", "mix_flow2"):
+        from interview_mux.gates import require_post_listen_clear
+
+        require_post_listen_clear(ctx, stage=stage_key)
+        sound_cfg = merged_config().get("sound_design") or {}
+        if bool(sound_cfg.get("block_mix_on_mmaudio_qa_fail", False)):
+            if ctx.artifact_exists("sound_design/mmaudio_qa.json"):
+                qa = ctx.read_json("sound_design/mmaudio_qa.json")
+                rows = qa.get("assets") if isinstance(qa, dict) else []
+                failing = []
+                for row in rows or []:
+                    if not isinstance(row, dict):
+                        continue
+                    aid = str(row.get("asset_id") or "")
+                    verdict = str(row.get("verdict") or "").lower()
+                    status = str(row.get("generation_status") or "").lower()
+                    if verdict == "fail" or status in {"failed", "placeholder"}:
+                        if aid:
+                            failing.append(aid)
+                if failing:
+                    exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
+                    ctx.log(exit_msg, level="error", stage=stage_key)
+                    raise SystemExit(exit_msg)
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
             flow = "flow1" if stage_key == "mix_flow1" else "flow2"
             from interview_mux.sdp_cross_validate import validate_pre_mix

@@ -4,7 +4,7 @@
   "candidates": [
     {
       "id": "sdp_craft_path",
-      "label": "SDP + OpenAI craft + ElevenLabs per asset_id",
+      "label": "SDP + OpenAI craft + MMAudio per asset_id",
       "scores": {
         "LEX-A": 4,
         "LEX-B": 4,
@@ -26,7 +26,7 @@
     },
     {
       "id": "v1_brief_direct",
-      "label": "v1 podcast_sfx_brief → ElevenLabs (no craft)",
+      "label": "v1 podcast_sfx_brief → MMAudio (no craft)",
       "scores": {
         "LEX-A": 3,
         "LEX-B": 3,

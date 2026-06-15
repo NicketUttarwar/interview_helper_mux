@@ -16,6 +16,7 @@ from interview_mux.disfluency.config import restore_settings
 from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.mix_completeness import enforce_mix_completeness
 from interview_mux.run_context import RunContext
+from interview_mux.sonic_context import load_sonic_context
 
 DEFAULT_FRAME_RATE = 48_000
 MIN_DUCK_DB = 14.0
@@ -261,7 +262,9 @@ def mix_flow2(ctx: RunContext) -> Path:
 
     maybe_run_placement_qa(ctx)
     contract = mix_contract(ctx)
-    crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow2", 120))
+    sonic = load_sonic_context(ctx) or {}
+    mix_policy = sonic.get("mix_policy") if isinstance(sonic.get("mix_policy"), dict) else {}
+    crossfade_ms = int(mix_policy.get("crossfade_ms_flow2") or _mix_cfg().get("crossfade_ms_flow2", 120))
     words = _transcript_words(ctx)
     ctx.log("mix_flow2: loading selection and segment manifest", level="info", stage="mix_flow2")
     selection = ctx.read_json("flow_2_highlights/selection.json")
@@ -461,6 +464,11 @@ def flow1_overlays_from_sdp(
     max_stingers = stinger_cap * timeline_minutes
     stinger_count = 0
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
+    sonic = load_sonic_context(ctx) or {}
+    scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
+    atlas_bucket = str(scenario.get("atlas_bucket") or "")
+    segment_flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
+    overlap_high = {str(x) for x in (segment_flags.get("overlap_high") or [])}
 
     for cue in cues:
         if not isinstance(cue, dict):
@@ -470,6 +478,8 @@ def flow1_overlays_from_sdp(
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
         level_db = float(cue.get("level_db", -24.0))
+        if cue.get("skip") is True:
+            continue
 
         if wav is None:
             base = placeholder_audio(asset, cue=cue)
@@ -486,10 +496,14 @@ def flow1_overlays_from_sdp(
             timing = segment_timing.get(seg_id)
             if not timing:
                 continue
+            if atlas_bucket == "panel" and seg_id in overlap_high:
+                continue
             start_ms, end_ms = timing
             dur = max(0, end_ms - start_ms)
             if dur <= 0:
                 continue
+            if bool((_mix_cfg()).get("adaptive_level_from_sap", True)):
+                level_db = _adaptive_bed_level_db(ctx, default_level_db=level_db)
             duck_db = max(MIN_DUCK_DB, float(cue.get("duck_under_speech_db", duck_default)))
             fade_in = int(cue.get("crossfade_ms") or 120)
             fade_out = int(cue.get("crossfade_ms") or 150)
@@ -623,12 +637,74 @@ def _words_in_segment_range(
     ]
 
 
+def _laughter_windows_from_value_features(value_features: dict[str, Any] | None) -> list[tuple[int, int]]:
+    """Extract laughter window (start_ms, end_ms) tuples from value_features (fail-open)."""
+    if not isinstance(value_features, dict):
+        return []
+    windows: list[tuple[int, int]] = []
+    profiles = value_features.get("profiles") if isinstance(value_features.get("profiles"), dict) else {}
+    transcript_profile = profiles.get("transcript")
+    if isinstance(transcript_profile, dict):
+        for row in transcript_profile.get("quality_trajectory_flags") or []:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or row.get("flag") or row.get("kind") or "").lower()
+            if "laugh" not in label:
+                continue
+            start = int(row.get("start_ms") or 0)
+            end = int(row.get("end_ms") or start + 400)
+            if end > start:
+                windows.append((start, end))
+    audio_profile = profiles.get("audio")
+    if isinstance(audio_profile, dict):
+        for row in audio_profile.get("laughter_windows") or audio_profile.get("event_windows") or []:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or row.get("kind") or "").lower()
+            if label and "laugh" not in label:
+                continue
+            start = int(row.get("start_ms") or 0)
+            end = int(row.get("end_ms") or start + 400)
+            if end > start:
+                windows.append((start, end))
+    return windows
+
+
+def _overlaps_laughter_window(pos_ms: int, windows: list[tuple[int, int]], *, buffer_ms: int = 200) -> bool:
+    for start, end in windows:
+        lo = start - buffer_ms
+        hi = end + buffer_ms
+        if lo <= pos_ms <= hi:
+            return True
+    return False
+
+
+def _nudge_away_from_laughter(
+    pos_ms: int | None,
+    windows: list[tuple[int, int]],
+    *,
+    buffer_ms: int = 200,
+) -> int | None:
+    if pos_ms is None or not windows:
+        return pos_ms
+    if not _overlaps_laughter_window(pos_ms, windows, buffer_ms=buffer_ms):
+        return pos_ms
+    for delta in (buffer_ms, buffer_ms * 2, buffer_ms * 3, -buffer_ms, -buffer_ms * 2):
+        candidate = pos_ms + delta
+        if candidate < 0:
+            continue
+        if not _overlaps_laughter_window(candidate, windows, buffer_ms=buffer_ms):
+            return candidate
+    return None
+
+
 def resolve_stinger_position_ms(
     segment: dict[str, Any],
     transcript: dict[str, Any],
     profile: dict[str, Any] | None,
     *,
     placement: str = "before_segment",
+    laughter_windows: list[tuple[int, int]] | None = None,
 ) -> int | None:
     """Return source-time ms at a pause tail near the segment boundary, or None."""
     hints = placement_hints(profile)
@@ -643,11 +719,13 @@ def resolve_stinger_position_ms(
 
     if placement == "after_segment":
         words = _words_in_segment_range(transcript, seg_start, seg_end)
-        return _last_pause_tail_ms(words, min_pause_ms=min_pause, bound_ms=seg_end)
+        pos = _last_pause_tail_ms(words, min_pause_ms=min_pause, bound_ms=seg_end)
+    else:
+        lookback = max(min_pause * 2, 2000)
+        words = _words_in_segment_range(transcript, seg_start, seg_end, lookback_ms=lookback)
+        pos = _pause_tail_before_segment(words, min_pause_ms=min_pause, seg_start=seg_start)
 
-    lookback = max(min_pause * 2, 2000)
-    words = _words_in_segment_range(transcript, seg_start, seg_end, lookback_ms=lookback)
-    return _pause_tail_before_segment(words, min_pause_ms=min_pause, seg_start=seg_start)
+    return _nudge_away_from_laughter(pos, laughter_windows or [], buffer_ms=200)
 
 
 def _last_pause_tail_ms(
@@ -747,11 +825,18 @@ def _align_stinger_to_pause_tail(
     segment = segments_by_id.get(seg_id)
     if not segment:
         return pos
+    value_features = (
+        ctx.read_json("understanding/value_features.json")
+        if ctx.artifact_exists("understanding/value_features.json")
+        else {}
+    )
+    laughter_windows = _laughter_windows_from_value_features(value_features if isinstance(value_features, dict) else None)
     source_pos = resolve_stinger_position_ms(
         segment,
         transcript,
         profile,
         placement=placement if placement in {"before_segment", "after_segment"} else "before_segment",
+        laughter_windows=laughter_windows,
     )
     mapped = _source_ms_to_timeline_ms(source_pos, segment, segment_timing)
     if mapped is None:
@@ -921,3 +1006,93 @@ def count_overlay_roles(overlays: list[dict[str, Any]]) -> dict[str, int]:
         elif role == "stinger":
             stats["stingers"] += 1
     return stats
+
+
+def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float:
+    profile = load_profile(ctx)
+    if not isinstance(profile, dict):
+        return default_level_db
+    pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
+    speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
+    if speech_active_ratio >= 0.75:
+        return min(default_level_db, -26.0)
+    if speech_active_ratio >= 0.6:
+        return min(default_level_db, -24.0)
+    return default_level_db
+
+
+def _preview_cue_for_asset(ctx: RunContext, asset_id: str) -> tuple[int, float, str]:
+    """Return (position_ms, level_db, role) for under-speech preview audition."""
+    default = (30_000, -20.0, "")
+    plan = load_sound_design_plan(ctx)
+    if not plan:
+        return default
+    segments = _segments_by_id(ctx)
+    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    for flow_key in ("flow1", "flow2"):
+        flow = flow_plans.get(flow_key) if isinstance(flow_plans.get(flow_key), dict) else {}
+        cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+        for cue in cues:
+            if not isinstance(cue, dict) or str(cue.get("asset_id") or "") != asset_id:
+                continue
+            if cue.get("skip") is True:
+                continue
+            level_db = float(cue.get("level_db", -20.0))
+            role = str(cue.get("role") or "")
+            if cue.get("position_ms") is not None:
+                return int(cue["position_ms"]), level_db, role
+            if cue.get("start_ms") is not None:
+                return int(cue["start_ms"]), level_db, role
+            seg_id = str(cue.get("segment_id") or "")
+            seg = segments.get(seg_id)
+            if seg and seg.get("start_ms") is not None:
+                return int(seg["start_ms"]), level_db, role
+    return default
+
+
+def render_sfx_under_speech_preview(ctx: RunContext, asset_id: str) -> Path:
+    """Render a short speech + SFX overlay preview for operator post-listen."""
+    asset_path = resolve_asset_path(ctx, asset_id=asset_id, generated=None)
+    if asset_path is None or not asset_path.is_file():
+        raise FileNotFoundError(f"SFX asset not found: {asset_id}")
+
+    preview_dir = ctx.path("sound_design", "previews")
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    out = preview_dir / f"{asset_id}_under_speech.wav"
+    if out.is_file() and out.stat().st_mtime >= asset_path.stat().st_mtime:
+        return out
+
+    speech_path = next(
+        (
+            p
+            for p in (
+                ctx.path("ingest", "normalized.wav"),
+                ctx.input_audio(),
+            )
+            if p.is_file()
+        ),
+        None,
+    )
+    if speech_path is None:
+        raise FileNotFoundError("No speech source for under-speech preview")
+
+    position_ms, level_db, role = _preview_cue_for_asset(ctx, asset_id)
+    speech = load_audio(speech_path)
+    sfx = load_audio(asset_path)
+
+    preview_window_ms = 30_000
+    window_start = max(0, position_ms - 5_000)
+    window_end = min(len(speech), window_start + preview_window_ms)
+    if window_end - window_start < 5_000:
+        window_start = 0
+        window_end = min(len(speech), preview_window_ms)
+    speech_slice = speech[window_start:window_end]
+    overlay_pos = max(0, position_ms - window_start)
+
+    applied_level = level_db
+    if role in {"bed", "ambient_bed"} and bool(_mix_cfg().get("adaptive_level_from_sap", True)):
+        applied_level = _adaptive_bed_level_db(ctx, default_level_db=level_db)
+
+    mixed = speech_slice.overlay(sfx.apply_gain(applied_level), position=overlay_pos)
+    mixed.export(out, format="wav")
+    return out
