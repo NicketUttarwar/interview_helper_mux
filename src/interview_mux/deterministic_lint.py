@@ -167,6 +167,10 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
         if end <= start:
             errors.append(f"zero-length boundary {b.get('segment_id')}")
             break
+    from interview_mux.interview_spine.config import spine_enabled
+
+    if spine_enabled() and not ctx.artifact_exists("understanding/interview_spine.json"):
+        errors.append("interview spine missing while interview_spine.enabled")
     return errors
 
 
@@ -473,6 +477,21 @@ def _lint_topic_coverage_audit(artifacts: dict[str, Any], ctx: RunContext) -> li
         if name and topic_names and name not in topic_names:
             errors.append(f"missing_coverage topic {name!r} not in brief")
             break
+    from interview_mux.coherence import coherence_active
+    from interview_mux.coherence.duration_gate import coherence_activated
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+
+    if coherence_active() and coherence_activated(ctx) and ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        report = ctx.read_json(COHERENCE_REPORT_PATH)
+        open_risks = [
+            r
+            for r in (report.get("risks") or [])
+            if isinstance(r, dict) and r.get("status", "open") == "open"
+        ]
+        if open_risks and not artifacts.get("missing_coverage"):
+            errors.append(
+                "coherence: open coherence risks exist but coverage_audit.missing_coverage is empty"
+            )
     return errors
 
 

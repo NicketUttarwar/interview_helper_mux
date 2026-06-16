@@ -78,6 +78,9 @@ def run_content_context(ctx: RunContext) -> None:
         profile = load_profile(c)
         if profile:
             payload["source_acoustic_pacing"] = pacing_one_liner(profile)
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "content_context")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_context")
@@ -93,6 +96,9 @@ def run_content_context(ctx: RunContext) -> None:
     if ctx.is_done("content_context"):
         maybe_auto_extract_value_features(ctx)
         maybe_enqueue_orchestration_investigations(ctx)
+        from interview_mux.coherence import maybe_run_coherence_analysis
+
+        maybe_run_coherence_analysis(ctx, phase="post_content_context")
 
 
 def run_content_brief_reanchor(ctx: RunContext) -> None:
@@ -104,6 +110,9 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         }
         if c.artifact_exists("segments/boundaries.json"):
             payload["boundaries"] = c.read_json("segments/boundaries.json")
+        from interview_mux.coherence import attach_coherence_summary
+
+        attach_coherence_summary(payload, c, "content_brief_reanchor")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
@@ -116,6 +125,10 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         persist,
         sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
     )
+    if ctx.is_done("content_brief_reanchor"):
+        from interview_mux.coherence import maybe_run_coherence_analysis
+
+        maybe_run_coherence_analysis(ctx, phase="post_reanchor")
 
 
 def run_source_acoustic_profile(ctx: RunContext) -> None:
@@ -143,7 +156,7 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
         "derived_from": _derived_from(transcript, normalized_wav, preclean if preclean.is_file() else None),
         "pacing": pacing,
         "energy": energy,
-        "prosody_summary": _derive_prosody_summary(pacing),
+        "prosody_summary": _derive_prosody_summary(pacing, ctx),
         "source_music_risk": source_music_risk,
         "mix_contract": mix_contract,
         "prompt_tokens": _derive_prompt_tokens(mix_contract, pacing, energy),
@@ -418,13 +431,37 @@ def _tempo_feel_bpm(pacing: dict[str, Any], underscore_policy: str) -> int | Non
     return None
 
 
-def _derive_prosody_summary(pacing: dict[str, Any]) -> dict[str, str]:
+def _derive_prosody_summary(pacing: dict[str, Any], ctx: RunContext | None = None) -> dict[str, str]:
     pace = pacing.get("pace_class", "conversational")
     animation = {
         "dense": "high_energy_fast_turntaking",
         "brisk": "animated_conversational",
         "calm": "slow_reflective",
     }.get(pace, "conversational_not_theatrical")
+
+    if ctx is not None:
+        from interview_mux.interview_spine import SPINE_PATH
+
+        if ctx.artifact_exists(SPINE_PATH):
+            spine = ctx.read_json(SPINE_PATH)
+            f0s = [
+                float(w["features"]["f0_median_hz"])
+                for w in (spine.get("windows") or [])
+                if isinstance(w, dict)
+                and isinstance((w.get("features") or {}).get("f0_median_hz"), (int, float))
+            ]
+            if f0s:
+                med = float(np.median(f0s))
+                q25, q75 = np.percentile(f0s, [25, 75])
+                f0_band = "low" if med < 120 else "high" if med > 200 else "mid"
+                spread = float(q75 - q25)
+                f0_variability = "high" if spread > 40 else "low" if spread < 15 else "moderate"
+                return {
+                    "f0_band": f0_band,
+                    "f0_variability": f0_variability,
+                    "animation": animation,
+                }
+
     return {
         "f0_band": "mid",
         "f0_variability": "moderate",

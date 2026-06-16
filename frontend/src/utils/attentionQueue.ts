@@ -281,6 +281,21 @@ export function listAttentionItems(
     });
   }
 
+  const blockingCoherence = run.journey?.blocking_coherence_contradictions ?? 0;
+  if (blockingCoherence > 0) {
+    push({
+      kind: "blocked",
+      priority: 2,
+      stageId: "analysis_profile",
+      stageTitle: "Story Board",
+      title: "Resolve blocking claim contradictions",
+      message: `${blockingCoherence} blocking coherence contradiction(s) — re-anchor brief or resolve on Story Board.`,
+      primaryLabel: "Open Story Board",
+      phase: "understand",
+      subTab: "story",
+    });
+  }
+
   for (const stage of run.stages) {
     const offer = resolvePrecleanOffer(stage, run.meta);
     if (offer) {

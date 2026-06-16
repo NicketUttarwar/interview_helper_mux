@@ -18,5 +18,8 @@ export const transcript_review_queue_jsonSchema = z.object({
   "needs_review": z.boolean().optional(),
   "reviewed": z.boolean().optional(),
   "clip_path": z.string().optional(),
+  "clip_start_ms": z.number().optional(),
+  "clip_end_ms": z.number().optional(),
+  "acoustic_stress_score": z.number().optional(),
 })),
 });

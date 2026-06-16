@@ -4,7 +4,7 @@ Speaker roles, content brief, **per-interview analysis profile**, and source-der
 
 ## Tickets
 
-BUILD-022, BUILD-023, BUILD-082
+BUILD-022, BUILD-023, BUILD-082, BUILD-083
 
 ## Tools
 
@@ -28,6 +28,7 @@ BUILD-022, BUILD-023, BUILD-082
 | `understanding/speakers.json` | Yes | Role mapping |
 | `understanding/content_brief.json` | Yes | Thesis, topics, typed claims, `topic_relationships`, emotional beats — two-pass (`content_context` then `content_brief_reanchor`) |
 | `understanding/source_acoustic_profile.json` | Yes | WPM, pause stats, mix contract — derived once after transcription + review prep |
+| `understanding/interview_spine.json` | No | Local comprehension index — see [interview-spine.md](../../cross-cutting/interview-spine.md) |
 
 | `understanding/value_features.json` | Optional | Transcript/audio metrics when value-analysis flags on |
 

@@ -67,6 +67,28 @@
         "MOO-B": 5,
         "MOO-C": 2
       }
+    },
+    {
+      "id": "coherence_orc03_30m",
+      "label": "H-ORC-03 coherence layer (30m fixture coherence_30m_planted_drift)",
+      "scores": {
+        "LEX-A": 4,
+        "LEX-B": 4,
+        "LEX-C": 4,
+        "COM-A": 5,
+        "COM-B": 5,
+        "COM-C": 4,
+        "CRE-A": 5,
+        "CRE-B": 5,
+        "CRE-C": 5,
+        "MEC-A": 4,
+        "MEC-B": 4,
+        "MEC-C": 4,
+        "MEC-D": 4,
+        "MOO-A": 4,
+        "MOO-B": 4,
+        "MOO-C": 4
+      }
     }
   ]
 }

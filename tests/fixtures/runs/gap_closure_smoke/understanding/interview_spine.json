@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "derived_from": {
+    "normalized_wav": "ingest/normalized.wav",
+    "normalized_wav_sha256": "fixture",
+    "transcript": "transcript/full.json",
+    "transcript_sha256": "fixture",
+    "source_acoustic_profile": "understanding/source_acoustic_profile.json",
+    "source_acoustic_profile_sha256": "fixture",
+    "preclean_isolated": null,
+    "preclean_isolated_sha256": null,
+    "computed_at": "2026-01-01T00:00:00Z",
+    "stage": "interview_spine_build"
+  },
+  "encoders": {
+    "dsp": "numpy_rms_v1",
+    "clap": null,
+    "ssl": null
+  },
+  "window_policy": {
+    "window_sec": 10,
+    "hop_sec": 5,
+    "align_to": "words"
+  },
+  "windows": [
+    {
+      "window_id": "win_0001",
+      "start_ms": 0,
+      "end_ms": 5000,
+      "speaker_id": "spk_0",
+      "text_span": "fixture window",
+      "features": {
+        "rms_p50": 0.2,
+        "pause_before_ms": 0,
+        "speaking_rate_wpm": 130,
+        "f0_median_hz": null
+      },
+      "embedding_ref": null
+    }
+  ],
+  "boundary_events": [
+    {
+      "time_ms": 1200,
+      "type": "pause_ladder",
+      "confidence": 0.7,
+      "sources": ["pause_ladder_700ms"],
+      "window_ids": []
+    }
+  ],
+  "retrieval": {
+    "enabled": false,
+    "model_id": null,
+    "sidecar_path": null,
+    "vector_dim": null,
+    "window_count": 1
+  },
+  "speaker_stats": [
+    {
+      "speaker_id": "spk_0",
+      "window_count": 1,
+      "avg_wpm": 130
+    }
+  ]
+}

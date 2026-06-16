@@ -94,3 +94,7 @@ Rules:
 - Zero invented `segment_id`s.
 - Every brief topic either has `segment_ids` or triggers `theme_unmapped` investigation.
 - `confidence_patch.content` ≥ 0.7 only when topics, claims, and relationships are majority grounded; lower when flagged transcript regions dominate.
+
+## coherence_summary — reconcile drift
+
+When input includes `coherence_summary` from H-ORC-03, re-map topics near drift `time_ms` and resolve `claim_contradiction` evidence before raising `confidence_patch.content`.

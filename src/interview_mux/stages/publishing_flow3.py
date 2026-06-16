@@ -60,6 +60,9 @@ def run_podcast_show_description(ctx: RunContext) -> None:
                 out["interviewer_vo_summary"] = (
                     f"{len(lines)} pickup lines ({record} recorded) — mention only if relevant to the hook."
                 )
+        from interview_mux.coherence import attach_coherence_summary
+
+        attach_coherence_summary(out, c, "podcast_show_description")
         return out
 
     def persist(c: RunContext, artifacts: dict) -> None:

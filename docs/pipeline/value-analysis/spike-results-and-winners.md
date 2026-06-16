@@ -220,6 +220,6 @@ Command 8 gate: proceed only if Command 7 recommends SSL for a section. Command 
 | H-SEG-01 | Park | Wav2Vec2 boundary fusion deferred — SSL out of scope for fixture sprint |
 | H-F2-01 | Park | CLAP text-query retrieval deferred — optional Tier 2 semantic QA now shipped opt-in via `mmaudio.semantic_qa_enabled` (supersedes parked spike) |
 | H-F1S-01 | Park | CLAP sting matching deferred — use opt-in CLAP in `semantic_audio_qa.py` when tuning; not default-on |
-| H-ORC-01 | Park | Chunked embedding spine T1; ship after investigation trigger wins |
-| H-ORC-03 | Park | T2 moonshot; needs 90m+ planted-contradiction fixture |
+| H-ORC-01 | **Promote** | Shipped as `interview_spine_build` — [interview-spine.md](../../cross-cutting/interview-spine.md) |
+| H-ORC-03 | **Promote** | Shipped as coherence layer — [coherence-orc03.md](../../cross-cutting/coherence-orc03.md); 30m fixture `tests/fixtures/runs/coherence_30m_planted_drift/` |
 | prompt_only_pattern (all sections) | Kill | Baseline floor only; no novel evidence channel (MEC-A ≤ 1) |

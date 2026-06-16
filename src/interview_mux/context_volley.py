@@ -78,7 +78,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         task_line="Re-anchor content brief topics and claims to segment_ids; add topic relationships.",
         prior_stages=("content_context", "segment_classification"),
         profile_keys=("themes", "narrative", "hypotheses"),
-        investigation_kinds=frozenset({"theme_unmapped"}),
+        investigation_kinds=frozenset({"theme_unmapped", "topic_drift", "claim_contradiction"}),
         max_investigations=2,
     ),
     "sound_design_palettes": StageContextPlan(
@@ -92,7 +92,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         task_line="Evaluate which segments are self-explanatory for listeners; classify gaps only.",
         prior_stages=("segment_classification", "content_brief_reanchor", "content_context"),
         profile_keys=("narrative", "entities", "major_questions", "hypotheses"),
-        investigation_kinds=frozenset({"gap_unresolved", "segment_ambiguity"}),
+        investigation_kinds=frozenset({"gap_unresolved", "segment_ambiguity", "topic_drift", "missing_callback"}),
         max_investigations=3,
     ),
     "optimal_questions": StageContextPlan(
@@ -111,7 +111,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "optimal_questions",
         ),
         profile_keys=("themes", "narrative", "major_questions"),
-        investigation_kinds=frozenset({"theme_unmapped"}),
+        investigation_kinds=frozenset({"theme_unmapped", "missing_callback", "topic_drift"}),
         max_investigations=2,
     ),
     "narrative_arc_plan": StageContextPlan(
@@ -123,6 +123,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "content_context",
         ),
         profile_keys=("themes", "narrative", "style", "major_questions", "hypotheses"),
+        investigation_kinds=frozenset({"topic_drift", "missing_callback"}),
         max_investigations=1,
     ),
     "full_master_ranking": StageContextPlan(
@@ -722,6 +723,8 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         }
         if raw.get("transcript_quality"):
             out_cc["transcript_quality"] = raw["transcript_quality"]
+        if raw.get("interview_spine"):
+            out_cc["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
         return out_cc
     if stage_key == "content_brief_reanchor":
         out_ra: dict[str, Any] = {
@@ -731,6 +734,8 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         }
         if raw.get("boundaries"):
             out_ra["boundaries"] = raw.get("boundaries")
+        if raw.get("coherence_summary"):
+            out_ra["coherence_summary"] = _compact_coherence_summary(raw["coherence_summary"], stage_key)
         return out_ra
     if stage_key == "boundary_detection":
         out: dict[str, Any] = {
@@ -749,6 +754,8 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out["transcript_quality"] = raw["transcript_quality"]
         if raw.get("pause_ladder_hints"):
             out["pause_ladder_hints"] = raw["pause_ladder_hints"]
+        if raw.get("interview_spine"):
+            out["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
         vf = raw.get("value_features_summary") or compact_value_features_summary_from_raw(raw)
         if vf:
             out["value_features_summary"] = vf
@@ -759,6 +766,11 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             "speakers": raw.get("speakers"),
             "content_brief": _compact_brief(raw.get("content_brief")),
             "transcript": _clip_transcript_for_segments(raw.get("transcript")),
+            **(
+                {"interview_spine": _compact_interview_spine(raw["interview_spine"], stage_key)}
+                if raw.get("interview_spine")
+                else {}
+            ),
         }
     if stage_key == "sound_design_palettes":
         out_sdp: dict[str, Any] = {
@@ -787,6 +799,10 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         }
         if raw.get("comprehension_risks"):
             out_mf["comprehension_risks"] = raw["comprehension_risks"][:25]
+        if raw.get("interview_spine"):
+            out_mf["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
+        if raw.get("coherence_summary"):
+            out_mf["coherence_summary"] = _compact_coherence_summary(raw["coherence_summary"], stage_key)
         return out_mf
     if stage_key == "optimal_questions":
         return {
@@ -804,6 +820,8 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out_psd["gap_summary"] = raw["gap_summary"]
         if raw.get("interviewer_vo_summary"):
             out_psd["interviewer_vo_summary"] = raw["interviewer_vo_summary"]
+        if raw.get("coherence_summary"):
+            out_psd["coherence_summary"] = _compact_coherence_summary(raw["coherence_summary"], stage_key)
         return out_psd
     if stage_key in (
         "topic_coverage_audit",
@@ -853,6 +871,14 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["emphasis_regions"] = raw["emphasis_regions"][:24]
     if raw.get("quotability_signals") and stage_key == "highlight_selection":
         out["quotability_signals"] = raw["quotability_signals"][:30]
+    if raw.get("interview_spine") and stage_key in (
+        "highlight_selection",
+        "full_master_ranking",
+        "missing_framing",
+        "content_context",
+        "segment_classification",
+    ):
+        out["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
     vf = raw.get("value_features_summary")
     if vf:
         out["value_features_summary"] = vf
@@ -866,7 +892,33 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         sap = raw.get("source_acoustic_profile")
         if isinstance(sap, dict):
             out["source_acoustic_profile"] = sap
+    if raw.get("coherence_summary") and stage_key in (
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+    ):
+        out["coherence_summary"] = _compact_coherence_summary(raw["coherence_summary"], stage_key)
     return out
+
+
+def _compact_coherence_summary(summary: Any, stage_key: str) -> dict[str, Any]:
+    if not isinstance(summary, dict):
+        return {}
+    caps = {
+        "topic_coverage_audit": 5,
+        "narrative_arc_plan": 4,
+        "content_brief_reanchor": 4,
+        "missing_framing": 3,
+        "podcast_show_description": 2,
+    }
+    cap = caps.get(stage_key, 3)
+    risks = summary.get("risks") or []
+    if isinstance(risks, list):
+        risks = risks[:cap]
+    return {
+        "activated": bool(summary.get("activated")),
+        "summary": summary.get("summary") or {},
+        "risks": risks,
+    }
 
 
 def _slim_sfx_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
@@ -952,6 +1004,32 @@ def _compact_selection(sel: Any, stage_key: str) -> Any:
         "chapters": sel.get("chapters"),
         "excluded_segment_ids": sel.get("excluded_segment_ids"),
         "notes": (sel.get("notes") or "")[:500],
+    }
+
+
+def _compact_interview_spine(spine: Any, stage_key: str) -> dict[str, Any]:
+    if not isinstance(spine, dict):
+        return {}
+    max_events = {
+        "boundary_detection": 40,
+        "segment_classification": 10,
+        "missing_framing": 15,
+        "content_context": 8,
+        "highlight_selection": 12,
+        "full_master_ranking": 10,
+    }.get(stage_key, 8)
+    windows = spine.get("windows_sample") or spine.get("windows") or []
+    if isinstance(windows, list):
+        windows = windows[:5]
+    events = spine.get("top_boundary_events") or spine.get("boundary_events") or []
+    if isinstance(events, list):
+        events = events[:max_events]
+    return {
+        "retrieval_enabled": bool(spine.get("retrieval_enabled")),
+        "window_count": spine.get("window_count"),
+        "windows_sample": windows,
+        "top_boundary_events": events,
+        "speaker_stats": (spine.get("speaker_stats") or [])[:4],
     }
 
 

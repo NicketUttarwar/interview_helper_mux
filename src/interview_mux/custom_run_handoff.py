@@ -34,6 +34,7 @@ STAGES_REQUIRING_HANDOFF_REVIEW: frozenset[str] = frozenset(
     {
         *STAGE_ARTIFACT_DISK_PATHS.keys(),
         "source_acoustic_profile",
+        "interview_spine_build",
     }
 )
 

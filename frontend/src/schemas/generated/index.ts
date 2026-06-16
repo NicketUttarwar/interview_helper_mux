@@ -22,10 +22,12 @@ import { transcript_corrections_jsonSchema } from "./transcript_corrections_json
 import { transcript_disfluencies_jsonSchema } from "./transcript_disfluencies_jsonSchema";
 import { transcript_review_queue_jsonSchema } from "./transcript_review_queue_jsonSchema";
 import { understanding_analysis_state_jsonSchema } from "./understanding_analysis_state_jsonSchema";
+import { understanding_coherence_report_jsonSchema } from "./understanding_coherence_report_jsonSchema";
 import { understanding_content_brief_jsonSchema } from "./understanding_content_brief_jsonSchema";
 import { understanding_context_index_jsonSchema } from "./understanding_context_index_jsonSchema";
 import { understanding_gap_evaluations_jsonSchema } from "./understanding_gap_evaluations_jsonSchema";
 import { understanding_gap_report_jsonSchema } from "./understanding_gap_report_jsonSchema";
+import { understanding_interview_spine_jsonSchema } from "./understanding_interview_spine_jsonSchema";
 import { understanding_investigation_queue_jsonSchema } from "./understanding_investigation_queue_jsonSchema";
 import { understanding_sonic_context_jsonSchema } from "./understanding_sonic_context_jsonSchema";
 import { understanding_sound_design_plan_jsonSchema } from "./understanding_sound_design_plan_jsonSchema";
@@ -54,10 +56,12 @@ export const artifactWriteSchemas: Record<string, z.ZodTypeAny> = {
   "transcript/disfluencies.json": transcript_disfluencies_jsonSchema,
   "transcript/review_queue.json": transcript_review_queue_jsonSchema,
   "understanding/analysis_state.json": understanding_analysis_state_jsonSchema,
+  "understanding/coherence_report.json": understanding_coherence_report_jsonSchema,
   "understanding/content_brief.json": understanding_content_brief_jsonSchema,
   "understanding/context_index.json": understanding_context_index_jsonSchema,
   "understanding/gap_evaluations.json": understanding_gap_evaluations_jsonSchema,
   "understanding/gap_report.json": understanding_gap_report_jsonSchema,
+  "understanding/interview_spine.json": understanding_interview_spine_jsonSchema,
   "understanding/investigation_queue.json": understanding_investigation_queue_jsonSchema,
   "understanding/sonic_context.json": understanding_sonic_context_jsonSchema,
   "understanding/sound_design_plan.json": understanding_sound_design_plan_jsonSchema,

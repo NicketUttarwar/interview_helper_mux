@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.audio_clips import extract_clip
+from interview_mux.audio_energy import find_silence_valley_ms, rms_at_ms
+from interview_mux.audio_timeline import snap_cut_to_word_boundary
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
@@ -33,9 +35,13 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         old.unlink()
 
     for chunk in chunks:
+        _refine_chunk_edges(chunk, full.get("words") or [], normalized)
+        clip_start = int(chunk.get("clip_start_ms", chunk["start_ms"]))
+        clip_end = int(chunk.get("clip_end_ms", chunk["end_ms"]))
         clip_path = clips_dir / f"{chunk['chunk_id']}.wav"
-        extract_clip(normalized, clip_path, chunk["start_ms"], chunk["end_ms"])
+        extract_clip(normalized, clip_path, clip_start, clip_end)
         chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
+        chunk["acoustic_stress_score"] = _acoustic_stress_score(normalized, chunk)
 
     ranked = sorted(
         chunks,
@@ -225,6 +231,38 @@ def get_review_state(ctx: RunContext) -> dict[str, Any]:
         "pending_count": pending,
         "chunks": chunks,
     }
+
+
+def _refine_chunk_edges(
+    chunk: dict[str, Any],
+    words: list[dict[str, Any]],
+    wav_path: Path,
+    *,
+    playback_pad_ms: int = 80,
+) -> None:
+    start_ms = int(chunk["start_ms"])
+    end_ms = int(chunk["end_ms"])
+    start_ms = snap_cut_to_word_boundary(start_ms, words, margin_ms=0, max_shift_ms=400)
+    end_ms = snap_cut_to_word_boundary(end_ms, words, margin_ms=50, max_shift_ms=400)
+    start_ms = find_silence_valley_ms(wav_path, start_ms, search_ms=200)
+    end_ms = find_silence_valley_ms(wav_path, end_ms, search_ms=200)
+    if end_ms <= start_ms:
+        end_ms = start_ms + 50
+    chunk["start_ms"] = start_ms
+    chunk["end_ms"] = end_ms
+    chunk["clip_start_ms"] = start_ms
+    chunk["clip_end_ms"] = min(end_ms + playback_pad_ms, end_ms + 500)
+
+
+def _acoustic_stress_score(wav_path: Path, chunk: dict[str, Any]) -> float:
+    """H-G0-02 proxy: low edge RMS + low confidence → higher stress."""
+    start_rms = rms_at_ms(wav_path, int(chunk["start_ms"])) or 0.0
+    end_rms = rms_at_ms(wav_path, int(chunk["end_ms"])) or 0.0
+    edge_rms = min(start_rms, end_rms)
+    confidence = float(chunk.get("confidence") or 1.0)
+    low_conf = max(0.0, 1.0 - confidence)
+    edge_stress = max(0.0, 0.02 - edge_rms) / 0.02 if edge_rms < 0.02 else 0.0
+    return round(min(1.0, low_conf * 0.6 + edge_stress * 0.4), 4)
 
 
 def _build_chunks(full: dict[str, Any]) -> list[dict[str, Any]]:

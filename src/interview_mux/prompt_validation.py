@@ -170,6 +170,16 @@ def validate_source_acoustic_profile(profile: dict[str, Any]) -> list[str]:
     return _validate_dict(profile, _load_root_schema("source_acoustic_profile.schema.json"))
 
 
+def validate_interview_spine(doc: dict[str, Any]) -> list[str]:
+    """Validate `understanding/interview_spine.json`."""
+    return _validate_dict(doc, _load_root_schema("interview_spine.schema.json"))
+
+
+def validate_coherence_report(doc: dict[str, Any]) -> list[str]:
+    """Validate `understanding/coherence_report.json`."""
+    return _validate_dict(doc, _load_root_schema("coherence_report.schema.json"))
+
+
 def validate_analysis_state(state: dict[str, Any]) -> list[str]:
     """Validate `understanding/analysis_state.json`."""
     return _validate_dict(state, _load_root_schema("analysis_state.schema.json"))
@@ -293,6 +303,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "flow_2_highlights/sfx_brief.json": validate_sfx_montage_brief,
     "flow_3_description/show_description.json": validate_show_description,
     "understanding/source_acoustic_profile.json": validate_source_acoustic_profile,
+    "understanding/interview_spine.json": validate_interview_spine,
+    "understanding/coherence_report.json": validate_coherence_report,
     "understanding/sonic_context.json": validate_sonic_context,
     "understanding/analysis_state.json": validate_analysis_state,
     "understanding/sound_design_plan.json": validate_sound_design_plan,

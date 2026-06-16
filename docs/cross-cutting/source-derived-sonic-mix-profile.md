@@ -59,7 +59,7 @@ Speech is **irregular** (bursts, pauses, overlap). Setting `tempo_feel_bpm` equa
 | `dynamic_range_db` | p90 − p10 | Stinger peak discipline |
 | `silence_ratio` | Fraction below noise gate | Whether continuous beds are safe |
 | `room_timbre_hint` | Coarse band energy (low/mid/high) | Palette timbre keywords (dry vs reverberant) |
-| `prosody_summary` (optional) | F0 median band, variability flag — **not** full pitch tracks in JSON | `musical_intent.register`, warm vs neutral `tonal_center` |
+| `prosody_summary` (optional) | F0 median band, variability flag from `interview_spine` windows when present — **not** full pitch tracks in JSON | `musical_intent.register`, warm vs neutral `tonal_center` |
 | `source_music_risk` | Heuristic: sustained harmonic energy under speech | Flag `underscore_policy: sparse_or_skip` |
 
 **Tools (implementation options):** **ffmpeg**, **pyloudnorm** (pinned in [anchored-toolchain.md](./anchored-toolchain.md)); optional spike libs (openSMILE, SpeechBrain) — [tools-not-in-repo-landscape.md](../pipeline/value-analysis/tools-not-in-repo-landscape.md). Use **Context7** at lock versions when implementing.

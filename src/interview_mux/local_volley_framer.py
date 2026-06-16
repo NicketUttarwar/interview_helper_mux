@@ -301,6 +301,17 @@ def _build_framer_user_blob(
     digest = json.dumps(stage_input, ensure_ascii=False)[:4000]
     if len(json.dumps(stage_input, ensure_ascii=False)) > 4000:
         digest += "\n…[digest truncated]"
+    spine_hits: list[dict[str, Any]] = []
+    from interview_mux.interview_spine.config import spine_enabled
+    from interview_mux.interview_spine.retrieval import query_spine
+
+    if spine_enabled():
+        query = plan.task_line or stage_key.replace("_", " ")
+        spine_hits = query_spine(ctx, query, top_k=3)[:3]
+        for hit in spine_hits:
+            text = str(hit.get("text_span") or "")
+            if len(text) > 120:
+                hit["text_span"] = text[:117] + "…"
     payload = {
         "stage_key": stage_key,
         "task_kind": task_kind,
@@ -312,6 +323,7 @@ def _build_framer_user_blob(
         "volley_budget": max_volley_turns(cfg),
         "base_volley_turn_count": len(base_volley),
         "stage_input_digest": digest,
+        "spine_retrieval_hits": spine_hits,
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
 

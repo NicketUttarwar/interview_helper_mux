@@ -8,6 +8,8 @@ This document is the **policy** for operators and implementers: what to expect, 
 
 **Proactive decompose (`content_context`):** when transcript length exceeds `proactive_decompose_chars` (default 72k, aligned with `transcript_full_chars`), the runner skips the single primary pass and goes straight to shard/collate before the arbiter.
 
+**H-ORC-03 coherence (30m+):** when interview duration ≥ `coherence.min_duration_ms` (default 30 minutes), the coherence layer activates — drift/contradiction/callback risks are scored and padded into coverage/arc volleys. See [coherence-orc03.md](../cross-cutting/coherence-orc03.md).
+
 ---
 
 ## Caps (authoritative keys)

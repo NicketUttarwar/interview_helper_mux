@@ -22,6 +22,12 @@ export const understanding_analysis_state_jsonSchema = z.object({
   "segment_ids": z.array(z.string()).optional(),
   "confidence": z.number().optional(),
   "sources": z.array(z.string()).optional(),
+  "evidence_windows": z.array(z.object({
+  "window_id": z.string().optional(),
+  "start_ms": z.number().optional(),
+  "end_ms": z.number().optional(),
+  "retrieval_score": z.number().optional(),
+})).optional(),
 })),
   "major_questions": z.array(z.object({
   "question": z.string().optional(),
@@ -55,6 +61,18 @@ export const understanding_analysis_state_jsonSchema = z.object({
   "hypotheses": z.array(z.unknown()).optional(),
   "open_questions": z.array(z.unknown()).optional(),
   "operator_notes": z.string().optional(),
+  "coherence_risks": z.array(z.object({
+  "risk_id": z.string().optional(),
+  "kind": z.enum(["topic_drift", "claim_contradiction", "missing_callback"]).optional(),
+  "time_ms": z.number().optional(),
+  "window_id": z.unknown().optional(),
+  "theme_id": z.unknown().optional(),
+  "claim_id": z.unknown().optional(),
+  "confidence": z.number().optional(),
+  "blocking": z.boolean().optional(),
+  "evidence": z.record(z.string(), z.unknown()).optional(),
+  "status": z.enum(["open", "resolved"]).optional(),
+})).optional(),
   "completion": z.object({
   "analysis_ready": z.boolean().optional(),
   "blockers": z.array(z.string()).optional(),

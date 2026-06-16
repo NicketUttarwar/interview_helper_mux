@@ -379,6 +379,24 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 - [x] `understanding/source_acoustic_profile.json` per [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md)
 - [x] Consumed by BUILD-061 palettes and BUILD-064 craft
 
+### BUILD-083 — Interview comprehension spine
+
+- [x] `understanding/interview_spine.json` (+ optional CLAP sidecar) per [interview-spine.md](../cross-cutting/interview-spine.md)
+- [x] Stage `interview_spine_build` after `source_acoustic_profile`; idempotent `derived_from`
+- [x] Consumers: boundary volley, investigations (H-ORC-02/03), theme evidence, local framer retrieval, optional Flow 2 quotability
+- [x] API: `GET/POST` interview-spine routes; GUI panel on pipeline gate
+
+### H-ORC-03 — Long-run coherence (shipped)
+
+- [x] `understanding/coherence_report.json` per [coherence-orc03.md](../cross-cutting/coherence-orc03.md)
+- [x] 30-minute activation gate (`coherence.min_duration_ms: 1800000`)
+- [x] Composite signals: novelty, theme alignment, claim contradiction, missing callback
+- [x] Hooks: `content_context`, `content_brief_reanchor`, `topic_coverage_audit`
+- [x] Investigations + `analysis_state.coherence_risks[]`; blocking contradictions gate `analysis_ready`
+- [x] Volley `coherence_summary` on coverage/arc/reanchor/missing_framing/show-description
+- [x] API: `GET/POST` coherence-report; Story Board panel
+- [x] Fixture: `tests/fixtures/runs/coherence_30m_planted_drift/`; `tests/test_coherence_*.py`
+
 ### BUILD-084 — Quality-first LLM harness
 
 - [x] Merge/persist gating on arbiter verdict (`should_merge_envelope`, `should_persist_artifacts`)

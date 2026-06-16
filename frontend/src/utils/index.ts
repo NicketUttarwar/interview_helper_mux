@@ -105,6 +105,8 @@ export const ALL_API_CONSENTS: Record<string, boolean> = {
 
 export const VALUE_FEATURES_PATH = "understanding/value_features.json";
 export const SAP_PATH = "understanding/source_acoustic_profile.json";
+export const SPINE_PATH = "understanding/interview_spine.json";
+export const COHERENCE_REPORT_PATH = "understanding/coherence_report.json";
 
 export const PACE_CLASS_OPTIONS = ["", "calm", "conversational", "brisk", "dense"];
 export const UNDERSCORE_POLICY_OPTIONS = ["", "normal", "sparse", "skip"];

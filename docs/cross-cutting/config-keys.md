@@ -67,6 +67,31 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
 | `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
 | `value_analysis.auto_extract_after_content_context` | `understanding.run_content_context` | When master + this flag on, writes `understanding/value_features.json` after successful `content_context` (default **on** in shipped `app.defaults.json`) |
+| `interview_spine.enabled` | `interview_spine_stage.run_interview_spine_build` | Master switch for time-aligned comprehension spine (default **on**) |
+| `interview_spine.clap_enabled` | `interview_spine/clap_index.py` | Build CLAP sidecar `understanding/interview_spine/embeddings.npz`; fail-open when MMAudio venv missing |
+| `interview_spine.prosody_enabled` | `interview_spine/features.py`, SAP `prosody_summary` | Per-window F0 via librosa pyin when available |
+| `interview_spine.window_sec_default` | `interview_spine/windows.py` | Default window length (seconds) for conversational pace |
+| `interview_spine.window_sec_dense` | `interview_spine/windows.py` | Window length when SAP `pace_class` is `dense` |
+| `interview_spine.window_sec_calm` | `interview_spine/windows.py` | Window length when SAP `pace_class` is `calm` |
+| `interview_spine.hop_sec` | `interview_spine/windows.py` | Hop for subdividing long spans |
+| `interview_spine.boundary_fusion_min_sources` | `interview_spine/boundaries.py` | Minimum fused sources to keep boundary events (default `1`) |
+| `interview_spine.clap_model_id` | `tools/clap_embed_window.py` | CLAP model id for retrieval embeddings |
+| `interview_spine.clap_timeout_sec` | `interview_spine/clap_index.py` | Subprocess timeout per window embed |
+| `interview_spine.ssl_enabled` | — | **Opt-in only** — Wav2Vec/SSL merge path; default **false** (H-ING-01 gate preserved) |
+| `interview_spine.flow2_quotability_enabled` | `stage_enrichment.quotability_signals` | Fuse spine boundary events into Flow 2 quotability proxy |
+| `value_analysis.orc03_enabled` | `coherence/config.py` | Master sub-flag for H-ORC-03 long-run coherence (requires `value_analysis.enabled`) |
+| `coherence.enabled` | `coherence/analyze.py` | Master switch for coherence report + investigations |
+| `coherence.min_duration_ms` | `coherence/duration_gate.py` | Activation threshold (default **1800000** = 30 minutes) |
+| `coherence.max_investigations_per_run` | `coherence/investigations.py` | Cap enqueue per run |
+| `coherence.max_risks_in_memory` | `coherence/memory_sync.py` | Cap `analysis_state.coherence_risks[]` |
+| `coherence.topic_drift_threshold` | `coherence/analyze.py` | Minimum `drift_score` for topic_drift risk |
+| `coherence.claim_contradiction_threshold` | `coherence/claim_contradiction.py` | Minimum confidence for contradiction risk |
+| `coherence.missing_callback_threshold` | `coherence/missing_callback.py` | Minimum confidence for missing callback risk |
+| `coherence.require_acoustic_novelty` | `coherence/analyze.py` | Require novelty gate for topic_drift |
+| `coherence.novelty_min_delta` | `coherence/novelty.py`, `analyze.py` | Adjacent-window novelty minimum |
+| `coherence.theme_alignment_min` | `coherence/theme_alignment.py` | Token overlap floor for theme match |
+| `coherence.blocking_claim_contradiction` | `coherence/claim_contradiction.py` | High-confidence contradictions block `analysis_ready` |
+| `coherence.replace_stub_topic_shift_hints` | `interview_spine/boundaries.py`, `value_analysis/extract.py` | Disable speaker-turn-only stub when full coherence on |
 | `models.<stage_key>` | `get_model()` → OpenAI calls | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).

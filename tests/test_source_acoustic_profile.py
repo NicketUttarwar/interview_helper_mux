@@ -31,7 +31,9 @@ def test_analysis_order_places_source_acoustic_profile_after_disfluency_extract(
     palettes_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert disfluency_idx == review_idx + 1
     assert sap_idx == disfluency_idx + 1
-    assert speaker_idx == sap_idx + 1
+    spine_idx = ANALYSIS_ORDER.index("interview_spine_build")
+    assert spine_idx == sap_idx + 1
+    assert speaker_idx == spine_idx + 1
     assert palettes_idx > sap_idx
 
 

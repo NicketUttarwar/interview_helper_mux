@@ -95,38 +95,108 @@ def maybe_enqueue_orchestration_investigations(
 ) -> int:
     """
     H-ORC-02: enqueue investigations when value features suggest acoustic/text ambiguity.
+    H-ORC-03: topic_shift_hint boundary events aligned with transcript ambiguity.
     """
     resolved = _resolved_cfg(cfg)
     if not value_analysis_flag(resolved, "enabled"):
         return 0
-    if not ctx.artifact_exists(VALUE_FEATURES_PATH):
-        return 0
-    data = ctx.read_json(VALUE_FEATURES_PATH)
-    profiles = data.get("profiles") if isinstance(data, dict) else {}
-    transcript = profiles.get("transcript") if isinstance(profiles, dict) else {}
-    flags = transcript.get("quality_trajectory_flags") if isinstance(transcript, dict) else []
-    if not flags:
-        from interview_mux.stage_enrichment import quality_trajectory_flags
-
-        flags = quality_trajectory_flags(ctx)
-    if not flags:
-        return 0
 
     from interview_mux.analysis_memory import enqueue_investigations
 
-    items = []
-    for flag in flags[:5]:
-        if not isinstance(flag, dict):
-            continue
-        items.append(
-            {
-                "kind": "acoustic_anomaly",
-                "question": flag.get("note", "Acoustic/text ambiguity flagged by value analysis."),
-                "priority": "medium",
-                "blocking": False,
-                "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
-            }
-        )
+    items: list[dict[str, Any]] = []
+
+    if ctx.artifact_exists(VALUE_FEATURES_PATH):
+        data = ctx.read_json(VALUE_FEATURES_PATH)
+        profiles = data.get("profiles") if isinstance(data, dict) else {}
+        transcript = profiles.get("transcript") if isinstance(profiles, dict) else {}
+        flags = transcript.get("quality_trajectory_flags") if isinstance(transcript, dict) else []
+        if not flags:
+            from interview_mux.stage_enrichment import quality_trajectory_flags
+
+            flags = quality_trajectory_flags(ctx)
+        for flag in flags[:5]:
+            if not isinstance(flag, dict):
+                continue
+            items.append(
+                {
+                    "kind": "acoustic_anomaly",
+                    "question": flag.get("note", "Acoustic/text ambiguity flagged by value analysis."),
+                    "priority": "medium",
+                    "blocking": False,
+                    "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
+                }
+            )
+
+    items.extend(_spine_orchestration_investigations(ctx))
     if items:
         enqueue_investigations(ctx, items, created_by_stage="content_context")
     return len(items)
+
+
+def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]:
+    from interview_mux.interview_spine import SPINE_PATH
+    from interview_mux.interview_spine.config import spine_enabled
+
+    if not spine_enabled() or not ctx.artifact_exists(SPINE_PATH):
+        return []
+
+    spine = ctx.read_json(SPINE_PATH)
+    if not isinstance(spine, dict):
+        return []
+
+    transcript = ctx.read_json("transcript/full.json") if ctx.artifact_exists("transcript/full.json") else {}
+    low_conf_words = [
+        w
+        for w in (transcript.get("words") or [])
+        if isinstance(w, dict) and float(w.get("confidence") or 1.0) < 0.75
+    ]
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for event in spine.get("boundary_events") or []:
+        if not isinstance(event, dict):
+            continue
+        etype = str(event.get("type") or "")
+        time_ms = int(event.get("time_ms") or 0)
+        key = f"{etype}:{time_ms}"
+        if key in seen:
+            continue
+
+        if etype == "trust_dip":
+            nearby = [
+                w
+                for w in low_conf_words
+                if abs(int(w.get("start_ms", 0)) - time_ms) <= 2500
+            ]
+            if nearby:
+                seen.add(key)
+                items.append(
+                    {
+                        "kind": "acoustic_anomaly",
+                        "question": (
+                            f"Trust dip near {time_ms // 1000}s with low-confidence words — "
+                            "verify transcript alignment."
+                        ),
+                        "priority": "medium",
+                        "blocking": False,
+                        "suggested_action": {"type": "rerun_stage", "stage": "transcript_review_build"},
+                    }
+                )
+        elif etype == "topic_shift_hint":
+            from interview_mux.coherence import coherence_active, replace_stub_topic_shift_hints
+
+            if coherence_active() and replace_stub_topic_shift_hints():
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "kind": "topic_drift",
+                    "question": (
+                        f"Topic shift hint near {time_ms // 1000}s — confirm brief themes still cover this turn."
+                    ),
+                    "priority": "low",
+                    "blocking": False,
+                    "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
+                }
+            )
+    return items[:6]

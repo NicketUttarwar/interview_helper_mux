@@ -473,13 +473,18 @@ def enqueue_style_conflicts(
 def _investigation_dedupe_key(item: dict[str, Any]) -> tuple[str, str, str]:
     action = item.get("suggested_action") or {}
     target = item.get("target") or {}
-    seg = ""
+    loc = ""
     if isinstance(target, dict):
-        seg = str(target.get("segment_id") or "")
+        loc = str(
+            target.get("window_id")
+            or target.get("risk_id")
+            or target.get("segment_id")
+            or ""
+        )
     return (
         str(item.get("kind") or ""),
         str(action.get("stage") or action.get("type") or ""),
-        seg,
+        loc,
     )
 
 
@@ -801,6 +806,9 @@ def sync_content_brief_to_state(ctx: RunContext, brief: dict[str, Any]) -> None:
         state["narrative"]["topic_relationships"] = brief["topic_relationships"]
     for topic in brief.get("topics") or []:
         _upsert_theme(state, topic, source="content_context")
+    from interview_mux.interview_spine.theme_evidence import attach_theme_evidence_windows
+
+    attach_theme_evidence_windows(ctx, state)
     for term in brief.get("jargon_glossary") or []:
         if isinstance(term, dict):
             state.setdefault("entities", [])
@@ -862,7 +870,10 @@ def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
     blockers: list[str] = []
     open_blocking = [it for it in queue.get("items") or [] if it.get("status") == "open" and it.get("blocking")]
     if open_blocking:
+        kinds = {str(it.get("kind") or "") for it in open_blocking}
         blockers.append(f"{len(open_blocking)} open blocking investigation(s)")
+        if "claim_contradiction" in kinds:
+            blockers.append("Open blocking claim_contradiction — resolve or re-anchor brief")
     if not state.get("themes"):
         blockers.append("No themes in analysis_state — run content_context or add manually")
     if flow_hardening_enabled():

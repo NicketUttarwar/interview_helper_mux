@@ -135,6 +135,17 @@ See [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
 - Master WAV plays; duration > 0
 - `verify_master.py` exits 0 for Flow 1 and Flow 2 masters
 
+## Coherence (H-ORC-03, optional)
+
+For interviews ≥ 30 minutes:
+
+```bash
+.venv/bin/pytest tests/test_coherence_*.py -q
+curl -s "$BASE/api/runs/$RUN_ID/coherence-report" | jq '.gate,.summary'
+```
+
+Story Board should show **Coherence risks** when `gate.activated` is true.
+
 ## If something fails
 
 Use [troubleshooting.md](./troubleshooting.md) and [operator-stage-checklists.md](./operator-stage-checklists.md) to narrow the stage, then [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) for `--from-stage` commands.

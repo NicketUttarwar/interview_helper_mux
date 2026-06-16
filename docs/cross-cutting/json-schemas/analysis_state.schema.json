@@ -36,7 +36,19 @@
           "summary": { "type": "string" },
           "segment_ids": { "type": "array", "items": { "type": "string" } },
           "confidence": { "type": "number" },
-          "sources": { "type": "array", "items": { "type": "string" } }
+          "sources": { "type": "array", "items": { "type": "string" } },
+          "evidence_windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "window_id": { "type": "string" },
+                "start_ms": { "type": "integer" },
+                "end_ms": { "type": "integer" },
+                "retrieval_score": { "type": "number" }
+              }
+            }
+          }
         }
       }
     },
@@ -111,6 +123,27 @@
     "hypotheses": { "type": "array" },
     "open_questions": { "type": "array" },
     "operator_notes": { "type": "string" },
+    "coherence_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "risk_id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["topic_drift", "claim_contradiction", "missing_callback"]
+          },
+          "time_ms": { "type": "integer" },
+          "window_id": { "type": ["string", "null"] },
+          "theme_id": { "type": ["string", "null"] },
+          "claim_id": { "type": ["string", "null"] },
+          "confidence": { "type": "number" },
+          "blocking": { "type": "boolean" },
+          "evidence": { "type": "object" },
+          "status": { "type": "string", "enum": ["open", "resolved"] }
+        }
+      }
+    },
     "completion": {
       "type": "object",
       "properties": {

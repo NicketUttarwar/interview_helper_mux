@@ -32,6 +32,7 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "content_brief_reanchor": "post_reanchor",
     "missing_framing": "post_gaps",
     "sonic_context_build": "post_sonic_context",
+    "interview_spine_build": "post_interview_spine",
     "sound_design_palettes": "post_sound_palettes",
     "full_master_ranking": "post_ranking",
     "transitions": "post_transitions",
@@ -39,6 +40,7 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "sound_design_plan_flow2": "post_sound_plan_flow2",
     "sfx_prompt_craft": "pre_sfx_generation",
     "edl_narrative_audit": "post_edl_audit",
+    "topic_coverage_audit": "post_coherence",
     "mmaudio_sfx_flow1": "pre_mix_flow1",
     "mmaudio_sfx_flow2": "pre_mix_flow2",
     "master_flow1": "pre_master_flow1",
@@ -64,6 +66,10 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         from interview_mux.sdp_cross_validate import validate_post_sonic_context
 
         return validate_post_sonic_context(ctx)
+    if checkpoint == "post_interview_spine":
+        return _validate_post_interview_spine(ctx)
+    if checkpoint == "post_coherence":
+        return _validate_post_coherence(ctx)
     if checkpoint == "post_sound_plan_flow1":
         from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow1
 
@@ -317,6 +323,37 @@ def _validate_pre_flow1(ctx: RunContext) -> list[str]:
         if artifact_status(rel, ctx) != "complete":
             errors.append(f"{rel} is {artifact_status(rel, ctx)}")
     return errors
+
+
+def _validate_post_interview_spine(ctx: RunContext) -> list[str]:
+    from interview_mux.interview_spine.config import spine_enabled
+    from interview_mux.prompt_validation import validate_interview_spine
+
+    if not spine_enabled():
+        return []
+    path = "understanding/interview_spine.json"
+    if not ctx.artifact_exists(path):
+        return ["understanding/interview_spine.json missing after interview_spine_build"]
+    doc = ctx.read_json(path)
+    if not isinstance(doc, dict):
+        return ["interview_spine.json is not an object"]
+    schema_errors = validate_interview_spine(doc)
+    return schema_errors[:4]
+
+
+def _validate_post_coherence(ctx: RunContext) -> list[str]:
+    from interview_mux.coherence.config import coherence_active
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+    from interview_mux.prompt_validation import validate_coherence_report
+
+    if not coherence_active():
+        return []
+    if not ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        return []
+    report = ctx.read_json(COHERENCE_REPORT_PATH)
+    if not (report.get("gate") or {}).get("activated"):
+        return []
+    return validate_coherence_report(report)[:4]
 
 
 def invalidate_stage_summaries(ctx: RunContext, stage_keys: tuple[str, ...]) -> None:

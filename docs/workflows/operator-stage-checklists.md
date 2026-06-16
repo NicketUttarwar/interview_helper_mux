@@ -118,6 +118,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `boundary_detection` | `speakers.json` with ≥1 `interviewer` | Re-run `speaker_roles` or edit speakers |
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
+| Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review Story Board panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
 | `missing_framing` | Manifest segments; `content_brief` on disk | Re-anchor brief or re-classify segments |
 | `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
 | Flow LLM stages | Analysis-ready artifacts all `complete` | Finish analysis; **Fill gaps** |

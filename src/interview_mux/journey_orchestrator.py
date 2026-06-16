@@ -113,6 +113,33 @@ def _open_investigation_count(ctx: RunContext) -> int:
     )
 
 
+def _open_coherence_risk_count(ctx: RunContext) -> int:
+    from interview_mux.analysis_memory import load_analysis_state
+
+    state = load_analysis_state(ctx)
+    risks = state.get("coherence_risks") or []
+    if not isinstance(risks, list):
+        return 0
+    return sum(1 for r in risks if isinstance(r, dict) and r.get("status", "open") == "open")
+
+
+def _blocking_coherence_contradiction_count(ctx: RunContext) -> int:
+    from interview_mux.analysis_memory import load_analysis_state
+
+    state = load_analysis_state(ctx)
+    risks = state.get("coherence_risks") or []
+    if not isinstance(risks, list):
+        return 0
+    return sum(
+        1
+        for r in risks
+        if isinstance(r, dict)
+        and r.get("status", "open") == "open"
+        and r.get("kind") == "claim_contradiction"
+        and r.get("blocking")
+    )
+
+
 def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, bool]) -> str | None:
     from interview_mux.operator_quality import preclean_checkpoint_decision
 
@@ -553,6 +580,8 @@ def build_journey_snapshot(
         "deliverable": _deliverable_preview(ctx, selected_flow or flow_intent),
         "phase_progress": phase_progress(ctx, stages),
         "open_investigations": _open_investigation_count(ctx),
+        "open_coherence_risks": _open_coherence_risk_count(ctx),
+        "blocking_coherence_contradictions": _blocking_coherence_contradiction_count(ctx),
         "sound_labels": _sound_labels(ctx),
         "phase_guidance": _build_phase_guidance(ctx, stages),
     }

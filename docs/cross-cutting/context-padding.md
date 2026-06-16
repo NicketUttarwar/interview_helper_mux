@@ -119,3 +119,32 @@ When caps truncate evidence, see [long-interview-chunking.md](../workflows/long-
 ## Operator edits
 
 Verified profile fields appear as a dedicated user turn (prose, not full JSON). Re-run the stage that should consume your edits after saving `analysis_state.json`.
+
+## Interview spine padding (`interview_spine` in stage JSON)
+
+When `interview_spine.enabled`, build inputs attach a compact spine slice via `attach_spine_to_payload()` / `_compact_interview_spine()`:
+
+| Stage | Typical payload |
+|-------|-----------------|
+| `boundary_detection` | up to 40 `boundary_events`, `speaker_stats` |
+| `content_context` | 2 sample windows, 8 events |
+| `segment_classification` | 3 windows, 10 events |
+| `missing_framing` | 4 windows, 15 events |
+| `highlight_selection` | 5 windows, 12 events |
+| `full_master_ranking` | 3 windows, 10 events |
+
+Spec: [interview-spine.md](./interview-spine.md).
+
+## Coherence summary padding (`coherence_summary` in stage JSON)
+
+When `coherence.enabled` and interview duration ≥ 30m, build inputs attach `coherence_summary` via `attach_coherence_summary()` / `_compact_coherence_summary()`:
+
+| Stage | Risk cap |
+|-------|----------|
+| `topic_coverage_audit` | 5 |
+| `narrative_arc_plan` | 4 |
+| `content_brief_reanchor` | 4 |
+| `missing_framing` | 3 |
+| `podcast_show_description` | 2 (blocking `claim_contradiction` only) |
+
+Spec: [coherence-orc03.md](./coherence-orc03.md).

@@ -35,11 +35,12 @@ Keep long interviews **coherent across passes**: investigations, memory, and rer
 ## 6. Spike artifacts
 
 - Trace: investigations fired with/without acoustic trigger; operator rates helpfulness.
-- Long interview fixture (90m+) with planted contradiction.
+- Long interview fixture (**30m+**) with planted contradiction — `tests/fixtures/runs/coherence_30m_planted_drift/`.
+- Artifact: `understanding/coherence_report.json` — see [coherence-orc03.md](../../../cross-cutting/coherence-orc03.md).
 
 ## 7. Spike winner (fixture sprint)
 
-**Promote:** H-ORC-02 acoustic anomaly + text ambiguity investigation queue — [spike-results § orchestration](../spike-results-and-winners.md#cross-orchestration-memory). Fixture: `tests/fixtures/value_analysis/spike_cross_orchestration_memory.json`. Tool direction: [tools-not-in-repo § Lever E — anomaly triggers](../tools-not-in-repo-landscape.md#lever-e--long-run-coherence-memory).
+**Promote:** H-ORC-01 interview comprehension spine — shipped as `interview_spine_build` ([interview-spine.md](../../../cross-cutting/interview-spine.md)). **Promote:** H-ORC-02 acoustic anomaly + text ambiguity investigation queue — [spike-results § orchestration](../spike-results-and-winners.md#cross-orchestration-memory). Fixture: `tests/fixtures/value_analysis/spike_cross_orchestration_memory.json`. Tool direction: [tools-not-in-repo § Lever E — anomaly triggers](../tools-not-in-repo-landscape.md#lever-e--long-run-coherence-memory).
 
 ## Related
 

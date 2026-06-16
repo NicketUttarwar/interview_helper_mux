@@ -22,6 +22,8 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "understanding/gap_evaluations.json": "artifacts/gap_evaluations_artifact.schema.json",
     "understanding/gap_report.json": "gap_report.schema.json",
     "understanding/source_acoustic_profile.json": "source_acoustic_profile.schema.json",
+    "understanding/interview_spine.json": "interview_spine.schema.json",
+    "understanding/coherence_report.json": "coherence_report.schema.json",
     "understanding/sonic_context.json": "sonic_context.schema.json",
     "segments/boundaries.json": "artifacts/boundaries_artifact.schema.json",
     "segments/manifest.json": "artifacts/manifest_artifact.schema.json",

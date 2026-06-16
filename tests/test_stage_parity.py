@@ -30,6 +30,7 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "transcript_review_build": ["test_transcript_review.py", "test_pipeline.py"],
     "disfluency_extract": ["test_disfluency.py", "test_disfluency_end_to_end.py", "test_pipeline.py"],
     "source_acoustic_profile": ["test_source_acoustic_profile.py", "test_recompute_acoustic_profile.py", "test_pipeline.py"],
+    "interview_spine_build": ["test_interview_spine.py", "test_pipeline.py"],
     "speaker_roles": ["test_prompt_validation.py", "test_pipeline.py"],
     "content_context": ["test_prompt_validation.py", "test_value_analysis_auto_extract.py", "test_pipeline.py"],
     "content_brief_reanchor": ["test_content_brief_reanchor.py", "test_pipeline.py"],

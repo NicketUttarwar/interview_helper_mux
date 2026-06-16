@@ -28,6 +28,7 @@ STAGE_EXAMPLE_FILES: dict[str, str] = {
     "podcast_show_description": "_shared/examples/podcast-show-description.examples.md",
     "podcast_sfx_brief": "_shared/examples/sfx-briefs.examples.md",
     "sfx_brief": "_shared/examples/sfx-briefs.examples.md",
+    "coherence_orc03": "_shared/examples/coherence-orc03.examples.md",
 }
 
 COMPACT_EXAMPLE_MAX_CHARS_BY_STAGE: dict[str, int] = {

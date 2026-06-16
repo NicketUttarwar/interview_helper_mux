@@ -1,0 +1,13 @@
+{
+  "thesis": "Founder interview with planted long-run coherence risks",
+  "topics": [
+    {"name": "Shipping discipline", "summary": "On-time delivery culture", "segment_ids": ["seg_early"]},
+    {"name": "Future roadmap", "summary": "Where the product goes next"}
+  ],
+  "key_claims": [
+    {"id": "claim_ship", "claim": "We always ship on schedule", "segment_ids": ["seg_early"]}
+  ],
+  "topic_relationships": [
+    {"from_topic": "Shipping discipline", "to_topic": "Future roadmap", "relation": "returns_to"}
+  ]
+}

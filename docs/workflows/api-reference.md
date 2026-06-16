@@ -324,6 +324,11 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 | Method | Path | Body | Response |
 |--------|------|------|----------|
 | `POST` | `/api/runs/{run_id}/recompute-acoustic-profile` | — | `ok`, `profile`, `derived_from`, optional `invalidated_from` when `pace_class` changes |
+| `GET` | `/api/runs/{run_id}/interview-spine` | query: `offset`, `limit` | Paginated spine manifest + windows |
+| `POST` | `/api/runs/{run_id}/recompute-interview-spine` | — | `ok`, `spine`, `derived_from`, window counts |
+| `POST` | `/api/runs/{run_id}/interview-spine/query` | `{ "query": "…", "top_k": 5 }` | `{ "ok", "query", "hits" }` CLAP or text fallback |
+| `GET` | `/api/runs/{run_id}/coherence-report` | — | Full `understanding/coherence_report.json` (404 below 30m gate if never built) |
+| `POST` | `/api/runs/{run_id}/recompute-coherence` | `{ "phase": "post_reanchor" }` optional | `ok`, `report` — rebuild from spine + brief |
 | `PATCH` | `/api/runs/{run_id}/acoustic-profile/overrides` | **AcousticProfileOverridesBody** | `ok`, `operator_overrides`, `effective` (`pace_class`, `underscore_policy`), `profile` |
 
 **`AcousticProfileOverridesBody`:** `{ overrides: {…}, invalidate_from?: string }` — merges operator overrides into `understanding/source_acoustic_profile.json`; optional pipeline invalidation after save. Logs `acoustic_profile_override_saved`.

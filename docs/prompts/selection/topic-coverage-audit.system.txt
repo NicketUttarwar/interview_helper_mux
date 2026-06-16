@@ -58,3 +58,12 @@ When stage input includes `emphasis_regions` (operator or acoustic analysis):
 **Shard collate:** Union emphasis-overlap segment ids into claim/topic mappings before scoring.
 
 **Quality bar:** `suggestion` on every `missing_coverage` row must name segment **type** or search strategy ("look for `setup` before seg_042", "re-tag manifest for topic X") — never "cover better".
+
+## coherence_summary — long-run drift (H-ORC-03)
+
+When stage input includes `coherence_summary` (30m+ interviews only):
+
+- Treat `risks[]` with `kind: topic_drift` as candidate under-mapped hinge points — cross-check `topic_mappings` and `missing_coverage`.
+- Use `missing_callback` risks to prioritize topics that need second-half segment_ids or documented excludes.
+- Do not duplicate spine speaker-turn hints; coherence risks are composite (theme + acoustic novelty).
+- Cap: at most 5 risk rows in volley input — reconcile with brief topics by name/id.

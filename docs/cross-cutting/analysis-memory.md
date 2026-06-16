@@ -12,6 +12,8 @@ Every execution builds a **custom analysis profile** for that recording. Memory 
 |------|---------|
 | `understanding/analysis_state.json` | **Main profile** — themes, major questions, style, narrative, entities, completion |
 | `understanding/investigation_queue.json` | Open items the orchestrator may re-run stages to resolve |
+| `understanding/coherence_report.json` | H-ORC-03 scored risks (30m+ interviews) — see [coherence-orc03.md](./coherence-orc03.md) |
+| `analysis_state.coherence_risks[]` | Open subset mirrored from coherence report for Story Board / volley caps |
 | `understanding/content_brief.json` | Stage artifact (thesis, topics, typed claims, `topic_relationships`); synced into `analysis_state` — pass 1 from `content_context`, timeline patch from `content_brief_reanchor` |
 | `understanding/speakers.json` | Speaker roles |
 | `segments/manifest.json` | Segment timeline |

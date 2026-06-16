@@ -743,6 +743,103 @@ def create_app() -> FastAPI:
             out["invalidated_from"] = "sound_design_palettes"
         return out
 
+    @app.get("/api/runs/{run_id}/interview-spine")
+    def get_interview_spine(run_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        path = "understanding/interview_spine.json"
+        if not ctx.artifact_exists(path):
+            raise HTTPException(404, "Interview spine not found — run interview_spine_build first.")
+        doc = ctx.read_json(path)
+        windows = doc.get("windows") or []
+        if not isinstance(windows, list):
+            windows = []
+        start = max(0, offset)
+        end = start + max(1, min(limit, 200))
+        page = windows[start:end]
+        return {
+            "schema_version": doc.get("schema_version"),
+            "derived_from": doc.get("derived_from"),
+            "window_policy": doc.get("window_policy"),
+            "retrieval": doc.get("retrieval"),
+            "speaker_stats": doc.get("speaker_stats"),
+            "boundary_events": doc.get("boundary_events"),
+            "windows": page,
+            "window_total": len(windows),
+            "offset": start,
+            "limit": end - start,
+        }
+
+    @app.post("/api/runs/{run_id}/recompute-interview-spine")
+    def recompute_interview_spine(run_id: str) -> dict[str, Any]:
+        from interview_mux.stages.interview_spine_stage import run_interview_spine_build
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            prior = (
+                ctx.read_json("understanding/interview_spine.json")
+                if ctx.artifact_exists("understanding/interview_spine.json")
+                else {}
+            )
+            run_interview_spine_build(ctx)
+            doc = ctx.read_json("understanding/interview_spine.json")
+            ctx.log(
+                "Interview spine recomputed from current ingest/transcript/SAP.",
+                level="success",
+                stage="interview_spine_build",
+                detail="interview_spine_recomputed",
+            )
+            return {
+                "ok": True,
+                "spine": doc,
+                "derived_from": doc.get("derived_from"),
+                "prior_window_count": len((prior.get("windows") or []) if isinstance(prior, dict) else []),
+                "new_window_count": len(doc.get("windows") or []),
+            }
+
+    @app.post("/api/runs/{run_id}/interview-spine/query")
+    def query_interview_spine(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        from interview_mux.interview_spine.retrieval import query_spine
+
+        ctx = _ctx(run_id)
+        query = str(body.get("query") or "").strip()
+        if not query:
+            raise HTTPException(400, "query is required")
+        top_k = int(body.get("top_k") or 5)
+        hits = query_spine(ctx, query, top_k=max(1, min(top_k, 20)))
+        return {"ok": True, "query": query, "hits": hits}
+
+    @app.get("/api/runs/{run_id}/coherence-report")
+    def get_coherence_report(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        path = "understanding/coherence_report.json"
+        if not ctx.artifact_exists(path):
+            raise HTTPException(404, "Coherence report not found — run analysis on a 30m+ interview first.")
+        doc = ctx.read_json(path)
+        return doc
+
+    @app.post("/api/runs/{run_id}/recompute-coherence")
+    def recompute_coherence(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        from interview_mux.coherence import build_coherence_report, COHERENCE_REPORT_PATH
+        from interview_mux.coherence.memory_sync import sync_coherence_to_state
+        from interview_mux.prompt_validation import validate_coherence_report
+
+        phase = str((body or {}).get("phase") or "post_reanchor")
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            report = build_coherence_report(ctx, phase=phase)
+            errors = validate_coherence_report(report)
+            if errors and report.get("gate", {}).get("activated"):
+                raise HTTPException(400, f"Coherence report invalid: {errors[:3]}")
+            ctx.write_json(COHERENCE_REPORT_PATH, report)
+            sync_coherence_to_state(ctx, report)
+            ctx.log(
+                "Coherence report recomputed.",
+                level="success",
+                stage="coherence",
+                detail=f"coherence_recomputed:{phase}",
+            )
+            return {"ok": True, "report": report}
+
     @app.patch("/api/runs/{run_id}/acoustic-profile/overrides")
     def patch_acoustic_profile_overrides(run_id: str, body: AcousticProfileOverridesBody) -> dict[str, Any]:
         from interview_mux.acoustic_profile import SAP_PATH, load_profile, save_operator_overrides
@@ -1646,6 +1743,16 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("understanding/value_features.json")
             else None
         )
+        interview_spine = (
+            ctx.read_json("understanding/interview_spine.json")
+            if ctx.artifact_exists("understanding/interview_spine.json")
+            else None
+        )
+        coherence_report = (
+            ctx.read_json("understanding/coherence_report.json")
+            if ctx.artifact_exists("understanding/coherence_report.json")
+            else None
+        )
         return {
             "analysis_state": state,
             "investigation_queue": queue,
@@ -1653,6 +1760,8 @@ def create_app() -> FastAPI:
             "narrative_plan": narrative,
             "source_acoustic_profile": sap,
             "value_features": value_features,
+            "interview_spine": interview_spine,
+            "coherence_report": coherence_report,
             "operator_verified": (state.get("meta") or {}).get("operator_verified", False),
         }
 

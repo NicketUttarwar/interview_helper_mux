@@ -98,6 +98,10 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "glob:transcript/disfluency_clips/*.wav",
     ),
     "source_acoustic_profile": ("understanding/source_acoustic_profile.json",),
+    "interview_spine_build": (
+        "understanding/interview_spine.json",
+        "understanding/interview_spine/embeddings.npz",
+    ),
     "speaker_roles": ("understanding/speakers.json",),
     "content_context": ("understanding/content_brief.json",),
     "boundary_detection": ("segments/boundaries.json",),

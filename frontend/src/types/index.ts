@@ -126,6 +126,8 @@ export interface JourneyState {
   };
   phase_progress?: Record<string, { done: number; total: number }>;
   open_investigations?: number;
+  open_coherence_risks?: number;
+  blocking_coherence_contradictions?: number;
   sound_labels?: string[];
   phase_guidance?: Record<string, PhaseGuidance>;
 }
@@ -779,6 +781,35 @@ export interface ContextIndexSummary {
   rebuild_stats?: Record<string, number>;
 }
 
+export interface CoherenceRisk {
+  risk_id: string;
+  kind: "topic_drift" | "claim_contradiction" | "missing_callback";
+  time_ms?: number;
+  window_id?: string | null;
+  theme_id?: string | null;
+  claim_id?: string | null;
+  confidence?: number;
+  blocking?: boolean;
+  evidence?: Record<string, unknown>;
+  status?: "open" | "resolved";
+}
+
+export interface CoherenceReport {
+  schema_version?: number;
+  gate?: {
+    min_duration_ms?: number;
+    activated?: boolean;
+    duration_ms?: number;
+  };
+  risks?: CoherenceRisk[];
+  summary?: {
+    topic_drift_count?: number;
+    claim_contradiction_count?: number;
+    missing_callback_count?: number;
+    phase?: string;
+  };
+}
+
 export interface StoryBoardData {
   analysis_state: AnalysisState;
   investigation_queue: Record<string, unknown>;
@@ -786,6 +817,8 @@ export interface StoryBoardData {
   narrative_plan?: Record<string, unknown> | null;
   source_acoustic_profile?: Record<string, unknown> | null;
   value_features?: Record<string, unknown> | null;
+  interview_spine?: Record<string, unknown> | null;
+  coherence_report?: CoherenceReport | null;
   operator_verified?: boolean;
 }
 

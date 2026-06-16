@@ -6,6 +6,8 @@ from pathlib import Path
 
 from interview_mux.operator_quality import qc_summary, record_qc_summary
 from interview_mux.prompt_validation import (
+    validate_coherence_report,
+    validate_interview_spine,
     validate_nle_edits,
     validate_source_acoustic_profile,
     validate_transcript_review_queue,
@@ -37,6 +39,23 @@ def test_fixture_review_queue_invalid():
 
 def test_fixture_source_acoustic_profile_valid():
     assert validate_source_acoustic_profile(_load("understanding/source_acoustic_profile.json")) == []
+
+
+def test_fixture_interview_spine_valid():
+    assert validate_interview_spine(_load("understanding/interview_spine.json")) == []
+
+
+def test_coherence_report_from_planted_fixture(tmp_path, monkeypatch):
+    from interview_mux.coherence.analyze import build_coherence_report
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    planted = Path(__file__).parent / "fixtures" / "runs" / "coherence_30m_planted_drift"
+    run_dir = tmp_path / "coherence_planted"
+    shutil.copytree(planted, run_dir)
+    ctx = RunContext("coherence_planted", create=False)
+    ctx.run_dir = run_dir
+    report = build_coherence_report(ctx, phase="post_reanchor")
+    assert validate_coherence_report(report) == []
 
 
 def test_record_qc_summary_merge_on_fixture_run_meta(tmp_path):

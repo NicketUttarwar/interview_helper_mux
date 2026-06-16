@@ -49,6 +49,7 @@ from interview_mux.stages import transcribe_aws
 from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
+from interview_mux.stages import interview_spine_stage
 
 ANALYSIS_ORDER = [
     "audio_preclean",
@@ -57,6 +58,7 @@ ANALYSIS_ORDER = [
     "transcript_review_build",
     "disfluency_extract",
     "source_acoustic_profile",
+    "interview_spine_build",
     "speaker_roles",
     "content_context",
     "boundary_detection",
@@ -107,6 +109,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "transcript_review_build": lambda: transcript_review.run_transcript_review_build(ctx),
         "disfluency_extract": lambda: disfluency.run_disfluency_extract(ctx),
         "source_acoustic_profile": lambda: understanding.run_source_acoustic_profile(ctx),
+        "interview_spine_build": lambda: interview_spine_stage.run_interview_spine_build(ctx),
         "speaker_roles": lambda: understanding.run_speaker_roles(ctx),
         "content_context": lambda: understanding.run_content_context(ctx),
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),

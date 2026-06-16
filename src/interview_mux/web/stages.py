@@ -111,6 +111,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/source_acoustic_profile.json",),
     ),
     StageInfo(
+        "interview_spine_build",
+        "Interview comprehension spine",
+        "Build time-aligned local analysis index (windows, boundary events, optional CLAP retrieval) from corrected transcript and source audio.",
+        "analysis",
+        ("understanding/interview_spine.json",),
+        (),
+    ),
+    StageInfo(
         "speaker_roles",
         "Speaker roles",
         "AI identifies who is the interviewer vs interviewee and maps speaker labels to roles.",

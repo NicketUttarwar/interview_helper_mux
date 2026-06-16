@@ -22,6 +22,9 @@ def run_boundaries(ctx: RunContext) -> None:
         if quality:
             payload["transcript_quality"] = quality
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "boundary_detection")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("segments/boundaries.json", "boundary_detection")
@@ -49,6 +52,9 @@ def run_classification(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "segment_classification")
         return attach_disfluency_context(payload, c)
 
     def _manifest_transform(artifacts: dict) -> dict:

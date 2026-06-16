@@ -21,6 +21,9 @@ def run_topic_coverage(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
+        from interview_mux.coherence import attach_coherence_summary
+
+        attach_coherence_summary(payload, c, "topic_coverage_audit")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("flow_1_master/coverage_audit.json", "topic_coverage_audit")
@@ -33,6 +36,10 @@ def run_topic_coverage(ctx: RunContext) -> None:
         persist,
     )
     maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", build_input(ctx))
+    if ctx.is_done("topic_coverage_audit"):
+        from interview_mux.coherence import maybe_run_coherence_analysis
+
+        maybe_run_coherence_analysis(ctx, phase="post_coverage")
 
 
 def run_narrative_arc(ctx: RunContext) -> None:
@@ -46,6 +53,9 @@ def run_narrative_arc(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
+        from interview_mux.coherence import attach_coherence_summary
+
+        attach_coherence_summary(payload, c, "narrative_arc_plan")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("flow_1_master/narrative_plan.json", "narrative_arc_plan")

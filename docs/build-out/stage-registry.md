@@ -26,7 +26,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Shared analysis
 
-**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `speaker_roles` → ... → `content_brief_reanchor` → `sonic_context_build` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
+**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `interview_spine_build` → `speaker_roles` → ... → `content_brief_reanchor` → `sonic_context_build` → `sound_design_palettes` → `missing_framing` → `optimal_questions`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -46,6 +46,8 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `vo_ingest` | shipped (on-demand) | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline; **not in `ANALYSIS_ORDER`** — triggered by next batch execute after G1 or `mode: stage` | — |
 | `sound_design_plan_init` | shipped (init hook) | `analysis_memory.py` | BUILD-060 | `understanding/sound_design_plan.json` (empty scaffold) | `cross-cutting/json-schemas/sound_design_plan.schema.json` |
 | `source_acoustic_profile` | shipped | `understanding.py` | BUILD-082 | `understanding/source_acoustic_profile.json` | deterministic derivation · [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
+| `interview_spine_build` | shipped | `interview_spine_stage.py` | BUILD-083 | `understanding/interview_spine.json` (+ optional `embeddings.npz`) | H-ORC-01 local comprehension index · [interview-spine.md](../cross-cutting/interview-spine.md) |
+| Coherence hooks (H-ORC-03) | shipped | `coherence/analyze.py` | — | `understanding/coherence_report.json` | After `content_context` / `content_brief_reanchor` / `topic_coverage_audit` · [coherence-orc03.md](../cross-cutting/coherence-orc03.md) |
 | `sound_design_palettes` | shipped | `sound_design_stages.py` | BUILD-061 | SDP `palettes`, `coherence` | `sound_design/theme-palettes` |
 
 **GUI-only (not in `ANALYSIS_ORDER`):** `analysis_profile` — edit `analysis_state.json` ([analysis-memory.md](../cross-cutting/analysis-memory.md)).

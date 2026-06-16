@@ -170,6 +170,8 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 | Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `until_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Preview listened milestone | `assembly_preview` polish CTA | `POST …/milestones/preview-listened` | `gui_log.jsonl` | `run_meta.journey.preview_listened_at` when `require_preview_listen` |
 | Acoustic profile overrides | `source_acoustic_profile` | `PATCH …/acoustic-profile/overrides`, `POST …/recompute-acoustic-profile` | `gui_log.jsonl` | `understanding/source_acoustic_profile.json` → `operator_overrides` |
+| Interview spine | `interview_spine_build` | `GET …/interview-spine`, `POST …/recompute-interview-spine`, `POST …/interview-spine/query` | Story Board summary · pipeline gate panel | `understanding/interview_spine.json` |
+| Coherence (H-ORC-03) | hooks after `content_context`, `content_brief_reanchor`, `topic_coverage_audit` | `GET …/coherence-report`, `POST …/recompute-coherence` | Story Board **Coherence risks** panel | `understanding/coherence_report.json` |
 | Placement QA hints | `mmaudio_sfx_flow*`, `mix_flow*` | *(read)* `sound_design/placement_adjustments.json` | — | `PlacementAdjustmentsPanel` after SFX/mix when `sound_design.placement_qa_enabled` |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 

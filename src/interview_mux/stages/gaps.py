@@ -29,6 +29,12 @@ def run_missing_framing(ctx: RunContext) -> None:
         hints = compact_profile_style_hints(load_analysis_state(c))
         if hints:
             payload["profile_style"] = hints
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "missing_framing")
+        from interview_mux.coherence import attach_coherence_summary
+
+        attach_coherence_summary(payload, c, "missing_framing")
         return payload
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")

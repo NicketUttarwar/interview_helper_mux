@@ -51,6 +51,9 @@ ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
 | `understanding/content_brief.json` | Yes | Content brief — thesis, topics, typed `key_claims`, `topic_relationships` (synced to memory) |
 | `understanding/sound_design_plan.json` | Yes | Coherent sound design plan shell (BUILD-060 baseline; schema: [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json); expanded by Wave 5 stages) |
 | `understanding/source_acoustic_profile.json` | Yes | Per-interview pacing, energy, mix contract — [source_acoustic_profile.schema.json](./json-schemas/source_acoustic_profile.schema.json); [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) |
+| `understanding/interview_spine.json` | No | Time-aligned windows + boundary events — [interview_spine.schema.json](./json-schemas/interview_spine.schema.json); [interview-spine.md](./interview-spine.md) |
+| `understanding/interview_spine/embeddings.npz` | No | Optional CLAP sidecar when retrieval enabled |
+| `understanding/coherence_report.json` | No | H-ORC-03 long-run coherence risks — [coherence_report.schema.json](./json-schemas/coherence_report.schema.json); [coherence-orc03.md](./coherence-orc03.md) |
 | `understanding/sonic_context.json` | Yes | Consolidated sonic tags, scenario policy, cue opportunities — [sonic_context.schema.json](./json-schemas/sonic_context.schema.json); built by `sonic_context_build` (BUILD-SFX-01+) |
 | `understanding/speakers.json` | Yes | Speaker roles |
 | `segments/manifest.json` | Yes | Segment timeline |

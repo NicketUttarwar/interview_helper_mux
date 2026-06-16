@@ -70,7 +70,18 @@ def _preflight_speaker_roles(ctx: RunContext) -> list[str]:
         errors.append("transcript/full.json is empty or too short")
     if check_transcript_review_pending(ctx):
         errors.append("Transcript review (G0) incomplete")
+    errors.extend(_spine_preflight(ctx))
     return errors
+
+
+def _spine_preflight(ctx: RunContext) -> list[str]:
+    from interview_mux.interview_spine.config import spine_enabled
+
+    if not spine_enabled():
+        return []
+    if not ctx.artifact_exists("understanding/interview_spine.json"):
+        return ["understanding/interview_spine.json missing — run interview_spine_build"]
+    return []
 
 
 def _preflight_content_context(ctx: RunContext) -> list[str]:
@@ -101,6 +112,7 @@ def _preflight_boundary_detection(ctx: RunContext) -> list[str]:
     roles = {str(sp.get("role", "")).strip().lower() for sp in speakers if isinstance(sp, dict)}
     if "interviewer" not in roles:
         errors.append("speakers.json missing interviewer role")
+    errors.extend(_spine_preflight(ctx))
     return errors
 
 
@@ -263,8 +275,25 @@ def _preflight_podcast_show_description(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(ctx, ("flow_1_master/selection.json",))
 
 
+def _coherence_report_preflight(ctx: RunContext) -> list[str]:
+    from interview_mux.coherence import coherence_active
+    from interview_mux.coherence.duration_gate import coherence_activated
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+
+    if not coherence_active() or not coherence_activated(ctx):
+        return []
+    if ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        return []
+    return [
+        "understanding/coherence_report.json missing for 30m+ interview — "
+        "run content_brief_reanchor or POST /recompute-coherence"
+    ]
+
+
 def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
-    return _check_upstream_artifacts(ctx, ("flow_1_master/coverage_audit.json",))
+    errors = _check_upstream_artifacts(ctx, ("flow_1_master/coverage_audit.json",))
+    errors.extend(_coherence_report_preflight(ctx))
+    return errors
 
 
 def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
@@ -286,7 +315,9 @@ def _preflight_transitions(ctx: RunContext) -> list[str]:
 
 
 def _preflight_topic_coverage(ctx: RunContext) -> list[str]:
-    return _preflight_pre_flow1(ctx)
+    errors = _preflight_pre_flow1(ctx)
+    errors.extend(_coherence_report_preflight(ctx))
+    return errors
 
 
 def _preflight_sfx_prompt_refine(ctx: RunContext) -> list[str]:

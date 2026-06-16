@@ -110,6 +110,41 @@ def _validate_claim_mappings(brief: dict[str, Any], audit: dict[str, Any]) -> li
     return errors
 
 
+def _cross_check_coherence_missing_callback(
+    ctx: RunContext,
+    brief_topics: list[Any],
+    audit: dict[str, Any],
+) -> list[str]:
+    """Flag when coherence missing_callback risks lack matching coverage_audit excludes."""
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+
+    if not ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        return []
+    report = ctx.read_json(COHERENCE_REPORT_PATH)
+    if not (report.get("gate") or {}).get("activated"):
+        return []
+    missing_coverage = audit.get("missing_coverage") or []
+    documented = _documented_excludes(missing_coverage)
+    errors: list[str] = []
+    for risk in report.get("risks") or []:
+        if not isinstance(risk, dict):
+            continue
+        if risk.get("kind") != "missing_callback" or risk.get("status") == "resolved":
+            continue
+        topic = str((risk.get("evidence") or {}).get("topic") or risk.get("theme_id") or "")
+        if not topic:
+            continue
+        norm = _norm_name(topic)
+        if norm not in documented:
+            by_topic = _topic_mapping_index(audit.get("topic_mappings") or [])
+            mapping = by_topic.get(norm)
+            if not mapping or not (mapping.get("segment_ids") or []):
+                errors.append(
+                    f'Coherence missing_callback for "{topic}" not reflected in coverage_audit'
+                )
+    return errors
+
+
 def validate_flow1_narrative(
     ctx: RunContext,
     *,
@@ -131,6 +166,7 @@ def validate_flow1_narrative(
         audit = ctx.read_json("flow_1_master/coverage_audit.json")
         errors.extend(_validate_topic_coverage(brief_topics, audit))
         errors.extend(_validate_claim_mappings(brief, audit))
+        errors.extend(_cross_check_coherence_missing_callback(ctx, brief_topics, audit))
 
     has_selection = ctx.artifact_exists("flow_1_master/selection.json")
     if require_selection and not has_selection:

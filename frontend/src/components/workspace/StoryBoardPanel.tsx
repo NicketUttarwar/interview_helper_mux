@@ -12,6 +12,7 @@ import {
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
 import { ActionMarker } from "../guidance/ActionMarker";
+import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 
 function investigationItems(queue: Record<string, unknown>): Array<Record<string, unknown>> {
   const items = queue.items ?? queue.investigations;
@@ -165,6 +166,15 @@ export function StoryBoardPanel() {
       {config?.value_analysis_enabled && data.value_features ? (
         <p className="muted">Research metrics (advisory only) — see value_features.json</p>
       ) : null}
+      {data.interview_spine ? (
+        <p className="muted sm">
+          Spine: {Array.isArray((data.interview_spine as { windows?: unknown[] }).windows)
+            ? (data.interview_spine as { windows: unknown[] }).windows.length
+            : "—"}{" "}
+          windows · use pipeline gate to query moments
+        </p>
+      ) : null}
+      <CoherenceRisksPanel />
       <div className="story-actions">
         <button type="button" className="btn" disabled={saving} onClick={() => void save(false)}>
           Save story

@@ -57,6 +57,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         }
         if nle_has_operator_edits(nle):
             payload["nle_edits"] = nle
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "full_master_ranking")
         return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:

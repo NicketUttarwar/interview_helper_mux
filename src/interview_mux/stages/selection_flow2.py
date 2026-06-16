@@ -23,6 +23,9 @@ def run_highlight_selection(ctx: RunContext) -> None:
         hints = compact_profile_style_hints(load_analysis_state(c))
         if hints:
             payload["profile_style"] = hints
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "highlight_selection")
         return payload
 
     persist = make_stage_persist("flow_2_highlights/selection.json", "highlight_selection")

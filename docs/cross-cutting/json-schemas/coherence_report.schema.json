@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoherenceReport",
+  "type": "object",
+  "required": ["schema_version", "derived_from", "gate", "scores", "risks", "summary"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "derived_from": {
+      "type": "object",
+      "required": ["computed_at", "phase", "duration_ms"],
+      "properties": {
+        "interview_spine_sha256": { "type": "string" },
+        "content_brief_sha256": { "type": "string" },
+        "manifest_sha256": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "computed_at": { "type": "string" },
+        "phase": {
+          "type": "string",
+          "enum": ["post_content_context", "post_reanchor", "post_coverage"]
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "required": ["min_duration_ms", "activated", "duration_ms"],
+      "properties": {
+        "min_duration_ms": { "type": "integer", "minimum": 0 },
+        "activated": { "type": "boolean" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["window_id", "start_ms", "end_ms"],
+        "properties": {
+          "window_id": { "type": "string" },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "novelty_score": { "type": "number" },
+          "theme_alignment": { "type": "number" },
+          "best_theme_id": { "type": ["string", "null"] },
+          "drift_score": { "type": "number" }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk_id", "kind", "time_ms", "confidence", "evidence"],
+        "properties": {
+          "risk_id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["topic_drift", "claim_contradiction", "missing_callback"]
+          },
+          "time_ms": { "type": "integer" },
+          "window_id": { "type": ["string", "null"] },
+          "theme_id": { "type": ["string", "null"] },
+          "claim_id": { "type": ["string", "null"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "blocking": { "type": "boolean" },
+          "evidence": { "type": "object" },
+          "suggested_action": { "type": "object" },
+          "status": { "type": "string", "enum": ["open", "resolved"] }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "topic_drift_count",
+        "claim_contradiction_count",
+        "missing_callback_count"
+      ],
+      "properties": {
+        "topic_drift_count": { "type": "integer", "minimum": 0 },
+        "claim_contradiction_count": { "type": "integer", "minimum": 0 },
+        "missing_callback_count": { "type": "integer", "minimum": 0 },
+        "phase": { "type": "string" }
+      }
+    }
+  }
+}

@@ -91,7 +91,38 @@
     "spike_scoring": true,
     "transcript_features": true,
     "audio_features": true,
-    "auto_extract_after_content_context": true
+    "auto_extract_after_content_context": true,
+    "orc03_enabled": true
+  },
+  "_comment_coherence": "H-ORC-03 long-run coherence — 30m gate, composite drift/contradiction/callback",
+  "coherence": {
+    "enabled": true,
+    "min_duration_ms": 1800000,
+    "max_investigations_per_run": 8,
+    "max_risks_in_memory": 20,
+    "topic_drift_threshold": 0.55,
+    "claim_contradiction_threshold": 0.72,
+    "missing_callback_threshold": 0.60,
+    "require_acoustic_novelty": true,
+    "novelty_min_delta": 0.18,
+    "theme_alignment_min": 0.35,
+    "blocking_claim_contradiction": true,
+    "replace_stub_topic_shift_hints": true
+  },
+  "_comment_interview_spine": "H-ORC-01 time-aligned local comprehension index (not LLM fine-tune)",
+  "interview_spine": {
+    "enabled": true,
+    "clap_enabled": true,
+    "prosody_enabled": true,
+    "window_sec_default": 10,
+    "window_sec_dense": 6,
+    "window_sec_calm": 12,
+    "hop_sec": 5,
+    "boundary_fusion_min_sources": 1,
+    "clap_model_id": "laion/clap-htsat-fused",
+    "clap_timeout_sec": 120,
+    "ssl_enabled": false,
+    "flow2_quotability_enabled": false
   },
   "_comment_audio_preclean": "DeepFilterNet primary; ffmpeg denoise when local stack unavailable",
   "audio_preclean": {

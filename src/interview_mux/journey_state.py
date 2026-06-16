@@ -41,6 +41,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "disfluency_extract": "prepare",
     "disfluency_review": "prepare",
     "source_acoustic_profile": "understand",
+    "interview_spine_build": "understand",
     "speaker_roles": "understand",
     "content_context": "understand",
     "boundary_detection": "understand",

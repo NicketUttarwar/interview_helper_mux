@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "derived_from": {
+    "computed_at": "2026-01-01T00:00:00Z",
+    "stage": "interview_spine_build",
+    "normalized_wav": "ingest/normalized.wav",
+    "transcript": "transcript/full.json"
+  },
+  "encoders": {"dsp": "numpy_rms_v1", "clap": null, "ssl": null},
+  "window_policy": {"window_sec": 10, "hop_sec": 5, "align_to": "words"},
+  "windows": [
+    {
+      "window_id": "win_early",
+      "start_ms": 0,
+      "end_ms": 10000,
+      "text_span": "We always ship on schedule",
+      "features": {"rms_p50": 0.2, "pause_before_ms": 0, "speaking_rate_wpm": 130}
+    },
+    {
+      "window_id": "win_decoy",
+      "start_ms": 900000,
+      "end_ms": 910000,
+      "text_span": "decoy speaker turn pause",
+      "features": {"rms_p50": 0.15, "pause_before_ms": 900, "speaking_rate_wpm": 110}
+    },
+    {
+      "window_id": "win_contra",
+      "start_ms": 1320000,
+      "end_ms": 1330000,
+      "text_span": "We never actually ship on schedule correction",
+      "features": {"rms_p50": 0.55, "pause_before_ms": 700, "speaking_rate_wpm": 140}
+    }
+  ],
+  "boundary_events": [],
+  "retrieval": {"enabled": false, "model_id": null, "sidecar_path": null, "vector_dim": null, "window_count": 3},
+  "speaker_stats": []
+}

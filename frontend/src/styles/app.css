@@ -3579,6 +3579,46 @@ code {
   background: var(--surface);
 }
 
+.coherence-risks-card {
+  margin-top: 0.75rem;
+}
+
+.coherence-risks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.coherence-risk-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.coherence-risk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.coherence-risk.blocking {
+  color: var(--warn, #b45309);
+}
+
+.coherence-risk-kind {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.coherence-risk-time {
+  font-family: var(--mono, monospace);
+}
+
 .acoustic-overrides-card {
   margin-top: 0.75rem;
   padding: 0.75rem;

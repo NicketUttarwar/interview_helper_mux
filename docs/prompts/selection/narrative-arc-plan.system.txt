@@ -50,3 +50,7 @@ Each constraint needs:
 Empty array is valid only when manifest lacks supporting relationships **and** chronological order is editorially defensible in `arc_summary`.
 
 **Quality bar:** Every chapter `suggested_open_segment_id` exists in input; constraints must survive full master ranking — do not over-constrain if evidence supports only one ordering.
+
+## coherence_summary — drift hinges
+
+When `coherence_summary.risks` includes `topic_drift`, prefer chapter boundaries near those `time_ms` values and note drift in `arc_summary` constraints when reordering would hide a thematic return.

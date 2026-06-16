@@ -11,6 +11,7 @@ import { VoPickupPanel } from "./VoPickupPanel";
 import { FlowSelectPanel } from "./FlowSelectPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
+import { InterviewSpinePanel } from "../workspace/InterviewSpinePanel";
 import { QcSummaryCard } from "./QcSummaryCard";
 import { ValueFeaturesPanel } from "./ValueFeaturesPanel";
 import { SfxPromptReviewPanel } from "./SfxPromptReviewPanel";
@@ -137,6 +138,7 @@ export function GateActions({ stage }: Props) {
       ) : null}
 
       {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
+      {stage.id === "interview_spine_build" ? <InterviewSpinePanel /> : null}
       {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
 
       {stage.id === "edl_flow1" || stage.id === "assembly_preview" ? (

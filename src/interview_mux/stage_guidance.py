@@ -83,6 +83,7 @@ STAGE_UNLOCKS: dict[str, str] = {
     "disfluency_review": "Source acoustic profile and downstream analysis",
     "transcript_review": "Disfluency extract (when enabled) or source acoustic profile",
     "source_acoustic_profile": "Speaker roles and sonic pacing for mix/SFX",
+    "interview_spine_build": "Local comprehension index for boundaries and retrieval",
     "speaker_roles": "Content understanding",
     "content_context": "Segment boundaries",
     "boundary_detection": "Segment classification",
@@ -331,6 +332,16 @@ def _open_investigation_count(ctx: RunContext) -> int:
         for it in items
         if isinstance(it, dict) and (it.get("status") or "open") in ("open", "pending", "needs")
     )
+
+
+def _open_coherence_risk_count(ctx: RunContext) -> int:
+    from interview_mux.analysis_memory import load_analysis_state
+
+    state = load_analysis_state(ctx)
+    risks = state.get("coherence_risks") or []
+    if not isinstance(risks, list):
+        return 0
+    return sum(1 for r in risks if isinstance(r, dict) and r.get("status", "open") == "open")
 
 
 def _g0_5_items(disfluency_review_pending: bool) -> list[dict[str, Any]]:
@@ -916,6 +927,17 @@ def build_stage_guidance(
             _guidance_item(
                 "investigations",
                 f"Resolve {inv_count} open question(s) in Story Board",
+                "todo",
+                action="story_board",
+                kind="story_board",
+            )
+        )
+    coherence_open = _open_coherence_risk_count(ctx)
+    if stage_id in ("content_brief_reanchor", "topic_coverage_audit", "narrative_arc_plan") and coherence_open > 0:
+        prerequisites.append(
+            _guidance_item(
+                "coherence_risks",
+                f"Review {coherence_open} open coherence risk(s) on Story Board",
                 "todo",
                 action="story_board",
                 kind="story_board",

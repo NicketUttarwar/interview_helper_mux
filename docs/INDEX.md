@@ -54,6 +54,8 @@ Flat hub for **interview_helper_mux**.
 - [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent reusable SFX (shipped; [Wave 5 done](./build-out/README.md#wave-5--coherent-sound-design-done))
 - [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) — per-interview acoustic/pacing profile from source audio (shipped, BUILD-082)
+- [cross-cutting/interview-spine.md](./cross-cutting/interview-spine.md) — time-aligned comprehension index + CLAP retrieval (shipped, BUILD-083)
+- [cross-cutting/coherence-orc03.md](./cross-cutting/coherence-orc03.md) — H-ORC-03 long-run coherence (30m gate, shipped)
 - [cross-cutting/evaluation-metrics.md](./cross-cutting/evaluation-metrics.md)
 - [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) — `app.defaults.json` + secrets merge
 - [cross-cutting/json-schemas/](./cross-cutting/json-schemas/)

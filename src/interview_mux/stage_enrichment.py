@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import soundfile as sf
 
+from interview_mux.audio_energy import energy_windows_from_path
 from interview_mux.run_context import RunContext
 
 VALUE_FEATURES_PATH = "understanding/value_features.json"
@@ -57,22 +57,7 @@ def pause_ladder_hints(ctx: RunContext) -> dict[str, Any]:
 
 
 def _energy_windows(ctx: RunContext) -> tuple[np.ndarray, np.ndarray, float] | None:
-    wav_path = ctx.path("ingest", "normalized.wav")
-    if not wav_path.is_file():
-        return None
-    audio, sample_rate = sf.read(str(wav_path), always_2d=True)
-    mono = audio.mean(axis=1).astype(np.float64)
-    if mono.size == 0 or sample_rate <= 0:
-        return None
-    peak = float(np.max(np.abs(mono))) or 1.0
-    win_size = max(1, int(sample_rate * _WINDOW_SEC))
-    usable = (len(mono) // win_size) * win_size
-    if usable <= 0:
-        return None
-    windows = mono[:usable].reshape(-1, win_size)
-    rms = np.sqrt(np.mean(np.square(windows), axis=1))
-    times_ms = (np.arange(len(rms)) * win_size / float(sample_rate) * 1000.0).astype(np.float64)
-    return rms, times_ms, peak
+    return energy_windows_from_path(ctx.path("ingest", "normalized.wav"), window_sec=_WINDOW_SEC)
 
 
 def emphasis_regions_for_segments(ctx: RunContext, *, max_regions: int = 24) -> list[dict[str, Any]]:
@@ -115,6 +100,33 @@ def emphasis_regions_for_segments(ctx: RunContext, *, max_regions: int = 24) -> 
     return regions[:max_regions]
 
 
+def _spine_quotability_boost(
+    ctx: RunContext,
+    start_ms: Any,
+    end_ms: Any,
+) -> float:
+    from interview_mux.interview_spine import SPINE_PATH
+    from interview_mux.interview_spine.config import spine_flow2_quotability_enabled
+
+    if not spine_flow2_quotability_enabled() or start_ms is None or end_ms is None:
+        return 0.0
+    if not ctx.artifact_exists(SPINE_PATH):
+        return 0.0
+    spine = ctx.read_json(SPINE_PATH)
+    if not isinstance(spine, dict):
+        return 0.0
+    boost = 0.0
+    for event in spine.get("boundary_events") or []:
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") not in ("trust_dip", "prosody_shift", "novelty_hint"):
+            continue
+        time_ms = int(event.get("time_ms") or 0)
+        if float(start_ms) <= time_ms <= float(end_ms):
+            boost = max(boost, min(0.12, float(event.get("confidence") or 0.5) * 0.12))
+    return boost
+
+
 def quotability_signals(ctx: RunContext, *, max_signals: int = 30) -> list[dict[str, Any]]:
     """H-F2-02: paralinguistic × text quotability proxy per segment."""
     segments = _load_segments(ctx)
@@ -147,7 +159,11 @@ def quotability_signals(ctx: RunContext, *, max_signals: int = 30) -> list[dict[
             if np.any(mask):
                 seg_p90 = float(np.percentile(rms[mask], 90))
                 energy_score = min(1.0, seg_p90 / max(rms_global_p90, 1e-9)) * 0.5
-        quotability = round(min(1.0, length_score * 0.45 + energy_score + question_boost), 3)
+        spine_boost = _spine_quotability_boost(ctx, start_ms, end_ms)
+        quotability = round(
+            min(1.0, length_score * 0.45 + energy_score + question_boost + spine_boost),
+            3,
+        )
         signals.append({"segment_id": sid, "quotability_score": quotability})
 
     signals.sort(key=lambda s: s.get("quotability_score", 0), reverse=True)
@@ -192,7 +208,11 @@ def communicative_salience_score(chunk: dict[str, Any]) -> float:
     density = min(1.0, word_count / 40.0)
     duration_ms = max(1.0, float(chunk.get("end_ms", 0)) - float(chunk.get("start_ms", 0)))
     pause_proxy = min(1.0, duration_ms / 8000.0)
-    return round(low_conf * 0.55 + density * 0.25 + pause_proxy * 0.2, 4)
+    stress = float(chunk.get("acoustic_stress_score") or 0.0)
+    return round(
+        low_conf * 0.45 + density * 0.2 + pause_proxy * 0.15 + stress * 0.2,
+        4,
+    )
 
 
 def compact_value_features_summary(ctx: RunContext) -> dict[str, Any] | None:

@@ -24,7 +24,10 @@
           "word_count": { "type": "integer" },
           "needs_review": { "type": "boolean" },
           "reviewed": { "type": "boolean" },
-          "clip_path": { "type": "string" }
+          "clip_path": { "type": "string" },
+          "clip_start_ms": { "type": "integer", "minimum": 0 },
+          "clip_end_ms": { "type": "integer", "minimum": 0 },
+          "acoustic_stress_score": { "type": "number", "minimum": 0, "maximum": 1 }
         }
       }
     }

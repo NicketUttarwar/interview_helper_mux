@@ -15,7 +15,30 @@
           "priority": { "enum": ["high", "medium", "low"] },
           "kind": { "type": "string" },
           "question": { "type": "string" },
-          "target": { "type": "object" },
+          "target": {
+            "type": "object",
+            "description": "H-ORC-03 extensions: window_id, start_ms, end_ms, theme_id, claim_id, risk_id",
+            "properties": {
+              "segment_id": { "type": "string" },
+              "field": { "type": "string" },
+              "stage": { "type": "string" },
+              "window_id": { "type": "string" },
+              "start_ms": { "type": "integer" },
+              "end_ms": { "type": "integer" },
+              "theme_id": { "type": "string" },
+              "claim_id": { "type": "string" },
+              "risk_id": { "type": "string" }
+            }
+          },
+          "evidence": {
+            "type": "object",
+            "description": "H-ORC-03 score evidence",
+            "properties": {
+              "novelty_score": { "type": "number" },
+              "theme_alignment": { "type": "number" },
+              "drift_score": { "type": "number" }
+            }
+          },
           "suggested_action": { "type": "object" },
           "status": { "enum": ["open", "in_progress", "done", "wont_fix"] },
           "blocking": { "type": "boolean" },
