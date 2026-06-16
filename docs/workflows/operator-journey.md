@@ -4,7 +4,16 @@
 
 The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`. **Live status bar** (all tabs) is the single command surface; **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
 
-**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The workflow bar uses **Phase N of 7** (Prepare → Export); the pipeline left rail uses **pipeline step N of M** for individual stages — these numbers are different on purpose.
+**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export). The **Pipeline command center** shows **Pipeline step N of M** for individual stages. These counters measure different scopes — workflow phase is the operator journey; pipeline step is the numbered stage list in the left rail.
+
+### Two progress numbers (GUI)
+
+| Surface | Label | Meaning |
+|---------|-------|---------|
+| Live status bar | **Workflow phase** | High-level journey: Start → Prepare → Analyze → Record & choose → Build → Sound → Export |
+| Pipeline command center / step list | **Pipeline step** | Each automated or manual stage in the current run (Flow 1 can expose 40+ steps) |
+
+When the run is **blocked** at a gate, the command center leads with the blocking message instead of the step counter. Use **Needs your attention** (queue panel) for all pending reviews in priority order.
 
 ---
 

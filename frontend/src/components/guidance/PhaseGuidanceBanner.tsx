@@ -6,12 +6,14 @@ import { WORKFLOW_STEPS } from "../../utils/workflowSteps";
 
 interface Props {
   run: RunData;
+  compact?: boolean;
 }
 
-export function PhaseGuidanceBanner({ run }: Props) {
+export function PhaseGuidanceBanner({ run, compact }: Props) {
   const phase = run.journey?.phase ?? "prepare";
   const phaseGuidance = run.journey?.phase_guidance?.[phase];
   const flowNote = run.display_flow || run.selected_flow || run.journey?.flow_intent;
+  const blocking = run.journey?.blocking ?? run.blocking;
 
   const goal =
     phaseGuidance?.goal ||
@@ -19,7 +21,7 @@ export function PhaseGuidanceBanner({ run }: Props) {
     "";
 
   const progress = phaseGuidance?.progress || run.journey?.phase_progress?.[phase];
-  const actions = phaseGuidance?.actions || [];
+  const actions = (phaseGuidance?.actions || []).slice(0, compact ? 2 : 3);
 
   return (
     <section className="phase-guidance-banner panel-inset" aria-label="Phase guidance">
@@ -37,10 +39,30 @@ export function PhaseGuidanceBanner({ run }: Props) {
         ) : null}
       </div>
       {goal ? <p className="hint phase-guidance-goal">{goal}</p> : null}
+      {blocking?.blocked && blocking.message ? (
+        <ul className="stage-guidance-list phase-guidance-actions">
+          <li className="stage-guidance-item status-todo">
+            <ActionMarker status="todo" />
+            <span className="stage-guidance-label">{blocking.message}</span>
+            <GuidanceActionButton
+              item={{
+                id: "blocking",
+                label: blocking.message,
+                status: "todo",
+                kind: "checkpoint",
+                stage_id: blocking.stage_id || undefined,
+              }}
+            />
+          </li>
+        </ul>
+      ) : null}
       {actions.length > 0 ? (
         <ul className="stage-guidance-list phase-guidance-actions">
           {actions.map((item) => (
-            <li key={`${item.from_stage_id || ""}-${item.id}`} className={`stage-guidance-item status-${item.status}`}>
+            <li
+              key={`${item.from_stage_id || ""}-${item.id}`}
+              className={`stage-guidance-item status-${item.status}`}
+            >
               <ActionMarker status={item.status} />
               <span className="stage-guidance-label">
                 {item.from_stage_title ? `${item.from_stage_title}: ` : ""}
@@ -50,6 +72,9 @@ export function PhaseGuidanceBanner({ run }: Props) {
             </li>
           ))}
         </ul>
+      ) : null}
+      {compact && (phaseGuidance?.actions?.length || 0) > 2 ? (
+        <p className="hint sm">More steps listed in the pipeline step list.</p>
       ) : null}
     </section>
   );

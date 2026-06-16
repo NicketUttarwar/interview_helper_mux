@@ -159,7 +159,22 @@ export function OperatorActionModal() {
         </div>
         {!continueEnabled && selectedStage.status === "action_required" ? (
           <p className="hint modal-continue-hint">
-            {continueHintForStage(selectedStage.id)}
+            {continueHintForStage(selectedStage.id, run)}
+          </p>
+        ) : null}
+        {!continueEnabled && pending?.kind === "write_approval" ? (
+          <p className="hint modal-continue-hint">
+            Preview staged files, then Save &amp; continue to write them to disk.
+          </p>
+        ) : null}
+        {!continueEnabled && pending?.kind === "stage_reuse" ? (
+          <p className="hint modal-continue-hint">
+            Choose reuse from a prior execution or run this step fresh.
+          </p>
+        ) : null}
+        {!continueEnabled && showHandoff ? (
+          <p className="hint modal-continue-hint">
+            Skim AI outputs above, then acknowledge to continue.
           </p>
         ) : null}
       </div>

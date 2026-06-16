@@ -4,6 +4,7 @@ import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
 import type { PipelineNavState } from "./pipelineNavigation";
 import { firstTodoItem, guidanceHasTodo } from "./stageGuidance";
+import { checkpointPrimaryLabel } from "./checkpointLabels";
 
 export type StagePrimaryActionKind =
   | "run"
@@ -93,8 +94,8 @@ export function resolveStagePrimaryAction(
   if (needsHandoff) {
     return {
       kind: "handoff",
-      label: "Acknowledge & continue",
-      sublabel: "Review AI outputs above, then continue to the next step.",
+      label: checkpointPrimaryLabel(stage.id, "handoff"),
+      sublabel: "Review AI outputs above, then acknowledge to continue.",
       disabled: false,
       targetStageId: stage.id,
     };
@@ -106,7 +107,7 @@ export function resolveStagePrimaryAction(
   ) {
     return {
       kind: "checkpoint",
-      label: "Open checkpoint",
+      label: checkpointPrimaryLabel(stage.id, "gate"),
       sublabel: "Complete the required operator steps for this stage.",
       disabled: false,
       targetStageId: stage.id,

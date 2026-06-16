@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import {
   buildNumberedStages,
@@ -6,10 +6,20 @@ import {
   stageNavStatus,
 } from "../../utils/pipelineNavigation";
 import { stageHasTodoActions } from "../../utils/stageGuidance";
+import { stageNeedsAttention } from "../../utils/attentionQueue";
 import { ActionMarker } from "../guidance/ActionMarker";
+
+const FILTER_KEY = "pipeline_filter_needs_you";
 
 export function PipelineStepList() {
   const { run, selectedStageId, selectStage, apiGrants, jobRunning, pinSelectedStage } = useApp();
+  const [filterNeedsYou, setFilterNeedsYou] = useState(() => {
+    try {
+      return sessionStorage.getItem(FILTER_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
 
   const nav = useMemo(
     () =>
@@ -24,12 +34,46 @@ export function PipelineStepList() {
   if (!run) return null;
 
   const numbered = buildNumberedStages(run.stages);
+  const filtered = filterNeedsYou
+    ? numbered.filter(
+        (entry) =>
+          stageNeedsAttention(run, entry.stage.id, apiGrants) ||
+          (jobRunning &&
+            (run.job?.current_stage === entry.stage.id ||
+              run.job?.stage === entry.stage.id)) ||
+          entry.stage.id === nav.focusStageId,
+      )
+    : numbered;
+
+  const toggleFilter = () => {
+    const next = !filterNeedsYou;
+    setFilterNeedsYou(next);
+    try {
+      sessionStorage.setItem(FILTER_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <nav className="pipeline-step-list panel" aria-label="Numbered pipeline steps">
-      <h3 className="pipeline-step-list-title">Steps</h3>
+      <div className="pipeline-step-list-head">
+        <h3 className="pipeline-step-list-title">Steps</h3>
+        <button
+          type="button"
+          className={`btn ghost sm pipeline-step-list-filter${filterNeedsYou ? " active" : ""}`}
+          onClick={toggleFilter}
+        >
+          Needs you only
+        </button>
+      </div>
+      {filterNeedsYou && filtered.length === 0 ? (
+        <p className="hint sm pipeline-step-filter-empty">
+          Nothing matches — open the attention queue above or turn off the filter.
+        </p>
+      ) : null}
       <ol className="pipeline-steps">
-        {numbered.map((entry) => {
+        {filtered.map((entry) => {
           const status = stageNavStatus(entry, run, selectedStageId, nav.focusStageId);
           const isSelected = entry.stage.id === selectedStageId;
           const hasAction = stageHasTodoActions(entry.stage);
@@ -66,12 +110,12 @@ export function PipelineStepList() {
                       : entry.stage.status === "awaiting_write_approval"
                         ? " · review"
                         : entry.stage.status === "locked"
-                        ? " · locked"
-                        : entry.stage.status === "done"
-                          ? " · done"
-                          : status === "current"
-                            ? " · current"
-                            : ""}
+                          ? " · locked"
+                          : entry.stage.status === "done"
+                            ? " · done"
+                            : status === "current"
+                              ? " · current"
+                              : ""}
                   </span>
                 </span>
               </button>

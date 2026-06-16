@@ -28,9 +28,9 @@ import type {
   TranscriptReviewState,
 } from "../types";
 import { isJobActivelyRunning } from "../utils/jobStatus";
+import { countRequiredAttention } from "../utils/attentionQueue";
 import {
   actionSummaryText,
-  countPendingActions,
   findHandoffStage,
   findPendingFocusStage,
   getHandoffPathsLocal,
@@ -74,6 +74,7 @@ interface AppContextValue {
   activityLogTab: LogStreamTab;
   activityLogCollapsed: boolean;
   logFilterPreset: LogFilterPreset | null;
+  jobCompleteAt: number | null;
   setActivityLogTab: (tab: LogStreamTab) => void;
   setActivityLogCollapsed: (collapsed: boolean) => void;
   setLogFilterPreset: (preset: LogFilterPreset | null) => void;
@@ -91,7 +92,7 @@ interface AppContextValue {
   startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
-  refreshRun: () => Promise<void>;
+  refreshRun: () => Promise<RunData | null>;
   selectStage: (stageId: string) => Promise<void>;
   executeJob: (body: ExecuteBody) => Promise<void>;
   runNextStage: () => Promise<void>;
@@ -173,6 +174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [logFilterPreset, setLogFilterPresetState] = useState<LogFilterPreset | null>(
     null,
   );
+  const [jobCompleteAt, setJobCompleteAt] = useState<number | null>(null);
 
   const logCountRef = useRef(0);
   const bootGenRef = useRef(0);
@@ -206,7 +208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const mergedApiGrants = useCallback(() => ALL_API_CONSENTS, []);
 
   const pendingActionCount = useMemo(
-    () => countPendingActions(run, mergedApiGrants()),
+    () => countRequiredAttention(run, mergedApiGrants()),
     [run, mergedApiGrants],
   );
   const actionSummary = useMemo(
@@ -414,8 +416,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setJobRunning(false);
   }, []);
 
-  const refreshRun = useCallback(async (): Promise<void> => {
-    if (!runId) return;
+  const refreshRun = useCallback(async (): Promise<RunData | null> => {
+    if (!runId) return null;
     const runData = await api<RunData>(`/api/runs/${runId}`);
     setRun(runData);
     setShownPrecleanOffers(
@@ -426,6 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setTimeline(tl);
     renderLogWithAlerts(runData.log_tail || []);
+    return runData;
   }, [runId, renderLogWithAlerts]);
 
   const selectStage = useCallback(
@@ -494,9 +497,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setRun((prev) => (prev ? { ...prev, job: polled } : prev));
           maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
-            await refreshRun();
+            const refreshed = await refreshRun();
             stopJobPoll();
             void focusPendingStage();
+            if (polled.status === "complete") {
+              setJobCompleteAt(Date.now());
+              const next = refreshed?.journey?.next_action;
+              if (next) {
+                showToast(`Next: ${next}`);
+                if (runId) {
+                  void api(`/api/runs/${runId}/log`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      message: `Step finished — next: ${next}`,
+                      level: "info",
+                    }),
+                  }).then(() => pollLog());
+                }
+              }
+            }
             if (
               polled.status === "awaiting_write_approval" ||
               polled.awaiting_write_approval
@@ -528,6 +548,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     syncJobRunning,
     maybeAutoSelectRunningStage,
     focusPendingStage,
+    showToast,
+    pollLog,
   ]);
 
   const executeJob = useCallback(
@@ -1014,6 +1036,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activityLogTab,
     activityLogCollapsed,
     logFilterPreset,
+    jobCompleteAt,
     setActivityLogTab,
     setActivityLogCollapsed,
     setLogFilterPreset,

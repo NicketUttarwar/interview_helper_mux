@@ -1,6 +1,7 @@
 import { useState, type MouseEvent } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
+import { PHASE_LABELS } from "../../constants/phases";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
@@ -112,6 +113,14 @@ export function ExecutionsTab() {
                 : r.job_status;
               const statusLabel = jobStatusLabel(jobStatus);
               const showLock = sessionLocked && !isActive;
+              const attentionCount = r.attention_count ?? 0;
+              const phaseLabel = r.operator_phase
+                ? PHASE_LABELS[r.operator_phase] || r.operator_phase
+                : null;
+              const blockedHint =
+                r.blocking_message || r.next_action
+                  ? String(r.blocking_message || r.next_action).slice(0, 80)
+                  : "";
               return (
                 <div
                   key={r.run_id}
@@ -152,7 +161,17 @@ export function ExecutionsTab() {
                       {hashMatchesActive ? (
                         <span className="run-same-audio-pill">Same audio</span>
                       ) : null}
+                      {attentionCount > 0 || jobStatus === "gate" ? (
+                        <span className="run-needs-you-pill">Needs you</span>
+                      ) : null}
                     </div>
+                    {phaseLabel || blockedHint ? (
+                      <p className="hint sm run-item-blocked-hint">
+                        {phaseLabel ? `${phaseLabel}` : ""}
+                        {phaseLabel && blockedHint ? " · " : ""}
+                        {blockedHint}
+                      </p>
+                    ) : null}
                     <div className="asset-meta">
                       {formatTs(r.updated_at || r.created_at)}
                       {prog ? ` · ${prog} stages` : ""}

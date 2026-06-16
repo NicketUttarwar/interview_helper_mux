@@ -79,7 +79,7 @@ export function GateActions({ stage }: Props) {
 
   if (stage.id === "transcript_review" && stage.status === "action_required") {
     return (
-      <div className="gate-actions">
+      <div className="gate-actions attention-required">
         <TranscriptReviewPanel />
       </div>
     );
@@ -109,9 +109,12 @@ export function GateActions({ stage }: Props) {
   return (
     <div className="gate-actions">
       {precleanOffer ? (
-        <PrecleanOfferCard stage={stage} offer={precleanOffer} />
+        <div className="attention-optional">
+          <PrecleanOfferCard stage={stage} offer={precleanOffer} />
+        </div>
       ) : null}
 
+      <div className="attention-required-wrap">
       <StageAudioActions stage={stage} />
 
       {stage.id === "analysis_profile" ? (
@@ -166,6 +169,7 @@ export function GateActions({ stage }: Props) {
       ) : null}
 
       <PlacementAdjustmentsPanel stage={stage} />
+      </div>
     </div>
   );
 }

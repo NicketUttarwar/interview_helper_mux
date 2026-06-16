@@ -7,6 +7,11 @@ import { resolvePrecleanOffer } from "../../utils/preclean";
 import { PHASE_LABELS } from "../../constants/phases";
 import { PendingActionBanner } from "../guidance/PendingActionBanner";
 import { resolvePendingAction } from "../../utils/pendingAction";
+import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
+import { AttentionQueuePanel } from "../guidance/AttentionQueuePanel";
+import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
+import { QcSummaryCard } from "../gates/QcSummaryCard";
+import { topAttentionItem } from "../../utils/attentionQueue";
 
 export function PipelineCommandCenter() {
   const {
@@ -33,6 +38,22 @@ export function PipelineCommandCenter() {
     [run, selectedStageId, jobRunning, apiGrants],
   );
 
+  const pendingAction = useMemo(
+    () => (run ? resolvePendingAction(run, apiGrants) : null),
+    [run, apiGrants],
+  );
+
+  const headerAction = useMemo(() => {
+    if (!run) return null;
+    const actionStage = selectedStage || nav.currentStage || nav.nextStage;
+    if (!actionStage) return null;
+    const offer = resolvePrecleanOffer(actionStage, run.meta);
+    return resolveStagePrimaryAction(actionStage, run, nav, {
+      jobRunning,
+      hasPrecleanOffer: Boolean(offer),
+    });
+  }, [run, selectedStage, nav, jobRunning]);
+
   if (!run) return null;
 
   const phase = run.journey?.phase ?? run.meta?.operator_phase ?? "prepare";
@@ -41,19 +62,12 @@ export function PipelineCommandCenter() {
     PHASE_LABELS[phase] ||
     "";
 
-  const actionStage = selectedStage || nav.nextStage || nav.currentStage;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  const blocked = Boolean(blocking?.blocked);
+  const topAttention = topAttentionItem(run, apiGrants);
+
+  const actionStage = selectedStage || nav.currentStage || nav.nextStage;
   const topTodo = actionStage?.guidance ? firstTodoItem(actionStage.guidance) : null;
-
-  const headerAction = useMemo(() => {
-    if (!actionStage) return null;
-    const offer = resolvePrecleanOffer(actionStage, run.meta);
-    return resolveStagePrimaryAction(actionStage, run, nav, {
-      jobRunning,
-      hasPrecleanOffer: Boolean(offer),
-    });
-  }, [actionStage, run, nav, jobRunning]);
-
-  const pendingAction = useMemo(() => resolvePendingAction(run, apiGrants), [run, apiGrants]);
 
   const onHeaderClick = () => {
     if (!headerAction || headerAction.disabled) return;
@@ -97,35 +111,58 @@ export function PipelineCommandCenter() {
       headerAction.kind === "handoff" ||
       headerAction.kind === "navigate");
 
+  const qcFailed = run.journey?.deliverable?.qc_passed === false;
+
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
+      <PhaseGuidanceBanner run={run} compact />
+      <AttentionQueuePanel />
+      <PreviewListenPromo />
+      {qcFailed ? (
+        <div className="pipeline-qc-promo panel-inset">
+          <QcSummaryCard qcKey="verify_master" stageId="master_flow1" />
+        </div>
+      ) : null}
       <PendingActionBanner />
       <div className="pipeline-command-head">
         <div>
-          <p className="pipeline-command-eyebrow">
-            {nav.currentNumber
-              ? `Pipeline step ${nav.currentNumber} of ${nav.numberedStages.length}${
-                  nav.currentStage?.guidance?.phase_label
-                    ? ` · ${nav.currentStage.guidance.phase_label} phase`
-                    : ""
-                }`
-              : `Pipeline · ${nav.numberedStages.length} steps`}
-          </p>
+          {!blocked ? (
+            <p
+              className="pipeline-command-eyebrow"
+              title="Individual automated or manual stage within the current workflow phase."
+            >
+              {nav.currentNumber
+                ? `Pipeline step ${nav.currentNumber} of ${nav.numberedStages.length}${
+                    nav.currentStage?.guidance?.phase_label
+                      ? ` · ${nav.currentStage.guidance.phase_label} phase`
+                      : ""
+                  }`
+                : `Pipeline · ${nav.numberedStages.length} steps`}
+            </p>
+          ) : null}
           <h2 className="pipeline-command-title">
-            {nav.currentStage?.title || nav.nextStage?.title || "Pipeline"}
+            {blocked
+              ? blocking?.message || topAttention?.title || "Action required"
+              : nav.currentStage?.title || nav.nextStage?.title || "Pipeline"}
           </h2>
-          <p className="pipeline-command-status">{nav.statusLine}</p>
-          {phaseGoal ? (
+          {!blocked ? (
+            <p className="pipeline-command-status">{nav.statusLine}</p>
+          ) : topAttention ? (
+            <p className="hint sm pipeline-command-status muted">
+              Step {nav.currentNumber ?? "?"} — {topAttention.stageTitle}
+            </p>
+          ) : null}
+          {!blocked && phaseGoal ? (
             <p className="hint sm pipeline-command-phase-goal">{phaseGoal}</p>
           ) : null}
-          {topTodo && !showHeaderBtn ? (
+          {topTodo && !showHeaderBtn && !blocked ? (
             <p className="hint pipeline-command-next">
               <span className="action-marker status-todo" aria-hidden>
                 ●
               </span>{" "}
               {topTodo.label}
             </p>
-          ) : nav.nextLine && !showHeaderBtn ? (
+          ) : nav.nextLine && !showHeaderBtn && !blocked ? (
             <p className="hint pipeline-command-next">{nav.nextLine}</p>
           ) : null}
         </div>

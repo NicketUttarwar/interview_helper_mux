@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { resolvePendingAction } from "../utils/pendingAction";
+import { countRequiredAttention } from "../utils/attentionQueue";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
@@ -9,9 +10,10 @@ import {
   stepNeedsCheckpoint,
   workflowStepIndex,
   workflowStepStatus,
+  workflowStepAttentionCount,
   type WorkflowStepId,
 } from "../utils/workflowSteps";
-import type { OperatorPhase } from "../types";
+import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
 
 export function LiveStatusBar() {
   const {
@@ -36,7 +38,19 @@ export function LiveStatusBar() {
     alertsMuted,
     setAlertsMuted,
     setLogFilterPreset,
+    jobCompleteAt,
   } = useApp();
+
+  const scrollPreview = useCallback(() => {
+    setActiveTab("pipeline");
+    setPipelineSubTab("stage");
+    requestAnimationFrame(() => {
+      document.getElementById("preview-listen-promo")?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+  }, [setActiveTab, setPipelineSubTab]);
 
   const live = useLiveStatus(run, {
     jobRunning,
@@ -59,6 +73,16 @@ export function LiveStatusBar() {
       setActiveTab("pipeline");
       setPipelineSubTab("stage");
     },
+    onGoStory: () => {
+      setActiveTab("pipeline");
+      setPipelineSubTab("story");
+    },
+    onGoProfile: () => {
+      setActiveTab("pipeline");
+      setPipelineSubTab("profile");
+    },
+    onScrollPreview: scrollPreview,
+    jobCompleteAt,
   });
 
   const activeStepId = currentWorkflowStep(run);
@@ -81,7 +105,7 @@ export function LiveStatusBar() {
       setPipelineSubTab(def.subTab);
       const stageId = stageIdForStep(stepId, run);
       if (stageId) void selectStage(stageId);
-      if (stepNeedsCheckpoint(stepId, run)) openActionModal();
+      if (stepNeedsCheckpoint(stepId, run, apiGrants)) openActionModal();
       if (stepId === "ship") {
         requestAnimationFrame(() => {
           document.getElementById("workflow-deliverable")?.scrollIntoView({
@@ -91,7 +115,7 @@ export function LiveStatusBar() {
         });
       }
     },
-    [run, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast],
+    [run, apiGrants, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast],
   );
 
   const precleanWarnings = run?.job?.preclean_warnings;
@@ -99,10 +123,34 @@ export function LiveStatusBar() {
     () => resolvePendingAction(run, apiGrants),
     [run, apiGrants],
   );
-  const unseenErrors = useMemo(() => {
-    if (live.activityKind === "error") return live.errorCount;
-    return live.errorCount;
-  }, [live]);
+  const requiredCount = useMemo(
+    () => countRequiredAttention(run, apiGrants),
+    [run, apiGrants],
+  );
+
+  const onActionBadgeClick = () => {
+    if (requiredCount > 1) {
+      setActiveTab("pipeline");
+      setPipelineSubTab("stage");
+      requestAnimationFrame(() => {
+        document.querySelector(".attention-queue-panel")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+      return;
+    }
+    openActionModal();
+  };
+
+  const headline =
+    live.primaryLabel && live.primaryLabel === run?.journey?.next_action
+      ? live.primaryLabel
+      : live.headline;
+  const subline =
+    live.primaryLabel && live.primaryLabel === run?.journey?.next_action
+      ? live.headline
+      : live.subline;
 
   return (
     <header
@@ -115,15 +163,15 @@ export function LiveStatusBar() {
         <div className="live-status-headline-row">
           <span className={`live-status-dot kind-${live.activityKind}`} aria-hidden />
           <div className="live-status-headlines">
-            <p className="live-status-headline">{live.headline}</p>
-            {live.subline ? (
-              <p className="live-status-subline muted" title={live.subline}>
-                {live.subline}
+            <p className="live-status-headline">{headline}</p>
+            {subline ? (
+              <p className="live-status-subline muted" title={subline}>
+                {subline}
               </p>
             ) : null}
           </div>
           <div className="live-status-actions">
-            {unseenErrors > 0 ? (
+            {live.errorCount > 0 ? (
               <button
                 type="button"
                 className="btn ghost sm live-status-error-chip"
@@ -132,14 +180,14 @@ export function LiveStatusBar() {
                   setActiveTab("logs");
                 }}
               >
-                {unseenErrors} error{unseenErrors === 1 ? "" : "s"}
+                {live.errorCount} error{live.errorCount === 1 ? "" : "s"}
               </button>
             ) : null}
             {pendingActionCount > 0 ? (
               <button
                 type="button"
                 className="btn primary sm action-badge-btn"
-                onClick={openActionModal}
+                onClick={onActionBadgeClick}
                 title={pendingAction?.message}
               >
                 {pendingAction?.primaryLabel || "Action"} ({pendingActionCount})
@@ -219,19 +267,25 @@ export function LiveStatusBar() {
         ) : null}
 
         <div className="live-status-phase-row">
-          <span className="live-status-phase-label muted">
-            Phase {activeIndex + 1} of {WORKFLOW_STEPS.length}:{" "}
+          <span
+            className="live-status-phase-label muted"
+            title="High-level journey: Prepare → Export. Individual pipeline steps are numbered separately in the Pipeline tab."
+          >
+            Workflow phase {activeIndex + 1} of {WORKFLOW_STEPS.length}:{" "}
             <strong>{WORKFLOW_STEPS[activeIndex]?.label}</strong>
           </span>
           <ol className="workflow-step-track live-status-chips">
             {WORKFLOW_STEPS.map((step, i) => {
-              const status = workflowStepStatus(step.id, run);
+              const status = workflowStepStatus(step.id, run, apiGrants);
               const isActive = step.id === activeStepId;
+              const attentionCount = workflowStepAttentionCount(step.id, run, apiGrants);
               const prog =
                 step.id !== "start" &&
-                run?.journey?.phase_progress?.[step.id as OperatorPhase];
+                run?.journey?.phase_progress?.[step.id as keyof typeof run.journey.phase_progress];
               const progressHint =
                 prog && prog.total > 0 ? ` · ${prog.done}/${prog.total}` : "";
+              const attentionHint =
+                attentionCount > 0 ? ` · ${attentionCount} need you` : "";
               return (
                 <li key={step.id} className="workflow-step-item">
                   {i > 0 ? (
@@ -240,20 +294,30 @@ export function LiveStatusBar() {
                   <button
                     type="button"
                     className={`workflow-step-chip status-${status}${isActive ? " current" : ""}`}
-                    title={`${step.tooltip}${progressHint}`}
+                    title={`${step.tooltip}${progressHint}${attentionHint}`}
                     aria-current={isActive ? "step" : undefined}
                     onClick={() => navigateToStep(step.id)}
                   >
                     {status === "done" ? (
                       <span className="workflow-step-check">✓</span>
+                    ) : status === "attention" ? (
+                      <span className="workflow-step-attention-dot" aria-hidden>
+                        ●
+                      </span>
                     ) : null}
                     {step.label}
+                    {attentionCount > 0 ? (
+                      <span className="workflow-step-attention-count">{attentionCount}</span>
+                    ) : null}
                   </button>
                 </li>
               );
             })}
           </ol>
         </div>
+        {run && run.journey?.phase !== "ship" ? (
+          <PreviewListenPromo compact />
+        ) : null}
       </div>
 
       {precleanWarnings?.length ? (

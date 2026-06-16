@@ -50,6 +50,26 @@ def test_list_runs_default_skips_stage_enrichment(tmp_path, monkeypatch) -> None
     assert "progress" not in runs[0]
 
 
+def test_list_runs_enrich_includes_journey_fields(tmp_path, monkeypatch) -> None:
+    client = _seed_assets(tmp_path, monkeypatch)
+    run_dir = tmp_path / "ASSETS" / "executions" / "exec_101_20260101T000200Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_meta.json").write_text(
+        '{"execution_number": 101, "created_at": "2026-01-01T00:02:00Z", "operator_phase": "prepare"}',
+        encoding="utf-8",
+    )
+
+    res = client.get("/api/runs?enrich=1")
+    assert res.status_code == 200
+    runs = res.json()["runs"]
+    assert len(runs) == 1
+    row = runs[0]
+    assert row["run_id"] == "exec_101_20260101T000200Z"
+    assert "operator_phase" in row
+    assert "next_action" in row
+    assert "attention_count" in row
+
+
 def test_list_assets_survives_corrupt_run_summary(tmp_path, monkeypatch) -> None:
     client = _seed_assets(tmp_path, monkeypatch)
     bad_run = tmp_path / "ASSETS" / "executions" / "exec_099_20260101T000099Z"

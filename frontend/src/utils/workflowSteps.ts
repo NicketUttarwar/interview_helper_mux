@@ -1,8 +1,13 @@
 import type { OperatorPhase, PipelineSubTab, RunData } from "../types";
+import {
+  attentionCountForPhase,
+  phaseAttentionStatus as computePhaseAttentionStatus,
+  phaseHasBlockingAttention,
+} from "./attentionQueue";
 
 export type WorkflowStepId = "start" | OperatorPhase;
 
-export type WorkflowStepStatus = "done" | "active" | "upcoming";
+export type WorkflowStepStatus = "done" | "active" | "upcoming" | "attention";
 
 export interface WorkflowStepDef {
   id: WorkflowStepId;
@@ -56,15 +61,6 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
   },
 ];
 
-const PHASE_ORDER: OperatorPhase[] = [
-  "prepare",
-  "understand",
-  "complete",
-  "create",
-  "polish",
-  "ship",
-];
-
 export function currentWorkflowStep(run: RunData | null): WorkflowStepId {
   if (!run) return "start";
   return run.journey?.phase ?? run.meta?.operator_phase ?? "prepare";
@@ -73,25 +69,18 @@ export function currentWorkflowStep(run: RunData | null): WorkflowStepId {
 export function workflowStepStatus(
   stepId: WorkflowStepId,
   run: RunData | null,
+  grants: Record<string, boolean> = {},
 ): WorkflowStepStatus {
-  if (stepId === "start") {
-    return run ? "done" : "active";
-  }
-  if (!run) return "upcoming";
+  return computePhaseAttentionStatus(stepId, run, grants);
+}
 
-  const phase = currentWorkflowStep(run);
-  if (phase === "start") return "upcoming";
-
-  const stepIdx = PHASE_ORDER.indexOf(stepId as OperatorPhase);
-  const currentIdx = PHASE_ORDER.indexOf(phase);
-  if (stepIdx < 0 || currentIdx < 0) return "upcoming";
-
-  if (stepIdx < currentIdx) return "done";
-  if (stepIdx > currentIdx) return "upcoming";
-
-  const prog = run.journey?.phase_progress?.[stepId];
-  if (prog && prog.total > 0 && prog.done >= prog.total) return "done";
-  return "active";
+export function workflowStepAttentionCount(
+  stepId: WorkflowStepId,
+  run: RunData | null,
+  grants: Record<string, boolean> = {},
+): number {
+  if (stepId === "start" || !run) return 0;
+  return attentionCountForPhase(run, stepId as OperatorPhase, grants);
 }
 
 export function workflowStepIndex(stepId: WorkflowStepId): number {
@@ -107,6 +96,9 @@ export function stageIdForStep(stepId: WorkflowStepId, run: RunData): string | n
   const action = inPhase.find((s) => s.status === "action_required");
   if (action) return action.id;
 
+  const awaiting = inPhase.find((s) => s.status === "awaiting_write_approval");
+  if (awaiting) return awaiting.id;
+
   const pending = inPhase.find((s) => s.status === "pending");
   if (pending) return pending.id;
 
@@ -114,10 +106,10 @@ export function stageIdForStep(stepId: WorkflowStepId, run: RunData): string | n
   return lastDone?.id ?? inPhase[0]?.id ?? null;
 }
 
-export function stepNeedsCheckpoint(stepId: WorkflowStepId, run: RunData): boolean {
-  if (stepId === "start") return false;
-  const inPhase = run.stages.filter(
-    (s) => (s.operator_phase ?? s.phase ?? "understand") === stepId,
-  );
-  return inPhase.some((s) => s.status === "action_required");
+export function stepNeedsCheckpoint(
+  stepId: WorkflowStepId,
+  run: RunData,
+  grants: Record<string, boolean> = {},
+): boolean {
+  return phaseHasBlockingAttention(run, stepId, grants);
 }

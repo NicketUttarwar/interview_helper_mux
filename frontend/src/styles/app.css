@@ -5430,3 +5430,194 @@ code {
   margin: 0 0 0.25rem;
   font-size: 0.85rem;
 }
+
+/* Operator flow UX — attention, queue, milestones */
+.workflow-step-chip.status-attention {
+  border-color: var(--warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+
+.workflow-step-attention-dot {
+  color: var(--warning);
+  font-size: 0.55rem;
+  margin-right: 0.15rem;
+}
+
+.workflow-step-attention-count {
+  margin-left: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--warning);
+}
+
+.attention-queue-panel {
+  margin-bottom: 0.75rem;
+}
+
+.attention-queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attention-queue-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.attention-queue-title {
+  font-weight: 600;
+}
+
+.attention-queue-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.attention-queue-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border, #333);
+}
+
+.attention-queue-row-title {
+  margin: 0 0 0.15rem;
+  font-weight: 600;
+}
+
+.attention-queue-optional summary {
+  cursor: pointer;
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+.attention-required {
+  border-left: 3px solid var(--warning);
+  padding-left: 0.65rem;
+}
+
+.attention-optional {
+  border-left: 3px solid var(--muted, #666);
+  padding-left: 0.65rem;
+  opacity: 0.92;
+}
+
+.preview-listen-promo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid var(--warning);
+}
+
+.preview-listen-promo.compact {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--warning);
+}
+
+.preview-listen-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pipeline-step-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.pipeline-step-list-filter.active {
+  border-color: var(--warning);
+}
+
+.pipeline-step-filter-empty {
+  padding: 0.5rem 0.75rem;
+}
+
+.pipeline-tool-btn {
+  position: relative;
+}
+
+.pipeline-tool-btn .tool-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--warning);
+  color: #111;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
+}
+
+.activity-teaser.has-attention {
+  border-top-color: var(--warning);
+}
+
+.activity-teaser-attention {
+  margin: 0;
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.run-needs-you-pill {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 25%, transparent);
+  color: var(--warning);
+}
+
+.run-item-blocked-hint {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.handoff-skim-list {
+  margin: 0.35rem 0 0.65rem 1.1rem;
+}
+
+.handoff-footer {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gate-progress-subheader {
+  margin: 0 0 0.5rem;
+  font-weight: 500;
+}
+
+.global-pending-action-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+}
+
+.pipeline-qc-promo {
+  margin-bottom: 0.75rem;
+}

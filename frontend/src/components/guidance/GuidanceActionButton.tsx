@@ -1,5 +1,6 @@
 import type { GuidanceItem } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { guidanceActionLabel } from "../../utils/checkpointLabels";
 
 interface Props {
   item: GuidanceItem;
@@ -46,18 +47,7 @@ export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props
     }
   };
 
-  const label =
-    item.kind === "run"
-      ? "Run now"
-      : item.kind === "profile"
-      ? "Open profile"
-      : item.kind === "story_board"
-        ? "Open Story Board"
-        : item.kind === "checkpoint"
-          ? "Open checkpoint"
-          : item.stage_id
-            ? "Go to step"
-            : "Open";
+  const label = guidanceActionLabel(item.kind || item.action, item.stage_id);
 
   return (
     <button type="button" className={className} onClick={onClick}>

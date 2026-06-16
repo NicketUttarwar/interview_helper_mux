@@ -2,6 +2,7 @@ import type { LogEntry, RunData, StageInfo } from "../types";
 import { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
+import { countRequiredAttention } from "./attentionQueue";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
 export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
@@ -73,14 +74,29 @@ export function findPendingFocusStage(
   return null;
 }
 
-export function continueHintForStage(stageId: string): string {
+export function continueHintForStage(stageId: string, run?: RunData | null): string {
+  const blockingMsg = run?.journey?.blocking?.message || run?.blocking?.message;
   switch (stageId) {
-    case "transcript_review":
-      return "Complete transcript review in the panel above (save clips or use Complete review).";
-    case "g1_vo_pickup":
-      return "Record or upload every pickup line listed above.";
+    case "transcript_review": {
+      const n = blockingMsg?.match(/Review (\d+) ranked STT/)?.[1];
+      return n
+        ? `${n} ranked clip(s) remaining — lowest confidence first.`
+        : "Complete transcript review in the panel above (save clips or use Complete review).";
+    }
+    case "g1_vo_pickup": {
+      const n =
+        run?.g1_missing?.length ||
+        (blockingMsg?.match(/Record (\d+) pickup/)?.[1]
+          ? parseInt(blockingMsg.match(/Record (\d+) pickup/)![1], 10)
+          : undefined);
+      return n
+        ? `${n} pickup line(s) remaining — record or upload each line above.`
+        : "Record or upload every pickup line listed above.";
+    }
     case "analysis_profile":
-      return "Review the AI-generated profile above, then mark verified when it matches your intent.";
+      return run?.profile_verified
+        ? "Profile verified — continue when ready."
+        : "Review the AI-generated profile above, then mark verified when it matches your intent.";
     case "g2_flow_select":
       return "Select your deliverable flow below (or use your planned choice).";
     case "assembly_preview":
@@ -122,23 +138,7 @@ export function countPendingActions(
   run: RunData | null,
   grants: Record<string, boolean> = {},
 ): number {
-  if (!run) return 0;
-  let n = 0;
-  if (run.job?.status === "gate") n += 1;
-  else if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
-    n += 1;
-  } else if (run.job?.status === "needs_operator" && isApiConsentJobPending(run, grants)) {
-    n += 1;
-  } else if (run.job?.needs_stage_reuse) {
-    n += 1;
-  }
-  n += run.stages.filter((s) => s.status === "action_required").length;
-  for (const s of run.stages) {
-    if (s.status !== "done") continue;
-    const paths = getHandoffPathsLocal(s, run.log_tail);
-    if (paths.length && !run.handoff_ack?.[s.id]) n += 1;
-  }
-  return n;
+  return countRequiredAttention(run, grants);
 }
 
 export function actionSummaryText(

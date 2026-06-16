@@ -3,6 +3,7 @@ import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import type { AudioQualityState } from "../../types";
 import { useJourney } from "../../hooks/useJourney";
+import { topAttentionItem } from "../../utils/attentionQueue";
 
 const CHECKPOINT_LABELS: Record<string, string> = {
   before_ingest: "Before ingest",
@@ -20,6 +21,7 @@ export function AudioQualityDrawer() {
   const [open, setOpen] = useState(true);
   const [data, setData] = useState<AudioQualityState | null>(null);
   const enabled = config?.journey_ui?.enabled !== false;
+  const pending = topAttentionItem(run, {});
 
   useEffect(() => {
     if (!runId || !enabled) return;
@@ -44,7 +46,7 @@ export function AudioQualityDrawer() {
             Recommended now: {CHECKPOINT_LABELS[recommendedPreclean] ?? recommendedPreclean}
           </p>
           <button type="button" className="btn primary sm" onClick={openCheckpoint}>
-            Open checkpoint
+            {pending?.primaryLabel || "View optional offer"}
           </button>
         </div>
       ) : null}

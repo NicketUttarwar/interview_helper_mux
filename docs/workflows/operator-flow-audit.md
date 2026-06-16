@@ -92,6 +92,21 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 38 | Volley table cramped | Expand chevron column + horizontal scroll hint |
 | 39 | Write approval invisible mid-run | Live status bar + activity panel copy in **WriteApprovalPanel** |
 | 40 | NLE apply progress unclear | **ApplyEditsPanel** + **LiveStatusBar** running state during `nle_apply` |
+| 41 | Phase guidance only on Start tab | **PhaseGuidanceBanner** in **PipelineCommandCenter** during active runs |
+| 42 | Phase chips hide pending reviews | **Workflow phase** chips use `attention` state + count badge |
+| 43 | Dual numbering confusing | Labels **Workflow phase** vs **Pipeline step** + tooltips; blocked mode suppresses step eyebrow |
+| 44 | Generic Open Pipeline CTA | Primary button uses `journey.next_action` / **resolveNextActionClick** |
+| 45 | Preview-listen gate buried | **PreviewListenPromo** in command center + compact row in LiveStatusBar |
+| 46 | Scattered pending actions | **AttentionQueuePanel** ordered list; action badge opens queue when count > 1 |
+| 47 | Handoff felt like rubber stamp | **HandoffPanel** skim checklist + inline-first **Review outputs** CTA |
+| 48 | Sub-tab work invisible | Badges on **PipelineToolRow** from **subTabAttentionFlags** |
+| 49 | Long step list hunting | **Needs you only** filter on **PipelineStepList** |
+| 50 | Activity teaser opaque off-Pipeline | **ActivityTeaser** shows **actionSummaryText** + Go affordance |
+| 51 | Executions resume opaque | Enriched list rows show phase, next/blocking hint, **Needs you** pill |
+| 52 | Gate progress unclear | **gate-progress-subheader** on G0/G1/profile panels; modal hints for all pending kinds |
+| 53 | Optional vs required mixed | **attention-required** / **attention-optional** styling on gates vs pre-clean |
+| 54 | Step finished → what's next? | Toast + activity log line + 30s LiveStatusBar **Next:** subline after job complete |
+| 55 | Checkpoint labels generic | **checkpointLabels** + **attentionQueue** shared across banners and CTAs |
 
 ---
 

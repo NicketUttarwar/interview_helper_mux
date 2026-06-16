@@ -62,6 +62,10 @@ export interface RunSummary {
   job_status?: string;
   last_stage?: string;
   outputs?: string[];
+  operator_phase?: OperatorPhase;
+  next_action?: string;
+  blocking_message?: string | null;
+  attention_count?: number;
 }
 
 export type StageStatus =
@@ -231,6 +235,7 @@ export interface RunData {
   profile_ready_for_review?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
+  nle_dirty?: boolean;
   analysis_complete?: boolean;
   job?: JobState;
   stages: StageInfo[];

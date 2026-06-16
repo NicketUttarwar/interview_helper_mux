@@ -1,6 +1,6 @@
 import { useApp } from "../context/AppContext";
-import { LiveStatusBar } from "./LiveStatusBar";
 import { PendingActionBanner } from "./guidance/PendingActionBanner";
+import { AttentionQueuePanel } from "./guidance/AttentionQueuePanel";
 import { AppTabs } from "./AppTabs";
 import { ActivityTeaser } from "./activity/ActivityTeaser";
 import { StartTab } from "./tabs/StartTab";
@@ -9,6 +9,7 @@ import { PipelineTab } from "./tabs/PipelineTab";
 import { LogsTab } from "./tabs/LogsTab";
 import { ModalHost } from "./modals/ModalHost";
 import { Toast } from "./Toast";
+import { LiveStatusBar } from "./LiveStatusBar";
 
 export function AppShell() {
   const { activeTab, run, pendingActionCount } = useApp();
@@ -19,6 +20,7 @@ export function AppShell() {
       {run && pendingActionCount > 0 && activeTab !== "pipeline" ? (
         <div className="global-pending-action-wrap">
           <PendingActionBanner compact />
+          <AttentionQueuePanel compact />
         </div>
       ) : null}
       <AppTabs />

@@ -18,6 +18,7 @@ export function useLiveStatus(
     selectedStageId: string | null;
     logEntries: LogEntry[];
     apiGrants: Record<string, boolean>;
+    jobCompleteAt?: number | null;
     onExecute: Parameters<typeof useOperatorCommand>[1]["onExecute"];
     onRunNext: () => void;
     onOpenCheckpoint: Parameters<typeof useOperatorCommand>[1]["onOpenCheckpoint"];
@@ -25,6 +26,9 @@ export function useLiveStatus(
     onGoLogs: () => void;
     onGoStart: () => void;
     onGoPipeline: () => void;
+    onGoStory?: () => void;
+    onGoProfile?: () => void;
+    onScrollPreview?: () => void;
   },
 ): LiveStatus {
   const cmd = useOperatorCommand(run, {
@@ -38,6 +42,9 @@ export function useLiveStatus(
     onGoLogs: opts.onGoLogs,
     onGoStart: opts.onGoStart,
     onGoPipeline: opts.onGoPipeline,
+    onGoStory: opts.onGoStory,
+    onGoProfile: opts.onGoProfile,
+    onScrollPreview: opts.onScrollPreview,
   });
 
   return useMemo(() => {
@@ -103,9 +110,14 @@ export function useLiveStatus(
         ? { index: job.stage_index, total: job.stage_total }
         : null;
 
+    const recentComplete =
+      opts.jobCompleteAt != null && Date.now() - opts.jobCompleteAt < 30_000;
+
     let activityKind = cmd.kind as LiveStatus["activityKind"];
     let headline = cmd.statusLine;
     let subline = run.journey?.next_action || nav.statusLine || "";
+    let primaryLabel = cmd.primaryLabel;
+    let onPrimary = cmd.onPrimary;
 
     if (job?.status === "interrupted") {
       activityKind = "interrupted";
@@ -123,9 +135,14 @@ export function useLiveStatus(
         headline = `Running — ${stageTitle}`;
       }
       subline = job?.message || subline;
-    } else if (job?.status === "complete") {
+    } else if (job?.status === "complete" || recentComplete) {
       headline = "Step finished";
-      subline = job.message || subline;
+      const next = run.journey?.next_action;
+      subline = next ? `Next: ${next}` : job?.message || subline;
+      if (recentComplete && cmd.primaryLabel) {
+        primaryLabel = cmd.primaryLabel;
+        onPrimary = cmd.onPrimary;
+      }
     } else if (job?.status === "error") {
       activityKind = "error";
       headline = "Step failed";
@@ -142,10 +159,10 @@ export function useLiveStatus(
       workflowPhase,
       runningStageId,
       focusStageId,
-      primaryLabel: cmd.primaryLabel,
+      primaryLabel,
       primaryDisabled: cmd.primaryDisabled,
       secondaryLabel: cmd.secondaryLabel,
-      onPrimary: cmd.onPrimary,
+      onPrimary,
       onSecondary: cmd.onSecondary,
       errorCount,
       jobProgress,

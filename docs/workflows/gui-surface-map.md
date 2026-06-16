@@ -16,14 +16,14 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | **`LiveStatusBar`** (sticky, all tabs) | Compact status surface: step headline, phase chips, one primary CTA, error chip, batch progress bar, Mute / Menu |
+| Header | **`LiveStatusBar`** (sticky, all tabs) | Compact status surface: **Workflow phase** chips (with attention dots), primary CTA uses `journey.next_action` / contextual checkpoint labels, error chip, batch progress bar, compact preview-listen promo, Mute / Menu |
 | Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
 | Header | **Mute** / **Menu** | Mute attention sounds; **View full log**, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
 | **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
-| **Pipeline** | **`PipelineCommandCenter`** | Read-only context: step title, status line, phase goal (no duplicate Run button) |
+| **Pipeline** | **`PipelineCommandCenter`** | Phase guidance banner, **Needs your attention** queue, preview-listen promo, read-only step context (no duplicate Run when LiveStatusBar owns CTA) |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |

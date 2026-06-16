@@ -43,7 +43,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
 Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
-| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields, `progress` (`done`/`total`), `last_stage`, `last_log` (latest `gui_log.jsonl` entry), `job_status` when `enrich=1` | Per-run errors swallowed → `progress: {0,0}` |
+| `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields; with `enrich=1`: `progress` (`done`/`total`), `last_stage`, `last_log`, `job_status`, `operator_phase`, `next_action` (truncated), `blocking_message`, `attention_count` | Per-run errors swallowed → `progress: {0,0}` |
 | `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short` | **404** if `input_audio_path` file missing |
 
 ### `CreateRunBody`

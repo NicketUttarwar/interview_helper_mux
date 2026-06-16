@@ -1,13 +1,15 @@
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { useJourney } from "../../hooks/useJourney";
-import { ActionMarker } from "../guidance/ActionMarker";
+import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
 
 export function DeliverableCard() {
   const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab } =
     useApp();
   const { deliverable, phase } = useJourney(run);
   const enabled = config?.journey_ui?.enabled !== false;
+  const requirePreview = config?.journey_ui?.require_preview_listen !== false;
+  const { active: previewPromoActive } = usePreviewListenGate(run, requirePreview);
 
   if (!run || !enabled || !deliverable || deliverable.kind === "none") {
     return null;
@@ -43,9 +45,8 @@ export function DeliverableCard() {
         Files live under your run directory — copy paths below or open them in Finder from the
         execution folder on disk.
       </p>
-      {previewPath && phase !== "ship" ? (
+      {previewPath && phase !== "ship" && !previewPromoActive ? (
         <div className="deliverable-row">
-          <ActionMarker status="todo" />
           <span>Listen to assembly preview before sound spend</span>
           <audio controls src={playUrl(previewPath)} />
           <button type="button" className="btn ghost sm" onClick={() => void onPreviewListened()}>

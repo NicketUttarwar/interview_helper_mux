@@ -122,6 +122,11 @@ export function TranscriptReviewPanel() {
 
   return (
     <>
+      <p className="gate-progress-subheader hint sm">
+        {(transcriptReview?.pending_count ?? chunks.length) > 0
+          ? `${transcriptReview?.pending_count ?? chunks.length} clip(s) remaining — lowest confidence first.`
+          : "Review clips below, then complete transcript review."}
+      </p>
       <p className="hint">
         Use the synced transcript dock below to edit word-by-word as audio plays. Low-confidence
         clips are listed first — jump between clips or edit inline at any time.

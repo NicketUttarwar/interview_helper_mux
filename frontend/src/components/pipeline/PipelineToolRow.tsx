@@ -1,5 +1,6 @@
 import type { PipelineSubTab } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { subTabAttentionFlags } from "../../utils/attentionQueue";
 
 const TOOLS: { id: PipelineSubTab; label: string; short: string }[] = [
   { id: "stage", label: "Stage", short: "Stage" },
@@ -12,22 +13,27 @@ const TOOLS: { id: PipelineSubTab; label: string; short: string }[] = [
 ];
 
 export function PipelineToolRow() {
-  const { pipelineSubTab, setPipelineSubTab } = useApp();
+  const { run, pipelineSubTab, setPipelineSubTab, apiGrants } = useApp();
+  const flags = subTabAttentionFlags(run, apiGrants);
 
   return (
     <nav className="pipeline-v2-tool-row" aria-label="Pipeline tools">
-      {TOOLS.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          className={`btn ghost sm pipeline-tool-btn${pipelineSubTab === t.id ? " active" : ""}`}
-          data-testid={`pipeline-tool-${t.id}`}
-          title={t.label}
-          onClick={() => setPipelineSubTab(t.id)}
-        >
-          {t.short}
-        </button>
-      ))}
+      {TOOLS.map((t) => {
+        const badge = flags[t.id] ?? 0;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            className={`btn ghost sm pipeline-tool-btn${pipelineSubTab === t.id ? " active" : ""}`}
+            data-testid={`pipeline-tool-${t.id}`}
+            title={badge > 0 ? `${t.label} — ${badge} need you` : t.label}
+            onClick={() => setPipelineSubTab(t.id)}
+          >
+            {t.short}
+            {badge > 0 ? <span className="tool-badge">{badge}</span> : null}
+          </button>
+        );
+      })}
     </nav>
   );
 }

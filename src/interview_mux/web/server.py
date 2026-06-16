@@ -478,6 +478,26 @@ def create_app() -> FastAPI:
                     job = runner.get_job(r["run_id"])
                     if job.get("status"):
                         r["job_status"] = job.get("status")
+                    journey = build_journey_snapshot(ctx, job=job, stages=stages)
+                    r["operator_phase"] = journey.get("phase")
+                    next_action = str(journey.get("next_action") or "")
+                    r["next_action"] = next_action[:80] if next_action else None
+                    blocking = journey.get("blocking") or {}
+                    r["blocking_message"] = (
+                        blocking.get("message") if blocking.get("blocked") else None
+                    )
+                    attention = sum(
+                        1 for s in stages if s.get("status") == "action_required"
+                    )
+                    if job.get("status") in (
+                        "gate",
+                        "awaiting_write_approval",
+                        "needs_operator",
+                    ) or job.get("needs_stage_reuse"):
+                        attention += 1
+                    if blocking.get("blocked"):
+                        attention = max(attention, 1)
+                    r["attention_count"] = attention
                 except Exception:
                     r["progress"] = {"done": 0, "total": 0}
         return {"runs": runs}

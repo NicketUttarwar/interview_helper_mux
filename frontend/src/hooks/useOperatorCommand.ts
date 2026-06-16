@@ -6,6 +6,7 @@ import { findNextRunnableStage } from "../utils/preclean";
 import { resolvePipelineNav } from "../utils/pipelineNavigation";
 import { resolveJobStatusContext } from "../utils/operatorStatus";
 import { resolvePendingAction } from "../utils/pendingAction";
+import { resolveNextActionClick, type NextActionHandlers } from "../utils/nextActionHandler";
 
 export type CommandKind =
   | "idle"
@@ -41,6 +42,9 @@ export function useOperatorCommand(
     onGoLogs: () => void;
     onGoStart: () => void;
     onGoPipeline: () => void;
+    onGoStory?: () => void;
+    onGoProfile?: () => void;
+    onScrollPreview?: () => void;
   },
 ): OperatorCommandState {
   const {
@@ -54,6 +58,9 @@ export function useOperatorCommand(
     onGoLogs,
     onGoStart,
     onGoPipeline,
+    onGoStory = onGoPipeline,
+    onGoProfile = onGoPipeline,
+    onScrollPreview = onGoPipeline,
   } = opts;
 
   return useMemo(() => {
@@ -76,6 +83,19 @@ export function useOperatorCommand(
     const blocking = journey?.blocking ?? run.blocking;
     const handoffStage = findHandoffStage(run);
     const job = run.job;
+    const pending = resolvePendingAction(run, apiGrants);
+
+    const nextHandlers: NextActionHandlers = {
+      onOpenCheckpoint,
+      onExecute,
+      onRunNext,
+      onAcknowledgeHandoff,
+      onGoPipeline,
+      onGoStory,
+      onGoProfile,
+      onScrollPreview,
+    };
+    const nextClick = resolveNextActionClick(run, nextHandlers);
 
     const runningTitle =
       stageTitleForId(run.stages, job?.stage) ||
@@ -132,7 +152,7 @@ export function useOperatorCommand(
       return {
         kind: "blocked",
         statusLine: blocking.message,
-        primaryLabel: "Open checkpoint",
+        primaryLabel: pending?.primaryLabel || nextAction || "Open checkpoint",
         primaryDisabled: false,
         secondaryLabel: "Pipeline",
         onPrimary: () => onOpenCheckpoint(blocking.stage_id || undefined),
@@ -144,12 +164,12 @@ export function useOperatorCommand(
     if (handoffStage) {
       return {
         kind: "handoff",
-        statusLine: `Step done — review outputs from ${handoffStage.title}.`,
-        primaryLabel: "Acknowledge & continue",
+        statusLine: pending?.message || `Step done — review outputs from ${handoffStage.title}.`,
+        primaryLabel: pending?.primaryLabel || "Review outputs",
         primaryDisabled: false,
-        secondaryLabel: "Review outputs",
-        onPrimary: onAcknowledgeHandoff,
-        onSecondary: () => onOpenCheckpoint(handoffStage.id),
+        secondaryLabel: "Acknowledge & continue",
+        onPrimary: () => onOpenCheckpoint(handoffStage.id),
+        onSecondary: onAcknowledgeHandoff,
         handoffStage,
       };
     }
@@ -164,10 +184,10 @@ export function useOperatorCommand(
       return {
         kind: "done",
         statusLine: nextAction || "Deliverable ready.",
-        primaryLabel: "Open Pipeline",
+        primaryLabel: nextAction || "Open Pipeline",
         primaryDisabled: false,
         secondaryLabel: "View logs",
-        onPrimary: onGoPipeline,
+        onPrimary: nextClick?.onClick ?? onGoPipeline,
         onSecondary: onGoLogs,
         handoffStage: null,
       };
@@ -177,7 +197,7 @@ export function useOperatorCommand(
       return {
         kind: "ready",
         statusLine: nextAction,
-        primaryLabel: hint.label,
+        primaryLabel: hint.label || pending?.primaryLabel || nextAction,
         primaryDisabled: false,
         secondaryLabel: null,
         onPrimary: () => onOpenCheckpoint(hint.stage_id),
@@ -191,11 +211,11 @@ export function useOperatorCommand(
       return {
         kind: "ready",
         statusLine: nextAction,
-        primaryLabel: hint.label,
+        primaryLabel: hint.label || nextAction,
         primaryDisabled: jobRunning,
-        secondaryLabel: "Open checkpoint",
+        secondaryLabel: pending?.primaryLabel || "Open checkpoint",
         onPrimary: () => onExecute(body),
-        onSecondary: () => onOpenCheckpoint(),
+        onSecondary: () => onOpenCheckpoint(pending?.stageId),
         handoffStage: null,
       };
     }
@@ -212,9 +232,9 @@ export function useOperatorCommand(
       return {
         kind: "ready",
         statusLine: nav.statusLine || nextAction,
-        primaryLabel: `Run ${nextRunnable.title}`,
+        primaryLabel: hint?.label || nextAction || `Run ${nextRunnable.title}`,
         primaryDisabled: false,
-        secondaryLabel: "Open checkpoint",
+        secondaryLabel: pending?.primaryLabel || "Open checkpoint",
         onPrimary: onRunNext,
         onSecondary: () => onOpenCheckpoint(nextRunnable.id),
         handoffStage: null,
@@ -225,17 +245,16 @@ export function useOperatorCommand(
       return {
         kind: "handoff",
         statusLine: nav.statusLine || nextAction,
-        primaryLabel: "Acknowledge & continue",
+        primaryLabel: pending?.primaryLabel || "Review outputs",
         primaryDisabled: false,
-        secondaryLabel: "Review outputs",
-        onPrimary: onAcknowledgeHandoff,
-        onSecondary: () => onOpenCheckpoint(nav.handoffStage!.id),
+        secondaryLabel: "Acknowledge & continue",
+        onPrimary: () => onOpenCheckpoint(nav.handoffStage!.id),
+        onSecondary: onAcknowledgeHandoff,
         handoffStage: nav.handoffStage,
       };
     }
 
     if (nav.primaryAction === "checkpoint" && nav.canRunNext) {
-      const pending = resolvePendingAction(run, apiGrants);
       return {
         kind: "blocked",
         statusLine: nav.statusLine || nextAction,
@@ -248,11 +267,24 @@ export function useOperatorCommand(
       };
     }
 
+    if (nextClick) {
+      return {
+        kind: "ready",
+        statusLine: nextAction,
+        primaryLabel: nextClick.label,
+        primaryDisabled: nextClick.disabled ?? false,
+        secondaryLabel: null,
+        onPrimary: nextClick.onClick,
+        onSecondary: null,
+        handoffStage: null,
+      };
+    }
+
     if (nextAction) {
       return {
         kind: "ready",
         statusLine: nextAction,
-        primaryLabel: "Open Pipeline",
+        primaryLabel: nextAction,
         primaryDisabled: false,
         secondaryLabel: null,
         onPrimary: onGoPipeline,
@@ -283,5 +315,8 @@ export function useOperatorCommand(
     onGoLogs,
     onGoStart,
     onGoPipeline,
+    onGoStory,
+    onGoProfile,
+    onScrollPreview,
   ]);
 }

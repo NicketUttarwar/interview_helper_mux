@@ -31,6 +31,11 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
 
   return (
     <>
+      <p className="gate-progress-subheader hint sm">
+        {verified
+          ? "Profile verified — continue when ready."
+          : "Mark verified on Story Board when themes match your intent."}
+      </p>
       <p className="hint">
         Review AI-generated themes, major questions, and style in the{" "}
         <strong>Story</strong> tab or <strong>Profile (JSON)</strong>. Mark verified when

@@ -4,7 +4,6 @@ import { ReviewPanelControls } from "./ReviewPanelControls";
 
 interface Props {
   compact?: boolean;
-  /** When set, only show if the pending action targets this stage. */
   stageId?: string;
 }
 
@@ -15,7 +14,6 @@ export function PendingActionBanner({ compact, stageId }: Props) {
     openActionModal,
     closeActionModal,
     selectStage,
-    acknowledgeHandoff,
     actionModalOpen,
     setActiveTab,
     setPipelineSubTab,
@@ -28,9 +26,17 @@ export function PendingActionBanner({ compact, stageId }: Props) {
   const onPrimary = () => {
     if (pending.stageId) void selectStage(pending.stageId);
     setActiveTab("pipeline");
-    setPipelineSubTab("stage");
+    setPipelineSubTab(
+      pending.kind === "handoff" || pending.kind === "write_approval" ? "files" : "stage",
+    );
     if (pending.kind === "handoff") {
-      void acknowledgeHandoff();
+      closeActionModal();
+      requestAnimationFrame(() => {
+        document.getElementById("stage-handoff-panel")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
       return;
     }
     openActionModal();
@@ -52,9 +58,17 @@ export function PendingActionBanner({ compact, stageId }: Props) {
   const showInlineReview =
     pending.kind === "write_approval" && !actionModalOpen && Boolean(stageId);
 
+  const handoffMessage =
+    pending.kind === "handoff" && pending.handoffPaths?.length
+      ? `Skim: ${pending.handoffPaths
+          .slice(0, 2)
+          .map((p) => p.split("/").pop())
+          .join(", ")}${pending.handoffPaths.length > 2 ? "…" : ""}`
+      : pending.message;
+
   return (
     <div
-      className={`pending-action-banner kind-${pending.kind}${compact ? " compact" : ""}`}
+      className={`pending-action-banner kind-${pending.kind}${compact ? " compact" : ""} attention-required`}
       role="alert"
       data-testid="pending-action-banner"
     >
@@ -63,7 +77,7 @@ export function PendingActionBanner({ compact, stageId }: Props) {
       </div>
       <div className="pending-action-copy">
         <p className="pending-action-title">{pending.title}</p>
-        <p className="pending-action-message">{pending.message}</p>
+        <p className="pending-action-message">{handoffMessage}</p>
         {!compact && pending.kind === "write_approval" ? (
           <p className="hint sm pending-action-hint">
             Listen to audio, preview JSON, then click <strong>Save &amp; continue</strong> to write

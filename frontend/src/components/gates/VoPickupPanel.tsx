@@ -52,8 +52,16 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     }
   };
 
+  const missing = lines.filter((l) => !l.recorded_file).length;
+  const recorded = lines.length - missing;
+
   return (
     <>
+      <p className="gate-progress-subheader hint sm">
+        {lines.length
+          ? `${recorded}/${lines.length} pickup line(s) recorded`
+          : "No pickup lines required."}
+      </p>
       <p className="hint">
         Record or upload pickup lines. Saved to{" "}
         <code>ASSETS/executions/…/vo_pickup/</code>
