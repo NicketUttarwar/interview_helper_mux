@@ -17,6 +17,57 @@ Wave A hardens **listener-trust signals before deep analysis**: ingest quality t
 
 ---
 
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisite:** Wave 0 promotion gate in `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md` §15 must pass or be waived before starting.
+
+```text
+Implement Wave A — Early truth (H-ING-03, H-G0-02, H-G0-01, H-GAP-01). Code + docs PR per the plan doc. Work hypothesis Implementation todos (50+ each) and Wave A todos (§ Wave A implementation todos).
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/transcription/transcript-review.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/transcript-quality-rubric.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+
+Prerequisite gate:
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md §15 — Wave 0 complete or waived
+
+Scope (absolute paths):
+- H-ING-03: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (quality_trajectory_flags, emphasis_regions_for_segments)
+- H-G0-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/transcript_review.py (_acoustic_stress_score), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/audio_energy.py
+- H-G0-01: communicative_salience_score, G0 queue sort in transcript_review.py; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/transcription/transcript-review.md
+- H-GAP-01: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py (comprehension_risk_blind), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/gaps.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/specialists/comprehension-risk-blind.system.txt
+- Value analysis: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/value_analysis/extract.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/extract_value_features.py
+- Hardening: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/context_volley.py
+
+Do-no-harm (must pass before Promoted):
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/noisy_room.json — no false trust dips
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/panel.json, debate.json, dense_jargon.json — scenario matrix §2
+- Prosody: ≥2 hard-listener manual clips per transcript-quality-rubric before Shipped default-on
+
+Constraints:
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Do NOT flip Wave A flags default-on in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json until all 15 promotion gates pass per hypothesis
+- Specialist and trust-dip paths must fail-open per wave-0 §5
+- Use MCP user-context7 for third-party API changes
+
+Verify when done:
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_mix_acoustic_profile.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_style_inference.py -q
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/run_value_spike.py --help
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+
+Update wave-a-early-truth.md todos [x] with evidence. Follow doc-maintenance.md. Block Wave B until Wave A promotion gate § Wave B promotion gate passes.
+```
+
+---
+
 ## Requires Wave 0
 
 Wave A work **must not begin** until [wave-0-resilience-harness.md §15](./wave-0-resilience-harness.md#15-promotion-gate-for-wave-a) passes or todos are waived with signed rationale.

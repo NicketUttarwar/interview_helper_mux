@@ -2,8 +2,43 @@
 
 **Six** paste-ready **Cursor Agent commands** — **Command 0 (Wave 0 harness) first**, then Waves **A → E**. Each generates one consolidated, evidence-gated implementation plan. Later steps must reference promotion status and open gates from earlier docs.
 
-**Output folder:** `docs/build-out/june2026build/`  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Workspace root:** `/Users/nicketuttarwar/IDEProjects/interview_helper_mux`  
+**Output folder:** `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/`  
+**Do not edit:** `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+
+---
+
+## How to run (each command is independent)
+
+1. Open **Agent mode** in Cursor (not Ask).
+2. Start a **new** Agent chat for each command below.
+3. Copy the entire fenced **Agent prompt** block for that command and paste it into chat.
+4. Optionally `@`-attach the **Read first** paths listed inside the block (absolute paths work in Cursor).
+5. When the agent finishes, run the **Verify** shell block from the generated wave doc (or from the command itself).
+
+| Cmd | Paste section below | Output file (absolute path) | Purpose |
+|-----|---------------------|----------------------------|---------|
+| **0** | [Command 0](#command-0--wave-0-resilience-harness-run-first) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md` | Generate Wave 0 harness plan |
+| **1** | [Command 1](#command-1--wave-a-early-truth) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md` | Generate Wave A plan |
+| **2** | [Command 2](#command-2--wave-b-audio-structure) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md` | Generate Wave B plan |
+| **3** | [Command 3](#command-3--wave-c-self-healing) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md` | Generate Wave C plan |
+| **4** | [Command 4](#command-4--wave-d-output-resilience) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-d-output-resilience.md` | Generate Wave D plan |
+| **5** | [Command 5](#command-5--wave-e-big-bets-parked) | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-e-big-bets.md` | Generate Wave E plan (parked) |
+
+**After docs exist:** use the **Cursor Agent command (copy-paste)** section at the top of each generated wave file to implement code (Wave 0 → A → B → C → D → E).
+
+### Implementation commands (after wave docs exist)
+
+| Wave | Open this file | Section to copy |
+|------|----------------|-----------------|
+| **0** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md` | `## Cursor Agent command (copy-paste)` — top of file |
+| **A** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md` | Cursor Agent command (copy-paste) — top of file |
+| **B** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md` | Cursor Agent command (copy-paste) — top of file |
+| **C** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md` | Cursor Agent command (copy-paste) — top of file |
+| **D** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-d-output-resilience.md` | Cursor Agent command (copy-paste) — top of file |
+| **E** | `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-e-big-bets.md` | Cursor Agent command (copy-paste) — top of file (parked / gate-tracking default) |
+
+Always-on rules: `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc` · `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md`
 
 ---
 
@@ -188,10 +223,21 @@ Include applicable rows in each generated **Repository touch matrix**:
 
 ## Command 0 — Wave 0: Resilience harness (run first)
 
-Paste into a **new Cursor Agent chat**:
+Paste into a **new Cursor Agent chat** (copy the entire block):
 
-```
-Create docs/build-out/june2026build/wave-0-resilience-harness.md — the cross-cutting application resilience plan. Read the repo exhaustively. Real paths only. Single file. Do NOT edit .cursor/plans/*. Documentation only — no Python changes.
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md — the cross-cutting application resilience plan. Read the repo exhaustively. Real paths only (use full absolute paths under /Users/nicketuttarwar/IDEProjects/interview_helper_mux/). Single file. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*. Documentation only — no Python changes.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/h-hypothesis-wave-prompts.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/operator-gates.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/stage-registry.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/interview-scenario-atlas.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/pipeline.py
 
 ## Purpose
 
@@ -205,26 +251,26 @@ No H-hypothesis feature work should ship until Wave 0 Implementation todos for a
 
 ## Required sections
 
-1. **Realistic success definition** — copy from h-hypothesis-wave-prompts.md (5 criteria)
+1. **Realistic success definition** — copy from /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/h-hypothesis-wave-prompts.md (5 criteria)
 2. **15-point promote-with-evidence checklist** — full table
-3. **Scenario coverage matrix** — all atlas buckets + sonic fixtures + coherence 30m fixture + prosody diversity row
+3. **Scenario coverage matrix** — all atlas buckets + sonic fixtures under /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/ + coherence 30m fixture + prosody diversity row
 4. **Prosody & delivery guardrails** — full subsection
 5. **Fail-open inventory** — table per subsystem:
-   - interview_spine / CLAP
-   - value_analysis / stage_enrichment
-   - coherence (duration gate)
-   - llm_specialists
-   - sonic_context_build
-   - source_acoustic_profile
-   - audio_preclean (never auto — BUILD-072)
+   - interview_spine / CLAP (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/)
+   - value_analysis / stage_enrichment (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py)
+   - coherence (duration gate) (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/)
+   - llm_specialists (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py)
+   - sonic_context_build (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/sonic_context_stages.py)
+   - source_acoustic_profile (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/acoustic_profile.py)
+   - audio_preclean (never auto — BUILD-072) (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/audio_preclean/README.md)
 6. **Observability contract**
    - gui_log.jsonl event naming conventions
    - Gate panel messages for G0, G1, G2, flow_hardening, investigation, coherence
-   - Map each hard stop to troubleshooting.md row (extend table if gap)
+   - Map each hard stop to /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md row (extend table if gap)
    - ctx.log() requirements for new operator-facing strings
 7. **LLM flow hardening audit**
-   - analysis.flow_hardening.* keys from config-keys.md
-   - preflight, cross_validate, attempt_budget, arbiter path
+   - analysis.flow_hardening.* keys from /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
+   - preflight, cross_validate, attempt_budget, arbiter path (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py)
    - When enabled=false is allowed (dev only — document risk)
 8. **Operator gates audit** — G0 transcript, disfluency_review, G1 VO, G2 ship, profile gate BUILD-081, quality offers BUILD-072
 9. **Scenario atlas integration**
@@ -232,18 +278,19 @@ No H-hypothesis feature work should ship until Wave 0 Implementation todos for a
    - sonic_context atlas_bucket → sound_posture → sound_design plans
    - placement_adjustments scenario_override schema
 10. **Deterministic QC chain** — narrative_qc, validate_edl, verify_master, placement_qa, show_description_qc — when each runs; what operator sees on fail
-11. **Cross-artifact validation** — artifact_cross_validate.py; relationship to flow_hardening
+11. **Cross-artifact validation** — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/artifact_cross_validate.py; relationship to flow_hardening
 12. **Wave blocking rules** — Wave A may start after Wave 0 doc exists; B after A; etc.
 13. **Repository touch matrix** — full harness map from prompts doc
 14. **Implementation todos** — minimum 80 checkboxes covering:
     - Every fail-open path verification
     - Every troubleshooting gap filled
     - Every scenario fixture linked to a test or manual sign-off procedure
-    - audit_stage_plans_doc.py in CI checklist
-    - definition-of-done nine-scenario matrix procedure
+    - /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py in CI checklist
+    - /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md nine-scenario matrix procedure
     - disfluency + transcript-quality-rubric alignment
     - No new default-on flags without 15-point checklist template
 15. **Promotion gate for Wave A** — Wave A hypothesis implementation must not begin until Wave 0 todos marked complete OR waived with signed rationale table
+16. **Cursor Agent command (copy-paste)** — at top of generated doc: a self-contained implementation prompt with absolute paths for executing Wave 0 code work later
 
 Target 500–900 lines. Unlimited todos.
 ```
@@ -252,12 +299,24 @@ Target 500–900 lines. Unlimited todos.
 
 ## Command 1 — Wave A: Early truth
 
-```
-Create docs/build-out/june2026build/wave-a-early-truth.md (seq 01–04). Read repo. Single file. Docs only. Do NOT edit .cursor/plans/*.
+Paste into a **new Cursor Agent chat** (copy the entire block):
+
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md (seq 01–04). Read repo. Single file. Docs only. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/h-hypothesis-wave-prompts.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/interview-scenario-atlas.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/spike-results-and-winners.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/transcript_review.py
 
 ## Requires Wave 0
 
-wave-0-resilience-harness.md must exist. Reference its fail-open inventory, observability contract, and scenario matrix. Wave B blocked until Wave A promotion gates pass or documented exceptions.
+/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md must exist. Reference its fail-open inventory, observability contract, and scenario matrix. Wave B blocked until Wave A promotion gates pass or documented exceptions.
 
 ## Hypotheses
 
@@ -281,6 +340,7 @@ False trust dips on noisy_room; salience punishing accent/low confidence; compre
 5. Mermaid: ingest → G0 → value_features → missing_framing
 6. Wave A promotion gate for Wave B (3 bullets from prior doc + scenario matrix pass)
 7. Final product impact — transcript → content_brief → master chain
+8. **Cursor Agent command (copy-paste)** — at top of generated doc: self-contained implementation prompt with absolute paths
 
 ## Per-hypothesis (×4) — each includes sections A–R from prior spec PLUS:
 
@@ -291,19 +351,19 @@ False trust dips on noisy_room; salience punishing accent/low confidence; compre
 ### W. Promotion gates — all **15 points** with pass criteria
 ### X. Implementation todos — **minimum 50 per hypothesis** including 15 gate todos + scenario + fail-open + observability
 
-## Code anchors
+## Code anchors (absolute paths)
 
-H-ING-03: stage_enrichment.py quality_trajectory_flags; boundaries.py; value_analysis/*; sonic_context.py; spike_shared_ingest_transcribe.json
+H-ING-03: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py quality_trajectory_flags; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/boundaries.py; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/value_analysis/*; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/sonic_context.py; spike_shared_ingest_transcribe.json
 
-H-G0-02: transcript_review.py _acoustic_stress_score; audio_energy.py
+H-G0-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/transcript_review.py _acoustic_stress_score; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/audio_energy.py
 
-H-G0-01: communicative_salience_score; transcript_review sort; spike_shared_g0_and_profile.json; transcript-review.md
+H-G0-01: communicative_salience_score; transcript_review sort; spike_shared_g0_and_profile.json; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/transcription/transcript-review.md
 
-H-GAP-01: llm_specialists comprehension_risk_blind; gaps.py; flow_hardening; context_volley; spike_shared_gaps_and_vo.json
+H-GAP-01: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py comprehension_risk_blind; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/gaps.py; llm_flow_hardening; context_volley; spike_shared_gaps_and_vo.json
 
 ## Wave todos (40+)
 
-Link wave-0 doc; update section value maps; smoke-test G0; future-proofing table; INDEX.md
+Link wave-0 doc; update section value maps; smoke-test G0; future-proofing table; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/INDEX.md
 
 Target 500–900 lines. Unlimited todos.
 ```
@@ -312,8 +372,20 @@ Target 500–900 lines. Unlimited todos.
 
 ## Command 2 — Wave B: Audio structure
 
-```
-Create docs/build-out/june2026build/wave-b-audio-structure.md (seq 05–06). Requires wave-0 + wave-a docs. Docs only.
+Paste into a **new Cursor Agent chat** (copy the entire block):
+
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md (seq 05–06). Requires wave-0 + wave-a docs. Docs only. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/interview-spine.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/context-padding.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/segmentation.py
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/interview_spine_stage.py
 
 ## Hypotheses
 
@@ -336,8 +408,12 @@ Over-segmentation (fireside, prosody); spine without CLAP breaking; ladder/spine
 6. Wave C promotion gate
 7. H-SEG-02 + H-ORC-01 full sections (50+ todos each, 15 gate points each)
 8. Consumer audit list for ORC-01 (context_volley, theme_evidence, framer, flow2 quotability, SAP prosody)
+9. **Cursor Agent command (copy-paste)** — at top of generated doc: self-contained implementation prompt with absolute paths
 
-Scenario: panel.json speaker boundaries; fireside over-split; technical_deep_dive long segments
+Scenario fixtures (absolute paths):
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/panel.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/fireside.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/technical_deep_dive.json
 
 Target 500–950 lines. Unlimited todos.
 ```
@@ -346,8 +422,21 @@ Target 500–950 lines. Unlimited todos.
 
 ## Command 3 — Wave C: Self-healing
 
-```
-Create docs/build-out/june2026build/wave-c-self-healing.md (seq 07–08). Requires wave-0, wave-a, wave-b. Docs only.
+Paste into a **new Cursor Agent chat** (copy the entire block):
+
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md (seq 07–08). Requires wave-0, wave-a, wave-b. Docs only. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/coherence-orc03.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/analysis-orchestration-loop.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/journey_orchestrator.py
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/analyze.py
 
 ## Hypotheses (shipped — HARDEN)
 
@@ -362,14 +451,15 @@ Investigation loops (flow_hardening budgets); false contradictions blocking anal
 
 ## Required sections
 
-1. 15-point checklist + scenario rows: technical_deep_dive, coherence_30m_planted_drift, trauma_adjacent (blocking contradictions)
+1. 15-point checklist + scenario rows: technical_deep_dive, coherence_30m_planted_drift (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/runs/coherence_30m_planted_drift/), trauma_adjacent (blocking contradictions)
 2. Orthogonality: ORC-02 trust dip vs ORC-03 topic_drift
 3. Fail-open: investigations cap; coherence duration gate; novelty CLAP fallback
 4. Observability: investigation_queue writes logged; journey_orchestrator block reasons; CoherenceRisksPanel empty state
 5. Rate limits: coherence.max_investigations_per_run; flow_hardening attempt_budget — config todos
 6. Mermaid dual path orchestration + coherence hooks
 7. H-ORC-02 (55+ todos) + H-ORC-03 (60+ todos)
-8. troubleshooting.md investigation loop section aligned
+8. /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md investigation loop section aligned
+9. **Cursor Agent command (copy-paste)** — at top of generated doc: self-contained implementation prompt with absolute paths
 
 Wave D gate: dedupe tested; 30m fixture CI; volley parity audit
 
@@ -380,8 +470,20 @@ Target 550–1000 lines. Unlimited todos.
 
 ## Command 4 — Wave D: Output resilience
 
-```
-Create docs/build-out/june2026build/wave-d-output-resilience.md (seq 09–11). Requires waves 0–C. Docs only.
+Paste into a **new Cursor Agent chat** (copy the entire block):
+
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-d-output-resilience.md (seq 09–11). Requires waves 0–C. Docs only. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/post-generation-placement.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/placement_qa.py
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/verify_master.py
 
 ## Hypotheses
 
@@ -397,13 +499,14 @@ Stingers on laughter; trauma_adjacent cold open; flat highlight montage; emphasi
 
 ## Required sections
 
-1. 15-point checklist + **all nine sonic fixtures** + definition-of-done §6 listen matrix procedure
+1. 15-point checklist + **all nine sonic fixtures** under /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/ + /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md §6 listen matrix procedure
 2. Prosody: quiet emphasis (F1N-02); paralinguistic proxy limits (F2-02)
 3. Fail-open: laughter_windows empty → placement unchanged; quotability without spine boost
 4. Observability: narrative_qc failures; placement_qa warnings; verify_master LUFS fail messages
 5. Pipeline mermaid through mix_flow1/2 + placement_qa + verify_master
 6. Non-H deps: source_acoustic_profile, sonic_context, sdp_craft_path — integration todos
 7. H-F1N-02, H-F2-02, H-F1S-02 — 50+ todos each; trauma_adjacent + noisy_room scenario tests required
+8. **Cursor Agent command (copy-paste)** — at top of generated doc: self-contained implementation prompt with absolute paths
 
 Final product: COM retell, hook first-3s, LEX-B after mix
 
@@ -414,8 +517,19 @@ Target 550–1000 lines. Unlimited todos.
 
 ## Command 5 — Wave E: Big bets (parked)
 
-```
-Create docs/build-out/june2026build/wave-e-big-bets.md (seq 12–15). Requires wave-0 doc. Docs only.
+Paste into a **new Cursor Agent chat** (copy the entire block):
+
+```text
+Create /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-e-big-bets.md (seq 12–15). Requires wave-0 doc. Docs only. Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*.
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/remaining-build-commands.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/spike-results-and-winners.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/value-metrics-library.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/anchored-toolchain.md
 
 ## CRITICAL: Parked — unpark gates only, never default-on with A–D
 
@@ -426,12 +540,13 @@ H-ING-02, H-ING-04, H-ING-01, H-SEG-01 — all Parked
 ## Required sections
 
 1. 15-point checklist adapted to **unpark** language (all 15 must pass BEFORE config true)
-2. Shared unpark gates: Command 8; pip-audit; listener study; spike-results deferred row; no core torch
-3. Prosody: accent/multitrack research must document bias mitigation ([value-metrics-library.md](../../pipeline/value-analysis/value-metrics-library.md))
+2. Shared unpark gates: Command 8 in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/remaining-build-commands.md; pip-audit; listener study; spike-results deferred row; no core torch
+3. Prosody: accent/multitrack research must document bias mitigation (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/value-metrics-library.md)
 4. Fail-open: research flags only; production path unchanged when parked
 5. Wave E must NOT block Waves A–D (explicit)
 6. Per-hypothesis 55+ todos including ≥8 unpark gates each + kill criteria
 7. Sequential: ING-02 → ING-04 → ING-01 → SEG-01
+8. **Cursor Agent command (copy-paste)** — at top of generated doc: self-contained research/unpark prompt with absolute paths (default: documentation + gate tracking only; no production code unless explicitly unparking)
 
 Scenario matrix: document which buckets each unpark would help (no implementation until unparked)
 
@@ -442,11 +557,11 @@ Target 600–1100 lines. Unlimited todos.
 
 ## After all six commands
 
-1. Verify each doc: **15-point checklist**, **scenario matrix**, **fail-open**, **observability**, **prosody guardrails**, **do-no-harm**, **50–120+ todos**.
-2. Update [README.md](./README.md) with Wave 0 + A–E links.
-3. Implementation order: **0 → A → B → C → D → E**; never flip defaults without point 15 recovery path tested.
-4. Run smoke-test + validate_narrative + verify_master after each wave code PR.
-5. Wave E: never default-on without human promote + spike-results row.
+1. Verify each doc at `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/`: **15-point checklist**, **scenario matrix**, **fail-open**, **observability**, **prosody guardrails**, **do-no-harm**, **50–120+ todos**, and **Cursor Agent command (copy-paste)** section.
+2. Update `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/README.md` with Wave 0 + A–E links (create if missing).
+3. Implementation order: **0 → A → B → C → D → E**; use each wave file's **Cursor Agent command (copy-paste)** block; never flip defaults without point 15 recovery path tested.
+4. Run smoke-test + validate_narrative + verify_master after each wave code PR — see `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/smoke-test.md`.
+5. Wave E: never default-on without human promote + spike-results row in `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/spike-results-and-winners.md`.
 
 ---
 

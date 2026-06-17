@@ -11,6 +11,62 @@ Wave D hardens the **listener-facing output path**: Flow 1 ranking → EDL → m
 
 ---
 
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Waves 0–C promotion gates (or signed waivers).
+
+```text
+Implement Wave D — Output resilience (H-F1N-02, H-F2-02, H-F1S-02). Code + docs PR per the plan doc. Work per-hypothesis sections and §12 Wave-level implementation todos (40+).
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-d-output-resilience.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/post-generation-placement.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+
+Prerequisite gates:
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md §13 — Wave D gate (dedupe, 30m CI, volley parity)
+
+Scope (absolute paths):
+- H-F1N-02: ranking → EDL → mix_flow1 — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (emphasis_regions_for_segments), full_master_ranking, edl_flow1, mix_flow1 stages in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/pipeline.py
+- H-F2-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/flow2 stages (highlight_selection, mix_flow2), quotability signals
+- H-F1S-02: sting placement — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/placement_qa.py, SFX/mix stages, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/post-generation-placement.md
+- Integration: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/acoustic_profile.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/sonic_context.py, sound design plan path
+- Validators: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/verify_master.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py, narrative_qc in pipeline
+
+Scenario fixtures (all nine + critical rows):
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/noisy_room.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/trauma_adjacent.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/media_profile.json
+- (full set under /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/)
+
+Do-no-harm:
+- No stingers on laughter peaks; trauma_adjacent cold-open violations
+- Quiet vital claims must appear in master order (prosody guardrails §10)
+- Empty laughter_windows → placement unchanged (fail-open §5)
+
+Constraints:
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Do NOT default-on Wave D flags until §13 promotion gate + nine-scenario listen matrix (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md §6)
+- Wave E must remain parked — no Wave E deps in mix critical path
+
+Verify when done:
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sfx_mmaudio.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_flow2_crossfade.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_mix_acoustic_profile.py -q
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/verify_master.py --help
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py --help
+
+Run recovery drills from §12 (D-W36–D-W40): --from-stage full_master_ranking, edl_flow1, mix_flow1, highlight_selection. Update wave-d-output-resilience.md todos [x]. Follow doc-maintenance.md.
+```
+
+---
+
 ## 1. Realistic success definition
 
 The product goal is **not** literal zero-failure on arbitrary first upload. Target instead:

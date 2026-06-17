@@ -6,6 +6,49 @@
 
 Wave 0 documents cross-cutting guardrails that apply **before and across** hypothesis waves A–E. No H-hypothesis feature should ship until applicable Wave 0 Implementation todos are addressed or explicitly waived with rationale.
 
+---
+
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. This command is **independent** — safe to run in isolation when Wave 0 is the active backlog.
+
+```text
+Implement Wave 0 — Resilience harness per the plan doc. Code + docs PR. Work unchecked items in §14 Implementation todos and close gaps in §5–§11 where code or troubleshooting rows are missing.
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/testing-and-verification.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/operator-gates.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
+
+Scope (absolute paths):
+- §14 todos: fail-open (FO-*), observability (OBS-*), scenario (SC-*), CI (CI-*), cross-artifact (CA-*), doc hygiene (DOC-*)
+- Verify §5 fail-open in: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/clap_index.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/duration_gate.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/sonic_context_stages.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/audio_preclean.py
+- §6 observability: every hard stop → ctx.log() + row in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md
+- §7 flow hardening: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/artifact_cross_validate.py
+- Scenario fixtures: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/*.json, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/runs/coherence_30m_planted_drift/
+
+Constraints:
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Do NOT set hypothesis flags default-on in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json without §2 15-point sign-off
+- Use MCP user-context7 before changing third-party API usage
+- Operator-visible strings only via ctx.log() / gui_log.jsonl policy
+
+Verify when done:
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+./tools/check_prerequisites.sh
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_artifact_cross_validate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine_clap.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_preclean_offer.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_gates.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py -q
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+
+Update /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md: mark completed §14 todos [x]; fill §15 waiver table only if waiving. Follow /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md for INDEX, implementation-guide, README links.
+```
+
 **Canonical references:** [operator-gates.md](../../workflows/operator-gates.md) · [troubleshooting.md](../../workflows/troubleshooting.md) · [config-keys.md](../../cross-cutting/config-keys.md) · [stage-registry.md](../stage-registry.md) · [interview-scenario-atlas.md](../../prompts/_shared/interview-scenario-atlas.md)
 
 ---

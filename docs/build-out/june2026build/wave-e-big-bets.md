@@ -7,6 +7,59 @@
 
 Wave E documents **research moonshots** that carry heavy dependencies, unproven listener lift, or cross-cutting ingest/segmentation risk. All four hypotheses remain **Parked** until every unpark gate in §2 and §3 clears **and** the hypothesis-specific §15 unpark checklist passes. Production paths for Waves A–D must remain unchanged while parked.
 
+---
+
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in.
+
+**Default mode:** documentation + gate tracking + research spike prep only — **no production code** and **no default-on config** unless §16 Human unpark sign-off table is signed for a specific hypothesis.
+
+```text
+Wave E — Big bets (PARKED). Work per /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-e-big-bets.md. Default: docs + gate tracking only. Do NOT unpark or merge heavy deps without explicit human sign-off in §16.
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-e-big-bets.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/remaining-build-commands.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/spike-results-and-winners.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/value-metrics-library.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/anchored-toolchain.md
+
+CRITICAL constraints:
+- All hypotheses H-ING-02, H-ING-04, H-ING-01, H-SEG-01 remain PARKED
+- Do NOT set research flags true in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json
+- Do NOT add torch/transformers to /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock (SG-05)
+- Do NOT block Waves A–D CI when Wave E flags are off (SG-06)
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Sequential unpark order: ING-02 → ING-04 → ING-01 → SEG-01
+
+If working gate-tracking todos (§17 Wave-level todos):
+- Update shared unpark gates §3 (SG-01 through SG-10) with evidence links
+- Track Command 8 status from /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/remaining-build-commands.md
+- Update deferred rows in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/spike-results-and-winners.md
+- Document bias mitigation per /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/value-analysis/value-metrics-library.md §5
+
+If explicitly unparking ONE hypothesis (requires §16 signed table first):
+- Isolated research venv only — never core /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.venv
+- All 15 unpark gates §2 + ≥8 SG gates per hypothesis
+- Prerequisites: H-ING-03 Promoted (SG-07), H-SEG-02 Promoted (SG-08) where applicable
+- Run: python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/run_value_spike.py on section fixture
+- ./tools/check_prerequisites.sh && pip-audit per /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/anchored-toolchain.md
+
+Verify (always):
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+./tools/check_prerequisites.sh
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/ -q --ignore=/Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/ 2>/dev/null || pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/ -q
+grep -E 'torch|transformers' /Users/nicketuttarwar/IDEProjects/interview_helper_mux/requirements.lock && echo 'FAIL: core lock must not contain torch' && exit 1 || echo 'OK: no torch in core lock'
+
+Update wave-e-big-bets.md todos [x]. Follow /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md.
+```
+
 **Canonical references:** [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) · [value-metrics-library.md](../../pipeline/value-analysis/value-metrics-library.md) · [remaining-build-commands.md](../remaining-build-commands.md) Command 8 · [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [shared-ingest-transcribe.md](../../pipeline/value-analysis/sections/shared-ingest-transcribe.md) · [shared-segmentation.md](../../pipeline/value-analysis/sections/shared-segmentation.md)
 
 ---

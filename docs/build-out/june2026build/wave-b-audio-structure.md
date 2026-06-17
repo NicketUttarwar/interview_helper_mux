@@ -7,6 +7,58 @@
 
 Wave B hardens **segment boundary truth** (H-SEG-02 pause ladder) and **time-indexed comprehension memory** (H-ORC-01 interview spine). Both hypotheses sit on the path from G0 transcript → `boundary_detection` → downstream ranking/mix. Wave B must not regress panel speaker boundaries, fireside over-splitting, or technical deep-dive long-segment coherence.
 
+---
+
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Wave 0 + Wave A promotion gates (or signed waivers).
+
+```text
+Implement Wave B — Audio structure (H-SEG-02, H-ORC-01). Code + docs PR per the plan doc. Work §10 H-SEG-02, §11 H-ORC-01, and §12 Wave-level implementation todos.
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/interview-spine.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/context-padding.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+
+Prerequisite gates:
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md §15
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md — Wave B promotion gate
+
+Scope (absolute paths):
+- H-SEG-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (pause_ladder_hints), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/segmentation.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/boundaries.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/segmentation/boundary-detection.system.txt
+- H-ORC-01: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/interview_spine_stage.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/*, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/context_volley.py
+- CLAP fail-open: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/clap_index.py — spine ships with retrieval.enabled: false when venv missing
+- GUI: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/web/server.py (recompute-interview-spine), frontend InterviewSpinePanel
+
+Scenario fixtures (must not regress):
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/panel.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/fireside.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/technical_deep_dive.json
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/one_on_one.json
+
+Constraints:
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Do NOT break CLAP fail-open from wave-0 §5
+- Ladder/spine dedupe — no contradictory split guidance in volley
+- Use MCP user-context7 for third-party API changes
+
+Verify when done:
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_stage_enrichment.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine_clap.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py -q
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py --help
+
+Update wave-b-audio-structure.md todos [x]. Block Wave C until §9 Wave C promotion gate passes. Follow /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md.
+```
+
 **Canonical references:** [interview-spine.md](../../cross-cutting/interview-spine.md) · [context-padding.md](../../cross-cutting/context-padding.md) · [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) § shared-segmentation · [stage-registry.md](../stage-registry.md)
 
 ---

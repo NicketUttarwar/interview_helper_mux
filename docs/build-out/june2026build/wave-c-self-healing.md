@@ -16,6 +16,56 @@ Wave C hardens **self-healing analysis**: investigations enqueue from determinis
 
 ---
 
+## Cursor Agent command (copy-paste)
+
+Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Waves 0, A, B promotion gates (or signed waivers).
+
+```text
+Implement Wave C — Self-healing (H-ORC-02, H-ORC-03). Code + docs PR per the plan doc. Harden investigation enqueue/dedupe (ORC-02) and coherence analysis with 30m duration gate (ORC-03). Work §15 Wave-level todos and per-hypothesis Implementation todos.
+
+Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+
+Read first (attach with @):
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/analysis-orchestration-loop.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/coherence-orc03.md
+@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+
+Prerequisite gates:
+- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md §9 — Wave C promotion gate
+- H-ORC-01 spine must build: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/interview_spine_stage.py
+
+Scope (absolute paths):
+- H-ORC-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (investigation enqueue), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/journey_orchestrator.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py (attempt_budget)
+- H-ORC-03: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/analyze.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/duration_gate.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/claim_contradiction.py
+- Config: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json (coherence.max_investigations_per_run, flow_hardening keys), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
+- GUI: CoherenceRisksPanel, investigation queue surfaces in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/gui-surface-map.md
+
+Do-no-harm:
+- Short interviews (<30m): no coherence spam — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py
+- ORC-02 vs ORC-03 dedupe: same window → one open investigation
+- Blocking claim_contradiction: high-confidence only; align §11 troubleshooting investigation loop
+- Fixture: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/runs/coherence_30m_planted_drift/
+
+Constraints:
+- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
+- Investigation loops must respect flow_hardening budgets — no infinite drain
+- Use MCP user-context7 for third-party API changes
+
+Verify when done:
+cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_fixture_planted.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_artifact_cross_validate.py -q
+python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+
+Merge §11 investigation loop into /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md. Update wave-c-self-healing.md todos [x]. Block Wave D until §13 Wave D promotion gate passes.
+```
+
+---
+
 ## 1. Realistic success definition
 
 The product goal is **not** literal zero-failure on arbitrary first upload. Target instead:
