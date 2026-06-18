@@ -274,6 +274,59 @@ _phase_fix() {
   return 0
 }
 
+_phase_commit_fix() {
+  local blocker
+  blocker="$(ls -t "${CAMPAIGN_DIR}"/blockers/BLOCKER-*.md 2>/dev/null | head -1 || true)"
+  if ! git -C "${REPO_ROOT}" diff --name-only 2>/dev/null | grep -q .; then
+    _log_info "No repo changes to commit after fix"
+    return 0
+  fi
+  _log_step "COMMIT" "Staging fix from ${blocker:-blocker}"
+  git -C "${REPO_ROOT}" add -A
+  local slug="e2e-blocker-fix"
+  [[ -n "${blocker}" ]] && slug="$(basename "${blocker}" .md | tr '[:upper:]' '[:lower:]')"
+  if git -C "${REPO_ROOT}" commit -m "$(cat <<EOF
+fix(e2e): ${slug}
+
+Automated fix after Flow 1 GUI E2E blocker.
+EOF
+)"; then
+    _log_info "PASS git commit for blocker fix"
+  else
+    _log_info "Nothing to commit (working tree unchanged after add)"
+  fi
+}
+
+_print_blocker_summary() {
+  local outcome="$1"
+  local blocker run_id symptom
+  blocker="$(ls -t "${CAMPAIGN_DIR}"/blockers/BLOCKER-*.md 2>/dev/null | head -1 || true)"
+  run_id=""
+  symptom=""
+  if [[ -f "${DRIVER_DIR}/state.json" ]]; then
+    run_id="$(python3 -c "import json; print(json.load(open('${DRIVER_DIR}/state.json')).get('run_id') or '')" 2>/dev/null || true)"
+  fi
+  if [[ -n "${blocker}" ]]; then
+    symptom="$(awk '/^## Symptom$/{f=1;next} f&&/^## /{exit} f' "${blocker}" | sed '/^$/d' | head -3 | tr '\n' ' ')"
+  fi
+  printf '\n'
+  printf '\033[1;33m════════════════════════════════════════════════════════\033[0m\n'
+  printf '\033[1;33m  Flow 1 GUI E2E — BLOCKER SUMMARY\033[0m\n'
+  printf '\033[1;33m════════════════════════════════════════════════════════\033[0m\n'
+  printf '  Outcome:    %s\n' "${outcome}"
+  [[ -n "${blocker}" ]] && printf '  Blocker:    %s\n' "${blocker}"
+  [[ -n "${run_id}" ]] && printf '  run_id:     %s\n' "${run_id}"
+  [[ -n "${symptom}" ]] && printf '  Symptom:    %s\n' "${symptom}"
+  printf '  Session:    %s\n' "${SESSION_DIR}"
+  printf '\n'
+  printf '  The driver stopped instead of retrying forever.\n'
+  printf '  Review the blocker file and session log, then rerun:\n'
+  printf '\n'
+  printf '    %s --resume\n' "${ONE_LINER}"
+  printf '\n'
+  printf '\033[1;33m════════════════════════════════════════════════════════\033[0m\n\n'
+}
+
 _phase_finish() {
   _log_step "FINISH" "Verification"
   local state_file="${DRIVER_DIR}/state.json"
@@ -368,11 +421,26 @@ main() {
       fi
       fix_round=$((fix_round + 1))
       if [[ "${fix_round}" -gt "${MAX_FIX_ROUNDS}" ]]; then
+        _print_blocker_summary "max_fix_rounds_exceeded"
         _log_fatal "Max fix rounds (${MAX_FIX_ROUNDS}) exceeded"
         exit 1
       fi
-      _phase_fix || true
-      RESUME=1
+      if [[ "${NO_FIX}" -eq 1 ]]; then
+        _print_blocker_summary "blocker_no_fix"
+        exit 2
+      fi
+      if ! _phase_fix; then
+        _print_blocker_summary "fix_failed"
+        exit 1
+      fi
+      _phase_commit_fix
+      if [[ -n "${SERVER_PID:-}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
+        _log_step "SERVER" "Stopping GUI server after fix"
+        kill -- -"${SERVER_PID}" 2>/dev/null || kill "${SERVER_PID}" 2>/dev/null || true
+      fi
+      _phase_screenshot_archive_finalize
+      _print_blocker_summary "fix_applied"
+      exit 0
     else
       break
     fi

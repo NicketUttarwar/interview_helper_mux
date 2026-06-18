@@ -9,10 +9,12 @@ from typing import Any
 
 
 class ApiClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, request_timeout_s: int = 30) -> None:
         self.base_url = base_url.rstrip("/")
+        self.request_timeout_s = request_timeout_s
 
-    def _get(self, path: str, timeout: int = 60) -> dict[str, Any]:
+    def _get(self, path: str, timeout: int | None = None) -> dict[str, Any]:
+        timeout = self.request_timeout_s if timeout is None else timeout
         url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, method="GET")
         try:

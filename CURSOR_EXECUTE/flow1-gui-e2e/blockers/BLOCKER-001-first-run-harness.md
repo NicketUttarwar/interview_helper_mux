@@ -20,7 +20,7 @@ Driver bootstrap and start-tab flow needed hardening for SPA polling UI and sess
 - `run.sh` uses `CURSOR_EXECUTE/.venv/bin/python` for driver
 - `start_run()` waits for `start-asset-*` / `start-execution-*` testids; `domcontentloaded` not `networkidle`
 - `resolve_run_id_after_start()` prefers `/api/session` active run, then `/api/runs` by input path
-- API poll retries on timeout; `_get` timeout 60s
+- API poll retries on timeout up to `api_poll_max_consecutive_failures` (default 3), then writes `BLOCKER-*-api-poll-failed.md` and exits code 2
 
 ## Fix comment
 

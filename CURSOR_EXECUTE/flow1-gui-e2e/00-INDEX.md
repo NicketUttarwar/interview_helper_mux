@@ -71,3 +71,10 @@ During a real run (not `--dry-run`), full-page PNG captures are saved under `ASS
 | `--headed` | Visible Chromium |
 | `--verbose` | WAIT line every poll |
 | `--max-fix-rounds N` | Agent fix iterations (default 10) |
+
+## Driver config (`driver/config.yaml`)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `api_poll_max_consecutive_failures` | 3 | Consecutive `/api/runs/{id}` or `/job` failures before blocker exit |
+| `api_request_timeout_s` | 30 | Per-request HTTP timeout for driver API client |

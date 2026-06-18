@@ -187,16 +187,22 @@ def run_driver(args: argparse.Namespace) -> int:
     input_wav = _REPO_ROOT / config["input_wav"]
     dummy_vo = _CAMPAIGN_DIR / "fixtures" / "dummy_vo.wav"
     wav_name = input_wav.name
-    api = ApiClient(config["base_url"])
+    api = ApiClient(
+        config["base_url"],
+        request_timeout_s=int(config.get("api_request_timeout_s", 30)),
+    )
 
     poll_s = float(config.get("poll_interval_s", 2))
     heartbeat_s = float(config.get("heartbeat_interval_s", 30))
     stall_s = float(config.get("stall_timeout_s", 120))
+    api_poll_max_failures = int(config.get("api_poll_max_consecutive_failures", 3))
 
     last_signature: tuple | None = None
     last_progress_at = time.time()
     last_heartbeat_at = 0.0
     last_stage_index: int | None = None
+    consecutive_api_failures = 0
+    last_api_error = ""
     run_id: str | None = state.run_id
 
     try:
@@ -241,10 +247,36 @@ def run_driver(args: argparse.Namespace) -> int:
                     try:
                         run = api.run(run_id)
                         job = api.job(run_id)
+                        consecutive_api_failures = 0
+                        last_api_error = ""
                     except Exception as exc:
-                        log.wait(f"API poll failed ({exc}) — retrying")
-                        page.wait_for_timeout(int(poll_s * 1000))
-                        continue
+                        consecutive_api_failures += 1
+                        last_api_error = str(exc)
+                        remaining = api_poll_max_failures - consecutive_api_failures
+                        if remaining > 0:
+                            log.wait(
+                                f"API poll failed ({exc}) — retrying "
+                                f"({consecutive_api_failures}/{api_poll_max_failures})"
+                            )
+                            page.wait_for_timeout(int(poll_s * 1000))
+                            continue
+                        shot = screenshot(page, session_dir, "api-poll-failed")
+                        path = write_blocker(
+                            _CAMPAIGN_DIR,
+                            slug="api-poll-failed",
+                            run_id=run_id,
+                            stage=None,
+                            job_status="api_unreachable",
+                            symptom=(
+                                f"GET /api/runs/{run_id} or /job failed "
+                                f"{consecutive_api_failures} times in a row: {last_api_error}"
+                            ),
+                            screenshot=shot,
+                            log_tail=[],
+                        )
+                        log.blocker(f"Wrote {path}")
+                        state.save(state_path)
+                        return EXIT_BLOCKER
                     status = job.get("status", "idle")
                     stage = job.get("current_stage") or job.get("stage")
                     idx = job.get("stage_index")

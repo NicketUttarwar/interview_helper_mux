@@ -44,4 +44,8 @@
 
 ## Resume protocol
 
-After **Status: fixed**, operator or `run.sh --resume` restarts driver from `driver/state.json` without creating a new execution (same `run_id`).
+After **Status: fixed**, `run.sh` commits any fix, prints a blocker summary, and exits. Rerun:
+
+```bash
+./CURSOR_EXECUTE/flow1-gui-e2e/run.sh --resume
+```

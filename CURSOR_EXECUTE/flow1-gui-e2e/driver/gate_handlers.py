@@ -248,9 +248,31 @@ def resolve_gates(
     return None
 
 
+def newest_matching_run(rows: list[dict[str, Any]], wav_name: str) -> str | None:
+    """Return run_id of the newest execution for this source file name."""
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        path = str(row.get("input_audio_path") or "")
+        if wav_name not in path:
+            continue
+        rid = row.get("run_id")
+        if rid:
+            matches.append(row)
+    if not matches:
+        return None
+    best = max(
+        matches,
+        key=lambda r: (
+            int(r.get("execution_number") or 0),
+            str(r.get("created_at") or ""),
+            str(r.get("run_id") or ""),
+        ),
+    )
+    return str(best.get("run_id"))
+
+
 def resolve_run_id_after_start(api, wav_name: str, page: Page, log: EventLogger) -> str | None:
     """Prefer session active run; fall back to newest run for this source file."""
-    needle = wav_name
     for attempt in range(60):
         try:
             active = (api.session().get("active") or {}).get("run_id")
@@ -261,13 +283,10 @@ def resolve_run_id_after_start(api, wav_name: str, page: Page, log: EventLogger)
         except Exception:
             pass
         try:
-            for row in api.runs().get("runs") or []:
-                path = str(row.get("input_audio_path") or "")
-                if needle in path:
-                    rid = row.get("run_id")
-                    if rid:
-                        log.info(f"run_id from runs list (attempt {attempt + 1})")
-                        return rid
+            rid = newest_matching_run(list(api.runs().get("runs") or []), wav_name)
+            if rid:
+                log.info(f"run_id from runs list (attempt {attempt + 1})")
+                return rid
         except Exception:
             pass
         page.wait_for_timeout(1000)

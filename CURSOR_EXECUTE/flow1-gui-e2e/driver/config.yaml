@@ -3,6 +3,8 @@ base_url: http://127.0.0.1:8765
 poll_interval_s: 2
 heartbeat_interval_s: 30
 stall_timeout_s: 120
+api_request_timeout_s: 30
+api_poll_max_consecutive_failures: 3
 stage_timeouts_s:
   transcribe: 1800
   mmaudio_sfx_flow1: 3600
