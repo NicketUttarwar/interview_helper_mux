@@ -11,7 +11,7 @@ from interview_mux.coherence.config import (
     coherence_cfg,
     threshold,
 )
-from interview_mux.coherence.duration_gate import build_gate, coherence_activated, interview_duration_ms
+from interview_mux.coherence.duration_gate import build_gate, interview_duration_ms
 from interview_mux.coherence.investigations import coherence_investigations
 from interview_mux.coherence.memory_sync import sync_coherence_to_state
 from interview_mux.coherence.missing_callback import detect_missing_callbacks
@@ -27,10 +27,23 @@ def maybe_run_coherence_analysis(ctx, *, phase: str) -> int:
         return 0
     gate = build_gate(ctx)
     if not gate.get("activated"):
+        if phase == "post_content_context" and not ctx.artifact_exists(COHERENCE_REPORT_PATH):
+            ctx.write_json(COHERENCE_REPORT_PATH, _inactive_report(gate, phase))
+        ctx.log(
+            f"coherence_phase_complete phase={phase} activated=false enqueued=0",
+            level="info",
+            stage="coherence",
+            detail=json.dumps({"duration_ms": gate.get("duration_ms"), "min_duration_ms": gate.get("min_duration_ms")}),
+        )
         return 0
 
     prior = ctx.read_json(COHERENCE_REPORT_PATH) if ctx.artifact_exists(COHERENCE_REPORT_PATH) else None
     if phase != "post_content_context" and _can_skip(ctx, prior, phase):
+        ctx.log(
+            f"coherence_phase_complete phase={phase} skipped=unchanged enqueued=0",
+            level="info",
+            stage="coherence",
+        )
         return 0
 
     report = build_coherence_report(ctx, phase=phase)
@@ -63,13 +76,19 @@ def maybe_run_coherence_analysis(ctx, *, phase: str) -> int:
             pass
 
     items = coherence_investigations(report)
-    if not items:
-        return 0
-
     from interview_mux.analysis_memory import enqueue_investigations
 
-    enqueue_investigations(ctx, items, created_by_stage=phase.replace("post_", ""))
-    return len(items)
+    enqueued = enqueue_investigations(ctx, items, created_by_stage=phase.replace("post_", "")) if items else 0
+    ctx.log(
+        f"coherence_phase_complete phase={phase} enqueued={enqueued}",
+        level="info",
+        stage="coherence",
+        detail=json.dumps(
+            {"risk_count": len(report.get("risks") or []), "investigation_count": enqueued},
+            ensure_ascii=False,
+        ),
+    )
+    return enqueued
 
 
 def build_coherence_report(ctx, *, phase: str) -> dict[str, Any]:

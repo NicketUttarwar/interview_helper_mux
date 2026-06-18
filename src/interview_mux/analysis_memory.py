@@ -494,9 +494,10 @@ def enqueue_investigations(
     *,
     created_by_stage: str,
     dedupe: bool | None = None,
-) -> None:
+) -> int:
+    """Append investigations to the queue; returns count actually enqueued (after dedupe)."""
     if not items:
-        return
+        return 0
     from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 
     use_dedupe = dedupe
@@ -513,6 +514,7 @@ def enqueue_investigations(
             if it.get("status") == "open":
                 existing_keys.add(_investigation_dedupe_key(it))
 
+    added_kinds: list[str] = []
     for raw in items:
         if not raw:
             continue
@@ -538,6 +540,7 @@ def enqueue_investigations(
         }
         queue.setdefault("items", []).append(entry)
         existing_ids.add(iid)
+        added_kinds.append(str(entry.get("kind") or "unknown"))
         if use_dedupe:
             existing_keys.add(_investigation_dedupe_key(entry))
         try:
@@ -547,7 +550,19 @@ def enqueue_investigations(
                 append_investigation_entry(ctx, investigation=entry, created_by_stage=created_by_stage)
         except Exception:
             pass
-    save_queue(ctx, queue)
+    if added_kinds:
+        save_queue(ctx, queue)
+        kind_summary = ", ".join(sorted(set(added_kinds)))
+        ctx.log(
+            f"investigation_enqueue count={len(added_kinds)} kinds={kind_summary}",
+            level="info",
+            stage=created_by_stage or "memory",
+            detail=json.dumps(
+                {"created_by_stage": created_by_stage, "kinds": added_kinds},
+                ensure_ascii=False,
+            ),
+        )
+    return len(added_kinds)
 
 
 def drain_open_investigations(ctx: RunContext, limit: int | None = None) -> list[dict[str, Any]]:

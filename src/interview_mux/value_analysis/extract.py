@@ -164,14 +164,23 @@ def maybe_enqueue_orchestration_investigations(
                     "question": flag.get("note", "Acoustic/text ambiguity flagged by value analysis."),
                     "priority": "medium",
                     "blocking": False,
+                    "target": {"time_ms": start_ms, "segment_id": f"flag_{start_ms}"},
                     "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
                 }
             )
 
     items.extend(_spine_orchestration_investigations(ctx))
-    if items:
-        enqueue_investigations(ctx, items, created_by_stage="content_context")
-    return len(items)
+    if not items:
+        return 0
+    enqueued = enqueue_investigations(ctx, items, created_by_stage="content_context")
+    kinds = sorted({str(it.get("kind") or "unknown") for it in items})
+    ctx.log(
+        f"investigation_enqueue orc02 count={enqueued} kinds={','.join(kinds)}",
+        level="info",
+        stage="content_context",
+        detail=json.dumps({"requested": len(items), "enqueued": enqueued, "kinds": kinds}, ensure_ascii=False),
+    )
+    return enqueued
 
 
 def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]:
@@ -220,6 +229,7 @@ def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]
                         ),
                         "priority": "medium",
                         "blocking": False,
+                        "target": {"time_ms": time_ms, "segment_id": f"trust_dip_{time_ms}"},
                         "suggested_action": {"type": "rerun_stage", "stage": "transcript_review_build"},
                     }
                 )
@@ -229,6 +239,7 @@ def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]
             if coherence_active() and replace_stub_topic_shift_hints():
                 continue
             seen.add(key)
+            window_id = str(event.get("window_id") or f"stub_{time_ms}")
             items.append(
                 {
                     "kind": "topic_drift",
@@ -237,6 +248,7 @@ def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]
                     ),
                     "priority": "low",
                     "blocking": False,
+                    "target": {"window_id": window_id, "time_ms": time_ms},
                     "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
                 }
             )

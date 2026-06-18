@@ -94,6 +94,8 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `coherence.theme_alignment_min` | `coherence/theme_alignment.py` | Token overlap floor for theme match |
 | `coherence.blocking_claim_contradiction` | `coherence/claim_contradiction.py` | High-confidence contradictions block `analysis_ready` |
 | `coherence.replace_stub_topic_shift_hints` | `interview_spine/boundaries.py`, `value_analysis/extract.py` | Disable speaker-turn-only stub when full coherence on |
+| *(implicit)* ORC-02 quality flags cap | `value_analysis/extract.py` | Max **5** `quality_trajectory_flags` enqueued per run (not a config key) |
+| *(implicit)* ORC-02 spine cap | `value_analysis/extract.py` `_spine_orchestration_investigations` | Max **6** spine boundary investigations per run (not a config key) |
 | `models.<stage_key>` | `get_model()` → OpenAI calls | Wrong model: cost/quality drift; unknown name → API errors |
 
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).

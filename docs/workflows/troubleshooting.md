@@ -46,9 +46,38 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | Preflight blocked (no OpenAI call) | Missing transcript, G0, or upstream artifact | `gui_log.jsonl` preflight line | Clear G0; ensure prerequisite stage artifacts exist |
 | Investigation rerun stays open | Rerun did not improve artifact | `investigation_queue.json`, stage artifact status | Fix root cause; manual rerun or specialist |
 | Investigation queue drain stuck | Orchestrator cap or repeated open items block progress | `understanding/investigation_queue.json`, `analysis_orchestration.json` | Drain open items via Story Board; fix cited artifact; `--from-stage` on producer; check `max_investigation_reruns_per_kind` |
+| Same investigation re-runs every stage | Drain runs but artifact never reaches `complete` | `understanding/stage_runs/<stage>/attempt_*.json`, producer JSON status | Fix root artifact; `--from-stage <stage>` after manual edit |
+| `rerun cap reached for kind=` in log | `max_investigation_reruns_per_kind` (default 2) exhausted | `analysis_orchestration.json` `investigation_rerun_counts` | Mark `wont_fix` in GUI if acceptable; or fix inputs and delete count key (dev) |
+| Investigations duplicate same question | Dedupe off or different dedupe keys | Two open items' `kind`, `target.window_id` | Enable `investigation_dedupe`; resolve one manually |
+| Queue enqueues but never drains | Non-LLM stage path / runner missing | `suggested_action.stage` vs `llm_stage_runners` keys | Ensure stage in `ALL_LLM_STAGES`; `--from-stage` to registered stage |
+| Trust dip investigations on quiet speech | Missing corroboration gate | `spine.boundary_events`, `transcript/full.json` words near `time_ms` | Expected skip when no low-conf words; verify Wave A H-ING-03 not double-flagging |
+| Too many `acoustic_anomaly` after content_context | >5 quality flags | `value_features.json` `quality_trajectory_flags` | Cap is 5; tune value analysis thresholds in Wave A |
+| topic_drift + topic_drift duplicate | Stub not suppressed | `coherence.replace_stub_topic_shift_hints`, duration | Enable replace stub; verify ORC-03 gate on long runs only |
+| Coherence risks on 20m interview | Duration miscount | `coherence_report.json` `gate.duration_ms` | Verify transcript word `end_ms`; should show `activated: false` |
+| Blocking contradiction on emotional story beat | trauma_adjacent false positive | `coherence_report.json` risks near emotional peak, `content_brief.json` `key_claims` | Re-anchor brief; mark investigation `wont_fix` if narrative-intentional tension |
+| topic_drift without audible change | Novelty fallback too sensitive | `scores[].novelty_score`, CLAP embeddings present? | Set `require_acoustic_novelty: true`; raise `novelty_min_delta` |
+| No risks on 31m fixture | Gate or spine missing | `interview_spine/spine.json`, `orc03_enabled` | Run full analysis through `content_brief_reanchor`; run planted fixture test |
+| `Open blocking claim_contradiction` | High-confidence contradiction unresolved | `investigation_queue.json`, `coherence_report.json` | Run `content_brief_reanchor`; resolve or `wont_fix` with operator note |
+| Ready false but queue empty | Artifact incomplete under hardening | `analysis_state.json` `completion.blockers` | Complete partial producer JSON per blocker path |
 | Shard collate blocked | `< shard_min_success_ratio` shards succeeded | `stage_runs/<stage>/` shard attempts | Fix shard inputs or lower ratio (dev only) |
 
 Set `analysis.flow_hardening.enabled: false` only for intentional legacy/dev runs. See [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening).
+
+**Investigation recovery commands:**
+
+```bash
+# Re-run from content brief after operator edits
+python tools/run_analysis.py --run-id <id> --from-stage content_context
+
+# Re-anchor only
+python tools/run_analysis.py --run-id <id> --from-stage content_brief_reanchor
+
+# Recompute coherence without full pipeline (GUI or API)
+curl -X POST http://localhost:8765/api/runs/<id>/recompute-coherence \
+  -H 'Content-Type: application/json' -d '{"phase":"post_reanchor"}'
+```
+
+See [analysis-orchestration-loop.md](./analysis-orchestration-loop.md) for orchestrator caps (`max_queue_drains_per_stage`, `max_investigation_reruns_per_kind`, `investigation_dedupe`).
 
 ---
 

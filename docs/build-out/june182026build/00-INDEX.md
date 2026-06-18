@@ -29,7 +29,7 @@ Requires `CURSOR_API_KEY` in `config/secrets/secrets.env` or the environment; gi
 | **02** | [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) | Resilience harness (LARGE) | [x] | [§15](./02-WAVE-0-resilience-harness.md#15-promotion-gate-for-wave-a) |
 | **03** | [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md) | Early truth (LARGE) | [x] | [Wave B gate](./03-WAVE-A-early-truth.md#wave-b-promotion-gate) |
 | **04** | [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) | Audio structure (LARGE) | [x] | [§9](./04-WAVE-B-audio-structure.md#9-wave-c-promotion-gate) |
-| **05** | [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md) | Self-healing (LARGE) | [ ] | [§13](./05-WAVE-C-self-healing.md#13-wave-d-promotion-gate-from-wave-c) |
+| **05** | [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md) | Self-healing (LARGE) | [x] | [§13](./05-WAVE-C-self-healing.md#13-wave-d-promotion-gate-from-wave-c) |
 | **06** | [06-WAVE-D-output-resilience.md](./06-WAVE-D-output-resilience.md) | Output resilience (LARGE) | [ ] | [§13 Shipped](./06-WAVE-D-output-resilience.md#13-wave-d-promotion-gate-for-shipped-default-on) |
 | **07** | [07-FINISH-signoff.md](./07-FINISH-signoff.md) | Cross-wave sign-off | [ ] | [definition-of-done-signoff.md](../definition-of-done-signoff.md) |
 

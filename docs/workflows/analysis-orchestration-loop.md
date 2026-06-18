@@ -58,6 +58,12 @@ Invalidates that stage and downstream markers. Memory files persist unless you d
 "analysis": {
   "max_iterations_per_stage": 3,
   "max_queue_drains_per_stage": 5,
-  "max_user_json_chars": 48000
+  "max_user_json_chars": 48000,
+  "flow_hardening": {
+    "investigation_dedupe": true,
+    "max_investigation_reruns_per_kind": 2
+  }
 }
 ```
+
+Wave C (H-ORC-02 / H-ORC-03) also uses `coherence.max_investigations_per_run` (default 8) and implicit ORC-02 caps (5 quality flags, 6 spine items). See [05-WAVE-C-self-healing.md](../build-out/june182026build/05-WAVE-C-self-healing.md) and [config-keys.md](../cross-cutting/config-keys.md).

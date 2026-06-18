@@ -563,6 +563,8 @@ def build_journey_snapshot(
     hint = execute_hint(phase, flow_intent, selected_flow, milestones)
     if blocking.get("blocked"):
         next_action = blocking["message"]
+    elif phase == "understand" and _open_investigation_count(ctx) > 0:
+        next_action = NEXT_ACTION_UNDERSTAND_INVESTIGATIONS
     elif hint and hint.get("label"):
         next_action = str(hint["label"])
     else:
