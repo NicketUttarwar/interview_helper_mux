@@ -98,32 +98,26 @@ def _silence_valley_events(wav_path) -> list[dict[str, Any]]:
 
 
 def _trust_dip_events(wav_path) -> list[dict[str, Any]]:
+    from interview_mux.stage_enrichment import compute_trust_dip_flags
+
     packed = energy_windows_from_path(wav_path)
     if packed is None:
         return []
     rms, times_ms, _peak = packed
-    if len(rms) < 8:
-        return []
-    chunk = max(1, len(rms) // 12)
-    baseline = float(np.percentile(rms, 60))
     out: list[dict[str, Any]] = []
-    for i in range(0, len(rms), chunk):
-        window = rms[i : i + chunk]
-        if window.size == 0:
-            continue
-        local_p50 = float(np.percentile(window, 50))
-        if local_p50 < baseline * 0.55:
-            t_ms = int(times_ms[min(i, len(times_ms) - 1)])
-            out.append(
-                {
-                    "time_ms": t_ms,
-                    "type": "trust_dip",
-                    "confidence": round(min(1.0, (baseline - local_p50) / max(baseline, 1e-9)), 3),
-                    "sources": ["quality_trajectory"],
-                    "window_ids": [],
-                }
-            )
-    return out[:8]
+    for flag in compute_trust_dip_flags(rms, times_ms):
+        t_ms = int(flag.get("start_ms") or 0)
+        dip_ratio = float(flag.get("dip_ratio") or 0.0)
+        out.append(
+            {
+                "time_ms": t_ms,
+                "type": "trust_dip",
+                "confidence": round(min(1.0, 1.0 - dip_ratio), 3),
+                "sources": ["quality_trajectory"],
+                "window_ids": [],
+            }
+        )
+    return out
 
 
 def _prosody_shift_events(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:

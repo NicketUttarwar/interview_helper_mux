@@ -119,7 +119,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
 | Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review Story Board panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
-| `missing_framing` | Manifest segments; `content_brief` on disk | Re-anchor brief or re-classify segments |
+| `value_features.json` | Trust-dip flags optional; `quality_trajectory_flags` when WAV present | `extract_value_features.py` or auto-extract after `content_context` |
+| `missing_framing` | Pre-stage `comprehension_risk_blind` fail-open; risks in volley when present | Re-run `--from-stage missing_framing` |
 | `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
 | Flow LLM stages | Analysis-ready artifacts all `complete` | Finish analysis; **Fill gaps** |
 
@@ -150,7 +151,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Check | Pass | If fail |
 |-------|------|--------|
 | `transcript/full.json` | Words + timestamps; speakers present | [transcription](../pipeline/transcription/README.md), re-`transcribe` |
-| Review queue | `transcript/review_queue.json` chunks have clips | `transcript_review_build` |
+| Review queue | `transcript/review_queue.json` chunks have clips; `sort_mode=salience` (default) | `transcript_review_build` |
+| G0 salience | Top ranks combine low confidence + stress — not confidence-only | `gui_log.jsonl` `G0 review queue built` |
 | Dock word edits | `words[].corrected: true` after inline edits; `operator/transcript_corrected.json` updates (`source: dock_edit`) | Re-edit in dock; check `PATCH …/transcript/words` in network log |
 | Fuzzy bulk replace | Repeated mishearings updated in one action; toast “Updated N words” when N &gt; 1 | Lower match strictness; confirm **Also replace similar matches** — [transcript-review.md](../pipeline/transcription/transcript-review.md#fuzzy-find-and-replace-similar-words) |
 | **G0** | `.stage_done/transcript_review` after sign-off | Complete GUI review or CLI sign-off — [transcript-review.md](../pipeline/transcription/transcript-review.md) |

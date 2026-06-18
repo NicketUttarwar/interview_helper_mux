@@ -67,6 +67,8 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
 | `value_analysis.audio_features` | `extract_value_features.py --profile audio` | Audio-derived metrics (normalized.wav) |
 | `value_analysis.auto_extract_after_content_context` | `understanding.run_content_context` | When master + this flag on, writes `understanding/value_features.json` after successful `content_context` (default **on** in shipped `app.defaults.json`) |
+| `transcript_review.sort_mode` | `stages/transcript_review.run_transcript_review_build` | G0 queue order: `salience` (default, H-G0-01) or `confidence` (legacy ascending) |
+| `analysis.specialists.comprehension_risk_threshold` | `llm_specialists._process_specialist_investigations` | Minimum `risk_score` before `gap_unresolved` investigation from `comprehension_risk_blind` (default **0.7**) |
 | `interview_spine.enabled` | `interview_spine_stage.run_interview_spine_build` | Master switch for time-aligned comprehension spine (default **on**) |
 | `interview_spine.clap_enabled` | `interview_spine/clap_index.py` | Build CLAP sidecar `understanding/interview_spine/embeddings.npz`; fail-open when MMAudio venv missing |
 | `interview_spine.prosody_enabled` | `interview_spine/features.py`, SAP `prosody_summary` | Per-window F0 via librosa pyin when available |

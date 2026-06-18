@@ -565,10 +565,15 @@ def build_segment_flags(ctx: RunContext) -> dict[str, list[str]]:
 
     transcript_profile = (value_features.get("profiles") or {}).get("transcript")
     if isinstance(transcript_profile, dict):
+        from interview_mux.stage_enrichment import trust_dip_corroborated
+
         for row in transcript_profile.get("quality_trajectory_flags") or []:
             if not isinstance(row, dict):
                 continue
             t_ms = int(row.get("start_ms") or 0)
+            dip_ratio = float(row.get("dip_ratio") or 1.0)
+            if not trust_dip_corroborated(ctx, t_ms, dip_ratio=dip_ratio):
+                continue
             sid = _segment_for_ms(bounds, t_ms)
             if sid:
                 comprehension_risk.add(sid)

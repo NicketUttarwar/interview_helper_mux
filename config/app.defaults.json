@@ -107,6 +107,10 @@
     "auto_extract_after_content_context": true,
     "orc03_enabled": true
   },
+  "_comment_transcript_review": "G0 queue — salience default (H-G0-01); confidence fallback for A/B",
+  "transcript_review": {
+    "sort_mode": "salience"
+  },
   "_comment_coherence": "H-ORC-03 long-run coherence — 30m gate, composite drift/contradiction/callback",
   "coherence": {
     "enabled": true,

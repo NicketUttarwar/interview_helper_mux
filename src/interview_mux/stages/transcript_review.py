@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -7,6 +9,7 @@ from typing import Any
 from interview_mux.audio_clips import extract_clip
 from interview_mux.audio_energy import find_silence_valley_ms, rms_at_ms
 from interview_mux.audio_timeline import snap_cut_to_word_boundary
+from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
@@ -14,6 +17,22 @@ from interview_mux.operator_snapshots import persist_operator_transcript
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
 LOW_CONFIDENCE_THRESHOLD = 0.85
+
+
+def _review_sort_mode(cfg: dict[str, Any] | None = None) -> str:
+    resolved = cfg if cfg is not None else merged_config()
+    mode = str((resolved.get("transcript_review") or {}).get("sort_mode") or "salience").strip().lower()
+    return mode if mode in {"salience", "confidence"} else "salience"
+
+
+def _rank_review_chunks(chunks: list[dict[str, Any]], *, sort_mode: str) -> list[dict[str, Any]]:
+    if sort_mode == "confidence":
+        return sorted(chunks, key=lambda c: float(c.get("confidence") or 1.0))
+    return sorted(
+        chunks,
+        key=lambda c: (communicative_salience_score(c), -float(c.get("confidence") or 1.0)),
+        reverse=True,
+    )
 
 
 def run_transcript_review_build(ctx: RunContext) -> None:
@@ -43,11 +62,8 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
         chunk["acoustic_stress_score"] = _acoustic_stress_score(normalized, chunk)
 
-    ranked = sorted(
-        chunks,
-        key=lambda c: (communicative_salience_score(c), -float(c.get("confidence") or 1.0)),
-        reverse=True,
-    )
+    sort_mode = _review_sort_mode()
+    ranked = _rank_review_chunks(chunks, sort_mode=sort_mode)
     for rank, chunk in enumerate(ranked, start=1):
         chunk["rank"] = rank
         chunk["reviewed"] = False
@@ -56,6 +72,7 @@ def run_transcript_review_build(ctx: RunContext) -> None:
     queue = {
         "version": 1,
         "low_confidence_threshold": LOW_CONFIDENCE_THRESHOLD,
+        "sort_mode": sort_mode,
         "chunk_count": len(ranked),
         "chunks": ranked,
     }
@@ -70,6 +87,31 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         )
         raise SystemExit(f"review_queue validation failed: {q_errors[0]}")
     ctx.write_json("transcript/review_queue.json", queue)
+
+    stress_scores = [float(c.get("acoustic_stress_score") or 0.0) for c in ranked]
+    mean_stress = round(statistics.mean(stress_scores), 4) if stress_scores else 0.0
+    top_chunks = [
+        {
+            "chunk_id": c.get("chunk_id"),
+            "salience": communicative_salience_score(c),
+            "acoustic_stress_score": c.get("acoustic_stress_score"),
+        }
+        for c in ranked[:5]
+    ]
+    ctx.log(
+        f"G0 review queue built: sort_mode={sort_mode}, {len(ranked)} chunks",
+        level="info",
+        stage="transcript_review_build",
+        detail=json.dumps(
+            {
+                "sort_mode": sort_mode,
+                "chunk_count": len(ranked),
+                "mean_acoustic_stress": mean_stress,
+                "top_chunks": top_chunks,
+            },
+            ensure_ascii=False,
+        ),
+    )
 
     corrections_path = ctx.path("transcript/corrections.json")
     if not corrections_path.is_file():

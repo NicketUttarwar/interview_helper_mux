@@ -1,0 +1,12 @@
+{
+  "status": "complete",
+  "artifacts": {
+    "comprehension_risks": [
+      {
+        "segment_id": "seg_002",
+        "risk_score": 0.82,
+        "rationale": "Technical acronym stack without definitional bridge"
+      }
+    ]
+  }
+}

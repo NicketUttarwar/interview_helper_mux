@@ -266,9 +266,31 @@ def maybe_run_pre_stage_specialists(
     outputs: list[dict[str, Any]] = []
     for spec_key in PRE_STAGE_SPECIALISTS.get(stage_key, ()):
         try:
+            import time
+
+            t0 = time.monotonic()
             env = run_specialist(ctx, spec_key, stage_key, stage_input)
+            duration_ms = int((time.monotonic() - t0) * 1000)
             outputs.append({"specialist": spec_key, "envelope": env})
             _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
+            if spec_key == "comprehension_risk_blind":
+                risk_count = len((env.get("artifacts") or {}).get("comprehension_risks") or [])
+                inv_count = _process_specialist_investigations(
+                    ctx,
+                    parent_stage=stage_key,
+                    specialist_key=spec_key,
+                    envelope=env,
+                    cfg=cfg,
+                )
+                ctx.log(
+                    f"Pre-stage specialist {spec_key}: {risk_count} risks, {inv_count} investigation(s) enqueued",
+                    level="info",
+                    stage=stage_key,
+                    detail=json.dumps(
+                        {"duration_ms": duration_ms, "risk_count": risk_count, "investigation_count": inv_count},
+                        ensure_ascii=False,
+                    ),
+                )
         except Exception as exc:
             from interview_mux.llm_flow_hardening import flow_hardening_enabled
 

@@ -58,6 +58,30 @@ Promotion gate: [§15 in 02-WAVE-0](./june182026build/02-WAVE-0-resilience-harne
 
 ---
 
+## June 2026 Wave A — Early truth
+
+After [03-WAVE-A-early-truth.md](./june182026build/03-WAVE-A-early-truth.md) code changes; gate before Wave B.
+
+```bash
+source .venv/bin/activate
+pytest tests/test_wave_a_early_truth.py tests/test_sonic_context.py tests/test_mix_acoustic_profile.py tests/test_style_inference.py -q
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_ingest_transcribe.json
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_g0_and_profile.json
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_gaps_and_vo.json
+```
+
+| Check | Command / action |
+|-------|------------------|
+| H-ING-03 trust dips | `pytest tests/test_wave_a_early_truth.py -k trust -q` |
+| G0 salience + stress | `pytest tests/test_wave_a_early_truth.py -k review -q` |
+| H-GAP-01 specialist fail-open | `pytest tests/test_wave_a_early_truth.py -k specialist -q` |
+| Scenario fixtures | `pytest tests/test_sonic_context.py tests/test_mix_acoustic_profile.py tests/test_style_inference.py -q` |
+| Spike baselines | `run_value_spike.py` on three shared fixtures (≥ 3.738 / 4.037) |
+
+Promotion gate: [Wave B gate in 03-WAVE-A](./june182026build/03-WAVE-A-early-truth.md#wave-b-promotion-gate).
+
+---
+
 ## Automated tests (BUILD-054–055, #18)
 
 ```bash

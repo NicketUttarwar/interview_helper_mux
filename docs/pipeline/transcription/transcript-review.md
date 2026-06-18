@@ -1,6 +1,6 @@
 # Transcript review (operator STT QC)
 
-Human checkpoint immediately after AWS Transcribe. Operators listen to **pre-cut clips** ranked by **lowest word confidence first**, correct text, then sign off before content understanding runs.
+Human checkpoint immediately after AWS Transcribe. Operators listen to **pre-cut clips** ranked by **communicative salience** (idea-break risk), correct text, then sign off before content understanding runs. Confidence-only ordering is available as a config fallback for A/B (`transcript_review.sort_mode: confidence`).
 
 ## Pipeline position
 
@@ -24,8 +24,13 @@ Each pronunciation item from AWS Transcribe includes `alternatives[0].confidence
 
 1. Groups words into review **chunks** (speaker diarization segments, split on pauses ≥700ms or max 30s).
 2. Computes chunk confidence = **mean word confidence**.
-3. Sorts chunks ascending by confidence (weakest first).
-4. Flags `needs_review` when confidence &lt; **0.85** (configurable constant in code).
+3. Computes **acoustic stress** at chunk edges (H-G0-02) from `ingest/normalized.wav`.
+4. Sorts chunks by **communicative salience** (H-G0-01): weighted blend of low confidence (0.45), word density (0.2), pause proxy (0.15), and acoustic stress (0.2). Tie-break: lower confidence first.
+5. Flags `needs_review` when confidence &lt; **0.85** (configurable constant in code).
+
+**Config:** `transcript_review.sort_mode` — `salience` (default) or `confidence` (legacy ascending). Persisted on `transcript/review_queue.json` as `sort_mode`.
+
+**Log:** `G0 review queue built: sort_mode=…` in `gui_log.jsonl` (`stage=transcript_review_build`) with top chunk ids and mean stress in `detail`.
 
 ## Artifacts
 

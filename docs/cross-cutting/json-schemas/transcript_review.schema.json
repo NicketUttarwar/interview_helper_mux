@@ -6,6 +6,7 @@
   "properties": {
     "version": { "type": "integer" },
     "low_confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sort_mode": { "type": "string", "enum": ["salience", "confidence"] },
     "chunk_count": { "type": "integer" },
     "chunks": {
       "type": "array",

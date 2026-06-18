@@ -2,6 +2,8 @@
 
 **Status:** fixture sprint complete for all pipeline sections (2026-05-28). Scoring via [phase3-spike-framework.md](./phase3-spike-framework.md) and `tools/run_value_spike.py` (requires `value_analysis.enabled`).
 
+**June 2026 Wave A (2026-06-18):** H-ING-03, H-G0-01, H-G0-02, H-GAP-01 implemented at **Partial** — code + tests + docs; not Shipped default-on until manual prosody sign-off. Re-verify: `pytest tests/test_wave_a_early_truth.py -q` + three shared spike fixtures.
+
 ## How to fill this doc
 
 1. One **subsection per pipeline section** (see [sections/](./sections/) if you split by stage).

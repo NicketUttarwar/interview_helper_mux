@@ -122,6 +122,8 @@ Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_
 | Chunk save OK but `full.json` unchanged | Expected until G0 complete | `transcript/corrections.json` vs `full.json` | **Complete transcript review** to merge chunk text |
 | Chunk textarea stale after dock edit | Fixed in current GUI — reload on save | `corrected_text` in `review_queue.json` | Dock save syncs queue; textarea auto-refreshes |
 | Batch replace mistake | Undo available | Dock toolbar **Undo** or ⌘Z | Reverts last edit batch via `PATCH …/transcript/words` |
+| Review order unexpected | Salience sort (not confidence-only) | `transcript/review_queue.json` `sort_mode`, `chunks[].rank` | Default `salience`; set `transcript_review.sort_mode: confidence` for legacy order; re-run `--from-stage transcript_review_build` |
+| Top clips lack audible issues | Pause proxy inflated rank on reflective speech | `chunks[].acoustic_stress_score`, salience weights | Listen to top ranks; stress term (0.2) should corroborate — see [transcript-quality-rubric.md](../prompts/_shared/transcript-quality-rubric.md) |
 
 ---
 
@@ -197,7 +199,9 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 |---------|----------------|---------|--------|
 | Absurd segment count | Over-splitting | `segments/boundaries.json` | `--from-stage boundary_detection` with clearer brief |
 | Wrong gap types | STT errors in segment text | `segments/manifest.json` text | Fix G0 transcript first, then `--from-stage missing_framing` |
-| `value_analysis_skip_no_wav` in log | Auto-extract enabled but `ingest/normalized.wav` missing | `gui_log.jsonl` `stage=content_context` | Expected fail-open — transcript profile still extracts; run ingest before audio profile or disable `value_analysis.audio_features` |
+| `value_analysis_skip_no_wav` in log | Auto-extract enabled but `ingest/normalized.wav` missing | `gui_log.jsonl` `stage=content_context` or `value_analysis_extract` | Expected fail-open — transcript profile still extracts; run ingest before audio profile or disable `value_analysis.audio_features` |
+| Trust-dip flags in `value_features.json` | RMS proxy flagged listener-trust windows (H-ING-03) | `understanding/value_features.json` `profiles.transcript.quality_trajectory_flags` | Review flagged windows in GUI log (`value_features: N trust-dip flags`); re-run `--from-stage value_analysis_extract` or `python tools/extract_value_features.py --run-id <id> --profile transcript` |
+| `Pre-stage specialist comprehension_risk_blind failed` | Specialist timeout/API error (fail-open) | `understanding/stage_runs/missing_framing/specialist_comprehension_risk_blind.json` | `missing_framing` continues without risks; fix API/network; re-run `--from-stage missing_framing`; optional investigation enqueued when flow hardening on |
 | G1 never clears | Missing WAV or wrong filename | `gap_report.json`, `vo_pickup/` | Match `{line_id}.wav` or `{targets_segment_id}.wav` — [operator-gates.md](./operator-gates.md) |
 
 ---

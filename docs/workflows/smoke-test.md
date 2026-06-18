@@ -64,6 +64,8 @@ Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
 - `ingest/normalized.wav`
 - `transcript/full.json`
+- `transcript/review_queue.json` with `sort_mode: salience` after G0 prep (Wave A)
+- `understanding/value_features.json` optional `quality_trajectory_flags` after `content_context` auto-extract
 - `segments/manifest.json`
 - `understanding/gap_report.json`
 - `analysis_complete.json`

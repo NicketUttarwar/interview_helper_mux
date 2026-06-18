@@ -72,6 +72,20 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ---
 
+### June 2026 Wave A — Early truth (H-ING-03, H-G0-02, H-G0-01, H-GAP-01)
+
+**Goal:** Listener-trust signals before ranking and mix — trust-dip flags, G0 salience queue, acoustic stress, blind comprehension-risk specialist.
+
+| Doc | Role |
+|-----|------|
+| [june182026build/03-WAVE-A-early-truth.md](./june182026build/03-WAVE-A-early-truth.md) | Hypothesis specs + promotion gates |
+
+**Verify:** [testing-and-verification.md § June 2026 Wave A](./testing-and-verification.md#june-2026-wave-a--early-truth); scenario matrix rows green; spike fixtures ≥ baseline.
+
+**Blocks:** Wave B (`04-WAVE-B-audio-structure.md`) until [Wave B promotion gate](./june182026build/03-WAVE-A-early-truth.md#wave-b-promotion-gate) passes.
+
+---
+
 ### Phase 1 — Shell and core library (BUILD-010–013)
 
 **Goal:** Reproducible Python env, run workspace, LLM stage envelope.

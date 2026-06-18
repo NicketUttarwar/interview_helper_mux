@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "transcript": {
+      "profile": "transcript",
+      "quality_trajectory_flags": [
+        {
+          "start_ms": 120000,
+          "dip_ratio": 0.28,
+          "note": "Trust dip proxy at ~120s — review transcript/audio alignment"
+        }
+      ]
+    }
+  }
+}

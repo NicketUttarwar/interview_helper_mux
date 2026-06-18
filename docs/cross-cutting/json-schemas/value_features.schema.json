@@ -27,6 +27,18 @@
                 "COM": { "type": "array", "items": { "type": "string" } },
                 "CRE": { "type": "array", "items": { "type": "string" } }
               }
+            },
+            "quality_trajectory_flags": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["start_ms", "dip_ratio", "note"],
+                "properties": {
+                  "start_ms": { "type": "integer", "minimum": 0 },
+                  "dip_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "note": { "type": "string" }
+                }
+              }
             }
           }
         },

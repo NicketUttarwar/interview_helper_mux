@@ -15,6 +15,15 @@ _PAUSE_LADDER_MS = (400, 700, 1200)
 _WINDOW_SEC = 0.4
 _SILENCE_DBFS = -45.0
 
+# H-ING-03 — shared with interview_spine/boundaries.py (single source of truth)
+TRUST_DIP_BASELINE_PERCENTILE = 60
+TRUST_DIP_THRESHOLD_RATIO = 0.55
+TRUST_DIP_MAX_FLAGS = 8
+TRUST_DIP_WINDOW_COUNT = 12
+TRUST_DIP_MIN_DIP_RATIO_FOR_COMPREHENSION = 0.35
+TRUST_DIP_CORROBORATION_WINDOW_MS = 2500
+TRUST_DIP_LOW_CONF_THRESHOLD = 0.75
+
 
 def _load_words(ctx: RunContext) -> list[dict[str, Any]]:
     if not ctx.artifact_exists("transcript/full.json"):
@@ -170,25 +179,26 @@ def quotability_signals(ctx: RunContext, *, max_signals: int = 30) -> list[dict[
     return signals[:max_signals]
 
 
-def quality_trajectory_flags(ctx: RunContext, *, window_count: int = 12) -> list[dict[str, Any]]:
-    """H-ING-03: trust-dip flags from sliding RMS dips (NISQA-class proxy)."""
-    packed = _energy_windows(ctx)
-    if packed is None:
-        return []
-
-    rms, times_ms, _peak = packed
+def compute_trust_dip_flags(
+    rms: np.ndarray,
+    times_ms: np.ndarray,
+    *,
+    window_count: int = TRUST_DIP_WINDOW_COUNT,
+    max_flags: int = TRUST_DIP_MAX_FLAGS,
+) -> list[dict[str, Any]]:
+    """Deterministic trust-dip windows from RMS arrays (shared spine + value_features path)."""
     if len(rms) < window_count:
         return []
 
     chunk = max(1, len(rms) // window_count)
     flags: list[dict[str, Any]] = []
-    baseline = float(np.percentile(rms, 60))
+    baseline = float(np.percentile(rms, TRUST_DIP_BASELINE_PERCENTILE))
     for i in range(0, len(rms), chunk):
         window = rms[i : i + chunk]
         if window.size == 0:
             continue
         local_p50 = float(np.percentile(window, 50))
-        if local_p50 < baseline * 0.55:
+        if local_p50 < baseline * TRUST_DIP_THRESHOLD_RATIO:
             t_ms = int(times_ms[min(i, len(times_ms) - 1)])
             flags.append(
                 {
@@ -197,7 +207,61 @@ def quality_trajectory_flags(ctx: RunContext, *, window_count: int = 12) -> list
                     "note": f"Trust dip proxy at ~{t_ms // 1000}s — review transcript/audio alignment",
                 }
             )
-    return flags[:8]
+    return flags[:max_flags]
+
+
+def low_confidence_near_ms(
+    ctx: RunContext,
+    time_ms: int,
+    *,
+    window_ms: int = TRUST_DIP_CORROBORATION_WINDOW_MS,
+    threshold: float = TRUST_DIP_LOW_CONF_THRESHOLD,
+) -> bool:
+    """True when transcript words near time_ms have ASR confidence below threshold."""
+    for word in _load_words(ctx):
+        if abs(int(word.get("start_ms", 0)) - time_ms) <= window_ms:
+            if float(word.get("confidence") or 1.0) < threshold:
+                return True
+    return False
+
+
+def acoustic_stress_near_ms(
+    ctx: RunContext,
+    time_ms: int,
+    *,
+    window_ms: int = TRUST_DIP_CORROBORATION_WINDOW_MS,
+    min_stress: float = 0.25,
+) -> bool:
+    """H-G0-02 corroboration: review chunk with acoustic stress overlapping time_ms."""
+    if not ctx.artifact_exists("transcript/review_queue.json"):
+        return False
+    queue = ctx.read_json("transcript/review_queue.json")
+    for chunk in queue.get("chunks") or []:
+        if not isinstance(chunk, dict):
+            continue
+        start_ms = int(chunk.get("start_ms") or 0)
+        end_ms = int(chunk.get("end_ms") or 0)
+        if start_ms - window_ms <= time_ms <= end_ms + window_ms:
+            if float(chunk.get("acoustic_stress_score") or 0.0) >= min_stress:
+                return True
+    return False
+
+
+def trust_dip_corroborated(ctx: RunContext, time_ms: int, *, dip_ratio: float | None = None) -> bool:
+    """Require severe dip ratio plus G0 stress or low-confidence words before downstream risk flags."""
+    if dip_ratio is not None and dip_ratio > TRUST_DIP_MIN_DIP_RATIO_FOR_COMPREHENSION:
+        return False
+    return low_confidence_near_ms(ctx, time_ms) or acoustic_stress_near_ms(ctx, time_ms)
+
+
+def quality_trajectory_flags(ctx: RunContext, *, window_count: int = TRUST_DIP_WINDOW_COUNT) -> list[dict[str, Any]]:
+    """H-ING-03: trust-dip flags from sliding RMS dips (NISQA-class proxy)."""
+    packed = _energy_windows(ctx)
+    if packed is None:
+        return []
+
+    rms, times_ms, _peak = packed
+    return compute_trust_dip_flags(rms, times_ms, window_count=window_count)
 
 
 def communicative_salience_score(chunk: dict[str, Any]) -> float:

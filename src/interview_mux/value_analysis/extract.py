@@ -59,8 +59,29 @@ def extract_and_write_value_features(
 
     written: list[str] = []
     if "transcript" in selected:
-        bucket["transcript"] = extract_transcript_features(ctx, cfg=resolved)
+        if not ctx.path("ingest", "normalized.wav").is_file():
+            ctx.log(
+                "value_analysis_skip_no_wav",
+                level="warning",
+                stage="value_analysis_extract",
+                detail=json.dumps(
+                    {"path": "ingest/normalized.wav", "skipped_profile": "audio"},
+                    ensure_ascii=False,
+                ),
+            )
+        profile = extract_transcript_features(ctx, cfg=resolved)
+        bucket["transcript"] = profile
         written.append("transcript")
+        flags = profile.get("quality_trajectory_flags") or []
+        detail: dict[str, Any] = {"flag_count": len(flags)}
+        if flags and isinstance(flags[0], dict):
+            detail["first_start_ms"] = flags[0].get("start_ms")
+        ctx.log(
+            f"value_features: {len(flags)} trust-dip flags",
+            level="info",
+            stage="value_analysis_extract",
+            detail=json.dumps(detail, ensure_ascii=False),
+        )
     if "audio" in selected:
         bucket["audio"] = extract_audio_features(ctx, cfg=resolved)
         written.append("audio")
@@ -131,6 +152,11 @@ def maybe_enqueue_orchestration_investigations(
             flags = quality_trajectory_flags(ctx)
         for flag in flags[:5]:
             if not isinstance(flag, dict):
+                continue
+            start_ms = int(flag.get("start_ms") or 0)
+            from interview_mux.stage_enrichment import trust_dip_corroborated
+
+            if not trust_dip_corroborated(ctx, start_ms, dip_ratio=float(flag.get("dip_ratio") or 1.0)):
                 continue
             items.append(
                 {
