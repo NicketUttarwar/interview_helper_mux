@@ -88,7 +88,7 @@ interface AppContextValue {
   openActionModal: () => void;
   closeActionModal: () => void;
   clearSession: () => Promise<void>;
-  refreshHome: () => Promise<void>;
+  refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
@@ -346,7 +346,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [alertsMuted],
   );
 
-  const refreshHome = useCallback(async () => {
+  const refreshHome = useCallback(async (opts: { enrichRuns?: boolean } = {}) => {
+    const enrichRuns = opts.enrichRuns !== false;
     setHomeRefreshing(true);
     const errors: string[] = [];
     const track = <T,>(
@@ -364,6 +365,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           );
         });
 
+    const runsPath = enrichRuns
+      ? "/api/runs?enrich=1&enrich_limit=50"
+      : "/api/runs";
+
     await Promise.allSettled([
       track(
         api<{ files?: AssetFile[] }>("/api/assets"),
@@ -371,7 +376,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         "Source audio",
       ),
       track(
-        api<{ runs?: RunSummary[] }>("/api/runs?enrich=1&enrich_limit=50"),
+        api<{ runs?: RunSummary[] }>(runsPath),
         (data) => setRuns(data.runs ?? []),
         "Executions",
       ),
@@ -901,6 +906,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const gen = ++bootGenRef.current;
     void (async () => {
+      let active: SessionActive | null | undefined;
+      let serverRestarted = false;
       try {
         const cfg = await api<AppConfig>("/api/config");
         if (gen !== bootGenRef.current) return;
@@ -913,14 +920,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (gen !== bootGenRef.current) return;
         const startedAt = session.server?.started_at;
         const prevStarted = localStorage.getItem(GUI_SERVER_STARTED_AT_KEY);
-        const serverRestarted = Boolean(startedAt && prevStarted && startedAt !== prevStarted);
+        serverRestarted = Boolean(startedAt && prevStarted && startedAt !== prevStarted);
         if (startedAt) localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
         setServerActiveRunId(session.active?.run_id ?? null);
-        await refreshHome();
+        // Fast boot path: assets + lightweight runs list — do not block on enrich=50.
+        await refreshHome({ enrichRuns: false });
         if (gen !== bootGenRef.current) return;
         if (session.log?.length) renderLogWithAlerts(session.log);
-        const active = session.active;
-        if (active?.run_id) {
+        active = session.active;
+      } catch (e) {
+        if (gen !== bootGenRef.current) return;
+        const msg = e instanceof Error ? e.message : "Failed to load session";
+        setSessionLoadError(msg);
+        showToast(msg);
+      } finally {
+        if (gen === bootGenRef.current) setSessionReady(true);
+      }
+
+      void (async () => {
+        try {
+          await refreshHome({ enrichRuns: true });
+          if (gen !== bootGenRef.current) return;
+          if (!active?.run_id) return;
           const stageId = active.selected_stage_id ?? null;
           selectedStageIdRef.current = stageId;
           setSelectedStageId(stageId);
@@ -946,15 +967,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setRun(runData);
             renderLogWithAlerts(runData.log_tail || []);
           }
+        } catch {
+          /* enrich/restore failures surface via toasts from openRun/refreshHome */
         }
-      } catch (e) {
-        if (gen !== bootGenRef.current) return;
-        const msg = e instanceof Error ? e.message : "Failed to load session";
-        setSessionLoadError(msg);
-        showToast(msg);
-      } finally {
-        if (gen === bootGenRef.current) setSessionReady(true);
-      }
+      })();
     })();
     logPollRef.current = setInterval(() => {
       void pollLog();
