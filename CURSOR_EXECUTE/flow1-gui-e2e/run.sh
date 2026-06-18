@@ -195,6 +195,21 @@ _phase_server() {
     _log_step "SERVER" "Skipped (dry-run)"
     return 0
   fi
+  local port=8765
+  if [[ -f "${REPO_ROOT}/config/app.defaults.json" ]]; then
+    port="$(python3 -c "import json; print(json.load(open('${REPO_ROOT}/config/app.defaults.json')).get('web_port',8765))" 2>/dev/null || echo 8765)"
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    local stale_pids=""
+    stale_pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
+    if [[ -n "${stale_pids}" ]]; then
+      _log_wait "Port ${port} in use — stopping stale listener(s): ${stale_pids}"
+      # shellcheck disable=SC2086
+      kill ${stale_pids} 2>/dev/null || true
+      sleep 2
+    fi
+  fi
+
   _log_step "SERVER" "Starting ./scripts/run.sh (MUX_FRESH_SESSION=1)"
   (
     cd "${REPO_ROOT}"
@@ -206,13 +221,19 @@ _phase_server() {
 
   local attempt=0
   local max=60
-  local port=8765
-  if [[ -f "${REPO_ROOT}/config/app.defaults.json" ]]; then
-    port="$(python3 -c "import json; print(json.load(open('${REPO_ROOT}/config/app.defaults.json')).get('web_port',8765))" 2>/dev/null || echo 8765)"
-  fi
   while [[ "${attempt}" -lt "${max}" ]]; do
     attempt=$((attempt + 1))
+    if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+      _log_fatal "Server process exited before health check (see ${SERVER_LOG})"
+      tail -n 30 "${SERVER_LOG}" >&2 || true
+      exit 1
+    fi
     if curl -sf "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+      if grep -q "address already in use" "${SERVER_LOG}" 2>/dev/null; then
+        _log_fatal "Server failed to bind ${port} — stale process may still own the port"
+        tail -n 30 "${SERVER_LOG}" >&2 || true
+        exit 1
+      fi
       _log_info "PASS /api/health (attempt ${attempt})"
       return 0
     fi

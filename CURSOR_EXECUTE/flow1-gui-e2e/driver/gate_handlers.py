@@ -23,8 +23,14 @@ def _click_testid(
     loc = page.get_by_test_id(testid)
     if loc.count() == 0:
         return False
+    target = loc.first
+    try:
+        if not target.is_enabled():
+            return False
+    except Exception:
+        return False
     log.action(f"Clicking data-testid={testid} ({label})")
-    loc.first.click(timeout=5000)
+    target.click(timeout=5000)
     if archive:
         archive.maybe_capture_after_click(page, f"click:{testid}")
     return True
@@ -40,8 +46,14 @@ def _click_role(
     loc = page.get_by_role("button", name=name, exact=exact)
     if loc.count() == 0:
         return False
+    target = loc.first
+    try:
+        if not target.is_enabled():
+            return False
+    except Exception:
+        return False
     log.action(f"Clicking button '{name}'")
-    loc.first.click(timeout=5000)
+    target.click(timeout=5000)
     if archive:
         archive.maybe_capture_after_click(page, f"click:{name}")
     return True
@@ -195,6 +207,13 @@ def resolve_gates(
     if try_preclean_dismiss(page, log, archive):
         return "gate:preclean_dismiss"
 
+    if not page_has_active_run(page):
+        if try_modal_continue(page, log, archive):
+            return "gate:modal_continue"
+        if try_primary_cta(page, log, archive):
+            return "action:primary_cta"
+        return "wait:gui_run_loading"
+
     stages = {s.get("id"): s for s in run.get("stages") or [] if isinstance(s, dict)}
     action_stages = [sid for sid, s in stages.items() if s.get("status") == "action_required"]
 
@@ -248,6 +267,38 @@ def resolve_gates(
     return None
 
 
+def page_has_active_run(page: Page) -> bool:
+    """True when LiveStatusBar shows an opened execution (not the empty Start state)."""
+    bar = page.get_by_test_id("live-status-bar")
+    if bar.count() == 0:
+        return False
+    try:
+        text = bar.first.inner_text()
+    except Exception:
+        return False
+    return "No active run" not in text and "Pick source audio on Start" not in text
+
+
+def baseline_run_ids_for_wav(rows: list[dict[str, Any]], wav_name: str) -> set[str]:
+    ids: set[str] = set()
+    for row in rows:
+        path = str(row.get("input_audio_path") or "")
+        if wav_name not in path:
+            continue
+        rid = row.get("run_id")
+        if rid:
+            ids.add(str(rid))
+    return ids
+
+
+def newest_run_after_baseline(
+    rows: list[dict[str, Any]], wav_name: str, baseline: set[str]
+) -> str | None:
+    """Return the newest execution for this WAV that was not in baseline."""
+    fresh = [r for r in rows if str(r.get("run_id") or "") not in baseline]
+    return newest_matching_run(fresh, wav_name)
+
+
 def newest_matching_run(rows: list[dict[str, Any]], wav_name: str) -> str | None:
     """Return run_id of the newest execution for this source file name."""
     matches: list[dict[str, Any]] = []
@@ -271,19 +322,36 @@ def newest_matching_run(rows: list[dict[str, Any]], wav_name: str) -> str | None
     return str(best.get("run_id"))
 
 
-def resolve_run_id_after_start(api, wav_name: str, page: Page, log: EventLogger) -> str | None:
-    """Prefer session active run; fall back to newest run for this source file."""
-    for attempt in range(60):
+def wait_for_start_tab_ready(page: Page, timeout_s: int = 120) -> None:
+    """Wait until React boot finished (Start controls enabled)."""
+    ready = page.locator('[data-testid="start-tab-ready"][data-ready="true"]')
+    ready.first.wait_for(state="attached", timeout=timeout_s * 1000)
+
+
+def resolve_run_id_after_start(
+    api,
+    wav_name: str,
+    page: Page,
+    log: EventLogger,
+    *,
+    baseline_run_ids: set[str] | None = None,
+) -> str | None:
+    """Prefer a newly created run (session active or runs list) after Start click."""
+    baseline = baseline_run_ids or set()
+    for attempt in range(90):
         try:
             active = (api.session().get("active") or {}).get("run_id")
-            if active:
-                api.run(active)
+            if active and (not baseline or str(active) not in baseline):
+                api.run(str(active))
                 log.info(f"run_id from session active (attempt {attempt + 1})")
-                return active
+                return str(active)
         except Exception:
             pass
         try:
-            rid = newest_matching_run(list(api.runs().get("runs") or []), wav_name)
+            rows = list(api.runs().get("runs") or [])
+            rid = newest_run_after_baseline(rows, wav_name, baseline) if baseline else newest_matching_run(
+                rows, wav_name
+            )
             if rid:
                 log.info(f"run_id from runs list (attempt {attempt + 1})")
                 return rid
@@ -291,6 +359,22 @@ def resolve_run_id_after_start(api, wav_name: str, page: Page, log: EventLogger)
             pass
         page.wait_for_timeout(1000)
     return extract_run_id_from_page(page)
+
+
+def wait_for_gui_run_loaded(api, page: Page, run_id: str, log: EventLogger, timeout_s: int = 90) -> bool:
+    """Wait until session + LiveStatusBar reflect the opened execution."""
+    for attempt in range(timeout_s):
+        session_ok = False
+        try:
+            active = (api.session().get("active") or {}).get("run_id")
+            session_ok = str(active or "") == run_id
+        except Exception:
+            pass
+        if session_ok and page_has_active_run(page):
+            log.info(f"GUI loaded run_id={run_id} (attempt {attempt + 1})")
+            return True
+        page.wait_for_timeout(1000)
+    return False
 
 
 def extract_run_id_from_page(page: Page) -> str | None:

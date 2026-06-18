@@ -189,7 +189,11 @@ export function StartTab() {
           </div>
         </section>
       ) : null}
-      <section className="panel panel-compact">
+      <section
+        className="panel panel-compact"
+        data-testid="start-tab-ready"
+        data-ready={sessionReady ? "true" : "false"}
+      >
         <div className="panel-head">
           <h3>Source audio</h3>
           <button
@@ -229,6 +233,7 @@ export function StartTab() {
                   type="button"
                   className="btn primary sm btn-start"
                   data-testid={`start-execution-${f.name}`}
+                  disabled={!sessionReady || openRunLoading}
                   onClick={(e) => {
                     e.stopPropagation();
                     void startRun(f.path, intentEnabled ? flowIntent : undefined);

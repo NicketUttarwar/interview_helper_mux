@@ -45,6 +45,32 @@ def test_newest_matching_run_picks_highest_execution_number() -> None:
     assert newest_matching_run(rows, "foo.wav") == "exec_99_new"
 
 
+def test_newest_run_after_baseline_skips_existing() -> None:
+    from gate_handlers import newest_run_after_baseline  # noqa: E402
+
+    rows = [
+        {"run_id": "exec_10_old", "input_audio_path": "ASSETS/foo.wav", "execution_number": 10},
+        {"run_id": "exec_11_new", "input_audio_path": "ASSETS/foo.wav", "execution_number": 11},
+    ]
+    baseline = {"exec_10_old", "exec_11_new"}
+    assert newest_run_after_baseline(rows, "foo.wav", baseline) is None
+
+    rows.append(
+        {"run_id": "exec_12_fresh", "input_audio_path": "ASSETS/foo.wav", "execution_number": 12},
+    )
+    assert newest_run_after_baseline(rows, "foo.wav", baseline) == "exec_12_fresh"
+
+
+def test_baseline_run_ids_for_wav() -> None:
+    from gate_handlers import baseline_run_ids_for_wav  # noqa: E402
+
+    rows = [
+        {"run_id": "a", "input_audio_path": "ASSETS/notebooklm.wav"},
+        {"run_id": "b", "input_audio_path": "ASSETS/other.wav"},
+    ]
+    assert baseline_run_ids_for_wav(rows, "notebooklm.wav") == {"a"}
+
+
 def test_api_client_default_timeout() -> None:
     from api_client import ApiClient  # noqa: E402
 

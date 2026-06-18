@@ -20,7 +20,14 @@ if str(_DRIVER_DIR) not in sys.path:
 
 from api_client import ApiClient  # noqa: E402
 from execution_screenshots import ExecutionScreenshotArchive  # noqa: E402
-from gate_handlers import extract_run_id_from_page, resolve_gates, resolve_run_id_after_start  # noqa: E402
+from gate_handlers import (  # noqa: E402
+    baseline_run_ids_for_wav,
+    extract_run_id_from_page,
+    resolve_gates,
+    resolve_run_id_after_start,
+    wait_for_gui_run_loaded,
+    wait_for_start_tab_ready,
+)
 from logging_banner import EventLogger  # noqa: E402
 from state import DriverState, default_state_path  # noqa: E402
 
@@ -98,7 +105,16 @@ def write_blocker(
     return path
 
 
-def start_run(page, log: EventLogger, config: dict, wav_name: str, archive: ExecutionScreenshotArchive | None) -> None:
+def start_run(
+    page,
+    log: EventLogger,
+    config: dict,
+    wav_name: str,
+    archive: ExecutionScreenshotArchive | None,
+    *,
+    api: ApiClient | None = None,
+) -> set[str]:
+    """Open Start tab, wait for session, click Start; return baseline run_ids for this WAV."""
     log.step("DRIVER", "Opening Start tab")
     page.goto(config["base_url"], wait_until="domcontentloaded", timeout=60_000)
     start_tab = page.get_by_role("button", name="Start", exact=True)
@@ -112,6 +128,29 @@ def start_run(page, log: EventLogger, config: dict, wav_name: str, archive: Exec
     log.action(f"Waiting for data-testid={asset_tid}")
     page.get_by_test_id(asset_tid).first.wait_for(state="visible", timeout=120_000)
 
+    log.action("Waiting for Start tab session boot (start-tab-ready)")
+    wait_for_start_tab_ready(page, timeout_s=120)
+
+    baseline: set[str] = set()
+    if api is not None:
+        try:
+            baseline = baseline_run_ids_for_wav(list(api.runs().get("runs") or []), wav_name)
+        except Exception:
+            baseline = set()
+
+    log.action(f"Waiting for session ready ({exec_tid} enabled)")
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        btn = page.get_by_test_id(exec_tid).first
+        try:
+            if btn.is_enabled():
+                break
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    else:
+        raise TimeoutError(f"Start button {exec_tid} never became enabled (session not ready)")
+
     if page.get_by_test_id("flow-intent-flow1").count():
         log.action("Selecting flow intent flow1")
         page.get_by_test_id("flow-intent-flow1").first.click()
@@ -119,11 +158,11 @@ def start_run(page, log: EventLogger, config: dict, wav_name: str, archive: Exec
             archive.maybe_capture_after_click(page, "click:flow-intent-flow1")
 
     log.action(f"Clicking data-testid={exec_tid}")
-    page.get_by_test_id(exec_tid).first.wait_for(state="visible", timeout=30_000)
     page.get_by_test_id(exec_tid).first.click(timeout=15_000)
     if archive:
         archive.maybe_capture_after_click(page, f"click:{exec_tid}")
     page.wait_for_timeout(3000)
+    return baseline
 
 
 def screenshot(page, session_dir: Path, name: str) -> Path:
@@ -212,9 +251,11 @@ def run_driver(args: argparse.Namespace) -> int:
 
             try:
                 if not state.started or not state.run_id:
-                    start_run(page, log, config, wav_name, archive)
+                    baseline = start_run(page, log, config, wav_name, archive, api=api)
                     state.started = True
-                    run_id = resolve_run_id_after_start(api, wav_name, page, log)
+                    run_id = resolve_run_id_after_start(
+                        api, wav_name, page, log, baseline_run_ids=baseline
+                    )
                     if not run_id:
                         shot = screenshot(page, session_dir, "no-run-id")
                         write_blocker(
@@ -230,6 +271,19 @@ def run_driver(args: argparse.Namespace) -> int:
                         return EXIT_BLOCKER
                     state.run_id = run_id
                     log.info(f"Captured run_id={run_id}")
+                    if not wait_for_gui_run_loaded(api, page, run_id, log):
+                        shot = screenshot(page, session_dir, "run-not-loaded")
+                        write_blocker(
+                            _CAMPAIGN_DIR,
+                            slug="run-not-loaded",
+                            run_id=run_id,
+                            stage=None,
+                            job_status=None,
+                            symptom="Execution created but GUI never opened it in LiveStatusBar",
+                            screenshot=shot,
+                            log_tail=[],
+                        )
+                        return EXIT_BLOCKER
                     state.save(state_path)
                 else:
                     run_id = state.run_id
@@ -352,7 +406,7 @@ def run_driver(args: argparse.Namespace) -> int:
                         state.last_action = event
                         state.save(state_path)
                         last_signature = signature
-                        if event != "wait:job_running":
+                        if event not in ("wait:job_running", "wait:gui_run_loading"):
                             last_progress_at = now
                         page.wait_for_timeout(int(poll_s * 1000))
                     else:
