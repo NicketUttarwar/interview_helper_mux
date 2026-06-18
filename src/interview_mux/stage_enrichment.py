@@ -2,20 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 
 from interview_mux.audio_energy import energy_windows_from_path
+from interview_mux.boundary_observability import ladder_guidance_for_pace, pace_class_from_sap
+from interview_mux.interview_spine.constants import PAUSE_LADDER_MS
 from interview_mux.run_context import RunContext
 
 VALUE_FEATURES_PATH = "understanding/value_features.json"
 
-_PAUSE_LADDER_MS = (400, 700, 1200)
+
+class PauseLadderCandidate(TypedDict):
+    threshold_ms: int
+    split_times_ms: list[int]
+    count: int
+
+
+class PauseLadderHints(TypedDict, total=False):
+    thresholds_ms: list[int]
+    candidates: list[PauseLadderCandidate]
+    pace_class: str
+    ladder_guidance: str
+
+
 _WINDOW_SEC = 0.4
 _SILENCE_DBFS = -45.0
 
-# H-ING-03 — shared with interview_spine/boundaries.py (single source of truth)
+# H-ING-03 — shared with interview_spine/boundaries.py via stage_enrichment helpers
 TRUST_DIP_BASELINE_PERCENTILE = 60
 TRUST_DIP_THRESHOLD_RATIO = 0.55
 TRUST_DIP_MAX_FLAGS = 8
@@ -42,19 +57,31 @@ def _load_segments(ctx: RunContext) -> list[dict[str, Any]]:
     return []
 
 
-def pause_ladder_hints(ctx: RunContext) -> dict[str, Any]:
-    """H-SEG-02: candidate boundary times at multiple pause thresholds."""
-    words = _load_words(ctx)
+def pause_ladder_hints_from_words(
+    words: list[dict[str, Any]],
+    *,
+    pace_class: str = "conversational",
+) -> PauseLadderHints:
+    """H-SEG-02: candidate boundary times at multiple pause thresholds (word-gap ladder)."""
     if len(words) < 2:
-        return {"thresholds_ms": list(_PAUSE_LADDER_MS), "candidates": []}
+        return {
+            "thresholds_ms": list(PAUSE_LADDER_MS),
+            "candidates": [],
+            "pace_class": pace_class,
+            "ladder_guidance": ladder_guidance_for_pace(pace_class),
+        }
 
-    candidates: list[dict[str, Any]] = []
-    for threshold in _PAUSE_LADDER_MS:
+    candidates: list[PauseLadderCandidate] = []
+    for threshold in PAUSE_LADDER_MS:
         hits: list[int] = []
         for i in range(1, len(words)):
-            gap = float(words[i].get("start_ms", 0)) - float(words[i - 1].get("end_ms", 0))
+            prev = words[i - 1]
+            cur = words[i]
+            if prev.get("end_ms") is None or cur.get("start_ms") is None:
+                continue
+            gap = float(cur["start_ms"]) - float(prev["end_ms"])
             if gap >= threshold:
-                hits.append(int(words[i].get("start_ms", 0)))
+                hits.append(int(cur["start_ms"]))
         candidates.append(
             {
                 "threshold_ms": threshold,
@@ -62,7 +89,18 @@ def pause_ladder_hints(ctx: RunContext) -> dict[str, Any]:
                 "count": len(hits),
             }
         )
-    return {"thresholds_ms": list(_PAUSE_LADDER_MS), "candidates": candidates}
+    return {
+        "thresholds_ms": list(PAUSE_LADDER_MS),
+        "candidates": candidates,
+        "pace_class": pace_class,
+        "ladder_guidance": ladder_guidance_for_pace(pace_class),
+    }
+
+
+def pause_ladder_hints(ctx: RunContext) -> PauseLadderHints:
+    """H-SEG-02: candidate boundary times at multiple pause thresholds."""
+    pace_class = pace_class_from_sap(ctx)
+    return pause_ladder_hints_from_words(_load_words(ctx), pace_class=pace_class)
 
 
 def _energy_windows(ctx: RunContext) -> tuple[np.ndarray, np.ndarray, float] | None:

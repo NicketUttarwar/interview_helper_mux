@@ -115,7 +115,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 |-------|--------------|--------|
 | `speaker_roles` | `transcript/full.json` populated; G0 complete | Finish transcript review |
 | `content_context` | Transcript length ≥ ~80 chars; G0 complete | Extend transcript or complete G0 |
-| `boundary_detection` | `speakers.json` with ≥1 `interviewer` | Re-run `speaker_roles` or edit speakers |
+| `boundary_detection` | `speakers.json` with ≥1 `interviewer`; `pause_ladder_hints` + SAP `pace_class` in volley | Re-run `speaker_roles` or edit speakers; `--from-stage boundary_detection` after G0 timestamp fix |
+| `interview_spine_build` | `understanding/interview_spine.json` when enabled; CLAP optional (`retrieval.enabled: false` fail-open) | `--from-stage interview_spine_build` or Story Board **Recompute spine**; complete G0 + SAP first |
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
 | Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review Story Board panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
@@ -203,7 +204,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Types | Not all `interviewee_answer`; asides / setup exist where audible | Re-classify or hand-edit manifest |
 | Flags | Only known `flags` tokens — [segment-schema.md](../cross-cutting/segment-schema.md) | Fix JSON; invalid flags fail schema validation |
 | `segment_id` alignment | Every manifest `segment_id` exists in `boundaries.json` | Re-run classification or fix merge bug |
-| Empty `boundaries` / one giant segment | Pipeline still “valid” but useless | Re-run boundary_detection with pause thresholds from config |
+| Empty `boundaries` / one giant segment | Pipeline still “valid” but useless | Re-run boundary_detection with pause ladder hints (400/700/1200 ms); check `pause_ladder_oversplit_risk` in log for fireside |
+| Too many segments / fireside over-split | `pause_ladder_oversplit_risk` warning; hundreds of boundaries | Prefer 700/1200 ms tiers; SAP `pace_class: calm`; `--from-stage boundary_detection` |
 | Crosstalk flagged | `heavy_crosstalk` segments correlated with STT garbage | Fix G0 in those ranges first |
 
 ---

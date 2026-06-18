@@ -84,6 +84,16 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 **Blocks:** Wave B (`04-WAVE-B-audio-structure.md`) until [Wave B promotion gate](./june182026build/03-WAVE-A-early-truth.md#wave-b-promotion-gate) passes.
 
+### June 2026 Wave B — Audio structure (shipped 2026-06-18)
+
+| Doc | Role |
+|-----|------|
+| [june182026build/04-WAVE-B-audio-structure.md](./june182026build/04-WAVE-B-audio-structure.md) | H-SEG-02 pause ladder + H-ORC-01 interview spine harden |
+
+**Verify:** `pytest tests/test_wave_b_audio_structure.py tests/test_interview_spine_clap.py -q`; `python tools/audit_stage_plans_doc.py`.
+
+**Blocks:** Wave C until [Wave C promotion gate](./june182026build/04-WAVE-B-audio-structure.md#9-wave-c-promotion-gate) passes.
+
 ---
 
 ### Phase 1 — Shell and core library (BUILD-010–013)

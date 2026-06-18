@@ -5,8 +5,7 @@ from typing import Any
 import numpy as np
 
 from interview_mux.audio_energy import energy_windows_from_path
-
-_PAUSE_LADDER_MS = (400, 700, 1200)
+from interview_mux.interview_spine.constants import PAUSE_LADDER_MS, PAUSE_SPLIT_MS
 
 
 def build_boundary_events(
@@ -37,17 +36,22 @@ def build_boundary_events(
 
 
 def _pause_ladder_events(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """First hit per ladder tier (hints expose all hits per tier — see stage_enrichment.pause_ladder_hints)."""
     if len(words) < 2:
         return []
     out: list[dict[str, Any]] = []
     sorted_words = sorted(words, key=lambda w: float(w.get("start_ms", 0)))
-    for threshold in _PAUSE_LADDER_MS:
+    for threshold in PAUSE_LADDER_MS:
         for i in range(1, len(sorted_words)):
-            gap = float(sorted_words[i]["start_ms"]) - float(sorted_words[i - 1]["end_ms"])
+            prev = sorted_words[i - 1]
+            cur = sorted_words[i]
+            if prev.get("end_ms") is None or cur.get("start_ms") is None:
+                continue
+            gap = float(cur["start_ms"]) - float(prev["end_ms"])
             if gap >= threshold:
                 out.append(
                     {
-                        "time_ms": int(sorted_words[i]["start_ms"]),
+                        "time_ms": int(cur["start_ms"]),
                         "type": "pause_ladder",
                         "confidence": min(1.0, gap / max(threshold, 1)),
                         "sources": [f"pause_ladder_{threshold}ms"],
@@ -153,7 +157,7 @@ def _topic_shift_hint_events(words: list[dict[str, Any]]) -> list[dict[str, Any]
         if prev.get("speaker_id") == cur.get("speaker_id"):
             continue
         gap = float(cur["start_ms"]) - float(prev["end_ms"])
-        if gap >= 700:
+        if gap >= PAUSE_SPLIT_MS:
             out.append(
                 {
                     "time_ms": int(cur["start_ms"]),

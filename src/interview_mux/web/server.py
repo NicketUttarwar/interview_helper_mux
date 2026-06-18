@@ -775,12 +775,22 @@ def create_app() -> FastAPI:
 
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
-            prior = (
-                ctx.read_json("understanding/interview_spine.json")
-                if ctx.artifact_exists("understanding/interview_spine.json")
-                else {}
-            )
-            run_interview_spine_build(ctx)
+            try:
+                prior = (
+                    ctx.read_json("understanding/interview_spine.json")
+                    if ctx.artifact_exists("understanding/interview_spine.json")
+                    else {}
+                )
+                run_interview_spine_build(ctx)
+            except FileNotFoundError as exc:
+                ctx.log(
+                    f"Interview spine recompute failed: {exc}. "
+                    "Complete G0 transcript review and source_acoustic_profile first.",
+                    level="error",
+                    stage="interview_spine_build",
+                    detail="interview_spine_recompute_failed",
+                )
+                raise HTTPException(500, {"error": "interview_spine_recompute_failed", "message": str(exc)}) from exc
             doc = ctx.read_json("understanding/interview_spine.json")
             ctx.log(
                 "Interview spine recomputed from current ingest/transcript/SAP.",

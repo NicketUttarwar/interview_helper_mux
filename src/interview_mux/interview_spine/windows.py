@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_PAUSE_SPLIT_MS = 700
+from interview_mux.interview_spine.constants import PAUSE_SPLIT_MS
 
 
 def _words_in_span(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> list[dict[str, Any]]:
@@ -53,7 +53,7 @@ def build_windows(
         speaker_change = False
         if i + 1 < len(sorted_words):
             nxt = sorted_words[i + 1]
-            pause_after = int(nxt["start_ms"]) - int(w["end_ms"]) >= _PAUSE_SPLIT_MS
+            pause_after = int(nxt["start_ms"]) - int(w["end_ms"]) >= PAUSE_SPLIT_MS
             speaker_change = nxt.get("speaker_id") != w.get("speaker_id")
         duration = int(w["end_ms"]) - bucket_start
         if pause_after or speaker_change or duration >= window_ms or i == len(sorted_words) - 1:

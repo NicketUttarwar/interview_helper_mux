@@ -5,6 +5,7 @@ from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
+from interview_mux.boundary_observability import observe_boundary_detection_input, pace_class_from_sap
 from interview_mux.stage_enrichment import compact_value_features_summary, pause_ladder_hints
 from interview_mux.tone_taxonomy import compact_profile_style_hints
 from interview_mux.artifact_completeness import make_stage_persist
@@ -22,9 +23,15 @@ def run_boundaries(ctx: RunContext) -> None:
         if quality:
             payload["transcript_quality"] = quality
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
+        pace = pace_class_from_sap(c)
+        if c.artifact_exists("understanding/source_acoustic_profile.json"):
+            payload["source_acoustic_profile"] = {
+                "pacing": {"pace_class": pace},
+            }
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
         attach_spine_to_payload(c, payload, "boundary_detection")
+        observe_boundary_detection_input(c, payload)
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("segments/boundaries.json", "boundary_detection")

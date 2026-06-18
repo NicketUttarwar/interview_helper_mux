@@ -34,6 +34,13 @@ def test_build_boundary_events_includes_topic_shift_on_speaker_pause():
     assert any(e["type"] == "topic_shift_hint" for e in events)
 
 
+def test_build_windows_calm_pace_12s():
+    words = _sample_words()
+    windows = build_windows(words, pace_class="calm", cfg={"window_sec_calm": 12, "hop_sec": 5})
+    assert windows
+    assert all(w["end_ms"] - w["start_ms"] <= 12_500 for w in windows)
+
+
 def test_validate_minimal_spine_schema():
     doc = {
         "schema_version": 1,

@@ -251,6 +251,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 | GUI auto-runs `verify_master` after `master_flow*` | Post-master QC in `web/runner.py` | `run_meta.qc_summaries`, `gui_log.jsonl` `stage=verify_master` | Fix mix levels; re-run `master_flow*`; read LUFS/peak lines in gate panel |
 | Spine recompute invalidates Story Board | SAP or spine rebuild clears downstream markers | `gui_log.jsonl` invalidation lines, `.stage_done/` | Re-run from invalidated stage; confirm `execution_invalidation.py` scope — [gui-surface-map.md](./gui-surface-map.md) Story Board |
+| Recompute spine failed | Missing transcript, SAP, or WAV after G0 | `gui_log.jsonl` `interview_spine_recompute_failed`; HTTP 500 from `POST …/recompute-interview-spine` | Complete G0 + `source_acoustic_profile`; verify `ingest/normalized.wav` or preclean isolated path |
+| boundary_detection volley truncated | Many spine boundary events; volley cap 40 | `gui_log.jsonl` `boundary_detection volley truncated` | Review full `understanding/interview_spine.json`; check for over-segmentation upstream |
 
 ---
 

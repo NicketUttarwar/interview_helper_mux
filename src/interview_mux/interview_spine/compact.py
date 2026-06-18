@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
 from interview_mux.interview_spine.paths import SPINE_PATH
 
 STAGE_SPINE_VOLLEY_KEYS = frozenset(
@@ -55,7 +56,7 @@ def compact_for_boundary(ctx) -> dict[str, Any] | None:
     spine = load_spine(ctx)
     if not spine:
         return None
-    events = list(spine.get("boundary_events") or [])[:40]
+    events = list(spine.get("boundary_events") or [])[:BOUNDARY_VOLLEY_MAX_SPINE_EVENTS]
     return {
         "window_count": len(spine.get("windows") or []),
         "boundary_events": events,

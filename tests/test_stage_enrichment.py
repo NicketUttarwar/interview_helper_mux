@@ -10,6 +10,7 @@ from interview_mux.llm_specialists import _process_specialist_investigations
 from interview_mux.stage_enrichment import (
     communicative_salience_score,
     pause_ladder_hints,
+    pause_ladder_hints_from_words,
     quality_trajectory_flags,
 )
 from run_fixtures import isolated_run_ctx, minimal_manifest

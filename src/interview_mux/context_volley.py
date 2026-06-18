@@ -11,6 +11,7 @@ from interview_mux.analysis_memory import (
     load_analysis_state,
     load_queue,
 )
+from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
@@ -754,6 +755,11 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out["transcript_quality"] = raw["transcript_quality"]
         if raw.get("pause_ladder_hints"):
             out["pause_ladder_hints"] = raw["pause_ladder_hints"]
+        sap = raw.get("source_acoustic_profile")
+        if isinstance(sap, dict):
+            pacing = sap.get("pacing") if isinstance(sap.get("pacing"), dict) else {}
+            if pacing.get("pace_class"):
+                out["source_acoustic_profile"] = {"pacing": {"pace_class": pacing["pace_class"]}}
         if raw.get("interview_spine"):
             out["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
         vf = raw.get("value_features_summary") or compact_value_features_summary_from_raw(raw)
@@ -1011,7 +1017,7 @@ def _compact_interview_spine(spine: Any, stage_key: str) -> dict[str, Any]:
     if not isinstance(spine, dict):
         return {}
     max_events = {
-        "boundary_detection": 40,
+        "boundary_detection": BOUNDARY_VOLLEY_MAX_SPINE_EVENTS,
         "segment_classification": 10,
         "missing_framing": 15,
         "content_context": 8,

@@ -5,6 +5,7 @@
     "Boundaries cover the full interview timeline without large unexplained gaps",
     "Each boundary has valid start_ms/end_ms or segment_id aligned with transcript timing",
     "Cut points respect natural turn boundaries and topic shifts",
+    "Pause ladder hints (400/700/1200 ms) preferred over arbitrary mid-sentence cuts when present",
     "Shard batches collectively cover all time ranges when decomposed"
   ],
   "reject_patterns": [

@@ -12,7 +12,7 @@ LLM stages need **time-indexed** local evidence (pauses, speaker turns, acoustic
 
 1. **Word-aligned windows** — built from `transcript/full.json` after G0 review, paced by SAP `pace_class`.
 2. **Boundary event fusion** — silence valleys, pause ladder, speaker turns, trust dips, prosody shifts, topic-shift hints.
-3. **Fail-open CLAP** — when MMAudio venv or CLAP deps are missing, spine JSON still ships; `retrieval.enabled: false`.
+3. **Fail-open CLAP** — when MMAudio venv or CLAP deps are missing, spine JSON still ships; `retrieval.enabled: false`. No `SystemExit` on missing optional embeddings (MEC-D ≥ 3).
 4. **Idempotent rebuild** — skip when `derived_from` hashes match ingest WAV, preclean isolated WAV (if present), transcript, and SAP.
 
 ## Artifact shape
