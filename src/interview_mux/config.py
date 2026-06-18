@@ -77,3 +77,11 @@ def require_secret(key: str) -> str:
     if not val:
         raise RuntimeError(f"Missing required secret: {key} in config/secrets/secrets.env")
     return val
+
+
+def cursor_api_key() -> str:
+    """CURSOR_API_KEY for CURSOR_EXECUTE / cursor-sdk (env overrides secrets.env)."""
+    env_key = os.environ.get("CURSOR_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    return (load_secrets().get("CURSOR_API_KEY") or "").strip()

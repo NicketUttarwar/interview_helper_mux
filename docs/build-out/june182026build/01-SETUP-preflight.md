@@ -40,20 +40,20 @@ Update 00-INDEX.md step **01** to `[x]` when all Definition of done items pass.
 
 ### Work checklist
 
-- [ ] **P-01** `./scripts/bootstrap_venv.sh` — `.venv` exists with Python 3.12
-- [ ] **P-02** `./tools/check_prerequisites.sh` — passes or HIGH/CRITICAL CVEs documented in `anchored-toolchain.md` with planned upgrade PR
-- [ ] **P-03** `pytest tests/ -q` — full suite green
-- [ ] **P-04** `python tools/audit_stage_plans_doc.py` — no `STAGE_PLANS` / `context-padding.md` drift (fix `sfx_prompt_refine` row if needed)
-- [ ] **P-05** `python -c "import interview_mux"` from `.venv`
-- [ ] **P-06** Confirm `docs/build-out/june182026build/` linked from [INDEX.md](../../INDEX.md) (add if missing)
-- [ ] **P-07** [AGENTS.md](../../../AGENTS.md) references [00-INDEX.md](./00-INDEX.md) (add if missing)
+- [x] **P-01** `./scripts/bootstrap_venv.sh` — `.venv` exists with Python 3.12 (core venv OK; DeepFilterNet clone build needs Rust for optional ASSETS venv — not a core dev blocker)
+- [x] **P-02** `./tools/check_prerequisites.sh` — passes (upgraded `python-multipart==0.0.30`, `starlette==1.3.1` for CVE-2026-53539 / CVE-2026-54283)
+- [x] **P-03** `pytest tests/ -q` — **waived:** CURSOR_EXECUTE step directive explicitly skipped pytest; run before Wave 0 merge if desired
+- [x] **P-04** `python tools/audit_stage_plans_doc.py` — added `sfx_prompt_refine` row to `context-padding.md`
+- [x] **P-05** `python -c "import interview_mux"` from `.venv`
+- [x] **P-06** Confirm `docs/build-out/june182026build/` linked from [INDEX.md](../../INDEX.md) (already present)
+- [x] **P-07** [AGENTS.md](../../../AGENTS.md) references [00-INDEX.md](./00-INDEX.md) (already present)
 
 ### Definition of done
 
-- [ ] P-01 through P-07 complete or explicitly waived with rationale in this file
-- [ ] No known **blocking** `check_prerequisites` failure without documented mitigation
-- [ ] 00-INDEX.md step **01** marked `[x]`
-- [ ] Ready to open [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md)
+- [x] P-01 through P-07 complete or explicitly waived with rationale in this file
+- [x] No known **blocking** `check_prerequisites` failure without documented mitigation
+- [x] 00-INDEX.md step **01** marked `[x]`
+- [x] Ready to open [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md)
 
 ### Verification commands
 

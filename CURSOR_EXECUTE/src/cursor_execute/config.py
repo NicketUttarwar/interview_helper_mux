@@ -34,8 +34,37 @@ def resolve_model() -> str:
     return os.environ.get("CURSOR_EXECUTE_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
 
 
+def _read_secrets_env_value(key: str) -> str:
+    """Read one key from config/secrets/secrets.env without importing interview_mux."""
+    start = Path.cwd().resolve()
+    candidates: list[Path] = [start, *start.parents]
+    here = Path(__file__).resolve()
+    candidates.extend([here, *here.parents])
+    seen: set[Path] = set()
+    for base in candidates:
+        root = base if base.is_dir() else base.parent
+        if root in seen:
+            continue
+        seen.add(root)
+        path = root / "config" / "secrets" / "secrets.env"
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, val = line.partition("=")
+            if k.strip() != key:
+                continue
+            return val.strip().strip('"').strip("'")
+    return ""
+
+
 def resolve_api_key() -> str:
-    return os.environ.get("CURSOR_API_KEY", "").strip()
+    env_key = os.environ.get("CURSOR_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    return _read_secrets_env_value("CURSOR_API_KEY")
 
 
 def resolve_max_prompt_chars() -> int:

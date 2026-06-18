@@ -44,6 +44,7 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `sound_design_plan_flow2` | highlight_selection | style, themes, narrative | — |
 | `edl_narrative_audit` | full_master_ranking, narrative_arc_plan, topic_coverage_audit, transitions, missing_framing, sound_design_plan_flow1 | style, themes, narrative, major_questions | ≤1 |
 | `sfx_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
+| `sfx_prompt_refine` | sfx_prompt_craft | style, themes, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
 | `sfx_brief` | highlight_selection | style, narrative | — |
 | `podcast_show_description` | speaker_roles, content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |

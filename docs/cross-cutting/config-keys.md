@@ -373,7 +373,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_DEFAULT_REGION` / `AWS_REGION` | Transcribe / S3 wrong region |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
-| `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — optional for main pipeline |
+| `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — set in `config/secrets/secrets.env` or env; also used by [june182026build/run.sh](../../docs/build-out/june182026build/run.sh) |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
 

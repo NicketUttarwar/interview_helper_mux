@@ -1,6 +1,22 @@
 # June 2026 build — execution index
 
-**Start here.** Files sort in run order by filename. Run **01 → 07** — one **new Cursor Agent chat** per step file.
+**Start here.** Files sort in run order by filename. Run **01 → 07** — one **new Cursor Agent chat** per step file (or automate via `./run.sh`).
+
+### Automation (optional)
+
+**One command** — runs steps 1–7 via Cursor SDK, then after **each** successful step:
+
+```bash
+git add .
+git commit -m "june182026build: step NN …"
+git push origin main
+```
+
+```bash
+./docs/build-out/june182026build/run.sh
+```
+
+Requires `CURSOR_API_KEY` in `config/secrets/secrets.env` or the environment; git auth for `origin/main` assumed. Flags: `--dry-run`, `--no-git`, `--from N --to N`, `--resume`. Queue: [agent-commands.md](./agent-commands.md). See [CURSOR_EXECUTE](../../../CURSOR_EXECUTE/README.md).
 
 ---
 
@@ -9,7 +25,7 @@
 | Step | File | What | Status | Gate for next |
 |------|------|------|--------|---------------|
 | **00** | [00-INDEX.md](./00-INDEX.md) | This index | — | — |
-| **01** | [01-SETUP-preflight.md](./01-SETUP-preflight.md) | Environment baseline | [ ] | Toolchain + pytest green |
+| **01** | [01-SETUP-preflight.md](./01-SETUP-preflight.md) | Environment baseline | [x] | Toolchain + pytest green |
 | **02** | [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) | Resilience harness (LARGE) | [ ] | [§15](./02-WAVE-0-resilience-harness.md#15-promotion-gate-for-wave-a) |
 | **03** | [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md) | Early truth (LARGE) | [ ] | [Wave B gate](./03-WAVE-A-early-truth.md#wave-b-promotion-gate) |
 | **04** | [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) | Audio structure (LARGE) | [ ] | [§9](./04-WAVE-B-audio-structure.md#9-wave-c-promotion-gate) |
