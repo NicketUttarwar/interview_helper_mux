@@ -1,83 +1,130 @@
-# Wave A — Early truth (June 2026)
+# 03 WAVE-A — Early truth (LARGE)
 
-**Status:** Planning doc — seq 01–04; requires [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) promotion gate.  
-**Parent:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 1  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Scope:** **LARGE** — 4 hypotheses, 200+ todos, ~1300 lines.
 
-Wave A hardens **listener-trust signals before deep analysis**: ingest quality trajectories, G0 review ordering, acoustic stress corroboration, and blind comprehension-risk specialist input into `missing_framing`. All four hypotheses ship as **Partial** today — promotion to **Promoted** requires the 15-point checklist per hypothesis.
-
-**Canonical references:** [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) · [interview-scenario-atlas.md](../../prompts/_shared/interview-scenario-atlas.md) · [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) · [operator-gates.md](../../workflows/operator-gates.md) · [troubleshooting.md](../../workflows/troubleshooting.md)
-
-| Seq | ID | Status | Spike | Tier | Primary axis |
-|-----|-----|--------|-------|------|--------------|
-| 01 | H-ING-03 | partial RMS proxy | 3.738 | T0 | LEX · COM |
-| 02 | H-G0-02 | partial | — | T1 | LEX · COM |
-| 03 | H-G0-01 | partial | 4.037 | T0 | LEX · COM · CRE |
-| 04 | H-GAP-01 | partial specialist | 4.037 | T0 | LEX · COM |
+**Sequence step:** **03** — [00-INDEX.md](./00-INDEX.md)  
+**Previous:** [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) §15 passed or waived  
+**Next after success:** [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md)
 
 ---
 
-## Cursor Agent command (copy-paste)
+## Agent execution contract
 
-Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisite:** Wave 0 promotion gate in `/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md` §15 must pass or be waived before starting.
+### How to invoke
 
-```text
-Implement Wave A — Early truth (H-ING-03, H-G0-02, H-G0-01, H-GAP-01). Code + docs PR per the plan doc. Work hypothesis Implementation todos (50+ each) and Wave A todos (§ Wave A implementation todos).
+1. Open a **new Cursor Agent chat** (Agent mode).
+2. **`@`-attach this file**, [00-INDEX.md](./00-INDEX.md), and every path in [Required companion attachments](#required-companion-attachments).
+3. Confirm Wave 0 §15 is satisfied (read waiver table in `02-WAVE-0-resilience-harness.md` if needed).
+4. Send the **Agent directive**:
 
-Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+   ```text
+   Implement June 2026 step 03 — Wave A Early truth per the attached step file.
+   Hypotheses: H-ING-03, H-G0-02, H-G0-01, H-GAP-01.
+   Read the entire 03-WAVE-A-early-truth.md before editing code.
+   Work every unchecked todo; mark [x] in this file. Update 00-INDEX.md step **03** to [x] when done.
+   One code + docs PR. Do not edit .cursor/plans/*.
+   ```
 
-Read first (attach with @):
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/transcription/transcript-review.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/transcript-quality-rubric.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+5. Treat **all sections below** as binding — hypothesis specs, do-no-harm rules, fail-open tables, and todos.
 
-Prerequisite gate:
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md §15 — Wave 0 complete or waived
+### Mission
 
-Scope (absolute paths):
-- H-ING-03: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (quality_trajectory_flags, emphasis_regions_for_segments)
-- H-G0-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/transcript_review.py (_acoustic_stress_score), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/audio_energy.py
-- H-G0-01: communicative_salience_score, G0 queue sort in transcript_review.py; /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/pipeline/transcription/transcript-review.md
-- H-GAP-01: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py (comprehension_risk_blind), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/gaps.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/_shared/specialists/comprehension-risk-blind.system.txt
-- Value analysis: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/value_analysis/extract.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/extract_value_features.py
-- Hardening: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/context_volley.py
+Ship **early listener-trust signals** before downstream ranking and mix:
 
-Do-no-harm (must pass before Promoted):
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/noisy_room.json — no false trust dips
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/panel.json, debate.json, dense_jargon.json — scenario matrix §2
-- Prosody: ≥2 hard-listener manual clips per transcript-quality-rubric before Shipped default-on
+| ID | Hypothesis | Primary modules |
+|----|------------|-----------------|
+| **H-ING-03** | Ingest quality trajectories (RMS trust-dip proxy) | `stage_enrichment.py`, `value_analysis/extract.py` |
+| **H-G0-02** | Acoustic stress corroboration for G0 | `transcript_review.py`, `audio_energy.py` |
+| **H-G0-01** | Communicative salience G0 queue (not confidence-only) | `transcript_review.py`, salience scoring |
+| **H-GAP-01** | Blind comprehension-risk specialist → `missing_framing` | `llm_specialists.py`, `gaps.py` |
 
-Constraints:
-- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
-- Do NOT flip Wave A flags default-on in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json until all 15 promotion gates pass per hypothesis
-- Specialist and trust-dip paths must fail-open per wave-0 §5
-- Use MCP user-context7 for third-party API changes
+**Deliverable:** Code + docs PR. Wave B blocked until [Wave B promotion gate](#wave-b-promotion-gate) passes.
 
-Verify when done:
-cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
-pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_mix_acoustic_profile.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_style_inference.py -q
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/run_value_spike.py --help
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+### What this document contains
 
-Update wave-a-early-truth.md todos [x] with evidence. Follow doc-maintenance.md. Block Wave B until Wave A promotion gate § Wave B promotion gate passes.
+| Section | Purpose |
+|---------|---------|
+| [Requires Wave 0](#requires-wave-0) | Harness dependencies from Wave 0 |
+| [Wave A do-no-harm](#wave-a-do-no-harm) | Scenario risks and mitigations |
+| [§1–§6](#1-realistic-success-definition) | Success, scenario matrix, promotion checklist, prosody, fail-open, observability |
+| [§7](#7-pipeline-mermaid--ingest--g0--value_features--missing_framing) | Pipeline diagram ingest → G0 → gaps |
+| [Wave B promotion gate](#wave-b-promotion-gate) | Gate before Wave B |
+| **H-ING-03** … **H-GAP-01** sections | Per-hypothesis: mechanism, I/O, fail-open, promotion gates, **50+ todos each** |
+| [Wave A implementation todos](#wave-a-implementation-todos-44-items) | Cross-hypothesis wave-level todos |
+
+### Required companion attachments
+
+| Path | Why |
+|------|-----|
+| `.cursor/rules/interview-helper-mux.mdc` | Repo constraints |
+| `AGENTS.md` | Build-out navigation |
+| `docs/build-out/june182026build/02-WAVE-0-resilience-harness.md` | Fail-open §5, observability §6, scenario §3, Wave 0 gate |
+| `docs/build-out/june182026build/03-WAVE-A-early-truth.md` | **This file** |
+| `docs/pipeline/transcription/transcript-review.md` | G0 transcript review |
+| `docs/prompts/_shared/transcript-quality-rubric.md` | Prosody / CRE-B guardrails |
+| `docs/build-out/doc-maintenance.md` | PR doc checklist |
+| `docs/build-out/testing-and-verification.md` | Verification |
+
+### Scope summary
+
+**Modules:** `src/interview_mux/stage_enrichment.py`, `src/interview_mux/value_analysis/extract.py`, `src/interview_mux/transcript_review.py`, `src/interview_mux/audio_energy.py`, `src/interview_mux/llm_specialists.py`, `src/interview_mux/gaps.py`, `src/interview_mux/llm_flow_hardening.py`, `src/interview_mux/context_volley.py`.
+
+**Scenario fixtures (must not regress):** `noisy_room.json`, `panel.json`, `debate.json`, `dense_jargon.json`, `one_on_one.json` under `tests/fixtures/sonic_context/`; manual CRE-B prosody clips before Shipped default-on.
+
+### Global constraints
+
+- **No** `.cursor/plans/*` edits.
+- **No** Wave A hypothesis default-on in `app.defaults.json` until that hypothesis’s **15-point promotion gates** pass.
+- **Fail open** per [wave-0 §5](./02-WAVE-0-resilience-harness.md#5-fail-open-inventory-per-subsystem).
+- **Never** confidence-only primary G0 ordering (H-G0-01).
+- **Comprehension specialist** must not block `missing_framing` loop on timeout (H-GAP-01).
+- **Context7** before third-party API changes.
+
+### Execution methodology
+
+1. **Verify** Wave 0 §15 gate — stop if not met.
+2. **Read** [Requires Wave 0](#requires-wave-0) and [Wave A do-no-harm](#wave-a-do-no-harm).
+3. **Implement hypotheses in dependency order:** H-ING-03 → H-G0-02 → H-G0-01 → H-GAP-01 (or parallelize only where I/O independent).
+4. **Per hypothesis:** read mechanism + I/O → implement → promotion gate todos → mark hypothesis todos `[x]`.
+5. **Run scenario tests** after each hypothesis touching a fixture row.
+6. **Complete** [Wave A implementation todos](#wave-a-implementation-todos-44-items) and [Wave B promotion gate](#wave-b-promotion-gate) criteria.
+
+### Definition of done
+
+- [ ] All four hypotheses’ **implementation todos** marked `[x]` (or explicitly deferred with waiver in Wave B gate section).
+- [ ] Each hypothesis **15-point promotion gates** satisfied or left at Partial (not Shipped default-on).
+- [ ] `noisy_room` — no false trust dips; `panel`/`debate`/`dense_jargon` — scenario matrix passes.
+- [ ] Prosody: ≥2 hard-listener manual clips documented before any Shipped default-on.
+- [ ] `pytest` green for touched modules; spike fixtures re-run where applicable.
+- [ ] [doc-maintenance.md](../doc-maintenance.md) complete.
+- [ ] [Wave B promotion gate](#wave-b-promotion-gate) criteria met or documented exceptions.
+
+### Verification commands
+
+```bash
+source .venv/bin/activate
+pytest tests/test_sonic_context.py tests/test_mix_acoustic_profile.py tests/test_style_inference.py -q
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_ingest_transcribe.json
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_g0_and_profile.json
+python tools/run_value_spike.py --fixture tests/fixtures/value_analysis/spike_shared_gaps_and_vo.json
 ```
+
+### Blocks next wave until
+
+[Wave B promotion gate](#wave-b-promotion-gate) passes.
 
 ---
 
 ## Requires Wave 0
 
-Wave A work **must not begin** until [wave-0-resilience-harness.md §15](./wave-0-resilience-harness.md#15-promotion-gate-for-wave-a) passes or todos are waived with signed rationale.
+Wave A work **must not begin** until [02-WAVE-0-resilience-harness.md §15](./02-WAVE-0-resilience-harness.md#15-promotion-gate-for-wave-a) passes or todos are waived with signed rationale.
 
 | Wave 0 artifact | Wave A use |
 |-----------------|------------|
-| [§5 Fail-open inventory](./wave-0-resilience-harness.md#5-fail-open-inventory-per-subsystem) | `stage_enrichment.py`, `value_analysis/*`, G0 ordering, specialist skip |
-| [§6 Observability contract](./wave-0-resilience-harness.md#6-observability-contract) | Queue mode, trust flags, comprehension threshold logs |
-| [§3 Scenario matrix](./wave-0-resilience-harness.md#3-scenario-coverage-matrix) | `noisy_room`, `panel`, `debate`, `dense_jargon`, prosody diversity |
-| [§4 Prosody guardrails](./wave-0-resilience-harness.md#4-prosody--delivery-guardrails) | Per-hypothesis application below |
+| [§5 Fail-open inventory](./02-WAVE-0-resilience-harness.md#5-fail-open-inventory-per-subsystem) | `stage_enrichment.py`, `value_analysis/*`, G0 ordering, specialist skip |
+| [§6 Observability contract](./02-WAVE-0-resilience-harness.md#6-observability-contract) | Queue mode, trust flags, comprehension threshold logs |
+| [§3 Scenario matrix](./02-WAVE-0-resilience-harness.md#3-scenario-coverage-matrix) | `noisy_room`, `panel`, `debate`, `dense_jargon`, prosody diversity |
+| [§4 Prosody guardrails](./02-WAVE-0-resilience-harness.md#4-prosody--delivery-guardrails) | Per-hypothesis application below |
 
 **Wave B blocked** until Wave A promotion gates pass or documented exceptions in this file's [§ Wave B promotion gate](#wave-b-promotion-gate).
 
@@ -92,7 +139,7 @@ Wave A work **must not begin** until [wave-0-resilience-harness.md §15](./wave-
 | Comprehension specialist blocking gaps loop | Specialist fail-open; `missing_framing` continues on specialist timeout; investigations non-blocking |
 | Bad G0 order wastes operator time | A/B salience vs confidence-only in spike fixture; CRE-B timed task before Shipped |
 
-Copy from [h-hypothesis-wave-prompts.md § Per-wave do-no-harm](./h-hypothesis-wave-prompts.md#per-wave-do-no-harm-rules-copy-into-each-wave-doc).
+Copy from [99-META-regenerate-specs.md § Per-wave do-no-harm](./99-META-regenerate-specs.md#per-wave-do-no-harm-rules-copy-into-each-wave-doc).
 
 ---
 
@@ -163,7 +210,7 @@ Per-hypothesis **§W** below maps each gate to pass criteria and todos. Wave-lev
 
 ## 4. Prosody & delivery guardrails (wave-level)
 
-From [wave-0-resilience-harness.md §4](./wave-0-resilience-harness.md#4-prosody--delivery-guardrails). Per-hypothesis application in each **§V**.
+From [02-WAVE-0-resilience-harness.md §4](./02-WAVE-0-resilience-harness.md#4-prosody--delivery-guardrails). Per-hypothesis application in each **§V**.
 
 | Risk | Wave A mitigation |
 |------|-------------------|
@@ -189,13 +236,13 @@ Detailed per-hypothesis tables in **§S**. Wave A touch points:
 | Low-confidence acoustic signal | Omit flag; do not enqueue investigation | H-ING-03, H-G0-02 |
 | `analysis.specialists.enabled: false` | Skip `comprehension_risk_blind`; gaps use LLM only | H-GAP-01 |
 
-Full inventory: [wave-0-resilience-harness.md §5](./wave-0-resilience-harness.md#5-fail-open-inventory-per-subsystem).
+Full inventory: [02-WAVE-0-resilience-harness.md §5](./02-WAVE-0-resilience-harness.md#5-fail-open-inventory-per-subsystem).
 
 ---
 
 ## 6. Observability (wave-level)
 
-Contract: [wave-0-resilience-harness.md §6](./wave-0-resilience-harness.md#6-observability-contract).
+Contract: [02-WAVE-0-resilience-harness.md §6](./02-WAVE-0-resilience-harness.md#6-observability-contract).
 
 | Event / symptom | `stage` | `level` | Troubleshooting row |
 |-----------------|---------|---------|---------------------|
@@ -253,9 +300,9 @@ flowchart TD
 
 ## Wave B promotion gate
 
-Wave B (`wave-b-audio-structure.md`, H-SEG-02, H-ORC-01) **must not begin** until:
+Wave B (`04-WAVE-B-audio-structure.md`, H-SEG-02, H-ORC-01) **must not begin** until:
 
-1. **Wave A doc exists** and is linked from [june2026build/README.md](./README.md) and [implementation-guide.md](../implementation-guide.md).
+1. **Wave A doc exists** and is linked from [june182026build/00-INDEX.md](./00-INDEX.md) and [implementation-guide.md](../implementation-guide.md).
 2. **All four Wave A hypotheses** pass §W promotion gates **OR** exceptions recorded in waiver table below with maintainer sign-off.
 3. **Scenario matrix** rows for Wave A (`noisy_room`, `panel`, `debate`, `dense_jargon`, prosody diversity) have automated test green or manual sign-off dated.
 4. **No Wave A flag** ships `default-on` in `config/app.defaults.json` without full 15-point checklist for that hypothesis.
@@ -1197,10 +1244,10 @@ Cross-hypothesis and doc hygiene — minimum 40 required.
 
 ### Prerequisites & Wave 0 linkage
 
-- [ ] WA-01 Confirm wave-0-resilience-harness.md §15 gate signed
-- [ ] WA-02 Link this doc from june2026build/README.md (verify)
+- [ ] WA-01 Confirm 02-WAVE-0-resilience-harness.md §15 gate signed
+- [ ] WA-02 Link this doc from june182026build/00-INDEX.md (verify)
 - [ ] WA-03 Link from implementation-guide.md Wave A section
-- [ ] WA-04 INDEX.md entry for wave-a-early-truth.md
+- [ ] WA-04 INDEX.md entry for 03-WAVE-A-early-truth.md
 - [ ] WA-05 Record Wave 0 waived todos in cross-ref table
 
 ### Section value maps
@@ -1283,9 +1330,9 @@ Cross-hypothesis and doc hygiene — minimum 40 required.
 
 ## Related
 
-- [wave-0-resilience-harness.md](./wave-0-resilience-harness.md)
-- [wave-b-audio-structure.md](./wave-b-audio-structure.md) (blocked until this doc gates pass)
-- [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 1
+- [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md)
+- [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) (blocked until this doc gates pass)
+- [99-META-regenerate-specs.md](./99-META-regenerate-specs.md) Command 1
 - [implementation-guide.md](../implementation-guide.md)
 - [smoke-test.md](../../workflows/smoke-test.md)
 - [idempotent-runs.md](../../workflows/idempotent-runs.md)

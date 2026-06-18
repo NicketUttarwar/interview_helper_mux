@@ -1,55 +1,131 @@
-# Wave 0 — Resilience harness (June 2026)
+# 02 WAVE-0 — Resilience harness (LARGE)
 
-**Status:** Planning doc — must exist and pass promotion gate before any H-hypothesis code work (Waves A–E).  
-**Parent:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 0  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Scope:** **LARGE** — ~800 lines, 80+ todos, cross-cutting harness. Read entirely before coding.
 
-Wave 0 documents cross-cutting guardrails that apply **before and across** hypothesis waves A–E. No H-hypothesis feature should ship until applicable Wave 0 Implementation todos are addressed or explicitly waived with rationale.
+**Sequence step:** **02** — [00-INDEX.md](./00-INDEX.md)  
+**Previous:** [01-SETUP-preflight.md](./01-SETUP-preflight.md) step **01** complete  
+**Next after success:** [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md)
 
 ---
 
-## Cursor Agent command (copy-paste)
+## Agent execution contract
 
-Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. This command is **independent** — safe to run in isolation when Wave 0 is the active backlog.
+### How to invoke
 
-```text
-Implement Wave 0 — Resilience harness per the plan doc. Code + docs PR. Work unchecked items in §14 Implementation todos and close gaps in §5–§11 where code or troubleshooting rows are missing.
+1. Open a **new Cursor Agent chat** (Agent mode, not Ask).
+2. **`@`-attach this file** plus every path in [Required companion attachments](#required-companion-attachments) and [00-INDEX.md](./00-INDEX.md).
+3. Send the **Agent directive**:
 
-Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+   ```text
+   Implement June 2026 step 02 — Wave 0 Resilience harness per the attached step file.
+   Read the entire 02-WAVE-0-resilience-harness.md before editing code.
+   Work every unchecked todo in §14; mark [x] in this file as you complete items.
+   Satisfy §15 before finishing. Update 00-INDEX.md step **02** to [x] when done.
+   One code + docs PR. Do not edit .cursor/plans/*. Do not implement Wave A–D features in this PR.
+   ```
 
-Read first (attach with @):
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/testing-and-verification.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/operator-gates.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
+4. Treat **every section below this contract** as binding requirements — not optional reference material.
 
-Scope (absolute paths):
-- §14 todos: fail-open (FO-*), observability (OBS-*), scenario (SC-*), CI (CI-*), cross-artifact (CA-*), doc hygiene (DOC-*)
-- Verify §5 fail-open in: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/clap_index.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/duration_gate.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_specialists.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/sonic_context_stages.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/audio_preclean.py
-- §6 observability: every hard stop → ctx.log() + row in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md
-- §7 flow hardening: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/artifact_cross_validate.py
-- Scenario fixtures: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/*.json, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/runs/coherence_30m_planted_drift/
+### Mission
 
-Constraints:
-- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
-- Do NOT set hypothesis flags default-on in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json without §2 15-point sign-off
-- Use MCP user-context7 before changing third-party API usage
-- Operator-visible strings only via ctx.log() / gui_log.jsonl policy
+Ship the **cross-cutting resilience harness** that Waves A–E depend on: fail-open behavior when optional deps/signals are missing; observability (`ctx.log` → `gui_log.jsonl` + gate panels + [troubleshooting.md](../../workflows/troubleshooting.md)); scenario-atlas fixture coverage; LLM flow hardening and cross-artifact validation; operator gates (G0–G2, profile, quality offers); deterministic QC chain documentation and wiring gaps closed.
 
-Verify when done:
-cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
+**Deliverable:** One code + docs PR. No hypothesis features default-on in `config/app.defaults.json`.
+
+### What this document contains
+
+| Section | Purpose |
+|---------|---------|
+| [§1](#1-realistic-success-definition) | Success criteria — what “done” means for the harness |
+| [§2](#2-promote-with-evidence-checklist-15-points) | 15-point promotion template (applies to all waves) |
+| [§3](#3-scenario-coverage-matrix) | Atlas + sonic fixtures every later wave must not regress |
+| [§4](#4-prosody--delivery-guardrails) | Prosody diversity guardrails |
+| [§5](#5-fail-open-inventory-per-subsystem) | **Primary implementation map** — per-subsystem fail-open behavior |
+| [§6](#6-observability-contract) | `ctx.log` events, gate copy, troubleshooting rows |
+| [§7](#7-llm-flow-hardening-audit) | `llm_flow_hardening.py`, preflight, attempt budgets |
+| [§8](#8-operator-gates-audit) | G0, G1, G2, profile gate, quality offers |
+| [§9](#9-scenario-atlas-integration) | `content_context` → sonic_context → sound design |
+| [§10](#10-deterministic-qc-chain) | narrative QC, EDL, verify_master, placement_qa |
+| [§11](#11-cross-artifact-validation) | `artifact_cross_validate.py` |
+| [§12](#12-wave-blocking-rules) | Order: 0 → A → B → C → D; E parked |
+| [§13](#13-repository-touch-matrix) | Files and modules this wave may touch |
+| [§14](#14-implementation-todos) | **Checklist the agent works** — mark `[x]` in this file |
+| [§15](#15-promotion-gate-for-wave-a) | Gate before Wave A may start |
+
+### Required companion attachments
+
+Attach these in addition to **this file**:
+
+| Path | Why |
+|------|-----|
+| `.cursor/rules/interview-helper-mux.mdc` | Always-on repo constraints (logging, gates, toolchain) |
+| `AGENTS.md` | Doc navigation and build-out workflow |
+| `docs/build-out/doc-maintenance.md` | Docs to update in the same PR |
+| `docs/build-out/testing-and-verification.md` | Verification commands per wave |
+| `docs/workflows/troubleshooting.md` | Extend rows for new operator-facing errors |
+| `docs/workflows/operator-gates.md` | G0–G2, profile gate, quality offers |
+| `docs/cross-cutting/config-keys.md` | Any new or changed config keys |
+
+### Scope summary
+
+| Todo families | Focus |
+|---------------|-------|
+| **FO-*** | Fail-open paths in `stage_enrichment.py`, `interview_spine/clap_index.py`, `coherence/duration_gate.py`, `llm_specialists.py`, `stages/sonic_context_stages.py`, `stages/audio_preclean.py` |
+| **OBS-*** | Observability — every new operator string → `ctx.log()` + troubleshooting row |
+| **SC-*** | Scenario atlas / sonic_context fixture linkage |
+| **CI-*** | Prerequisites, pytest subsets, definition-of-done linkage |
+| **CA-*** | Cross-artifact validation + orchestration milestones |
+| **DOC-*** | Index links, no `.cursor/plans/*` edits |
+
+**Key modules:** `src/interview_mux/llm_flow_hardening.py`, `src/interview_mux/artifact_cross_validate.py`, `src/interview_mux/stage_enrichment.py`, `src/interview_mux/interview_spine/`, `src/interview_mux/coherence/`, `src/interview_mux/llm_specialists.py`, `src/interview_mux/stages/sonic_context_stages.py`, `src/interview_mux/stages/audio_preclean.py`.
+
+**Fixtures:** `tests/fixtures/sonic_context/*`, `tests/fixtures/runs/coherence_30m_planted_drift/`.
+
+### Global constraints
+
+- **No** edits to `.cursor/plans/*`.
+- **No** hypothesis flags default-on in `config/app.defaults.json` without §2 fifteen-point sign-off.
+- **All** new operator-facing strings via `ctx.log()` — never `print()` for operator UX.
+- **Context7** (or current docs) before changing third-party API usage.
+- **Fail open:** missing WAV, CLAP, NISQA, specialist, or optional dep → omit feature, log, continue — see §5.
+- **Do not** implement Wave A–E hypothesis features in this PR — harness only.
+
+### Execution methodology
+
+1. **Read** §1–§13 fully to understand subsystem boundaries.
+2. **Audit** the codebase against §5 fail-open inventory — note gaps.
+3. **Work §14 todos** in order of dependency: fail-open → observability → fixtures → QC → CI → doc hygiene.
+4. **For each todo:** implement, add/extend test or manual sign-off procedure, mark `[x]` in §14.
+5. **Extend** [troubleshooting.md](../../workflows/troubleshooting.md) for every new halt/warn path (§6).
+6. **Run verification** (below) before PR.
+7. **Complete §15** — all applicable todos `[x]` or waived in the waiver table with rationale.
+
+### Definition of done
+
+- [ ] Every applicable **§14** todo marked `[x]` or waived in [§15 waiver table](#waived-todo-rationale-table).
+- [ ] **§5** fail-open inventory matches actual code behavior (no undeclared `SystemExit` on missing optional signals).
+- [ ] **§6** observability: new events have `gui_log.jsonl` keys and troubleshooting rows.
+- [ ] `pytest` green for touched modules (at minimum families in §14.9).
+- [ ] [doc-maintenance.md](../doc-maintenance.md) checklist complete.
+- [ ] **§15 promotion gate** satisfied — Wave A may begin.
+- [ ] This file updated in the same PR (todo checkboxes, waiver table if used).
+
+### Verification commands
+
+```bash
+source .venv/bin/activate
 ./tools/check_prerequisites.sh
-pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_artifact_cross_validate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine_clap.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_preclean_offer.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_gates.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py -q
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
-
-Update /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md: mark completed §14 todos [x]; fill §15 waiver table only if waiving. Follow /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md for INDEX, implementation-guide, README links.
+pytest tests/test_stage_parity.py tests/test_artifact_cross_validate.py \
+  tests/test_interview_spine_clap.py tests/test_preclean_offer.py tests/test_gates.py -q
+pytest tests/fixtures/sonic_context/ -q 2>/dev/null || pytest tests/test_sonic_context.py -q
+python tools/audit_stage_plans_doc.py
 ```
 
-**Canonical references:** [operator-gates.md](../../workflows/operator-gates.md) · [troubleshooting.md](../../workflows/troubleshooting.md) · [config-keys.md](../../cross-cutting/config-keys.md) · [stage-registry.md](../stage-registry.md) · [interview-scenario-atlas.md](../../prompts/_shared/interview-scenario-atlas.md)
+See also [testing-and-verification.md](../testing-and-verification.md) and §3 fixture validation command.
+
+### Blocks next wave until
+
+[§15 Promotion gate for Wave A](#15-promotion-gate-for-wave-a) passes. Do not attach `03-WAVE-A-early-truth.md` for implementation until then.
 
 ---
 
@@ -476,16 +552,15 @@ When `analysis.flow_hardening.cross_validate_enabled: true`, `maybe_cross_valida
 
 ## 12. Wave blocking rules
 
-From [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md):
+From [99-META-regenerate-specs.md](./99-META-regenerate-specs.md):
 
 | Order | Doc | Prerequisite |
 |-------|-----|--------------|
-| **0** | `wave-0-resilience-harness.md` (this file) | **First** — before any hypothesis code plans |
-| **A** | `wave-a-early-truth.md` | Wave 0 promotion gate ([§15](#15-promotion-gate-for-wave-a)) |
-| **B** | `wave-b-audio-structure.md` | Wave A promotion gates or documented exceptions |
-| **C** | `wave-c-self-healing.md` | Wave B |
-| **D** | `wave-d-output-resilience.md` | Wave C |
-| **E** | `wave-e-big-bets.md` | Wave D — **parked only** |
+| **0** | `02-WAVE-0-resilience-harness.md` (this file) | **First** — before any hypothesis code plans |
+| **A** | `03-WAVE-A-early-truth.md` | Wave 0 promotion gate ([§15](#15-promotion-gate-for-wave-a)) |
+| **B** | `04-WAVE-B-audio-structure.md` | Wave A promotion gates or documented exceptions |
+| **C** | `05-WAVE-C-self-healing.md` | Wave B |
+| **D** | `06-WAVE-D-output-resilience.md` | Wave C |
 
 **Do-no-harm rules (Wave 0 scope):**
 
@@ -496,9 +571,8 @@ From [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md):
 | **B** | Over-segmentation; spine/CLAP break installs | Boundary-truth tests; CLAP fail-open; ladder/spine dedupe |
 | **C** | Investigation loops; false contradictions block ship | `flow_hardening` budgets; 30m gate; blocking threshold high-confidence only |
 | **D** | Stingers on laughter; trauma violations; flat montage | placement QA; trauma_adjacent examples; highlight diversity |
-| **E** | Heavy deps break core venv | Stay parked; isolated research venv; never block A–D |
 
-No Wave A–E implementation PR may merge until this doc's applicable todos are checked or waived.
+No Wave A–D implementation PR may merge until this doc's applicable todos are checked or waived.
 
 ---
 
@@ -521,7 +595,7 @@ Full harness map — include applicable rows in every wave doc PR.
 | **Config** | `config/app.defaults.json`, [config-keys.md](../../cross-cutting/config-keys.md) |
 | **GUI** | `web/stages.py`, `web/server.py`, `frontend/src/components/gates/*`, [gui-surface-map.md](../../workflows/gui-surface-map.md) |
 | **Tests** | `tests/test_*` per subsystem; `tools/audit_stage_plans_doc.py` |
-| **Docs index** | [june2026build/README.md](./README.md), [implementation-guide.md](../implementation-guide.md) |
+| **Docs index** | [june182026build/00-INDEX.md](./00-INDEX.md), [implementation-guide.md](../implementation-guide.md) |
 
 ---
 
@@ -670,18 +744,18 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 
 ### 14.11 Wave 0 doc hygiene
 
-- [ ] **DOC-01** Link this file from [june2026build/README.md](./README.md) (already listed — verify)
+- [ ] **DOC-01** Link this file from [june182026build/00-INDEX.md](./00-INDEX.md) (already listed — verify)
 - [ ] **DOC-02** Link from [implementation-guide.md](../implementation-guide.md) Wave 0 section
-- [ ] **DOC-03** [INDEX.md](../../INDEX.md) entry for june2026build folder
+- [ ] **DOC-03** [INDEX.md](../../INDEX.md) entry for june182026build folder
 - [ ] **DOC-04** No `.cursor/plans/*` edits in Wave 0 PRs
 
 ---
 
 ## 15. Promotion gate for Wave A
 
-Wave A hypothesis implementation (`wave-a-early-truth.md`, seq 01–04: H-ING-03, H-G0-02, H-G0-01, H-GAP-01) **must not begin** until:
+Wave A hypothesis implementation (`03-WAVE-A-early-truth.md`, seq 01–04: H-ING-03, H-G0-02, H-G0-01, H-GAP-01) **must not begin** until:
 
-1. This document exists and is linked from [june2026build/README.md](./README.md).
+1. This document exists and is linked from [june182026build/00-INDEX.md](./00-INDEX.md).
 2. All **applicable** §14 todos are `[x]` **OR** explicitly waived below.
 3. Fail-open inventory (§5) reviewed for Wave A touch points: `stage_enrichment.py`, `value_analysis/*`, G0 ordering, `noisy_room` + prosody guardrails.
 4. Scenario matrix rows for Wave A (`noisy_room`, `panel`, `debate`, `dense_jargon`, prosody diversity) have test or manual sign-off.
@@ -696,13 +770,13 @@ Wave A hypothesis implementation (`wave-a-early-truth.md`, seq 01–04: H-ING-03
 
 **Approver:** Maintainer or operator lead before first Wave A code PR.
 
-**Wave A entry command:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 1 — requires Wave 0 promotion status referenced in generated `wave-a-early-truth.md`.
+**Wave A entry:** After §15 passes, run [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md) with [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md).
 
 ---
 
 ## Related
 
-- [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) — Command 0 source
+- [99-META-regenerate-specs.md](./99-META-regenerate-specs.md) — Command 0 source
 - [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md) — v1 vs target master
 - [llm-guidance-program.md](../../cross-cutting/llm-guidance-program.md) — quality-first program index
 - [stage-quality-scorecard.md](../../cross-cutting/stage-quality-scorecard.md) — per-stage shipped status

@@ -1,68 +1,107 @@
-# Wave C — Self-healing orchestration (June 2026)
+# 05 WAVE-C — Self-healing (LARGE)
 
-**Status:** Planning doc — seq **07–08** (H-ORC-02, H-ORC-03).  
-**Parent:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 3  
-**Requires:** [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) (Wave 0 gates); [wave-a-early-truth.md](./wave-a-early-truth.md) (Wave A value/G0 signals); [wave-b-audio-structure.md](./wave-b-audio-structure.md) (H-ORC-01 spine shipped).  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Scope:** **LARGE** — H-ORC-02 + H-ORC-03, 115+ todos, ~900 lines.
 
-Wave C hardens **self-healing analysis**: investigations enqueue from deterministic signals (H-ORC-02) and long-run coherence (H-ORC-03), drain through the orchestration loop with bounded reruns, and surface in the GUI without silent failure or infinite loops.
-
-**Canonical references:** [analysis-orchestration-loop.md](../../workflows/analysis-orchestration-loop.md) · [coherence-orc03.md](../../cross-cutting/coherence-orc03.md) · [cross-orchestration-memory.md](../../pipeline/value-analysis/sections/cross-orchestration-memory.md) · [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md#cross-orchestration-memory)
-
-| Seq | ID | Status | Spike | Primary artifact |
-|-----|-----|--------|-------|------------------|
-| 07 | H-ORC-02 | **Shipped (harden)** | 4.071 | `understanding/investigation_queue.json` |
-| 08 | H-ORC-03 | **Promote → Shipped** | — | `understanding/coherence_report.json` |
+**Sequence step:** **05** — [00-INDEX.md](./00-INDEX.md)  
+**Previous:** [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) §9 gate · H-ORC-01 spine shipped  
+**Next after success:** [06-WAVE-D-output-resilience.md](./06-WAVE-D-output-resilience.md)
 
 ---
 
-## Cursor Agent command (copy-paste)
+## Agent execution contract
 
-Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Waves 0, A, B promotion gates (or signed waivers).
+### How to invoke
 
-```text
-Implement Wave C — Self-healing (H-ORC-02, H-ORC-03). Code + docs PR per the plan doc. Harden investigation enqueue/dedupe (ORC-02) and coherence analysis with 30m duration gate (ORC-03). Work §15 Wave-level todos and per-hypothesis Implementation todos.
+1. **New Cursor Agent chat** (Agent mode).
+2. **`@`-attach this file**, [00-INDEX.md](./00-INDEX.md), and all [Required companion attachments](#required-companion-attachments).
+3. Send the **Agent directive**:
 
-Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+   ```text
+   Implement June 2026 step 05 — Wave C Self-healing per the attached step file.
+   Hypotheses: H-ORC-02 (investigation enqueue), H-ORC-03 (long-run coherence).
+   Read the entire 05-WAVE-C-self-healing.md before editing code.
+   Respect flow_hardening attempt budgets. Mark todos [x] in this file.
+   Update 00-INDEX.md step **05** to [x] when done. One code + docs PR. Do not edit .cursor/plans/*.
+   ```
 
-Read first (attach with @):
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/analysis-orchestration-loop.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/coherence-orc03.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+### Mission
 
-Prerequisite gates:
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md §9 — Wave C promotion gate
-- H-ORC-01 spine must build: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/interview_spine_stage.py
+| ID | Hypothesis | Focus |
+|----|------------|-------|
+| **H-ORC-02** | Investigation enqueue from value/spine signals | `stage_enrichment.py`, `journey_orchestrator.py`, dedupe, bounded reruns |
+| **H-ORC-03** | Long-run coherence (≥30m duration gate, contradictions) | `coherence/*`, `duration_gate`, Story Board Coherence risks panel |
 
-Scope (absolute paths):
-- H-ORC-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (investigation enqueue), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/journey_orchestrator.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/llm_flow_hardening.py (attempt_budget)
-- H-ORC-03: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/analyze.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/duration_gate.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/coherence/claim_contradiction.py
-- Config: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/config/app.defaults.json (coherence.max_investigations_per_run, flow_hardening keys), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/config-keys.md
-- GUI: CoherenceRisksPanel, investigation queue surfaces in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/gui-surface-map.md
+**Deliverable:** Code + docs PR. Merge [troubleshooting.md §11](../../workflows/troubleshooting.md) alignment. Wave D blocked until [§13](#13-wave-d-promotion-gate-from-wave-c).
 
-Do-no-harm:
-- Short interviews (<30m): no coherence spam — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py
-- ORC-02 vs ORC-03 dedupe: same window → one open investigation
-- Blocking claim_contradiction: high-confidence only; align §11 troubleshooting investigation loop
-- Fixture: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/runs/coherence_30m_planted_drift/
+### What this document contains
 
-Constraints:
-- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
-- Investigation loops must respect flow_hardening budgets — no infinite drain
-- Use MCP user-context7 for third-party API changes
+| Section | Purpose |
+|---------|---------|
+| [§1–§12](#1-realistic-success-definition) | Success, scenarios, do-no-harm, fail-open, ORC-02 vs ORC-03, observability, rate limits, mermaid, touch matrix, troubleshooting, prosody |
+| [§13](#13-wave-d-promotion-gate-from-wave-c) | Gate before Wave D |
+| [§14](#14-final-product-impact) | Flow 1/2 product link |
+| **H-ORC-02** / **H-ORC-03** sections | Per-hypothesis specs + 55–60+ todos each |
+| [§15](#15-wave-level-implementation-todos-40) | Cross-hypothesis todos |
 
-Verify when done:
-cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
-pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_duration_gate.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_coherence_fixture_planted.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_artifact_cross_validate.py -q
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
+### Required companion attachments
 
-Merge §11 investigation loop into /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/workflows/troubleshooting.md. Update wave-c-self-healing.md todos [x]. Block Wave D until §13 Wave D promotion gate passes.
+| Path | Why |
+|------|-----|
+| `.cursor/rules/interview-helper-mux.mdc` | Repo constraints |
+| `AGENTS.md` | Navigation |
+| `docs/build-out/june182026build/02-WAVE-0-resilience-harness.md` | Harness |
+| `docs/build-out/june182026build/04-WAVE-B-audio-structure.md` | H-ORC-01 spine prerequisite |
+| `docs/build-out/june182026build/05-WAVE-C-self-healing.md` | **This file** |
+| `docs/workflows/analysis-orchestration-loop.md` | Investigation loop |
+| `docs/cross-cutting/coherence-orc03.md` | ORC-03 coherence design |
+| `docs/build-out/doc-maintenance.md` | PR docs |
+
+### Scope summary
+
+**Modules:** `src/interview_mux/stage_enrichment.py`, `src/interview_mux/journey_orchestrator.py`, `src/interview_mux/coherence/`, `config/app.defaults.json`, `docs/cross-cutting/config-keys.md`, GUI `CoherenceRisksPanel`.
+
+**Fixture:** `tests/fixtures/runs/coherence_30m_planted_drift/` — ORC-03 only active ≥30m; no spam on short runs.
+
+### Global constraints
+
+- **No** `.cursor/plans/*` edits.
+- **Investigation loops** must respect `analysis.flow_hardening` attempt budgets.
+- **ORC-02 vs ORC-03 orthogonal** — see §6; do not duplicate enqueue paths.
+- **High-confidence blocking contradiction only** — non-blocking investigations must not halt pipeline.
+- **Context7** for third-party APIs.
+
+### Do-no-harm (mandatory)
+
+- `tests/test_coherence_duration_gate.py` — interviews **&lt;30m** must not get ORC-03 spam.
+- ORC-02/03 **dedupe** when `investigation_dedupe: true`.
+- Planted drift fixture must detect drift without false positives on short fixtures.
+
+### Execution methodology
+
+1. Read §4 do-no-harm and §6 orthogonality.
+2. Implement **H-ORC-02** (investigations) then **H-ORC-03** (coherence) — or ORC-03 config-gated independently if ORC-02 incomplete.
+3. Wire GUI Coherence risks panel; extend troubleshooting §11.
+4. Mark all todos `[x]`; satisfy §13 Wave D gate.
+
+### Definition of done
+
+- [ ] H-ORC-02 and H-ORC-03 todos `[x]`.
+- [ ] Duration gate behavior matches `coherence-orc03.md`.
+- [ ] Investigation dedupe and attempt budgets tested.
+- [ ] `troubleshooting.md` investigation loop rows merged/verified.
+- [ ] [doc-maintenance.md](../doc-maintenance.md) complete.
+
+### Verification commands
+
+```bash
+source .venv/bin/activate
+pytest tests/test_coherence_duration_gate.py tests/test_coherence_fixture_planted.py -q
+pytest tests/test_journey_orchestrator.py -q 2>/dev/null || true
 ```
+
+### Blocks next wave until
+
+[§13 Wave D promotion gate](#13-wave-d-promotion-gate-from-wave-c) passes.
 
 ---
 
@@ -559,7 +598,7 @@ Winner: joint acoustic+text queue — **Promote** (shipped). **Park** text-only 
 - [ ] **ORC02-G08** gui-surface-map Story Board investigation row present
 - [ ] **ORC02-G09** Trace analysis_ready path with ORC-02-only queue (non-blocking)
 - [ ] **ORC02-G10** doc-maintenance checklist on PR template
-- [ ] **ORC02-G11** List do-not-promote blockers in README june2026build
+- [ ] **ORC02-G11** List do-not-promote blockers in README june182026build
 - [ ] **ORC02-G12** Add enqueue `ctx.log` with kinds + count
 - [ ] **ORC02-G13** Run sonic one_on_one + technical_deep_dive scenario procedures
 - [ ] **ORC02-G14** Test `value_analysis.enabled: false` → zero enqueue
@@ -801,7 +840,7 @@ Interviews **≥30 minutes** accumulate narrative risks: topic drift without aco
 - [ ] **WC-01** Confirm Wave 0 fail-open coherence rows implemented
 - [ ] **WC-02** Confirm Wave B H-ORC-01 spine builds before ORC-02/03 hooks
 - [ ] **WC-03** Confirm Wave A value_analysis flags stable
-- [ ] **WC-04** Link this doc from june2026build README.md (already listed — verify)
+- [ ] **WC-04** Link this doc from june182026build README.md (already listed — verify)
 - [ ] **WC-05** Update docs/INDEX.md build-out section
 - [ ] **WC-06** Cross-link analysis-orchestration-loop.md to Wave C caps
 
@@ -838,7 +877,7 @@ Interviews **≥30 minutes** accumulate narrative risks: topic drift without aco
 
 ### Future-proofing
 
-- [ ] **WC-23** Note Wave E parked — no MLX fine-tune on coherence path
+- [ ] **WC-23** No MLX fine-tune on coherence path
 - [ ] **WC-24** long-interview-chunking.md cross-link for volley truncation
 - [ ] **WC-25** evaluation-metrics.md listener study hook for ORC-03 promoted claims
 
@@ -846,12 +885,12 @@ Interviews **≥30 minutes** accumulate narrative risks: topic drift without aco
 
 ## Related
 
-- [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) — fail-open coherence, observability contract
-- [wave-b-audio-structure.md](./wave-b-audio-structure.md) — H-ORC-01 spine prerequisite
+- [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) — fail-open coherence, observability contract
+- [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) — H-ORC-01 spine prerequisite
 - [analysis-memory.md](../../cross-cutting/analysis-memory.md) — queue + state semantics
 - [feedback-loops-and-reruns.md](../../workflows/feedback-loops-and-reruns.md) — operator rerun patterns
 - [long-interview-chunking.md](../../workflows/long-interview-chunking.md) — 30m+ volley context
 
 ---
 
-*Generated per [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 3. Documentation only — no Python changes in this step.*
+*Generated per [99-META-regenerate-specs.md](./99-META-regenerate-specs.md) Command 3. Documentation only — no Python changes in this step.*

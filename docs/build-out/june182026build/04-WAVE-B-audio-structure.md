@@ -1,65 +1,103 @@
-# Wave B — Audio structure (June 2026)
+# 04 WAVE-B — Audio structure (LARGE)
 
-**Status:** Planning doc — seq **05–06** (H-SEG-02, H-ORC-01)  
-**Parent:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 2  
-**Requires:** [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) · [wave-a-early-truth.md](./wave-a-early-truth.md) (promotion gates or documented exceptions)  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Scope:** **LARGE** — 2 hypotheses (H-SEG-02, H-ORC-01), 100+ todos, ~900 lines.
 
-Wave B hardens **segment boundary truth** (H-SEG-02 pause ladder) and **time-indexed comprehension memory** (H-ORC-01 interview spine). Both hypotheses sit on the path from G0 transcript → `boundary_detection` → downstream ranking/mix. Wave B must not regress panel speaker boundaries, fireside over-splitting, or technical deep-dive long-segment coherence.
+**Sequence step:** **04** — [00-INDEX.md](./00-INDEX.md)  
+**Previous:** [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md) Wave B gate passed  
+**Next after success:** [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md)
 
 ---
 
-## Cursor Agent command (copy-paste)
+## Agent execution contract
 
-Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Wave 0 + Wave A promotion gates (or signed waivers).
+### How to invoke
 
-```text
-Implement Wave B — Audio structure (H-SEG-02, H-ORC-01). Code + docs PR per the plan doc. Work §10 H-SEG-02, §11 H-ORC-01, and §12 Wave-level implementation todos.
+1. **New Cursor Agent chat** (Agent mode).
+2. **`@`-attach this file**, [00-INDEX.md](./00-INDEX.md), and all [Required companion attachments](#required-companion-attachments).
+3. Send the **Agent directive**:
 
-Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+   ```text
+   Implement June 2026 step 04 — Wave B Audio structure per the attached step file.
+   Hypotheses: H-SEG-02 (pause ladder), H-ORC-01 (interview spine).
+   Read the entire 04-WAVE-B-audio-structure.md before editing code.
+   Preserve CLAP fail-open. Work all unchecked todos; mark [x] in this file.
+   Update 00-INDEX.md step **04** to [x] when done. One code + docs PR. Do not edit .cursor/plans/*.
+   ```
 
-Read first (attach with @):
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-b-audio-structure.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/interview-spine.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/context-padding.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+### Mission
 
-Prerequisite gates:
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md §15
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-a-early-truth.md — Wave B promotion gate
+| ID | Hypothesis | Focus |
+|----|------------|-------|
+| **H-SEG-02** | Neural VAD pause ladder | `boundary_detection`, `pause_ladder_hints`, reflective/fireside boundaries |
+| **H-ORC-01** | Interview comprehension spine | `interview_spine/*`, CLAP retrieval (fail-open), GUI recompute |
 
-Scope (absolute paths):
-- H-SEG-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (pause_ladder_hints), /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/segmentation.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/boundaries.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/prompts/segmentation/boundary-detection.system.txt
-- H-ORC-01: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/interview_spine_stage.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/*, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/context_volley.py
-- CLAP fail-open: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/interview_spine/clap_index.py — spine ships with retrieval.enabled: false when venv missing
-- GUI: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/web/server.py (recompute-interview-spine), frontend InterviewSpinePanel
+**Deliverable:** Code + docs PR. Wave C blocked until [§9 Wave C promotion gate](#9-wave-c-promotion-gate).
 
-Scenario fixtures (must not regress):
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/panel.json
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/fireside.json
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/technical_deep_dive.json
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/one_on_one.json
+### What this document contains
 
-Constraints:
-- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
-- Do NOT break CLAP fail-open from wave-0 §5
-- Ladder/spine dedupe — no contradictory split guidance in volley
-- Use MCP user-context7 for third-party API changes
+| Section | Purpose |
+|---------|---------|
+| [§1–§8](#1-realistic-success-definition) | Success, promotion checklist, scenarios, prosody, do-no-harm, fail-open, observability, pipeline |
+| [§9](#9-wave-c-promotion-gate) | Gate before Wave C |
+| [§10 H-SEG-02](#10-h-seg-02--neural-vad-pause-ladder-seq-05) | Pause ladder — 50+ todos |
+| [§11 H-ORC-01](#11-h-orc-01--interview-comprehension-spine-seq-06) | Spine + CLAP — 50+ todos |
+| [§12–§15](#12-wave-level-implementation-todos) | Wave todos, quality link, related docs, waivers |
 
-Verify when done:
-cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
-pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_stage_enrichment.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_interview_spine_clap.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sonic_context.py -q
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/audit_stage_plans_doc.py
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py --help
+### Required companion attachments
 
-Update wave-b-audio-structure.md todos [x]. Block Wave C until §9 Wave C promotion gate passes. Follow /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md.
+| Path | Why |
+|------|-----|
+| `.cursor/rules/interview-helper-mux.mdc` | Repo constraints |
+| `AGENTS.md` | Navigation |
+| `docs/build-out/june182026build/02-WAVE-0-resilience-harness.md` | Harness fail-open + scenarios |
+| `docs/build-out/june182026build/03-WAVE-A-early-truth.md` | Upstream Wave A context |
+| `docs/build-out/june182026build/04-WAVE-B-audio-structure.md` | **This file** |
+| `docs/cross-cutting/interview-spine.md` | Spine architecture |
+| `docs/cross-cutting/context-padding.md` | Volley parity ↔ `STAGE_PLANS` |
+| `docs/build-out/doc-maintenance.md` | PR docs |
+
+### Scope summary
+
+**Modules:** `src/interview_mux/segmentation.py`, `src/interview_mux/interview_spine/` (incl. `clap_index.py`, `boundaries.py`), `src/interview_mux/stages/interview_spine_stage.py`, `src/interview_mux/context_volley.py`, GUI recompute-interview-spine endpoint.
+
+**Fixtures:** `panel.json`, `fireside.json`, `technical_deep_dive.json`, `one_on_one.json` under `tests/fixtures/sonic_context/`.
+
+### Global constraints
+
+- **No** `.cursor/plans/*` edits.
+- **Preserve CLAP fail-open** — missing index/model → empty retrieval, no halt.
+- **Ladder/spine dedupe** — no duplicate boundary events.
+- **Volley parity** — `python tools/audit_stage_plans_doc.py` if `STAGE_PLANS` change.
+- **Context7** for third-party APIs.
+
+### Execution methodology
+
+1. Read §5 do-no-harm and §6 fail-open before coding.
+2. Implement **H-SEG-02** then **H-ORC-01** (spine consumes boundary hints).
+3. Per hypothesis: mechanism → code → tests per scenario row → promotion gates → mark todos `[x]`.
+4. Verify GUI recompute path and `execution_invalidation` on spine recompute.
+5. Satisfy [§9 Wave C promotion gate](#9-wave-c-promotion-gate).
+
+### Definition of done
+
+- [ ] H-SEG-02 and H-ORC-01 todos `[x]` (or waived in §15).
+- [ ] Scenario matrix rows for `panel`, `fireside`, `technical_deep_dive`, `one_on_one` pass.
+- [ ] CLAP fail-open tested (`tests/test_interview_spine_clap.py` or equivalent).
+- [ ] No over-segmentation on fireside; no spine spam on short runs.
+- [ ] [doc-maintenance.md](../doc-maintenance.md) complete.
+
+### Verification commands
+
+```bash
+source .venv/bin/activate
+pytest tests/test_sonic_context.py tests/test_coherence_duration_gate.py -q
+pytest tests/test_interview_spine_clap.py -q
+python tools/audit_stage_plans_doc.py
 ```
 
-**Canonical references:** [interview-spine.md](../../cross-cutting/interview-spine.md) · [context-padding.md](../../cross-cutting/context-padding.md) · [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) § shared-segmentation · [stage-registry.md](../stage-registry.md)
+### Blocks next wave until
+
+[§9 Wave C promotion gate](#9-wave-c-promotion-gate) passes.
 
 ---
 
@@ -196,7 +234,7 @@ Source: `understanding/source_acoustic_profile.json` → `pacing.pace_class` (`c
 | technical_deep_dive false splits | Dense pace_class + long segment lint; 1200 ms tier before 400 ms in prompt priority |
 | Volley truncation hiding spine events | Log `truncation_flags_for_volley` on `boundary_detection`; operator warning when `field_truncated` |
 
-Cross-ref Wave 0: [wave-0-resilience-harness.md §5](./wave-0-resilience-harness.md#5-fail-open-inventory-per-subsystem) interview_spine / CLAP rows.
+Cross-ref Wave 0: [02-WAVE-0-resilience-harness.md §5](./02-WAVE-0-resilience-harness.md#5-fail-open-inventory-per-subsystem) interview_spine / CLAP rows.
 
 Cross-ref Wave A: G0 salience and stress corroboration must not contradict boundary times — if Wave A partial, document exception table before Wave B code merge.
 
@@ -225,7 +263,7 @@ Every hypothesis section documents hypothesis-specific tables; this wave-level i
 
 ## 7. Observability contract (Wave B)
 
-Inherits Wave 0 [§6 observability](./wave-0-resilience-harness.md#6-observability-contract). Wave B additions:
+Inherits Wave 0 [§6 observability](./02-WAVE-0-resilience-harness.md#6-observability-contract). Wave B additions:
 
 ### 7.1 `interview_spine_build` events
 
@@ -803,9 +841,9 @@ Every consumer must **fail-open** when spine missing or `retrieval.enabled: fals
 
 - [ ] **WB-01** Confirm Wave 0 fail-open inventory rows for interview_spine verified
 - [ ] **WB-02** Confirm Wave A promotion gate passed or exception table attached
-- [ ] **WB-03** Update [README.md](./README.md) wave B status when implementation starts
+- [ ] **WB-03** Update [00-INDEX.md](./00-INDEX.md) wave B status when implementation starts
 - [ ] **WB-04** Update [implementation-guide.md](../implementation-guide.md) Wave B section
-- [ ] **WB-05** Update [INDEX.md](../../INDEX.md) june2026build link
+- [ ] **WB-05** Update [INDEX.md](../../INDEX.md) june182026build link
 
 **Repository touch matrix (Wave B):**
 
@@ -847,9 +885,9 @@ Partial proxies remain **Partial** until prosody scenario checks + listener stud
 
 | Doc | Relationship |
 |-----|--------------|
-| [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) | Fail-open, observability, scenario matrix parent |
-| [wave-a-early-truth.md](./wave-a-early-truth.md) | G0/salience cross-deps for boundary times |
-| [wave-c-self-healing.md](./wave-c-self-healing.md) | Blocked until Wave B gate §9 passes |
+| [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) | Fail-open, observability, scenario matrix parent |
+| [03-WAVE-A-early-truth.md](./03-WAVE-A-early-truth.md) | G0/salience cross-deps for boundary times |
+| [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md) | Blocked until Wave B gate §9 passes |
 | [shared-segmentation.md](../../pipeline/value-analysis/sections/shared-segmentation.md) | H-SEG-02 spike narrative |
 | [cross-orchestration-memory.md](../../pipeline/value-analysis/sections/cross-orchestration-memory.md) | H-ORC-01 spike narrative |
 | [interview-scenario-atlas.md](../../prompts/_shared/interview-scenario-atlas.md) | panel / fireside / technical recovery tables |

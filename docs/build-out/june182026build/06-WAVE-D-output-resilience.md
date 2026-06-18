@@ -1,69 +1,107 @@
-# Wave D — Output resilience (June 2026)
+# 06 WAVE-D — Output resilience (LARGE)
 
-**Status:** Planning doc — seq **09–11** (H-F1N-02, H-F2-02, H-F1S-02).  
-**Parent:** [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 4  
-**Requires:** [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) · Wave A (G0/salience) · Wave B (spine/segmentation) · Wave C (investigations/coherence) promotion gates or documented exceptions  
-**Do not edit:** `.cursor/plans/h-hypothesis_plan_files_909fce9f.plan.md`
+**Scope:** **LARGE** — 3 output hypotheses, all sonic fixtures, nine-scenario listen, ~1000 lines.
 
-Wave D hardens the **listener-facing output path**: Flow 1 ranking → EDL → mix, Flow 2 montage hooks, and sting placement intelligibility. These hypotheses sit at the boundary between analysis signals and mastered audio — errors here are audible, not merely textual.
-
-**North star validators:** `tools/validate_narrative.py` · `tools/verify_master.py` · [definition-of-done-signoff.md](../definition-of-done-signoff.md) §6 nine-scenario listen matrix · COM retell · LEX-B sonic trust · hook first-3s listen.
+**Sequence step:** **06** — [00-INDEX.md](./00-INDEX.md)  
+**Previous:** [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md) §13 gate passed  
+**Next after success:** [07-FINISH-signoff.md](./07-FINISH-signoff.md)
 
 ---
 
-## Cursor Agent command (copy-paste)
+## Agent execution contract
 
-Open **Agent mode** in Cursor. Start a **new** chat. Copy the entire block below and paste it in. **Prerequisites:** Waves 0–C promotion gates (or signed waivers).
+### How to invoke
 
-```text
-Implement Wave D — Output resilience (H-F1N-02, H-F2-02, H-F1S-02). Code + docs PR per the plan doc. Work per-hypothesis sections and §12 Wave-level implementation todos (40+).
+1. **New Cursor Agent chat** (Agent mode).
+2. **`@`-attach this file**, [00-INDEX.md](./00-INDEX.md), and all [Required companion attachments](#required-companion-attachments).
+3. Send the **Agent directive**:
 
-Workspace: /Users/nicketuttarwar/IDEProjects/interview_helper_mux
+   ```text
+   Implement June 2026 step 06 — Wave D Output resilience per the attached step file.
+   Hypotheses: H-F1N-02 (emphasis → Flow 1), H-F2-02 (quotability → Flow 2), H-F1S-02 (sting placement QA).
+   Read the entire 06-WAVE-D-output-resilience.md before editing code.
+   Run recovery drills §12. No default-on until §13 + nine-scenario listen. Mark todos [x] in this file.
+   Update 00-INDEX.md step **06** to [x] when done. One code + docs PR. Do not edit .cursor/plans/*.
+   ```
 
-Read first (attach with @):
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/rules/interview-helper-mux.mdc
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/AGENTS.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-0-resilience-harness.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-d-output-resilience.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/post-generation-placement.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md
-@/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/doc-maintenance.md
+### Mission
 
-Prerequisite gates:
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/june2026build/wave-c-self-healing.md §13 — Wave D gate (dedupe, 30m CI, volley parity)
+Listener-facing **output path** — ranking, EDL, mix, and placement QA wired to acoustic/sonic context:
 
-Scope (absolute paths):
-- H-F1N-02: ranking → EDL → mix_flow1 — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stage_enrichment.py (emphasis_regions_for_segments), full_master_ranking, edl_flow1, mix_flow1 stages in /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/pipeline.py
-- H-F2-02: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/stages/flow2 stages (highlight_selection, mix_flow2), quotability signals
-- H-F1S-02: sting placement — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/placement_qa.py, SFX/mix stages, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/cross-cutting/post-generation-placement.md
-- Integration: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/acoustic_profile.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/sonic_context.py, sound design plan path
-- Validators: /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/verify_master.py, /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py, narrative_qc in pipeline
+| ID | Hypothesis | Pipeline path |
+|----|------------|---------------|
+| **H-F1N-02** | Emphasis regions → ranking/EDL/mix | `emphasis_regions` → `full_master_ranking` → `edl_flow1` → `mix_flow1` |
+| **H-F2-02** | Quotability → highlight montage | `highlight_selection` → `mix_flow2` |
+| **H-F1S-02** | Sting placement QA | `placement_qa.py`, SFX/mix, trauma/laughter guardrails |
 
-Scenario fixtures (all nine + critical rows):
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/noisy_room.json
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/trauma_adjacent.json
-- /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/media_profile.json
-- (full set under /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/fixtures/sonic_context/)
+**Deliverable:** Code + docs PR. Wave D is the final implementation wave before [07-FINISH-signoff.md](./07-FINISH-signoff.md).
 
-Do-no-harm:
-- No stingers on laughter peaks; trauma_adjacent cold-open violations
-- Quiet vital claims must appear in master order (prosody guardrails §10)
-- Empty laughter_windows → placement unchanged (fail-open §5)
+### What this document contains
 
-Constraints:
-- Do NOT edit /Users/nicketuttarwar/IDEProjects/interview_helper_mux/.cursor/plans/*
-- Do NOT default-on Wave D flags until §13 promotion gate + nine-scenario listen matrix (/Users/nicketuttarwar/IDEProjects/interview_helper_mux/docs/build-out/definition-of-done-signoff.md §6)
-- Wave E must remain parked — no Wave E deps in mix critical path
+| Section | Purpose |
+|---------|---------|
+| [§1–§11](#1-realistic-success-definition) | Success, promotion, **all sonic_context fixtures**, nine-scenario listen, fail-open, do-no-harm, observability, SAP/sonic/SDP, pipeline mermaid, prosody |
+| **H-F1N-02**, **H-F2-02**, **H-F1S-02** | Per-hypothesis — 50+ todos each |
+| [§12](#12-wave-level-implementation-todos-40) | Recovery drills D-W36–D-W40 |
+| [§13](#13-wave-d-promotion-gate-for-shipped-default-on) | Shipped default-on gate |
+| [§14](#14-related-documents) | Related docs |
 
-Verify when done:
-cd /Users/nicketuttarwar/IDEProjects/interview_helper_mux && source .venv/bin/activate
-pytest /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_sfx_mmaudio.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_flow2_crossfade.py /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tests/test_mix_acoustic_profile.py -q
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/verify_master.py --help
-python /Users/nicketuttarwar/IDEProjects/interview_helper_mux/tools/validate_narrative.py --help
+### Required companion attachments
 
-Run recovery drills from §12 (D-W36–D-W40): --from-stage full_master_ranking, edl_flow1, mix_flow1, highlight_selection. Update wave-d-output-resilience.md todos [x]. Follow doc-maintenance.md.
+| Path | Why |
+|------|-----|
+| `.cursor/rules/interview-helper-mux.mdc` | Repo constraints |
+| `AGENTS.md` | Navigation |
+| `docs/build-out/june182026build/02-WAVE-0-resilience-harness.md` | Harness + QC chain |
+| `docs/build-out/june182026build/05-WAVE-C-self-healing.md` | Upstream orchestration |
+| `docs/build-out/june182026build/06-WAVE-D-output-resilience.md` | **This file** |
+| `docs/cross-cutting/post-generation-placement.md` | Placement QA |
+| `docs/build-out/definition-of-done-signoff.md` | Nine-scenario listen §6 |
+| `docs/build-out/doc-maintenance.md` | PR docs |
+
+### Scope summary
+
+**Modules:** `full_master_ranking`, `edl_flow1`, `mix_flow1`, `highlight_selection`, `mix_flow2`, `placement_qa.py`, `acoustic_profile.py`, `sonic_context.py`, `tools/verify_master.py`, `tools/validate_narrative.py`.
+
+**Critical fixtures:** `noisy_room`, `trauma_adjacent`, `media_profile` (+ full `tests/fixtures/sonic_context/` set).
+
+### Global constraints
+
+- **No** `.cursor/plans/*` edits.
+- **No Wave D default-on** until §13 + nine-scenario listen subset complete.
+- **Final implementation wave** — after this step, run [07-FINISH-signoff.md](./07-FINISH-signoff.md).
+- **Do-no-harm:** no stingers on laughter; no trauma cold-open; quiet vital claims preserved in master order; empty `laughter_windows` fail-open.
+- **Context7** for third-party APIs.
+
+### Execution methodology
+
+1. Read §6 do-no-harm and §4 nine-scenario listen requirements.
+2. Implement **H-F1N-02** → **H-F2-02** → **H-F1S-02** (shared SAP/sonic dependencies first in §8).
+3. Document and execute **§12 recovery drills** (`--from-stage` paths).
+4. Run `verify_master.py` and `validate_narrative.py` on fixture runs.
+5. Satisfy §13 before any Shipped default-on.
+
+### Definition of done
+
+- [ ] All three hypothesis todo sections `[x]`.
+- [ ] §12 recovery drills D-W36–D-W40 documented and tested.
+- [ ] Nine-scenario listen spot-check recorded (per definition-of-done §6).
+- [ ] `trauma_adjacent`, `noisy_room`, `media_profile` scenario rows pass.
+- [ ] [doc-maintenance.md](../doc-maintenance.md) complete.
+
+### Verification commands
+
+```bash
+source .venv/bin/activate
+pytest tests/test_mix_acoustic_profile.py tests/test_sfx_mmaudio.py tests/test_flow2_crossfade.py -q
+python tools/verify_master.py --help
+python tools/validate_narrative.py --help
+# Full flow smoke per testing-and-verification.md when fixtures available
 ```
+
+### Blocks next wave until
+
+Wave D is the last **implementation** wave (step **06**). §13 must pass before Shipped default-on; then run step **07** finish.
 
 ---
 
@@ -889,7 +927,7 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 
 **Docs & index**
 
-- [ ] **D-W11** Update [README.md](./README.md) Wave D status
+- [ ] **D-W11** Update [00-INDEX.md](./00-INDEX.md) Wave D status
 - [ ] **D-W12** [INDEX.md](../../INDEX.md) link to this doc
 - [ ] **D-W13** [implementation-guide.md](../implementation-guide.md) Wave D row
 - [ ] **D-W14** [repository-map.md](../repository-map.md) gap table if cleared
@@ -910,12 +948,6 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 - [ ] **D-W23** verify_master LUFS messages in troubleshooting
 - [ ] **D-W24** gui_log.jsonl tail shows mix milestones on GUI run
 - [ ] **D-W25** qc_summaries panel shows narrative + master QC
-
-**Wave E gate**
-
-- [ ] **D-W26** Wave E remains parked — does not block Wave D ship
-- [ ] **D-W27** No Wave E deps in mix_flow* critical path
-- [ ] **D-W28** pip-audit / torch isolation for Wave E documented separately
 
 **Final product**
 
@@ -944,7 +976,7 @@ Wave D hypotheses may move **Partial → Promoted → Shipped** only when:
 1. All **15 promotion gates** checked per hypothesis (§11–§13 subsections).
 2. **Nine-scenario listen matrix** (§4) spot-checked with recorded `run_id`.
 3. **noisy_room** and **trauma_adjacent** scenario tests pass (explicit per-hypothesis todos).
-4. **Wave C gate** satisfied: investigation dedupe tested; coherence 30m fixture CI; volley parity audit ([h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 3).
+4. **Wave C gate** satisfied: investigation dedupe tested; coherence 30m fixture CI; volley parity audit ([99-META-regenerate-specs.md](./99-META-regenerate-specs.md) Command 3).
 5. Smoke-test + `validate_narrative` + `verify_master` pass on shared fixture run.
 6. No default-on config flip without recovery path tested (Wave 0 criterion 15).
 
@@ -961,7 +993,7 @@ Wave D hypotheses may move **Partial → Promoted → Shipped** only when:
 
 | Doc | Use |
 |-----|-----|
-| [wave-0-resilience-harness.md](./wave-0-resilience-harness.md) | Fail-open inventory, observability baseline |
+| [02-WAVE-0-resilience-harness.md](./02-WAVE-0-resilience-harness.md) | Fail-open inventory, observability baseline |
 | [flow1-extended-narrative.md](../../pipeline/value-analysis/sections/flow1-extended-narrative.md) | H-F1N-02 value map |
 | [flow2-highlights.md](../../pipeline/value-analysis/sections/flow2-highlights.md) | H-F2-02 value map |
 | [flow1-sound-and-mix.md](../../pipeline/value-analysis/sections/flow1-sound-and-mix.md) | H-F1S-02 value map |
@@ -972,4 +1004,4 @@ Wave D hypotheses may move **Partial → Promoted → Shipped** only when:
 
 ---
 
-*Generated per [h-hypothesis-wave-prompts.md](./h-hypothesis-wave-prompts.md) Command 4. Implementation order: Wave 0 → A → B → C → **D** → E.*
+*Generated per [99-META-regenerate-specs.md](./99-META-regenerate-specs.md) Command 4. Implementation order: Wave 0 → A → B → C → **D** → E.*

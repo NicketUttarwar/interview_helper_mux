@@ -98,6 +98,7 @@ Flat hub for **interview_helper_mux**.
 - [../AGENTS.md](../AGENTS.md) — agent read order
 - [build-out/implementation-guide.md](./build-out/implementation-guide.md) — master plan
 - [build-out/remaining-build-commands.md](./build-out/remaining-build-commands.md) — remaining Agent commands
+- [build-out/june182026build/00-INDEX.md](./build-out/june182026build/00-INDEX.md) — **June 2026** H-hypothesis sequential build (`01` … `07`; one Agent chat per step file)
 - [build-out/definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md) — release-candidate checklist
 - [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator + system journey
 - [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id, module, artifact, status

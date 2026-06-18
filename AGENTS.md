@@ -7,6 +7,7 @@
 1. [docs/roadmap/future-proofing.md](docs/roadmap/future-proofing.md) — guardrails + optional R&D (audio-only)
 2. [docs/build-out/implementation-guide.md](docs/build-out/implementation-guide.md) — full-repository build plan (all phases)
 3. [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) — **remaining** Agent commands (top-down; no shipped BUILD repeats)
+3b. [docs/build-out/june182026build/00-INDEX.md](docs/build-out/june182026build/00-INDEX.md) — **June 2026 H-hypothesis waves** (`01` … `07` sequential; one Agent chat per step file)
 4. [docs/build-out/gap-closure-agent-commands.md](docs/build-out/gap-closure-agent-commands.md) — gap-closure Agent queue (GC-00–GC-D1 shipped; Phase 6 follow-up)
 5. [docs/build-out/steps-forward.md](docs/build-out/steps-forward.md) — full backlog + historical Agent prompts (#0–#20)
 6. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
@@ -58,11 +59,13 @@
 
 ## Building code in Cursor
 
+**June 2026 hypothesis waves:** [docs/build-out/june182026build/00-INDEX.md](docs/build-out/june182026build/00-INDEX.md) — run `01-SETUP-preflight.md` through `07-FINISH-signoff.md` in order (one step file per Agent chat; see index for standard attachments).
+
 Optional: automate markdown command queues with [CURSOR_EXECUTE/README.md](CURSOR_EXECUTE/README.md) (`./CURSOR_EXECUTE/run.sh <commands.md>`).
 
 1. Open **Agent mode** (not Ask).
-2. Pick the next command in [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (or historical steps in [steps-forward.md](docs/build-out/steps-forward.md)).
-3. Copy the **Agent prompt** for that step into chat; `@`-attach the listed docs.
+2. For shipped BUILD backlog: [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (or historical [steps-forward.md](docs/build-out/steps-forward.md)).
+3. `@`-attach the listed docs; use the **Agent directive** from each build/command file.
 4. Run the step **Verify** shell block when the agent finishes.
 
 ## Testing (quick)
