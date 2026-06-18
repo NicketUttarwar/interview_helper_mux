@@ -4,6 +4,7 @@ import { z } from "zod";
 export const transcript_review_queue_jsonSchema = z.object({
   "version": z.number().optional(),
   "low_confidence_threshold": z.number().optional(),
+  "sort_mode": z.enum(["salience", "confidence"]).optional(),
   "chunk_count": z.number().optional(),
   "chunks": z.array(z.object({
   "chunk_id": z.string(),

@@ -31,7 +31,7 @@ Requires `CURSOR_API_KEY` in `config/secrets/secrets.env` or the environment; gi
 | **04** | [04-WAVE-B-audio-structure.md](./04-WAVE-B-audio-structure.md) | Audio structure (LARGE) | [x] | [§9](./04-WAVE-B-audio-structure.md#9-wave-c-promotion-gate) |
 | **05** | [05-WAVE-C-self-healing.md](./05-WAVE-C-self-healing.md) | Self-healing (LARGE) | [x] | [§13](./05-WAVE-C-self-healing.md#13-wave-d-promotion-gate-from-wave-c) |
 | **06** | [06-WAVE-D-output-resilience.md](./06-WAVE-D-output-resilience.md) | Output resilience (LARGE) | [x] | [§13 Shipped](./06-WAVE-D-output-resilience.md#13-wave-d-promotion-gate-for-shipped-default-on) |
-| **07** | [07-FINISH-signoff.md](./07-FINISH-signoff.md) | Cross-wave sign-off | [ ] | [definition-of-done-signoff.md](../definition-of-done-signoff.md) |
+| **07** | [07-FINISH-signoff.md](./07-FINISH-signoff.md) | Cross-wave sign-off | [x] | [definition-of-done-signoff.md](../definition-of-done-signoff.md) |
 
 **Out of sequence:** [99-META-regenerate-specs.md](./99-META-regenerate-specs.md) — regenerate wave docs only; not an implementation step.
 

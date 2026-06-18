@@ -24,6 +24,8 @@ These checks do not replace sections 1–5 below (real `exec_*` + listen tests),
 
 **2026 audit fixes:** `/ASSETS/` gitignore anchor (no longer ignores `web/static/assets/`); `interview_mux.gui_bundle.needs_gui_build()` in `run.sh`; static bundle committed under `src/interview_mux/web/static/assets/`.
 
+**June 2026 finish (step 07, automated):** `pytest tests/ -q` — 727 passed; `python tools/audit_stage_plans_doc.py` — OK; `./tools/check_prerequisites.sh` — OK; stage parity script — OK. Manual sections 1–6 below still require operator on real `exec_*`.
+
 ---
 
 ## How to use
@@ -151,7 +153,7 @@ print('parity OK')
 
 Gates in GUI but not in `ANALYSIS_ORDER` (expected): `transcript_review`, `analysis_profile`, `g1_vo_pickup`, `g2_flow_select`. Legacy rerun ids: `mux_flow1`, `mux_flow2`, `podcast_sfx_brief`, `sfx_brief`.
 
-- [ ] Parity script exits OK  
+- [x] Parity script exits OK  
 - [ ] Spot-check: new shipped stage has a row in [stage-registry.md](./stage-registry.md)  
 
 ---
@@ -270,7 +272,9 @@ Use `tests/fixtures/sonic_context/*.json` atlas buckets as listen posture refere
 
 ## Sign-off record
 
-**Manual sections 1–5** below require a real interview WAV and operator time — complete on your machine before release candidate.
+**Manual sections 1–6** require a real interview WAV and operator time — complete on your machine before release candidate.
+
+**June 2026 build (steps 01–07):** Code complete; automated CI green (see table below). Operator completes §1–6 when ready.
 
 | Field | Value |
 |-------|--------|
@@ -279,6 +283,6 @@ Use `tests/fixtures/sonic_context/*.json` atlas buckets as listen posture refere
 | `exec_*` (flow1/2/3) | |
 | Git commit (optional) | |
 | Notes | |
-| Automated suite (2026 audit) | `pytest tests/ -q` — 512 passed; `CHECK_GUI_BUNDLE=1 ./tools/check_prerequisites.sh` OK |
+| Automated suite (June 2026 finish) | `pytest tests/ -q` — 727 passed; `python tools/audit_stage_plans_doc.py` — OK; `./tools/check_prerequisites.sh` — OK; stage parity — OK |
 
 **Maintainer:** When all sections are checked, mark fresh-clone items in [implementation-guide.md](./implementation-guide.md) and [steps-forward.md](./steps-forward.md), and link this file from [AGENTS.md](../../AGENTS.md) / [INDEX.md](../INDEX.md).

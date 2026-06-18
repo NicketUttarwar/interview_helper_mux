@@ -231,11 +231,12 @@ def test_extract_logs_trust_dip_flags(tmp_path, monkeypatch):
 def test_value_analysis_skip_no_wav_on_extract(tmp_path, monkeypatch):
     patch_merged_config(
         monkeypatch,
-        {"value_analysis": {"enabled": True, "transcript_features": True}},
+        {"value_analysis": {"enabled": True, "audio_features": True}},
     )
     ctx = isolated_run_ctx(tmp_path, "wa_no_wav_extract")
     ctx.write_json("transcript/full.json", _minimal_transcript())
-    extract_and_write_value_features(ctx, profiles=("transcript",))
+    written = extract_and_write_value_features(ctx, profiles=("audio",))
+    assert written == []
     logs = read_log(ctx.run_dir)
     skip = [e for e in logs if e.get("message") == "value_analysis_skip_no_wav"]
     assert len(skip) == 1

@@ -94,6 +94,8 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 **Blocks:** Wave C until [Wave C promotion gate](./june182026build/04-WAVE-B-audio-structure.md#9-wave-c-promotion-gate) passes.
 
+**June 2026 sequence complete (steps 01–07):** Hypothesis waves A–D shipped as **Partial**; cross-wave sign-off in [07-FINISH-signoff.md](./june182026build/07-FINISH-signoff.md). Operator manual release checklist: [definition-of-done-signoff.md](./definition-of-done-signoff.md).
+
 ---
 
 ### Phase 1 — Shell and core library (BUILD-010–013)

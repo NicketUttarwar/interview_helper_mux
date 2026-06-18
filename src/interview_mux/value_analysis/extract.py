@@ -59,16 +59,6 @@ def extract_and_write_value_features(
 
     written: list[str] = []
     if "transcript" in selected:
-        if not ctx.path("ingest", "normalized.wav").is_file():
-            ctx.log(
-                "value_analysis_skip_no_wav",
-                level="warning",
-                stage="value_analysis_extract",
-                detail=json.dumps(
-                    {"path": "ingest/normalized.wav", "skipped_profile": "audio"},
-                    ensure_ascii=False,
-                ),
-            )
         profile = extract_transcript_features(ctx, cfg=resolved)
         bucket["transcript"] = profile
         written.append("transcript")
@@ -83,8 +73,19 @@ def extract_and_write_value_features(
             detail=json.dumps(detail, ensure_ascii=False),
         )
     if "audio" in selected:
-        bucket["audio"] = extract_audio_features(ctx, cfg=resolved)
-        written.append("audio")
+        if not ctx.path("ingest", "normalized.wav").is_file():
+            ctx.log(
+                "value_analysis_skip_no_wav",
+                level="warning",
+                stage="value_analysis_extract",
+                detail=json.dumps(
+                    {"path": "ingest/normalized.wav", "skipped_profile": "audio"},
+                    ensure_ascii=False,
+                ),
+            )
+        else:
+            bucket["audio"] = extract_audio_features(ctx, cfg=resolved)
+            written.append("audio")
 
     ctx.write_json(VALUE_FEATURES_PATH, out)
     return written

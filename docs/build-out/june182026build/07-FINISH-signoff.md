@@ -14,8 +14,8 @@ Close the June 2026 build sequence: confirm waves shipped coherently, docs index
 
 ### Prerequisite gate
 
-- [ ] 00-INDEX.md steps **01–06** are `[x]`
-- [ ] Each wave spec’s promotion gate sections satisfied or waived with rationale
+- [x] 00-INDEX.md steps **01–06** are `[x]`
+- [x] Each wave spec’s promotion gate sections satisfied or waived with rationale
 
 ### How to invoke
 
@@ -51,15 +51,15 @@ Document any remaining manual listen / nine-scenario items for the operator.
 
 ### Finish checklist
 
-- [ ] **F-01** `00-INDEX.md` steps **01–06** all `[x]`
-- [ ] **F-02** `pytest tests/ -q` green
-- [ ] **F-03** `python tools/audit_stage_plans_doc.py` passes
-- [ ] **F-04** `./tools/check_prerequisites.sh` passes or waivers documented in `anchored-toolchain.md`
-- [ ] **F-05** [INDEX.md](../../INDEX.md) links `june182026build/00-INDEX.md`
-- [ ] **F-06** [AGENTS.md](../../../AGENTS.md) lists June 2026 build path
-- [ ] **F-07** [implementation-guide.md](../implementation-guide.md) references june182026build (optional paragraph)
-- [ ] **F-08** No open **operator-facing** rows in [repository-map.md](../repository-map.md) for June 2026 scope
-- [ ] **F-09** [definition-of-done-signoff.md](../definition-of-done-signoff.md) — operator completes manual sections 1–5 when ready (agent documents what remains)
+- [x] **F-01** `00-INDEX.md` steps **01–06** all `[x]`
+- [x] **F-02** `pytest tests/ -q` green (727 passed, 2026-06-18)
+- [x] **F-03** `python tools/audit_stage_plans_doc.py` passes
+- [x] **F-04** `./tools/check_prerequisites.sh` passes or waivers documented in `anchored-toolchain.md`
+- [x] **F-05** [INDEX.md](../../INDEX.md) links `june182026build/00-INDEX.md`
+- [x] **F-06** [AGENTS.md](../../../AGENTS.md) lists June 2026 build path
+- [x] **F-07** [implementation-guide.md](../implementation-guide.md) references june182026build (optional paragraph)
+- [x] **F-08** No open **operator-facing** rows in [repository-map.md](../repository-map.md) for June 2026 scope
+- [x] **F-09** [definition-of-done-signoff.md](../definition-of-done-signoff.md) — operator completes manual sections 1–5 when ready (agent documents what remains)
 ### Cross-wave regression smoke
 
 ```bash
@@ -75,9 +75,24 @@ python tools/audit_stage_plans_doc.py
 
 ### Definition of done
 
-- [ ] F-01 through F-09 complete or explicitly listed as **operator manual follow-up**
-- [ ] 00-INDEX.md step **7** marked `[x]`
+- [x] F-01 through F-09 complete or explicitly listed as **operator manual follow-up**
+- [x] 00-INDEX.md step **7** marked `[x]`
 - [ ] Maintainer sign-off record in [definition-of-done-signoff.md](../definition-of-done-signoff.md) (operator initials / date when manual listen done)
+
+### Operator manual follow-up (after code complete)
+
+June 2026 steps **01–07** code and automated CI are complete. The operator or maintainer still completes these on a real `exec_*` fixture:
+
+| Item | Doc | Action |
+|------|-----|--------|
+| ASSETS picker + resume | [definition-of-done-signoff.md](../definition-of-done-signoff.md) §1 | GUI new execution, ingest, stop/restart server |
+| G2 all three flows | §2 | flow1 / flow2 / flow3 GUI + CLI |
+| Master listen + LUFS | §3 | `verify_master.py` on flow1/2 masters; beds/VO audible |
+| Pre-clean offers | §4 | At least one dismiss; optional accept |
+| Nine-scenario listen | §6 | Spot-check atlas buckets on real runs (automated fixture subset already green) |
+| Prosody diversity | [02-WAVE-0 §4](./02-WAVE-0-resilience-harness.md#4-prosody--delivery-guardrails) SC-12 | ≥2 hard-listener clips (quiet/disfluent/noisy) |
+| COM retell / LEX-B / Flow 2 hook | [06-WAVE-D](./06-WAVE-D-output-resilience.md) D-W29–31 | Post-ship listen protocols |
+| Wave D Shipped default-on | [06-WAVE-D §13](./06-WAVE-D-output-resilience.md#13-wave-d-promotion-gate-for-shipped-default-on) | No config flip until nine-scenario listen + §13 on fixture |
 
 ### After this step
 

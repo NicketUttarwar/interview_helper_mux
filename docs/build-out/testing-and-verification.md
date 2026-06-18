@@ -109,6 +109,37 @@ Promotion gate: [§13 in 06-WAVE-D](./june182026build/06-WAVE-D-output-resilienc
 
 ---
 
+## June 2026 step 07 — Finish sign-off
+
+After [07-FINISH-signoff.md](./june182026build/07-FINISH-signoff.md); closes sequential build **01–07**.
+
+```bash
+source .venv/bin/activate
+pytest tests/ -q
+python tools/audit_stage_plans_doc.py
+./tools/check_prerequisites.sh
+python -c "
+import sys; sys.path.insert(0, 'src')
+from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.web.stages import EXECUTABLE_ORDER
+for name, pipe in [('analysis', ANALYSIS_ORDER), ('flow1', FLOW1_ORDER), ('flow2', FLOW2_ORDER), ('flow3', FLOW3_ORDER)]:
+    assert list(pipe) == list(EXECUTABLE_ORDER[name])
+print('parity OK')
+"
+```
+
+| Check | Command / action |
+|-------|------------------|
+| Cross-wave pytest | `pytest tests/ -q` (exit 0) |
+| Volley parity | `python tools/audit_stage_plans_doc.py` |
+| Toolchain | `./tools/check_prerequisites.sh` |
+| Index links | [INDEX.md](../INDEX.md), [AGENTS.md](../../AGENTS.md) → `june182026build/00-INDEX.md` |
+| Manual release | [definition-of-done-signoff.md](./definition-of-done-signoff.md) §1–6 on real `exec_*` |
+
+**Operator manual follow-up:** nine-scenario listen matrix, G2×3 flows on fixture, master listen — not automated; see [07-FINISH-signoff.md § Operator manual follow-up](./june182026build/07-FINISH-signoff.md#operator-manual-follow-up-after-code-complete).
+
+---
+
 ## Automated tests (BUILD-054–055, #18)
 
 ```bash
