@@ -125,7 +125,14 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         _local_denoise_fallback(source, out_path)
         provider_name = "ffmpeg_local"
     _write_provider(ctx, scope, provider=provider_name)
-    _write_full_source_lineage(ctx=ctx, source=source, source_sha=src_hash, scope=scope, output=out_path)
+    _write_full_source_lineage(
+        ctx=ctx,
+        source=source,
+        source_sha=src_hash,
+        scope=scope,
+        output=out_path,
+        provider=provider_name,
+    )
     ctx.log(
         f"Audio pre-clean complete ({scope}) → preclean/isolated.wav",
         level="success",
@@ -216,8 +223,9 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
             }
         )
 
-    _write_provider(ctx, "vo_pickup")
-    _write_vo_pickup_lineage(ctx, entries)
+    vo_provider = str(entries[0].get("provider") or "deepfilternet") if entries else "deepfilternet"
+    _write_provider(ctx, "vo_pickup", provider=vo_provider)
+    _write_vo_pickup_lineage(ctx, entries, provider=vo_provider)
     ctx.log(
         f"VO pickup pre-clean complete → {len(entries)} file(s) in vo_pickup/clean/",
         level="success",
@@ -385,12 +393,14 @@ def _write_provider(ctx: RunContext, scope: str, *, provider: str = "deepfiltern
 
 
 def _write_full_source_lineage(
-    *, ctx: RunContext, source: Path, source_sha: str, scope: str, output: Path
+    *,
+    ctx: RunContext,
+    source: Path,
+    source_sha: str,
+    scope: str,
+    output: Path,
+    provider: str,
 ) -> None:
-    from interview_mux.config import merged_config
-
-    preclean_cfg = merged_config().get("audio_preclean") or {}
-    provider = str(preclean_cfg.get("provider") or "deepfilternet")
     lineage: dict[str, Any] = {
         "provider": provider,
         "scope": scope,
@@ -403,11 +413,12 @@ def _write_full_source_lineage(
     ctx.write_json("preclean/lineage.json", lineage)
 
 
-def _write_vo_pickup_lineage(ctx: RunContext, entries: list[dict[str, Any]]) -> None:
-    from interview_mux.config import merged_config
-
-    preclean_cfg = merged_config().get("audio_preclean") or {}
-    provider = str(preclean_cfg.get("provider") or "deepfilternet")
+def _write_vo_pickup_lineage(
+    ctx: RunContext,
+    entries: list[dict[str, Any]],
+    *,
+    provider: str,
+) -> None:
     lineage: dict[str, Any] = {
         "provider": provider,
         "scope": "vo_pickup",

@@ -12,7 +12,7 @@ from interview_mux.stage_enrichment import (
     pause_ladder_hints,
     quality_trajectory_flags,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, minimal_manifest
 
 
 def test_pause_ladder_hints_from_words(tmp_path):
@@ -49,6 +49,19 @@ def test_quality_trajectory_flags_on_synthetic_wav(tmp_path):
     sf.write(str(ctx.path("ingest", "normalized.wav")), wave, rate)
     flags = quality_trajectory_flags(ctx)
     assert isinstance(flags, list)
+
+
+def test_quality_trajectory_flags_empty_without_wav(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "run_qt_no_wav")
+    assert quality_trajectory_flags(ctx) == []
+
+
+def test_emphasis_regions_empty_without_wav(tmp_path):
+    from interview_mux.stage_enrichment import emphasis_regions_for_segments
+
+    ctx = isolated_run_ctx(tmp_path, "run_emph_no_wav")
+    ctx.write_json("segments/manifest.json", minimal_manifest("seg_1"), skip_handoff=True)
+    assert emphasis_regions_for_segments(ctx) == []
 
 
 def test_specialist_comprehension_enqueues_investigation(tmp_path):

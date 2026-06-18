@@ -75,7 +75,22 @@ def maybe_auto_extract_value_features(ctx: RunContext, *, cfg: dict[str, Any] | 
     if not value_analysis_flag(resolved, "auto_extract_after_content_context"):
         return None
 
-    written = extract_and_write_value_features(ctx, cfg=resolved)
+    selected = profiles_for_flags(resolved)
+    if "audio" in selected and not ctx.path("ingest", "normalized.wav").is_file():
+        ctx.log(
+            "value_analysis_skip_no_wav",
+            level="warning",
+            stage="content_context",
+            detail=json.dumps(
+                {"path": "ingest/normalized.wav", "skipped_profile": "audio"},
+                ensure_ascii=False,
+            ),
+        )
+        selected = [p for p in selected if p != "audio"]
+    if not selected:
+        return None
+
+    written = extract_and_write_value_features(ctx, cfg=resolved, profiles=tuple(selected))
     if not written:
         return None
 

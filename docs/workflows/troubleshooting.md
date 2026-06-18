@@ -45,6 +45,7 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | `Analysis artifacts gate` at flow start | Analysis incomplete under hardening | `analysis_state.json` `completion.blockers` | Complete analysis; **Fill gaps** on partial JSON |
 | Preflight blocked (no OpenAI call) | Missing transcript, G0, or upstream artifact | `gui_log.jsonl` preflight line | Clear G0; ensure prerequisite stage artifacts exist |
 | Investigation rerun stays open | Rerun did not improve artifact | `investigation_queue.json`, stage artifact status | Fix root cause; manual rerun or specialist |
+| Investigation queue drain stuck | Orchestrator cap or repeated open items block progress | `understanding/investigation_queue.json`, `analysis_orchestration.json` | Drain open items via Story Board; fix cited artifact; `--from-stage` on producer; check `max_investigation_reruns_per_kind` |
 | Shard collate blocked | `< shard_min_success_ratio` shards succeeded | `stage_runs/<stage>/` shard attempts | Fix shard inputs or lower ratio (dev only) |
 
 Set `analysis.flow_hardening.enabled: false` only for intentional legacy/dev runs. See [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening).
@@ -104,6 +105,8 @@ Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_
 | GUI save fails / schema toast | Zod or server jsonschema | Editor status lines, response `errors[]` | Fix fields; compare to `docs/cross-cutting/json-schemas/` |
 | `content_brief.json` missing themes in profile | `memory_updates` not merged | Latest `content_context` attempt envelope | Re-run `content_context`; check arbiter `accept` |
 | Operator themes overwritten | Profile not verified | `analysis_state.json` `meta.operator_verified` | Mark verified; re-run from stage |
+| Profile gate (BUILD-081) blocks Flow 1 | `selected_flow: flow1` and `meta.operator_verified` not true before `topic_coverage_audit` | `analysis_state.json`, `run_meta.json`, `gui_log.jsonl` `stage=analysis_profile` | Open Story/Profile; **Mark profile verified**; `--from-stage topic_coverage_audit` |
+| Coherence blocking contradiction | High-confidence `claim_contradiction` risk with `coherence.blocking_claim_contradiction: true` | `understanding/coherence_report.json` `risks[]`, `analysis_state.json` `completion.blockers` | Resolve contradiction in transcript/brief; re-run `topic_coverage_audit` or upstream analysis |
 | Pipeline re-runs same stage unexpectedly | Incomplete artifact guard | `artifact_completeness.should_run_stage_for_artifact` | Complete file or edit to valid shape |
 
 ---
@@ -119,6 +122,16 @@ Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_
 | Chunk save OK but `full.json` unchanged | Expected until G0 complete | `transcript/corrections.json` vs `full.json` | **Complete transcript review** to merge chunk text |
 | Chunk textarea stale after dock edit | Fixed in current GUI — reload on save | `corrected_text` in `review_queue.json` | Dock save syncs queue; textarea auto-refreshes |
 | Batch replace mistake | Undo available | Dock toolbar **Undo** or ⌘Z | Reverts last edit batch via `PATCH …/transcript/words` |
+
+---
+
+## Disfluency review (G0.5)
+
+| Symptom | Likely cause | Inspect | Action |
+|---------|----------------|---------|--------|
+| G0.5 stuck / analysis blocked before SAP | Filler events pending review | `transcript/disfluencies.json`, `.stage_done/disfluency_review` | Open **Disfluency review**; confirm/reject events; **Complete review** — [operator-gates.md](./operator-gates.md#g05--disfluency-review-filler-clips) |
+| G0.5 auto-skipped | `disfluency_extract.enabled: false` or zero events | `config/app.defaults.json`, `disfluencies.json` | Expected fail-open; enable extract if filler review needed |
+| `disfluency_review` pending in GUI | Checkpoint banner on disfluency stage | `gui_log.jsonl` `stage=disfluency_review` | Complete review or disable extract for unattended runs |
 
 ---
 
@@ -184,6 +197,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 |---------|----------------|---------|--------|
 | Absurd segment count | Over-splitting | `segments/boundaries.json` | `--from-stage boundary_detection` with clearer brief |
 | Wrong gap types | STT errors in segment text | `segments/manifest.json` text | Fix G0 transcript first, then `--from-stage missing_framing` |
+| `value_analysis_skip_no_wav` in log | Auto-extract enabled but `ingest/normalized.wav` missing | `gui_log.jsonl` `stage=content_context` | Expected fail-open — transcript profile still extracts; run ingest before audio profile or disable `value_analysis.audio_features` |
 | G1 never clears | Missing WAV or wrong filename | `gap_report.json`, `vo_pickup/` | Match `{line_id}.wav` or `{targets_segment_id}.wav` — [operator-gates.md](./operator-gates.md) |
 
 ---
@@ -218,6 +232,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Blurb uses "we" / "you" | First/second person leak | `flow_3_description/show_description.json` → `description_markdown` | Re-run `podcast_show_description`; see [examples](../prompts/_shared/examples/podcast-show-description.examples.md) |
 | Too short or too long | Word count out of band | `word_count` field | Re-run stage; adjust `show_description_*_words` in [config-keys.md](../cross-cutting/config-keys.md) |
 | Generic hype, no specifics | Thin volley or weak brief | `content_brief.json`, `analysis_state.json`, `stage_runs/podcast_show_description/` | Verify profile; `--from-stage content_context` |
+| `show_description_qc` strict halt | Word count, person, or hype violations with `show_description_qc.strict: true` | `flow_3_description/show_description.json`, `run_meta.qc_summaries` | Fix copy in GUI or re-run `podcast_show_description`; `python tools/validate_show_description.py --run-id <id>` |
 | Invented facts | Model drift | `evidence_segment_ids`, transcript | Re-run with verified profile; tighten prompt guardrails |
 
 ---
@@ -230,6 +245,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/mmaudio_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
 | SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `sfx_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
 | Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| GUI auto-runs `verify_master` after `master_flow*` | Post-master QC in `web/runner.py` | `run_meta.qc_summaries`, `gui_log.jsonl` `stage=verify_master` | Fix mix levels; re-run `master_flow*`; read LUFS/peak lines in gate panel |
+| Spine recompute invalidates Story Board | SAP or spine rebuild clears downstream markers | `gui_log.jsonl` invalidation lines, `.stage_done/` | Re-run from invalidated stage; confirm `execution_invalidation.py` scope — [gui-surface-map.md](./gui-surface-map.md) Story Board |
 
 ---
 
@@ -260,6 +277,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Isolation underwater | Over-processing | A/B raw vs `preclean/isolated.wav` | Disable pre-clean; try `rnnoise_local` |
 | Cost spike | Per-cue v1 or regen loop | # API calls vs unique `asset_id`s | Enforce reuse; idempotent skip; G1.5 approval |
 | Regen loop | Plan hash not updating | SDP + `sfx_prompts.json` | Fix craft; cap 2 regens per asset |
+| MMAudio semantic QA skipped (`missing_wav`) | CLAP/MMAudio venv unavailable or asset WAV missing | `sound_design/assets/*.json` `semantic_qa_verdict=skipped`, `skipped_reason` | Fail-open — review craft manually; bootstrap MMAudio venv per [local-audio-stack.md](../cross-cutting/local-audio-stack.md) |
 
 ### Spend controls
 

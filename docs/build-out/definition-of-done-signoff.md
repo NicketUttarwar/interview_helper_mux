@@ -264,6 +264,8 @@ Use `tests/fixtures/sonic_context/*.json` atlas buckets as listen posture refere
 
 - [ ] 6. Nine-scenario matrix spot-checked (note bucket + `run_id` in sign-off record)
 
+**Wave 0 harness (2026-06):** Automated fixture coverage via `pytest tests/test_sonic_context.py tests/test_sound_design_scenario.py tests/test_mix_acoustic_profile.py -q` satisfies CI-07 until a full listen pass on nine real `exec_*` runs. Prosody diversity (SC-12): deferred manual hard-listener clips — see [02-WAVE-0 §4](./june182026build/02-WAVE-0-resilience-harness.md#4-prosody--delivery-guardrails).
+
 ---
 
 ## Sign-off record

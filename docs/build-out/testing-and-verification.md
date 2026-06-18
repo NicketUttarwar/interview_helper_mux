@@ -29,6 +29,35 @@ source .venv/bin/activate
 
 ---
 
+## June 2026 Wave 0 — Resilience harness
+
+After [02-WAVE-0-resilience-harness.md](./june182026build/02-WAVE-0-resilience-harness.md) code changes; gate before Wave A.
+
+```bash
+source .venv/bin/activate
+./tools/check_prerequisites.sh
+pytest tests/test_stage_parity.py tests/test_artifact_cross_validate.py \
+  tests/test_interview_spine_clap.py tests/test_preclean_offer.py tests/test_gates.py -q
+pytest tests/test_sonic_context.py tests/test_coherence_duration_gate.py \
+  tests/test_coherence_fixture_planted.py tests/test_wave0_resilience.py -q
+python tools/audit_stage_plans_doc.py
+```
+
+| Check | Command / action |
+|-------|------------------|
+| Fail-open paths | `pytest tests/test_wave0_resilience.py -q` |
+| CLAP fail-open | `pytest tests/test_interview_spine_clap.py -q` |
+| Coherence 30m gate | `pytest tests/test_coherence_duration_gate.py tests/test_coherence_fixture_planted.py -q` |
+| Scenario fixtures | `pytest tests/test_sonic_context.py tests/test_sound_design_scenario.py -q` |
+| Volley parity | `python tools/audit_stage_plans_doc.py` (exit 0) |
+| BUILD-072 preclean | `pytest tests/test_preclean_offer.py tests/test_audio_preclean.py -q` |
+| Gates G0–G2 + profile | `pytest tests/test_gates.py -q` |
+| Cross-artifact | `pytest tests/test_artifact_cross_validate.py tests/test_sdp_cross_validate.py -q` |
+
+Promotion gate: [§15 in 02-WAVE-0](./june182026build/02-WAVE-0-resilience-harness.md#15-promotion-gate-for-wave-a).
+
+---
+
 ## Automated tests (BUILD-054–055, #18)
 
 ```bash

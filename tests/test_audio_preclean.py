@@ -105,3 +105,26 @@ def test_audio_preclean_chunk_path_for_oversized_wav(tmp_path, monkeypatch) -> N
     assert out.is_file()
     log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
     assert "deepfilter_chunked_enhance" in log_text
+
+
+def test_audio_preclean_ffmpeg_fallback_lineage_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_ff_fallback", create=True)
+    src = tmp_path / "input.wav"
+    _write_wav(src)
+    ctx.init_run_meta(str(src))
+
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
+    ctx.write_json("run_meta.json", meta)
+
+    monkeypatch.setattr(audio_preclean, "enhance_wav", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("dfn down")))
+    monkeypatch.setattr(audio_preclean, "_local_fallback_enabled", lambda: True)
+    monkeypatch.setattr(audio_preclean, "_local_denoise_fallback", lambda s, d: d.write_bytes(s.read_bytes()))
+
+    out = audio_preclean.run_audio_preclean(ctx)
+    assert out == ctx.path("preclean", "isolated.wav")
+    provider = ctx.read_json("preclean/provider.json")
+    lineage = ctx.read_json("preclean/lineage.json")
+    assert provider["provider"] == "ffmpeg_local"
+    assert lineage["provider"] == "ffmpeg_local"

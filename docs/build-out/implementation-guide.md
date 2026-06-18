@@ -57,6 +57,21 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ---
 
+### June 2026 Wave 0 — Resilience harness (before hypothesis waves A–D)
+
+**Goal:** Cross-cutting fail-open behavior, observability (`ctx.log` → `gui_log.jsonl`), scenario fixtures, LLM flow hardening, operator gates, deterministic QC chain — no hypothesis features default-on.
+
+| Doc | Role |
+|-----|------|
+| [june182026build/00-INDEX.md](./june182026build/00-INDEX.md) | Sequential steps `01` … `07` |
+| [june182026build/02-WAVE-0-resilience-harness.md](./june182026build/02-WAVE-0-resilience-harness.md) | Harness spec + §14 todos + Wave A promotion gate |
+
+**Verify:** [testing-and-verification.md § June 2026 Wave 0](./testing-and-verification.md#june-2026-wave-0--resilience-harness); all applicable §14 todos `[x]` or waived in §15.
+
+**Blocks:** Wave A (`03-WAVE-A-early-truth.md`) until §15 passes.
+
+---
+
 ### Phase 1 — Shell and core library (BUILD-010–013)
 
 **Goal:** Reproducible Python env, run workspace, LLM stage envelope.

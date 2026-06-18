@@ -46,6 +46,8 @@ def test_maybe_run_placement_qa_after_sfx_enabled(tmp_path, monkeypatch):
     seed_flow1_sound_spend_ready(ctx)
     maybe_run_placement_qa(ctx)
     assert ctx.artifact_exists(OUTPUT_PATH)
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "placement_qa" in log_text
 
 
 def test_mix_overlay_applies_placement_adjustments(tmp_path, monkeypatch):

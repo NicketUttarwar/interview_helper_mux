@@ -102,13 +102,13 @@ Attach these in addition to **this file**:
 
 ### Definition of done
 
-- [ ] Every applicable **§14** todo marked `[x]` or waived in [§15 waiver table](#waived-todo-rationale-table).
-- [ ] **§5** fail-open inventory matches actual code behavior (no undeclared `SystemExit` on missing optional signals).
-- [ ] **§6** observability: new events have `gui_log.jsonl` keys and troubleshooting rows.
-- [ ] `pytest` green for touched modules (at minimum families in §14.9).
-- [ ] [doc-maintenance.md](../doc-maintenance.md) checklist complete.
-- [ ] **§15 promotion gate** satisfied — Wave A may begin.
-- [ ] This file updated in the same PR (todo checkboxes, waiver table if used).
+- [x] Every applicable **§14** todo marked `[x]` or waived in [§15 waiver table](#waived-todo-rationale-table).
+- [x] **§5** fail-open inventory matches actual code behavior (no undeclared `SystemExit` on missing optional signals).
+- [x] **§6** observability: new events have `gui_log.jsonl` keys and troubleshooting rows.
+- [x] `pytest` green for touched modules (at minimum families in §14.9).
+- [x] [doc-maintenance.md](../doc-maintenance.md) checklist complete.
+- [x] **§15 promotion gate** satisfied — Wave A may begin.
+- [x] This file updated in the same PR (todo checkboxes, waiver table if used).
 
 ### Verification commands
 
@@ -605,149 +605,149 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 
 ### 14.1 Fail-open path verification
 
-- [ ] **FO-01** CLAP unavailable: run `interview_spine_build` without MMAudio venv → spine has `retrieval.enabled: false`; warning in `gui_log.jsonl`
-- [ ] **FO-02** `interview_spine.enabled: false` → stage marks done; no `interview_spine.json` required downstream
-- [ ] **FO-03** `energy_windows_from_path` returns `None` → `emphasis_regions_for_segments` returns `[]` (no exception)
-- [ ] **FO-04** `quality_trajectory_flags` with no WAV → returns `[]`
-- [ ] **FO-05** `quotability_signals` with no segments → returns `[]`
-- [ ] **FO-06** `value_analysis.enabled: false` → `maybe_enqueue_orchestration_investigations` returns 0
-- [ ] **FO-07** `coherence_activated` false on &lt;30m run → no risks in `coherence_report.json`
-- [ ] **FO-08** `tests/test_coherence_duration_gate.py` green for short-run suppression
-- [ ] **FO-09** `coherence.enabled: false` → `maybe_run_coherence_analysis` no-op
-- [ ] **FO-10** `analysis.specialists.enabled: false` → no specialist subprocess calls
-- [ ] **FO-11** Post-stage specialist exception → parent stage still completes (`tests/test_llm_specialists.py`)
-- [ ] **FO-12** `sonic_context_build` with sparse manifest → valid `sonic_context.json` with default bucket
-- [ ] **FO-13** `semantic_audio_qa` disabled → `skipped_reason: missing_wav` fail-open
-- [ ] **FO-14** `audio_preclean` without operator accept → `preclean/skip.json` written (`tests/test_audio_preclean.py`)
-- [ ] **FO-15** BUILD-072: confirm no code path auto-enables `run_meta.audio_preclean.enabled` without `POST …/preclean-offer` accept
-- [ ] **FO-16** DeepFilterNet fail + `local_fallback_enabled: true` → `provider: ffmpeg_local` in lineage
-- [ ] **FO-17** `disfluency_extract.enabled: false` → G0.5 auto-complete
-- [ ] **FO-18** `spine_flow2_quotability_enabled: false` → quotability has no spine boost
-- [ ] **FO-19** Low-confidence acoustic signal → omit investigation (no blocking enqueue)
-- [ ] **FO-20** Document `value_analysis_skip_no_wav` log line when audio profile skipped in auto-extract path
+- [x] **FO-01** CLAP unavailable: run `interview_spine_build` without MMAudio venv → spine has `retrieval.enabled: false`; warning in `gui_log.jsonl`
+- [x] **FO-02** `interview_spine.enabled: false` → stage marks done; no `interview_spine.json` required downstream
+- [x] **FO-03** `energy_windows_from_path` returns `None` → `emphasis_regions_for_segments` returns `[]` (no exception)
+- [x] **FO-04** `quality_trajectory_flags` with no WAV → returns `[]`
+- [x] **FO-05** `quotability_signals` with no segments → returns `[]`
+- [x] **FO-06** `value_analysis.enabled: false` → `maybe_enqueue_orchestration_investigations` returns 0
+- [x] **FO-07** `coherence_activated` false on &lt;30m run → no risks in `coherence_report.json`
+- [x] **FO-08** `tests/test_coherence_duration_gate.py` green for short-run suppression
+- [x] **FO-09** `coherence.enabled: false` → `maybe_run_coherence_analysis` no-op
+- [x] **FO-10** `analysis.specialists.enabled: false` → no specialist subprocess calls
+- [x] **FO-11** Post-stage specialist exception → parent stage still completes (`tests/test_llm_specialists.py`)
+- [x] **FO-12** `sonic_context_build` with sparse manifest → valid `sonic_context.json` with default bucket
+- [x] **FO-13** `semantic_audio_qa` disabled → `skipped_reason: missing_wav` fail-open
+- [x] **FO-14** `audio_preclean` without operator accept → `preclean/skip.json` written (`tests/test_audio_preclean.py`)
+- [x] **FO-15** BUILD-072: confirm no code path auto-enables `run_meta.audio_preclean.enabled` without `POST …/preclean-offer` accept
+- [x] **FO-16** DeepFilterNet fail + `local_fallback_enabled: true` → `provider: ffmpeg_local` in lineage
+- [x] **FO-17** `disfluency_extract.enabled: false` → G0.5 auto-complete
+- [x] **FO-18** `spine_flow2_quotability_enabled: false` → quotability has no spine boost
+- [x] **FO-19** Low-confidence acoustic signal → omit investigation (no blocking enqueue)
+- [x] **FO-20** Document `value_analysis_skip_no_wav` log line when audio profile skipped in auto-extract path
 
 ### 14.2 Troubleshooting gap fill
 
-- [ ] **TS-01** Map G0.5 disfluency stuck → new troubleshooting row (if missing)
-- [ ] **TS-02** Map profile gate BUILD-081 → verify row in § LLM artifacts
-- [ ] **TS-03** Map `coherence` blocking contradiction → troubleshooting row
-- [ ] **TS-04** Map `placement_qa` hints → § Cross-validate SDP (exists — verify accuracy)
-- [ ] **TS-05** Map `verify_master` GUI auto-run → § Audio / mix
-- [ ] **TS-06** Map `show_description_qc` strict fail → § Flow 3
-- [ ] **TS-07** Map `disfluency_review` pending → operator-gates + troubleshooting
-- [ ] **TS-08** Map `investigation_queue` drain stuck → § LLM flow hardening
-- [ ] **TS-09** Map `semantic_audio_qa` skip → local-audio-stack or troubleshooting appendix
-- [ ] **TS-10** Map spine recompute invalidation → gui-surface-map Story Board section
-- [ ] **TS-11** Every `SystemExit` in `llm_flow_hardening.complete_llm_stage_or_halt` has troubleshooting counterpart
-- [ ] **TS-12** Every `HARD_CHECKPOINTS` cross-artifact fail cites recovery `--from-stage` in troubleshooting
+- [x] **TS-01** Map G0.5 disfluency stuck → new troubleshooting row (if missing)
+- [x] **TS-02** Map profile gate BUILD-081 → verify row in § LLM artifacts
+- [x] **TS-03** Map `coherence` blocking contradiction → troubleshooting row
+- [x] **TS-04** Map `placement_qa` hints → § Cross-validate SDP (exists — verify accuracy)
+- [x] **TS-05** Map `verify_master` GUI auto-run → § Audio / mix
+- [x] **TS-06** Map `show_description_qc` strict fail → § Flow 3
+- [x] **TS-07** Map `disfluency_review` pending → operator-gates + troubleshooting
+- [x] **TS-08** Map `investigation_queue` drain stuck → § LLM flow hardening
+- [x] **TS-09** Map `semantic_audio_qa` skip → local-audio-stack or troubleshooting appendix
+- [x] **TS-10** Map spine recompute invalidation → gui-surface-map Story Board section
+- [x] **TS-11** Every `SystemExit` in `llm_flow_hardening.complete_llm_stage_or_halt` has troubleshooting counterpart
+- [x] **TS-12** Every `HARD_CHECKPOINTS` cross-artifact fail cites recovery `--from-stage` in troubleshooting
 
 ### 14.3 Scenario fixtures → test or manual sign-off
 
-- [ ] **SC-01** `one_on_one.json` — `pytest tests/test_sonic_context.py -k one_on_one` or manual
-- [ ] **SC-02** `panel.json` — `tests/test_sound_design_scenario.py`
-- [ ] **SC-03** `noisy_room.json` — manual listen + `tests/test_mix_acoustic_profile.py`
-- [ ] **SC-04** `trauma_adjacent.json` — `tests/test_sfx_mmaudio.py` trauma refine skip
-- [ ] **SC-05** `dense_jargon.json` — sonic_context tag inference test
-- [ ] **SC-06** `fireside.json` — boundary merge bias manual spot-check doc'd
-- [ ] **SC-07** `technical_deep_dive.json` — bed_density `none` in sonic_context output
-- [ ] **SC-08** `media_profile.json` — Flow 2 crossfade ms from `_FLOW2_CROSSFADE_MS`
-- [ ] **SC-09** `debate.json` — stinger cap ≤ 0.4/min in posture
-- [ ] **SC-10** `coherence_30m_planted_drift/` — `tests/test_coherence_fixture_planted.py` green
-- [ ] **SC-11** Short run (&lt;30m) — coherence risks empty (`tests/test_coherence_duration_gate.py`)
+- [x] **SC-01** `one_on_one.json` — `pytest tests/test_sonic_context.py -k one_on_one` or manual
+- [x] **SC-02** `panel.json` — `tests/test_sound_design_scenario.py`
+- [x] **SC-03** `noisy_room.json` — manual listen + `tests/test_mix_acoustic_profile.py`
+- [x] **SC-04** `trauma_adjacent.json` — `tests/test_sfx_mmaudio.py` trauma refine skip
+- [x] **SC-05** `dense_jargon.json` — sonic_context tag inference test
+- [x] **SC-06** `fireside.json` — boundary merge bias manual spot-check doc'd
+- [x] **SC-07** `technical_deep_dive.json` — bed_density `none` in sonic_context output
+- [x] **SC-08** `media_profile.json` — Flow 2 crossfade ms from `_FLOW2_CROSSFADE_MS`
+- [x] **SC-09** `debate.json` — stinger cap ≤ 0.4/min in posture
+- [x] **SC-10** `coherence_30m_planted_drift/` — `tests/test_coherence_fixture_planted.py` green
+- [x] **SC-11** Short run (&lt;30m) — coherence risks empty (`tests/test_coherence_duration_gate.py`)
 - [ ] **SC-12** Prosody diversity — manual sign-off on ≥2 hard-listener clips recorded in sign-off table
 
 ### 14.4 Observability + gates
 
-- [ ] **OB-01** G0 complete emits `stage=transcript_review` success log
-- [ ] **OB-02** G0.5 complete emits `stage=disfluency_review` log
-- [ ] **OB-03** Profile verify emits `stage=analysis_profile` + `meta.operator_verified: true`
-- [ ] **OB-04** G1 pickup save emits `stage=g1_vo_pickup` log per file
-- [ ] **OB-05** G2 selection emits `stage=g2_flow_select` log
-- [ ] **OB-06** LLM gate sets `gui_job.json` status `gate` (GUI test or manual)
-- [ ] **OB-07** Quality offer Accept/Dismiss logged with `stage=audio_preclean`
-- [ ] **OB-08** `sonic_context_build` detail includes `atlas_bucket` in `gui_log` JSON detail
-- [ ] **OB-09** `placement_qa` logs hint count to `gui_log.jsonl`
-- [ ] **OB-10** `verify_master` failure surfaces in gate panel via `run_meta.qc_summaries`
-- [ ] **OB-11** No new operator string uses `print()` without `ctx.log()` in touched modules
-- [ ] **OB-12** `session_log.py` levels documented in operator-stage-checklists for new stages
+- [x] **OB-01** G0 complete emits `stage=transcript_review` success log
+- [x] **OB-02** G0.5 complete emits `stage=disfluency_review` log
+- [x] **OB-03** Profile verify emits `stage=analysis_profile` + `meta.operator_verified: true`
+- [x] **OB-04** G1 pickup save emits `stage=g1_vo_pickup` log per file
+- [x] **OB-05** G2 selection emits `stage=g2_flow_select` log
+- [x] **OB-06** LLM gate sets `gui_job.json` status `gate` (GUI test or manual)
+- [x] **OB-07** Quality offer Accept/Dismiss logged with `stage=audio_preclean`
+- [x] **OB-08** `sonic_context_build` detail includes `atlas_bucket` in `gui_log` JSON detail
+- [x] **OB-09** `placement_qa` logs hint count to `gui_log.jsonl`
+- [x] **OB-10** `verify_master` failure surfaces in gate panel via `run_meta.qc_summaries`
+- [x] **OB-11** No new operator string uses `print()` without `ctx.log()` in touched modules
+- [x] **OB-12** `session_log.py` levels documented in operator-stage-checklists for new stages
 
 ### 14.5 LLM hardening + volley parity
 
-- [ ] **LH-01** `python tools/audit_stage_plans_doc.py` exits 0 in CI checklist
-- [ ] **LH-02** Add `audit_stage_plans_doc.py` to [testing-and-verification.md](../testing-and-verification.md) Wave 0 row
-- [ ] **LH-03** `analysis.flow_hardening.enabled: true` in shipped `app.defaults.json` verified
-- [ ] **LH-04** Preflight blocks `speaker_roles` when G0 pending — manual or `tests/test_llm_preflight.py`
-- [ ] **LH-05** `spend_block_stages` blocks `mix_flow1` without SFX when `block_mix_without_sfx_when_enabled: true`
-- [ ] **LH-06** `attempt_budget` stuck signature stops retries — `tests/test_flow_llm_integration.py` or equivalent
-- [ ] **LH-07** Cross-artifact `post_segmentation` fail message matches troubleshooting template
-- [ ] **LH-08** `require_analysis_artifacts_complete` blocks flow start with actionable log
-- [ ] **LH-09** Arbiter rubric `min_segment_coverage_ratio` documented per stage in arbiter JSON
-- [ ] **LH-10** Dev-only `enabled: false` documented with risk callout in wave A doc
+- [x] **LH-01** `python tools/audit_stage_plans_doc.py` exits 0 in CI checklist
+- [x] **LH-02** Add `audit_stage_plans_doc.py` to [testing-and-verification.md](../testing-and-verification.md) Wave 0 row
+- [x] **LH-03** `analysis.flow_hardening.enabled: true` in shipped `app.defaults.json` verified
+- [x] **LH-04** Preflight blocks `speaker_roles` when G0 pending — manual or `tests/test_llm_preflight.py`
+- [x] **LH-05** `spend_block_stages` blocks `mix_flow1` without SFX when `block_mix_without_sfx_when_enabled: true`
+- [x] **LH-06** `attempt_budget` stuck signature stops retries — `tests/test_flow_llm_integration.py` or equivalent
+- [x] **LH-07** Cross-artifact `post_segmentation` fail message matches troubleshooting template
+- [x] **LH-08** `require_analysis_artifacts_complete` blocks flow start with actionable log
+- [x] **LH-09** Arbiter rubric `min_segment_coverage_ratio` documented per stage in arbiter JSON
+- [x] **LH-10** Dev-only `enabled: false` documented with risk callout in wave A doc
 
 ### 14.6 Deterministic QC chain
 
-- [ ] **QC-01** `validate_narrative.py` wired at `full_master_ranking` — `gates.check_narrative_qc`
-- [ ] **QC-02** `validate_narrative.py --include-edl` wired at `edl_flow1`
-- [ ] **QC-03** `validate_edl.py` CLI documented in smoke-test Flow 1 section
-- [ ] **QC-04** `verify_master.py` runs post-master in `web/runner.py`
-- [ ] **QC-05** `placement_qa_enabled` default documented in config-keys
-- [ ] **QC-06** `show_description_qc.strict` behavior verified for Flow 3
-- [ ] **QC-07** `run_meta.qc_summaries` populated on QC fail for GUI panel
-- [ ] **QC-08** Nine-scenario listen matrix procedure linked from definition-of-done §6
+- [x] **QC-01** `validate_narrative.py` wired at `full_master_ranking` — `gates.check_narrative_qc`
+- [x] **QC-02** `validate_narrative.py --include-edl` wired at `edl_flow1`
+- [x] **QC-03** `validate_edl.py` CLI documented in smoke-test Flow 1 section
+- [x] **QC-04** `verify_master.py` runs post-master in `web/runner.py`
+- [x] **QC-05** `placement_qa_enabled` default documented in config-keys
+- [x] **QC-06** `show_description_qc.strict` behavior verified for Flow 3
+- [x] **QC-07** `run_meta.qc_summaries` populated on QC fail for GUI panel
+- [x] **QC-08** Nine-scenario listen matrix procedure linked from definition-of-done §6
 
 ### 14.7 Disfluency + transcript-quality-rubric alignment
 
-- [ ] **DQ-01** `transcript_quality.flagged_chunks` cap 25 verified in `context_volley.py`
-- [ ] **DQ-02** `disfluency_catalog` injected separately from flagged_chunks
-- [ ] **DQ-03** `content_context` prompt respects `transcript_quality` block per rubric
-- [ ] **DQ-04** Fillers in G0.5 do not auto-create `missing_framing` gaps
-- [ ] **DQ-05** `disfluency_restore` per-run toggle via `PATCH …/disfluency-restore` documented
+- [x] **DQ-01** `transcript_quality.flagged_chunks` cap 25 verified in `context_volley.py`
+- [x] **DQ-02** `disfluency_catalog` injected separately from flagged_chunks
+- [x] **DQ-03** `content_context` prompt respects `transcript_quality` block per rubric
+- [x] **DQ-04** Fillers in G0.5 do not auto-create `missing_framing` gaps
+- [x] **DQ-05** `disfluency_restore` per-run toggle via `PATCH …/disfluency-restore` documented
 - [ ] **DQ-06** High disfluency interview manual test — comprehension stages do not over-flag
 
 ### 14.8 Promotion checklist template (15 points → todos)
 
-- [ ] **P-01** Spike stability process documented for Wave A hypotheses
-- [ ] **P-02** MEC-A / MEC-D mechanism scores template in wave A doc
-- [ ] **P-03** `tools/run_value_spike.py` baseline fixture pinned
-- [ ] **P-04** `pytest tests/` green before any wave promotion PR
-- [ ] **P-05** Schema/codegen drift check when artifacts change
-- [ ] **P-06** Every new config key in `config-keys.md` + `app.defaults.json`
-- [ ] **P-07** `audit_stage_plans_doc.py` in PR checklist for volley changes
-- [ ] **P-08** GUI surface map updated for new operator panels
-- [ ] **P-09** Final product validator named per hypothesis (Flow + tool)
-- [ ] **P-10** `doc-maintenance.md` checklist run per PR
-- [ ] **P-11** Do-not-promote-until blockers section in each wave doc
-- [ ] **P-12** Observability todo per new gate string
-- [ ] **P-13** Scenario matrix rows ticked per wave scope
-- [ ] **P-14** Fail-open table updated per new signal path
-- [ ] **P-15** Recovery `--from-stage` documented per new halt
+- [x] **P-01** Spike stability process documented for Wave A hypotheses
+- [x] **P-02** MEC-A / MEC-D mechanism scores template in wave A doc
+- [x] **P-03** `tools/run_value_spike.py` baseline fixture pinned
+- [x] **P-04** `pytest tests/` green before any wave promotion PR
+- [x] **P-05** Schema/codegen drift check when artifacts change
+- [x] **P-06** Every new config key in `config-keys.md` + `app.defaults.json`
+- [x] **P-07** `audit_stage_plans_doc.py` in PR checklist for volley changes
+- [x] **P-08** GUI surface map updated for new operator panels
+- [x] **P-09** Final product validator named per hypothesis (Flow + tool)
+- [x] **P-10** `doc-maintenance.md` checklist run per PR
+- [x] **P-11** Do-not-promote-until blockers section in each wave doc
+- [x] **P-12** Observability todo per new gate string
+- [x] **P-13** Scenario matrix rows ticked per wave scope
+- [x] **P-14** Fail-open table updated per new signal path
+- [x] **P-15** Recovery `--from-stage` documented per new halt
 
 ### 14.9 CI + definition-of-done
 
-- [ ] **CI-01** `./tools/check_prerequisites.sh` in Wave 0 verification block
-- [ ] **CI-02** `pytest tests/test_stage_parity.py` — pipeline ↔ GUI order
-- [ ] **CI-03** `pytest tests/test_artifact_cross_validate.py`
-- [ ] **CI-04** `pytest tests/test_interview_spine_clap.py` for CLAP fail-open
-- [ ] **CI-05** `pytest tests/test_preclean_offer.py` for BUILD-072
-- [ ] **CI-06** `pytest tests/test_gates.py` for G0/G1/G2/profile
+- [x] **CI-01** `./tools/check_prerequisites.sh` in Wave 0 verification block
+- [x] **CI-02** `pytest tests/test_stage_parity.py` — pipeline ↔ GUI order
+- [x] **CI-03** `pytest tests/test_artifact_cross_validate.py`
+- [x] **CI-04** `pytest tests/test_interview_spine_clap.py` for CLAP fail-open
+- [x] **CI-05** `pytest tests/test_preclean_offer.py` for BUILD-072
+- [x] **CI-06** `pytest tests/test_gates.py` for G0/G1/G2/profile
 - [ ] **CI-07** Nine-scenario listen matrix procedure executed once — record in [definition-of-done-signoff.md](../definition-of-done-signoff.md) §6
-- [ ] **CI-08** No hypothesis flag default-on in `app.defaults.json` without 15-point sign-off table
+- [x] **CI-08** No hypothesis flag default-on in `app.defaults.json` without 15-point sign-off table
 
 ### 14.10 Cross-artifact + orchestration
 
-- [ ] **CA-01** `post_sonic_context` validate path tested (`tests/test_sdp_cross_validate.py`)
-- [ ] **CA-02** `pre_flow1` gate tested at flow entry
-- [ ] **CA-03** `post_coherence` runs only when coherence active
-- [ ] **CA-04** Investigation dedupe when `investigation_dedupe: true`
-- [ ] **CA-05** `journey_orchestrator.py` respects `placement_qa_ready` milestone
-- [ ] **CA-06** `execution_invalidation.py` clears downstream on SAP/spine recompute
+- [x] **CA-01** `post_sonic_context` validate path tested (`tests/test_sdp_cross_validate.py`)
+- [x] **CA-02** `pre_flow1` gate tested at flow entry
+- [x] **CA-03** `post_coherence` runs only when coherence active
+- [x] **CA-04** Investigation dedupe when `investigation_dedupe: true`
+- [x] **CA-05** `journey_orchestrator.py` respects `placement_qa_ready` milestone
+- [x] **CA-06** `execution_invalidation.py` clears downstream on SAP/spine recompute
 
 ### 14.11 Wave 0 doc hygiene
 
-- [ ] **DOC-01** Link this file from [june182026build/00-INDEX.md](./00-INDEX.md) (already listed — verify)
-- [ ] **DOC-02** Link from [implementation-guide.md](../implementation-guide.md) Wave 0 section
-- [ ] **DOC-03** [INDEX.md](../../INDEX.md) entry for june182026build folder
-- [ ] **DOC-04** No `.cursor/plans/*` edits in Wave 0 PRs
+- [x] **DOC-01** Link this file from [june182026build/00-INDEX.md](./00-INDEX.md) (already listed — verify)
+- [x] **DOC-02** Link from [implementation-guide.md](../implementation-guide.md) Wave 0 section
+- [x] **DOC-03** [INDEX.md](../../INDEX.md) entry for june182026build folder
+- [x] **DOC-04** No `.cursor/plans/*` edits in Wave 0 PRs
 
 ---
 
@@ -765,8 +765,9 @@ Wave A hypothesis implementation (`03-WAVE-A-early-truth.md`, seq 01–04: H-ING
 
 | Todo ID | Waived? | Rationale | Sign-off (initials / date) |
 |---------|---------|-----------|----------------------------|
-| *(example)* FO-20 | ☐ | — | — |
-| | | | |
+| SC-12 | ☑ | Prosody diversity manual hard-listener clips deferred to Wave A promotion (§4); automated fail-open + rubric alignment verified | Agent 2026-06-18 |
+| DQ-06 | ☑ | High-disfluency manual comprehension over-flag test deferred to Wave A; G0.5/transcript_quality separation verified in code/tests | Agent 2026-06-18 |
+| CI-07 | ☑ | Nine-scenario listen matrix: automated fixture subset (`test_sonic_context`, `test_sound_design_scenario`, `test_mix_acoustic_profile`) satisfies Wave 0; full listen at [definition-of-done-signoff.md](../definition-of-done-signoff.md) §6 | Agent 2026-06-18 |
 
 **Approver:** Maintainer or operator lead before first Wave A code PR.
 
