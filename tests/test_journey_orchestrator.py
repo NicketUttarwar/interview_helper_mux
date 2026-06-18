@@ -157,3 +157,45 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
     assert snap["blocked"] is True
     assert snap["reason"] == "write_approval"
     assert snap["stage_id"] == "ingest"
+
+
+def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
+    from interview_mux.journey_orchestrator import _blocking
+    from run_fixtures import init_run_meta_for_test, isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+            "stage_execution_reuse": {"enabled": True},
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.run_context.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+            "stage_execution_reuse": {"enabled": True},
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
+    init_run_meta_for_test(ctx)
+
+    calls: list[str] = []
+
+    def _fake_reuse(current, stage_id):
+        calls.append(stage_id)
+        return []
+
+    monkeypatch.setattr(
+        "interview_mux.stage_execution_reuse.reuse_candidates_if_undecided",
+        _fake_reuse,
+    )
+
+    snap = _blocking(ctx, job={"status": "idle"}, milestones={"g0_complete": False})
+    assert snap["blocked"] is False
+    assert calls == ["audio_preclean"]

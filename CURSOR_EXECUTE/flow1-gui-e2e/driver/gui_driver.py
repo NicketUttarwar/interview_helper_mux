@@ -325,8 +325,12 @@ def run_driver(args: argparse.Namespace) -> int:
                     try:
                         job = api.job(run_id)
                         status = job.get("status", "idle")
-                        if status == "running":
-                            run = {"stages": [], "g1_missing": [], "selected_flow": None}
+                        if status in ("running", "idle"):
+                            run = {
+                                "stages": [],
+                                "g1_missing": [],
+                                "selected_flow": job.get("selected_flow"),
+                            }
                         elif status == "awaiting_write_approval":
                             run = {
                                 "stages": [],

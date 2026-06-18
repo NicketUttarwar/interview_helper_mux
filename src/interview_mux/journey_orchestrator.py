@@ -238,7 +238,11 @@ def _blocking(
         from interview_mux.web.stages import STAGE_BY_ID
 
         if stage_reuse_offers_enabled():
-            for sid in _next_pending_stage_ids(ctx):
+            pending = _next_pending_stage_ids(ctx)
+            # Only the next pipeline stage can block on reuse; scanning every
+            # pending stage re-reads hundreds of prior executions per poll.
+            if pending:
+                sid = pending[0]
                 candidates = reuse_candidates_if_undecided(ctx, sid)
                 if candidates:
                     blocked = True
@@ -251,7 +255,6 @@ def _blocking(
                         f"{title} can reuse outputs from {src}. "
                         "Choose reuse or run fresh before continuing."
                     )
-                    break
 
     if not blocked and handoff_between_stages_enabled():
         handoff_sid = pending_handoff_stage(ctx)
