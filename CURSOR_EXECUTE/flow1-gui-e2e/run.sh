@@ -294,6 +294,13 @@ Automated fix after Flow 1 GUI E2E blocker.
 EOF
 )"; then
     _log_info "PASS git commit for blocker fix"
+    _log_step "PUSH" "git push origin main"
+    if git -C "${REPO_ROOT}" push origin main; then
+      _log_info "PASS git push origin main"
+    else
+      _log_blocker "git push origin main failed — fix is committed locally only"
+      return 1
+    fi
   else
     _log_info "Nothing to commit (working tree unchanged after add)"
   fi
