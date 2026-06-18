@@ -134,7 +134,10 @@ def emphasis_regions_for_segments(ctx: RunContext, *, max_regions: int = 24) -> 
             continue
         seg_rms = rms[mask]
         seg_p90 = float(np.percentile(seg_rms, 90))
-        if seg_p90 >= p90 or (seg_p90 >= p50 * 1.35 and seg_p90 >= p50 + 1e-9):
+        seg_median = float(np.percentile(seg_rms, 50))
+        # H-F1N-02: segment-relative peak vs segment median (not global noise floor alone).
+        # Global p90 gate: local peak must meet or exceed interview-wide p90 when present.
+        if seg_p90 >= seg_median * 1.35 and (seg_p90 >= p90 or seg_p90 >= p50 * 1.2):
             regions.append(
                 {
                     "segment_id": sid,

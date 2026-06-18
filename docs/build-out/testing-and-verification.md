@@ -82,6 +82,33 @@ Promotion gate: [Wave B gate in 03-WAVE-A](./june182026build/03-WAVE-A-early-tru
 
 ---
 
+## June 2026 Wave D — Output resilience
+
+After [06-WAVE-D-output-resilience.md](./june182026build/06-WAVE-D-output-resilience.md) code changes; gate before step **07** finish sign-off.
+
+```bash
+source .venv/bin/activate
+pytest tests/test_wave_d_output_resilience.py tests/test_stage_enrichment.py \
+  tests/test_stinger_pause_alignment.py tests/test_placement_qa.py \
+  tests/test_mix_acoustic_profile.py tests/test_flow2_crossfade.py -q
+python tools/verify_master.py --help
+python tools/validate_narrative.py --help
+python tools/audit_stage_plans_doc.py
+```
+
+| Check | Command / action |
+|-------|------------------|
+| H-F1N-02 emphasis | `pytest tests/test_wave_d_output_resilience.py -k emphasis -q` |
+| H-F2-02 quotability | `pytest tests/test_wave_d_output_resilience.py -k quotability -q` |
+| H-F1S-02 placement / laughter | `pytest tests/test_stinger_pause_alignment.py tests/test_placement_qa.py -q` |
+| Scenario fixtures | `pytest tests/test_sonic_context.py tests/test_sound_design_scenario.py -q` |
+| Recovery drills D-W36–40 | `pytest tests/test_wave_d_output_resilience.py -k recovery -q` |
+| Volley parity | `python tools/audit_stage_plans_doc.py` (exit 0) |
+
+Promotion gate: [§13 in 06-WAVE-D](./june182026build/06-WAVE-D-output-resilience.md#13-wave-d-promotion-gate-for-shipped-default-on) — **Partial** shipped; no default-on until nine-scenario listen + §13.
+
+---
+
 ## Automated tests (BUILD-054–055, #18)
 
 ```bash

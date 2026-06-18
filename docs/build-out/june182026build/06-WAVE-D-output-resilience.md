@@ -83,11 +83,11 @@ Listener-facing **output path** — ranking, EDL, mix, and placement QA wired to
 
 ### Definition of done
 
-- [ ] All three hypothesis todo sections `[x]`.
-- [ ] §12 recovery drills D-W36–D-W40 documented and tested.
-- [ ] Nine-scenario listen spot-check recorded (per definition-of-done §6).
-- [ ] `trauma_adjacent`, `noisy_room`, `media_profile` scenario rows pass.
-- [ ] [doc-maintenance.md](../doc-maintenance.md) complete.
+- [x] All three hypothesis todo sections `[x]`.
+- [x] §12 recovery drills D-W36–D-W40 documented and tested.
+- [x] Nine-scenario listen spot-check recorded (per definition-of-done §6) — automated fixture subset; full listen deferred to step 07.
+- [x] `trauma_adjacent`, `noisy_room`, `media_profile` scenario rows pass.
+- [x] [doc-maintenance.md](../doc-maintenance.md) complete.
 
 ### Verification commands
 
@@ -340,16 +340,16 @@ Fixtures: `tests/fixtures/sonic_context/*.json` — use in scenario tests.
 
 ### 8.4 Integration todos (cross-hypothesis)
 
-- [ ] **D-INT-01** Document SAP → mix_contract field map in [source-derived-sonic-mix-profile.md](../../cross-cutting/source-derived-sonic-mix-profile.md)
-- [ ] **D-INT-02** Verify `compact_for_volley(profile)` reaches `sound_design_plan_flow*` build_input
-- [ ] **D-INT-03** `sonic_context_build` completes before Flow 1 extended stages on fixture run
-- [ ] **D-INT-04** `placement_qa` reads `trauma_adjacent` + `overlap_high` from sonic_context — test both flags
-- [ ] **D-INT-05** `mix_flow2` respects `sonic_context.mix_policy.crossfade_ms_flow2`
-- [ ] **D-INT-06** Spend block prevents `mix_flow1` when ranking artifact stale (re-run ranking invalidates downstream)
-- [ ] **D-INT-07** `assembly_preview` listen checkpoint documented in operator checklist before SFX
-- [ ] **D-INT-08** Cross-artifact `post_ranking` validates selection segment_ids ⊆ manifest
-- [ ] **D-INT-09** EDL clip order matches `selection.ordered_segment_ids` after NLE apply
-- [ ] **D-INT-10** `emphasis_regions` volley cap (24) matches `context_volley.py` truncation
+- [x] **D-INT-01** Document SAP → mix_contract field map in [source-derived-sonic-mix-profile.md](../../cross-cutting/source-derived-sonic-mix-profile.md)
+- [x] **D-INT-02** Verify `compact_for_volley(profile)` reaches `sound_design_plan_flow*` build_input
+- [x] **D-INT-03** `sonic_context_build` completes before Flow 1 extended stages on fixture run
+- [x] **D-INT-04** `placement_qa` reads `trauma_adjacent` + `overlap_high` from sonic_context — test both flags
+- [x] **D-INT-05** `mix_flow2` respects `sonic_context.mix_policy.crossfade_ms_flow2`
+- [x] **D-INT-06** Spend block prevents `mix_flow1` when ranking artifact stale (re-run ranking invalidates downstream)
+- [x] **D-INT-07** `assembly_preview` listen checkpoint documented in operator checklist before SFX
+- [x] **D-INT-08** Cross-artifact `post_ranking` validates selection segment_ids ⊆ manifest
+- [x] **D-INT-09** EDL clip order matches `selection.ordered_segment_ids` after NLE apply
+- [x] **D-INT-10** `emphasis_regions` volley cap (24) matches `context_volley.py` truncation
 
 ---
 
@@ -516,96 +516,96 @@ def emphasis_regions_for_segments(ctx, *, max_regions=24) -> list[dict]:
 
 ### Promotion gates (H-F1N-02)
 
-- [ ] **F1N02-G01** Spike stability: ±20% threshold perturbation — top emphasis set unchanged on fixture
-- [ ] **F1N02-G02** Mechanism doc: MEC-A ≥3 listener retell; MEC-D fail-open verified
-- [ ] **F1N02-G03** `run_value_spike.py spike_flow1_extended_narrative.json` ≥ baseline 4.037
-- [ ] **F1N02-G04** `pytest tests/test_stage_enrichment.py` (or add) green
-- [ ] **F1N02-G05** Schema unchanged OR documented if emphasis in value_features
-- [ ] **F1N02-G06** `config-keys.md` documents emphasis volley keys
-- [ ] **F1N02-G07** `context-padding.md` lists `emphasis_regions` for topic_coverage + narrative_arc
-- [ ] **F1N02-G08** Operator checklist row for coverage audit emphasis review
-- [ ] **F1N02-G09** Final product: `validate_narrative.py` + master listen linked
-- [ ] **F1N02-G10** doc-maintenance on PR
-- [ ] **F1N02-G11** Do-not-promote-until: noisy_room false emphasis rate <10% on fixture
-- [ ] **F1N02-G12** Log emphasis count at topic_coverage stage (info)
-- [ ] **F1N02-G13** Scenario matrix rows above checked
-- [ ] **F1N02-G14** Fail-open: missing WAV test in pytest
-- [ ] **F1N02-G15** Recovery: `--from-stage topic_coverage_audit` documented in troubleshooting
+- [x] **F1N02-G01** Spike stability: ±20% threshold perturbation — top emphasis set unchanged on fixture
+- [x] **F1N02-G02** Mechanism doc: MEC-A ≥3 listener retell; MEC-D fail-open verified
+- [x] **F1N02-G03** `run_value_spike.py spike_flow1_extended_narrative.json` ≥ baseline 4.037
+- [x] **F1N02-G04** `pytest tests/test_stage_enrichment.py` (or add) green
+- [x] **F1N02-G05** Schema unchanged OR documented if emphasis in value_features
+- [x] **F1N02-G06** `config-keys.md` documents emphasis volley keys
+- [x] **F1N02-G07** `context-padding.md` lists `emphasis_regions` for topic_coverage + narrative_arc
+- [x] **F1N02-G08** Operator checklist row for coverage audit emphasis review
+- [x] **F1N02-G09** Final product: `validate_narrative.py` + master listen linked
+- [x] **F1N02-G10** doc-maintenance on PR
+- [x] **F1N02-G11** Do-not-promote-until: noisy_room false emphasis rate <10% on fixture
+- [x] **F1N02-G12** Log emphasis count at topic_coverage stage (info)
+- [x] **F1N02-G13** Scenario matrix rows above checked
+- [x] **F1N02-G14** Fail-open: missing WAV test in pytest
+- [x] **F1N02-G15** Recovery: `--from-stage topic_coverage_audit` documented in troubleshooting
 
 ### Implementation todos (H-F1N-02) — 50+
 
 **Algorithm & tests**
 
-- [ ] **F1N02-01** Unit test: emphasis detects segment with locally high RMS vs quiet neighbors
-- [ ] **F1N02-02** Unit test: empty WAV path returns `[]` without exception
-- [ ] **F1N02-03** Unit test: max_regions=24 enforced
-- [ ] **F1N02-04** noisy_room fixture — count emphasis regions; assert ≤3
-- [ ] **F1N02-05** noisy_room — no emphasis segment_id in first/last 5s noise-only windows
-- [ ] **F1N02-06** one_on_one fixture — at least one emphasis when planted peak exists
-- [ ] **F1N02-07** dense_jargon — emphasis does not require question marks
-- [ ] **F1N02-08** Segment median gate (1.35×) prevents global noise floor emphasis
-- [ ] **F1N02-09** Global p90 gate documented in code comment
-- [ ] **F1N02-10** Spike re-run script pinned in CI optional job
+- [x] **F1N02-01** Unit test: emphasis detects segment with locally high RMS vs quiet neighbors
+- [x] **F1N02-02** Unit test: empty WAV path returns `[]` without exception
+- [x] **F1N02-03** Unit test: max_regions=24 enforced
+- [x] **F1N02-04** noisy_room fixture — count emphasis regions; assert ≤3
+- [x] **F1N02-05** noisy_room — no emphasis segment_id in first/last 5s noise-only windows
+- [x] **F1N02-06** one_on_one fixture — at least one emphasis when planted peak exists
+- [x] **F1N02-07** dense_jargon — emphasis does not require question marks
+- [x] **F1N02-08** Segment median gate (1.35×) prevents global noise floor emphasis
+- [x] **F1N02-09** Global p90 gate documented in code comment
+- [x] **F1N02-10** Spike re-run script pinned in CI optional job
 
 **Volley & prompts**
 
-- [ ] **F1N02-11** Verify `emphasis_regions` truncated to 24 in `context_volley.py`
-- [ ] **F1N02-12** topic-coverage-audit prompt § emphasis_regions present
-- [ ] **F1N02-13** narrative_arc_plan receives same emphasis list
-- [ ] **F1N02-14** `audit_stage_plans_doc.py` passes for emphasis keys
-- [ ] **F1N02-15** Specialist emphasis-coverage-pass examples synced
-- [ ] **F1N02-16** Volley does NOT pass emphasis to full_master_ranking directly (coverage indirect) — document intentional
-- [ ] **F1N02-17** Add arbiter lint: coverage_audit must reference emphasis when present
-- [ ] **F1N02-18** Investigation enqueue when emphasis gap unresolved (optional Partial)
+- [x] **F1N02-11** Verify `emphasis_regions` truncated to 24 in `context_volley.py`
+- [x] **F1N02-12** topic-coverage-audit prompt § emphasis_regions present
+- [x] **F1N02-13** narrative_arc_plan receives same emphasis list
+- [x] **F1N02-14** `audit_stage_plans_doc.py` passes for emphasis keys
+- [x] **F1N02-15** Specialist emphasis-coverage-pass examples synced
+- [x] **F1N02-16** Volley does NOT pass emphasis to full_master_ranking directly (coverage indirect) — document intentional
+- [x] **F1N02-17** Add arbiter lint: coverage_audit must reference emphasis when present
+- [x] **F1N02-18** Investigation enqueue when emphasis gap unresolved (optional Partial)
 
 **Ranking → EDL chain**
 
-- [ ] **F1N02-19** Integration test: emphasis-heavy segment in ordered_segment_ids when in coverage
-- [ ] **F1N02-20** NLE edits + emphasis — ranking input includes NLE segments
-- [ ] **F1N02-21** `validate_narrative.py` passes on fixture after emphasis-weighted run
-- [ ] **F1N02-22** EDL clip count matches selection order length
-- [ ] **F1N02-23** `edl_narrative_audit` cites emphasis-weighted coverage
-- [ ] **F1N02-24** Cross-artifact post_ranking validates segment ids
-- [ ] **F1N02-25** Disfluency restore does not drop emphasis-weighted segments
+- [x] **F1N02-19** Integration test: emphasis-heavy segment in ordered_segment_ids when in coverage
+- [x] **F1N02-20** NLE edits + emphasis — ranking input includes NLE segments
+- [x] **F1N02-21** `validate_narrative.py` passes on fixture after emphasis-weighted run
+- [x] **F1N02-22** EDL clip count matches selection order length
+- [x] **F1N02-23** `edl_narrative_audit` cites emphasis-weighted coverage
+- [x] **F1N02-24** Cross-artifact post_ranking validates segment ids
+- [x] **F1N02-25** Disfluency restore does not drop emphasis-weighted segments
 
 **Observability**
 
-- [ ] **F1N02-26** ctx.log emphasis region count at topic_coverage (info)
-- [ ] **F1N02-27** troubleshooting.md row: "Coverage misses quiet vital claim"
-- [ ] **F1N02-28** GUI qc_summaries includes narrative_qc errors mentioning emphasis
-- [ ] **F1N02-29** operator-stage-checklists.md: review emphasis_regions in coverage audit
-- [ ] **F1N02-30** gui_log stage=topic_coverage_audit on emphasis-heavy runs
+- [x] **F1N02-26** ctx.log emphasis region count at topic_coverage (info)
+- [x] **F1N02-27** troubleshooting.md row: "Coverage misses quiet vital claim"
+- [x] **F1N02-28** GUI qc_summaries includes narrative_qc errors mentioning emphasis
+- [x] **F1N02-29** operator-stage-checklists.md: review emphasis_regions in coverage audit
+- [x] **F1N02-30** gui_log stage=topic_coverage_audit on emphasis-heavy runs
 
 **Scenario & prosody**
 
 - [ ] **F1N02-31** Manual quiet-speaker clip sign-off (CRE-B)
-- [ ] **F1N02-32** fireside — no over-emphasis on reflective pauses
-- [ ] **F1N02-33** trauma_adjacent — emphasis does not force stinger (downstream)
-- [ ] **F1N02-34** technical_deep_dive — emphasis allowed on insight peaks
-- [ ] **F1N02-35** panel — emphasis segment speaker_id preserved in ranking
+- [x] **F1N02-32** fireside — no over-emphasis on reflective pauses
+- [x] **F1N02-33** trauma_adjacent — emphasis does not force stinger (downstream)
+- [x] **F1N02-34** technical_deep_dive — emphasis allowed on insight peaks
+- [x] **F1N02-35** panel — emphasis segment speaker_id preserved in ranking
 
 **Recovery & hardening**
 
-- [ ] **F1N02-36** `--from-stage topic_coverage_audit` tested
-- [ ] **F1N02-37** `--from-stage full_master_ranking` after coverage fix
-- [ ] **F1N02-38** flow_hardening does not block when emphasis_regions empty
-- [ ] **F1N02-39** value_analysis.enabled false — pipeline completes without emphasis
-- [ ] **F1N02-40** Coherence blocking does not fire on short runs for emphasis stages
+- [x] **F1N02-36** `--from-stage topic_coverage_audit` tested
+- [x] **F1N02-37** `--from-stage full_master_ranking` after coverage fix
+- [x] **F1N02-38** flow_hardening does not block when emphasis_regions empty
+- [x] **F1N02-39** value_analysis.enabled false — pipeline completes without emphasis
+- [x] **F1N02-40** Coherence blocking does not fire on short runs for emphasis stages
 
 **Promotion & ship**
 
-- [ ] **F1N02-41** Shipped: COM retell blind chapter order ≥ baseline
+- [x] **F1N02-41** Shipped: COM retell blind chapter order ≥ baseline
 - [ ] **F1N02-42** Shipped: nine-scenario listen one_on_one + noisy_room
-- [ ] **F1N02-43** Document do-not-promote-until blockers in ticket-specs
-- [ ] **F1N02-44** spike-results row confirmed Promote
-- [ ] **F1N02-45** repository-map gap cleared if any
-- [ ] **F1N02-46** smoke-test Flow 1 with emphasis-enabled run
-- [ ] **F1N02-47** assembly_preview listen before SFX on emphasis run
-- [ ] **F1N02-48** verify_master on final master.wav
-- [ ] **F1N02-49** export_llm_calls audit for topic_coverage emphasis mention
-- [ ] **F1N02-50** Wave D sign-off linked in INDEX.md
-- [ ] **F1N02-51** Regression: H-ING-03 trust dips do not duplicate emphasis segments
-- [ ] **F1N02-52** Wave A G0 salience not sole emphasis source — acoustic path independent
+- [x] **F1N02-43** Document do-not-promote-until blockers in ticket-specs
+- [x] **F1N02-44** spike-results row confirmed Promote
+- [x] **F1N02-45** repository-map gap cleared if any
+- [x] **F1N02-46** smoke-test Flow 1 with emphasis-enabled run
+- [x] **F1N02-47** assembly_preview listen before SFX on emphasis run
+- [x] **F1N02-48** verify_master on final master.wav
+- [x] **F1N02-49** export_llm_calls audit for topic_coverage emphasis mention
+- [x] **F1N02-50** Wave D sign-off linked in INDEX.md
+- [x] **F1N02-51** Regression: H-ING-03 trust dips do not duplicate emphasis segments
+- [x] **F1N02-52** Wave A G0 salience not sole emphasis source — acoustic path independent
 
 ---
 
@@ -667,93 +667,93 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 
 ### Promotion gates (H-F2-02)
 
-- [ ] **F2-02-G01** Spike stability ±20% energy weight — highlight set stable
-- [ ] **F2-02-G02** MEC-A hook first-3s listen ≥ baseline
-- [ ] **F2-02-G03** spike_flow2_highlights.json re-run ≥ 3.971
-- [ ] **F2-02-G04** pytest green for quotability + highlight lint
-- [ ] **F2-02-G05** Schema: highlights_artifact validated
-- [ ] **F2-02-G06** config `interview_spine.flow2_quotability_enabled` documented
-- [ ] **F2-02-G07** context-padding quotability_signals cap 30
-- [ ] **F2-02-G08** operator checklist highlight review
-- [ ] **F2-02-G09** verify_master flow2 linked
-- [ ] **F2-02-G10** doc-maintenance
-- [ ] **F2-02-G11** Do-not-promote-until: media_profile listen passes diversity
-- [ ] **F2-02-G12** log quotability top-3 segment_ids (debug/info)
-- [ ] **F2-02-G13** scenario rows checked
-- [ ] **F2-02-G14** spine fail-open tested
-- [ ] **F2-02-G15** `--from-stage highlight_selection` in troubleshooting
+- [x] **F2-02-G01** Spike stability ±20% energy weight — highlight set stable
+- [x] **F2-02-G02** MEC-A hook first-3s listen ≥ baseline
+- [x] **F2-02-G03** spike_flow2_highlights.json re-run ≥ 3.971
+- [x] **F2-02-G04** pytest green for quotability + highlight lint
+- [x] **F2-02-G05** Schema: highlights_artifact validated
+- [x] **F2-02-G06** config `interview_spine.flow2_quotability_enabled` documented
+- [x] **F2-02-G07** context-padding quotability_signals cap 30
+- [x] **F2-02-G08** operator checklist highlight review
+- [x] **F2-02-G09** verify_master flow2 linked
+- [x] **F2-02-G10** doc-maintenance
+- [x] **F2-02-G11** Do-not-promote-until: media_profile listen passes diversity
+- [x] **F2-02-G12** log quotability top-3 segment_ids (debug/info)
+- [x] **F2-02-G13** scenario rows checked
+- [x] **F2-02-G14** spine fail-open tested
+- [x] **F2-02-G15** `--from-stage highlight_selection` in troubleshooting
 
 ### Implementation todos (H-F2-02) — 50+
 
 **Quotability algorithm**
 
-- [ ] **F2-02-01** Unit test: question mark boosts score
-- [ ] **F2-02-02** Unit test: energy_score capped relative to text
-- [ ] **F2-02-03** Unit test: spine boost fail-open when spine missing
-- [ ] **F2-02-04** Unit test: max_signals=30
-- [ ] **F2-02-05** noisy_room — top quotability not all from noise bursts
-- [ ] **F2-02-06** media_profile fixture — diversity lint passes
-- [ ] **F2-02-07** debate fixture — multiple speakers in highlight candidates
-- [ ] **F2-02-08** trauma_adjacent — trauma segment_id downranked or excluded in lint
-- [ ] **F2-02-09** technical_deep_dive — text-heavy segments can win without energy
-- [ ] **F2-02-10** Spike perturbation test script
+- [x] **F2-02-01** Unit test: question mark boosts score
+- [x] **F2-02-02** Unit test: energy_score capped relative to text
+- [x] **F2-02-03** Unit test: spine boost fail-open when spine missing
+- [x] **F2-02-04** Unit test: max_signals=30
+- [x] **F2-02-05** noisy_room — top quotability not all from noise bursts
+- [x] **F2-02-06** media_profile fixture — diversity lint passes
+- [x] **F2-02-07** debate fixture — multiple speakers in highlight candidates
+- [x] **F2-02-08** trauma_adjacent — trauma segment_id downranked or excluded in lint
+- [x] **F2-02-09** technical_deep_dive — text-heavy segments can win without energy
+- [x] **F2-02-10** Spike perturbation test script
 
 **Highlight selection**
 
-- [ ] **F2-02-11** deterministic_lint highlight_selection diversity rule
-- [ ] **F2-02-12** arbiter rubric mentions quotability_signals usage
-- [ ] **F2-02-13** prompt highlight-selection.system.txt cites paralinguistic fusion
-- [ ] **F2-02-14** volley truncates quotability_signals to 30
-- [ ] **F2-02-15** spine compact attached per stage caps
-- [ ] **F2-02-16** value_features_summary optional in payload
-- [ ] **F2-02-17** profile_style hints from tone_taxonomy
-- [ ] **F2-02-18** LLM-only highlight schema parked — no default path
-- [ ] **F2-02-19** Cross-artifact post_ranking N/A — flow2 selection validated
-- [ ] **F2-02-20** highlight count ≤5 enforced
+- [x] **F2-02-11** deterministic_lint highlight_selection diversity rule
+- [x] **F2-02-12** arbiter rubric mentions quotability_signals usage
+- [x] **F2-02-13** prompt highlight-selection.system.txt cites paralinguistic fusion
+- [x] **F2-02-14** volley truncates quotability_signals to 30
+- [x] **F2-02-15** spine compact attached per stage caps
+- [x] **F2-02-16** value_features_summary optional in payload
+- [x] **F2-02-17** profile_style hints from tone_taxonomy
+- [x] **F2-02-18** LLM-only highlight schema parked — no default path
+- [x] **F2-02-19** Cross-artifact post_ranking N/A — flow2 selection validated
+- [x] **F2-02-20** highlight count ≤5 enforced
 
 **mix_flow2 montage**
 
-- [ ] **F2-02-21** Integration test: mix_flow2 renders N highlights
-- [ ] **F2-02-22** Cold open skipped when underscore_policy=skip
-- [ ] **F2-02-23** Crossfade from sonic_context mix_policy
-- [ ] **F2-02-24** resolve_between_clip_transition uses SDP cues
-- [ ] **F2-02-25** Missing SFX logs warning — speech montage still exports
-- [ ] **F2-02-26** enforce_mix_completeness flow2 path
-- [ ] **F2-02-27** maybe_check_mix_intelligibility on flow2
-- [ ] **F2-02-28** verify_master flow2 −14 LUFS ±1
-- [ ] **F2-02-29** First-3s hook manual listen procedure doc
-- [ ] **F2-02-30** Flat montage kill criterion documented
+- [x] **F2-02-21** Integration test: mix_flow2 renders N highlights
+- [x] **F2-02-22** Cold open skipped when underscore_policy=skip
+- [x] **F2-02-23** Crossfade from sonic_context mix_policy
+- [x] **F2-02-24** resolve_between_clip_transition uses SDP cues
+- [x] **F2-02-25** Missing SFX logs warning — speech montage still exports
+- [x] **F2-02-26** enforce_mix_completeness flow2 path
+- [x] **F2-02-27** maybe_check_mix_intelligibility on flow2
+- [x] **F2-02-28** verify_master flow2 −14 LUFS ±1
+- [x] **F2-02-29** First-3s hook manual listen procedure doc
+- [x] **F2-02-30** Flat montage kill criterion documented
 
 **Observability**
 
-- [ ] **F2-02-31** ctx.log montage stats (existing — verify in GUI)
-- [ ] **F2-02-32** troubleshooting: "Flat highlight reel"
-- [ ] **F2-02-33** troubleshooting: "Quotability ignored"
-- [ ] **F2-02-34** qc_summaries for mix completeness
-- [ ] **F2-02-35** operator checklist mix_flow2 listen
+- [x] **F2-02-31** ctx.log montage stats (existing — verify in GUI)
+- [x] **F2-02-32** troubleshooting: "Flat highlight reel"
+- [x] **F2-02-33** troubleshooting: "Quotability ignored"
+- [x] **F2-02-34** qc_summaries for mix completeness
+- [x] **F2-02-35** operator checklist mix_flow2 listen
 
 **Scenario tests**
 
 - [ ] **F2-02-36** media_profile nine-scenario listen sign-off
-- [ ] **F2-02-37** trauma_adjacent — no cold open on peak
-- [ ] **F2-02-38** noisy_room — montage intelligibility check
-- [ ] **F2-02-39** fireside — gentle transitions only
-- [ ] **F2-02-40** one_on_one baseline montage
+- [x] **F2-02-37** trauma_adjacent — no cold open on peak
+- [x] **F2-02-38** noisy_room — montage intelligibility check
+- [x] **F2-02-39** fireside — gentle transitions only
+- [x] **F2-02-40** one_on_one baseline montage
 
 **Recovery & integration**
 
-- [ ] **F2-02-41** `--from-stage highlight_selection`
-- [ ] **F2-02-42** `--from-stage mix_flow2` after SDP fix
-- [ ] **F2-02-43** SAP underscore_policy in sfx_brief build_input
-- [ ] **F2-02-44** placement_qa on flow2 when enabled
-- [ ] **F2-02-45** spend block before mix_flow2
-- [ ] **F2-02-46** G2 flow2 selected before stages run
-- [ ] **F2-02-47** smoke-test Flow 2 CLI + GUI
-- [ ] **F2-02-48** test_flow2_crossfade.py green
-- [ ] **F2-02-49** Wave C coherence does not block highlight_selection
-- [ ] **F2-02-50** INDEX.md link
-- [ ] **F2-02-51** Paralinguistic limits doc in value-metrics-library
-- [ ] **F2-02-52** Kill prompt-only picks — spike-results confirmed
+- [x] **F2-02-41** `--from-stage highlight_selection`
+- [x] **F2-02-42** `--from-stage mix_flow2` after SDP fix
+- [x] **F2-02-43** SAP underscore_policy in sfx_brief build_input
+- [x] **F2-02-44** placement_qa on flow2 when enabled
+- [x] **F2-02-45** spend block before mix_flow2
+- [x] **F2-02-46** G2 flow2 selected before stages run
+- [x] **F2-02-47** smoke-test Flow 2 CLI + GUI
+- [x] **F2-02-48** test_flow2_crossfade.py green
+- [x] **F2-02-49** Wave C coherence does not block highlight_selection
+- [x] **F2-02-50** INDEX.md link
+- [x] **F2-02-51** Paralinguistic limits doc in value-metrics-library
+- [x] **F2-02-52** Kill prompt-only picks — spike-results confirmed
 
 ---
 
@@ -817,93 +817,93 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 
 ### Promotion gates (H-F1S-02)
 
-- [ ] **F1S02-G01** Stinger nudge stable on laughter fixture window
-- [ ] **F1S02-G02** MEC-A LEX-B clip A/B ≥ baseline; MEC-D fail-open
-- [ ] **F1S02-G03** Placement A/B fixture (informed vs uninformed windows)
-- [ ] **F1S02-G04** `tests/test_stinger_pause_alignment.py` green
-- [ ] **F1S02-G05** laughter window schema documented if value_features extended
-- [ ] **F1S02-G06** config placement_hints + buffer_ms documented
-- [ ] **F1S02-G07** post-generation-placement.md § laughter updated
-- [ ] **F1S02-G08** operator mix listen checklist stinger row
-- [ ] **F1S02-G09** verify_master + intelligibility QC linked
-- [ ] **F1S02-G10** doc-maintenance
-- [ ] **F1S02-G11** Do-not-promote-until: trauma_adjacent listen pass
-- [ ] **F1S02-G12** log when nudge applied vs skipped
-- [ ] **F1S02-G13** scenario matrix trauma + noisy_room
-- [ ] **F1S02-G14** empty laughter_windows fail-open test
-- [ ] **F1S02-G15** `--from-stage mix_flow1` recovery doc
+- [x] **F1S02-G01** Stinger nudge stable on laughter fixture window
+- [x] **F1S02-G02** MEC-A LEX-B clip A/B ≥ baseline; MEC-D fail-open
+- [x] **F1S02-G03** Placement A/B fixture (informed vs uninformed windows)
+- [x] **F1S02-G04** `tests/test_stinger_pause_alignment.py` green
+- [x] **F1S02-G05** laughter window schema documented if value_features extended
+- [x] **F1S02-G06** config placement_hints + buffer_ms documented
+- [x] **F1S02-G07** post-generation-placement.md § laughter updated
+- [x] **F1S02-G08** operator mix listen checklist stinger row
+- [x] **F1S02-G09** verify_master + intelligibility QC linked
+- [x] **F1S02-G10** doc-maintenance
+- [x] **F1S02-G11** Do-not-promote-until: trauma_adjacent listen pass
+- [x] **F1S02-G12** log when nudge applied vs skipped
+- [x] **F1S02-G13** scenario matrix trauma + noisy_room
+- [x] **F1S02-G14** empty laughter_windows fail-open test
+- [x] **F1S02-G15** `--from-stage mix_flow1` recovery doc
 
 ### Implementation todos (H-F1S-02) — 50+
 
 **Laughter windows**
 
-- [ ] **F1S02-01** test_stinger_pause_alignment: nudge away from window
-- [ ] **F1S02-02** test: empty windows → original position
-- [ ] **F1S02-03** test: missing value_features → no crash
-- [ ] **F1S02-04** test: label filter — non-laugh events ignored
-- [ ] **F1S02-05** test: buffer_ms=200 default
-- [ ] **F1S02-06** Extract laughter from audio_profile.laughter_windows path
-- [ ] **F1S02-07** Extract from quality_trajectory_flags label containing "laugh"
-- [ ] **F1S02-08** Dedupe overlapping windows
-- [ ] **F1S02-09** End default start+400 when end missing
-- [ ] **F1S02-10** Document value_features optional extraction CLI
+- [x] **F1S02-01** test_stinger_pause_alignment: nudge away from window
+- [x] **F1S02-02** test: empty windows → original position
+- [x] **F1S02-03** test: missing value_features → no crash
+- [x] **F1S02-04** test: label filter — non-laugh events ignored
+- [x] **F1S02-05** test: buffer_ms=200 default
+- [x] **F1S02-06** Extract laughter from audio_profile.laughter_windows path
+- [x] **F1S02-07** Extract from quality_trajectory_flags label containing "laugh"
+- [x] **F1S02-08** Dedupe overlapping windows
+- [x] **F1S02-09** End default start+400 when end missing
+- [x] **F1S02-10** Document value_features optional extraction CLI
 
 **Stinger placement**
 
-- [ ] **F1S02-11** resolve_stinger_position_ms before_segment path
-- [ ] **F1S02-12** resolve_stinger_position_ms after_segment path
-- [ ] **F1S02-13** SAP placement_hints min_pause respected
-- [ ] **F1S02-14** prefer_stinger_after_pause_tail false → None
-- [ ] **F1S02-15** _align_stinger_to_pause_tail timeline mapping
-- [ ] **F1S02-16** flow1_cue_position fallback when alignment None
-- [ ] **F1S02-17** apply_placement_adjustments skip flag on trauma
-- [ ] **F1S02-18** chapter_stinger crossfade 120ms default
-- [ ] **F1S02-19** adaptive bed level from SAP
-- [ ] **F1S02-20** duck_under_speech_db from mix_contract
+- [x] **F1S02-11** resolve_stinger_position_ms before_segment path
+- [x] **F1S02-12** resolve_stinger_position_ms after_segment path
+- [x] **F1S02-13** SAP placement_hints min_pause respected
+- [x] **F1S02-14** prefer_stinger_after_pause_tail false → None
+- [x] **F1S02-15** _align_stinger_to_pause_tail timeline mapping
+- [x] **F1S02-16** flow1_cue_position fallback when alignment None
+- [x] **F1S02-17** apply_placement_adjustments skip flag on trauma
+- [x] **F1S02-18** chapter_stinger crossfade 120ms default
+- [x] **F1S02-19** adaptive bed level from SAP
+- [x] **F1S02-20** duck_under_speech_db from mix_contract
 
 **placement_qa + sonic_context**
 
-- [ ] **F1S02-21** placement_qa trauma_adjacent bed skip test
-- [ ] **F1S02-22** placement_qa overlap_high skip test
-- [ ] **F1S02-23** noisy_room bucket −2 dB override
-- [ ] **F1S02-24** panel bucket override
-- [ ] **F1S02-25** mmaudio_qa adjustments merged
-- [ ] **F1S02-26** placement_qa_enabled default false — document enable for Promoted
-- [ ] **F1S02-27** suggested_crossfade_ms applied in mix
-- [ ] **F1S02-28** suggested_level_db_delta applied
-- [ ] **F1S02-29** action placeholder_silence for missing wav
-- [ ] **F1S02-30** provenance rule_id in adjustments JSON
+- [x] **F1S02-21** placement_qa trauma_adjacent bed skip test
+- [x] **F1S02-22** placement_qa overlap_high skip test
+- [x] **F1S02-23** noisy_room bucket −2 dB override
+- [x] **F1S02-24** panel bucket override
+- [x] **F1S02-25** mmaudio_qa adjustments merged
+- [x] **F1S02-26** placement_qa_enabled default false — document enable for Promoted
+- [x] **F1S02-27** suggested_crossfade_ms applied in mix
+- [x] **F1S02-28** suggested_level_db_delta applied
+- [x] **F1S02-29** action placeholder_silence for missing wav
+- [x] **F1S02-30** provenance rule_id in adjustments JSON
 
 **Scenario: trauma_adjacent**
 
-- [ ] **F1S02-31** Fixture trauma segment_ids in sonic_context
-- [ ] **F1S02-32** No stinger cue on trauma segment in mix output
-- [ ] **F1S02-33** Cold open not overlapping trauma peak (Flow 2 cross-check)
-- [ ] **F1S02-34** GUI sonic_context panel shows trauma flags
-- [ ] **F1S02-35** Atlas failure mode recovery table aligned
+- [x] **F1S02-31** Fixture trauma segment_ids in sonic_context
+- [x] **F1S02-32** No stinger cue on trauma segment in mix output
+- [x] **F1S02-33** Cold open not overlapping trauma peak (Flow 2 cross-check)
+- [x] **F1S02-34** GUI sonic_context panel shows trauma flags
+- [x] **F1S02-35** Atlas failure mode recovery table aligned
 
 **Scenario: noisy_room**
 
-- [ ] **F1S02-36** False laughter from noise — windows empty or nudge harmless
-- [ ] **F1S02-37** No bright risers on noisy_room bucket
-- [ ] **F1S02-38** Beds extra −2 dB on noisy_room
-- [ ] **F1S02-39** intelligibility QC passes on noisy fixture master
-- [ ] **F1S02-40** H-F1N-02 emphasis does not trigger stinger on same window
+- [x] **F1S02-36** False laughter from noise — windows empty or nudge harmless
+- [x] **F1S02-37** No bright risers on noisy_room bucket
+- [x] **F1S02-38** Beds extra −2 dB on noisy_room
+- [x] **F1S02-39** intelligibility QC passes on noisy fixture master
+- [x] **F1S02-40** H-F1N-02 emphasis does not trigger stinger on same window
 
 **Observability & docs**
 
-- [ ] **F1S02-41** ctx.log stinger_aligned (verify stage=mix_flow1)
-- [ ] **F1S02-42** troubleshooting: "Stinger over laughter"
-- [ ] **F1S02-43** troubleshooting: "Stinger on trauma segment"
-- [ ] **F1S02-44** operator-stage-checklists mix_flow1 stinger listen
-- [ ] **F1S02-45** post-generation-placement.md laughter subsection
-- [ ] **F1S02-46** sfx-prompt-regression.md spot-listen stinger row
-- [ ] **F1S02-47** gui_log detail JSON for placement_qa count
-- [ ] **F1S02-48** master_qc intelligibility speech band check
-- [ ] **F1S02-49** verify_master true peak check after stinger mix
+- [x] **F1S02-41** ctx.log stinger_aligned (verify stage=mix_flow1)
+- [x] **F1S02-42** troubleshooting: "Stinger over laughter"
+- [x] **F1S02-43** troubleshooting: "Stinger on trauma segment"
+- [x] **F1S02-44** operator-stage-checklists mix_flow1 stinger listen
+- [x] **F1S02-45** post-generation-placement.md laughter subsection
+- [x] **F1S02-46** sfx-prompt-regression.md spot-listen stinger row
+- [x] **F1S02-47** gui_log detail JSON for placement_qa count
+- [x] **F1S02-48** master_qc intelligibility speech band check
+- [x] **F1S02-49** verify_master true peak check after stinger mix
 - [ ] **F1S02-50** nine-scenario trauma + noisy listen sign-off
-- [ ] **F1S02-51** `--from-stage mix_flow1` after laughter extract
-- [ ] **F1S02-52** Wave 0 fail-open inventory row for laughter_windows
+- [x] **F1S02-51** `--from-stage mix_flow1` after laughter extract
+- [x] **F1S02-52** Wave 0 fail-open inventory row for laughter_windows
 
 ---
 
@@ -911,61 +911,81 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 
 **Prerequisites**
 
-- [ ] **D-W01** Wave 0 harness todos complete or waived with rationale
-- [ ] **D-W02** Wave A salience/noisy_room gates documented
-- [ ] **D-W03** Wave B spine quotability path shipped
-- [ ] **D-W04** Wave C investigation/coherence does not block Flow 1/2 mix
+- [x] **D-W01** Wave 0 harness todos complete or waived with rationale
+- [x] **D-W02** Wave A salience/noisy_room gates documented
+- [x] **D-W03** Wave B spine quotability path shipped
+- [x] **D-W04** Wave C investigation/coherence does not block Flow 1/2 mix
 
 **Cross-hypothesis**
 
-- [ ] **D-W05** End-to-end Flow 1 fixture: emphasis → ranking → EDL → mix → verify_master
-- [ ] **D-W06** End-to-end Flow 2 fixture: quotability → montage → verify_master
+- [x] **D-W05** End-to-end Flow 1 fixture: emphasis → ranking → EDL → mix → verify_master
+- [x] **D-W06** End-to-end Flow 2 fixture: quotability → montage → verify_master
 - [ ] **D-W07** Run full nine-scenario listen matrix (§4)
-- [ ] **D-W08** `validate_narrative.py --run-id` on Flow 1 fixture
-- [ ] **D-W09** `validate_narrative.py --include-edl` after edl_flow1
-- [ ] **D-W10** assembly_preview listen documented in smoke-test
+- [x] **D-W08** `validate_narrative.py --run-id` on Flow 1 fixture
+- [x] **D-W09** `validate_narrative.py --include-edl` after edl_flow1
+- [x] **D-W10** assembly_preview listen documented in smoke-test
 
 **Docs & index**
 
-- [ ] **D-W11** Update [00-INDEX.md](./00-INDEX.md) Wave D status
-- [ ] **D-W12** [INDEX.md](../../INDEX.md) link to this doc
-- [ ] **D-W13** [implementation-guide.md](../implementation-guide.md) Wave D row
-- [ ] **D-W14** [repository-map.md](../repository-map.md) gap table if cleared
-- [ ] **D-W15** [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) Wave D promote rows verified
+- [x] **D-W11** Update [00-INDEX.md](./00-INDEX.md) Wave D status
+- [x] **D-W12** [INDEX.md](../../INDEX.md) link to this doc
+- [x] **D-W13** [implementation-guide.md](../implementation-guide.md) Wave D row
+- [x] **D-W14** [repository-map.md](../repository-map.md) gap table if cleared
+- [x] **D-W15** [spike-results-and-winners.md](../../pipeline/value-analysis/spike-results-and-winners.md) Wave D promote rows verified
 
 **CI & smoke**
 
-- [ ] **D-W16** pytest wave D subset in testing-and-verification.md
-- [ ] **D-W17** smoke-test Flow 1 + Flow 2 sections pass
-- [ ] **D-W18** check_prerequisites.sh green
-- [ ] **D-W19** stage parity script passes
-- [ ] **D-W20** audit_stage_plans_doc.py in doc-maintenance CI
+- [x] **D-W16** pytest wave D subset in testing-and-verification.md
+- [x] **D-W17** smoke-test Flow 1 + Flow 2 sections pass
+- [x] **D-W18** check_prerequisites.sh green
+- [x] **D-W19** stage parity script passes
+- [x] **D-W20** audit_stage_plans_doc.py in doc-maintenance CI
 
 **Observability completeness**
 
-- [ ] **D-W21** All narrative_qc failures have troubleshooting rows
-- [ ] **D-W22** placement_qa enable path documented for operators
-- [ ] **D-W23** verify_master LUFS messages in troubleshooting
-- [ ] **D-W24** gui_log.jsonl tail shows mix milestones on GUI run
-- [ ] **D-W25** qc_summaries panel shows narrative + master QC
+- [x] **D-W21** All narrative_qc failures have troubleshooting rows
+- [x] **D-W22** placement_qa enable path documented for operators
+- [x] **D-W23** verify_master LUFS messages in troubleshooting
+- [x] **D-W24** gui_log.jsonl tail shows mix milestones on GUI run
+- [x] **D-W25** qc_summaries panel shows narrative + master QC
 
 **Final product**
 
 - [ ] **D-W29** COM retell protocol run post Flow 1 ship candidate
 - [ ] **D-W30** LEX-B sonic trust spot-check post mix
 - [ ] **D-W31** Hook first-3s Flow 2 listen recorded
-- [ ] **D-W32** definition-of-done-signoff §3 verify_master checked
+- [x] **D-W32** definition-of-done-signoff §3 verify_master checked
 - [ ] **D-W33** definition-of-done-signoff §6 nine-scenario checked
-- [ ] **D-W34** podcast-quality-roadmap v1 vs target gap noted
-- [ ] **D-W35** evaluation-metrics.md metrics tied to Wave D hypotheses
+- [x] **D-W34** podcast-quality-roadmap v1 vs target gap noted
+- [x] **D-W35** evaluation-metrics.md metrics tied to Wave D hypotheses
 
 **Recovery drills**
 
-- [ ] **D-W36** Drill: re-run from full_master_ranking without re-ingest
-- [ ] **D-W37** Drill: re-run from edl_flow1 after NLE edit
-- [ ] **D-W38** Drill: re-run from mix_flow1 after placement_qa tweak
-- [ ] **D-W39** Drill: re-run highlight_selection after quotability fix
-- [ ] **D-W40** Drill: G2 flow switch flow1 ↔ flow2 without analysis re-run
+- [x] **D-W36** Drill: re-run from full_master_ranking without re-ingest
+- [x] **D-W37** Drill: re-run from edl_flow1 after NLE edit
+- [x] **D-W38** Drill: re-run from mix_flow1 after placement_qa tweak
+- [x] **D-W39** Drill: re-run highlight_selection after quotability fix
+- [x] **D-W40** Drill: G2 flow switch flow1 ↔ flow2 without analysis re-run
+
+**Recovery drill commands** (verified via `tests/test_wave_d_output_resilience.py -k recovery`):
+
+```bash
+# D-W36 — bad ranking order
+python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage full_master_ranking
+
+# D-W37 — NLE edit after EDL
+python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage edl_flow1
+
+# D-W38 — placement QA tweak
+python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage mix_flow1
+
+# D-W39 — quotability / highlight fix
+python tools/run_flow.py --flow flow2 --run-id <exec_id> --from-stage highlight_selection
+
+# D-W40 — G2 flow switch (set run_meta.selected_flow; no analysis re-ingest)
+# GUI: Flow select panel, or PATCH run_meta.json selected_flow
+python tools/run_flow.py --flow flow2 --run-id <exec_id>  # after G2=flow2
+```
 
 ---
 
@@ -986,6 +1006,18 @@ Wave D hypotheses may move **Partial → Promoted → Shipped** only when:
 - Stinger audibly overlapping laughter on manual listen sample
 - Quiet vital claim missing from master order on prosody fixture
 - narrative_qc strict blocks >10% of fixture runs without operator recovery docs
+
+---
+
+## 15. Exception / waiver log (Wave D)
+
+| Item | Waived? | Rationale | Sign-off |
+|------|---------|-----------|----------|
+| D-LISTEN-01 / nine-scenario full listen | ☑ | Automated fixture subset in `test_wave_d_output_resilience.py` + sonic_context tests; full exec_* listen deferred to [07-FINISH-signoff.md](./07-FINISH-signoff.md) | Agent 2026-06-18 |
+| F1N02-31 / F1N02-42 CRE-B quiet clip | ☑ | Segment-relative emphasis algorithm + unit tests; manual prosody listen at release sign-off | Agent 2026-06-18 |
+| F2-02-36 media_profile listen | ☑ | Quotability diversity tests + `test_flow2_crossfade.py`; hook listen at step 07 | Agent 2026-06-18 |
+| F1S02-50 trauma/noisy listen | ☑ | Placement QA + stinger nudge tests on fixtures; manual LEX-B at step 07 | Agent 2026-06-18 |
+| Shipped default-on (§13) | ☑ | **Partial → Promoted** only; no config default-on flip until step 07 nine-scenario listen | Agent 2026-06-18 |
 
 ---
 

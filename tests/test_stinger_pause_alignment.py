@@ -116,6 +116,16 @@ def test_nudge_away_from_laughter_returns_none_when_blocked() -> None:
     assert _nudge_away_from_laughter(1000, windows, buffer_ms=200) is None
 
 
+def test_nudge_away_from_laughter_empty_windows_returns_original() -> None:
+    assert _nudge_away_from_laughter(1000, [], buffer_ms=200) == 1000
+    assert _nudge_away_from_laughter(None, [], buffer_ms=200) is None
+
+
+def test_laughter_windows_missing_value_features_returns_empty() -> None:
+    assert _laughter_windows_from_value_features(None) == []
+    assert _laughter_windows_from_value_features({}) == []
+
+
 def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_stinger_pause", create=True)

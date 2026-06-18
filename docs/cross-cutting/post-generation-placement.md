@@ -74,6 +74,20 @@ When `sound_design.placement_qa_enabled: true`, `run_placement_qa()` may emit `s
 
 Log line when applied: `placement_qa: applied level to N cue(s), crossfade to M cue(s)`.
 
+---
+
+## Laughter window nudge (H-F1S-02)
+
+When `understanding/value_features.json` includes laughter windows (from `quality_trajectory_flags` labels containing `laugh` or `audio.laughter_windows`), `mix_flow1` nudges chapter stingers away from those windows via `_nudge_away_from_laughter()` in `sound_design.py`.
+
+| Condition | Behavior |
+|-----------|----------|
+| `laughter_windows` empty or missing | Placement unchanged; no error (fail-open) |
+| Stinger pause-tail overlaps laughter ±200 ms | Nudge ±200/400/600 ms; log `mix_flow1: stinger_aligned pause_tail` |
+| All nudge candidates blocked | Returns `None`; mixer keeps cue plan position |
+
+Recovery: update value features or transcript, then `--from-stage mix_flow1`. See [troubleshooting.md](../workflows/troubleshooting.md) § Audio / mix.
+
 ### Adaptive bed level (`mix.adaptive_level_from_sap`)
 
 When enabled (default), `flow1_overlays_from_sdp()` adjusts bed `level_db` via `_adaptive_bed_level_db()`:

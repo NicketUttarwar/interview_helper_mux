@@ -37,6 +37,14 @@ def run_highlight_selection(ctx: RunContext) -> None:
         build_input,
         persist,
     )
+    if ctx.is_done("highlight_selection"):
+        signals = quotability_signals(ctx)
+        top_ids = [str(s.get("segment_id") or "") for s in signals[:3] if s.get("segment_id")]
+        ctx.log(
+            f"highlight_selection: quotability top-3 segment_ids={top_ids}",
+            level="info",
+            stage="highlight_selection",
+        )
 
 
 def run_sfx_brief(ctx: RunContext) -> None:

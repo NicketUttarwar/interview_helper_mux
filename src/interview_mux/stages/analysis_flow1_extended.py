@@ -35,6 +35,13 @@ def run_topic_coverage(ctx: RunContext) -> None:
         build_input,
         persist,
     )
+    if ctx.is_done("topic_coverage_audit"):
+        regions = emphasis_regions_for_segments(ctx)
+        ctx.log(
+            f"topic_coverage_audit: emphasis_regions count={len(regions)}",
+            level="info",
+            stage="topic_coverage_audit",
+        )
     maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", build_input(ctx))
     if ctx.is_done("topic_coverage_audit"):
         from interview_mux.coherence import maybe_run_coherence_analysis

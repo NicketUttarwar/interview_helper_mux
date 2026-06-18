@@ -242,6 +242,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Duplicate `segment_id` in order | Model error | `flow_1_master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
 | Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
 | Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
+| Coverage misses quiet vital claim | Emphasis-weighted gap not in `coverage_audit` | `flow_1_master/coverage_audit.json`, `gui_log.jsonl` `emphasis_regions count=` | Re-run `--from-stage topic_coverage_audit`; verify `ingest/normalized.wav` for H-F1N-02 emphasis; check `emphasis_regions` in volley |
 | `validate_narrative.py` fails | Brief topic unmapped or empty chapter | `coverage_audit.json`, `selection.json` | Fix audit/ranking; or set `narrative_qc.strict: false` to warn-only |
 | `validate_narrative.py --include-edl` fails | Final EDL breaks coverage, chapter continuity, ordering constraints, transition anchors, or gap placements | `edl_narrative_audit.json`, `selection.json`, `narrative_plan.json`, `transitions.json`, `edl.json` | Fix recommended artifact; usually re-run `full_master_ranking`, `transitions`, `vo_ingest`, or `edl_flow1` |
 | `validate_edl.py` fails | Invalid EDL timeline events or bounds | `flow_1_master/edl.json` event paths | Re-run `edl_flow1` after fixing selection/transitions/VO paths |
@@ -254,6 +255,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | Overlapping clips | Selection error | `flow_2_highlights/selection.json` | `--from-stage highlight_selection` |
+| Flat highlight reel | Montage lacks diversity or weak hooks | `flow_2_highlights/selection.json`, `gui_log.jsonl` `quotability top-3` | Re-run `--from-stage highlight_selection`; verify `quotability_signals` in volley; listen first 3s |
+| Quotability ignored | LLM selection without paralinguistic fusion | `understanding/stage_runs/highlight_selection/`, `value_features.json` | Confirm WAV present for energy scores; re-run highlight selection |
 | All clips same topic | Diversity not enforced | `scores.diversity_bonus`, `rejected_candidates` | Re-run selection; tighten brief audience |
 
 ---
@@ -278,6 +281,8 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 | SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/mmaudio_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
 | SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `sfx_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
 | Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
+| Stinger over laughter | Stinger aligned into paralinguistic window | `gui_log.jsonl` `stinger_aligned`, `understanding/value_features.json` laughter windows | Re-run `--from-stage mix_flow1` after value extract; verify `_nudge_away_from_laughter` in mix log |
+| Stinger on trauma segment | Scenario ban not applied | `understanding/sonic_context.json` `segment_flags.trauma_adjacent`, `placement_adjustments.json` | Enable `placement_qa_enabled`; confirm bed/stinger skip on flagged segments; re-run mix |
 | GUI auto-runs `verify_master` after `master_flow*` | Post-master QC in `web/runner.py` | `run_meta.qc_summaries`, `gui_log.jsonl` `stage=verify_master` | Fix mix levels; re-run `master_flow*`; read LUFS/peak lines in gate panel |
 | Spine recompute invalidates Story Board | SAP or spine rebuild clears downstream markers | `gui_log.jsonl` invalidation lines, `.stage_done/` | Re-run from invalidated stage; confirm `execution_invalidation.py` scope — [gui-surface-map.md](./gui-surface-map.md) Story Board |
 | Recompute spine failed | Missing transcript, SAP, or WAV after G0 | `gui_log.jsonl` `interview_spine_recompute_failed`; HTTP 500 from `POST …/recompute-interview-spine` | Complete G0 + `source_acoustic_profile`; verify `ingest/normalized.wav` or preclean isolated path |
