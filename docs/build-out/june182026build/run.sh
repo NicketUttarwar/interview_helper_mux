@@ -20,8 +20,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/lib/secrets_env.sh"
+load_secrets_env "${REPO_ROOT}"
 COMMANDS_MD="${SCRIPT_DIR}/agent-commands.md"
-SECRETS_ENV="${REPO_ROOT}/config/secrets/secrets.env"
 EXEC_RUN="${REPO_ROOT}/CURSOR_EXECUTE/run.sh"
 ONE_LINER="cd ${REPO_ROOT} && ./docs/build-out/june182026build/run.sh"
 
@@ -36,21 +38,6 @@ declare -a STEP_MSG=(
   "step 06 Wave D output resilience"
   "step 07 FINISH sign-off"
 )
-
-_load_cursor_api_key_from_secrets() {
-  [[ -f "$SECRETS_ENV" ]] || return 0
-  local line val
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%%#*}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    [[ -z "$line" ]] && continue
-    [[ "$line" != CURSOR_API_KEY=* ]] && continue
-    val="${line#CURSOR_API_KEY=}"
-    val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
-    [[ -n "$val" ]] && export CURSOR_API_KEY="$val"
-    return 0
-  done < "$SECRETS_ENV"
-}
 
 _git_commit_push() {
   local step="$1"
@@ -111,10 +98,6 @@ last = int(data.get('last_completed_index', 0))
 print(last + 1 if last > 0 else 1)
 "
 }
-
-if [[ -z "${CURSOR_API_KEY:-}" ]]; then
-  _load_cursor_api_key_from_secrets
-fi
 
 DRY_RUN=0
 NO_GIT=0

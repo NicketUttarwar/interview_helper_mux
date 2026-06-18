@@ -122,3 +122,38 @@ def test_execute_hint_prepare(smoke_ctx):
         if hint:
             assert hint["mode"] in ("analysis", "analysis_until_g0")
             assert hint.get("until_stage") == "transcript_review_build" or hint.get("mode")
+
+
+def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch):
+    from interview_mux.journey_orchestrator import _blocking
+    from run_fixtures import init_run_meta_for_test, isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.run_context.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
+    init_run_meta_for_test(ctx)
+    job = {
+        "status": "awaiting_write_approval",
+        "stage": "ingest",
+        "pending_write_stage": "ingest",
+        "message": "Stage 'ingest' outputs await review before saving (2 file(s)).",
+    }
+    snap = _blocking(ctx, job=job, milestones={"g0_complete": False})
+    assert snap["blocked"] is True
+    assert snap["reason"] == "write_approval"
+    assert snap["stage_id"] == "ingest"

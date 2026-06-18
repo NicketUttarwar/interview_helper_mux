@@ -187,16 +187,51 @@ def stage_reuse_offers_enabled() -> bool:
     return bool(cfg.get("enable_stage_reuse_offers", True))
 
 
-def _resolved_source_audio_hash(ctx: RunContext) -> str | None:
-    """Prefer live pipeline-WAV hash; fall back to stored run_meta when disk is unavailable."""
-    return ctx.source_audio_hash(recompute=True) or ctx.source_audio_hash()
+def _stored_source_audio_hash(ctx: RunContext) -> str | None:
+    """Source-audio hash from run_meta without re-reading the pipeline WAV."""
+    return ctx.source_audio_hash(recompute=False)
+
+
+def _hash_short_for_ctx(ctx: RunContext) -> str | None:
+    meta = read_run_meta(ctx)
+    short = meta.get("source_audio_hash_short")
+    if short:
+        return str(short)
+    full = _stored_source_audio_hash(ctx)
+    if full:
+        return hash_short_from_full(full)
+    return parse_hash_from_run_id(ctx.run_id)
+
+
+def _run_id_hash_prefilter(ctx: RunContext) -> str | None:
+    """12-char hash used to skip unrelated executions before meta/file checks."""
+    return parse_hash_from_run_id(ctx.run_id) or _hash_short_for_ctx(ctx)
+
+
+def _run_ids_for_reuse_scan(current: RunContext) -> list[str]:
+    """Execution ids that might share source audio with *current* (hash prefilter)."""
+    hash_short = _run_id_hash_prefilter(current)
+    out: list[str] = []
+    for run_id in RunContext.list_runs():
+        if run_id == current.run_id:
+            continue
+        rid_short = parse_hash_from_run_id(run_id)
+        if hash_short and rid_short:
+            if not hashes_match(rid_short, hash_short):
+                continue
+        out.append(run_id)
+    return out
 
 
 def source_audio_hashes_match(current: RunContext, source: RunContext) -> bool:
     """True when both runs have a source-audio hash and they match."""
-    cur_hash = _resolved_source_audio_hash(current)
-    src_hash = _resolved_source_audio_hash(source)
-    return bool(cur_hash and src_hash and hashes_match(cur_hash, src_hash))
+    cur_hash = _stored_source_audio_hash(current)
+    src_hash = _stored_source_audio_hash(source)
+    if cur_hash and src_hash and hashes_match(cur_hash, src_hash):
+        return True
+    cur_short = _hash_short_for_ctx(current)
+    src_short = _hash_short_for_ctx(source)
+    return bool(cur_short and src_short and hashes_match(cur_short, src_short))
 
 
 def runs_share_source_audio(current: RunContext, source: RunContext) -> bool:
@@ -368,13 +403,12 @@ def _sdp_source_conflict(ctx: RunContext, source_run_id: str, stage_id: str) -> 
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
-    current_hash = _resolved_source_audio_hash(ctx)
-    if not current_hash:
+    current_hash = _stored_source_audio_hash(ctx)
+    hash_short = _hash_short_for_ctx(ctx)
+    if not current_hash and not hash_short:
         return []
     candidates: list[ReuseCandidate] = []
-    for run_id in RunContext.list_runs():
-        if run_id == ctx.run_id:
-            continue
+    for run_id in _run_ids_for_reuse_scan(ctx):
         if not RunContext.exists(run_id):
             continue
         source = RunContext(run_id, create=False)
@@ -386,7 +420,7 @@ def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate
             continue
         meta = read_run_meta(source)
         paths = list_copy_paths_for_stage(source, stage_id)
-        src_hash = _resolved_source_audio_hash(source)
+        src_hash = _stored_source_audio_hash(source)
         src_short = (
             meta.get("source_audio_hash_short")
             or (hash_short_from_full(src_hash) if src_hash else None)

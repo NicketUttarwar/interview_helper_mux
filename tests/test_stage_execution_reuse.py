@@ -259,3 +259,26 @@ def test_clear_stage_reuse_on_invalidate(tmp_path: Path, monkeypatch) -> None:
     meta = ctx.read_json("run_meta.json")
     assert "ingest" not in (meta.get("stage_reuse") or {})
     assert "transcribe" not in (meta.get("stage_reuse") or {})
+
+
+def test_find_candidates_prefilter_by_run_id_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_001_beef00000001_20260101T000000Z", tmp_path)
+    current = _ctx_in_root("exec_002_beef00000001_20260101T000001Z", tmp_path)
+    other_hash = _ctx_in_root("exec_003_cafe00000002_20260101T000002Z", tmp_path)
+    init_run_meta_for_test(
+        other_hash,
+        source_audio_hash="d" * 64,
+        source_audio_hash_short="cafe00000002",
+    )
+    other_hash.write_json("transcript/full.json", {"segments": []})
+    other_hash.write_json("transcript/speakers.json", {"speakers": []})
+    other_hash.mark_done("transcribe")
+
+    prior.write_json("transcript/full.json", {"segments": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.mark_done("transcribe")
+
+    candidates = find_reuse_candidates(current, "transcribe")
+    assert len(candidates) == 1
+    assert candidates[0].run_id == "exec_001_beef00000001_20260101T000000Z"

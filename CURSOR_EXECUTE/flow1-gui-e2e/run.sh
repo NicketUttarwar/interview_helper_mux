@@ -8,6 +8,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/lib/secrets_env.sh"
+load_secrets_env "${REPO_ROOT}"
 CAMPAIGN_DIR="${SCRIPT_DIR}"
 DRIVER_DIR="${CAMPAIGN_DIR}/driver"
 EXEC_RUN="${REPO_ROOT}/CURSOR_EXECUTE/run.sh"
@@ -261,12 +264,11 @@ _phase_fix() {
     return 1
   fi
   _log_step "FIX" "Invoking CURSOR_EXECUTE E2E-03"
-  if [[ -n "${CURSOR_API_KEY:-}" ]] || grep -q '^CURSOR_API_KEY=' "${REPO_ROOT}/config/secrets/secrets.env" 2>/dev/null; then
-    "${EXEC_RUN}" "${COMMANDS_MD}" --from 3 --to 3 || return 1
-  else
+  if ! require_secrets_env_key "CURSOR_API_KEY" "${REPO_ROOT}"; then
     _log_blocker "CURSOR_API_KEY not set — fix blocker manually then --resume"
     return 1
   fi
+  "${EXEC_RUN}" "${COMMANDS_MD}" --from 3 --to 3 || return 1
   if git -C "${REPO_ROOT}" diff --name-only -- frontend/ 2>/dev/null | grep -q .; then
     _log_step "REBUILD" "frontend changed — building GUI"
     "${REPO_ROOT}/scripts/build_gui.sh"

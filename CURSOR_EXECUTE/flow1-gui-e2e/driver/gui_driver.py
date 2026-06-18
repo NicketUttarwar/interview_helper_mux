@@ -245,8 +245,18 @@ def run_driver(args: argparse.Namespace) -> int:
                         return EXIT_OK
 
                     try:
-                        run = api.run(run_id)
                         job = api.job(run_id)
+                        status = job.get("status", "idle")
+                        if status == "running":
+                            run = {"stages": [], "g1_missing": [], "selected_flow": None}
+                        elif status == "awaiting_write_approval":
+                            run = {
+                                "stages": [],
+                                "g1_missing": [],
+                                "selected_flow": job.get("selected_flow"),
+                            }
+                        else:
+                            run = api.run(run_id)
                         consecutive_api_failures = 0
                         last_api_error = ""
                     except Exception as exc:

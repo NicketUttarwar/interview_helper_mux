@@ -4,6 +4,11 @@ set -euo pipefail
 IFS=$'\n\t'
 
 EXEC_ROOT="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(git -C "$EXEC_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$REPO_ROOT" && -f "${REPO_ROOT}/scripts/lib/secrets_env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "${REPO_ROOT}/scripts/lib/secrets_env.sh"
+fi
 SESSION_ID="$(date -u +%Y%m%d_%H%M%S)_$$"
 LOG_DIR="${EXEC_ROOT}/logs/session_${SESSION_ID}"
 TRANSCRIPT="${LOG_DIR}/transcript.log"
@@ -68,8 +73,14 @@ for _arg in "$@"; do
     break
   fi
 done
+if declare -F load_secrets_env_key >/dev/null 2>&1; then
+  load_secrets_env_key "CURSOR_API_KEY" "${EXEC_ROOT}" || true
+elif [[ -n "$REPO_ROOT" ]]; then
+  _bash_fatal "Missing scripts/lib/secrets_env.sh — cannot load config/secrets/secrets.env"
+  exit 3
+fi
 if [[ -z "${CURSOR_API_KEY:-}" && "$DRY_RUN" -eq 0 ]]; then
-  _bash_fatal "CURSOR_API_KEY is not set. Export it or pass --dry-run"
+  _bash_fatal "CURSOR_API_KEY is not set. Export it, add to config/secrets/secrets.env, or pass --dry-run"
   exit 3
 fi
 

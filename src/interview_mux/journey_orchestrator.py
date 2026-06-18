@@ -185,11 +185,13 @@ def _blocking(
     message = ""
     stage_id: str | None = None
 
-    if job and job.get("status") in ("gate", "needs_operator"):
+    if job and job.get("status") in ("gate", "needs_operator", "awaiting_write_approval"):
         blocked = True
         message = str(job.get("message") or "Operator action required")
-        stage_id = job.get("stage")
-        if job.get("needs_stage_reuse"):
+        stage_id = job.get("pending_write_stage") or job.get("stage")
+        if job.get("status") == "awaiting_write_approval":
+            reason = "write_approval"
+        elif job.get("needs_stage_reuse"):
             reason = "stage_reuse"
         else:
             reason = str(stage_id or job.get("status"))
