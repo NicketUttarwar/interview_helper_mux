@@ -155,6 +155,12 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
     await refreshRun();
   };
 
+  const passAllAssets = async () => {
+    for (const { asset_id } of assets) {
+      await submitListen(asset_id, "pass", "e2e auto-pass");
+    }
+  };
+
   const playAsset = async (assetId: string, path: string) => {
     const soloUrl = `/api/runs/${run.run_id}/audio?path=${encodeURIComponent(path)}`;
     const underSpeechUrl = getSfxUnderSpeechUrl(run.run_id, assetId);
@@ -231,6 +237,18 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
         <div className="flow-choice">
           <button type="button" className="btn ghost sm" onClick={() => void autoRefineFailed()}>
             Auto-refine failed assets ({failedIds.length})
+          </button>
+        </div>
+      ) : null}
+      {assets.length ? (
+        <div className="flow-choice">
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-testid="sfx-post-listen-pass-all"
+            onClick={() => void passAllAssets()}
+          >
+            Pass all ({assets.length})
           </button>
         </div>
       ) : null}

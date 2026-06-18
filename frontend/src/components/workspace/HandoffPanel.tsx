@@ -73,6 +73,7 @@ export function HandoffPanel() {
         <button
           type="button"
           className="btn primary sm"
+          data-testid="handoff-acknowledge"
           onClick={() => void acknowledgeHandoff()}
         >
           Acknowledge &amp; continue

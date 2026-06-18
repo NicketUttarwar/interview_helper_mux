@@ -1,0 +1,3 @@
+logs/session_*/
+driver/state.json
+fixtures/dummy_vo.wav

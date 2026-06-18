@@ -247,6 +247,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         <button
           type="button"
           className="btn primary"
+          data-testid="write-approval-save-continue"
           disabled={submitting || !paths.length}
           onClick={() => void approve()}
         >

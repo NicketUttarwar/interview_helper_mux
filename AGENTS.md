@@ -63,6 +63,8 @@
 
 Optional: automate markdown command queues with [CURSOR_EXECUTE/README.md](CURSOR_EXECUTE/README.md) (`./CURSOR_EXECUTE/run.sh <commands.md>`).
 
+**Flow 1 GUI E2E:** [CURSOR_EXECUTE/flow1-gui-e2e/00-INDEX.md](CURSOR_EXECUTE/flow1-gui-e2e/00-INDEX.md) — `./CURSOR_EXECUTE/flow1-gui-e2e/run.sh` drives the real GUI through Flow 1 (Playwright; Ctrl+C to abort; `--resume` to continue).
+
 1. Open **Agent mode** (not Ask).
 2. For shipped BUILD backlog: [docs/build-out/remaining-build-commands.md](docs/build-out/remaining-build-commands.md) (or historical [steps-forward.md](docs/build-out/steps-forward.md)).
 3. `@`-attach the listed docs; use the **Agent directive** from each build/command file.

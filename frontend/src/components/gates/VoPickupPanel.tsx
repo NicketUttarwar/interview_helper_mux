@@ -98,6 +98,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
               type="file"
               accept="audio/*"
               className="vo-upload"
+              data-testid={`vo-upload-${line.line_id}`}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void uploadVoFile(line.line_id, file);
@@ -110,6 +111,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
         <button
           type="button"
           className="btn primary"
+          data-testid="vo-continue"
           onClick={() => void executeJob({ mode: "stage", stage: "vo_ingest" })}
         >
           All VO recorded — continue

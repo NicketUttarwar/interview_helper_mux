@@ -238,6 +238,7 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
         <button
           type="button"
           className="btn primary sm"
+          data-testid="approve-sfx-prompts"
           disabled={!edits.length}
           onClick={() => void approve()}
         >

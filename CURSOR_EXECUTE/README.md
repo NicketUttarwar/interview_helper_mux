@@ -104,3 +104,27 @@ Keep command markdown anywhere in that repo; runner auto-detects `git` root.
 - Requires Cursor local SDK bridge and API billing for non-dry runs
 - Does not auto-run shell “final verification” blocks from markdown
 - SDK may not capture Cursor IDE logs outside `run.messages()`
+
+## GUI E2E campaigns
+
+**Flow 1 full podcast (Playwright + real GUI):**
+
+```bash
+./CURSOR_EXECUTE/flow1-gui-e2e/run.sh
+```
+
+- Input: `ASSETS/notebooklm_original_interview_2024.wav`
+- Prints **STEP / ACTION / WAIT / GATE** lines in real time — **Ctrl+C** saves `driver/state.json` for `--resume`
+- On blocker: writes `blockers/BLOCKER-NNN-*.md` and invokes `E2E-03` fix via Cursor SDK (unless `--no-fix`)
+- Flags: `--dry-run`, `--headed`, `--verbose`, `--resume`, `--no-fix`, `--max-fix-rounds N`
+- Screenshots: `ASSETS/flow1-gui-e2e-screenshots/` (local git repo; full-page PNG on clicks, max 1 per 2 min)
+
+Index: [flow1-gui-e2e/00-INDEX.md](flow1-gui-e2e/00-INDEX.md)
+
+Install Playwright (first run):
+
+```bash
+source CURSOR_EXECUTE/.venv/bin/activate
+pip install -e "CURSOR_EXECUTE/.[e2e]"
+playwright install chromium
+```

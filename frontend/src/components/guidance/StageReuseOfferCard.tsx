@@ -116,6 +116,7 @@ export function StageReuseOfferCard({
                 <button
                   type="button"
                   className="btn primary sm stage-reuse-accept-btn"
+                  data-testid="reuse-accept"
                   disabled={submitting}
                   onClick={() => void submit("accept", c.run_id)}
                 >
@@ -167,6 +168,7 @@ export function StageReuseOfferCard({
         <button
           type="button"
           className="btn ghost sm"
+          data-testid="reuse-run-fresh"
           disabled={submitting}
           onClick={() => void submit("decline")}
         >

@@ -72,7 +72,7 @@ export function DisfluencyReviewPanel() {
     return (
       <div className="gate-actions">
         <p className="empty-state">No filler events detected.</p>
-        <button type="button" className="btn primary sm" onClick={() => void complete()}>
+        <button type="button" className="btn primary sm" data-testid="complete-disfluency-review" onClick={() => void complete()}>
           Complete review
         </button>
       </div>
@@ -179,7 +179,7 @@ export function DisfluencyReviewPanel() {
         </div>
       </div>
       {(stats?.pending ?? 0) === 0 && (
-        <button type="button" className="btn primary" onClick={() => void complete()}>
+        <button type="button" className="btn primary" data-testid="complete-disfluency-review" onClick={() => void complete()}>
           Complete review
         </button>
       )}
