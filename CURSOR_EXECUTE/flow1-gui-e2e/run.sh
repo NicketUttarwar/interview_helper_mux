@@ -187,6 +187,31 @@ _phase_setup() {
     fi
   fi
 
+  _log_step "SETUP" "Ensure GUI bundle includes E2E testids"
+  if ! command -v npm >/dev/null 2>&1; then
+    _log_fatal "npm required to build GUI for E2E — install Node.js 20+ (see SETUP.md)"
+    exit 1
+  fi
+  _e2e_gui_has_markers() {
+    local js
+    for js in "${REPO_ROOT}/src/interview_mux/web/static/assets/index-"*.js; do
+      [[ -f "$js" ]] || continue
+      grep -q 'start-tab-ready' "$js" && return 0
+    done
+    return 1
+  }
+  if ! _e2e_gui_has_markers; then
+    _log_info "GUI bundle stale — running ./scripts/build_gui.sh"
+    "${REPO_ROOT}/scripts/build_gui.sh"
+    if ! _e2e_gui_has_markers; then
+      _log_fatal "GUI rebuild did not produce start-tab-ready — check frontend build"
+      exit 1
+    fi
+    _log_info "PASS GUI rebuilt with E2E markers"
+  else
+    _log_info "PASS GUI bundle contains E2E markers"
+  fi
+
   _log_step "SETUP" "Complete"
 }
 

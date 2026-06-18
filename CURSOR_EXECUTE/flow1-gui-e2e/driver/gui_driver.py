@@ -105,6 +105,27 @@ def write_blocker(
     return path
 
 
+def _clear_blocking_session(page, log: EventLogger, archive: ExecutionScreenshotArchive | None) -> None:
+    """Dismiss recovery / locked-session views so Start tab assets are reachable."""
+    recovery = page.get_by_role("heading", name="Session recovery")
+    if recovery.count():
+        clear_btn = page.get_by_role("button", name="Clear session", exact=True)
+        if clear_btn.count() and clear_btn.first.is_enabled():
+            log.action("Clearing stale session (recovery view)")
+            clear_btn.first.click()
+            if archive:
+                archive.maybe_capture_after_click(page, "click:clear-session")
+            page.wait_for_timeout(1500)
+        return
+    locked = page.get_by_role("heading", name="Session in progress")
+    if locked.count():
+        log.action("Session already locked — opening Pipeline (resume path)")
+        cont = page.get_by_role("button", name="Continue in Pipeline", exact=True)
+        if cont.count():
+            cont.first.click()
+            page.wait_for_timeout(1000)
+
+
 def start_run(
     page,
     log: EventLogger,
@@ -128,8 +149,10 @@ def start_run(
     log.action(f"Waiting for data-testid={asset_tid}")
     page.get_by_test_id(asset_tid).first.wait_for(state="visible", timeout=120_000)
 
+    _clear_blocking_session(page, log, archive)
+
     log.action("Waiting for Start tab session boot (start-tab-ready)")
-    wait_for_start_tab_ready(page, timeout_s=120)
+    wait_for_start_tab_ready(page, exec_tid, timeout_s=120, log=log)
 
     baseline: set[str] = set()
     if api is not None:
@@ -137,19 +160,6 @@ def start_run(
             baseline = baseline_run_ids_for_wav(list(api.runs().get("runs") or []), wav_name)
         except Exception:
             baseline = set()
-
-    log.action(f"Waiting for session ready ({exec_tid} enabled)")
-    deadline = time.time() + 120
-    while time.time() < deadline:
-        btn = page.get_by_test_id(exec_tid).first
-        try:
-            if btn.is_enabled():
-                break
-        except Exception:
-            pass
-        page.wait_for_timeout(500)
-    else:
-        raise TimeoutError(f"Start button {exec_tid} never became enabled (session not ready)")
 
     if page.get_by_test_id("flow-intent-flow1").count():
         log.action("Selecting flow intent flow1")
@@ -251,7 +261,21 @@ def run_driver(args: argparse.Namespace) -> int:
 
             try:
                 if not state.started or not state.run_id:
-                    baseline = start_run(page, log, config, wav_name, archive, api=api)
+                    try:
+                        baseline = start_run(page, log, config, wav_name, archive, api=api)
+                    except TimeoutError as exc:
+                        shot = screenshot(page, session_dir, "session-not-ready")
+                        write_blocker(
+                            _CAMPAIGN_DIR,
+                            slug="session-not-ready",
+                            run_id=None,
+                            stage=None,
+                            job_status=None,
+                            symptom=str(exc),
+                            screenshot=shot,
+                            log_tail=[],
+                        )
+                        return EXIT_BLOCKER
                     state.started = True
                     run_id = resolve_run_id_after_start(
                         api, wav_name, page, log, baseline_run_ids=baseline

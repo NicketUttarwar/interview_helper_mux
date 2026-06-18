@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -322,10 +323,36 @@ def newest_matching_run(rows: list[dict[str, Any]], wav_name: str) -> str | None
     return str(best.get("run_id"))
 
 
-def wait_for_start_tab_ready(page: Page, timeout_s: int = 120) -> None:
-    """Wait until React boot finished (Start controls enabled)."""
-    ready = page.locator('[data-testid="start-tab-ready"][data-ready="true"]')
-    ready.first.wait_for(state="attached", timeout=timeout_s * 1000)
+def wait_for_start_tab_ready(
+    page: Page,
+    exec_testid: str,
+    timeout_s: int = 120,
+    log: "EventLogger | None" = None,
+) -> None:
+    """Wait until React boot finished (start-tab-ready marker or enabled Start button)."""
+    deadline = time.time() + timeout_s
+    marker = page.locator('[data-testid="start-tab-ready"][data-ready="true"]')
+    btn = page.get_by_test_id(exec_testid).first
+    while time.time() < deadline:
+        try:
+            if marker.count() > 0:
+                if log:
+                    log.info("Start tab ready (start-tab-ready marker)")
+                return
+        except Exception:
+            pass
+        try:
+            if btn.is_enabled():
+                if log:
+                    log.info("Start tab ready (execution button enabled)")
+                return
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    raise TimeoutError(
+        f"Start tab never became ready within {timeout_s}s "
+        f"(expected start-tab-ready[data-ready=true] or enabled {exec_testid})"
+    )
 
 
 def resolve_run_id_after_start(
