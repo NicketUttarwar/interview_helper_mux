@@ -32,7 +32,7 @@ describe("activateSubstep", () => {
         closeActionModal: vi.fn(),
         runNextStage: vi.fn(),
       },
-      { scrollSection: false },
+      { scrollSection: false, openModal: true },
     );
     expect(selectStage).toHaveBeenCalledWith("ingest");
     expect(setPipelineSubTab).toHaveBeenCalledWith("files");
@@ -70,5 +70,48 @@ describe("activateSubstep", () => {
       },
     );
     expect(runNextStage).toHaveBeenCalled();
+  });
+
+  it("inline write approval scrolls to panel without opening modal", () => {
+    const openActionModal = vi.fn();
+    const closeActionModal = vi.fn();
+    const scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      "document",
+      {
+        getElementById: vi.fn((id: string) =>
+          id === "write-approval-panel" ? { scrollIntoView } : null,
+        ),
+        querySelector: vi.fn(),
+      } as unknown as Document,
+    );
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+
+    activateSubstep(
+      sub({
+        kind: "write_approval",
+        stageId: "ingest",
+        targetSection: "modal-write-approval",
+        targetSubTab: "files",
+      }),
+      {
+        selectStage: vi.fn(),
+        setActiveTab: vi.fn(),
+        setPipelineSubTab: vi.fn(),
+        openActionModal,
+        closeActionModal,
+        runNextStage: vi.fn(),
+      },
+      { openModal: false },
+    );
+
+    expect(openActionModal).not.toHaveBeenCalled();
+    expect(closeActionModal).toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });

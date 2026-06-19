@@ -605,9 +605,11 @@ def _active_substep(
     """Operator focus substep for GUI sidebar (mirrors client findActiveSubstep priority)."""
     if blocking.get("blocked"):
         sid = str(blocking.get("stage_id") or "")
+        msg = str(blocking.get("message") or "")
+        label = f"Your turn: {msg}" if msg else "Your turn"
         return {
             "active_substep_id": f"blocked:{sid}" if sid else "blocked",
-            "active_substep_label": str(blocking.get("message") or ""),
+            "active_substep_label": label,
         }
     if job:
         status = str(job.get("status") or "")

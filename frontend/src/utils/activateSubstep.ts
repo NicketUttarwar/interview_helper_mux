@@ -1,4 +1,4 @@
-import type { AppTab, GuidanceItem, PipelineSubTab, StageSubstep } from "../types";
+import type { AppTab, GuidanceItem, LogStreamTab, PipelineSubTab, StageSubstep } from "../types";
 import { guidanceItemToSubstep } from "./stageSubsteps";
 
 export interface ActivateSubstepHandlers {
@@ -11,6 +11,10 @@ export interface ActivateSubstepHandlers {
   approveWrite?: (stageId: string) => void | Promise<void>;
   acknowledgeHandoff?: () => void | Promise<void>;
   setActiveSubstepId?: (id: string | null) => void;
+  setActivityLogCollapsed?: (collapsed: boolean) => void;
+  setActivityLogTab?: (tab: LogStreamTab) => void;
+  showToast?: (msg: string) => void;
+  skipOptionalStage?: (stageId: string) => void | Promise<void>;
 }
 
 function scrollToSection(sectionId?: string): void {
@@ -49,7 +53,7 @@ export function activateSubstep(
   handlers: ActivateSubstepHandlers,
   opts: { openModal?: boolean; scrollSection?: boolean } = {},
 ): void {
-  const openModal = opts.openModal ?? true;
+  const openModal = opts.openModal ?? false;
   const scrollSection = opts.scrollSection ?? true;
 
   handlers.setActiveSubstepId?.(substep.id);
@@ -62,12 +66,15 @@ export function activateSubstep(
 
   switch (substep.kind) {
     case "write_approval":
-      if (substep.primaryLabel && handlers.approveWrite && !openModal) {
-        void handlers.approveWrite(substep.stageId);
-        return;
+      handlers.closeActionModal();
+      if (scrollSection) {
+        scrollToSection(
+          openModal
+            ? substep.targetSection || "modal-write-approval"
+            : "write-approval-panel",
+        );
       }
       if (openModal) handlers.openActionModal();
-      if (scrollSection) scrollToSection(substep.targetSection || "modal-write-approval");
       return;
 
     case "handoff":
@@ -76,16 +83,26 @@ export function activateSubstep(
       return;
 
     case "reuse":
+      handlers.closeActionModal();
       if (openModal) handlers.openActionModal();
       else scrollToSelector(".stage-reuse-section");
-      if (scrollSection) scrollToSection(substep.targetSection || "modal-reuse");
+      if (scrollSection && openModal) {
+        scrollToSection(substep.targetSection || "modal-reuse");
+      }
       return;
 
     case "gate":
     case "blocked":
     case "checkpoint":
       if (openModal) handlers.openActionModal();
-      if (scrollSection) scrollToSection(substep.targetSection || "modal-gates");
+      else handlers.closeActionModal();
+      if (scrollSection) {
+        scrollToSection(
+          openModal
+            ? substep.targetSection || "modal-gates"
+            : "stage-gate-panel",
+        );
+      }
       return;
 
     case "profile":
@@ -98,6 +115,14 @@ export function activateSubstep(
       return;
 
     case "run":
+      if (substep.status === "running") {
+        handlers.setActivityLogTab?.("live");
+        handlers.setActivityLogCollapsed?.(false);
+        handlers.showToast?.(
+          "This step is running in the background — watch Activity log below.",
+        );
+        return;
+      }
       void handlers.runNextStage();
       return;
 
@@ -106,8 +131,13 @@ export function activateSubstep(
       return;
 
     case "optional":
+      if (substep.id === "optional:skip" && handlers.skipOptionalStage) {
+        void handlers.skipOptionalStage(substep.stageId);
+        return;
+      }
       handlers.setPipelineSubTab("stage");
-      if (openModal) handlers.openActionModal();
+      handlers.closeActionModal();
+      scrollToSelector(".preclean-offer-card");
       return;
 
     default:

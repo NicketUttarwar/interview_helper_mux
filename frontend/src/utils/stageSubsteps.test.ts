@@ -151,6 +151,55 @@ describe("stageSubsteps", () => {
     ).toBe(true);
   });
 
+  it("does not promote blocked substep to running from journey hint", () => {
+    const ingest = stage({
+      id: "ingest",
+      title: "Ingest",
+      status: "awaiting_write_approval",
+      operator_phase: "prepare",
+    });
+    const run = minimalRun({
+      stages: [ingest],
+      job: { status: "awaiting_write_approval", stage: "ingest", pending_write_stage: "ingest" },
+      journey: {
+        phase: "prepare",
+        milestones: {},
+        next_action: "Save files",
+        blocking: {
+          blocked: true,
+          reason: "write_approval",
+          stage_id: "ingest",
+          message: "Save 2 files",
+        },
+        active_substep_id: "blocked:ingest",
+      },
+    });
+    const subs = buildStageSubsteps(ingest, run);
+    const blockedSub = subs.find((s) => s.kind === "blocked" || s.kind === "write_approval");
+    expect(blockedSub?.status).toBe("todo");
+  });
+
+  it("shows Saving… on write_approval when actionBusy", () => {
+    const ingest = stage({
+      id: "ingest",
+      title: "Ingest",
+      status: "awaiting_write_approval",
+      operator_phase: "prepare",
+    });
+    const run = minimalRun({
+      stages: [ingest],
+      job: {
+        status: "awaiting_write_approval",
+        stage: "ingest",
+        pending_write_stage: "ingest",
+      },
+    });
+    const subs = buildStageSubsteps(ingest, run, { actionBusy: true });
+    const writeSub = subs.find((s) => s.kind === "write_approval");
+    expect(writeSub?.status).toBe("running");
+    expect(writeSub?.label).toContain("Saving");
+  });
+
   it("guidanceItemToSubstep maps checkpoint kind", () => {
     const sub = guidanceItemToSubstep(
       { id: "g0", label: "Complete review", status: "todo", kind: "checkpoint" },

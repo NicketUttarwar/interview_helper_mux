@@ -211,25 +211,64 @@ export function listAttentionItems(
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
-    const stage = run.stages.find((s) => s.id === blocking.stage_id);
-    push({
-      kind: "blocked",
-      priority: 5,
-      stageId: blocking.stage_id,
-      stageTitle: stage?.title || blocking.stage_id,
-      title: "Pipeline blocked",
-      message: blocking.message || "Complete the required step to continue.",
-      primaryLabel: checkpointPrimaryLabel(
-        blocking.stage_id,
-        "blocked",
-        {
-          clipCount: parseCountFromMessage(blocking.message, /Review (\d+) ranked STT/),
-          pickupCount: parseCountFromMessage(blocking.message, /Record (\d+) pickup/),
-        },
-      ),
-      phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
-      subTab: stage ? subTabForStage(stage.id, "blocked") : "stage",
-    });
+    const sid = blocking.stage_id;
+    const stage = run.stages.find((s) => s.id === sid);
+    const reason = blocking.reason || "";
+    const clipCount = parseCountFromMessage(blocking.message, /Review (\d+) ranked STT/);
+    const pickupCount = parseCountFromMessage(blocking.message, /Record (\d+) pickup/);
+
+    if (reason === "stage_reuse") {
+      push({
+        kind: "stage_reuse",
+        priority: 3,
+        stageId: sid,
+        stageTitle: stage?.title || sid,
+        title: stage ? `${stage.title} — reuse prior outputs?` : "Reuse from prior run?",
+        message:
+          blocking.message ||
+          "Pick a previous execution with the same source audio hash and complete outputs, or run this step fresh.",
+        primaryLabel: checkpointPrimaryLabel(sid, "stage_reuse"),
+        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
+        subTab: "stage",
+      });
+    } else if (reason === "write_approval") {
+      push(writeApprovalItem(run, sid, blocking.message));
+    } else if (
+      reason === "transcript_review" ||
+      reason === "disfluency_review" ||
+      reason === "g1_vo_pickup" ||
+      reason === "g2_flow_select" ||
+      reason === "analysis_profile" ||
+      reason === "handoff_review"
+    ) {
+      if (stage && stage.status === "action_required") {
+        push(gateItem(run, stage, blocking.message));
+      } else if (stage) {
+        push({
+          kind: "gate",
+          priority: 1,
+          stageId: sid,
+          stageTitle: stage.title,
+          title: `${stage.title} needs your input`,
+          message: blocking.message || "Complete the required steps to continue.",
+          primaryLabel: checkpointPrimaryLabel(sid, "gate", { clipCount, pickupCount }),
+          phase: stagePhase(stage),
+          subTab: subTabForStage(sid, "gate"),
+        });
+      }
+    } else {
+      push({
+        kind: "blocked",
+        priority: 5,
+        stageId: sid,
+        stageTitle: stage?.title || sid,
+        title: stage ? `${stage.title} — action required` : "Action required",
+        message: blocking.message || "Complete the required step to continue.",
+        primaryLabel: checkpointPrimaryLabel(sid, "blocked", { clipCount, pickupCount }),
+        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
+        subTab: stage ? subTabForStage(stage.id, "blocked") : "stage",
+      });
+    }
   }
 
   const milestones = run.journey?.milestones ?? run.meta?.journey_milestones ?? {};

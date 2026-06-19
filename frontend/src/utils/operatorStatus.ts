@@ -5,6 +5,8 @@ export interface JobStatusContext {
   isRunning: boolean;
   awaitingWriteApproval: boolean;
   needsStageReuse: boolean;
+  needsStageReuseFromJourney: boolean;
+  journeyReuseStageId: string | null;
   needsGate: boolean;
   actionRequiredStage: StageInfo | undefined;
   handoffStage: StageInfo | null;
@@ -23,12 +25,21 @@ export function resolveJobStatusContext(
     job?.status === "awaiting_write_approval" || job?.awaiting_write_approval,
   );
   const needsStageReuse = Boolean(job?.needs_stage_reuse && job.stage);
+  const blocking = run.journey?.blocking ?? run.blocking;
+  const needsStageReuseFromJourney = Boolean(
+    blocking?.blocked && blocking.reason === "stage_reuse" && blocking.stage_id,
+  );
+  const journeyReuseStageId = needsStageReuseFromJourney
+    ? blocking!.stage_id!
+    : null;
   const actionRequiredStage = run.stages.find((s) => s.status === "action_required");
   const needsGate = Boolean(job?.status === "gate" || actionRequiredStage);
   return {
     isRunning,
     awaitingWriteApproval,
     needsStageReuse,
+    needsStageReuseFromJourney,
+    journeyReuseStageId,
     needsGate,
     actionRequiredStage,
     handoffStage: findHandoffStage(run),

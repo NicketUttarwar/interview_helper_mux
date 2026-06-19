@@ -61,7 +61,8 @@ export function OperatorActionModal() {
     const actionStage = run.stages.find((s) => s.status === "action_required");
     if (actionStage) return actionStage.title;
     if (run.job?.status === "gate" || run.job?.status === "needs_operator") {
-      return "Pipeline paused";
+      const gateStage = run.stages.find((s) => s.id === run.job?.stage);
+      return gateStage?.title || "Checkpoint required";
     }
     return "Review outputs";
   }, [run, pending]);
@@ -97,11 +98,15 @@ export function OperatorActionModal() {
   const continueEnabled = checkpointContinueEnabled(run, selectedStage, apiGrants);
   const continueLabel = checkpointContinueLabel(run, selectedStage, apiGrants);
   const writePending = pendingWriteInfo(run);
-  const statusSubline =
+  const statusSublineRaw =
     pending?.message ||
     run.journey?.next_action ||
     run.job?.message ||
     (selectedStage.status === "action_required" ? "Complete the items below to continue." : "");
+  const statusSubline =
+    statusSublineRaw && statusSublineRaw !== title && !title.includes(statusSublineRaw)
+      ? statusSublineRaw
+      : "";
 
   const sectionNav = [
     { id: "modal-write-approval", label: "Save review", show: pending?.kind === "write_approval" },

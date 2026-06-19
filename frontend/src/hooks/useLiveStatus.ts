@@ -1,16 +1,115 @@
 import { useMemo } from "react";
-import type { LiveStatus, LogEntry, RunData } from "../types";
+import type { AppTab, LiveStatus, LogEntry, RunData } from "../types";
 import { PHASE_LABELS } from "../constants/phases";
 import { stageTitleForId } from "../utils/checkpoint";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { buildNumberedStages, resolvePipelineNav } from "../utils/pipelineNavigation";
 import { findActiveSubstep } from "../utils/stageSubsteps";
-import { useOperatorCommand } from "./useOperatorCommand";
+import { useOperatorCommand, type OperatorCommandState } from "./useOperatorCommand";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
   workflowStepIndex,
 } from "../utils/workflowSteps";
+
+export interface LiveStatusCopyInput {
+  run: RunData;
+  jobRunning: boolean;
+  selectedStageId: string | null;
+  logEntries: LogEntry[];
+  apiGrants: Record<string, boolean>;
+  jobCompleteAt?: number | null;
+  cmd: Pick<OperatorCommandState, "kind" | "statusLine" | "primaryLabel" | "onPrimary">;
+}
+
+/** Pure headline/subline derivation for LiveStatusBar (testable without React). */
+export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
+  activityKind: LiveStatus["activityKind"];
+  headline: string;
+  subline: string;
+  primaryLabel: string | null;
+  onPrimary: (() => void) | null;
+} {
+  const { run, cmd } = input;
+  const nav = resolvePipelineNav(run, {
+    selectedStageId: input.selectedStageId,
+    jobRunning: input.jobRunning,
+    apiGrants: input.apiGrants,
+  });
+  const numbered = buildNumberedStages(run.stages);
+  const job = run.job;
+  const runningStageId =
+    input.jobRunning || isJobActivelyRunning(job)
+      ? job?.current_stage || job?.stage || null
+      : null;
+  const currentNum = nav.currentNumber;
+  const currentStage = nav.currentStage;
+  const pipelineStep = currentStage
+    ? {
+        number: currentNum,
+        total: numbered.length,
+        title: currentStage.title,
+      }
+    : null;
+
+  const recentComplete =
+    input.jobCompleteAt != null && Date.now() - input.jobCompleteAt < 30_000;
+
+  let activityKind = cmd.kind as LiveStatus["activityKind"];
+  let headline = cmd.statusLine;
+  let subline = run.journey?.next_action || nav.statusLine || "";
+  const activeSub = findActiveSubstep(run, {
+    jobRunning: input.jobRunning,
+    apiGrants: input.apiGrants,
+  });
+  if (activeSub?.status === "running" && activeSub.kind === "run") {
+    subline = activeSub.label;
+  } else if (activeSub?.status === "todo") {
+    subline = `Your turn: ${activeSub.label}`;
+  } else if (activeSub?.status === "running") {
+    subline = activeSub.label;
+  }
+  let primaryLabel = cmd.primaryLabel;
+  let onPrimary = cmd.onPrimary;
+
+  if (job?.status === "interrupted") {
+    activityKind = "interrupted";
+    headline = "Run interrupted";
+    subline = job.message || "Server restarted during a job — re-run the last step.";
+  } else if (input.jobRunning || isJobActivelyRunning(job)) {
+    activityKind = "running";
+    const stageTitle =
+      stageTitleForId(run.stages, runningStageId) ||
+      runningStageId?.replace(/_/g, " ") ||
+      "pipeline";
+    const jobProgress =
+      job?.stage_index && job?.stage_total
+        ? { index: job.stage_index, total: job.stage_total }
+        : null;
+    if (jobProgress) {
+      headline = `Running step ${jobProgress.index}/${jobProgress.total} — ${stageTitle}`;
+    } else {
+      headline = `Running — ${stageTitle}`;
+    }
+    subline = job?.message || subline;
+  } else if (job?.status === "complete" || recentComplete) {
+    headline = "Step finished";
+    const next = run.journey?.next_action;
+    subline = next ? `Next: ${next}` : job?.message || subline;
+    if (recentComplete && cmd.primaryLabel) {
+      primaryLabel = cmd.primaryLabel;
+      onPrimary = cmd.onPrimary;
+    }
+  } else if (job?.status === "error") {
+    activityKind = "error";
+    headline = "Step failed";
+    subline = job.last_error?.message || job.message || "See activity log for details.";
+  } else if (pipelineStep?.number) {
+    headline = `Step ${pipelineStep.number}/${pipelineStep.total} — ${pipelineStep.title}`;
+  }
+
+  return { activityKind, headline, subline, primaryLabel, onPrimary };
+}
 
 export function useLiveStatus(
   run: RunData | null,
@@ -19,6 +118,7 @@ export function useLiveStatus(
     selectedStageId: string | null;
     logEntries: LogEntry[];
     apiGrants: Record<string, boolean>;
+    activeTab?: AppTab;
     jobCompleteAt?: number | null;
     onExecute: Parameters<typeof useOperatorCommand>[1]["onExecute"];
     onRunNext: () => void;
@@ -37,6 +137,8 @@ export function useLiveStatus(
     jobRunning: opts.jobRunning,
     selectedStageId: opts.selectedStageId,
     apiGrants: opts.apiGrants,
+    surface: "header",
+    activeTab: opts.activeTab,
     onExecute: opts.onExecute,
     onRunNext: opts.onRunNext,
     onOpenCheckpoint: opts.onOpenCheckpoint,
@@ -113,66 +215,28 @@ export function useLiveStatus(
         ? { index: job.stage_index, total: job.stage_total }
         : null;
 
-    const recentComplete =
-      opts.jobCompleteAt != null && Date.now() - opts.jobCompleteAt < 30_000;
-
-    let activityKind = cmd.kind as LiveStatus["activityKind"];
-    let headline = cmd.statusLine;
-    let subline = run.journey?.next_action || nav.statusLine || "";
-    const activeSub = findActiveSubstep(run, {
+    const derived = deriveLiveStatusCopy({
+      run,
       jobRunning: opts.jobRunning,
+      selectedStageId: opts.selectedStageId,
+      logEntries: opts.logEntries,
       apiGrants: opts.apiGrants,
+      jobCompleteAt: opts.jobCompleteAt,
+      cmd,
     });
-    if (activeSub && (activeSub.status === "todo" || activeSub.status === "running")) {
-      subline = activeSub.label;
-    }
-    let primaryLabel = cmd.primaryLabel;
-    let onPrimary = cmd.onPrimary;
-
-    if (job?.status === "interrupted") {
-      activityKind = "interrupted";
-      headline = "Run interrupted";
-      subline = job.message || "Server restarted during a job — re-run the last step.";
-    } else if (opts.jobRunning || isJobActivelyRunning(job)) {
-      activityKind = "running";
-      const stageTitle =
-        stageTitleForId(run.stages, runningStageId) ||
-        runningStageId?.replace(/_/g, " ") ||
-        "pipeline";
-      if (jobProgress) {
-        headline = `Running step ${jobProgress.index}/${jobProgress.total} — ${stageTitle}`;
-      } else {
-        headline = `Running — ${stageTitle}`;
-      }
-      subline = job?.message || subline;
-    } else if (job?.status === "complete" || recentComplete) {
-      headline = "Step finished";
-      const next = run.journey?.next_action;
-      subline = next ? `Next: ${next}` : job?.message || subline;
-      if (recentComplete && cmd.primaryLabel) {
-        primaryLabel = cmd.primaryLabel;
-        onPrimary = cmd.onPrimary;
-      }
-    } else if (job?.status === "error") {
-      activityKind = "error";
-      headline = "Step failed";
-      subline = job.last_error?.message || job.message || "See activity log for details.";
-    } else if (pipelineStep?.number) {
-      headline = `Step ${pipelineStep.number}/${pipelineStep.total} — ${pipelineStep.title}`;
-    }
 
     return {
-      activityKind,
-      headline,
-      subline,
+      activityKind: derived.activityKind,
+      headline: derived.headline,
+      subline: derived.subline,
       pipelineStep,
       workflowPhase,
       runningStageId,
       focusStageId,
-      primaryLabel,
+      primaryLabel: derived.primaryLabel,
       primaryDisabled: cmd.primaryDisabled,
       secondaryLabel: cmd.secondaryLabel,
-      onPrimary,
+      onPrimary: derived.onPrimary,
       onSecondary: cmd.onSecondary,
       errorCount,
       jobProgress,

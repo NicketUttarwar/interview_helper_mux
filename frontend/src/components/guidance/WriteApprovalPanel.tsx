@@ -41,6 +41,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
   const [saveComplete, setSaveComplete] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
@@ -110,6 +111,13 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     });
   }, [paths]);
 
+  useEffect(() => {
+    if (writePendingForStage || paths.length) {
+      setSaveComplete(false);
+      setSaveError(null);
+    }
+  }, [writePendingForStage, paths.length]);
+
   const syncEditorToStaging = async (path: string, value: string, json: boolean) => {
     if (!runId || !path) return;
     if (json) {
@@ -143,15 +151,21 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const approve = async () => {
     if (actionBusy) return;
+    setSaveError(null);
     try {
       if (editorDirty && selectedPath && fileKind(selectedPath) !== "audio") {
         await syncEditorToStaging(selectedPath, editorValue, isJson);
         setEditorDirty(false);
       }
-      await approveWriteAndContinue(stageId);
-      setSaveComplete(true);
+      const ok = await approveWriteAndContinue(stageId);
+      if (ok) setSaveComplete(true);
+      else
+        setSaveError(
+          "Save did not complete — check Activity log and retry from the sidebar substep.",
+        );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Approve failed";
+      setSaveError(msg);
       showToast(msg);
       appendClientLog(msg, "warning");
     }
@@ -173,7 +187,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     }
   };
 
-  if (saveComplete || (stage.status === "done" && !writePendingForStage && !paths.length && !loading)) {
+  if (saveComplete) {
     return (
       <section
         id="write-approval-panel"
@@ -229,6 +243,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           <button type="button" className="btn ghost sm" onClick={() => void loadPaths()}>
             Retry
           </button>
+        </div>
+      ) : null}
+
+      {saveError ? (
+        <div className="write-approval-error">
+          <p className="hint" role="alert">
+            {saveError}
+          </p>
         </div>
       ) : null}
 

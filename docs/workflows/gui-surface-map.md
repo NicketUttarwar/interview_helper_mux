@@ -16,19 +16,19 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | **`LiveStatusBar`** (sticky, all tabs) | Compact status surface: **Workflow phase** chips (with attention dots), primary CTA uses `journey.next_action` / contextual checkpoint labels, error chip, batch progress bar, compact preview-listen promo, Mute / Menu |
-| Header | **Action** badge | Opens operator action modal when checkpoints/handoffs pending |
+| Header | **`LiveStatusBar`** (sticky, all tabs) | **Status-only on Pipeline tab** — step headline, subline from sidebar substep, workflow phase chips, progress bar when running; no duplicate Save/Run CTAs. Non-Pipeline tabs: **Open step in Pipeline** navigates to sidebar substep. |
 | Header | **Mute** / **Menu** | Mute attention sounds; **View full log**, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | 3-column layout | **`PipelineStepList`** (hierarchical steps + substeps) \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
-| **Pipeline** | **`PipelineCommandCenter`** | Phase guidance banner, **Needs your attention** queue, preview-listen promo, read-only step context (no duplicate Run when LiveStatusBar owns CTA) |
+| **Pipeline** | **`PipelineStepList`** | **Canonical operator actions** — numbered steps + substeps (your turn / running / skip optional); click substep to review, save, reuse, or run |
+| **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
+| **Pipeline** | **`PipelineCommandCenter`** | Phase guidance + read-only step context; **See step in sidebar** when blocked — no duplicate primary CTA |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
-| Modals | `OperatorActionModal` | Full-screen duplicate of blocking gate UI — auto-open on `action_required`, `needs_stage_reuse`, or `awaiting_write_approval`; **`PendingActionBanner`** (Pipeline command center + non-Pipeline tabs) and **`StageActivityStrip`** CTA surface the same pending action inline; **`ReviewPanelControls`** toggles full-screen vs inline review. Reuse and write-approval panels stay on `StageDetail` when modal closed. |
+| Modals | `OperatorActionModal` | Full-screen review optional via **ReviewPanelControls**; write approval and reuse default **inline** on `StageDetail`. **`PendingActionBanner`** on non-Pipeline tabs navigates to sidebar substep. |
 | Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
@@ -44,7 +44,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Surface | Component | Behavior |
 |---------|-----------|----------|
-| Sidebar header | `StepListContextHeader` | Current phase progress, **You are here**, **Next** stage |
+| Sidebar header | `StepListContextHeader` | Phase progress, **You are here**, **Current action** / **Waiting: Running…**, **Next after this** |
 | Sidebar rows | `PipelineStepList` + `SubstepRow` | Expandable substeps per stage; done stages collapse with **Step complete** banner |
 | Between stages | `StepRunningConnector` | Spinner bridge while job runs between steps |
 | Activation | `activateSubstep()` | Single handler for sidebar, modal, banners, activity teaser — opens modal section or inline panel |

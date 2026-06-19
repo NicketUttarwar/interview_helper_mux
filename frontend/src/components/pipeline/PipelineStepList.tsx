@@ -46,6 +46,8 @@ export function PipelineStepList() {
     expandStage,
     pipelineFilterNeedsYou,
     setPipelineFilterNeedsYou,
+    showToast,
+    skipOptionalStage,
   } = useApp();
 
   const nav = useMemo(
@@ -137,6 +139,21 @@ export function PipelineStepList() {
               actionBusy,
             );
 
+          const skipped = status === "skipped";
+          const metaSuffix = skipped
+            ? " · skipped"
+            : isRunning
+              ? " · running"
+              : progress.hasTodo || entry.stage.id === nav.focusStageId
+                ? " · your turn"
+                : entry.stage.status === "awaiting_write_approval"
+                  ? " · review"
+                  : entry.stage.status === "locked"
+                    ? " · locked"
+                    : entry.stage.status === "done"
+                      ? " · done"
+                      : "";
+
           return (
             <Fragment key={entry.stage.id}>
               <li className="pipeline-step-item">
@@ -145,9 +162,13 @@ export function PipelineStepList() {
                 >
                   <button
                     type="button"
-                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}`}
+                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}${skipped ? " status-skipped" : ""}`}
                     data-testid={`pipeline-step-${entry.stage.id}`}
                     onClick={() => {
+                      if (skipped) {
+                        showToast("Optional step skipped — not required for this run.");
+                        return;
+                      }
                       if (progress.fullyComplete) {
                         toggleDoneStageExpanded(entry.stage.id);
                         return;
@@ -158,13 +179,14 @@ export function PipelineStepList() {
                     }}
                     aria-current={navStatus === "current" || isRunning ? "step" : undefined}
                     aria-expanded={expanded}
+                    aria-disabled={skipped || undefined}
                   >
                     <span className="pipeline-step-num" aria-hidden>
-                      {status === "done" ? "✓" : entry.number}
+                      {status === "done" || skipped ? "✓" : entry.number}
                     </span>
                     <span className="pipeline-step-body">
                       <span className="pipeline-step-title">
-                        {hasAction ? (
+                        {hasAction && !skipped ? (
                           <ActionMarker status="todo" className="pipeline-step-action-dot" />
                         ) : null}
                         {isRunning ? (
@@ -174,19 +196,10 @@ export function PipelineStepList() {
                       </span>
                       <span className="pipeline-step-meta muted">
                         {entry.phaseLabel} · step {entry.number}
-                        {progress.activeSubstep && (expanded || isSelected)
+                        {metaSuffix}
+                        {progress.activeSubstep && (expanded || isSelected) && !metaSuffix
                           ? ` · ${progress.activeSubstep.label}`
-                          : entry.stage.status === "action_required"
-                            ? " · needs you"
-                            : entry.stage.status === "awaiting_write_approval"
-                              ? " · review"
-                              : entry.stage.status === "locked"
-                                ? " · locked"
-                                : entry.stage.status === "done"
-                                  ? " · done"
-                                  : status === "current"
-                                    ? " · current"
-                                    : ""}
+                          : ""}
                       </span>
                     </span>
                   </button>
@@ -201,6 +214,11 @@ export function PipelineStepList() {
                             substep={sub}
                             selected={activeSubstepId === sub.id}
                             onClick={() => activateSubstep(sub)}
+                            onSkip={
+                              sub.id === "optional:skip"
+                                ? () => void skipOptionalStage(sub.stageId)
+                                : undefined
+                            }
                           />
                         </li>
                       ))}

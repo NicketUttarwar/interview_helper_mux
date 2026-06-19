@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { resolvePendingAction } from "../utils/pendingAction";
-import { countRequiredAttention } from "../utils/attentionQueue";
+import { pendingActionToSubstep } from "../utils/stageSubsteps";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
@@ -42,7 +42,10 @@ export function LiveStatusBar() {
     setLogFilterPreset,
     jobCompleteAt,
     activeTab,
+    activateSubstep,
   } = useApp();
+
+  const statusOnlyOnPipeline = activeTab === "pipeline" && Boolean(run);
 
   const scrollPreview = useCallback(() => {
     setActiveTab("pipeline");
@@ -60,6 +63,7 @@ export function LiveStatusBar() {
     selectedStageId,
     logEntries,
     apiGrants,
+    activeTab,
     onExecute: (body) => void executeJob(body),
     onRunNext: () => void runNextStage(),
     onOpenCheckpoint: (stageId) => {
@@ -127,10 +131,6 @@ export function LiveStatusBar() {
     () => resolvePendingAction(run, apiGrants),
     [run, apiGrants],
   );
-  const requiredCount = useMemo(
-    () => countRequiredAttention(run, apiGrants),
-    [run, apiGrants],
-  );
 
   const phaseSubsteps = useMemo(() => {
     if (!run) return null;
@@ -142,33 +142,16 @@ export function LiveStatusBar() {
     });
   }, [run, jobRunning, apiGrants, selectedStageId]);
 
-  const onActionBadgeClick = () => {
-    if (requiredCount > 1) {
-      setActiveTab("pipeline");
-      setPipelineSubTab("stage");
-      requestAnimationFrame(() => {
-        document.querySelector(".attention-queue-panel")?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-      return;
-    }
-    openActionModal();
+  const openPendingInPipeline = () => {
+    if (!pendingAction) return;
+    setActiveTab("pipeline");
+    setPipelineSubTab(pendingAction.subTab ?? "stage");
+    activateSubstep(pendingActionToSubstep(pendingAction), { openModal: false });
   };
-
-  const headline =
-    live.primaryLabel && live.primaryLabel === run?.journey?.next_action
-      ? live.primaryLabel
-      : live.headline;
-  const subline =
-    live.primaryLabel && live.primaryLabel === run?.journey?.next_action
-      ? live.headline
-      : live.subline;
 
   return (
     <header
-      className={`live-status-bar kind-${live.activityKind}`}
+      className={`live-status-bar kind-${live.activityKind}${statusOnlyOnPipeline ? " mode-status-only" : ""}`}
       data-testid="live-status-bar"
       role="status"
       aria-live="polite"
@@ -176,12 +159,15 @@ export function LiveStatusBar() {
     >
       <div className="live-status-main">
         <div className="live-status-headline-row">
-          <span className={`live-status-dot kind-${live.activityKind}${live.activityKind === "running" ? " spinning" : ""}`} aria-hidden />
+          <span
+            className={`live-status-dot kind-${live.activityKind}${live.activityKind === "running" ? " spinning" : ""}`}
+            aria-hidden
+          />
           <div className="live-status-headlines">
-            <p className="live-status-headline">{headline}</p>
-            {subline ? (
-              <p className="live-status-subline muted" title={subline}>
-                {subline}
+            <p className="live-status-headline">{live.headline}</p>
+            {live.subline ? (
+              <p className="live-status-subline muted" title={live.subline}>
+                {live.subline}
               </p>
             ) : null}
           </div>
@@ -198,22 +184,22 @@ export function LiveStatusBar() {
                 {live.errorCount} error{live.errorCount === 1 ? "" : "s"}
               </button>
             ) : null}
-            {pendingActionCount > 0 ? (
+            {!statusOnlyOnPipeline && pendingActionCount > 0 && pendingAction ? (
               <button
                 type="button"
-                className="btn primary sm action-badge-btn"
-                onClick={onActionBadgeClick}
-                title={pendingAction?.message}
+                className="btn ghost sm"
+                onClick={openPendingInPipeline}
+                title={pendingAction.message}
               >
-                {pendingAction?.primaryLabel || "Action"} ({pendingActionCount})
+                Open step in Pipeline ({pendingActionCount})
               </button>
             ) : null}
-            {live.secondaryLabel && live.onSecondary ? (
+            {!statusOnlyOnPipeline && live.secondaryLabel && live.onSecondary ? (
               <button type="button" className="btn ghost sm" onClick={live.onSecondary}>
                 {live.secondaryLabel}
               </button>
             ) : null}
-            {live.primaryLabel && live.onPrimary ? (
+            {!statusOnlyOnPipeline && live.primaryLabel && live.onPrimary ? (
               <button
                 type="button"
                 className="btn primary sm"
@@ -222,6 +208,11 @@ export function LiveStatusBar() {
                 onClick={live.onPrimary}
               >
                 {live.primaryLabel}
+              </button>
+            ) : null}
+            {statusOnlyOnPipeline && live.activityKind === "running" && live.onPrimary ? (
+              <button type="button" className="btn ghost sm" onClick={live.onPrimary}>
+                View logs
               </button>
             ) : null}
             <div className="live-status-menu-actions">

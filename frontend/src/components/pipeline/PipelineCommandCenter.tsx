@@ -1,39 +1,14 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
-import { firstTodoItem } from "../../utils/stageGuidance";
-import { resolveStagePrimaryAction } from "../../utils/stagePrimaryAction";
-import { resolvePrecleanOffer } from "../../utils/preclean";
 import { PHASE_LABELS } from "../../constants/phases";
-import { PendingActionBanner } from "../guidance/PendingActionBanner";
-import { resolvePendingAction } from "../../utils/pendingAction";
-import { primaryClickForPendingAction } from "../../utils/operatorNavigate";
 import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
-import { AttentionQueuePanel } from "../guidance/AttentionQueuePanel";
 import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
 import { QcSummaryCard } from "../gates/QcSummaryCard";
-import { topAttentionItem } from "../../utils/attentionQueue";
 import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function PipelineCommandCenter() {
-  const {
-    run,
-    selectedStageId,
-    selectedStage,
-    jobRunning,
-    apiGrants,
-    sessionReady,
-    selectStage,
-    openActionModal,
-    setActiveTab,
-    setPipelineSubTab,
-    acknowledgeHandoff,
-    executeJob,
-    runNextStage,
-    approveWriteAndContinue,
-    expandStage,
-    activateSubstep,
-  } = useApp();
+  const { run, selectedStageId, jobRunning, apiGrants } = useApp();
 
   const { activeSubstepGlobal } = useStageProgress();
 
@@ -47,22 +22,6 @@ export function PipelineCommandCenter() {
     [run, selectedStageId, jobRunning, apiGrants],
   );
 
-  const pendingAction = useMemo(
-    () => (run ? resolvePendingAction(run, apiGrants) : null),
-    [run, apiGrants],
-  );
-
-  const headerAction = useMemo(() => {
-    if (!run) return null;
-    const actionStage = selectedStage || nav.currentStage || nav.nextStage;
-    if (!actionStage) return null;
-    const offer = resolvePrecleanOffer(actionStage, run.meta);
-    return resolveStagePrimaryAction(actionStage, run, nav, {
-      jobRunning,
-      hasPrecleanOffer: Boolean(offer),
-    });
-  }, [run, selectedStage, nav, jobRunning]);
-
   if (!run) return null;
 
   const phase = run.journey?.phase ?? run.meta?.operator_phase ?? "prepare";
@@ -73,77 +32,25 @@ export function PipelineCommandCenter() {
 
   const blocking = run.journey?.blocking ?? run.blocking;
   const blocked = Boolean(blocking?.blocked);
-  const topAttention = topAttentionItem(run, apiGrants);
-
-  const actionStage = selectedStage || nav.currentStage || nav.nextStage;
-  const topTodo = actionStage?.guidance ? firstTodoItem(actionStage.guidance) : null;
-
-  const onHeaderClick = () => {
-    if (!headerAction || headerAction.disabled) return;
-    if (pendingAction) {
-      primaryClickForPendingAction(pendingAction, {
-        selectStage: (id) => void selectStage(id),
-        setActiveTab,
-        setPipelineSubTab,
-        openActionModal,
-        closeActionModal: () => {},
-        approveWrite: (id) => void approveWriteAndContinue(id),
-      });
-      return;
-    }
-    switch (headerAction.kind) {
-      case "run":
-        if (headerAction.targetStageId && headerAction.targetStageId !== actionStage?.id) {
-          void selectStage(headerAction.targetStageId).then(() => {
-            if (headerAction.runStageId === nav.nextStage?.id) void runNextStage();
-            else if (headerAction.runStageId) {
-              void executeJob({ mode: "stage", stage: headerAction.runStageId });
-            }
-          });
-          return;
-        }
-        if (headerAction.runStageId === nav.nextStage?.id) void runNextStage();
-        else if (headerAction.runStageId) {
-          void executeJob({ mode: "stage", stage: headerAction.runStageId });
-        } else void runNextStage();
-        return;
-      case "checkpoint":
-        if (headerAction.targetStageId) void selectStage(headerAction.targetStageId);
-        openActionModal();
-        return;
-      case "handoff":
-        void acknowledgeHandoff();
-        return;
-      case "navigate":
-        if (headerAction.targetStageId) void selectStage(headerAction.targetStageId);
-        return;
-      default:
-        return;
-    }
-  };
-
-  const showHeaderBtn =
-    headerAction &&
-    !pendingAction &&
-    !jobRunning &&
-    (headerAction.kind === "run" ||
-      headerAction.kind === "checkpoint" ||
-      headerAction.kind === "handoff" ||
-      headerAction.kind === "navigate");
-
   const qcFailed = run.journey?.deliverable?.qc_passed === false;
+
+  const scrollToFocusStep = () => {
+    const sid = nav.focusStageId;
+    if (!sid) return;
+    document
+      .querySelector(`[data-testid="pipeline-step-${sid}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
       <PhaseGuidanceBanner run={run} compact />
-      <AttentionQueuePanel hideWhenSingleWriteApproval />
       <PreviewListenPromo />
       {qcFailed ? (
         <div className="pipeline-qc-promo panel-inset">
           <QcSummaryCard qcKey="verify_master" stageId="master_flow1" />
         </div>
       ) : null}
-      <PendingActionBanner />
       <div className="pipeline-command-head">
         <div>
           {!blocked ? (
@@ -162,61 +69,33 @@ export function PipelineCommandCenter() {
           ) : null}
           <h2 className="pipeline-command-title">
             {blocked
-              ? blocking?.message || topAttention?.title || "Action required"
+              ? blocking?.message || "Action required"
               : nav.currentStage?.title || nav.nextStage?.title || "Pipeline"}
           </h2>
           {!blocked ? (
             <p className="pipeline-command-status">{nav.statusLine}</p>
-          ) : topAttention ? (
-            <p className="hint sm pipeline-command-status muted">
-              Step {nav.currentNumber ?? "?"} — {topAttention.stageTitle}
+          ) : (
+            <p className="hint sm pipeline-command-status">
+              <button type="button" className="btn link sm" onClick={scrollToFocusStep}>
+                See step in sidebar
+              </button>
             </p>
-          ) : null}
+          )}
           {!blocked && phaseGoal ? (
             <p className="hint sm pipeline-command-phase-goal">{phaseGoal}</p>
           ) : null}
           {activeSubstepGlobal && !blocked ? (
             <p className="hint sm pipeline-command-substep">
-              Current action:{" "}
-              <button
-                type="button"
-                className="btn link sm"
-                onClick={() => {
-                  expandStage(activeSubstepGlobal.stageId);
-                  activateSubstep(activeSubstepGlobal);
-                }}
-              >
-                {activeSubstepGlobal.label}
-              </button>
+              Current action in sidebar: <strong>{activeSubstepGlobal.label}</strong>
             </p>
           ) : null}
-          {topTodo && !showHeaderBtn && !blocked && !activeSubstepGlobal ? (
-            <p className="hint pipeline-command-next">
-              <span className="action-marker status-todo" aria-hidden>
-                ●
-              </span>{" "}
-              {topTodo.label}
-            </p>
-          ) : nav.nextStage && !showHeaderBtn && !blocked ? (
+          {!blocked && nav.nextStage ? (
             <p className="hint pipeline-command-next">
               Next: <strong>{nav.nextStage.title}</strong>
               {nav.nextLine ? ` — ${nav.nextLine}` : ""}
             </p>
           ) : null}
         </div>
-        {showHeaderBtn && headerAction ? (
-          <div className="pipeline-command-actions">
-            <button
-              type="button"
-              className="btn primary"
-              disabled={headerAction.disabled || !sessionReady}
-              data-testid="pipeline-command-primary"
-              onClick={onHeaderClick}
-            >
-              {headerAction.label}
-            </button>
-          </div>
-        ) : null}
       </div>
     </section>
   );

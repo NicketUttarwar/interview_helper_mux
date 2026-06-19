@@ -8,7 +8,7 @@ import {
 } from "../../utils/logDisplay";
 import { parseLogDetail } from "../../utils";
 import { buildStageProgress } from "../../utils/stageSubsteps";
-import type { JourneyLogKind, LogLevel } from "../../types";
+import type { JourneyLogKind, LogEntry, LogLevel } from "../../types";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
 

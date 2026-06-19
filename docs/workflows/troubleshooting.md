@@ -19,8 +19,9 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | Wrong tab after refresh | UI chrome not persisted (fixed in current GUI) | `active_execution.json` `active_tab` | Should restore tab/sub-tab; **Clear session** if stuck |
 | Stale `gui_job.json` after server restart | Disk still `running` but thread gone | `gui_job.json` → `interrupted` on serve | Re-run stage; **Run step** should enable after refresh |
 | Job already running toast | Concurrent `POST …/execute` or in-process lock | `gui_job.json`; server lock | Wait for job poll; refresh after restart; open **Logs** |
-| Stuck on **Reuse or run fresh** | `needs_stage_reuse` without decision | `gui_job.json`, action modal | Open **Action** → **Reuse outputs** or **Run fresh instead** |
-| Stuck on **Review before save** | Staged outputs awaiting approve | `.pending_writes/<stage>/`, `gui_job.status: awaiting_write_approval` | Open action modal → preview files → **Save & continue** or **Discard & re-run** |
+| Stuck on **Reuse or run fresh** | `needs_stage_reuse` or `journey.blocking.reason: stage_reuse` without decision | `journey.blocking`, Steps sidebar on **Transcribe** | Click **Choose reuse or run fresh** substep under Transcribe in the **Steps** sidebar (not the header) |
+| Stuck on **Review before save** | Staged outputs awaiting approve | `.pending_writes/<stage>/`, `gui_job.status: awaiting_write_approval` | Pipeline tab → expand stage in **Steps** sidebar → click **Save review** substep → **Save N files & continue** |
+| Stuck after ingest save (no advance) | Next blocker is transcribe reuse or stale job | `journey.blocking.reason`, Activity log | Check sidebar focus moved to Transcribe; if reuse substep shows, choose reuse or run fresh |
 | Reuse offer missing | No prior run with same hash + completed stage | `run_meta.source_audio_hash`, prior `.stage_done/` | Complete stage on prior exec first; legacy runs may need same `input_audio_path` |
 | Hash mismatch between runs | Different canonical WAV bytes | `source_audio_hash_short` in Executions list | Expected — only reuse when **Same audio** pill shows |
 | QC fail with no guidance | Strict narrative/EDL QC | `run_meta.qc_summaries` | Read errors in gate panel; **View Logs**; **Redo from selected stage** |

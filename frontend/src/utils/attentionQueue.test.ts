@@ -59,4 +59,35 @@ describe("attentionQueue", () => {
     expect(phaseAttentionStatus("complete", run)).toBe("attention");
     expect(countRequiredAttention(run)).toBeGreaterThan(0);
   });
+
+  it("maps journey stage_reuse blocking to stage_reuse item", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "transcribe",
+          title: "Transcribe",
+          description: "",
+          status: "pending",
+          operator_phase: "prepare",
+        },
+      ],
+      job: { status: "complete" },
+      journey: {
+        phase: "prepare",
+        milestones: {},
+        next_action: "Choose reuse",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "transcribe",
+          message: "Transcribe can reuse outputs from exec_001.",
+        },
+      },
+    });
+    const items = listRequiredAttentionItems(run);
+    expect(items.some((i) => i.kind === "stage_reuse" && i.stageId === "transcribe")).toBe(
+      true,
+    );
+    expect(items.some((i) => i.title === "Pipeline blocked")).toBe(false);
+  });
 });

@@ -5976,6 +5976,33 @@ button.pipeline-substep-row:hover {
   opacity: 0.75;
 }
 
+.live-status-bar.mode-status-only .action-badge-btn {
+  display: none;
+}
+
+.pipeline-step-row.status-skipped {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pipeline-step-row.status-skipped:hover {
+  background: transparent;
+}
+
+.pipeline-step-context-action,
+.pipeline-step-context-waiting {
+  margin: 0.15rem 0 0;
+}
+
+.pipeline-substep-row .substep-skip-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.pipeline-step-row.status-blocked .pipeline-step-title-spinner {
+  display: none;
+}
+
 .live-status-dot.spinning {
   animation: spin 0.8s linear infinite;
 }

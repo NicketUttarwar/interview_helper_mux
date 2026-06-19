@@ -11,7 +11,19 @@ import type {
 import { listAttentionItems, type AttentionItem } from "./attentionQueue";
 import { getHandoffPathsLocal } from "./checkpoint";
 import { flattenGuidanceItems } from "./stageGuidance";
+import { isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 import { stageAwaitingWriteApproval } from "./writeApproval";
+
+const USER_ACTION_KINDS = new Set<SubstepKind>([
+  "blocked",
+  "write_approval",
+  "gate",
+  "reuse",
+  "optional",
+  "handoff",
+  "milestone",
+  "checkpoint",
+]);
 
 export interface BuildSubstepsOpts {
   jobRunning?: boolean;
@@ -206,11 +218,47 @@ export function buildStageSubsteps(
     );
   }
 
+  const offer = resolvePrecleanOffer(stage, run.meta);
+  if (offer && !isOptionalStageSkipped(stage, run.meta)) {
+    const hasOptional = substeps.some((s) => s.kind === "optional");
+    if (!hasOptional) {
+      substeps.push(
+        {
+          id: "optional:review",
+          label: "Review optional audio cleaning",
+          status: "todo",
+          kind: "optional",
+          stageId: stage.id,
+          source: "attention",
+          primaryLabel: "View optional offer",
+          targetSubTab: "stage",
+        },
+        {
+          id: "optional:skip",
+          label: "Skip this optional step",
+          status: "todo",
+          kind: "optional",
+          stageId: stage.id,
+          source: "attention",
+          primaryLabel: "Skip",
+          targetSubTab: "stage",
+        },
+      );
+    }
+  }
+
   const hintId = run.journey?.active_substep_id;
   if (hintId) {
-    substeps = substeps.map((s) =>
-      s.id === hintId && s.status === "todo" ? { ...s, status: "running" } : s,
-    );
+    substeps = substeps.map((s) => {
+      if (s.status !== "todo") return s;
+      const matches =
+        s.id === hintId ||
+        (hintId.startsWith("blocked:") && s.id === hintId) ||
+        (hintId === "write_approval" && s.kind === "write_approval") ||
+        (hintId.startsWith("gate:") && s.kind === "gate");
+      if (!matches || USER_ACTION_KINDS.has(s.kind)) return s;
+      return { ...s, status: "running" as const };
+    });
   }
 
   return substeps;
@@ -270,10 +318,26 @@ export function findActiveSubstep(
   run: RunData,
   opts: BuildSubstepsOpts = {},
 ): StageSubstep | null {
-  if (run.journey?.active_substep_id) {
+  for (const stage of run.stages) {
+    const progress = buildStageProgress(stage, run, opts);
+    const running = progress.substeps.find((s) => s.status === "running" && s.kind === "run");
+    if (running) return running;
+    const saving = progress.substeps.find(
+      (s) => s.status === "running" && s.kind === "write_approval",
+    );
+    if (saving) return saving;
+  }
+  const hintId = run.journey?.active_substep_id;
+  if (hintId) {
     for (const stage of run.stages) {
       const progress = buildStageProgress(stage, run, opts);
-      const match = progress.substeps.find((s) => s.id === run.journey?.active_substep_id);
+      const match = progress.substeps.find(
+        (s) =>
+          s.id === hintId ||
+          (hintId.startsWith("blocked:") && s.id === hintId) ||
+          (hintId === "write_approval" && s.kind === "write_approval") ||
+          (hintId.startsWith("gate:") && s.kind === "gate"),
+      );
       if (match) return match;
     }
   }

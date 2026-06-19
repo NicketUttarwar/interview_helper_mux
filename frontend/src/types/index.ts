@@ -92,9 +92,20 @@ export type JourneyLogKind =
   | "milestone"
   | "execute";
 
+export type JourneyBlockingReason =
+  | "write_approval"
+  | "stage_reuse"
+  | "transcript_review"
+  | "disfluency_review"
+  | "g1_vo_pickup"
+  | "g2_flow_select"
+  | "analysis_profile"
+  | "handoff_review"
+  | (string & {});
+
 export interface JourneyBlocking {
   blocked?: boolean;
-  reason?: string | null;
+  reason?: JourneyBlockingReason | null;
   message?: string;
   stage_id?: string | null;
 }

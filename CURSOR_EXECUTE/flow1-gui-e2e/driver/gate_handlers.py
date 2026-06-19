@@ -177,7 +177,15 @@ def try_modal_continue(page: Page, log: EventLogger, archive=None) -> bool:
 
 
 def try_primary_cta(page: Page, log: EventLogger, archive=None) -> bool:
-    for tid in ("live-status-primary", "stage-primary-action-btn", "pipeline-command-primary"):
+    # Sidebar substeps are canonical on Pipeline tab; header CTAs are status-only there.
+    loc = page.locator(
+        "button.pipeline-substep-row.status-todo, button.pipeline-substep-row.status-running"
+    )
+    if loc.count() > 0:
+        tid = loc.first.get_attribute("data-testid")
+        if tid and _click_testid(page, tid, log, "sidebar substep", archive):
+            return True
+    for tid in ("write-approval-save-continue", "live-status-primary", "stage-primary-action-btn"):
         if _click_testid(page, tid, log, "primary CTA", archive):
             return True
     return False

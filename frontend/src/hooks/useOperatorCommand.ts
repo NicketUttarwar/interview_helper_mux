@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ExecuteBody, RunData, StageInfo } from "../types";
+import type { AppTab, ExecuteBody, RunData, StageInfo } from "../types";
 import { findHandoffStage, stageTitleForId } from "../utils/checkpoint";
 import { hintToExecuteBody } from "../utils/executeHint";
 import { findNextRunnableStage } from "../utils/preclean";
@@ -36,6 +36,8 @@ export function useOperatorCommand(
     jobRunning: boolean;
     selectedStageId?: string | null;
     apiGrants?: Record<string, boolean>;
+    surface?: "header" | "sidebar" | "banner";
+    activeTab?: AppTab;
     onExecute: (body: ExecuteBody) => void;
     onRunNext: () => void;
     onOpenCheckpoint: (stageId?: string) => void;
@@ -67,6 +69,28 @@ export function useOperatorCommand(
   } = opts;
 
   return useMemo(() => {
+    const statusOnlyHeader =
+      opts.surface === "header" && opts.activeTab === "pipeline" && Boolean(run);
+
+    const stripHeaderActions = (state: OperatorCommandState): OperatorCommandState => {
+      if (!statusOnlyHeader) return state;
+      if (
+        state.kind === "running" ||
+        state.kind === "error" ||
+        state.kind === "no_run"
+      ) {
+        return { ...state, secondaryLabel: null, onSecondary: null };
+      }
+      return {
+        ...state,
+        primaryLabel: null,
+        primaryDisabled: true,
+        secondaryLabel: null,
+        onPrimary: null,
+        onSecondary: null,
+      };
+    };
+
     const empty: OperatorCommandState = {
       kind: "no_run",
       statusLine: "Start or resume an execution to continue.",
@@ -78,7 +102,7 @@ export function useOperatorCommand(
       handoffStage: null,
     };
 
-    if (!run) return empty;
+    if (!run) return stripHeaderActions(empty);
 
     const journey = run.journey;
     const nextAction = journey?.next_action || "";
@@ -109,7 +133,7 @@ export function useOperatorCommand(
       "pipeline";
 
     if (job?.status === "interrupted") {
-      return {
+      return stripHeaderActions({
         kind: "error",
         statusLine: job.message || "Run interrupted — re-run the last step.",
         primaryLabel: "View logs",
@@ -121,11 +145,11 @@ export function useOperatorCommand(
             ? () => onExecute(hintToExecuteBody(run.journey!.execute_hint!)!)
             : null,
         handoffStage: null,
-      };
+      });
     }
 
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
-      return {
+      return stripHeaderActions({
         kind: "running",
         statusLine: activeSub?.label || job?.message || `Running: ${runningTitle}`,
         primaryLabel: "View logs",
@@ -134,11 +158,11 @@ export function useOperatorCommand(
         onPrimary: onGoLogs,
         onSecondary: null,
         handoffStage: null,
-      };
+      });
     }
 
     if (job?.status === "error") {
-      return {
+      return stripHeaderActions({
         kind: "error",
         statusLine: job.message || "Last job failed — see Logs.",
         primaryLabel: "View logs",
@@ -150,14 +174,14 @@ export function useOperatorCommand(
             ? () => onExecute(hintToExecuteBody(hint)!)
             : null,
         handoffStage: null,
-      };
+      });
     }
 
     if (blocking?.blocked && blocking.message) {
       const isWriteApproval =
         pending?.kind === "write_approval" ||
         job?.status === "awaiting_write_approval";
-      return {
+      return stripHeaderActions({
         kind: "blocked",
         statusLine: activeSub?.label || blocking.message,
         primaryLabel: pending?.primaryLabel || nextAction || "Open checkpoint",
@@ -168,11 +192,11 @@ export function useOperatorCommand(
           : () => onOpenCheckpoint(blocking.stage_id || undefined),
         onSecondary: onGoPipeline,
         handoffStage: null,
-      };
+      });
     }
 
     if (handoffStage) {
-      return {
+      return stripHeaderActions({
         kind: "handoff",
         statusLine: pending?.message || `Step done — review outputs from ${handoffStage.title}.`,
         primaryLabel: pending?.primaryLabel || "Review outputs",
@@ -181,7 +205,7 @@ export function useOperatorCommand(
         onPrimary: () => onOpenCheckpoint(handoffStage.id),
         onSecondary: onAcknowledgeHandoff,
         handoffStage,
-      };
+      });
     }
 
     const deliverable = journey?.deliverable;
@@ -191,7 +215,7 @@ export function useOperatorCommand(
       deliverable.kind !== "none" &&
       !hint
     ) {
-      return {
+      return stripHeaderActions({
         kind: "done",
         statusLine: nextAction || "Deliverable ready.",
         primaryLabel: nextAction || "Open Pipeline",
@@ -200,11 +224,11 @@ export function useOperatorCommand(
         onPrimary: nextClick?.onClick ?? onGoPipeline,
         onSecondary: onGoLogs,
         handoffStage: null,
-      };
+      });
     }
 
     if (hint?.action === "checkpoint") {
-      return {
+      return stripHeaderActions({
         kind: "ready",
         statusLine: nextAction,
         primaryLabel: hint.label || pending?.primaryLabel || nextAction,
@@ -213,12 +237,12 @@ export function useOperatorCommand(
         onPrimary: () => onOpenCheckpoint(hint.stage_id),
         onSecondary: null,
         handoffStage: null,
-      };
+      });
     }
 
     const body = hint ? hintToExecuteBody(hint) : null;
     if (hint && body) {
-      return {
+      return stripHeaderActions({
         kind: "ready",
         statusLine: nextAction,
         primaryLabel: hint.label || nextAction,
@@ -227,7 +251,7 @@ export function useOperatorCommand(
         onPrimary: () => onExecute(body),
         onSecondary: () => onOpenCheckpoint(pending?.stageId),
         handoffStage: null,
-      };
+      });
     }
 
     const nav = resolvePipelineNav(run, {
@@ -239,7 +263,7 @@ export function useOperatorCommand(
     const nextRunnable = findNextRunnableStage(run.stages);
 
     if (nav.primaryAction === "run_next" && nextRunnable && !jobCtx.isRunning) {
-      return {
+      return stripHeaderActions({
         kind: "ready",
         statusLine: nav.statusLine || nextAction,
         primaryLabel: hint?.label || nextAction || `Run ${nextRunnable.title}`,
@@ -248,11 +272,11 @@ export function useOperatorCommand(
         onPrimary: onRunNext,
         onSecondary: () => onOpenCheckpoint(nextRunnable.id),
         handoffStage: null,
-      };
+      });
     }
 
     if (nav.primaryAction === "handoff" && nav.handoffStage) {
-      return {
+      return stripHeaderActions({
         kind: "handoff",
         statusLine: nav.statusLine || nextAction,
         primaryLabel: pending?.primaryLabel || "Review outputs",
@@ -261,11 +285,11 @@ export function useOperatorCommand(
         onPrimary: () => onOpenCheckpoint(nav.handoffStage!.id),
         onSecondary: onAcknowledgeHandoff,
         handoffStage: nav.handoffStage,
-      };
+      });
     }
 
     if (nav.primaryAction === "checkpoint" && nav.canRunNext) {
-      return {
+      return stripHeaderActions({
         kind: "blocked",
         statusLine: nav.statusLine || nextAction,
         primaryLabel: pending?.primaryLabel || "Open checkpoint",
@@ -274,11 +298,11 @@ export function useOperatorCommand(
         onPrimary: () => onOpenCheckpoint(nav.focusStageId || undefined),
         onSecondary: onGoPipeline,
         handoffStage: null,
-      };
+      });
     }
 
     if (nextClick) {
-      return {
+      return stripHeaderActions({
         kind: "ready",
         statusLine: nextAction,
         primaryLabel: nextClick.label,
@@ -287,11 +311,11 @@ export function useOperatorCommand(
         onPrimary: nextClick.onClick,
         onSecondary: null,
         handoffStage: null,
-      };
+      });
     }
 
     if (nextAction) {
-      return {
+      return stripHeaderActions({
         kind: "ready",
         statusLine: nextAction,
         primaryLabel: nextAction,
@@ -300,10 +324,10 @@ export function useOperatorCommand(
         onPrimary: onGoPipeline,
         onSecondary: null,
         handoffStage: null,
-      };
+      });
     }
 
-    return {
+    return stripHeaderActions({
       kind: "idle",
       statusLine: "Idle — select a stage or view logs.",
       primaryLabel: "Open Pipeline",
@@ -312,12 +336,14 @@ export function useOperatorCommand(
       onPrimary: onGoPipeline,
       onSecondary: onGoLogs,
       handoffStage: null,
-    };
+    });
   }, [
     run,
     jobRunning,
     selectedStageId,
     apiGrants,
+    opts.surface,
+    opts.activeTab,
     onExecute,
     onRunNext,
     onOpenCheckpoint,

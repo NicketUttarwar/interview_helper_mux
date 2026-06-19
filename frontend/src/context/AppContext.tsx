@@ -42,6 +42,7 @@ import {
   findActiveStage,
   findNextRunnableStage,
   hasActionRequiredStage,
+  resolvePrecleanOffer,
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
@@ -120,6 +121,7 @@ interface AppContextValue {
   resolveConfirm: (ok: boolean) => void;
   activateSubstep: (substep: StageSubstep, opts?: { openModal?: boolean }) => void;
   setActiveSubstepId: (id: string | null) => void;
+  skipOptionalStage: (stageId: string) => Promise<void>;
   expandStage: (stageId: string) => void;
   collapseStage: (stageId: string) => void;
   toggleDoneStageExpanded: (stageId: string) => void;
@@ -646,10 +648,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               polled.status === "awaiting_write_approval" ||
               polled.awaiting_write_approval
             ) {
-              if (!userDismissedActionRef.current) {
-                openActionModal();
-                playAttentionPing(alertsMuted);
-              }
+              playAttentionPing(alertsMuted);
+              const sid = polled.pending_write_stage || polled.stage;
+              if (sid) expandStage(sid);
             }
           } else {
             runRefreshTickRef.current += 1;
@@ -968,6 +969,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Review stage outputs before saving to disk.");
       return;
     }
+    const blocking = current.journey?.blocking ?? current.blocking;
+    if (blocking?.blocked && blocking.stage_id) {
+      const sid = blocking.stage_id;
+      await selectStage(sid);
+      expandStage(sid);
+      if (blocking.reason === "stage_reuse") {
+        setPipelineSubTabWrapped("stage");
+        showToast(
+          blocking.message ||
+            "Choose reuse from a prior execution or run this step fresh.",
+        );
+        return;
+      }
+      if (blocking.reason === "write_approval") {
+        setPipelineSubTabWrapped("files");
+        showToast("Review staged outputs before saving to disk.");
+        return;
+      }
+      if (
+        blocking.reason === "transcript_review" ||
+        blocking.reason === "disfluency_review" ||
+        blocking.reason === "g1_vo_pickup" ||
+        blocking.reason === "g2_flow_select" ||
+        blocking.reason === "analysis_profile" ||
+        blocking.reason === "handoff_review"
+      ) {
+        setPipelineSubTabWrapped("stage");
+        openActionModal();
+        playAttentionPing(alertsMuted);
+        return;
+      }
+    }
     if (current.job?.needs_stage_reuse && current.job.stage) {
       await selectStage(current.job.stage);
       setPipelineSubTabWrapped("stage");
@@ -1028,6 +1061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     openActionModal,
     refreshRun,
     setPipelineSubTabWrapped,
+    expandStage,
   ]);
 
   const approveWriteAndContinue = useCallback(
@@ -1070,6 +1104,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
           );
           return false;
         }
+        const focusId = findPendingFocusStage(refreshed, ALL_API_CONSENTS);
+        if (focusId) {
+          await selectStage(focusId);
+          expandStage(focusId);
+        }
+        const blocking = refreshed?.journey?.blocking ?? refreshed?.blocking;
+        if (blocking?.blocked && blocking.stage_id) {
+          if (blocking.reason === "stage_reuse") {
+            setActiveSubstepIdState(`stage_reuse:${blocking.stage_id}`);
+            setPipelineSubTabWrapped("stage");
+            showToast(
+              blocking.message ||
+                "Choose reuse from a prior execution or run this step fresh.",
+            );
+            return true;
+          }
+          if (blocking.reason === "handoff_review") {
+            setActiveSubstepIdState(`handoff:${blocking.stage_id}`);
+            setPipelineSubTabWrapped("stage");
+            showToast(blocking.message || "Review AI outputs before continuing.");
+            return true;
+          }
+        }
         await runNextStage();
         return true;
       } catch (e) {
@@ -1079,6 +1136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (e instanceof ApiError && e.status === 409 && runId) {
           const job = await syncJobRunning(runId);
           if (isJobActivelyRunning(job)) {
+            showToast("Step still running — wait for Activity log, then retry.");
             setActivityLogTabState("live");
             activityLogTabRef.current = "live";
             startJobPoll();
@@ -1100,7 +1158,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pollLog,
       syncJobRunning,
       startJobPoll,
+      selectStage,
+      expandStage,
     ],
+  );
+
+  const skipOptionalStage = useCallback(
+    async (stageId: string) => {
+      if (!runId || !run) return;
+      const stage = run.stages.find((s) => s.id === stageId);
+      if (!stage) return;
+      const offer = resolvePrecleanOffer(stage, run.meta);
+      if (!offer) return;
+      try {
+        await api(`/api/runs/${runId}/preclean-offer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            checkpoint: offer.checkpoint,
+            action: "dismiss",
+            scope: offer.scope,
+          }),
+        });
+        showToast("Skipped optional step — not required for this run.");
+        await refreshRun();
+        if (offer.checkpoint === "before_ingest") {
+          await runNextStage();
+        }
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Could not skip optional step";
+        showToast(msg);
+        appendClientLog(msg, "warning", stageId);
+      }
+    },
+    [runId, run, showToast, refreshRun, runNextStage, appendClientLog],
   );
 
   const onCheckpointContinue = useCallback(async () => {
@@ -1151,6 +1242,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activateSubstep = useCallback(
     (substep: StageSubstep, opts?: { openModal?: boolean }) => {
+      const openModal = opts?.openModal ?? activeTabRef.current !== "pipeline";
+      const gateInline =
+        substep.kind === "gate" &&
+        (substep.stageId === "transcript_review" ||
+          substep.stageId === "disfluency_review");
       activateSubstepUtil(
         substep,
         {
@@ -1163,8 +1259,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           approveWrite: (id) => void approveWriteAndContinue(id),
           acknowledgeHandoff: () => void acknowledgeHandoff(),
           setActiveSubstepId,
+          setActivityLogCollapsed: setActivityLogCollapsedState,
+          setActivityLogTab: setActivityLogTabState,
+          showToast,
+          skipOptionalStage: (stageId) => void skipOptionalStage(stageId),
         },
-        opts,
+        { openModal: gateInline ? false : openModal },
       );
       expandStage(substep.stageId);
     },
@@ -1178,6 +1278,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       acknowledgeHandoff,
       setActiveSubstepId,
       expandStage,
+      skipOptionalStage,
+      showToast,
     ],
   );
 
@@ -1328,6 +1430,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [run, alertsMuted]);
 
   useEffect(() => {
+    if (!run) return;
+    const focusId = findPendingFocusStage(run, mergedApiGrants());
+    if (!focusId) return;
+    expandStage(focusId);
+  }, [run?.journey?.blocking, run?.job?.status, run?.job?.needs_stage_reuse, run, expandStage]);
+
+  useEffect(() => {
     if (pendingActionCount === 0) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
@@ -1423,6 +1532,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     resolveConfirm,
     activateSubstep,
     setActiveSubstepId,
+    skipOptionalStage,
     expandStage,
     collapseStage,
     toggleDoneStageExpanded,

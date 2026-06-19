@@ -111,6 +111,11 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 53 | Optional vs required mixed | **attention-required** / **attention-optional** styling on gates vs pre-clean |
 | 54 | Step finished → what's next? | Toast + activity log line + 30s LiveStatusBar **Next:** subline after job complete |
 | 55 | Checkpoint labels generic | **checkpointLabels** + **attentionQueue** shared across banners and CTAs |
+| 56 | Header duplicate Save CTAs on Pipeline | **LiveStatusBar** status-only on Pipeline tab; sidebar owns Save/Run/reuse |
+| 57 | Blocked substep showed spinner | **stageSubsteps** — user-action substeps stay `todo`; spinner only for execution or save-in-flight |
+| 58 | Generic "Pipeline blocked" after ingest save | **attentionQueue** maps `journey.blocking.reason` (e.g. `stage_reuse`) to specific titles |
+| 59 | Optional pre-clean unclear | Sidebar **Skip this optional step**; skipped rows greyed out |
+| 60 | Main panel / sidebar focus mismatch | **approveWriteAndContinue** selects `findPendingFocusStage` after save |
 
 ---
 

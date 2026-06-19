@@ -3,7 +3,6 @@ import { useApp } from "../../context/AppContext";
 import { filterByStage } from "../../utils/logStreams";
 import { escapeHtml, formatTs } from "../../utils";
 import { resolvePendingAction } from "../../utils/pendingAction";
-import { pendingActionToSubstep } from "../../utils/stageSubsteps";
 import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function StageActivityStrip() {
@@ -14,7 +13,6 @@ export function StageActivityStrip() {
     apiGrants,
     setActivityLogTab,
     setActivityLogCollapsed,
-    activateSubstep,
   } = useApp();
   const { activeSubstep } = useStageProgress(selectedStageId);
 
@@ -44,18 +42,9 @@ export function StageActivityStrip() {
       ) : null}
 
       {pendingOnStage ? (
-        <div className="stage-activity-cta" role="alert">
-          <p className="stage-activity-cta-text">
-            <strong>Action required:</strong> {pendingOnStage.message}
-          </p>
-          <button
-            type="button"
-            className="btn primary sm"
-            onClick={() => activateSubstep(pendingActionToSubstep(pendingOnStage))}
-          >
-            {pendingOnStage.primaryLabel}
-          </button>
-        </div>
+        <p className="hint sm stage-activity-cta-text">
+          <strong>Action in sidebar:</strong> {pendingOnStage.message}
+        </p>
       ) : null}
 
       {entries.length ? (

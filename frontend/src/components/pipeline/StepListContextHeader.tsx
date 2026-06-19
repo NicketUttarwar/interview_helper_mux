@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useApp } from "../../context/AppContext";
 import { PHASE_LABELS } from "../../constants/phases";
-import { resolvePipelineNav } from "../../utils/pipelineNavigation";
+import { buildNumberedStages, resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { buildPhaseSubsteps } from "../../utils/phaseSubsteps";
 import { useStageProgress } from "../../hooks/useStageProgress";
 
@@ -28,14 +28,23 @@ export function StepListContextHeader() {
     selectedStageId,
   });
 
-  const youAreHere =
-    activeSubstepGlobal?.label ||
-    nav.currentStage?.title ||
-    nav.focusStageId
-      ? run.stages.find((s) => s.id === nav.focusStageId)?.title
+  const numbered = buildNumberedStages(run.stages);
+  const focusEntry = nav.focusStageId
+    ? numbered.find((n) => n.stage.id === nav.focusStageId)
+    : null;
+  const focusTitle = focusEntry
+    ? `Step ${focusEntry.number} — ${focusEntry.stage.title}`
+    : nav.currentStage?.title;
+
+  const jobStageId = run.job?.current_stage || run.job?.stage;
+  const waitingOnJob =
+    jobRunning && jobStageId
+      ? run.stages.find((s) => s.id === jobStageId)?.title
       : null;
 
-  const nextTitle = nav.nextStage?.title;
+  const userActionPending =
+    activeSubstepGlobal?.status === "todo" &&
+    activeSubstepGlobal.kind !== "run";
 
   return (
     <header className="pipeline-step-list-context" id="pipeline-step-context">
@@ -48,19 +57,23 @@ export function StepListContextHeader() {
           </span>
         ) : null}
       </p>
-      {youAreHere ? (
+      {focusTitle ? (
         <p className="pipeline-step-context-here hint sm">
-          You are here: <strong>{youAreHere}</strong>
+          You are here: <strong>{focusTitle}</strong>
         </p>
       ) : null}
-      {nextTitle && !run.journey?.blocking?.blocked ? (
+      {waitingOnJob ? (
+        <p className="pipeline-step-context-waiting hint sm">
+          <span className="spinner-inline" aria-hidden /> Waiting: Running {waitingOnJob}…
+        </p>
+      ) : userActionPending && activeSubstepGlobal ? (
+        <p className="pipeline-step-context-action hint sm">
+          Current action: <strong>{activeSubstepGlobal.label}</strong>
+        </p>
+      ) : null}
+      {nav.nextStage?.title && !userActionPending && !waitingOnJob ? (
         <p className="pipeline-step-context-next hint sm">
-          Next: <strong>{nextTitle}</strong>
-        </p>
-      ) : null}
-      {run.journey?.blocking?.blocked && run.journey.blocking.message ? (
-        <p className="pipeline-step-context-blocked warning sm">
-          {run.journey.blocking.message}
+          Next after this: <strong>{nav.nextStage.title}</strong>
         </p>
       ) : null}
     </header>

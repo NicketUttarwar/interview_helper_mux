@@ -7,7 +7,7 @@ import {
   reuseStatusLine,
   writeApprovalStatusLine,
 } from "./operatorStatus";
-import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
+import { findNextRunnableStage, isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 
 export interface NumberedStage {
   number: number;
@@ -123,8 +123,10 @@ export function resolvePipelineNav(
     nextLine = "Approve or discard staged files in the checkpoint panel.";
     primaryAction = "checkpoint";
     canRunNext = true;
-  } else if (jobCtx.needsStageReuse) {
-    statusLine = reuseStatusLine(run, job);
+  } else if (jobCtx.needsStageReuse || jobCtx.needsStageReuseFromJourney) {
+    const reuseStageId = job?.stage || jobCtx.journeyReuseStageId;
+    const reuseJob = reuseStageId ? { ...job, stage: reuseStageId } : job;
+    statusLine = reuseStatusLine(run, reuseJob);
     nextLine = "Pick a prior run with the same source audio hash, or run this step fresh.";
     primaryAction = "checkpoint";
     canRunNext = true;
@@ -176,8 +178,9 @@ export function stageNavStatus(
   run: RunData,
   selectedStageId: string | null,
   focusStageId: string | null,
-): "done" | "current" | "blocked" | "upcoming" {
+): "done" | "current" | "blocked" | "upcoming" | "skipped" {
   const { stage } = entry;
+  if (isOptionalStageSkipped(stage, run.meta)) return "skipped";
   if (stage.status === "done") return "done";
   if (stage.status === "action_required" || stage.status === "awaiting_write_approval") {
     return "blocked";

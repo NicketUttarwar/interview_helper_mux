@@ -1,5 +1,16 @@
 import type { RunMeta, StageInfo, StageStatus } from "../types";
 
+export function precleanDismissedAtCheckpoint(
+  preclean: RunMeta["audio_preclean"] | undefined,
+  checkpoint: string,
+): boolean {
+  const decisions = preclean?.decisions;
+  if (!Array.isArray(decisions)) return false;
+  return decisions.some(
+    (d) => d.checkpoint === checkpoint && d.action === "dismiss",
+  );
+}
+
 export function precleanOfferSettled(
   preclean: RunMeta["audio_preclean"] | undefined,
   checkpoint: string,
@@ -44,6 +55,25 @@ export function resolvePrecleanOffer(
   if (!offer) return null;
   if (precleanOfferSettled(meta?.audio_preclean, offer.checkpoint)) return null;
   return offer;
+}
+
+/** True when operator dismissed optional pre-clean for this stage's checkpoint. */
+export function isOptionalStageSkipped(
+  stage: StageInfo,
+  meta?: RunMeta | null,
+): boolean {
+  if (stage.id === "audio_preclean") {
+    return precleanDismissedAtCheckpoint(meta?.audio_preclean, "before_ingest");
+  }
+  if (stage.id === "g1_vo_pickup") {
+    return precleanDismissedAtCheckpoint(meta?.audio_preclean, "g1_vo_pickup");
+  }
+  return false;
+}
+
+export function getOptionalSkipLabel(stage: StageInfo): string {
+  if (stage.id === "audio_preclean") return "Skip optional audio cleaning";
+  return "Skip optional step";
 }
 
 export function findActiveStage(stages: StageInfo[]): StageInfo | undefined {
