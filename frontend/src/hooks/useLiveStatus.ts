@@ -1,10 +1,9 @@
 import { useMemo } from "react";
 import type { AppTab, LiveStatus, LogEntry, RunData } from "../types";
 import { PHASE_LABELS } from "../constants/phases";
-import { stageTitleForId } from "../utils/checkpoint";
-import { isJobActivelyRunning } from "../utils/jobStatus";
+import { resolveOperatorAction } from "../utils/resolveOperatorAction";
 import { buildNumberedStages, resolvePipelineNav } from "../utils/pipelineNavigation";
-import { findActiveSubstep } from "../utils/stageSubsteps";
+import { isJobActivelyRunning } from "../utils/jobStatus";
 import { useOperatorCommand, type OperatorCommandState } from "./useOperatorCommand";
 import {
   WORKFLOW_STEPS,
@@ -31,81 +30,42 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
   onPrimary: (() => void) | null;
 } {
   const { run, cmd } = input;
-  const nav = resolvePipelineNav(run, {
+  const action = resolveOperatorAction(run, {
     selectedStageId: input.selectedStageId,
     jobRunning: input.jobRunning,
     apiGrants: input.apiGrants,
   });
-  const numbered = buildNumberedStages(run.stages);
-  const job = run.job;
-  const runningStageId =
-    input.jobRunning || isJobActivelyRunning(job)
-      ? job?.current_stage || job?.stage || null
-      : null;
-  const currentNum = nav.currentNumber;
-  const currentStage = nav.currentStage;
-  const pipelineStep = currentStage
-    ? {
-        number: currentNum,
-        total: numbered.length,
-        title: currentStage.title,
-      }
-    : null;
 
   const recentComplete =
     input.jobCompleteAt != null && Date.now() - input.jobCompleteAt < 30_000;
+  const job = run.job;
 
   let activityKind = cmd.kind as LiveStatus["activityKind"];
-  let headline = cmd.statusLine;
-  let subline = run.journey?.next_action || nav.statusLine || "";
-  const activeSub = findActiveSubstep(run, {
-    jobRunning: input.jobRunning,
-    apiGrants: input.apiGrants,
-  });
-  if (activeSub?.status === "running" && activeSub.kind === "run") {
-    subline = activeSub.label;
-  } else if (activeSub?.status === "todo") {
-    subline = `Your turn: ${activeSub.label}`;
-  } else if (activeSub?.status === "running") {
-    subline = activeSub.label;
-  }
-  let primaryLabel = cmd.primaryLabel;
-  let onPrimary = cmd.onPrimary;
+  let headline = action.headline || cmd.statusLine;
+  let subline = action.subline || run.journey?.next_action || "";
+  let primaryLabel = action.primaryDisabled ? null : action.primaryLabel;
+  let onPrimary: (() => void) | null = cmd.onPrimary;
 
   if (job?.status === "interrupted") {
     activityKind = "interrupted";
     headline = "Run interrupted";
     subline = job.message || "Server restarted during a job — re-run the last step.";
-  } else if (input.jobRunning || isJobActivelyRunning(job)) {
+  } else if (input.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
     activityKind = "running";
-    const stageTitle =
-      stageTitleForId(run.stages, runningStageId) ||
-      runningStageId?.replace(/_/g, " ") ||
-      "pipeline";
-    const jobProgress =
-      job?.stage_index && job?.stage_total
-        ? { index: job.stage_index, total: job.stage_total }
-        : null;
-    if (jobProgress) {
-      headline = `Running step ${jobProgress.index}/${jobProgress.total} — ${stageTitle}`;
-    } else {
-      headline = `Running — ${stageTitle}`;
-    }
-    subline = job?.message || subline;
+    headline = action.headline;
+    subline = job?.message || action.subline || subline;
+    primaryLabel = "View logs";
+    onPrimary = cmd.onPrimary;
   } else if (job?.status === "complete" || recentComplete) {
     headline = "Step finished";
-    const next = run.journey?.next_action;
-    subline = next ? `Next: ${next}` : job?.message || subline;
-    if (recentComplete && cmd.primaryLabel) {
-      primaryLabel = cmd.primaryLabel;
-      onPrimary = cmd.onPrimary;
-    }
+    subline = action.subline || job?.message || subline;
   } else if (job?.status === "error") {
     activityKind = "error";
     headline = "Step failed";
     subline = job.last_error?.message || job.message || "See activity log for details.";
-  } else if (pipelineStep?.number) {
-    headline = `Step ${pipelineStep.number}/${pipelineStep.total} — ${pipelineStep.title}`;
+  } else if (action.mode === "needs_you") {
+    activityKind = "blocked";
+    primaryLabel = action.primaryLabel;
   }
 
   return { activityKind, headline, subline, primaryLabel, onPrimary };

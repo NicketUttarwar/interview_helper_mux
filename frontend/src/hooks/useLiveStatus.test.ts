@@ -19,7 +19,7 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("deriveLiveStatusCopy", () => {
-  it("uses Your turn subline when a todo substep is active", () => {
+  it("uses resolver subline when write approval is pending", () => {
     const run = minimalRun({
       job: {
         status: "awaiting_write_approval",
@@ -36,11 +36,11 @@ describe("deriveLiveStatusCopy", () => {
       apiGrants: {},
       cmd: { kind: "blocked", statusLine: "Blocked", primaryLabel: null, onPrimary: null },
     });
-    expect(copy.subline).toMatch(/^Your turn:/);
+    expect(copy.subline).toContain("save");
     expect(copy.activityKind).toBe("blocked");
   });
 
-  it("shows running headline when job is active", () => {
+  it("shows resolver running headline when job is active", () => {
     const run = minimalRun({
       stages: [
         {
@@ -69,7 +69,7 @@ describe("deriveLiveStatusCopy", () => {
       cmd: { kind: "running", statusLine: "Running", primaryLabel: null, onPrimary: null },
     });
     expect(copy.activityKind).toBe("running");
-    expect(copy.headline).toContain("Running step 3/8");
-    expect(copy.headline).toContain("Transcribe");
+    expect(copy.headline).toContain("Running Transcribe");
+    expect(copy.headline).toContain("Transcribing");
   });
 });

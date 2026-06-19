@@ -20,6 +20,7 @@ export function SubstepRow({ substep, onClick, onSkip, selected, compact }: Prop
       type={clickable ? "button" : undefined}
       className={`pipeline-substep-row kind-${substep.kind} status-${substep.status}${selected ? " selected" : ""}${compact ? " compact" : ""}`}
       data-testid={`substep-${substep.id}`}
+      tabIndex={clickable ? (selected ? 0 : -1) : undefined}
       aria-current={selected ? "step" : undefined}
       aria-busy={substep.status === "running" && substep.kind === "run" ? true : undefined}
       onClick={clickable ? onClick : undefined}
@@ -51,9 +52,6 @@ export function SubstepRow({ substep, onClick, onSkip, selected, compact }: Prop
         >
           Skip
         </button>
-      ) : null}
-      {substep.primaryLabel && substep.status === "todo" && !compact && !showSkip ? (
-        <span className="pipeline-substep-action muted">{substep.primaryLabel}</span>
       ) : null}
     </Tag>
   );

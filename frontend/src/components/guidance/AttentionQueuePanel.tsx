@@ -102,13 +102,6 @@ export function AttentionQueuePanel({ compact, hideWhenSingleWriteApproval }: Pr
                   substep={attentionItemToSubstep(item)}
                   onClick={() => goToItem(item)}
                 />
-                <button
-                  type="button"
-                  className="btn primary sm attention-queue-primary"
-                  onClick={() => goToItem(item)}
-                >
-                  {item.primaryLabel}
-                </button>
               </li>
             ))}
           </ol>

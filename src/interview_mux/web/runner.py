@@ -609,8 +609,7 @@ class JobRunner:
                     {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
                 )
             except WriteApprovalPending as exc:
-                gate_msg = str(exc)
-                ctx.log(gate_msg, level="action", stage=exc.stage_id)
+                ctx.log(str(exc), level="action", stage=exc.stage_id)
                 refresh_journey_meta(ctx)
                 self._write_job(
                     ctx,
@@ -618,7 +617,7 @@ class JobRunner:
                         "status": "awaiting_write_approval",
                         "mode": mode,
                         "stage": exc.stage_id,
-                        "message": gate_msg,
+                        "message": "Awaiting your review",
                         "pending_write_stage": exc.stage_id,
                         "pending_write_paths": exc.paths,
                     },

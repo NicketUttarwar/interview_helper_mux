@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, require_secret
-from interview_mux.operator_subprocess import format_command, run_command
+from interview_mux.operator_subprocess import format_command, run_command, touch_job_message
 from interview_mux.operator_trace import log_api_call
 from interview_mux.run_context import RunContext
 
@@ -53,6 +53,7 @@ def run_transcribe(ctx: RunContext) -> None:
         stage="transcribe",
         detail={"journey_kind": "execute"},
     )
+    touch_job_message(ctx, "Transcribe: uploading audio…")
     _aws(ctx, "s3", "cp", str(normalized), s3_uri)
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
@@ -66,6 +67,7 @@ def run_transcribe(ctx: RunContext) -> None:
         stage="transcribe",
         detail={"journey_kind": "execute", "job_name": job_name},
     )
+    touch_job_message(ctx, "Transcribe: starting AWS job…")
     _aws(
         ctx,
         "transcribe",
@@ -94,6 +96,7 @@ def run_transcribe(ctx: RunContext) -> None:
         time.sleep(5)
         poll_count += 1
         if poll_count == 1 or poll_count % 6 == 0:
+            touch_job_message(ctx, f"Transcribe: waiting on AWS ({status.lower()})…")
             ctx.log(
                 f"AWS Transcribe job {job_name}: polling ({status})",
                 level="info",
@@ -120,6 +123,7 @@ def run_transcribe(ctx: RunContext) -> None:
         stage="transcribe",
         detail={"journey_kind": "execute"},
     )
+    touch_job_message(ctx, "Transcribe: downloading result…")
     local_out = out_dir / "aws_raw.json"
     _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
@@ -139,7 +143,7 @@ def run_transcribe(ctx: RunContext) -> None:
 def _normalize_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     results = raw.get("results") or {}
     items = results.get("items") or []
-    segments = results.get("speaker_labels", {}).get("segments") or []
+    segments = (results.get("speaker_labels") or {}).get("segments") or []
     words: list[dict[str, Any]] = []
     for item in items:
         if item.get("type") != "pronunciation":

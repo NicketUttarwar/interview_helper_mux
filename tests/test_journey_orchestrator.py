@@ -11,6 +11,7 @@ from interview_mux.journey_orchestrator import (
     NEXT_ACTION_COMPLETE_G2,
     NEXT_ACTION_PREPARE_G0,
     NEXT_ACTION_UNDERSTAND_PROFILE,
+    _active_operator_action,
     _active_substep,
     build_journey_snapshot,
 )
@@ -69,6 +70,7 @@ def test_build_journey_snapshot_smoke(smoke_ctx):
     )
     assert "next_action" in snap
     assert "blocking" in snap
+    assert "active_operator_action" in snap
     assert "milestones" in snap
     assert isinstance(snap["milestones"]["g0_complete"], bool)
     for key in ("sfx_generated", "sfx_listen_complete", "placement_qa_ready"):
@@ -83,7 +85,7 @@ def test_active_substep_write_approval_priority():
         "message": "Review ingest outputs before saving",
     }
     out = _active_substep(None, job=job, blocking={}, hint=None)
-    assert out["active_substep_id"] == "write_approval"
+    assert out["active_substep_id"] == "write_approval:ingest"
     assert "ingest" in out["active_substep_label"].lower()
 
 
@@ -99,7 +101,25 @@ def test_active_substep_blocked_gate(smoke_ctx):
     blocking = snap.get("blocking") or {}
     assert blocking.get("blocked")
     out = _active_substep(smoke_ctx, job=None, blocking=blocking, hint=snap.get("execute_hint"))
-    assert str(out.get("active_substep_id") or "").startswith("blocked:")
+    sub_id = str(out.get("active_substep_id") or "")
+    assert sub_id.startswith("blocked:") or sub_id.startswith("gate:")
+
+
+def test_active_substep_stage_reuse_blocking():
+    blocking = {
+        "blocked": True,
+        "reason": "stage_reuse",
+        "stage_id": "transcribe",
+        "message": "Choose reuse or run fresh",
+    }
+    out = _active_substep(None, job=None, blocking=blocking, hint=None)
+    assert out["active_substep_id"] == "stage_reuse:transcribe"
+
+
+def test_active_substep_stage_reuse_job():
+    job = {"status": "needs_operator", "stage": "transcribe", "needs_stage_reuse": True}
+    out = _active_substep(None, job=job, blocking={}, hint=None)
+    assert out["active_substep_id"] == "stage_reuse:transcribe"
 
 
 def test_journey_milestones_sfx_generated(tmp_path, monkeypatch):
@@ -179,12 +199,14 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
         "status": "awaiting_write_approval",
         "stage": "ingest",
         "pending_write_stage": "ingest",
-        "message": "Stage 'ingest' outputs await review before saving (2 file(s)).",
+        "message": "Awaiting your review",
+        "pending_write_paths": ["ingest/normalized.wav"],
     }
     snap = _blocking(ctx, job=job, milestones={"g0_complete": False})
     assert snap["blocked"] is True
     assert snap["reason"] == "write_approval"
     assert snap["stage_id"] == "ingest"
+    assert snap["message"] == "Awaiting your review"
 
 
 def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
@@ -227,3 +249,58 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
     snap = _blocking(ctx, job={"status": "idle"}, milestones={"g0_complete": False})
     assert snap["blocked"] is False
     assert calls == ["audio_preclean"]
+
+
+def test_active_operator_action_write_approval(tmp_path, monkeypatch):
+    from run_fixtures import init_run_meta_for_test, isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.run_context.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
+    init_run_meta_for_test(ctx)
+    job = {
+        "status": "awaiting_write_approval",
+        "stage": "ingest",
+        "pending_write_stage": "ingest",
+        "message": "Awaiting your review",
+        "pending_write_paths": ["ingest/normalized.wav", "ingest/checksums.json"],
+    }
+    blocking = {"blocked": True, "reason": "write_approval", "stage_id": "ingest", "message": "Awaiting your review"}
+    action = _active_operator_action(ctx, job=job, blocking=blocking, milestones={})
+    assert action["mode"] == "needs_you"
+    assert action["stage_id"] == "ingest"
+    assert action["substep_id"] == "write_approval:ingest"
+    assert action["modal_auto_open"] is True
+    assert "Review" in action["headline"]
+    assert "2 staged files" in action["subline"]
+
+
+def test_active_operator_action_running_job():
+    job = {
+        "status": "running",
+        "stage": "transcribe",
+        "message": "Transcribe: uploading audio…",
+    }
+    action = _active_operator_action(None, job=job, blocking={}, milestones={})
+    assert action["mode"] == "running"
+    assert action["stage_id"] == "transcribe"
+    assert "uploading" in action["headline"].lower()
+    assert action["modal_auto_open"] is False
+
+
+def test_build_journey_snapshot_includes_active_operator_action(smoke_ctx):
+    snap = build_journey_snapshot(smoke_ctx)
+    action = snap["active_operator_action"]
+    assert isinstance(action, dict)
+    assert "mode" in action
+    assert "modal_auto_open" in action
+    if action.get("mode") == "needs_you":
+        assert action.get("stage_id")
+        assert action.get("headline")

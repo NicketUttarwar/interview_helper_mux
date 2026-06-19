@@ -96,7 +96,7 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 38 | Volley table cramped | Expand chevron column + horizontal scroll hint |
 | 39 | Write approval invisible mid-run | Live status bar + activity panel copy in **WriteApprovalPanel** |
 | 40 | NLE apply progress unclear | **ApplyEditsPanel** + **LiveStatusBar** running state during `nle_apply` |
-| 41 | Phase guidance only on Start tab | **PhaseGuidanceBanner** in **PipelineCommandCenter** during active runs |
+| 41 | Phase guidance only on Start tab | **StartPhaseGuidance** on Start tab only — no banner on Pipeline |
 | 42 | Phase chips hide pending reviews | **Workflow phase** chips use `attention` state + count badge |
 | 43 | Dual numbering confusing | Labels **Workflow phase** vs **Pipeline step** + tooltips; blocked mode suppresses step eyebrow |
 | 44 | Generic Open Pipeline CTA | Primary button uses `journey.next_action` / **resolveNextActionClick** |
@@ -105,7 +105,7 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 47 | Handoff felt like rubber stamp | **HandoffPanel** skim checklist + inline-first **Review outputs** CTA |
 | 48 | Sub-tab work invisible | Badges on **PipelineToolRow** from **subTabAttentionFlags** |
 | 49 | Long step list hunting | **Needs you only** filter on **PipelineStepList** |
-| 50 | Activity teaser opaque off-Pipeline | **ActivityTeaser** shows **actionSummaryText** + Go affordance |
+| 50 | Activity teaser opaque off-Pipeline | **ActivityTeaser** shows resolver **headline** + Go affordance |
 | 51 | Executions resume opaque | Enriched list rows show phase, next/blocking hint, **Needs you** pill |
 | 52 | Gate progress unclear | **gate-progress-subheader** on G0/G1/profile panels; modal hints for all pending kinds |
 | 53 | Optional vs required mixed | **attention-required** / **attention-optional** styling on gates vs pre-clean |
@@ -116,6 +116,31 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 58 | Generic "Pipeline blocked" after ingest save | **attentionQueue** maps `journey.blocking.reason` (e.g. `stage_reuse`) to specific titles |
 | 59 | Optional pre-clean unclear | Sidebar **Skip this optional step**; skipped rows greyed out |
 | 60 | Main panel / sidebar focus mismatch | **approveWriteAndContinue** selects `findPendingFocusStage` after save |
+
+### UX simplification wave (61–80)
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 61 | Duplicate CTAs across command center, status bar, sidebar, modal | **`resolveOperatorAction`** single source of truth for mode/headline/primary |
+| 62 | Unclear what to do on each step | **`StepActionHeader`** at top of **`StageDetail`** with mode badge + one primary |
+| 63 | Checkpoints scattered inline + modal | **Modal-first** — auto-open on `needs_you`; inline panels hidden when modal owns checkpoint |
+| 64 | Modal showed guidance + gates + footer Continue | **`OperatorActionModal`** — one active panel; resolver title; footer deduped |
+| 65 | Sidebar substeps looked like buttons with action labels | **`SubstepRow`** navigation-only; checkpoint clicks open modal |
+| 66 | Hard to find blocked stage in long list | **`sidebar-step--focus`** + default **Needs you only** filter |
+| 67 | LiveStatusBar had no primary on Pipeline | Restored primary CTA; workflow chips read-only on Pipeline tab |
+| 68 | Ingest stuck after run (write approval invisible) | **`journey.active_operator_action`** + auto modal on `awaiting_write_approval` |
+| 69 | E2E clicked wrong CTA | **`gate_handlers.try_primary_cta`** prefers `step-action-primary` → modal → sidebar |
+| 70 | Operator model undocumented | [ux-operator-model.md](./ux-operator-model.md) + updated [gui-surface-map.md](./gui-surface-map.md) |
+| 71 | Duplicate Pipeline primaries | LiveStatusBar primary hidden on Pipeline; **StepActionHeader** owns CTA |
+| 72 | Pin selection invisible | Sidebar 📌 when selected ≠ focus for 30s |
+| 73 | Navigation toast spam | `runNextStage` opens modal without duplicate hint toasts |
+| 74 | Handoff did not auto-advance | `acknowledgeHandoff` calls `runNextStage` after refresh |
+| 75 | Broken `useOperatorAction` import | Fixed path to `../utils/resolveOperatorAction` |
+| 76 | E2E stuck-ingest regression | `BLOCKER-007-stuck-ingest-ux.md` + driver priority table |
+| 77 | Stale operator-journey / gates docs | Updated for modal-first + StepActionHeader |
+| 78 | UX smoke scripts missing | `operator-stage-checklists.md` Prepare + gates section |
+| 79 | Resolver test gap | Expanded `resolveOperatorAction.test.ts` gate matrix |
+| 80 | Dead command center mount | Removed `PipelineCommandCenter` from `PipelineTab` |
 
 ---
 

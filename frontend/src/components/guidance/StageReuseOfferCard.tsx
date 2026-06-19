@@ -16,7 +16,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, refreshRun, executeJob, runNextStage, showToast, openActionModal } = useApp();
+  const { runId, refreshRun, executeJob, runNextStage, showToast, openActionModal, closeActionModal } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -30,7 +30,7 @@ export function StageReuseOfferCard({
     if (!runId || submitting) return;
     setSubmitting(true);
     if (action === "accept") {
-      showToast(`Reusing ${stage.title} from ${sourceRunId}…`);
+      showToast(`Reusing ${stage.title}…`);
     }
     try {
       await api(`/api/runs/${runId}/stages/${stage.id}/reuse`, {
@@ -41,9 +41,9 @@ export function StageReuseOfferCard({
           source_run_id: sourceRunId,
         }),
       });
+      closeActionModal();
       await refreshRun();
       if (action === "decline") {
-        showToast(`Running ${stage.title} fresh.`);
         await executeJob({ mode: "stage", stage: stage.id });
       } else {
         let pending: { paths?: string[] } | null = null;
@@ -56,10 +56,8 @@ export function StageReuseOfferCard({
           await refreshRun();
         }
         if (pending?.paths?.length) {
-          showToast(`Reused ${stage.title} — review outputs before saving.`);
           openActionModal();
         } else {
-          showToast(`Reused ${stage.title} from ${sourceRunId} — continuing.`);
           await runNextStage();
         }
       }

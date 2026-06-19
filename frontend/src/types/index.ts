@@ -143,6 +143,7 @@ export interface JourneyState {
   phase_guidance?: Record<string, PhaseGuidance>;
   active_substep_id?: string | null;
   active_substep_label?: string | null;
+  active_operator_action?: import("./operatorAction").ServerOperatorAction;
 }
 
 export type GuidanceItemStatus = "todo" | "done" | "waiting";

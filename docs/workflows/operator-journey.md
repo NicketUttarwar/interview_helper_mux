@@ -2,26 +2,45 @@
 
 **Start here** for the happy path from interview WAV to podcast master, highlight reel, or show description. Engineers: [AGENTS.md](../../AGENTS.md). Gates: [operator-gates.md](./operator-gates.md). Problems: [troubleshooting.md](./troubleshooting.md).
 
-The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`. **Live status bar** (all tabs) is the single command surface; **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
+The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). **StepActionHeader** and **`resolveOperatorAction`** are the canonical source for mode, headline, and primary CTA.
 
-**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The **Steps sidebar** expands each pipeline stage into **substeps** — individual operator actions (save review, gate, handoff) built from guidance + attention queue. Click a substep to open the matching checkpoint modal or inline panel (`activateSubstep`). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export). The **Pipeline command center** shows **Pipeline step N of M** for individual stages. These counters measure different scopes — workflow phase is the operator journey; pipeline step is the numbered stage list in the left rail.
+### Canonical operator loop (5 steps)
+
+```mermaid
+flowchart LR
+  A[Sidebar — where you are] --> B[StepActionHeader — mode + headline]
+  B --> C[Primary CTA]
+  C --> D[Modal — checkpoint work]
+  D --> E[Sidebar advances]
+  E --> A
+```
+
+1. **Look** at the highlighted sidebar row (`sidebar-step--focus` when **Needs you**).
+2. **Read** **StepActionHeader** — badge, headline, one primary button.
+3. **Click** primary (`step-action-primary`) — opens modal or runs step.
+4. **Work** in **OperatorActionModal** (write approval, reuse, gates, handoff).
+5. **Continue** — modal closes, sidebar advances to the next blocker or runnable step.
+
+**Live status bar** (all tabs) shows global status; on **Pipeline** the header primary lives in **StepActionHeader**. **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
+
+**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks). The **Steps sidebar** expands each pipeline stage into **substeps** — a navigation checklist (save review, gate, handoff). Checkpoint work happens in **OperatorActionModal** (modal-first). Click a substep or **Review & continue** to open the modal (`activateSubstep`). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export) as a read-only progress bar on Pipeline.
 
 ### Three progress levels (GUI)
 
 | Level | Example | Where shown |
 |-------|---------|-------------|
-| **Workflow phase** | Prepare, Analyze, Export | Live status bar chips |
-| **Pipeline stage** | Ingest, Transcribe, G0 review | Steps sidebar, command center |
-| **Substep** | Save 2 files & continue, Complete transcript review | Sidebar under stage, modal mini-nav, activity strip |
+| **Workflow phase** | Prepare, Analyze, Export | Live status bar (read-only on Pipeline) |
+| **Pipeline stage** | Ingest, Transcribe, G0 review | Steps sidebar, **StepActionHeader** |
+| **Substep** | Save review, Complete transcript review | Sidebar under stage (navigation only) |
 
 ### Two progress numbers (GUI)
 
 | Surface | Label | Meaning |
 |---------|-------|---------|
 | Live status bar | **Workflow phase** | High-level journey: Start → Prepare → Analyze → Record & choose → Build → Sound → Export |
-| Pipeline command center / step list | **Pipeline step** | Each automated or manual stage in the current run (Flow 1 can expose 40+ steps) |
+| Steps sidebar / **StepActionHeader** | **Pipeline step** | Each automated or manual stage in the current run (Flow 1 can expose 40+ steps) |
 
-When the run is **blocked** at a gate, the command center leads with the blocking message instead of the step counter. Use **Needs your attention** (queue panel) for all pending reviews in priority order.
+When the run is **blocked** at a gate, **StepActionHeader** shows **Needs you** and the modal opens for the checkpoint. See [ux-operator-model.md](./ux-operator-model.md).
 
 ---
 

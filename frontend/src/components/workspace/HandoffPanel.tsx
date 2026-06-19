@@ -7,7 +7,7 @@ import { escapeHtml } from "../../utils";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function HandoffPanel() {
-  const { run, selectedStage, onCheckpointContinue, openArtifactInEditor, actionBusy } =
+  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor, actionBusy } =
     useApp();
 
   const { paths, audit, visible, skimBullets } = useMemo(() => {
@@ -87,7 +87,7 @@ export function HandoffPanel() {
           className="btn primary sm"
           data-testid="handoff-acknowledge"
           disabled={actionBusy}
-          onClick={() => void onCheckpointContinue()}
+          onClick={() => void acknowledgeHandoff()}
         >
           Acknowledge &amp; continue
         </button>

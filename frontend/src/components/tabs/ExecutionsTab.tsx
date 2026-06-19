@@ -4,8 +4,8 @@ import { escapeHtml, formatTs } from "../../utils";
 import { PHASE_LABELS } from "../../constants/phases";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
+import { resolveOperatorAction } from "../../utils/resolveOperatorAction";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
-import { findActiveSubstep } from "../../utils/stageSubsteps";
 
 function jobStatusLabel(status?: string): string | null {
   if (!status || status === "idle" || status === "complete") return null;
@@ -28,13 +28,19 @@ export function ExecutionsTab() {
     openRunLoading,
     homeRefreshing,
     setActiveTab,
+    apiGrants,
+    selectedStageId,
   } = useApp();
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
   const activeJobStatus = run?.job?.status;
-  const activeSubstepLabel = run
-    ? findActiveSubstep(run, { jobRunning: isJobActivelyRunning(run.job) })?.label
+  const activeOperatorHeadline = run
+    ? resolveOperatorAction(run, {
+        selectedStageId,
+        jobRunning: isJobActivelyRunning(run.job),
+        apiGrants,
+      }).headline
     : null;
 
   const tryOpenRun = (id: string) => {
@@ -91,9 +97,9 @@ export function ExecutionsTab() {
               hashFull={run?.meta?.source_audio_hash}
               label=""
             />
-            {activeSubstepLabel ? (
+            {activeOperatorHeadline ? (
               <p className="hint sm executions-active-substep">
-                Current action: <strong>{activeSubstepLabel}</strong>
+                Operator focus: <strong>{activeOperatorHeadline}</strong>
               </p>
             ) : null}
           </div>

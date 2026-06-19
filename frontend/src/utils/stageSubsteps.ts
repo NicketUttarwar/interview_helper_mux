@@ -254,8 +254,14 @@ export function buildStageSubsteps(
       const matches =
         s.id === hintId ||
         (hintId.startsWith("blocked:") && s.id === hintId) ||
-        (hintId === "write_approval" && s.kind === "write_approval") ||
-        (hintId.startsWith("gate:") && s.kind === "gate");
+        ((hintId === "write_approval" || hintId.startsWith("write_approval:")) &&
+          s.kind === "write_approval") ||
+        ((hintId === "stage_reuse" || hintId.startsWith("stage_reuse:")) &&
+          s.kind === "reuse") ||
+        ((hintId === "handoff" || hintId.startsWith("handoff:")) &&
+          s.kind === "handoff") ||
+        (hintId.startsWith("gate:") && s.kind === "gate") ||
+        (hintId.startsWith("blocked:") && s.kind === "blocked");
       if (!matches || USER_ACTION_KINDS.has(s.kind)) return s;
       return { ...s, status: "running" as const };
     });
@@ -335,8 +341,14 @@ export function findActiveSubstep(
         (s) =>
           s.id === hintId ||
           (hintId.startsWith("blocked:") && s.id === hintId) ||
-          (hintId === "write_approval" && s.kind === "write_approval") ||
-          (hintId.startsWith("gate:") && s.kind === "gate"),
+          ((hintId === "write_approval" || hintId.startsWith("write_approval:")) &&
+          s.kind === "write_approval") ||
+        ((hintId === "stage_reuse" || hintId.startsWith("stage_reuse:")) &&
+          s.kind === "reuse") ||
+        ((hintId === "handoff" || hintId.startsWith("handoff:")) &&
+          s.kind === "handoff") ||
+          (hintId.startsWith("gate:") && s.kind === "gate") ||
+          (hintId.startsWith("blocked:") && s.kind === "blocked"),
       );
       if (match) return match;
     }

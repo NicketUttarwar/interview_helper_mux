@@ -18,6 +18,13 @@ import type { LlmRoutingAttempt } from "../../types";
 import { useStageProgress } from "../../hooks/useStageProgress";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
+import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
+import { StepActionHeader } from "./StepActionHeader";
+import { useStageOperatorAction } from "../../hooks/useOperatorAction";
+import {
+  executeBodyForStage,
+  invokeOperatorActionPrimary,
+} from "../../utils/operatorActionHandlers";
 
 export function StageDetail() {
   const {
@@ -28,13 +35,20 @@ export function StageDetail() {
     actionModalOpen,
     jobRunning,
     apiGrants,
+    actionBusy,
     selectStage,
     redoFromStage,
     appendClientLog,
     setPipelineSubTab,
+    openActionModal,
+    executeJob,
+    runNextStage,
+    setActivityLogTab,
+    setActivityLogCollapsed,
+    setActiveSubstepId,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
-  const { fullyComplete, activeSubstep } = useStageProgress(selectedStageId);
+  const { fullyComplete } = useStageProgress(selectedStageId);
 
   const nav = useMemo(
     () =>
@@ -45,6 +59,12 @@ export function StageDetail() {
       }),
     [run, selectedStageId, jobRunning, apiGrants, config],
   );
+
+  const stageAction = useStageOperatorAction(run, selectedStageId, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
 
   const llmStageIds = useMemo(
     () => new Set(config?.llm_routing_stage_ids || []),
@@ -83,7 +103,7 @@ export function StageDetail() {
     if (target) void selectStage(target.id);
   }, [run, selectedStageId, nav.currentStage, nav.nextStage, selectStage]);
 
-  if (!selectedStage) {
+  if (!selectedStage || !stageAction) {
     return (
       <div className="panel stage-detail">
         <h2>Loading step…</h2>
@@ -92,22 +112,6 @@ export function StageDetail() {
   }
 
   const stepEntry = nav.numberedStages.find((n) => n.stage.id === selectedStage.id);
-  const isRunningThisStage =
-    jobRunning &&
-    (run?.job?.current_stage === selectedStage.id ||
-      run?.job?.stage === selectedStage.id);
-  const statusLabel =
-    isRunningThisStage
-      ? "Running"
-      : selectedStage.status === "awaiting_write_approval"
-        ? "Review before saving"
-      : selectedStage.status === "done"
-        ? "Done"
-        : selectedStage.status === "action_required"
-          ? "Needs your input"
-          : selectedStage.status === "locked"
-            ? "Locked"
-            : "Ready to run";
 
   const handoffPaths = getHandoffPathsLocal(selectedStage, run?.log_tail);
   const showHandoff =
@@ -132,45 +136,69 @@ export function StageDetail() {
     !showHandoff &&
     !stageNeedsPendingAction(run, selectedStage.id, apiGrants);
 
+  const modalOwnsCheckpoint =
+    actionModalOpen && stageAction.mode === "needs_you";
+
+  const showInlineCheckpoints = !modalOwnsCheckpoint;
+
+  const handlePrimary = () => {
+    invokeOperatorActionPrimary(stageAction, {
+      openModal: (sid, subId) => {
+        if (sid) void selectStage(sid);
+        if (subId) setActiveSubstepId(subId);
+        openActionModal();
+      },
+      runStage: (sid) => void executeJob(executeBodyForStage(sid)),
+      continueNext: () => void runNextStage(),
+      viewLogs: () => {
+        setActivityLogTab("live");
+        setActivityLogCollapsed(false);
+      },
+    });
+  };
+
+  const handleSecondary = () => {
+    if (stageAction.secondaryKind === "view_logs") {
+      setActivityLogTab("live");
+      setActivityLogCollapsed(false);
+    }
+  };
+
   return (
     <div className={`panel stage-detail${showDoneShell ? " stage-detail--done" : ""}`}>
-      <div className="stage-detail-head">
-        <div>
-          {stepEntry ? (
-            <p className="stage-detail-step-num">
-              Pipeline step {stepEntry.number} · {stepEntry.phaseLabel} phase
-            </p>
+      <StepActionHeader
+        action={stageAction}
+        stepNumber={stepEntry?.number}
+        onPrimary={handlePrimary}
+        onSecondary={
+          stageAction.secondaryLabel ? handleSecondary : undefined
+        }
+        busy={actionBusy}
+      />
+
+      <details className="stage-about-details">
+        <summary className="stage-about-summary">
+          {selectedStage.title}
+          {descParts.summary ? (
+            <InfoTooltip
+              text={
+                descParts.detail
+                  ? `${descParts.summary} ${descParts.detail}`
+                  : descParts.summary
+              }
+              label="About this step"
+            />
           ) : null}
-          <h2>
-            {isRunningThisStage ? (
-              <span className="spinner-inline stage-detail-head-spinner" aria-hidden />
-            ) : null}
-            {selectedStage.title}
-            {descParts.summary ? (
-              <InfoTooltip
-                text={
-                  descParts.detail
-                    ? `${descParts.summary} ${descParts.detail}`
-                    : descParts.summary
-                }
-                label="About this step"
-              />
-            ) : null}
-          </h2>
-          {descParts.summary ? <p className="hint stage-detail-summary">{descParts.summary}</p> : null}
-        </div>
-        <span className={`stage-status-pill ${isRunningThisStage ? "running" : selectedStage.status}`}>
-          {statusLabel}
-        </span>
-      </div>
+        </summary>
+        {descParts.summary ? (
+          <p className="hint stage-detail-summary">{descParts.summary}</p>
+        ) : null}
+        {stepEntry ? (
+          <p className="hint sm">{stepEntry.phaseLabel} phase</p>
+        ) : null}
+      </details>
 
-      {activeSubstep && !showDoneShell ? (
-        <p className="hint stage-detail-active-substep">
-          Current action: <strong>{activeSubstep.label}</strong>
-        </p>
-      ) : null}
-
-      {showDoneShell ? (
+      {showDoneShell && stageAction.mode !== "done" ? (
         <div className="stage-detail-done-shell">
           <StepDoneBanner variant="step" />
           <StageOutputsPanel stage={selectedStage} />
@@ -189,51 +217,58 @@ export function StageDetail() {
         </div>
       ) : (
         <>
-      <StageGuidancePanel stage={selectedStage} />
+          <StageGuidancePanel stage={selectedStage} hideActions={stageAction.mode === "needs_you"} />
 
-      <StageActivityStrip />
+          {selectedStage.id === "assembly_preview" ? <PreviewListenPromo /> : null}
 
-      {!actionModalOpen && !writePendingOnly ? <StageReuseSection stage={selectedStage} /> : null}
-      {!actionModalOpen ? <WriteApprovalPanel stage={selectedStage} /> : null}
+          <StageActivityStrip />
 
-      {needsGateCheckpoint ? (
-        <div className="stage-detail-checkpoint panel-inset">
-          <h3 className="stage-outputs-title">Your action</h3>
-          <GateActions stage={selectedStage} />
-          {showHandoff ? <HandoffPanel /> : null}
-        </div>
-      ) : selectedStage.status === "action_required" ||
-        (run?.job?.status === "gate" && run.job.stage === selectedStage.id) ? (
-        <GateActions stage={selectedStage} />
-      ) : null}
+          {showInlineCheckpoints && !writePendingOnly ? (
+            <StageReuseSection stage={selectedStage} />
+          ) : null}
+          {showInlineCheckpoints ? (
+            <WriteApprovalPanel stage={selectedStage} />
+          ) : null}
 
-      <StageOutputsPanel stage={selectedStage} />
+          {showInlineCheckpoints && needsGateCheckpoint ? (
+            <div className="stage-detail-checkpoint panel-inset" id="stage-gate-panel">
+              <h3 className="stage-outputs-title">Your action</h3>
+              <GateActions stage={selectedStage} />
+              {showHandoff ? <HandoffPanel /> : null}
+            </div>
+          ) : showInlineCheckpoints &&
+            (selectedStage.status === "action_required" ||
+              (run?.job?.status === "gate" && run.job.stage === selectedStage.id)) ? (
+            <GateActions stage={selectedStage} />
+          ) : null}
 
-      {selectedStage.status === "done" && !jobRunning ? (
-        <div className="stage-detail-actions">
-          <button
-            type="button"
-            className="btn ghost sm"
-            onClick={() => void redoFromStage()}
-            title="Clear this step and later markers, then re-run from here"
-          >
-            Redo from this step
-          </button>
-        </div>
-      ) : null}
+          <StageOutputsPanel stage={selectedStage} />
 
-      {(selectedStage.id === "transcribe" ||
-        selectedStage.id === "transcript_review" ||
-        selectedStage.id === "transcript_review_build") &&
-      selectedStage.artifacts_present?.includes("transcript/full.json") ? (
-        <section className="stage-transcript-dock">
-          <h3 className="stage-outputs-title">
-            Transcript
-            <InfoTooltip text="Click words to seek audio. Double-click to edit." />
-          </h3>
-          <TranscriptDockViewer />
-        </section>
-      ) : null}
+          {selectedStage.status === "done" && !jobRunning ? (
+            <div className="stage-detail-actions">
+              <button
+                type="button"
+                className="btn ghost sm"
+                onClick={() => void redoFromStage()}
+                title="Clear this step and later markers, then re-run from here"
+              >
+                Redo from this step
+              </button>
+            </div>
+          ) : null}
+
+          {(selectedStage.id === "transcribe" ||
+            selectedStage.id === "transcript_review" ||
+            selectedStage.id === "transcript_review_build") &&
+          selectedStage.artifacts_present?.includes("transcript/full.json") ? (
+            <section className="stage-transcript-dock">
+              <h3 className="stage-outputs-title">
+                Transcript
+                <InfoTooltip text="Click words to seek audio. Double-click to edit." />
+              </h3>
+              <TranscriptDockViewer />
+            </section>
+          ) : null}
         </>
       )}
 

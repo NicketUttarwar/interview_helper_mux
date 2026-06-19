@@ -1,5 +1,6 @@
 import type { PipelineSubTab } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import { subTabAttentionFlags } from "../../utils/attentionQueue";
 import { subTabSubstepFlags } from "../../utils/stageSubsteps";
 
@@ -14,8 +15,20 @@ const TOOLS: { id: PipelineSubTab; label: string; short: string }[] = [
 ];
 
 export function PipelineToolRow() {
-  const { run, pipelineSubTab, setPipelineSubTab, apiGrants, jobRunning } = useApp();
+  const {
+    run,
+    pipelineSubTab,
+    setPipelineSubTab,
+    apiGrants,
+    jobRunning,
+    selectedStageId,
+  } = useApp();
   const flags = subTabAttentionFlags(run, apiGrants);
+  const operatorAction = useGlobalOperatorAction(run, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
   const substepFlags = run
     ? subTabSubstepFlags(run, { jobRunning, apiGrants })
     : {};
@@ -27,12 +40,17 @@ export function PipelineToolRow() {
         const subInfo = substepFlags[t.id];
         const subBadge = subInfo?.count ?? 0;
         const totalBadge = Math.max(badge, subBadge);
+        const needsYouHint =
+          t.id === "stage" && operatorAction.mode === "needs_you"
+            ? operatorAction.headline
+            : null;
         const tooltip =
-          subInfo && subInfo.labels.length > 0
+          needsYouHint ||
+          (subInfo && subInfo.labels.length > 0
             ? `${t.label} — ${subInfo.labels.join("; ")}`
             : badge > 0
               ? `${t.label} — ${badge} need you`
-              : t.label;
+              : t.label);
         return (
           <button
             key={t.id}

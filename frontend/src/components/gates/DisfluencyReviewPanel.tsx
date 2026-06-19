@@ -111,6 +111,28 @@ export function DisfluencyReviewPanel() {
     await refreshRun();
   }
 
+  async function confirmAllPending() {
+    if (!run) return;
+    const pending = events.filter((e) => e.review_status === "pending");
+    for (const event of pending) {
+      await api(`/api/runs/${run.run_id}/disfluency-review/${event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_status: "confirmed",
+          include_in_restore: true,
+        }),
+      });
+    }
+    showToast(
+      pending.length
+        ? `Confirmed ${pending.length} filler clip${pending.length === 1 ? "" : "s"}`
+        : "No pending clips",
+    );
+    await load();
+    await refreshRun();
+  }
+
   async function complete() {
     if (!run) return;
     try {
@@ -139,6 +161,16 @@ export function DisfluencyReviewPanel() {
             {stats.confirmed ?? 0} confirmed · {stats.rejected ?? 0} rejected · {stats.pending ?? 0} pending
           </span>
         )}
+        {(stats?.pending ?? 0) > 0 ? (
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-testid="disfluency-confirm-all"
+            onClick={() => void confirmAllPending()}
+          >
+            Confirm all pending
+          </button>
+        ) : null}
       </div>
       <div className="disfluency-event-card">
         <div className="disfluency-meta">

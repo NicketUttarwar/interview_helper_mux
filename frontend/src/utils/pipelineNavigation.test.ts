@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildNumberedStages, stageNavStatus } from "./pipelineNavigation";
+import { buildNumberedStages, resolvePipelineNav, stageNavStatus } from "./pipelineNavigation";
+import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData, StageInfo } from "../types";
 
 function stage(partial: Partial<StageInfo> & { id: string; title: string }): StageInfo {
@@ -31,5 +32,21 @@ describe("stageNavStatus", () => {
     });
     const numbered = buildNumberedStages(run.stages);
     expect(stageNavStatus(numbered[0], run, null, null)).toBe("skipped");
+  });
+
+  it("focusStageId matches resolver stageId for write approval", () => {
+    const ingest = stage({ id: "ingest", title: "Ingest", status: "awaiting_write_approval" });
+    const run = minimalRun({
+      stages: [ingest],
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+        stage: "ingest",
+      },
+    });
+    const nav = resolvePipelineNav(run, { selectedStageId: "ingest", jobRunning: false });
+    const action = resolveOperatorAction(run, { selectedStageId: "ingest", jobRunning: false });
+    expect(nav.focusStageId).toBe("ingest");
+    expect(action.stageId).toBe("ingest");
   });
 });

@@ -37,6 +37,7 @@ def run_ingest(ctx: RunContext) -> Path:
     rate = int(cfg.get("sample_rate", 48000))
 
     source_label = "preclean/isolated.wav" if preclean is not None else str(ctx.input_audio())
+    touch_job_message(ctx, "Ingest: normalizing audio…")
     ctx.log(
         f"Ingest: normalizing {source_label} → ingest/normalized.wav ({rate} Hz mono).",
         level="action",
@@ -82,6 +83,7 @@ def run_ingest(ctx: RunContext) -> Path:
         checksums["preclean_path"] = "preclean/isolated.wav"
         checksums["preclean_sha256"] = _sha256(preclean)
     ctx.write_json("ingest/checksums.json", checksums)
+    touch_job_message(ctx, "Ingest: finishing…")
     ctx.log(
         f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono).",
         level="success",

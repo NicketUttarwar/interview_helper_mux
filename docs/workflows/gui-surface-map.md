@@ -16,19 +16,20 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Zone | Element | Behavior |
 |------|---------|----------|
-| Header | **`LiveStatusBar`** (sticky, all tabs) | **Status-only on Pipeline tab** — step headline, subline from sidebar substep, workflow phase chips, progress bar when running; no duplicate Save/Run CTAs. Non-Pipeline tabs: **Open step in Pipeline** navigates to sidebar substep. |
+| Header | **`LiveStatusBar`** (sticky, all tabs) | On **Pipeline** tab: resolver headline + subline only (`mode-status-only`); primary CTA lives in **`StepActionHeader`**. Other tabs: primary + **Open step in Pipeline** opens the checkpoint modal. |
 | Header | **Mute** / **Menu** | Mute attention sounds; **View full log**, **Clear session** |
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | **`PipelineStepList`** | **Canonical operator actions** — numbered steps + substeps (your turn / running / skip optional); click substep to review, save, reuse, or run |
+| **Pipeline** | **`PipelineStepList`** | Navigation spine — numbered steps + substeps; **Needs you only** filter; `sidebar-step--focus` highlights resolver focus stage |
+| **Pipeline** | **`StepActionHeader`** | Top of **`StageDetail`**: mode badge, headline, single primary (`data-testid="step-action-primary"`) |
 | **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
-| **Pipeline** | **`PipelineCommandCenter`** | Phase guidance + read-only step context; **See step in sidebar** when blocked — no duplicate primary CTA |
+| **Pipeline** | **`PipelineCommandCenter`** | Removed — step context in **`StepActionHeader`** + sidebar |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
-| Modals | `OperatorActionModal` | Full-screen review optional via **ReviewPanelControls**; write approval and reuse default **inline** on `StageDetail`. **`PendingActionBanner`** on non-Pipeline tabs navigates to sidebar substep. |
+| Modals | `OperatorActionModal` | **Modal-first** checkpoints (write approval, reuse, gates, handoff); title from `resolveOperatorAction` |
 | Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
@@ -44,15 +45,17 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 | Surface | Component | Behavior |
 |---------|-----------|----------|
-| Sidebar header | `StepListContextHeader` | Phase progress, **You are here**, **Current action** / **Waiting: Running…**, **Next after this** |
-| Sidebar rows | `PipelineStepList` + `SubstepRow` | Expandable substeps per stage; done stages collapse with **Step complete** banner |
+| Sidebar header | `StepListContextHeader` | Two-line context from `resolveOperatorAction` |
+| Sidebar rows | `PipelineStepList` + `SubstepRow` | Navigation only — checkpoint substeps open modal; no duplicate action labels |
 | Between stages | `StepRunningConnector` | Spinner bridge while job runs between steps |
-| Activation | `activateSubstep()` | Single handler for sidebar, modal, banners, activity teaser — opens modal section or inline panel |
-| Main pane | `StageDetail` | **Done shell** grays completed steps; active substep label in header |
-| Modal | `OperatorActionModal` | Mini substep nav; scrolls to `#modal-write-approval`, `#modal-gates`, etc. |
+| Activation | `activateSubstep()` + auto-open | Modal opens on `needs_you` when `modalAutoOpen`; sidebar opens modal for checkpoint kinds |
+| Main pane | `StageDetail` | **`StepActionHeader`** first; inline checkpoints hidden while modal is open; visible after **Continue inline** |
+| Modal | `OperatorActionModal` | Single active panel from resolver; `data-testid="operator-action-modal"`; footer Continue hidden when panel has Save/Run |
 | Hook | `useStageProgress` | Memoized substeps for selected stage |
 
-**Selectors:** `data-testid="substep-{id}"`, `data-testid="pipeline-step-{stageId}"`.
+**Selectors:** `data-testid="step-action-primary"`, `data-testid="substep-{id}"`, `data-testid="pipeline-step-{stageId}"`.
+
+**Unified resolver:** `frontend/src/utils/resolveOperatorAction.ts` — see [ux-operator-model.md](./ux-operator-model.md).
 
 **Terminology:** **Workflow phase** (7 chips) → **Pipeline stage** (numbered) → **Substep** (single operator action).
 

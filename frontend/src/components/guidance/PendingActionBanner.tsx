@@ -1,6 +1,6 @@
 import { useApp } from "../../context/AppContext";
-import { resolvePendingAction } from "../../utils/pendingAction";
-import { pendingActionToSubstep } from "../../utils/stageSubsteps";
+import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
+import { invokeOperatorActionPrimary, executeBodyForStage } from "../../utils/operatorActionHandlers";
 
 interface Props {
   compact?: boolean;
@@ -8,43 +8,70 @@ interface Props {
 }
 
 export function PendingActionBanner({ compact, stageId }: Props) {
-  const { run, apiGrants, activateSubstep, setActiveTab, setPipelineSubTab } = useApp();
+  const {
+    run,
+    apiGrants,
+    jobRunning,
+    setActiveTab,
+    selectStage,
+    openActionModal,
+    executeJob,
+    runNextStage,
+    setActivityLogTab,
+    setActivityLogCollapsed,
+  } = useApp();
 
-  const pending = resolvePendingAction(run, apiGrants);
-  if (!pending) return null;
-  if (stageId && pending.stageId !== stageId) return null;
+  const action = useGlobalOperatorAction(run, {
+    selectedStageId: stageId ?? null,
+    jobRunning,
+    apiGrants,
+  });
+
+  if (!run || action.mode !== "needs_you" || !action.stageId) return null;
+  if (stageId && action.stageId !== stageId) return null;
+
+  const stageTitle =
+    run.stages.find((s) => s.id === action.stageId)?.title ?? action.stageId;
 
   const onPrimary = () => {
     setActiveTab("pipeline");
-    setPipelineSubTab(pending.subTab ?? "stage");
-    activateSubstep(pendingActionToSubstep(pending), { openModal: false });
+    invokeOperatorActionPrimary(action, {
+      openModal: (sid) => {
+        if (sid) void selectStage(sid);
+        openActionModal();
+      },
+      runStage: (sid) => void executeJob(executeBodyForStage(sid)),
+      continueNext: () => void runNextStage(),
+      viewLogs: () => {
+        setActivityLogTab("live");
+        setActivityLogCollapsed(false);
+      },
+    });
   };
-
-  const handoffMessage =
-    pending.kind === "handoff" && pending.handoffPaths?.length
-      ? `Skim: ${pending.handoffPaths
-          .slice(0, 2)
-          .map((p) => p.split("/").pop())
-          .join(", ")}${pending.handoffPaths.length > 2 ? "…" : ""}`
-      : pending.message;
 
   return (
     <div
-      className={`pending-action-banner kind-${pending.kind}${compact ? " compact" : ""} attention-required`}
+      className={`pending-action-banner kind-${action.blockingReason ?? "blocked"}${compact ? " compact" : ""} attention-required`}
       role="alert"
       data-testid="pending-action-banner"
     >
       <div className="pending-action-icon" aria-hidden>
-        {pending.kind === "write_approval" ? "📋" : pending.kind === "handoff" ? "✓" : "!"}
+        {action.blockingReason === "write_approval"
+          ? "📋"
+          : action.blockingReason === "handoff_review"
+            ? "✓"
+            : "!"}
       </div>
       <div className="pending-action-copy">
         <p className="pending-action-title">
-          {pending.stageTitle} — {pending.title}
+          {stageTitle} — {action.headline}
         </p>
-        <p className="pending-action-message">{handoffMessage}</p>
+        {action.subline ? (
+          <p className="pending-action-message">{action.subline}</p>
+        ) : null}
         {!compact ? (
           <p className="hint sm pending-action-hint">
-            Use the <strong>Steps</strong> sidebar in Pipeline to review and continue.
+            Use <strong>StepActionHeader</strong> or the <strong>Steps</strong> sidebar in Pipeline.
           </p>
         ) : null}
       </div>
@@ -55,7 +82,7 @@ export function PendingActionBanner({ compact, stageId }: Props) {
           data-testid="pending-action-primary"
           onClick={onPrimary}
         >
-          Go to step in Pipeline
+          {action.primaryLabel}
         </button>
       </div>
     </div>

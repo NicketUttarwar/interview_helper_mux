@@ -78,8 +78,15 @@ export function activateSubstep(
       return;
 
     case "handoff":
-      handlers.closeActionModal();
-      if (scrollSection) scrollToSection("stage-handoff-panel");
+      if (openModal) handlers.openActionModal();
+      else handlers.closeActionModal();
+      if (scrollSection) {
+        scrollToSection(
+          openModal
+            ? substep.targetSection || "modal-handoff"
+            : "stage-handoff-panel",
+        );
+      }
       return;
 
     case "reuse":
@@ -123,7 +130,7 @@ export function activateSubstep(
         );
         return;
       }
-      void handlers.runNextStage();
+      if (openModal) handlers.openActionModal();
       return;
 
     case "start":

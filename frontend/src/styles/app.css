@@ -2952,48 +2952,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   }
 }
 
-.pipeline-command-center {
-  margin-bottom: var(--space-3);
-  border: 1px solid var(--border);
-}
-
-.pipeline-command-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.pipeline-command-eyebrow {
-  margin: 0 0 0.25rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
-.pipeline-command-title {
-  margin: 0 0 0.35rem;
-  font-size: 1.35rem;
-}
-
-.pipeline-command-status {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.pipeline-command-next {
-  margin: 0.35rem 0 0;
-}
-
-.pipeline-command-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
 .pipeline-step-list {
   position: sticky;
   top: 1rem;
@@ -3133,61 +3091,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .stage-guidance-phase {
   margin-top: 0.25rem;
-}
-
-.stage-primary-action {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border-radius: 10px;
-  border: 2px solid var(--accent);
-  background: linear-gradient(180deg, rgba(56, 120, 220, 0.14), rgba(56, 120, 220, 0.04));
-}
-
-.stage-primary-action.compact {
-  margin-bottom: var(--space-2);
-  padding: var(--space-2);
-}
-
-.stage-primary-action.waiting {
-  border-color: var(--border);
-  background: var(--surface-2);
-}
-
-.stage-primary-action-eyebrow {
-  margin: 0 0 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-
-.stage-primary-action.waiting .stage-primary-action-eyebrow {
-  color: var(--muted);
-}
-
-.stage-primary-action-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-}
-
-.stage-primary-btn {
-  font-size: 1.05rem;
-  font-weight: 600;
-  padding: 0.65rem 1.25rem;
-}
-
-.stage-primary-action-label {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-}
-
-.stage-primary-action-sublabel {
-  margin: 0;
-  max-width: 42rem;
 }
 
 .phase-guidance-head {
@@ -6074,4 +5977,143 @@ button.pipeline-step-row:focus-visible,
   inset: auto;
   margin-bottom: 0.5rem;
   min-height: 2rem;
+}
+
+/* Pipeline UX simplification — step action header + sidebar focus */
+.step-action-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 0.5rem;
+  background: var(--panel-bg-elevated, rgba(255, 255, 255, 0.03));
+}
+
+.step-action-header-main {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.step-action-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.step-mode-running .step-action-mode {
+  color: var(--accent-running, #6eb5ff);
+  background: rgba(110, 181, 255, 0.12);
+}
+
+.step-mode-needs_you .step-action-mode {
+  color: var(--accent-attention, #ffb347);
+  background: rgba(255, 179, 71, 0.14);
+}
+
+.step-mode-done .step-action-mode {
+  color: var(--accent-done, #6fcf97);
+  background: rgba(111, 207, 151, 0.12);
+}
+
+.step-mode-locked .step-action-mode {
+  color: var(--text-muted, #9aa0a6);
+  background: rgba(154, 160, 166, 0.12);
+}
+
+.step-mode-idle .step-action-mode {
+  color: var(--accent-idle, #c9d1d9);
+  background: rgba(201, 209, 217, 0.1);
+}
+
+.step-action-headline {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.step-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pipeline-step-row.sidebar-step--focus {
+  outline: 2px solid var(--accent-attention, #ffb347);
+  outline-offset: 1px;
+}
+
+.workflow-phase-bar-readonly .workflow-step-chip {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.85;
+}
+
+.workflow-phase-bar-readonly .workflow-step-chip.active {
+  opacity: 1;
+}
+
+.live-status-bar.mode-status-only .live-status-primary-wrap,
+.live-status-bar.mode-status-only [data-testid="live-status-primary"] {
+  display: none;
+}
+
+.pipeline-step-pin {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.pipeline-substep-row {
+  min-height: 1.65rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.pipeline-step-row.sidebar-step--focus {
+  box-shadow: inset 3px 0 0 var(--accent-attention, #ffb347);
+}
+
+.modal-step-badge {
+  margin: 0 0 0.25rem;
+}
+
+.operator-action-modal .modal-head {
+  padding-bottom: 0.5rem;
+}
+
+.operator-action-modal .modal-body-scroll {
+  padding-top: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .step-action-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .step-action-buttons {
+    width: 100%;
+  }
+
+  .step-action-buttons .btn.primary {
+    width: 100%;
+  }
+}
+
+.operator-action-modal .modal-body-scroll {
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
 }

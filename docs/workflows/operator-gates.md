@@ -12,15 +12,16 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 
 | Mechanism | Operator experience |
 |-----------|---------------------|
-| **Checkpoint banner** | Amber strip when your input is required |
+| **StepActionHeader** | Top of each step: mode badge (**Needs you** / **Running** / **Complete**), headline, one primary (`data-testid="step-action-primary"`) |
+| **OperatorActionModal** | **Modal-first** for write approval, reuse, gates, handoff — auto-opens on `needs_you` |
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
 | **API consent** | **Shipped default:** session execute sends `api_consents: { openai, openai, aws }` (see `frontend/src/utils/index.ts`). Optional consent modal CSS exists but is not wired — operators must have keys in `config/secrets/secrets.env`. Future: per-provider modal per original spec. |
-| **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; **Review AI-generated outputs** lists those files; edit in **File editor** if needed, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
-| **Stage execution reuse** | Before each automated stage (when candidates exist), **Previous execution reuse** offers copying outputs from a prior `exec_*` with the same `source_audio_hash`. **Reuse outputs** or **Run fresh instead**. Controlled by `journey_ui.enable_stage_reuse_offers` (default `true`). Not a gate — does not replace G0–G2. |
-| **Write approval** | After each automated stage (when enabled), **Review outputs before saving** lists files in `.pending_writes/<stage>/`; preview, edit, **Save & continue** or **Discard & re-run**. On the **Pipeline** tab, use the **Steps** sidebar substep (header is status-only). Controlled by `journey_ui.require_write_approval_per_stage` (default `true`). Applies to reused copies too. |
-| **Steps sidebar substeps** | Pipeline **Steps** list shows expandable substeps per stage (gates, write approval, handoff, reuse). Click a substep to jump to the matching panel/modal section. Completed steps collapse with a **Step complete** banner. `journey.active_substep_id` in the API mirrors the focused substep. |
+| **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; review in modal, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
+| **Stage execution reuse** | Before each automated stage (when candidates exist), choose **Reuse outputs** or **Run fresh instead** in the modal. Controlled by `journey_ui.enable_stage_reuse_offers` (default `true`). Not a gate — does not replace G0–G2. |
+| **Write approval** | After each automated stage (when enabled), **Review outputs before saving** in modal; preview, edit, **Save & continue** or **Discard & re-run**. Controlled by `journey_ui.require_write_approval_per_stage` (default `true`). Applies to reused copies too. |
+| **Steps sidebar substeps** | Navigation checklist only — click opens modal section. `journey.active_substep_id` and `journey.active_operator_action` mirror focus. |
 
-See [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./stage-execution-reuse.md), and [api-reference.md](./api-reference.md).
+See [ux-operator-model.md](./ux-operator-model.md), [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./stage-execution-reuse.md), and [api-reference.md](./api-reference.md).
 
 ---
 

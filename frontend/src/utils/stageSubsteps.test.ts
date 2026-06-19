@@ -6,6 +6,7 @@ import {
   guidanceItemToSubstep,
   shouldShowRunningConnector,
 } from "./stageSubsteps";
+import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData, StageInfo } from "../types";
 
 function stage(partial: Partial<StageInfo> & { id: string; title: string }): StageInfo {
@@ -207,5 +208,27 @@ describe("stageSubsteps", () => {
     );
     expect(sub.kind).toBe("checkpoint");
     expect(sub.targetSection).toBe("modal-gates");
+  });
+
+  it("findActiveSubstep aligns with resolver substepId for write approval", () => {
+    const ingest = stage({
+      id: "ingest",
+      title: "Ingest",
+      status: "awaiting_write_approval",
+      operator_phase: "prepare",
+    });
+    const run = minimalRun({
+      stages: [ingest],
+      job: {
+        status: "awaiting_write_approval",
+        stage: "ingest",
+        pending_write_stage: "ingest",
+      },
+    });
+    const action = resolveOperatorAction(run);
+    const active = findActiveSubstep(run, { jobRunning: false });
+    expect(action.substepId).toBe("write_approval:ingest");
+    expect(active?.kind).toBe("write_approval");
+    expect(active?.id).toBe(`write_approval:${ingest.id}`);
   });
 });

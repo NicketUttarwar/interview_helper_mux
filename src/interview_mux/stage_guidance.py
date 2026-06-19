@@ -160,8 +160,7 @@ def _guidance_item(
         row["stage_id"] = stage_id
     if action:
         row["action"] = action
-    if kind:
-        row["kind"] = kind
+    row["kind"] = kind or ("action" if status == "todo" else "info")
     if substep_label:
         row["substep_label"] = substep_label
     return row

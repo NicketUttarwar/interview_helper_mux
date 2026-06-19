@@ -26,7 +26,6 @@ from interview_mux.operator_quality import PRECLEAN_CHECKPOINTS
 from interview_mux.sonic_context import load_sonic_context
 from interview_mux.custom_run_handoff import (
     handoff_between_stages_enabled,
-    handoff_review_message,
     pending_handoff_stage,
 )
 from interview_mux.run_context import RunContext
@@ -187,14 +186,16 @@ def _blocking(
 
     if job and job.get("status") in ("gate", "needs_operator", "awaiting_write_approval"):
         blocked = True
-        message = str(job.get("message") or "Operator action required")
         stage_id = job.get("pending_write_stage") or job.get("stage")
         if job.get("status") == "awaiting_write_approval":
             reason = "write_approval"
+            message = "Awaiting your review"
         elif job.get("needs_stage_reuse"):
             reason = "stage_reuse"
+            message = "Choose reuse or run fresh"
         else:
             reason = str(stage_id or job.get("status"))
+            message = str(job.get("message") or "Operator action required")
 
     if check_transcript_review_pending(ctx):
         blocked = True
@@ -235,7 +236,6 @@ def _blocking(
             reuse_candidates_if_undecided,
             stage_reuse_offers_enabled,
         )
-        from interview_mux.web.stages import STAGE_BY_ID
 
         if stage_reuse_offers_enabled():
             pending = _next_pending_stage_ids(ctx)
@@ -248,13 +248,7 @@ def _blocking(
                     blocked = True
                     reason = "stage_reuse"
                     stage_id = sid
-                    info = STAGE_BY_ID.get(sid)
-                    title = info.title if info else sid
-                    src = candidates[0].run_id
-                    message = (
-                        f"{title} can reuse outputs from {src}. "
-                        "Choose reuse or run fresh before continuing."
-                    )
+                    message = "Choose reuse or run fresh"
 
     if not blocked and handoff_between_stages_enabled():
         handoff_sid = pending_handoff_stage(ctx)
@@ -262,7 +256,7 @@ def _blocking(
             blocked = True
             reason = "handoff_review"
             stage_id = handoff_sid
-            message = handoff_review_message(ctx, handoff_sid)
+            message = "Review AI outputs before continuing"
 
     flow = get_selected_flow(ctx)
     if (
@@ -286,6 +280,193 @@ def _blocking(
         "message": message,
         "stage_id": stage_id,
     }
+
+
+def _stage_display_title(stage_id: str) -> str:
+    from interview_mux.web.stages import STAGE_BY_ID
+
+    info = STAGE_BY_ID.get(stage_id)
+    return info.title if info else stage_id.replace("_", " ")
+
+
+def _gate_headline(stage_id: str, reason: str | None) -> str:
+    if stage_id == "transcript_review":
+        return "Review speech-to-text clips"
+    if stage_id == "disfluency_review":
+        return "Review filler clips"
+    if stage_id == "g1_vo_pickup":
+        return "Record pickup lines"
+    if stage_id == "g2_flow_select":
+        return "Choose output flow"
+    if stage_id == "analysis_profile":
+        return "Verify interview profile"
+    if reason == "handoff_review":
+        return "Review AI outputs"
+    return f"{_stage_display_title(stage_id)} needs your input"
+
+
+def _gate_primary_label(stage_id: str, reason: str | None) -> str:
+    if reason == "write_approval":
+        return "Save & continue"
+    if reason == "stage_reuse":
+        return "Choose reuse or run fresh"
+    if reason == "handoff_review":
+        return "Review outputs"
+    if stage_id == "transcript_review":
+        return "Review STT clips"
+    if stage_id == "disfluency_review":
+        return "Review filler clips"
+    if stage_id == "g1_vo_pickup":
+        return "Record pickup lines"
+    if stage_id == "g2_flow_select":
+        return "Confirm output type"
+    if stage_id == "analysis_profile":
+        return "Review AI story profile"
+    if stage_id == "sfx_prompt_craft":
+        return "Review SFX prompts"
+    return "Open checkpoint"
+
+
+def _write_approval_action(
+    ctx: RunContext,
+    stage_id: str,
+    *,
+    job: dict[str, Any] | None,
+) -> dict[str, Any]:
+    from interview_mux.write_staging import list_pending_paths
+
+    paths = None
+    if job:
+        raw = job.get("pending_write_paths")
+        if isinstance(raw, list):
+            paths = raw
+    if paths is None:
+        paths = list_pending_paths(ctx, stage_id)
+    fc = len(paths)
+    title = _stage_display_title(stage_id)
+    return {
+        "mode": "needs_you",
+        "stage_id": stage_id,
+        "substep_id": f"write_approval:{stage_id}",
+        "headline": f"Review {title} outputs before saving",
+        "subline": (
+            f"{fc} staged file{'s' if fc != 1 else ''}"
+            if fc
+            else "Preview staged outputs, then save to disk."
+        ),
+        "primary_label": (
+            f"Save {fc} file{'s' if fc != 1 else ''} & continue" if fc else "Save & continue"
+        ),
+        "modal_auto_open": True,
+    }
+
+
+def _active_operator_action(
+    ctx: RunContext,
+    *,
+    job: dict[str, Any] | None,
+    blocking: dict[str, Any],
+    milestones: dict[str, bool],
+) -> dict[str, Any]:
+    """Unified operator focus for GUI — mirrors resolveOperatorAction priority."""
+    empty: dict[str, Any] = {
+        "mode": None,
+        "stage_id": None,
+        "substep_id": None,
+        "headline": None,
+        "subline": None,
+        "primary_label": None,
+        "modal_auto_open": False,
+    }
+
+    if job:
+        status = str(job.get("status") or "")
+        stage = str(
+            job.get("pending_write_stage") or job.get("current_stage") or job.get("stage") or ""
+        )
+        if status == "interrupted" and stage:
+            title = _stage_display_title(stage)
+            msg = str(job.get("message") or "The server restarted or the job was interrupted.")
+            return {
+                "mode": "idle",
+                "stage_id": stage,
+                "substep_id": None,
+                "headline": f"Run interrupted — retry {title}",
+                "subline": msg,
+                "primary_label": f"Retry {title}",
+                "modal_auto_open": False,
+            }
+        if status in ("running", "running_with_warnings") and stage:
+            msg = str(job.get("message") or "in progress").strip().rstrip(".")
+            title = _stage_display_title(stage)
+            return {
+                "mode": "running",
+                "stage_id": stage,
+                "substep_id": "run",
+                "headline": f"Running {title} — {msg}",
+                "subline": "Watch the activity log for progress.",
+                "primary_label": "Running…",
+                "modal_auto_open": False,
+            }
+        if status == "awaiting_write_approval" and stage:
+            return _write_approval_action(ctx, stage, job=job)
+        if job.get("needs_stage_reuse") and stage:
+            count = len(job.get("reuse_candidates") or [])
+            return {
+                "mode": "needs_you",
+                "stage_id": stage,
+                "substep_id": f"stage_reuse:{stage}",
+                "headline": "Choose reuse or run fresh",
+                "subline": (
+                    f"{count} prior run{'s' if count != 1 else ''} with same audio"
+                    if count
+                    else None
+                ),
+                "primary_label": "Choose reuse or run fresh",
+                "modal_auto_open": True,
+            }
+
+    if blocking.get("blocked"):
+        reason = blocking.get("reason")
+        sid = str(blocking.get("stage_id") or "")
+        msg = str(blocking.get("message") or "")
+        if reason == "write_approval" and sid:
+            return _write_approval_action(ctx, sid, job=job)
+        if reason == "stage_reuse" and sid:
+            return {
+                "mode": "needs_you",
+                "stage_id": sid,
+                "substep_id": f"stage_reuse:{sid}",
+                "headline": "Choose reuse or run fresh",
+                "subline": msg if msg != "Choose reuse or run fresh" else None,
+                "primary_label": "Choose reuse or run fresh",
+                "modal_auto_open": True,
+            }
+        if reason == "handoff_review" and sid:
+            title = _stage_display_title(sid)
+            return {
+                "mode": "needs_you",
+                "stage_id": sid,
+                "substep_id": f"handoff:{sid}",
+                "headline": f"Review AI outputs from {title}",
+                "subline": "Skim generated files, then acknowledge to continue.",
+                "primary_label": "Review outputs",
+                "modal_auto_open": True,
+            }
+        if sid:
+            headline = _gate_headline(sid, str(reason) if reason else None)
+            return {
+                "mode": "needs_you",
+                "stage_id": sid,
+                "substep_id": f"gate:{sid}" if reason else sid,
+                "headline": headline,
+                "subline": msg if msg and msg != headline else "Complete the checkpoint in the review panel.",
+                "primary_label": _gate_primary_label(sid, str(reason) if reason else None),
+                "modal_auto_open": True,
+            }
+
+    _ = milestones  # reserved for future idle/done hints
+    return empty
 
 
 def execute_hint(
@@ -566,6 +747,9 @@ def build_journey_snapshot(
     selected_flow = get_selected_flow(ctx)
     blocking = _blocking(ctx, job=job, milestones=milestones)
     hint = execute_hint(phase, flow_intent, selected_flow, milestones)
+    active_operator_action = _active_operator_action(
+        ctx, job=job, blocking=blocking, milestones=milestones
+    )
     if blocking.get("blocked"):
         next_action = blocking["message"]
     elif phase == "understand" and _open_investigation_count(ctx) > 0:
@@ -581,6 +765,7 @@ def build_journey_snapshot(
         "selected_flow": selected_flow,
         "next_action": next_action,
         "blocking": blocking,
+        "active_operator_action": active_operator_action,
         "recommended_preclean": _recommended_preclean(ctx, phase, milestones),
         "preclean_checkpoints": sorted(PRECLEAN_CHECKPOINTS),
         "execute_hint": hint,
@@ -605,7 +790,34 @@ def _active_substep(
     """Operator focus substep for GUI sidebar (mirrors client findActiveSubstep priority)."""
     if blocking.get("blocked"):
         sid = str(blocking.get("stage_id") or "")
+        reason = str(blocking.get("reason") or "")
         msg = str(blocking.get("message") or "")
+        if reason == "write_approval":
+            return {
+                "active_substep_id": f"write_approval:{sid}" if sid else "write_approval",
+                "active_substep_label": msg or "Save staged outputs",
+            }
+        if reason == "stage_reuse" and sid:
+            return {
+                "active_substep_id": f"stage_reuse:{sid}",
+                "active_substep_label": msg or "Choose reuse or run fresh",
+            }
+        if reason == "handoff_review" and sid:
+            return {
+                "active_substep_id": f"handoff:{sid}",
+                "active_substep_label": msg or "Review AI outputs",
+            }
+        if reason in (
+            "transcript_review",
+            "disfluency_review",
+            "g1_vo_pickup",
+            "g2_flow_select",
+            "analysis_profile",
+        ) and sid:
+            return {
+                "active_substep_id": f"gate:{sid}",
+                "active_substep_label": msg or "Checkpoint required",
+            }
         label = f"Your turn: {msg}" if msg else "Your turn"
         return {
             "active_substep_id": f"blocked:{sid}" if sid else "blocked",
@@ -617,7 +829,7 @@ def _active_substep(
         if status == "awaiting_write_approval" and stage:
             msg = str(job.get("message") or f"Save outputs for {stage}")
             return {
-                "active_substep_id": "write_approval",
+                "active_substep_id": f"write_approval:{stage}",
                 "active_substep_label": msg,
             }
         if status in ("running", "running_with_warnings") and stage:
@@ -630,6 +842,11 @@ def _active_substep(
             return {
                 "active_substep_id": f"gate:{stage}",
                 "active_substep_label": str(job.get("message") or "Checkpoint required"),
+            }
+        if job.get("needs_stage_reuse") and stage:
+            return {
+                "active_substep_id": f"stage_reuse:{stage}",
+                "active_substep_label": "Choose reuse or run fresh",
             }
     if hint and hint.get("label"):
         return {

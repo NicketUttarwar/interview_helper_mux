@@ -1,5 +1,6 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useCallback, type KeyboardEvent } from "react";
 import { useApp } from "../../context/AppContext";
+import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import {
   buildNumberedStages,
   resolvePipelineNav,
@@ -46,6 +47,7 @@ export function PipelineStepList() {
     expandStage,
     pipelineFilterNeedsYou,
     setPipelineFilterNeedsYou,
+    isStagePinned,
     showToast,
     skipOptionalStage,
   } = useApp();
@@ -60,6 +62,17 @@ export function PipelineStepList() {
     [run, selectedStageId, jobRunning, apiGrants],
   );
 
+  const operatorAction = useGlobalOperatorAction(run, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
+
+  const focusStageId =
+    operatorAction.mode === "needs_you" && operatorAction.stageId
+      ? operatorAction.stageId
+      : nav.focusStageId;
+
   if (!run) return null;
 
   const numbered = buildNumberedStages(run.stages);
@@ -69,13 +82,31 @@ export function PipelineStepList() {
     ? numbered.filter(
         (entry) =>
           stageNeedsSubstepAttention(run, entry.stage.id, apiGrants, jobRunning, jobStageId) ||
-          entry.stage.id === nav.focusStageId,
+          entry.stage.id === focusStageId,
       )
     : numbered;
 
   const toggleFilter = () => {
     setPipelineFilterNeedsYou(!pipelineFilterNeedsYou);
   };
+
+  const onStepsKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLOListElement>) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const rows = Array.from(
+        e.currentTarget.querySelectorAll<HTMLButtonElement>("button.pipeline-step-row"),
+      );
+      if (!rows.length) return;
+      const current = rows.findIndex((r) => r === document.activeElement);
+      const next =
+        e.key === "ArrowDown"
+          ? Math.min(rows.length - 1, current < 0 ? 0 : current + 1)
+          : Math.max(0, current <= 0 ? 0 : current - 1);
+      e.preventDefault();
+      rows[next]?.focus();
+    },
+    [],
+  );
 
   const isStageExpanded = (
     stageId: string,
@@ -90,7 +121,7 @@ export function PipelineStepList() {
       return true;
     }
     if (progress.hasTodo || progress.hasRunning) return true;
-    if (stageId === nav.focusStageId) return true;
+    if (stageId === focusStageId) return true;
     return stageId === selectedStageId;
   };
 
@@ -112,10 +143,12 @@ export function PipelineStepList() {
           Nothing matches — open the attention queue above or turn off the filter.
         </p>
       ) : null}
-      <ol className="pipeline-steps">
+      <ol className="pipeline-steps" onKeyDown={onStepsKeyDown}>
         {filtered.map((entry, index) => {
-          const status = stageNavStatus(entry, run, selectedStageId, nav.focusStageId);
+          const status = stageNavStatus(entry, run, selectedStageId, focusStageId);
           const isSelected = entry.stage.id === selectedStageId;
+          const isFocus =
+            entry.stage.id === focusStageId && operatorAction.mode === "needs_you";
           const hasAction = stageHasTodoActions(entry.stage);
           const isRunning =
             jobRunning &&
@@ -144,7 +177,7 @@ export function PipelineStepList() {
             ? " · skipped"
             : isRunning
               ? " · running"
-              : progress.hasTodo || entry.stage.id === nav.focusStageId
+              : progress.hasTodo || entry.stage.id === focusStageId
                 ? " · your turn"
                 : entry.stage.status === "awaiting_write_approval"
                   ? " · review"
@@ -162,7 +195,8 @@ export function PipelineStepList() {
                 >
                   <button
                     type="button"
-                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}${skipped ? " status-skipped" : ""}`}
+                    tabIndex={isSelected || isFocus ? 0 : -1}
+                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${isFocus ? " sidebar-step--focus" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}${skipped ? " status-skipped" : ""}`}
                     data-testid={`pipeline-step-${entry.stage.id}`}
                     onClick={() => {
                       if (skipped) {
@@ -193,6 +227,15 @@ export function PipelineStepList() {
                           <span className="spinner-inline pipeline-step-title-spinner" aria-hidden />
                         ) : null}
                         {entry.stage.title}
+                        {isSelected && isStagePinned ? (
+                          <span
+                            className="pipeline-step-pin muted"
+                            title="Pinned — auto-focus paused for 30s"
+                            aria-label="Stage pinned"
+                          >
+                            📌
+                          </span>
+                        ) : null}
                       </span>
                       <span className="pipeline-step-meta muted">
                         {entry.phaseLabel} · step {entry.number}
@@ -228,6 +271,8 @@ export function PipelineStepList() {
               </li>
               {showConnector ? (
                 <StepRunningConnector
+                  stepIndex={run.job?.stage_index ?? entry.number}
+                  stepTotal={run.job?.stage_total ?? numbered.length}
                   label={
                     isRunning
                       ? `Running ${entry.stage.title}…`

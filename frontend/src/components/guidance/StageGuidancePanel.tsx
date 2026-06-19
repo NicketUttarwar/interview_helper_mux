@@ -1,40 +1,46 @@
 import type { GuidanceItem, StageInfo } from "../../types";
 import { ActionMarker } from "./ActionMarker";
 import { GuidanceActionButton } from "./GuidanceActionButton";
-import { StagePrimaryAction } from "./StagePrimaryAction";
 import { useApp } from "../../context/AppContext";
-import { useStageProgress } from "../../hooks/useStageProgress";
-import { SubstepRow } from "../pipeline/SubstepRow";
 
 interface Props {
   stage: StageInfo;
+  hideActions?: boolean;
 }
 
 function GuidanceList({
   title,
   items,
   stageId,
+  hideActionButtons,
 }: {
   title: string;
   items: GuidanceItem[];
   stageId: string;
+  hideActionButtons?: boolean;
 }) {
-  if (!items.length) return null;
+  const actionItems = hideActionButtons
+    ? items.filter((i) => i.kind !== "action" && i.kind !== "checkpoint")
+    : items;
+
+  if (!actionItems.length) return null;
 
   return (
     <div className="stage-guidance-section">
       <h3 className="stage-guidance-heading">{title}</h3>
       <ul className="stage-guidance-list">
-        {items.map((item) => (
+        {actionItems.map((item) => (
           <li
             key={item.id}
             className={`stage-guidance-item status-${item.status}`}
           >
             <ActionMarker status={item.status} />
             <span className="stage-guidance-label">{item.label}</span>
-            <span className="stage-guidance-item-actions">
-              <GuidanceActionButton item={item} stageId={stageId} />
-            </span>
+            {!hideActionButtons && item.kind === "navigate" ? (
+              <span className="stage-guidance-item-actions">
+                <GuidanceActionButton item={item} stageId={stageId} />
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -42,28 +48,16 @@ function GuidanceList({
   );
 }
 
-export function StageGuidancePanel({ stage }: Props) {
-  const { jobRunning, run, actionBusy } = useApp();
-  const { progress, substeps } = useStageProgress(stage.id);
+export function StageGuidancePanel({ stage, hideActions = false }: Props) {
+  const { run } = useApp();
   const guidance = stage.guidance;
-
-  const isRunningThisStage =
-    jobRunning &&
-    (run?.job?.current_stage === stage.id || run?.job?.stage === stage.id);
 
   if (!guidance) {
     return (
-      <div className="stage-guidance panel-inset">
-        {isRunningThisStage ? (
-          <button type="button" className="btn primary stage-primary-btn running" disabled>
-            <span className="spinner-inline" aria-hidden />
-            Running {stage.title}…
-          </button>
-        ) : (
-          <StagePrimaryAction stage={stage} />
-        )}
+      <details className="stage-guidance panel-inset">
+        <summary className="stage-guidance-summary">About this step</summary>
         <p className="hint">Run this stage to produce outputs. Progress appears in the activity panel.</p>
-      </div>
+      </details>
     );
   }
 
@@ -71,34 +65,13 @@ export function StageGuidancePanel({ stage }: Props) {
   const hasTodo = allItems.some((i) => i.status === "todo");
 
   return (
-    <section className="stage-guidance panel-inset" aria-label="How to proceed">
-      {isRunningThisStage || actionBusy ? (
-        <button type="button" className="btn primary stage-primary-btn running" disabled>
-          <span className="spinner-inline" aria-hidden />
-          {actionBusy ? "Saving staged outputs…" : `Running ${stage.title}…`}
-        </button>
-      ) : (
-        <StagePrimaryAction stage={stage} />
-      )}
-
-      {substeps.length > 0 ? (
-        <ul className="stage-substep-strip" aria-label="Step checklist">
-          {substeps.map((sub) => (
-            <li key={`${sub.kind}:${sub.id}`}>
-              <SubstepRow substep={sub} compact />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      <h3 className="stage-outputs-title">
+    <details className="stage-guidance panel-inset">
+      <summary className="stage-guidance-summary" aria-label="How to proceed">
         How to proceed
         {hasTodo ? (
-          <span className="stage-guidance-badge muted">Details below</span>
-        ) : progress?.fullyComplete ? (
-          <span className="stage-guidance-badge muted">Complete</span>
+          <span className="stage-guidance-badge muted"> checklist</span>
         ) : null}
-      </h3>
+      </summary>
       <p className="hint stage-guidance-phase">
         {guidance.phase_label} phase
         {guidance.unlocks ? (
@@ -109,8 +82,18 @@ export function StageGuidancePanel({ stage }: Props) {
         ) : null}
       </p>
 
-      <GuidanceList title="Before you start" items={guidance.prerequisites || []} stageId={stage.id} />
-      <GuidanceList title="Step checklist" items={guidance.actions || []} stageId={stage.id} />
+      <GuidanceList
+        title="Before you start"
+        items={guidance.prerequisites || []}
+        stageId={stage.id}
+        hideActionButtons={hideActions}
+      />
+      <GuidanceList
+        title="Step checklist"
+        items={guidance.actions || []}
+        stageId={stage.id}
+        hideActionButtons={hideActions}
+      />
 
       {(guidance.artifact_checks || []).length > 0 ? (
         <div className="stage-guidance-section">
@@ -125,6 +108,9 @@ export function StageGuidancePanel({ stage }: Props) {
           </ul>
         </div>
       ) : null}
-    </section>
+      {!run ? null : (
+        <p className="hint sm">Use the sidebar checklist and review panel for required actions.</p>
+      )}
+    </details>
   );
 }

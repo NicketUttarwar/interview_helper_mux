@@ -1,8 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useApp } from "../context/AppContext";
 import { useLiveStatus } from "../hooks/useLiveStatus";
-import { resolvePendingAction } from "../utils/pendingAction";
-import { pendingActionToSubstep } from "../utils/stageSubsteps";
+import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
+import { invokeOperatorActionPrimary, executeBodyForStage } from "../utils/operatorActionHandlers";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
@@ -14,7 +14,6 @@ import {
   type WorkflowStepId,
 } from "../utils/workflowSteps";
 import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
-import { buildPhaseSubsteps } from "../utils/phaseSubsteps";
 
 export function LiveStatusBar() {
   const {
@@ -42,7 +41,6 @@ export function LiveStatusBar() {
     setLogFilterPreset,
     jobCompleteAt,
     activeTab,
-    activateSubstep,
   } = useApp();
 
   const statusOnlyOnPipeline = activeTab === "pipeline" && Boolean(run);
@@ -126,27 +124,30 @@ export function LiveStatusBar() {
     [run, apiGrants, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast],
   );
 
-  const precleanWarnings = run?.job?.preclean_warnings;
-  const pendingAction = useMemo(
-    () => resolvePendingAction(run, apiGrants),
-    [run, apiGrants],
-  );
+  const operatorAction = useGlobalOperatorAction(run, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
 
-  const phaseSubsteps = useMemo(() => {
-    if (!run) return null;
-    const phase = run.journey?.phase ?? "prepare";
-    return buildPhaseSubsteps(run, phase, {
-      jobRunning,
-      apiGrants,
-      selectedStageId,
-    });
-  }, [run, jobRunning, apiGrants, selectedStageId]);
+  const precleanWarnings = run?.job?.preclean_warnings;
 
   const openPendingInPipeline = () => {
-    if (!pendingAction) return;
+    if (!run) return;
     setActiveTab("pipeline");
-    setPipelineSubTab(pendingAction.subTab ?? "stage");
-    activateSubstep(pendingActionToSubstep(pendingAction), { openModal: false });
+    if (operatorAction.mode !== "needs_you") return;
+    invokeOperatorActionPrimary(operatorAction, {
+      openModal: (sid) => {
+        if (sid) void selectStage(sid);
+        openActionModal();
+      },
+      runStage: (sid) => void executeJob(executeBodyForStage(sid)),
+      continueNext: () => void runNextStage(),
+      viewLogs: () => {
+        setLogFilterPreset({ stream: "live" });
+        setActiveTab("logs");
+      },
+    });
   };
 
   return (
@@ -184,22 +185,17 @@ export function LiveStatusBar() {
                 {live.errorCount} error{live.errorCount === 1 ? "" : "s"}
               </button>
             ) : null}
-            {!statusOnlyOnPipeline && pendingActionCount > 0 && pendingAction ? (
+            {activeTab !== "pipeline" && pendingActionCount > 0 && operatorAction.mode === "needs_you" ? (
               <button
                 type="button"
                 className="btn ghost sm"
                 onClick={openPendingInPipeline}
-                title={pendingAction.message}
+                title={operatorAction.subline ?? operatorAction.headline}
               >
                 Open step in Pipeline ({pendingActionCount})
               </button>
             ) : null}
-            {!statusOnlyOnPipeline && live.secondaryLabel && live.onSecondary ? (
-              <button type="button" className="btn ghost sm" onClick={live.onSecondary}>
-                {live.secondaryLabel}
-              </button>
-            ) : null}
-            {!statusOnlyOnPipeline && live.primaryLabel && live.onPrimary ? (
+            {live.primaryLabel && live.onPrimary && !statusOnlyOnPipeline ? (
               <button
                 type="button"
                 className="btn primary sm"
@@ -210,7 +206,7 @@ export function LiveStatusBar() {
                 {live.primaryLabel}
               </button>
             ) : null}
-            {statusOnlyOnPipeline && live.activityKind === "running" && live.onPrimary ? (
+            {live.activityKind === "running" && live.onPrimary ? (
               <button type="button" className="btn ghost sm" onClick={live.onPrimary}>
                 View logs
               </button>
@@ -280,58 +276,61 @@ export function LiveStatusBar() {
             Workflow phase {activeIndex + 1} of {WORKFLOW_STEPS.length}:{" "}
             <strong>{WORKFLOW_STEPS[activeIndex]?.label}</strong>
           </span>
-          <ol className="workflow-step-track live-status-chips">
+          <ol
+            className={`workflow-step-track live-status-chips${activeTab === "pipeline" ? " workflow-phase-bar-readonly" : ""}`}
+          >
             {WORKFLOW_STEPS.map((step, i) => {
               const status = workflowStepStatus(step.id, run, apiGrants);
               const isActive = step.id === activeStepId;
               const attentionCount = workflowStepAttentionCount(step.id, run, apiGrants);
-              const prog =
-                step.id !== "start" &&
-                run?.journey?.phase_progress?.[step.id as keyof typeof run.journey.phase_progress];
-              const progressHint =
-                prog && prog.total > 0 ? ` · ${prog.done}/${prog.total}` : "";
-              const attentionHint =
-                attentionCount > 0 ? ` · ${attentionCount} need you` : "";
-              const substepHint =
-                step.id === activeStepId &&
-                phaseSubsteps &&
-                phaseSubsteps.todoSubsteps.length > 0
-                  ? ` · ${phaseSubsteps.todoSubsteps.map((s) => s.label).join("; ")}`
-                  : "";
               const isRunningChip = isActive && live.activityKind === "running";
+              const readonlyPhase = activeTab === "pipeline";
+              const chipClass = `workflow-step-chip status-${status}${isActive ? " current" : ""}${isRunningChip ? " running" : ""}`;
               return (
                 <li key={step.id} className="workflow-step-item">
                   {i > 0 ? (
                     <span className="workflow-step-connector" aria-hidden />
                   ) : null}
-                  <button
-                    type="button"
-                    className={`workflow-step-chip status-${status}${isActive ? " current" : ""}${isRunningChip ? " running" : ""}`}
-                    title={`${step.tooltip}${progressHint}${attentionHint}${substepHint}`}
-                    aria-current={isActive ? "step" : undefined}
-                    onClick={() => navigateToStep(step.id)}
-                  >
-                    {isRunningChip ? (
-                      <span className="spinner-inline workflow-chip-spinner" aria-hidden />
-                    ) : null}
-                    {status === "done" ? (
-                      <span className="workflow-step-check">✓</span>
-                    ) : status === "attention" ? (
-                      <span className="workflow-step-attention-dot" aria-hidden>
-                        ●
-                      </span>
-                    ) : null}
-                    {step.label}
-                    {attentionCount > 0 ? (
-                      <span className="workflow-step-attention-count">{attentionCount}</span>
-                    ) : null}
-                  </button>
+                  {readonlyPhase ? (
+                    <span className={chipClass} title={step.tooltip}>
+                      {isRunningChip ? (
+                        <span className="spinner-inline workflow-chip-spinner" aria-hidden />
+                      ) : null}
+                      {status === "done" ? (
+                        <span className="workflow-step-check">✓</span>
+                      ) : null}
+                      {step.label}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={chipClass}
+                      title={step.tooltip}
+                      aria-current={isActive ? "step" : undefined}
+                      onClick={() => navigateToStep(step.id)}
+                    >
+                      {isRunningChip ? (
+                        <span className="spinner-inline workflow-chip-spinner" aria-hidden />
+                      ) : null}
+                      {status === "done" ? (
+                        <span className="workflow-step-check">✓</span>
+                      ) : status === "attention" ? (
+                        <span className="workflow-step-attention-dot" aria-hidden>
+                          ●
+                        </span>
+                      ) : null}
+                      {step.label}
+                      {attentionCount > 0 ? (
+                        <span className="workflow-step-attention-count">{attentionCount}</span>
+                      ) : null}
+                    </button>
+                  )}
                 </li>
               );
             })}
           </ol>
         </div>
-        {run && run.journey?.phase !== "ship" ? (
+        {run && run.journey?.phase !== "ship" && activeTab !== "pipeline" ? (
           <PreviewListenPromo compact />
         ) : null}
       </div>

@@ -10,7 +10,7 @@ interface JourneyShellProps {
 }
 
 export function JourneyShell({ children }: JourneyShellProps) {
-  const { run, config } = useApp();
+  const { run, config, activeTab } = useApp();
   const enabled = config?.journey_ui?.enabled !== false;
 
   if (!run || !enabled) {
@@ -19,10 +19,11 @@ export function JourneyShell({ children }: JourneyShellProps) {
 
   const phase = run.journey?.phase ?? "prepare";
   const phaseComplete = isPhaseFullyComplete(run, phase);
+  const showPhaseBanner = phaseComplete && activeTab !== "pipeline";
 
   return (
     <div className={`journey-shell${phaseComplete ? " journey-phase-complete" : ""}`}>
-      {phaseComplete ? (
+      {showPhaseBanner ? (
         <StepDoneBanner
           variant="substep"
           title={`${phase.charAt(0).toUpperCase()}${phase.slice(1)} phase complete`}

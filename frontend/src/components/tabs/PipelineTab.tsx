@@ -1,5 +1,4 @@
 import { useApp } from "../../context/AppContext";
-import { PipelineCommandCenter } from "../pipeline/PipelineCommandCenter";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { PipelineToolRow } from "../pipeline/PipelineToolRow";
 import { ActivityLogPanel } from "../activity/ActivityLogPanel";
@@ -70,8 +69,6 @@ export function PipelineTab() {
     <main className="view workspace-shell pipeline-tab pipeline-v2">
       <JourneyShell>
         <div className="workspace-scroll">
-          <PipelineCommandCenter />
-
           <div
             className={`pipeline-v2-body${activityLogCollapsed ? " log-collapsed" : ""}`}
           >

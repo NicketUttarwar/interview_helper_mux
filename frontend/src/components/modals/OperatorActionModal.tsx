@@ -1,51 +1,86 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useApp } from "../../context/AppContext";
+import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import {
-  findPendingFocusStage,
-  getHandoffPathsLocal,
   checkpointContinueEnabled,
   checkpointContinueLabel,
   continueHintForStage,
+  findPendingFocusStage,
+  getHandoffPathsLocal,
   stageTitleForId,
 } from "../../utils/checkpoint";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "../../utils/writeApproval";
-import { resolvePendingAction } from "../../utils/pendingAction";
-import { useStageProgress } from "../../hooks/useStageProgress";
-import { SubstepRow } from "../pipeline/SubstepRow";
+import { buildNumberedStages } from "../../utils/pipelineNavigation";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
-import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
+import type { OperatorAction } from "../../types/operatorAction";
+
+type ActivePanel = "write" | "reuse" | "gate" | "handoff" | null;
+
+function panelFromAction(
+  action: OperatorAction | null,
+  run: NonNullable<ReturnType<typeof useApp>["run"]>,
+  selectedStage: NonNullable<ReturnType<typeof useApp>["selectedStage"]>,
+): ActivePanel {
+  if (action?.mode !== "needs_you") return null;
+
+  const reason = action.blockingReason;
+  if (
+    reason === "write_approval" ||
+    stageAwaitingWriteApproval(run, selectedStage.id)
+  ) {
+    return "write";
+  }
+  if (reason === "stage_reuse" || run.job?.needs_stage_reuse) {
+    return "reuse";
+  }
+
+  const handoffPaths = getHandoffPathsLocal(selectedStage, run.log_tail);
+  const handoffPending =
+    selectedStage.status === "done" &&
+    handoffPaths.length > 0 &&
+    !run.handoff_ack?.[selectedStage.id];
+
+  if (reason === "handoff_review" || handoffPending) {
+    return "handoff";
+  }
+
+  if (
+    selectedStage.status === "action_required" ||
+    (run.job?.status === "gate" && run.job.stage === selectedStage.id) ||
+    (reason &&
+      reason !== "write_approval" &&
+      reason !== "stage_reuse" &&
+      reason !== "handoff_review")
+  ) {
+    return "gate";
+  }
+
+  return null;
+}
 
 export function OperatorActionModal() {
   const {
     run,
     selectedStage,
-    actionSummary,
+    selectedStageId,
     closeActionModal,
     onCheckpointContinue,
     selectStage,
     apiGrants,
     actionBusy,
-    activeSubstepId,
-    activateSubstep,
+    jobRunning,
   } = useApp();
 
-  const pending = useMemo(() => resolvePendingAction(run, apiGrants), [run, apiGrants]);
-  const { substeps } = useStageProgress(selectedStage?.id);
+  const modalRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!activeSubstepId || !selectedStage) return;
-    const sub = substeps.find((s) => s.id === activeSubstepId);
-    if (!sub?.targetSection) return;
-    requestAnimationFrame(() => {
-      document.getElementById(sub.targetSection!)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  }, [activeSubstepId, selectedStage, substeps]);
+  const action = useStageOperatorAction(run, selectedStage?.id ?? null, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
 
   const actionStage = run?.stages.find((s) => s.status === "action_required");
 
@@ -55,17 +90,31 @@ export function OperatorActionModal() {
     }
   }, [actionStage, selectedStage, selectStage]);
 
-  const title = useMemo(() => {
-    if (!run) return "Operator action";
-    if (pending) return pending.title;
-    const actionStage = run.stages.find((s) => s.status === "action_required");
-    if (actionStage) return actionStage.title;
-    if (run.job?.status === "gate" || run.job?.status === "needs_operator") {
-      const gateStage = run.stages.find((s) => s.id === run.job?.stage);
-      return gateStage?.title || "Checkpoint required";
-    }
-    return "Review outputs";
-  }, [run, pending]);
+  const activePanel: ActivePanel = useMemo(() => {
+    if (!run || !selectedStage) return null;
+    return panelFromAction(action, run, selectedStage);
+  }, [run, selectedStage, action]);
+
+  useEffect(() => {
+    const root = modalRef.current;
+    if (!root) return;
+    const focusable = root.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+    );
+    focusable?.focus();
+  }, [activePanel, selectedStage?.id]);
+
+  const title = action?.headline ?? "Operator action";
+  const statusSubline =
+    action?.subline && action.subline !== title && !title.includes(action.subline)
+      ? action.subline
+      : "";
+
+  const hideGenericContinue =
+    activePanel === "write" ||
+    activePanel === "reuse" ||
+    activePanel === "gate" ||
+    activePanel === "handoff";
 
   if (!run) return null;
 
@@ -90,38 +139,32 @@ export function OperatorActionModal() {
     );
   }
 
-  const handoffPaths = getHandoffPathsLocal(selectedStage, run.log_tail);
-  const showHandoff =
-    selectedStage.status === "done" &&
-    handoffPaths.length > 0 &&
-    !run.handoff_ack?.[selectedStage.id];
   const continueEnabled = checkpointContinueEnabled(run, selectedStage, apiGrants);
   const continueLabel = checkpointContinueLabel(run, selectedStage, apiGrants);
   const writePending = pendingWriteInfo(run);
-  const statusSublineRaw =
-    pending?.message ||
-    run.journey?.next_action ||
-    run.job?.message ||
-    (selectedStage.status === "action_required" ? "Complete the items below to continue." : "");
-  const statusSubline =
-    statusSublineRaw && statusSublineRaw !== title && !title.includes(statusSublineRaw)
-      ? statusSublineRaw
-      : "";
-
-  const sectionNav = [
-    { id: "modal-write-approval", label: "Save review", show: pending?.kind === "write_approval" },
-    { id: "modal-reuse", label: "Reuse", show: pending?.kind === "stage_reuse" },
-    { id: "modal-gates", label: "Your action", show: selectedStage.status === "action_required" },
-    { id: "modal-handoff", label: "AI review", show: showHandoff },
-    { id: "modal-guidance", label: "Guidance", show: Boolean(selectedStage.guidance) },
-  ].filter((s) => s.show);
+  const showHandoff = activePanel === "handoff";
+  const stepNumber = run
+    ? buildNumberedStages(run.stages).find((n) => n.stage.id === selectedStage.id)?.number
+    : null;
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-card panel modal-lg">
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="operator-action-modal-title"
+    >
+      <div
+        className="modal-card panel modal-lg operator-action-modal"
+        ref={modalRef}
+        data-testid="operator-action-modal"
+      >
         <div className="modal-head">
           <div>
-            <h3>{title}</h3>
+            {stepNumber != null ? (
+              <p className="hint sm modal-step-badge">Pipeline step {stepNumber}</p>
+            ) : null}
+            <h3 id="operator-action-modal-title">{title}</h3>
             {statusSubline ? <p className="hint modal-status-subline">{statusSubline}</p> : null}
           </div>
           <div className="modal-head-actions">
@@ -138,96 +181,84 @@ export function OperatorActionModal() {
             </button>
           </div>
         </div>
-        {actionSummary ? <p className="hint modal-summary">{actionSummary}</p> : null}
-
-        {sectionNav.length > 1 ? (
-          <nav className="modal-section-nav" aria-label="Checkpoint sections">
-            {sectionNav.map((s) => (
-              <a key={s.id} className="modal-section-link" href={`#${s.id}`}>
-                {s.label}
-              </a>
-            ))}
-          </nav>
-        ) : null}
-
-        {substeps.length > 1 ? (
-          <ul className="modal-substep-nav" aria-label="Step substeps">
-            {substeps.map((sub) => (
-              <li key={`${sub.kind}:${sub.id}`}>
-                <SubstepRow
-                  substep={sub}
-                  compact
-                  selected={activeSubstepId === sub.id}
-                  onClick={() => activateSubstep(sub)}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : null}
 
         <div className="modal-body-scroll">
-          {pending?.kind === "stage_reuse" || run.job?.needs_stage_reuse ? (
+          {activePanel === "reuse" ? (
             <section id="modal-reuse">
               <StageReuseSection stage={selectedStage} />
             </section>
           ) : null}
-          {pending?.kind === "write_approval" ||
-          stageAwaitingWriteApproval(run, selectedStage.id) ? (
+          {activePanel === "write" ? (
             <section id="modal-write-approval">
               <WriteApprovalPanel stage={selectedStage} />
             </section>
           ) : null}
-          {selectedStage.guidance && pending?.kind !== "write_approval" ? (
-            <section id="modal-guidance">
-              <StageGuidancePanel stage={selectedStage} />
-            </section>
-          ) : null}
-          {showHandoff ? (
+          {activePanel === "handoff" ? (
             <section id="modal-handoff">
               <HandoffPanel />
             </section>
           ) : null}
-          {selectedStage.status === "action_required" ||
-          (run.job?.status === "gate" && run.job.stage === selectedStage.id) ? (
+          {activePanel === "gate" ? (
             <section id="modal-gates">
               <GateActions stage={selectedStage} />
             </section>
           ) : null}
+          {!activePanel ? (
+            <p className="empty-state">No checkpoint is active for this step.</p>
+          ) : null}
         </div>
 
-        <div className="modal-actions modal-footer">
-          <button type="button" className="btn ghost" data-testid="modal-close" onClick={closeActionModal}>
-            Dismiss
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            data-testid="checkpoint-continue"
-            disabled={!continueEnabled || actionBusy}
-            onClick={() => void onCheckpointContinue()}
-          >
-            {actionBusy ? (
-              <>
-                <span className="spinner-inline" aria-hidden /> Working…
-              </>
-            ) : (
-              continueLabel
-            )}
-          </button>
-        </div>
-        {!continueEnabled && pending?.kind === "write_approval" ? (
+        {!hideGenericContinue ? (
+          <div className="modal-actions modal-footer">
+            <button
+              type="button"
+              className="btn ghost"
+              data-testid="modal-dismiss-footer"
+              onClick={closeActionModal}
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="checkpoint-continue"
+              disabled={!continueEnabled || actionBusy}
+              onClick={() => void onCheckpointContinue()}
+            >
+              {actionBusy ? (
+                <>
+                  <span className="spinner-inline" aria-hidden /> Working…
+                </>
+              ) : (
+                continueLabel
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="modal-actions modal-footer">
+            <button
+              type="button"
+              className="btn ghost"
+              data-testid="modal-dismiss-footer"
+              onClick={closeActionModal}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+        {!continueEnabled && activePanel === "write" ? (
           <p className="hint modal-continue-hint">
             {writePending?.paths.length
               ? "Staged files are listed above — click Save & continue to write them to disk and advance."
               : "Loading staged files… if this persists, use Retry above."}
           </p>
         ) : null}
-        {!continueEnabled && selectedStage.status === "action_required" ? (
+        {!continueEnabled && activePanel === "gate" ? (
           <p className="hint modal-continue-hint">
             {continueHintForStage(selectedStage.id, run)}
           </p>
         ) : null}
-        {!continueEnabled && pending?.kind === "stage_reuse" ? (
+        {!continueEnabled && activePanel === "reuse" ? (
           <p className="hint modal-continue-hint">
             Choose reuse from a prior execution or run this step fresh.
           </p>

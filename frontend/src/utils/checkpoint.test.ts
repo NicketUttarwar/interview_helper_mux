@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findPendingFocusStage } from "./checkpoint";
+import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData } from "../types";
 
 function minimalRun(overrides: Partial<RunData> = {}): RunData {
@@ -41,5 +42,28 @@ describe("findPendingFocusStage", () => {
       },
     });
     expect(findPendingFocusStage(run)).toBe("transcribe");
+  });
+
+  it("aligns with resolver.stageId for write approval", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "ingest",
+          title: "Ingest",
+          description: "",
+          status: "awaiting_write_approval",
+        },
+      ],
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+        pending_write_paths: ["ingest/normalized.wav"],
+      },
+    });
+    const focus = findPendingFocusStage(run);
+    const action = resolveOperatorAction(run);
+    expect(focus).toBe("ingest");
+    expect(action.stageId).toBe("ingest");
+    expect(action.mode).toBe("needs_you");
   });
 });

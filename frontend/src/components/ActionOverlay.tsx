@@ -1,35 +1,28 @@
 import { useApp } from "../context/AppContext";
-import { stageTitleForId } from "../utils/checkpoint";
+import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { isJobActivelyRunning } from "../utils/jobStatus";
-import { useStageProgress } from "../hooks/useStageProgress";
 
 export function ActionOverlay() {
-  const { jobRunning, actionBusy, run } = useApp();
-  const { activeSubstepGlobal } = useStageProgress();
+  const { jobRunning, actionBusy, run, selectedStageId, apiGrants } = useApp();
+  const action = useGlobalOperatorAction(run, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
   if (!jobRunning && !actionBusy) return null;
 
   const job = run?.job;
-  const stageId = job?.current_stage || job?.stage;
-  const stageTitle = stageId
-    ? stageTitleForId(run?.stages, stageId) || stageId.replace(/_/g, " ")
-    : null;
+  const message = actionBusy
+    ? action.headline || "Saving staged outputs and advancing…"
+    : action.mode === "running"
+      ? action.headline
+      : isJobActivelyRunning(job)
+        ? job?.message || action.headline
+        : job?.message || action.headline || "Working…";
 
-  let message: string;
-  if (actionBusy) {
-    message = activeSubstepGlobal?.label || "Saving staged outputs and advancing…";
-  } else if (activeSubstepGlobal?.status === "running") {
-    message = activeSubstepGlobal.label;
-  } else if (isJobActivelyRunning(job)) {
-    message =
-      job?.message ||
-      (stageTitle
-        ? `Running ${stageTitle} — live command output in Activity.`
-        : "Pipeline step running — live command output in Activity.");
-  } else if (job?.message) {
-    message = job.message;
-  } else {
-    message = "Working…";
-  }
+  const stageTitle = action.stageId
+    ? run?.stages.find((s) => s.id === action.stageId)?.title
+    : null;
 
   return (
     <div

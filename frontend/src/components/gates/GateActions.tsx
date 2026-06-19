@@ -157,20 +157,24 @@ export function GateActions({ stage }: Props) {
         <DisfluencyRestorePanel stageId={stage.id} />
       ) : null}
 
-      {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
-        <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />
-      ) : null}
+      {run.journey?.phase === "ship" || run.journey?.phase === "export" ? (
+        <>
+          {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
+            <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />
+          ) : null}
 
-      {stage.id === "edl_flow1" || stage.id === "edl_narrative_audit" ? (
-        <QcSummaryCard qcKey="edl_narrative_qc" stageId={stage.id} />
-      ) : null}
+          {stage.id === "edl_flow1" || stage.id === "edl_narrative_audit" ? (
+            <QcSummaryCard qcKey="edl_narrative_qc" stageId={stage.id} />
+          ) : null}
 
-      {stage.id === "podcast_show_description" ? (
-        <QcSummaryCard qcKey="show_description_qc" stageId={stage.id} />
-      ) : null}
+          {stage.id === "podcast_show_description" ? (
+            <QcSummaryCard qcKey="show_description_qc" stageId={stage.id} />
+          ) : null}
 
-      {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
-        <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+          {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
+            <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+          ) : null}
+        </>
       ) : null}
 
       {stage.id === "mix_flow1" || stage.id === "mix_flow2" ? (

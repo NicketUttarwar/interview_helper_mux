@@ -1,9 +1,7 @@
 import { useApp } from "../../context/AppContext";
 import { filterLiveStream, latestEntry } from "../../utils/logStreams";
 import { escapeHtml, formatTs } from "../../utils";
-import { actionSummaryText } from "../../utils/checkpoint";
-import { resolvePendingAction } from "../../utils/pendingAction";
-import { pendingActionToSubstep } from "../../utils/stageSubsteps";
+import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import { stageTitleForId } from "../../utils/checkpoint";
 import { useStageProgress } from "../../hooks/useStageProgress";
 
@@ -14,37 +12,54 @@ export function ActivityTeaser() {
     run,
     jobRunning,
     apiGrants,
+    selectedStageId,
     setActiveTab,
     setActivityLogCollapsed,
-    activateSubstep,
+    openActionModal,
+    selectStage,
   } = useApp();
   const { activeSubstepGlobal } = useStageProgress();
+
+  const operatorAction = useGlobalOperatorAction(run, {
+    selectedStageId,
+    jobRunning,
+    apiGrants,
+  });
 
   if (activeTab === "pipeline") return null;
 
   const live = filterLiveStream(logEntries, run, jobRunning);
   const last = latestEntry(live) || latestEntry(logEntries);
-  const summary = actionSummaryText(run, apiGrants);
-  const pending = resolvePendingAction(run, apiGrants);
+  const attentionHeadline =
+    operatorAction.mode === "needs_you" ? operatorAction.headline : null;
   const runningTitle =
     jobRunning && run?.job
       ? stageTitleForId(run.stages, run.job.current_stage || run.job.stage)
       : null;
 
   const goAttention = () => {
-    if (!pending) return;
-    activateSubstep(pendingActionToSubstep(pending));
+    if (operatorAction.mode === "needs_you") {
+      if (operatorAction.stageId) void selectStage(operatorAction.stageId);
+      openActionModal();
+      setActiveTab("pipeline");
+      return;
+    }
   };
 
   return (
     <footer
-      className={`activity-teaser log-strip${summary ? " has-attention" : ""}`}
+      className={`activity-teaser log-strip${attentionHeadline ? " has-attention" : ""}`}
       data-testid="activity-teaser"
-      role="log"
+      role="button"
+      aria-label={
+        attentionHeadline
+          ? `Needs attention: ${attentionHeadline}. Open checkpoint.`
+          : "Open pipeline activity log"
+      }
       aria-live="polite"
       tabIndex={0}
       onClick={() => {
-        if (pending) {
+        if (attentionHeadline) {
           goAttention();
           return;
         }
@@ -53,7 +68,7 @@ export function ActivityTeaser() {
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
-          if (pending) goAttention();
+          if (attentionHeadline) goAttention();
           else {
             setActiveTab("pipeline");
             setActivityLogCollapsed(false);
@@ -64,12 +79,12 @@ export function ActivityTeaser() {
       <div className="log-strip-head">
         <span className="log-strip-title">Latest activity</span>
         <span className="log-strip-hint muted">
-          {pending ? "Go →" : "Open Pipeline activity →"}
+          {attentionHeadline ? "Go →" : "Open Pipeline activity →"}
         </span>
       </div>
       <div className="log-strip-body">
-        {summary ? (
-          <p className="activity-teaser-attention">{summary}</p>
+        {attentionHeadline ? (
+          <p className="activity-teaser-attention">{attentionHeadline}</p>
         ) : activeSubstepGlobal ? (
           <p className="muted">{activeSubstepGlobal.label}</p>
         ) : runningTitle ? (

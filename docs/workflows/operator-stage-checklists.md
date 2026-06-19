@@ -4,7 +4,29 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
-**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). **Substeps:** each `guidance` item with `status: todo` maps to a sidebar substep (`id` → `data-testid="substep-{id}"`); attention-queue items (write approval, handoff, reuse) merge into the same list. See [gui-surface-map.md](./gui-surface-map.md) § Steps sidebar. This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` and **StepActionHeader** (mode + headline + primary). Checkpoint work is **modal-first** — see [ux-operator-model.md](./ux-operator-model.md). Sidebar substeps are navigation-only (`data-testid="substep-{id}"`). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+
+### UX smoke scripts (Pipeline simplification)
+
+**Prepare — ingest → transcribe**
+
+1. Run ingest; confirm **Running** badge on StepActionHeader while job polls.
+2. When ingest completes, confirm **Needs you** + modal auto-opens with write approval.
+3. Click **Save & continue** (`write-approval-save-continue`); modal closes; transcribe reuse modal opens if candidates exist.
+4. Sidebar row for ingest collapses; transcribe row gets `sidebar-step--focus` when blocked.
+
+**Gates — G0 / G0.5 / G1 / G2**
+
+1. Each gate: StepActionHeader shows **Needs you**; modal shows single gate panel (no guidance embed).
+2. Complete gate in modal; modal closes; `runNextStage` advances without duplicate navigation toasts.
+
+**Write / reuse / handoff**
+
+1. Write approval: only one Save CTA (panel, not modal footer Continue).
+2. Reuse: modal shows reuse cards only; **Run fresh instead** advances.
+3. Handoff: acknowledge in modal; pipeline continues to next runnable stage.
+
+**E2E selectors:** prefer `step-action-primary` → modal panel buttons → sidebar substeps ([02-GUI-JOURNEY.md](../../CURSOR_EXECUTE/flow1-gui-e2e/02-GUI-JOURNEY.md)).
 
 **`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
 

@@ -56,20 +56,22 @@ describe("activateSubstep", () => {
     expect(setPipelineSubTab).toHaveBeenCalledWith("profile");
   });
 
-  it("calls runNextStage for run kind", () => {
+  it("does not auto-run for run kind todo (navigation only)", () => {
     const runNextStage = vi.fn();
+    const openActionModal = vi.fn();
     activateSubstep(
       sub({ kind: "run", stageId: "ingest" }),
       {
         selectStage: vi.fn(),
         setActiveTab: vi.fn(),
         setPipelineSubTab: vi.fn(),
-        openActionModal: vi.fn(),
+        openActionModal,
         closeActionModal: vi.fn(),
         runNextStage,
       },
     );
-    expect(runNextStage).toHaveBeenCalled();
+    expect(runNextStage).not.toHaveBeenCalled();
+    expect(openActionModal).not.toHaveBeenCalled();
   });
 
   it("inline write approval scrolls to panel without opening modal", () => {
@@ -113,5 +115,56 @@ describe("activateSubstep", () => {
     expect(scrollIntoView).toHaveBeenCalled();
 
     vi.unstubAllGlobals();
+  });
+
+  it("opens modal for gate substep when openModal true", () => {
+    const openActionModal = vi.fn();
+    activateSubstep(
+      sub({ kind: "gate", stageId: "transcript_review", targetSection: "modal-gates" }),
+      {
+        selectStage: vi.fn(),
+        setActiveTab: vi.fn(),
+        setPipelineSubTab: vi.fn(),
+        openActionModal,
+        closeActionModal: vi.fn(),
+        runNextStage: vi.fn(),
+      },
+      { openModal: true, scrollSection: false },
+    );
+    expect(openActionModal).toHaveBeenCalled();
+  });
+
+  it("opens modal for reuse substep when openModal true", () => {
+    const openActionModal = vi.fn();
+    activateSubstep(
+      sub({ kind: "reuse", stageId: "transcribe", targetSection: "modal-reuse" }),
+      {
+        selectStage: vi.fn(),
+        setActiveTab: vi.fn(),
+        setPipelineSubTab: vi.fn(),
+        openActionModal,
+        closeActionModal: vi.fn(),
+        runNextStage: vi.fn(),
+      },
+      { openModal: true, scrollSection: false },
+    );
+    expect(openActionModal).toHaveBeenCalled();
+  });
+
+  it("opens modal for handoff substep when openModal true", () => {
+    const openActionModal = vi.fn();
+    activateSubstep(
+      sub({ kind: "handoff", stageId: "ingest", targetSection: "modal-handoff" }),
+      {
+        selectStage: vi.fn(),
+        setActiveTab: vi.fn(),
+        setPipelineSubTab: vi.fn(),
+        openActionModal,
+        closeActionModal: vi.fn(),
+        runNextStage: vi.fn(),
+      },
+      { openModal: true, scrollSection: false },
+    );
+    expect(openActionModal).toHaveBeenCalled();
   });
 });

@@ -61,7 +61,16 @@
 
 ## Gate handler priority
 
-1. write approval → 2. handoff → 3. reuse decline → 4. preclean dismiss → 5. G0 → 6. G0.5 → 7. profile → 8. G1 upload → 9. G1 continue → 10. G2 → 11. G1.5 → 12. sfx post-listen → 13. preview listen → 14. LLM gate (blocker) → 15. job running (wait) → 16. modal continue → 17. **active substep** (`data-testid="substep-{id}"` from `journey.active_substep_id`) → 18. primary CTA
+1. write approval → 2. handoff → 3. reuse decline → 4. preclean dismiss → 5. G0 → 6. G0.5 → 7. profile → 8. G1 upload → 9. G1 continue → 10. G2 → 11. G1.5 → 12. sfx post-listen → 13. preview listen → 14. LLM gate (blocker) → 15. job running (wait) → 16. modal continue → 17. **active substep** (`data-testid="substep-{id}"` from `journey.active_substep_id`) → 18. **primary CTA** (`step-action-primary` → `checkpoint-continue` → `write-approval-save-continue` → sidebar substep)
+
+### Primary CTA priority (Pipeline tab)
+
+| Selector | When |
+|----------|------|
+| `data-testid="step-action-primary"` | **`StepActionHeader`** — opens modal or runs step (preferred) |
+| `data-testid="checkpoint-continue"` | Modal footer when generic Continue is shown |
+| `data-testid="write-approval-save-continue"` | Write approval panel Save button |
+| `data-testid="live-status-primary"` | Live status bar on non-Pipeline tabs |
 
 ### Substep navigation (Steps sidebar)
 
@@ -69,7 +78,8 @@ When the GUI shows hierarchical substeps under each pipeline step, the driver ma
 
 | Selector | When |
 |----------|------|
-| `data-testid="substep-{id}"` | `journey.active_substep_id` matches (e.g. `write_approval`, `gate:transcript_review`) |
+| `data-testid="substep-{id}"` | `journey.active_substep_id` matches (e.g. `write_approval:ingest`, `stage_reuse:transcribe`, `gate:transcript_review`) |
+| `data-testid="operator-action-modal"` | Wait for checkpoint modal after primary CTA |
 | `data-testid="pipeline-step-{stageId}"` | Expand a collapsed step row before substep clicks |
 | `.pipeline-substep-row.status-todo` | Fallback first actionable substep |
 
