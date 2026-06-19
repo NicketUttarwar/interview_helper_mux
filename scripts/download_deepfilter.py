@@ -43,7 +43,7 @@ def main() -> int:
         return proc.returncode
     print(proc.stdout.strip())
 
-    if args.smoke or args.verify:
+    if args.smoke:
         with tempfile.TemporaryDirectory() as tmp:
             inp = Path(tmp) / "in.wav"
             out = Path(tmp) / "out.wav"

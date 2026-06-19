@@ -80,6 +80,8 @@ Re-run `./scripts/bootstrap_venv.sh` (or pip install the MMAudio requirements fi
 |-------|--------|
 | `Missing venv python` | Re-run `./scripts/bootstrap_venv.sh` |
 | DeepFilter `maturin` failure | Install Rust toolchain; ensure repo cloned |
+| `pip install -e` flat-layout error on repo root | Bootstrap installs `DeepFilterNet/DeepFilterNet` subpackage, not repo root — re-run `./scripts/bootstrap_venv.sh` |
+| `torchaudio.backend` import error | Mismatched torch/torchaudio — bootstrap pins `2.5.1` for deepfilter venv |
 | MMAudio demo fails | Confirm `ASSETS/local_mmaudio/MMAudio/demo.py` exists after clone |
 | Preclean falls back to `ffmpeg_local` | DeepFilter stack unavailable; check `preclean/provider.json` |
 

@@ -19,11 +19,12 @@ def main() -> int:
     try:
         from df import enhance, init_df
         import soundfile as sf
+        import torch
     except ImportError as exc:
         print(f"DeepFilterNet import failed: {exc}", file=sys.stderr)
         return 1
 
-    model, df_state, _ = init_df(model_base_dir=args.model)
+    model, df_state, *_ = init_df(model_base_dir=args.model)
     if args.verify:
         print("OK — DeepFilterNet model loadable")
         return 0
@@ -35,9 +36,11 @@ def main() -> int:
     audio, sr = sf.read(args.input_wav, dtype="float32")
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
-    enhanced = enhance(model, df_state, audio, pad=args.compensate_delay)
+    audio_t = torch.from_numpy(audio).unsqueeze(0)
+    enhanced = enhance(model, df_state, audio_t, pad=args.compensate_delay)
+    out_np = enhanced.squeeze(0).detach().cpu().numpy()
     out_path = args.output_wav
-    sf.write(out_path, enhanced, sr, subtype="PCM_16")
+    sf.write(out_path, out_np, sr, subtype="PCM_16")
     print(f"Wrote {out_path}")
     return 0
 
