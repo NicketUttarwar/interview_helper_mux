@@ -76,6 +76,7 @@ export function StepActionHeader({
             type="button"
             className="btn ghost sm step-action-secondary"
             data-testid="step-action-secondary"
+            disabled={busy && action.secondaryKind !== "skip_optional"}
             onClick={onSecondary}
           >
             {action.secondaryLabel}

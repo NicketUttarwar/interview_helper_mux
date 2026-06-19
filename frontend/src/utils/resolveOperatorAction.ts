@@ -13,7 +13,7 @@ import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
-import { findNextRunnableStage } from "./preclean";
+import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
 import { buildNumberedStages, resolvePipelineNav } from "./pipelineNavigation";
 import { firstTodoItem } from "./stageGuidance";
 import { resolvePendingWritePaths } from "./writeApproval";
@@ -439,13 +439,33 @@ export function resolveOperatorActionForStage(
     return buildLockedAction(stage);
   }
 
+  const precleanOffer =
+    stage.id === "audio_preclean" && stage.status === "pending"
+      ? resolvePrecleanOffer(stage, run.meta)
+      : null;
+  if (precleanOffer) {
+    return {
+      mode: "needs_you",
+      stageId: stage.id,
+      substepId: "optional:review",
+      headline: "Optional audio pre-clean",
+      subline: "Skip to keep the original recording, or run cleaning first.",
+      primaryLabel: "View optional offer",
+      primaryKind: "open_modal",
+      primaryDisabled: false,
+      secondaryLabel: "Skip optional step",
+      secondaryKind: "skip_optional",
+      modalAutoOpen: false,
+    };
+  }
+
   if (stage.status === "done") {
     const next =
       nav.nextStage?.id === stageId ? null : nav.nextStage;
     return buildDoneAction(
       run,
       stage,
-      next ?? findNextRunnableStage(run.stages),
+      next ?? findNextRunnableStage(run.stages, run.meta),
       nextEntry?.number ?? nav.nextNumber,
     );
   }

@@ -79,7 +79,7 @@ export function resolvePipelineNav(
   const numbered = buildNumberedStages(run.stages);
   const handoffStage = findHandoffStage(run);
   const focusStageId = findPendingFocusStage(run, opts.apiGrants);
-  const nextRunnable = findNextRunnableStage(run.stages);
+  const nextRunnable = findNextRunnableStage(run.stages, run.meta);
   const job = run.job;
 
   let currentStage: StageInfo | null = null;
@@ -193,7 +193,7 @@ export function stageNavStatus(
   ) {
     return "current";
   }
-  const next = findNextRunnableStage(run.stages);
+  const next = findNextRunnableStage(run.stages, run.meta);
   if (next?.id === stage.id) return "current";
   return "upcoming";
 }

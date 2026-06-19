@@ -107,6 +107,11 @@ interface AppContextValue {
   refreshRun: () => Promise<RunData | null>;
   selectStage: (stageId: string) => Promise<void>;
   executeJob: (body: ExecuteBody) => Promise<void>;
+  beginStageExecution: (opts: {
+    kind: "execute" | "decline_reuse_and_run";
+    stageId: string;
+    body?: ExecuteBody;
+  }) => Promise<boolean>;
   runNextStage: () => Promise<void>;
   redoFromStage: () => Promise<void>;
   startJobPoll: () => void;
@@ -737,101 +742,228 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pollLog,
   ]);
 
-  const executeJob = useCallback(
-    async (body: ExecuteBody) => {
-      if (!runId) return;
-      const handoffStage = findHandoffStage(run);
-      if (handoffStage) {
-        showToast(
-          `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
-        );
-        await selectStage(handoffStage.id);
-        return;
-      }
-      const payload = { ...body, api_consents: ALL_API_CONSENTS };
-      const stageForLog = body.stage || body.from_stage || undefined;
-      logOperatorAction(describeExecuteBody(body), stageForLog);
-      try {
-        const res = await api<{
-          ok?: boolean;
-          error?: string;
-          needs_stage_reuse?: boolean;
-          stage?: string;
-        }>(`/api/runs/${runId}/execute`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok === false) {
-          appendClientLog(res.error || "Failed to start job", "warning", stageForLog);
-          showToast(res.error || "Failed to start");
-          const busyJob = (res as { job?: JobState }).job;
-          if (busyJob && isJobActivelyRunning(busyJob)) {
-            setRun((prev) => (prev ? { ...prev, job: busyJob } : prev));
-            setJobRunning(true);
-            setActivityLogTabState("live");
-            activityLogTabRef.current = "live";
-            setActivityLogCollapsedState(false);
-            activityLogCollapsedRef.current = false;
-            startJobPoll();
-          }
-          if (res.needs_stage_reuse && res.stage) {
-            await selectStage(res.stage);
-            openActionModal();
-            playAttentionPing(alertsMuted);
-            await refreshRun();
-            return;
-          }
-          const writePending = res as {
-            awaiting_write_approval?: boolean;
-            pending_write_stage?: string;
-          };
-          if (writePending.awaiting_write_approval && writePending.pending_write_stage) {
-            await selectStage(writePending.pending_write_stage);
-            openActionModal();
-            playAttentionPing(alertsMuted);
-            await refreshRun();
-            return;
-          }
-          return;
+  const markJobStarting = useCallback(
+    (stageId: string, message?: string) => {
+      const optimisticJob: JobState = {
+        status: "running",
+        stage: stageId,
+        current_stage: stageId,
+        message: message || `Starting ${stageId.replace(/_/g, " ")}…`,
+      };
+      setJobRunning(true);
+      setRun((prev) => (prev ? { ...prev, job: optimisticJob } : prev));
+      setActivityLogTabState("live");
+      activityLogTabRef.current = "live";
+      setActivityLogCollapsedState(false);
+      activityLogCollapsedRef.current = false;
+      expandStage(stageId);
+    },
+    [expandStage],
+  );
+
+  const handleJobStartResponse = useCallback(
+    async (
+      res: {
+        ok?: boolean;
+        error?: string;
+        needs_stage_reuse?: boolean;
+        stage?: string;
+        awaiting_write_approval?: boolean;
+        pending_write_stage?: string;
+        job?: JobState;
+      },
+      stageForLog?: string,
+    ): Promise<boolean> => {
+      if (res.ok === false) {
+        setJobRunning(false);
+        appendClientLog(res.error || "Failed to start job", "warning", stageForLog);
+        showToast(res.error || "Failed to start");
+        const busyJob = res.job;
+        if (busyJob && isJobActivelyRunning(busyJob)) {
+          setRun((prev) => (prev ? { ...prev, job: busyJob } : prev));
+          setJobRunning(true);
+          setActivityLogTabState("live");
+          activityLogTabRef.current = "live";
+          setActivityLogCollapsedState(false);
+          activityLogCollapsedRef.current = false;
+          startJobPoll();
         }
-        appendClientLog("Pipeline job started — streaming logs below.", "info", stageForLog);
-        setActivityLogTabState("live");
-        activityLogTabRef.current = "live";
-        setActivityLogCollapsedState(false);
-        activityLogCollapsedRef.current = false;
-        startJobPoll();
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
-          const msg =
-            e.message ||
-            "Run is busy — watch Activity for progress, or refresh after a server restart.";
-          appendClientLog(msg, "warning", stageForLog);
-          showToast(msg);
-          const job = runId ? await syncJobRunning(runId) : null;
-          if (isJobActivelyRunning(job)) {
-            setActivityLogTabState("live");
-            activityLogTabRef.current = "live";
-            startJobPoll();
-          } else await refreshRun();
-          return;
+        if (res.needs_stage_reuse && res.stage) {
+          await selectStage(res.stage);
+          openActionModal();
+          playAttentionPing(alertsMuted);
+          await refreshRun();
+          return false;
         }
-        const msg = e instanceof Error ? e.message : "Failed to start job";
-        appendClientLog(msg, "warning", stageForLog);
-        showToast(msg);
+        if (res.awaiting_write_approval && res.pending_write_stage) {
+          await selectStage(res.pending_write_stage);
+          openActionModal();
+          playAttentionPing(alertsMuted);
+          await refreshRun();
+          return false;
+        }
+        await refreshRun();
+        return false;
       }
+      appendClientLog("Pipeline job started — streaming logs below.", "info", stageForLog);
+      await pollLog(true);
+      startJobPoll();
+      return true;
     },
     [
-      runId,
-      run,
       alertsMuted,
       showToast,
       refreshRun,
       startJobPoll,
       selectStage,
       openActionModal,
-      syncJobRunning,
+      appendClientLog,
+      pollLog,
+    ],
+  );
+
+  const beginStageExecution = useCallback(
+    async (opts: {
+      kind: "execute" | "decline_reuse_and_run";
+      stageId: string;
+      body?: ExecuteBody;
+    }): Promise<boolean> => {
+      if (!runId) return false;
+      const { stageId, kind, body } = opts;
+      const handoffStage = findHandoffStage(run);
+      if (handoffStage) {
+        showToast(
+          `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
+        );
+        await selectStage(handoffStage.id);
+        return false;
+      }
+      const label =
+        kind === "decline_reuse_and_run"
+          ? `Run fresh — ${stageId.replace(/_/g, " ")}`
+          : describeExecuteBody(body || { mode: "stage", stage: stageId });
+      logOperatorAction(label, stageId);
+      markJobStarting(
+        stageId,
+        kind === "decline_reuse_and_run" ? `Running ${stageId.replace(/_/g, " ")} fresh…` : undefined,
+      );
+      try {
+        const res =
+          kind === "decline_reuse_and_run"
+            ? await api<{
+                ok?: boolean;
+                error?: string;
+                needs_stage_reuse?: boolean;
+                stage?: string;
+                awaiting_write_approval?: boolean;
+                pending_write_stage?: string;
+                job?: JobState;
+              }>(`/api/runs/${runId}/stages/${stageId}/reuse`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "decline_and_run",
+                  api_consents: ALL_API_CONSENTS,
+                }),
+              })
+            : await api<{
+                ok?: boolean;
+                error?: string;
+                needs_stage_reuse?: boolean;
+                stage?: string;
+                awaiting_write_approval?: boolean;
+                pending_write_stage?: string;
+                job?: JobState;
+              }>(`/api/runs/${runId}/execute`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ...(body || { mode: "stage", stage: stageId }),
+                  api_consents: ALL_API_CONSENTS,
+                }),
+              });
+        return handleJobStartResponse(res, stageId);
+      } catch (e) {
+        setJobRunning(false);
+        if (e instanceof ApiError && e.status === 409) {
+          const msg =
+            e.message ||
+            "Run is busy — watch Activity for progress, or refresh after a server restart.";
+          appendClientLog(msg, "warning", stageId);
+          showToast(msg);
+          const job = await syncJobRunning(runId);
+          if (isJobActivelyRunning(job)) {
+            setActivityLogTabState("live");
+            activityLogTabRef.current = "live";
+            startJobPoll();
+          } else {
+            await refreshRun();
+          }
+          return false;
+        }
+        const msg = e instanceof Error ? e.message : "Failed to start job";
+        appendClientLog(msg, "warning", stageId);
+        showToast(msg);
+        await refreshRun();
+        return false;
+      }
+    },
+    [
+      runId,
+      run,
+      showToast,
+      selectStage,
       logOperatorAction,
+      markJobStarting,
+      handleJobStartResponse,
+      syncJobRunning,
+      startJobPoll,
+      refreshRun,
+      appendClientLog,
+    ],
+  );
+
+  const executeJob = useCallback(
+    async (body: ExecuteBody) => {
+      const stageForLog = body.stage || body.from_stage;
+      if (!stageForLog) {
+        if (!runId) return;
+        const handoffStage = findHandoffStage(run);
+        if (handoffStage) {
+          showToast(
+            `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
+          );
+          await selectStage(handoffStage.id);
+          return;
+        }
+        logOperatorAction(describeExecuteBody(body));
+        markJobStarting(body.mode);
+        try {
+          const res = await api(`/api/runs/${runId}/execute`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...body, api_consents: ALL_API_CONSENTS }),
+          });
+          await handleJobStartResponse(res as { ok?: boolean }, body.mode);
+        } catch (e) {
+          setJobRunning(false);
+          const msg = e instanceof Error ? e.message : "Failed to start job";
+          appendClientLog(msg, "warning");
+          showToast(msg);
+        }
+        return;
+      }
+      await beginStageExecution({ kind: "execute", stageId: stageForLog, body });
+    },
+    [
+      runId,
+      run,
+      showToast,
+      selectStage,
+      logOperatorAction,
+      markJobStarting,
+      handleJobStartResponse,
+      beginStageExecution,
       appendClientLog,
     ],
   );
@@ -882,7 +1014,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         renderLogWithAlerts(runData.log_tail || []);
         const resolvedStage =
           stageId ||
-          findActiveStage(runData.stages)?.id ||
+          findActiveStage(runData.stages, runData.meta)?.id ||
           runData.stages[0]?.id ||
           null;
         if (resolvedStage) {
@@ -1055,7 +1187,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       playAttentionPing(alertsMuted);
       return;
     }
-    const next = findNextRunnableStage(current.stages);
+    const next = findNextRunnableStage(current.stages, current.meta);
     if (!next) {
       showToast("No runnable stage — check gates or flow.");
       return;
@@ -1086,6 +1218,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast,
     selectStage,
     executeJob,
+    beginStageExecution,
     openActionModal,
     refreshRun,
     setPipelineSubTabWrapped,
@@ -1648,6 +1781,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshRun,
     selectStage,
     executeJob,
+    beginStageExecution,
     runNextStage,
     redoFromStage,
     startJobPoll,

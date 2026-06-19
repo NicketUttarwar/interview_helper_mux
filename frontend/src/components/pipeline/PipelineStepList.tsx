@@ -9,6 +9,7 @@ import {
 import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stageSubsteps";
 import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { stageNeedsAttention } from "../../utils/attentionQueue";
+import { isJobActivelyRunning } from "../../utils/jobStatus";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
 import { SubstepRow } from "./SubstepRow";
@@ -151,7 +152,7 @@ export function PipelineStepList() {
             entry.stage.id === focusStageId && operatorAction.mode === "needs_you";
           const hasAction = stageHasTodoActions(entry.stage);
           const isRunning =
-            jobRunning &&
+            (jobRunning || isJobActivelyRunning(run.job)) &&
             (run.job?.current_stage === entry.stage.id ||
               run.job?.stage === entry.stage.id);
           const navStatus = isRunning ? "running" : status;

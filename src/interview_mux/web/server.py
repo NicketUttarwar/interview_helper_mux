@@ -294,8 +294,9 @@ class PrecleanOfferBody(BaseModel):
 
 
 class StageReuseBody(BaseModel):
-    action: str = Field(pattern="^(accept|decline)$")
+    action: str = Field(pattern="^(accept|decline|decline_and_run)$")
     source_run_id: str | None = None
+    api_consents: dict[str, bool] | None = None
 
 
 class SfxPromptApproveBody(BaseModel):
@@ -1307,6 +1308,13 @@ def create_app() -> FastAPI:
         entry: dict[str, Any] = {}
         copied: list[str] = []
         action = body.action
+
+        if body.action == "decline_and_run":
+            return runner.decline_reuse_and_run(
+                run_id,
+                stage_id,
+                api_consents=body.api_consents,
+            )
 
         try:
             with runner.run_guard(run_id):

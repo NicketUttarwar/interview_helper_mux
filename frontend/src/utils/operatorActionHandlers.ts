@@ -6,6 +6,7 @@ export interface OperatorActionHandlers {
   runStage: (stageId: string) => void;
   continueNext: () => void;
   viewLogs: () => void;
+  skipOptional?: (stageId: string) => void;
 }
 
 export function invokeOperatorActionPrimary(
@@ -24,6 +25,22 @@ export function invokeOperatorActionPrimary(
       break;
     case "view_logs":
       handlers.viewLogs();
+      break;
+    default:
+      break;
+  }
+}
+
+export function invokeOperatorActionSecondary(
+  action: OperatorAction,
+  handlers: OperatorActionHandlers,
+): void {
+  switch (action.secondaryKind) {
+    case "view_logs":
+      handlers.viewLogs();
+      break;
+    case "skip_optional":
+      if (action.stageId && handlers.skipOptional) handlers.skipOptional(action.stageId);
       break;
     default:
       break;

@@ -76,14 +76,26 @@ export function getOptionalSkipLabel(stage: StageInfo): string {
   return "Skip optional step";
 }
 
-export function findActiveStage(stages: StageInfo[]): StageInfo | undefined {
-  return findNextRunnableStage(stages);
+export function findActiveStage(
+  stages: StageInfo[],
+  meta?: RunMeta | null,
+): StageInfo | undefined {
+  return findNextRunnableStage(stages, meta);
 }
 
-export function findNextRunnableStage(stages: StageInfo[]): StageInfo | undefined {
+export function findNextRunnableStage(
+  stages: StageInfo[],
+  meta?: RunMeta | null,
+): StageInfo | undefined {
   for (const s of stages) {
     if (s.status === "action_required" || s.status === "awaiting_write_approval") return s;
-    if (s.status === "pending" && s.phase !== "gate") return s;
+    if (s.status === "pending" && s.phase !== "gate") {
+      // Optional pre-clean never blocks downstream steps (ingest can run without it).
+      if (s.id === "audio_preclean" && meta && resolvePrecleanOffer(s, meta)) {
+        continue;
+      }
+      return s;
+    }
   }
   return undefined;
 }

@@ -309,10 +309,30 @@ class JobRunner:
             pass
         return {"ok": False, "error": error, "job": job}
 
-    def start(
+    def _try_acquire_dir_lock(
+        self,
+        run_id: str,
+        dir_lock: RunDirectoryLock,
+        *,
+        thread_lock: Lock,
+    ) -> bool:
+        if dir_lock.acquire(blocking=False):
+            return True
+        from interview_mux.gui_job_reconcile import reconcile_stale_job
+
+        if self.lock_held(run_id):
+            return False
+        reconcile_stale_job(run_id)
+        if dir_lock.try_recover_stale():
+            return True
+        return dir_lock.acquire(blocking=False)
+
+    def _spawn_pipeline_thread(
         self,
         run_id: str,
         *,
+        dir_lock: RunDirectoryLock,
+        lock: Lock,
         mode: str,
         stage: str | None = None,
         flow: str | None = None,
@@ -320,142 +340,7 @@ class JobRunner:
         until_stage: str | None = None,
         nle_full_refresh: bool = False,
         nle_apply_mode: str = "structural",
-        api_consents: dict[str, bool] | None = None,
-    ) -> dict[str, Any]:
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
-            return self._busy_job_error(run_id, reason="thread")
-        if not dir_lock.acquire(blocking=False):
-            lock.release()
-            return self._busy_job_error(run_id, reason="directory")
-
-        ctx_pre = RunContext(run_id, create=False)
-        consent_err = self._check_api_consent(
-            ctx_pre,
-            mode=mode,
-            stage=stage,
-            from_stage=from_stage,
-            until_stage=until_stage,
-            nle_full_refresh=nle_full_refresh,
-            nle_apply_mode=nle_apply_mode,
-            api_consents=api_consents,
-        )
-        stage_ids = self._stages_for_execute(
-            ctx_pre,
-            mode=mode,
-            stage=stage,
-            from_stage=from_stage,
-            until_stage=until_stage,
-            nle_full_refresh=nle_full_refresh,
-            nle_apply_mode=nle_apply_mode,
-        )
-        write_pending = check_write_approval_before_execute(ctx_pre)
-        if write_pending:
-            msg = str(write_pending)
-            ctx_pre.log(msg, level="action", stage=write_pending.stage_id)
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "awaiting_write_approval",
-                    "mode": mode,
-                    "stage": write_pending.stage_id,
-                    "message": msg,
-                    "pending_write_stage": write_pending.stage_id,
-                    "pending_write_paths": write_pending.paths,
-                },
-            )
-            dir_lock.release()
-            lock.release()
-            return {
-                "ok": False,
-                "error": msg,
-                "needs_operator": True,
-                "awaiting_write_approval": True,
-                "pending_write_stage": write_pending.stage_id,
-                "pending_write_paths": write_pending.paths,
-            }
-
-        reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
-        if reuse_pending:
-            msg = str(reuse_pending)
-            ctx_pre.log(msg, level="action", stage=reuse_pending.stage_id)
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "needs_operator",
-                    "mode": mode,
-                    "stage": reuse_pending.stage_id,
-                    "message": msg,
-                    "needs_stage_reuse": True,
-                    "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
-                },
-            )
-            dir_lock.release()
-            lock.release()
-            return {
-                "ok": False,
-                "error": msg,
-                "needs_operator": True,
-                "needs_stage_reuse": True,
-                "stage": reuse_pending.stage_id,
-                "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
-            }
-
-        handoff_err = check_handoff_before_execute(ctx_pre)
-        if handoff_err:
-            ctx_pre.log(handoff_err, level="action", stage=pending_handoff_stage(ctx_pre))
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "needs_operator",
-                    "mode": mode,
-                    "stage": stage,
-                    "message": handoff_err,
-                },
-            )
-            dir_lock.release()
-            lock.release()
-            return {
-                "ok": False,
-                "error": handoff_err,
-                "needs_operator": True,
-                "needs_handoff_review": True,
-            }
-
-        if consent_err:
-            ctx_pre.log(consent_err, level="action", stage=stage or mode)
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "needs_operator",
-                    "mode": mode,
-                    "stage": stage,
-                    "message": consent_err,
-                    "missing_api_providers": [
-                        p
-                        for sid in self._stages_for_execute(
-                            ctx_pre,
-                            mode=mode,
-                            stage=stage,
-                            from_stage=from_stage,
-                            until_stage=until_stage,
-                            nle_full_refresh=nle_full_refresh,
-                            nle_apply_mode=nle_apply_mode,
-                        )
-                        for p in missing_consents(sid, self._resolve_consents(api_consents))
-                    ],
-                },
-            )
-            dir_lock.release()
-            lock.release()
-            return {
-                "ok": False,
-                "error": consent_err,
-                "needs_api_consent": True,
-                "needs_operator": True,
-            }
-
+    ) -> None:
         def _run() -> None:
             from interview_mux.operator_trace import active_run_context
 
@@ -672,6 +557,290 @@ class JobRunner:
                 active_run_context.reset(ctx_token)
 
         Thread(target=_run, daemon=True).start()
+
+    def decline_reuse_and_run(
+        self,
+        run_id: str,
+        stage_id: str,
+        *,
+        api_consents: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        """Record reuse decline and start the stage in one lock scope — avoids double-click races."""
+        from interview_mux.stage_execution_reuse import (
+            get_reuse_decision,
+            record_reuse_decision,
+        )
+
+        lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
+        if not lock.acquire(blocking=False):
+            return self._busy_job_error(run_id, reason="thread")
+        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+            lock.release()
+            return self._busy_job_error(run_id, reason="directory")
+
+        ctx = RunContext(run_id, create=False)
+        title = STAGE_BY_ID.get(stage_id)
+        stage_label = title.title if title else stage_id.replace("_", " ")
+        existing = get_reuse_decision(ctx, stage_id)
+        if not existing or existing.get("action") != "decline":
+            record_reuse_decision(ctx, stage_id, action="decline")
+            from interview_mux.operator_snapshots import append_operator_stage_reuse
+
+            append_operator_stage_reuse(ctx, stage_id, get_reuse_decision(ctx, stage_id) or {}, source="gui_decline")
+
+        consent_err = self._check_api_consent(
+            ctx,
+            mode="stage",
+            stage=stage_id,
+            from_stage=None,
+            until_stage=None,
+            nle_full_refresh=False,
+            nle_apply_mode="structural",
+            api_consents=api_consents,
+        )
+        write_pending = check_write_approval_before_execute(ctx)
+        if write_pending:
+            msg = str(write_pending)
+            ctx.log(msg, level="action", stage=write_pending.stage_id)
+            self._write_job(
+                ctx,
+                {
+                    "status": "awaiting_write_approval",
+                    "mode": "stage",
+                    "stage": write_pending.stage_id,
+                    "message": msg,
+                    "pending_write_stage": write_pending.stage_id,
+                    "pending_write_paths": write_pending.paths,
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "awaiting_write_approval": True,
+                "pending_write_stage": write_pending.stage_id,
+                "pending_write_paths": write_pending.paths,
+            }
+
+        handoff_err = check_handoff_before_execute(ctx)
+        if handoff_err:
+            ctx.log(handoff_err, level="action", stage=pending_handoff_stage(ctx))
+            self._write_job(
+                ctx,
+                {
+                    "status": "needs_operator",
+                    "mode": "stage",
+                    "stage": stage_id,
+                    "message": handoff_err,
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": handoff_err,
+                "needs_operator": True,
+                "needs_handoff_review": True,
+            }
+
+        if consent_err:
+            ctx.log(consent_err, level="action", stage=stage_id)
+            self._write_job(
+                ctx,
+                {
+                    "status": "needs_operator",
+                    "mode": "stage",
+                    "stage": stage_id,
+                    "message": consent_err,
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": consent_err,
+                "needs_api_consent": True,
+                "needs_operator": True,
+            }
+
+        ctx.log(
+            f"Running {stage_label} fresh (declined reuse) — job starting…",
+            level="action",
+            stage=stage_id,
+        )
+        refresh_journey_meta(ctx)
+        self._spawn_pipeline_thread(
+            run_id,
+            dir_lock=dir_lock,
+            lock=lock,
+            mode="stage",
+            stage=stage_id,
+            from_stage=stage_id,
+        )
+        return {"ok": True, "run_id": run_id, "mode": "stage", "stage": stage_id}
+
+    def start(
+        self,
+        run_id: str,
+        *,
+        mode: str,
+        stage: str | None = None,
+        flow: str | None = None,
+        from_stage: str | None = None,
+        until_stage: str | None = None,
+        nle_full_refresh: bool = False,
+        nle_apply_mode: str = "structural",
+        api_consents: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
+        if not lock.acquire(blocking=False):
+            return self._busy_job_error(run_id, reason="thread")
+        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+            lock.release()
+            return self._busy_job_error(run_id, reason="directory")
+
+        ctx_pre = RunContext(run_id, create=False)
+        consent_err = self._check_api_consent(
+            ctx_pre,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
+            api_consents=api_consents,
+        )
+        stage_ids = self._stages_for_execute(
+            ctx_pre,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
+        )
+        write_pending = check_write_approval_before_execute(ctx_pre)
+        if write_pending:
+            msg = str(write_pending)
+            ctx_pre.log(msg, level="action", stage=write_pending.stage_id)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "awaiting_write_approval",
+                    "mode": mode,
+                    "stage": write_pending.stage_id,
+                    "message": msg,
+                    "pending_write_stage": write_pending.stage_id,
+                    "pending_write_paths": write_pending.paths,
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "awaiting_write_approval": True,
+                "pending_write_stage": write_pending.stage_id,
+                "pending_write_paths": write_pending.paths,
+            }
+
+        reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
+        if reuse_pending:
+            msg = str(reuse_pending)
+            ctx_pre.log(msg, level="action", stage=reuse_pending.stage_id)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": reuse_pending.stage_id,
+                    "message": msg,
+                    "needs_stage_reuse": True,
+                    "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": msg,
+                "needs_operator": True,
+                "needs_stage_reuse": True,
+                "stage": reuse_pending.stage_id,
+                "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
+            }
+
+        handoff_err = check_handoff_before_execute(ctx_pre)
+        if handoff_err:
+            ctx_pre.log(handoff_err, level="action", stage=pending_handoff_stage(ctx_pre))
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": stage,
+                    "message": handoff_err,
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": handoff_err,
+                "needs_operator": True,
+                "needs_handoff_review": True,
+            }
+
+        if consent_err:
+            ctx_pre.log(consent_err, level="action", stage=stage or mode)
+            self._write_job(
+                ctx_pre,
+                {
+                    "status": "needs_operator",
+                    "mode": mode,
+                    "stage": stage,
+                    "message": consent_err,
+                    "missing_api_providers": [
+                        p
+                        for sid in self._stages_for_execute(
+                            ctx_pre,
+                            mode=mode,
+                            stage=stage,
+                            from_stage=from_stage,
+                            until_stage=until_stage,
+                            nle_full_refresh=nle_full_refresh,
+                            nle_apply_mode=nle_apply_mode,
+                        )
+                        for p in missing_consents(sid, self._resolve_consents(api_consents))
+                    ],
+                },
+            )
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": False,
+                "error": consent_err,
+                "needs_api_consent": True,
+                "needs_operator": True,
+            }
+
+        self._spawn_pipeline_thread(
+            run_id,
+            dir_lock=dir_lock,
+            lock=lock,
+            mode=mode,
+            stage=stage,
+            flow=flow,
+            from_stage=from_stage,
+            until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
+        )
         return {"ok": True, "run_id": run_id, "mode": mode}
 
     def _preflight_flow1_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:

@@ -33,6 +33,16 @@ class RunDirectoryLock:
         except Timeout:
             return False
 
+    def try_recover_stale(self) -> bool:
+        """Non-blocking acquire+release when no live worker holds the lock."""
+        try:
+            if self._lock.acquire(blocking=False):
+                self._lock.release()
+                return True
+        except Timeout:
+            pass
+        return False
+
     def release(self) -> None:
         if self._lock.is_locked:
             self._lock.release()

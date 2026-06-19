@@ -24,6 +24,7 @@ import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import {
   executeBodyForStage,
   invokeOperatorActionPrimary,
+  invokeOperatorActionSecondary,
 } from "../../utils/operatorActionHandlers";
 
 export function StageDetail() {
@@ -46,6 +47,7 @@ export function StageDetail() {
     setActivityLogTab,
     setActivityLogCollapsed,
     setActiveSubstepId,
+    skipOptionalStage,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -158,10 +160,13 @@ export function StageDetail() {
   };
 
   const handleSecondary = () => {
-    if (stageAction.secondaryKind === "view_logs") {
-      setActivityLogTab("live");
-      setActivityLogCollapsed(false);
-    }
+    invokeOperatorActionSecondary(stageAction, {
+      viewLogs: () => {
+        setActivityLogTab("live");
+        setActivityLogCollapsed(false);
+      },
+      skipOptional: (sid) => void skipOptionalStage(sid),
+    });
   };
 
   return (

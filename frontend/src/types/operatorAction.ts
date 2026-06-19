@@ -7,7 +7,7 @@ export type OperatorPrimaryKind =
   | "continue_next"
   | "view_logs";
 
-export type OperatorSecondaryKind = "view_logs" | "open_logs_tab" | "redo_stage";
+export type OperatorSecondaryKind = "view_logs" | "open_logs_tab" | "redo_stage" | "skip_optional";
 
 export interface OperatorActionProgress {
   current: number;

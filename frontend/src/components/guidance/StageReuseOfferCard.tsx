@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { ALL_API_CONSENTS } from "../../utils";
 import { formatTs } from "../../utils";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import type { ReuseCandidate, StageInfo } from "../../types";
@@ -16,7 +17,15 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, refreshRun, executeJob, runNextStage, showToast, openActionModal, closeActionModal } = useApp();
+  const {
+    runId,
+    refreshRun,
+    runNextStage,
+    showToast,
+    openActionModal,
+    closeActionModal,
+    beginStageExecution,
+  } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -26,40 +35,51 @@ export function StageReuseOfferCard({
     setExpanded((prev) => ({ ...prev, [runIdKey]: !prev[runIdKey] }));
   };
 
-  const submit = async (action: "accept" | "decline", sourceRunId?: string) => {
+  const submit = async (action: "accept" | "decline_and_run", sourceRunId?: string) => {
     if (!runId || submitting) return;
     setSubmitting(true);
     if (action === "accept") {
       showToast(`Reusing ${stage.title}…`);
+    } else {
+      showToast(`Running ${stage.title} fresh…`);
     }
     try {
+      if (action === "decline_and_run") {
+        closeActionModal();
+        const started = await beginStageExecution({
+          kind: "decline_reuse_and_run",
+          stageId: stage.id,
+        });
+        if (!started) {
+          await refreshRun();
+        }
+        return;
+      }
+
       await api(`/api/runs/${runId}/stages/${stage.id}/reuse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: "accept",
           source_run_id: sourceRunId,
+          api_consents: ALL_API_CONSENTS,
         }),
       });
       closeActionModal();
       await refreshRun();
-      if (action === "decline") {
-        await executeJob({ mode: "stage", stage: stage.id });
+      let pending: { paths?: string[] } | null = null;
+      for (let i = 0; i < 8; i++) {
+        pending = await api<{ paths?: string[] }>(
+          `/api/runs/${runId}/pending-writes/${stage.id}`,
+        ).catch(() => null);
+        if (pending?.paths?.length) break;
+        await new Promise((r) => setTimeout(r, 300));
+        await refreshRun();
+      }
+      if (pending?.paths?.length) {
+        openActionModal();
       } else {
-        let pending: { paths?: string[] } | null = null;
-        for (let i = 0; i < 8; i++) {
-          pending = await api<{ paths?: string[] }>(
-            `/api/runs/${runId}/pending-writes/${stage.id}`,
-          ).catch(() => null);
-          if (pending?.paths?.length) break;
-          await new Promise((r) => setTimeout(r, 300));
-          await refreshRun();
-        }
-        if (pending?.paths?.length) {
-          openActionModal();
-        } else {
-          await runNextStage();
-        }
+        await runNextStage();
       }
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : "Reuse action failed");
@@ -165,12 +185,18 @@ export function StageReuseOfferCard({
         </p>
         <button
           type="button"
-          className="btn ghost sm"
+          className="btn primary sm"
           data-testid="reuse-run-fresh"
           disabled={submitting}
-          onClick={() => void submit("decline")}
+          onClick={() => void submit("decline_and_run")}
         >
-          Run fresh instead
+          {submitting ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Starting…
+            </>
+          ) : (
+            "Run fresh"
+          )}
         </button>
       </div>
     </div>

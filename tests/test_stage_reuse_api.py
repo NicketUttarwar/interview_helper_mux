@@ -55,6 +55,42 @@ def test_reuse_accept_api(tmp_path: Path, monkeypatch) -> None:
     assert current.is_done("transcribe")
 
 
+def test_reuse_decline_and_run_api(tmp_path: Path, monkeypatch) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    _, current = _setup_pair(tmp_path)
+    patch_server_ctx(monkeypatch, current)
+    from interview_mux.web import runner as runner_mod
+
+    spawned: list[str] = []
+
+    def _fake_spawn(
+        _run_id: str,
+        *,
+        dir_lock=None,
+        lock=None,
+        stage: str | None = None,
+        **_: object,
+    ) -> None:
+        spawned.append(str(stage))
+        if dir_lock is not None:
+            dir_lock.release()
+        if lock is not None:
+            lock.release()
+
+    monkeypatch.setattr(runner_mod.runner, "_spawn_pipeline_thread", _fake_spawn)
+    client = TestClient(create_app())
+    res = client.post(
+        "/api/runs/exec_101_20260101T000101Z/stages/transcribe/reuse",
+        json={"action": "decline_and_run", "api_consents": {"openai": True, "aws": True}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body.get("ok") is True
+    meta = current.read_json("run_meta.json")
+    assert meta["stage_reuse"]["transcribe"]["action"] == "decline"
+    assert spawned == ["transcribe"]
+
+
 def test_reuse_decline_api(tmp_path: Path, monkeypatch) -> None:
     _patch_executions_root(monkeypatch, tmp_path)
     _, current = _setup_pair(tmp_path)

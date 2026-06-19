@@ -81,7 +81,7 @@ def try_handoff(page: Page, log: EventLogger, archive=None) -> bool:
 def try_reuse_decline(page: Page, log: EventLogger, archive=None) -> bool:
     if _click_testid(page, "reuse-run-fresh", log, "reuse decline", archive):
         return True
-    return _click_role(page, "Run fresh instead", log, archive=archive)
+    return _click_role(page, "Run fresh", log, archive=archive)
 
 
 def try_preclean_dismiss(page: Page, log: EventLogger, archive=None) -> bool:
