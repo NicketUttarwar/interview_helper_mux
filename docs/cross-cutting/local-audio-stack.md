@@ -15,15 +15,19 @@ Weights for MMAudio are downloaded by the upstream package on first generation (
 
 ```bash
 ./scripts/bootstrap_venv.sh
+./scripts/verify_local_models.sh
 ```
 
 This creates the core `.venv`, clones both upstream repos, builds isolated venvs, and runs verify gates.
+
+**Requires Rust** (`rustc`) for DeepFilterNet's native `pyDF` build. Without Rust, MMAudio still bootstraps; preclean falls back until Rust is installed and bootstrap re-run.
 
 Manual steps:
 
 ```bash
 ./scripts/clone_local_audio_repos.sh
 bash scripts/lib/bootstrap_local_runtimes.sh
+./scripts/verify_local_models.sh
 ```
 
 ## Verify

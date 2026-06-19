@@ -20,6 +20,7 @@ Full bootstrap, secrets, local LLM, and first run: **[SETUP.md](SETUP.md)**.
 
 ```bash
 ./scripts/bootstrap_venv.sh && source .venv/bin/activate
+./scripts/verify_local_models.sh
 ./tools/check_prerequisites.sh
 cp config/templates/secrets.env.example config/secrets/secrets.env   # edit keys
 ./scripts/run.sh
@@ -64,7 +65,8 @@ Stage ids and modules: [docs/build-out/stage-registry.md](docs/build-out/stage-r
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/bootstrap_venv.sh` | **Single setup entry:** core `.venv` + `ASSETS/local_{llm,deepfilter,mmaudio}/venv`, clone repos, verify gates — see [local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) |
+| `scripts/bootstrap_venv.sh` | **Single setup entry:** core `.venv` + `ASSETS/local_{llm,deepfilter,mmaudio}/venv`, clone repos, MLX weights (macOS), verify gates — see [local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) |
+| `scripts/verify_local_models.sh` | Post-bootstrap gate: MLX, DeepFilterNet, MMAudio, optional STT |
 | `scripts/run.sh` | Venv + deps + GUI build if needed → `python -m interview_mux serve` (`--cli` for headless). Bootstrap and pipeline **errors** print to **stderr** on the invoking terminal; full operator log stays in each run’s `gui_log.jsonl`. |
 | `scripts/build_gui.sh` | `npm run build` in `frontend/` → `src/interview_mux/web/static/` |
 | `scripts/select_local_llm.py` | llmfit hardware pick + optional `--download` / `--verify` |

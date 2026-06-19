@@ -1,10 +1,50 @@
 # Setup — interview_helper_mux
 
-Complete this guide **before** `./scripts/run.sh`. The run script creates or refreshes `.venv`, installs Python deps, and builds the React GUI on first launch if needed — but it cannot substitute for system tools, cloud credentials, or optional model downloads you choose up front.
+Complete this guide **before** `./scripts/run.sh`. The run script creates or refreshes `.venv`, installs Python deps, and builds the React GUI on first launch if needed — but it cannot substitute for system tools, cloud credentials, or local model downloads handled by bootstrap.
 
-**Single install command:** `./scripts/bootstrap_venv.sh` creates the core `.venv` plus all isolated local stacks under `ASSETS/` (MLX, DeepFilterNet, MMAudio), clones upstream audio repos, runs verify gates, and writes `install.json` manifests. If you delete any venv, re-run this one script.
+**Single install command:** `./scripts/bootstrap_venv.sh` creates the core `.venv` plus all isolated local stacks under `ASSETS/` (MLX, DeepFilterNet, MMAudio), clones upstream audio repos, downloads MLX weights on macOS Apple Silicon, prefetches optional STT weights, runs verify gates, and writes `install.json` manifests. If you delete any venv or clone tree, re-run this one script.
 
 Per-stack requirements: `requirements.txt` (core), `requirements-local-mlx.txt`, `requirements-local-deepfilter.txt`, `requirements-local-mmaudio.txt`. See [Local audio stack](#local-audio-stack) and [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md).
+
+---
+
+## Fresh install (copy-paste order)
+
+Run from a clean clone on a new machine:
+
+```bash
+# 1. System tools (macOS example — see Requirements)
+brew install python@3.12 ffmpeg awscli node@20 rust
+brew link --overwrite node@20   # if Homebrew printed a link hint
+node -p process.arch            # arm64 on Apple Silicon (must match uname -m)
+
+# 2. Clone and bootstrap everything (venvs + repos + MLX weights + verify)
+cd interview_helper_mux
+./scripts/bootstrap_venv.sh
+source .venv/bin/activate
+
+# 3. Confirm local stacks (required before preclean / SFX stages)
+./scripts/verify_local_models.sh
+./tools/check_prerequisites.sh
+CHECK_LOCAL_RUNTIMES=1 ./tools/check_prerequisites.sh   # same verify, fails on missing stacks
+
+# 4. Secrets + AWS
+cp config/templates/secrets.env.example config/secrets/secrets.env   # edit keys
+aws sts get-caller-identity
+
+# 5. GUI (or let run.sh build on first launch)
+cd frontend && npm ci && cd ..
+./scripts/build_gui.sh
+
+# 6. Source audio + launch
+mkdir -p ASSETS/input
+# copy your interview.wav → ASSETS/input/
+./scripts/run.sh
+```
+
+**Optional but recommended on macOS:** install [llmfit](https://github.com/AlexsJones/llmfit) before bootstrap so MLX model selection is hardware-aware (`brew install AlexsJones/llmfit/llmfit`). Without llmfit, bootstrap downloads the default `mlx-community/Llama-3.2-3B-Instruct-4bit` weights.
+
+Skip the post-bootstrap verify gate during bootstrap only: `BOOTSTRAP_SKIP_VERIFY=1 ./scripts/bootstrap_venv.sh` — then run `./scripts/verify_local_models.sh` manually.
 
 ---
 
@@ -12,16 +52,18 @@ Per-stack requirements: `requirements.txt` (core), `requirements-local-mlx.txt`,
 
 | Step | Required? | Command / action |
 |------|-----------|------------------|
-| System tools (Python, ffmpeg, AWS CLI) | Yes | See [Requirements](#requirements) |
+| System tools (Python, ffmpeg, AWS CLI, **Rust**) | Yes | See [Requirements](#requirements) |
 | Node.js 20+ (`npm`, **native arch**) | Yes (GUI) | `node -v` · `npm -v` · `node -p process.arch` must match `uname -m` (see [GUI dependencies](#gui-dependencies-nodejs)) |
 | Python venv + lock | Yes | `./scripts/bootstrap_venv.sh` → `source .venv/bin/activate` |
+| **Local model verify** | Yes (preclean/SFX) | `./scripts/verify_local_models.sh` |
 | Prerequisite gate | Yes | `./tools/check_prerequisites.sh` |
 | Secrets | Yes | `cp config/templates/secrets.env.example config/secrets/secrets.env` and edit |
 | AWS auth | Yes (Transcribe) | `aws sts get-caller-identity` |
 | Source WAV | Yes (first run) | `ASSETS/input/<name>.wav` (or resume a prior `exec_*`) |
 | GUI dependencies + build | Yes | `cd frontend && npm ci` then `./scripts/build_gui.sh` (or let `run.sh` build on first launch) |
 | Local MLX LLM (Apple Silicon) | Recommended on macOS | Installed by `bootstrap_venv.sh` — [Local LLM](#local-llm-apple-silicon-default-on) |
-| Local audio stack (DeepFilterNet + MMAudio) | Yes for preclean/SFX | Installed by `bootstrap_venv.sh` — [Local audio stack](#local-audio-stack) |
+| Local audio stack (DeepFilterNet + MMAudio) | MMAudio **required** for SFX; DeepFilterNet optional (preclean) | Installed by `bootstrap_venv.sh` — [Local audio stack](#local-audio-stack) |
+| faster-whisper (disfluency) | Optional | Prefetched by bootstrap; lexicon-only path works without weights — [Local STT](#local-stt-disfluency-extract-optional) |
 | Value-analysis flags | No | Shipped defaults are on — [Value analysis](#value-analysis) |
 
 ---
@@ -35,6 +77,7 @@ Per-stack requirements: `requirements.txt` (core), `requirements-local-mlx.txt`,
 | **ffmpeg** + **ffprobe** on `PATH` | Ingest, mix, mastering, QC |
 | **AWS CLI** authenticated | `transcribe` stage uploads to S3 and polls AWS Transcribe |
 | **Node.js 20+** and **npm** | Build `frontend/` → `src/interview_mux/web/static/` |
+| **Rust toolchain** (`rustc`, `cargo`) | DeepFilterNet builds native `pyDF` via **maturin** during bootstrap |
 | **OpenAI**, **AWS** credentials | See [Config](#2-config) — no cloud audio API for SFX or preclean |
 
 Pinned Python versions and CVE policy: [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md).
@@ -42,14 +85,14 @@ Pinned Python versions and CVE policy: [docs/cross-cutting/anchored-toolchain.md
 ### Install system tools (macOS example)
 
 ```bash
-brew install python@3.12 ffmpeg awscli node@20
+brew install python@3.12 ffmpeg awscli node@20 rust
 brew link --overwrite node@20   # if Homebrew printed a link hint
 # Ensure node/npm are on PATH (native arm64 on Apple Silicon — see GUI section)
 node -p process.arch   # arm64 when uname -m is arm64
 aws configure   # or SSO — must pass: aws sts get-caller-identity
 ```
 
-Linux: use your distro packages for `python3.12`, `ffmpeg`, `awscli`, and Node 20+.
+Linux: use your distro packages for `python3.12`, `ffmpeg`, `awscli`, Node 20+, and Rust (`rustup` recommended).
 
 On **Apple Silicon**, Node must be **arm64** (`node -p process.arch` → `arm64`). An x64 Node binary (Rosetta) installs the wrong Rollup native addon and breaks `npm run build`.
 
@@ -61,15 +104,28 @@ On **Apple Silicon**, Node must be **arm64** (`node -p process.arch` → `arm64`
 cd interview_helper_mux
 ./scripts/bootstrap_venv.sh
 source .venv/bin/activate
+./scripts/verify_local_models.sh
 ./tools/check_prerequisites.sh
 ```
 
-- `bootstrap_venv.sh` creates `.venv`, installs from `requirements.lock` (full transitive pins), and installs this package in editable mode.
-- On **macOS**, bootstrap also installs `mlx-lm` / `huggingface_hub` and runs `scripts/select_local_llm.py --download` (or falls back to `download_local_llm.py`).
-- Bootstrap also attempts `scripts/download_local_stt.py` for optional faster-whisper weights (`disfluency_extract`; non-fatal if skipped).
+What `bootstrap_venv.sh` does:
+
+| Step | Output |
+|------|--------|
+| Core `.venv` | `requirements.lock` + editable `interview_mux` install |
+| `ASSETS/local_llm/venv` | MLX volley framing (macOS Apple Silicon only) |
+| `ASSETS/local_deepfilter/venv` | DeepFilterNet preclean (`maturin` + `pip install -e` upstream clone) |
+| `ASSETS/local_mmaudio/venv` | MMAudio SFX (`pip install -e` upstream clone) |
+| Git clones | `ASSETS/local_deepfilter/DeepFilterNet`, `ASSETS/local_mmaudio/MMAudio` |
+| MLX weights (macOS) | `ASSETS/local_llm/models/<slug>/` via llmfit or default fallback |
+| STT weights (optional) | `ASSETS/local_stt/models/` — non-fatal if download skipped |
+| Verify + manifests | `scripts/verify_local_models.sh` + `ASSETS/local_*/install.json` |
+
+- On **macOS Apple Silicon**, bootstrap runs `scripts/select_local_llm.py --download --verify` when **llmfit** is on `PATH`; otherwise it downloads the default `mlx-community/Llama-3.2-3B-Instruct-4bit` model.
+- Bootstrap prefetches optional faster-whisper weights (`disfluency_extract`); lexicon-only mode works without them.
 - Direct dependency edits go in `requirements.txt`; regenerate the lock with `pip-compile requirements.txt -o requirements.lock` (Python 3.12). Doc mirror: [docs/cross-cutting/anchored-requirements.lock](docs/cross-cutting/anchored-requirements.lock).
 - `check_prerequisites.sh` verifies ffmpeg, ffprobe, aws, Python, `import interview_mux`, and runs `pip-audit` on the lock (fails on unaccepted **HIGH** / **CRITICAL** findings; override via `PIP_AUDIT_IGNORE_VULNS` / `PIP_AUDIT_FAIL_LEVEL` per anchored-toolchain).
-- On macOS with `local_llm` enabled, prerequisites **warn** (non-fatal) if `llmfit`, `mlx-lm`, or weights under `ASSETS/local_llm/models/` are missing.
+- On macOS with `local_llm` enabled, prerequisites **warn** (non-fatal) if `llmfit`, `mlx-lm`, or weights under `ASSETS/local_llm/models/` are missing. Use `./scripts/verify_local_models.sh` or `CHECK_LOCAL_RUNTIMES=1 ./tools/check_prerequisites.sh` for a **strict** local-stack gate.
 
 ### GUI dependencies (Node.js)
 
@@ -173,6 +229,42 @@ Merged config: `config/app.defaults.json` + `config/secrets/secrets.env`. Notabl
 
 ---
 
+## Verify local models
+
+After bootstrap, confirm every local stack the podcast pipeline needs:
+
+```bash
+source .venv/bin/activate
+./scripts/verify_local_models.sh
+```
+
+Strict STT check (fail if faster-whisper weights missing):
+
+```bash
+STRICT_LOCAL_STT=1 ./scripts/verify_local_models.sh
+```
+
+| Stack | Downloaded when | On-disk path | Required for |
+|-------|-----------------|--------------|--------------|
+| **MLX LLM** | `bootstrap_venv.sh` (macOS) | `ASSETS/local_llm/models/<slug>/` | Local volley framing before OpenAI (fail-open to OpenAI) |
+| **DeepFilterNet** | Bootstrap builds venv + clone; weights bundled in upstream | `ASSETS/local_deepfilter/` | Optional preclean (`audio_preclean`); needs **Rust** |
+| **MMAudio** | Bootstrap builds venv + clone; **HF weights on first SFX generation** | `ASSETS/local_mmaudio/` | `mmaudio_sfx_flow1` / `flow2` |
+| **CLAP (semantic QA)** | First MMAudio QA run when `mmaudio.semantic_qa_enabled: true` | Hugging Face cache in MMAudio venv | Tier-2 SFX semantic QA (fail-open) |
+| **faster-whisper** | Bootstrap prefetch (optional) | `ASSETS/local_stt/models/` | `disfluency_extract` gap clips (lexicon works without) |
+
+Per-stack verify commands (same checks as the script):
+
+```bash
+python scripts/download_local_llm.py --verify
+ASSETS/local_deepfilter/venv/bin/python scripts/download_deepfilter.py --verify
+ASSETS/local_mmaudio/venv/bin/python scripts/download_mmaudio.py --verify
+python scripts/download_local_stt.py --verify
+```
+
+**Not downloaded at setup:** AWS Transcribe (cloud), OpenAI models (API), or interview source WAVs — place those under `ASSETS/input/` and configure secrets.
+
+---
+
 ## Local LLM (Apple Silicon, default on)
 
 **Default:** `local_llm.enabled: true` in `config/app.defaults.json`. On **macOS**, bootstrap installs `mlx-lm` and uses [llmfit](https://github.com/AlexsJones/llmfit) to pick the **largest context-window** `mlx-community/*` model that fits your hardware with **good+** fit and **medium+** quality, then downloads weights. Every LLM stage can run local volley framing before OpenAI. If MLX, llmfit, or weights are missing, the pipeline **falls back to the full OpenAI volley** (no hard failure).
@@ -258,6 +350,7 @@ Docs: [docs/cross-cutting/local-llm-tier.md](docs/cross-cutting/local-llm-tier.m
 # or manual:
 ./scripts/clone_local_audio_repos.sh
 bash scripts/lib/bootstrap_local_runtimes.sh
+./scripts/verify_local_models.sh
 ```
 
 Verify:
@@ -407,6 +500,7 @@ When `narrative_qc.strict` / `edl_qc.strict` / `edl_narrative_qc.strict` are tru
 
 | Check | Doc |
 |-------|-----|
+| Local model stacks | `./scripts/verify_local_models.sh` |
 | Operator smoke | [docs/workflows/smoke-test.md](docs/workflows/smoke-test.md) |
 | Release sign-off | [docs/build-out/definition-of-done-signoff.md](docs/build-out/definition-of-done-signoff.md) |
 | Automated tests | `source .venv/bin/activate && pytest tests/` |

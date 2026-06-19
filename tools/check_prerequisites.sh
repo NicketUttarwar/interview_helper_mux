@@ -128,28 +128,7 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
 fi
 
 if [[ "${CHECK_LOCAL_RUNTIMES:-0}" == "1" ]]; then
-  for stack in deepfilter mmaudio; do
-    py="$ROOT/ASSETS/local_${stack}/venv/bin/python"
-    repo=""
-    if [[ "$stack" == "deepfilter" ]]; then
-      repo="$ROOT/ASSETS/local_deepfilter/DeepFilterNet"
-    else
-      repo="$ROOT/ASSETS/local_mmaudio/MMAudio"
-    fi
-    if [[ ! -x "$py" ]]; then
-      echo "ERROR: missing $stack venv python: $py" >&2
-      exit 1
-    fi
-    if [[ ! -d "$repo/.git" ]]; then
-      echo "ERROR: missing cloned repo: $repo" >&2
-      exit 1
-    fi
-    manifest="$ROOT/ASSETS/local_${stack}/install.json"
-    if [[ ! -f "$manifest" ]]; then
-      echo "WARN: missing install.json for $stack — re-run bootstrap_local_runtimes"
-    fi
-  done
-  echo "Local audio runtimes: OK"
+  bash "$ROOT/scripts/verify_local_models.sh"
 fi
 
 _STATIC_INDEX="$ROOT/src/interview_mux/web/static/index.html"
