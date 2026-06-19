@@ -22,7 +22,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
+| **Pipeline** | 3-column layout | **`PipelineStepList`** (hierarchical steps + substeps) \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
 | **Pipeline** | **`PipelineCommandCenter`** | Phase guidance banner, **Needs your attention** queue, preview-listen promo, read-only step context (no duplicate Run when LiveStatusBar owns CTA) |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
@@ -36,7 +36,25 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **API consent:** GUI sends `api_consents` on every execute (assumes configured providers). Optional persist to `ASSETS/.gui/api_consent.json` via `POST /api/session/api-consent` for cross-relaunch convenience. Backend `runner.start` can reject execute when required providers are not granted (`job.status: needs_operator`).
 
-**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start — **`LiveStatusBar`** shows **Run interrupted**, not Idle.
+**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`, `pipeline_collapsed_stages`, `pipeline_expanded_done_stages`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start — **`LiveStatusBar`** shows **Run interrupted**, not Idle.
+
+## Substeps (operator progress)
+
+**Model:** `StageSubstep` is built client-side from `stages[].guidance` + attention queue + `gui_job.json` poll (`frontend/src/utils/stageSubsteps.ts`).
+
+| Surface | Component | Behavior |
+|---------|-----------|----------|
+| Sidebar header | `StepListContextHeader` | Current phase progress, **You are here**, **Next** stage |
+| Sidebar rows | `PipelineStepList` + `SubstepRow` | Expandable substeps per stage; done stages collapse with **Step complete** banner |
+| Between stages | `StepRunningConnector` | Spinner bridge while job runs between steps |
+| Activation | `activateSubstep()` | Single handler for sidebar, modal, banners, activity teaser — opens modal section or inline panel |
+| Main pane | `StageDetail` | **Done shell** grays completed steps; active substep label in header |
+| Modal | `OperatorActionModal` | Mini substep nav; scrolls to `#modal-write-approval`, `#modal-gates`, etc. |
+| Hook | `useStageProgress` | Memoized substeps for selected stage |
+
+**Selectors:** `data-testid="substep-{id}"`, `data-testid="pipeline-step-{stageId}"`.
+
+**Terminology:** **Workflow phase** (7 chips) → **Pipeline stage** (numbered) → **Substep** (single operator action).
 
 **Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active.
 

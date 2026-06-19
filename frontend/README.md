@@ -28,7 +28,12 @@ From repo root:
 | Path | Role |
 |------|------|
 | `src/App.tsx` | Shell layout |
-| `src/context/AppContext.tsx` | Global state, session restore (`sessionReady`), UI chrome persistence, job polling |
+| `src/context/AppContext.tsx` | Global state, session restore (`sessionReady`), UI chrome persistence, job polling, `activateSubstep` |
+| `src/utils/stageSubsteps.ts` | Builds `StageSubstep[]` from guidance + attention queue + job state |
+| `src/utils/activateSubstep.ts` | Single navigation handler for substep clicks (modal, inline, sub-tabs) |
+| `src/hooks/useStageProgress.ts` | Memoized substeps for selected stage |
+| `src/components/pipeline/SubstepRow.tsx` | Reusable substep row (todo / running / done) |
+| `src/components/pipeline/PipelineStepList.tsx` | Hierarchical Steps sidebar with context header |
 | `src/utils/jobStatus.ts` | `isJobActivelyRunning()` — sync UI with server job state |
 | `src/components/guidance/` | Reuse (`StageReuseSection`, `StageReuseOfferCard`), write approval, hash badges |
 | `src/components/gates/TranscriptReviewPanel.tsx` | G0 chunk navigator + bulk edit |

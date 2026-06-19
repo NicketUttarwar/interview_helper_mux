@@ -130,6 +130,8 @@ export interface JourneyState {
   blocking_coherence_contradictions?: number;
   sound_labels?: string[];
   phase_guidance?: Record<string, PhaseGuidance>;
+  active_substep_id?: string | null;
+  active_substep_label?: string | null;
 }
 
 export type GuidanceItemStatus = "todo" | "done" | "waiting";
@@ -141,6 +143,7 @@ export interface GuidanceItem {
   stage_id?: string;
   action?: string;
   kind?: string;
+  substep_label?: string;
   from_stage_id?: string;
   from_stage_title?: string;
 }
@@ -161,6 +164,56 @@ export interface PhaseGuidance {
   goal: string;
   actions: GuidanceItem[];
   progress?: { done: number; total: number } | null;
+}
+
+export type StageSubstepStatus = "todo" | "done" | "waiting" | "running";
+
+export type SubstepKind =
+  | "guidance"
+  | "write_approval"
+  | "gate"
+  | "handoff"
+  | "reuse"
+  | "run"
+  | "checkpoint"
+  | "profile"
+  | "story_board"
+  | "start"
+  | "milestone"
+  | "blocked"
+  | "optional";
+
+export interface StageSubstep {
+  id: string;
+  label: string;
+  status: StageSubstepStatus;
+  kind: SubstepKind;
+  stageId: string;
+  source: "guidance" | "attention" | "runtime";
+  targetSection?: string;
+  targetSubTab?: PipelineSubTab;
+  primaryLabel?: string;
+  fileCount?: number;
+}
+
+export interface StageProgressSummary {
+  stageId: string;
+  substeps: StageSubstep[];
+  fullyComplete: boolean;
+  hasTodo: boolean;
+  hasRunning: boolean;
+  activeSubstep: StageSubstep | null;
+  doneCount: number;
+  totalCount: number;
+}
+
+export interface PhaseProgressSummary {
+  phase: OperatorPhase;
+  goal: string;
+  stagesDone: number;
+  stagesTotal: number;
+  todoSubsteps: StageSubstep[];
+  activeStageId: string | null;
 }
 
 export interface StageInfo {
@@ -743,6 +796,9 @@ export interface SessionActive {
   updated_at?: string;
   activity_log_tab?: LogStreamTab;
   activity_log_collapsed?: boolean;
+  pipeline_collapsed_stages?: string[];
+  pipeline_expanded_done_stages?: string[];
+  pipeline_filter_needs_you?: boolean;
 }
 
 export interface OpenRunOptions {

@@ -1,15 +1,17 @@
 import { useEffect, useMemo } from "react";
 import { useApp } from "../../context/AppContext";
 import {
-  continueHintForStage,
   findPendingFocusStage,
   getHandoffPathsLocal,
   checkpointContinueEnabled,
   checkpointContinueLabel,
+  continueHintForStage,
   stageTitleForId,
 } from "../../utils/checkpoint";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import { resolvePendingAction } from "../../utils/pendingAction";
+import { useStageProgress } from "../../hooks/useStageProgress";
+import { SubstepRow } from "../pipeline/SubstepRow";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
 import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
@@ -26,9 +28,24 @@ export function OperatorActionModal() {
     selectStage,
     apiGrants,
     actionBusy,
+    activeSubstepId,
+    activateSubstep,
   } = useApp();
 
   const pending = useMemo(() => resolvePendingAction(run, apiGrants), [run, apiGrants]);
+  const { substeps } = useStageProgress(selectedStage?.id);
+
+  useEffect(() => {
+    if (!activeSubstepId || !selectedStage) return;
+    const sub = substeps.find((s) => s.id === activeSubstepId);
+    if (!sub?.targetSection) return;
+    requestAnimationFrame(() => {
+      document.getElementById(sub.targetSection!)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [activeSubstepId, selectedStage, substeps]);
 
   const actionStage = run?.stages.find((s) => s.status === "action_required");
 
@@ -126,6 +143,21 @@ export function OperatorActionModal() {
               </a>
             ))}
           </nav>
+        ) : null}
+
+        {substeps.length > 1 ? (
+          <ul className="modal-substep-nav" aria-label="Step substeps">
+            {substeps.map((sub) => (
+              <li key={`${sub.kind}:${sub.id}`}>
+                <SubstepRow
+                  substep={sub}
+                  compact
+                  selected={activeSubstepId === sub.id}
+                  onClick={() => activateSubstep(sub)}
+                />
+              </li>
+            ))}
+          </ul>
         ) : null}
 
         <div className="modal-body-scroll">

@@ -6,6 +6,7 @@ import { findNextRunnableStage } from "../utils/preclean";
 import { resolvePipelineNav } from "../utils/pipelineNavigation";
 import { resolveJobStatusContext } from "../utils/operatorStatus";
 import { resolvePendingAction } from "../utils/pendingAction";
+import { findActiveSubstep } from "../utils/stageSubsteps";
 import { resolveNextActionClick, type NextActionHandlers } from "../utils/nextActionHandler";
 
 export type CommandKind =
@@ -86,6 +87,7 @@ export function useOperatorCommand(
     const handoffStage = findHandoffStage(run);
     const job = run.job;
     const pending = resolvePendingAction(run, apiGrants);
+    const activeSub = findActiveSubstep(run, { jobRunning, apiGrants });
 
     const nextHandlers: NextActionHandlers = {
       onOpenCheckpoint,
@@ -125,7 +127,7 @@ export function useOperatorCommand(
     if (jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
       return {
         kind: "running",
-        statusLine: job?.message || `Running: ${runningTitle}`,
+        statusLine: activeSub?.label || job?.message || `Running: ${runningTitle}`,
         primaryLabel: "View logs",
         primaryDisabled: false,
         secondaryLabel: null,
@@ -157,7 +159,7 @@ export function useOperatorCommand(
         job?.status === "awaiting_write_approval";
       return {
         kind: "blocked",
-        statusLine: blocking.message,
+        statusLine: activeSub?.label || blocking.message,
         primaryLabel: pending?.primaryLabel || nextAction || "Open checkpoint",
         primaryDisabled: false,
         secondaryLabel: "Pipeline",

@@ -17,7 +17,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `config/` | `app.defaults.json`, `secrets/secrets.env` | BUILD-011 · [config-keys](../cross-cutting/config-keys.md) |
 | `docs/` | Authoritative specs and prompts | Waves 0–7 |
 | `src/interview_mux/` | Python package | Waves 1–5, 7 |
-| `frontend/` | React + TypeScript operator GUI (Vite → `web/static/`); G0: `TranscriptReviewPanel`, `TranscriptDockViewer`, `FuzzyReplacePopover`; `src/schemas/` Zod from `tools/codegen_zod_schemas.py` | BUILD-014 |
+| `frontend/` | React + TypeScript operator GUI (Vite → `web/static/`); **substep UX:** `utils/stageSubsteps.ts`, `utils/activateSubstep.ts`, `utils/phaseSubsteps.ts`, `hooks/useStageProgress.ts`, `components/pipeline/{SubstepRow,StepDoneBanner,StepRunningConnector,StepListContextHeader,GatePanelShell}.tsx`; G0: `TranscriptReviewPanel`, `TranscriptDockViewer`, `FuzzyReplacePopover`; `src/schemas/` Zod from `tools/codegen_zod_schemas.py` | BUILD-014 |
 | `tools/` | CLI wrappers (`run_analysis`, `run_flow`, QA checks, value-analysis) | BUILD-028, 051–052 |
 | `scripts/` | `bootstrap_venv.sh`, `build_gui.sh`, `run.sh` | BUILD-010, 014 |
 | `tests/` | pytest (prompt validation, transcript review, shell) | BUILD-054–055 |
@@ -37,7 +37,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `source_audio_hash.py` | Pipeline WAV SHA-256; hash in `exec_NNN_<hash12>_TIMESTAMP` ids | — |
 | `stage_execution_reuse.py` | Per-stage reuse offers, copy-from-prior-run, `run_meta.stage_reuse` | — |
 | `write_staging.py` | `.pending_writes/` staging; approve/discard before final persist | — |
-| `stage_guidance.py` | `stages[].guidance` and journey phase copy for GUI | — |
+| `stage_guidance.py` | `stages[].guidance` and journey phase copy for GUI; guidance items expose stable `id` and optional `substep_label` for sidebar substeps | — |
 | `file_store.py` | Locked JSON read/write | BUILD-012 |
 | `session_log.py` | `gui_log.jsonl` append/read | BUILD-016 |
 | `gui_session.py` | Active run / server session under `ASSETS/.gui` | BUILD-014 |

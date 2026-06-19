@@ -153,6 +153,7 @@ def _guidance_item(
     stage_id: str | None = None,
     action: str | None = None,
     kind: str | None = None,
+    substep_label: str | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {"id": item_id, "label": label, "status": status}
     if stage_id:
@@ -161,6 +162,8 @@ def _guidance_item(
         row["action"] = action
     if kind:
         row["kind"] = kind
+    if substep_label:
+        row["substep_label"] = substep_label
     return row
 
 
@@ -363,6 +366,7 @@ def _g0_5_items(disfluency_review_pending: bool) -> list[dict[str, Any]]:
             stage_id="disfluency_review",
             action="checkpoint",
             kind="checkpoint",
+            substep_label="Complete disfluency review",
         )
     ]
 
@@ -386,6 +390,7 @@ def _g0_items(transcript_review_pending: bool) -> list[dict[str, Any]]:
             stage_id="transcript_review",
             action="checkpoint",
             kind="checkpoint",
+            substep_label="Complete transcript review",
         )
     ]
 
@@ -579,6 +584,7 @@ def _stage_actions(
                     "todo",
                     action="checkpoint",
                     kind="checkpoint",
+                    substep_label="Complete transcript review",
                 )
             )
         elif status == "done":
@@ -596,6 +602,7 @@ def _stage_actions(
                     "todo",
                     action="checkpoint",
                     kind="profile",
+                    substep_label="Mark profile verified",
                 )
             )
         elif status == "done":
@@ -611,6 +618,7 @@ def _stage_actions(
                     "todo",
                     action="checkpoint",
                     kind="checkpoint",
+                    substep_label="Record pickup lines",
                 )
             )
         elif status == "done":
@@ -626,6 +634,7 @@ def _stage_actions(
                     "todo" if status == "action_required" else "waiting",
                     action="checkpoint",
                     kind="checkpoint",
+                    substep_label="Choose output type",
                 )
             )
         elif status == "done":
@@ -905,6 +914,7 @@ def build_stage_guidance(
                 f"Review pending writes for {stage_id} before continuing",
                 "todo",
                 kind="checkpoint",
+                substep_label="Save review before continuing",
             )
         )
     if stage_id in LLM_HANDOFF_STAGES:

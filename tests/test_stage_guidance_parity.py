@@ -109,3 +109,44 @@ def test_flow_stage_shows_analysis_artifacts_gate_done_when_ready(tmp_path, monk
     gate_items = [p for p in guidance["prerequisites"] if p.get("id") == "analysis_artifacts"]
     assert gate_items
     assert gate_items[0]["status"] == "done"
+
+
+def test_guidance_todo_items_have_stable_ids(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "guidance_ids")
+    init_run_meta_for_test(ctx)
+    for stage_id in STAGE_BY_ID:
+        guidance = build_stage_guidance(ctx, stage_id, status="pending")
+        for bucket in ("prerequisites", "actions"):
+            for item in guidance.get(bucket) or []:
+                if item.get("status") == "todo":
+                    assert item.get("id"), f"{stage_id}.{bucket} missing id: {item.get('label')}"
+                    assert item.get("label"), f"{stage_id}.{bucket} missing label for id={item.get('id')}"
+
+
+def test_non_done_stages_have_actionable_guidance(tmp_path) -> None:
+    """Every pending stage exposes ≥1 todo item or waiting prerequisite."""
+    ctx = isolated_run_ctx(tmp_path, "actionable_substeps")
+    init_run_meta_for_test(ctx)
+    gate_action_stages = frozenset(
+        {
+            "transcript_review",
+            "disfluency_review",
+            "analysis_profile",
+            "g1_vo_pickup",
+            "g2_flow_select",
+        }
+    )
+    for stage_id in STAGE_BY_ID:
+        for status in ("pending", "action_required"):
+            if status == "action_required" and stage_id not in gate_action_stages:
+                continue
+            guidance = build_stage_guidance(ctx, stage_id, status=status)
+            items = list(guidance.get("prerequisites") or []) + list(guidance.get("actions") or [])
+            todos = [i for i in items if i.get("status") == "todo"]
+            waiting = [i for i in items if i.get("status") == "waiting"]
+            artifact_waiting = [
+                c for c in guidance.get("artifact_checks") or [] if c.get("status") == "waiting"
+            ]
+            assert todos or waiting or artifact_waiting, (
+                f"{stage_id} status={status} has no actionable guidance"
+            )

@@ -13,6 +13,7 @@ import { AttentionQueuePanel } from "../guidance/AttentionQueuePanel";
 import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
 import { QcSummaryCard } from "../gates/QcSummaryCard";
 import { topAttentionItem } from "../../utils/attentionQueue";
+import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function PipelineCommandCenter() {
   const {
@@ -30,7 +31,11 @@ export function PipelineCommandCenter() {
     executeJob,
     runNextStage,
     approveWriteAndContinue,
+    expandStage,
+    activateSubstep,
   } = useApp();
+
+  const { activeSubstepGlobal } = useStageProgress();
 
   const nav = useMemo(
     () =>
@@ -170,15 +175,33 @@ export function PipelineCommandCenter() {
           {!blocked && phaseGoal ? (
             <p className="hint sm pipeline-command-phase-goal">{phaseGoal}</p>
           ) : null}
-          {topTodo && !showHeaderBtn && !blocked ? (
+          {activeSubstepGlobal && !blocked ? (
+            <p className="hint sm pipeline-command-substep">
+              Current action:{" "}
+              <button
+                type="button"
+                className="btn link sm"
+                onClick={() => {
+                  expandStage(activeSubstepGlobal.stageId);
+                  activateSubstep(activeSubstepGlobal);
+                }}
+              >
+                {activeSubstepGlobal.label}
+              </button>
+            </p>
+          ) : null}
+          {topTodo && !showHeaderBtn && !blocked && !activeSubstepGlobal ? (
             <p className="hint pipeline-command-next">
               <span className="action-marker status-todo" aria-hidden>
                 ●
               </span>{" "}
               {topTodo.label}
             </p>
-          ) : nav.nextLine && !showHeaderBtn && !blocked ? (
-            <p className="hint pipeline-command-next">{nav.nextLine}</p>
+          ) : nav.nextStage && !showHeaderBtn && !blocked ? (
+            <p className="hint pipeline-command-next">
+              Next: <strong>{nav.nextStage.title}</strong>
+              {nav.nextLine ? ` — ${nav.nextLine}` : ""}
+            </p>
           ) : null}
         </div>
         {showHeaderBtn && headerAction ? (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
 import {
@@ -6,6 +6,7 @@ import {
   logJourneyKind,
   stageTitleById,
 } from "../../utils/logDisplay";
+import { buildStageProgress } from "../../utils/stageSubsteps";
 import type { JourneyLogKind, LogLevel } from "../../types";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
@@ -35,6 +36,9 @@ export function LogsTab() {
     config,
     logFilterPreset,
     setLogFilterPreset,
+    activateSubstep,
+    apiGrants,
+    jobRunning,
   } = useApp();
   const journeyFilterDefault = config?.journey_ui?.journey_log_filter !== false;
   const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
@@ -46,6 +50,22 @@ export function LogsTab() {
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
+
+  const onStageClick = useCallback(
+    (stageId: string) => {
+      if (!run) return;
+      const stage = run.stages.find((s) => s.id === stageId);
+      if (!stage) return;
+      const progress = buildStageProgress(stage, run, { jobRunning, apiGrants });
+      const target =
+        progress.substeps.find((s) => s.status === "todo" || s.status === "running") ||
+        progress.substeps[0];
+      if (target) {
+        activateSubstep(target, { openModal: target.kind === "gate" || target.kind === "checkpoint" });
+      }
+    },
+    [run, jobRunning, apiGrants, activateSubstep],
+  );
 
   useEffect(() => {
     if (!logFilterPreset) return;
@@ -235,9 +255,14 @@ export function LogsTab() {
                     {e.level || "info"}
                   </span>
                   {e.stage ? (
-                    <span className="log-stage" title={e.stage}>
+                    <button
+                      type="button"
+                      className="log-stage log-stage-btn"
+                      title={e.stage}
+                      onClick={() => onStageClick(e.stage!)}
+                    >
                       {stageTitleById(run?.stages, e.stage) ?? e.stage}
-                    </span>
+                    </button>
                   ) : null}
                   {journeyKind ? (
                     <span className="log-journey-badge">{journeyKind}</span>

@@ -19,6 +19,7 @@ export interface StagePrimaryActionSpec {
   label: string;
   sublabel?: string;
   disabled: boolean;
+  running?: boolean;
   /** Stage to select before acting (navigate / checkpoint). */
   targetStageId?: string;
   /** When kind is run, explicit stage to execute (defaults to next runnable). */
@@ -47,6 +48,7 @@ export function resolveStagePrimaryAction(
         label: `Running ${stage.title}…`,
         sublabel: job?.message || "Watch the activity log for progress.",
         disabled: true,
+        running: true,
       };
     }
     return {

@@ -1,0 +1,345 @@
+import type {
+  GuidanceItem,
+  PipelineSubTab,
+  RunData,
+  StageInfo,
+  StageProgressSummary,
+  StageSubstep,
+  StageSubstepStatus,
+  SubstepKind,
+} from "../types";
+import { listAttentionItems, type AttentionItem } from "./attentionQueue";
+import { getHandoffPathsLocal } from "./checkpoint";
+import { flattenGuidanceItems } from "./stageGuidance";
+import { stageAwaitingWriteApproval } from "./writeApproval";
+
+export interface BuildSubstepsOpts {
+  jobRunning?: boolean;
+  actionBusy?: boolean;
+  apiGrants?: Record<string, boolean>;
+}
+
+function guidanceStatusToSubstep(status: GuidanceItem["status"]): StageSubstepStatus {
+  if (status === "todo") return "todo";
+  if (status === "waiting") return "waiting";
+  return "done";
+}
+
+function guidanceKindToSubstepKind(kind?: string, action?: string): SubstepKind {
+  const k = kind || action || "guidance";
+  switch (k) {
+    case "write_approval":
+      return "write_approval";
+    case "checkpoint":
+      return "checkpoint";
+    case "gate":
+      return "gate";
+    case "handoff":
+      return "handoff";
+    case "reuse":
+    case "stage_reuse":
+      return "reuse";
+    case "run":
+      return "run";
+    case "profile":
+      return "profile";
+    case "story_board":
+      return "story_board";
+    case "start":
+      return "start";
+    case "milestone":
+      return "milestone";
+    case "blocked":
+      return "blocked";
+    default:
+      return "guidance";
+  }
+}
+
+function targetForKind(
+  kind: SubstepKind,
+  subTab?: PipelineSubTab,
+): { targetSection?: string; targetSubTab?: PipelineSubTab } {
+  switch (kind) {
+    case "write_approval":
+      return { targetSection: "modal-write-approval", targetSubTab: "files" };
+    case "gate":
+    case "blocked":
+    case "checkpoint":
+      return { targetSection: "modal-gates", targetSubTab: subTab ?? "stage" };
+    case "handoff":
+      return { targetSection: "modal-handoff", targetSubTab: "files" };
+    case "reuse":
+      return { targetSection: "modal-reuse", targetSubTab: "stage" };
+    case "profile":
+      return { targetSubTab: "profile" };
+    case "story_board":
+    case "milestone":
+      return { targetSubTab: "story" };
+    default:
+      return { targetSubTab: subTab ?? "stage" };
+  }
+}
+
+export function guidanceItemToSubstep(item: GuidanceItem, stageId: string): StageSubstep {
+  const kind = guidanceKindToSubstepKind(item.kind, item.action);
+  const targets = targetForKind(kind);
+  const displayLabel = item.substep_label || item.label;
+  return {
+    id: item.id,
+    label: displayLabel,
+    status: guidanceStatusToSubstep(item.status),
+    kind,
+    stageId: item.stage_id || stageId,
+    source: "guidance",
+    primaryLabel: item.substep_label ? item.label : undefined,
+    ...targets,
+  };
+}
+
+export function attentionItemToSubstep(item: AttentionItem): StageSubstep {
+  const kindMap: Record<AttentionItem["kind"], SubstepKind> = {
+    gate: "gate",
+    write_approval: "write_approval",
+    stage_reuse: "reuse",
+    handoff: "handoff",
+    blocked: "blocked",
+    milestone: "milestone",
+    optional: "optional",
+  };
+  const kind = kindMap[item.kind] ?? "guidance";
+  const targets = targetForKind(kind, item.subTab);
+  return {
+    id: `${item.kind}:${item.stageId}`,
+    label: item.title,
+    status: "todo",
+    kind,
+    stageId: item.stageId,
+    source: "attention",
+    primaryLabel: item.primaryLabel,
+    fileCount: item.fileCount,
+    ...targets,
+  };
+}
+
+function dedupeKey(sub: StageSubstep): string {
+  return `${sub.kind}:${sub.id}`;
+}
+
+function mergeSubsteps(guidance: StageSubstep[], attention: StageSubstep[]): StageSubstep[] {
+  const map = new Map<string, StageSubstep>();
+  for (const g of guidance) {
+    map.set(dedupeKey(g), g);
+  }
+  for (const a of attention) {
+    const key = dedupeKey(a);
+    const existing = map.get(key);
+    if (existing) {
+      map.set(key, {
+        ...existing,
+        ...a,
+        label: a.label || existing.label,
+        status: a.status === "todo" ? "todo" : existing.status,
+        source: "attention",
+        primaryLabel: a.primaryLabel ?? existing.primaryLabel,
+        fileCount: a.fileCount ?? existing.fileCount,
+      });
+    } else if (a.kind === "write_approval") {
+      const writeKey = [...map.entries()].find(([, v]) => v.kind === "write_approval")?.[0];
+      if (writeKey) map.delete(writeKey);
+      map.set(key, a);
+    } else {
+      map.set(key, a);
+    }
+  }
+  return [...map.values()];
+}
+
+function isRunningStage(stage: StageInfo, run: RunData, jobRunning: boolean): boolean {
+  if (!jobRunning || !run.job) return false;
+  const sid = run.job.current_stage || run.job.stage;
+  return sid === stage.id;
+}
+
+export function buildStageSubsteps(
+  stage: StageInfo,
+  run: RunData,
+  opts: BuildSubstepsOpts = {},
+): StageSubstep[] {
+  const { jobRunning = false, actionBusy = false, apiGrants = {} } = opts;
+
+  const guidanceSubs = flattenGuidanceItems(stage.guidance).map((item) =>
+    guidanceItemToSubstep(item, stage.id),
+  );
+
+  const attentionSubs = listAttentionItems(run, apiGrants)
+    .filter((item) => item.stageId === stage.id)
+    .map(attentionItemToSubstep);
+
+  let substeps = mergeSubsteps(guidanceSubs, attentionSubs);
+
+  const running = isRunningStage(stage, run, jobRunning);
+  if (running) {
+    const runIdx = substeps.findIndex((s) => s.kind === "run");
+    if (runIdx >= 0) {
+      substeps = substeps.map((s, i) =>
+        i === runIdx ? { ...s, status: "running" as const, label: `Running ${stage.title}…` } : s,
+      );
+    } else {
+      substeps.push({
+        id: "running",
+        label: `Running ${stage.title}…`,
+        status: "running",
+        kind: "run",
+        stageId: stage.id,
+        source: "runtime",
+        targetSubTab: "stage",
+      });
+    }
+  }
+
+  if (actionBusy && stageAwaitingWriteApproval(run, stage.id)) {
+    substeps = substeps.map((s) =>
+      s.kind === "write_approval"
+        ? { ...s, status: "running", label: "Saving staged outputs…" }
+        : s,
+    );
+  }
+
+  const hintId = run.journey?.active_substep_id;
+  if (hintId) {
+    substeps = substeps.map((s) =>
+      s.id === hintId && s.status === "todo" ? { ...s, status: "running" } : s,
+    );
+  }
+
+  return substeps;
+}
+
+function hasUnackedHandoff(stage: StageInfo, run: RunData): boolean {
+  if (stage.status !== "done") return false;
+  const paths = getHandoffPathsLocal(stage, run.log_tail);
+  return paths.length > 0 && !run.handoff_ack?.[stage.id];
+}
+
+export function buildStageProgress(
+  stage: StageInfo,
+  run: RunData,
+  opts: BuildSubstepsOpts = {},
+): StageProgressSummary {
+  const substeps = buildStageSubsteps(stage, run, opts);
+  const hasTodo = substeps.some((s) => s.status === "todo");
+  const hasRunning = substeps.some((s) => s.status === "running");
+  const activeSubstep =
+    substeps.find((s) => s.status === "running") ??
+    substeps.find((s) => s.status === "todo") ??
+    null;
+  const doneCount = substeps.filter((s) => s.status === "done").length;
+  const totalCount = substeps.length;
+  const fullyComplete =
+    stage.status === "done" &&
+    !hasTodo &&
+    !hasRunning &&
+    !hasUnackedHandoff(stage, run) &&
+    !stageAwaitingWriteApproval(run, stage.id);
+
+  return {
+    stageId: stage.id,
+    substeps,
+    fullyComplete,
+    hasTodo,
+    hasRunning,
+    activeSubstep,
+    doneCount,
+    totalCount,
+  };
+}
+
+export function buildAllStageProgress(
+  run: RunData,
+  opts: BuildSubstepsOpts = {},
+): Map<string, StageProgressSummary> {
+  const map = new Map<string, StageProgressSummary>();
+  for (const stage of run.stages) {
+    map.set(stage.id, buildStageProgress(stage, run, opts));
+  }
+  return map;
+}
+
+export function findActiveSubstep(
+  run: RunData,
+  opts: BuildSubstepsOpts = {},
+): StageSubstep | null {
+  if (run.journey?.active_substep_id) {
+    for (const stage of run.stages) {
+      const progress = buildStageProgress(stage, run, opts);
+      const match = progress.substeps.find((s) => s.id === run.journey?.active_substep_id);
+      if (match) return match;
+    }
+  }
+  for (const stage of run.stages) {
+    const progress = buildStageProgress(stage, run, opts);
+    if (progress.activeSubstep) return progress.activeSubstep;
+  }
+  return null;
+}
+
+export function shouldShowRunningConnector(
+  prevStage: StageInfo | null,
+  nextStage: StageInfo | null,
+  run: RunData,
+  jobRunning: boolean,
+  actionBusy = false,
+): boolean {
+  if (!jobRunning && !actionBusy) return false;
+  if (!run.job) return false;
+  const jobStageId = run.job.current_stage || run.job.stage;
+  if (!jobStageId) return false;
+  if (prevStage?.id === jobStageId || nextStage?.id === jobStageId) return true;
+  if (actionBusy && prevStage && stageAwaitingWriteApproval(run, prevStage.id)) return true;
+  return false;
+}
+
+/** Todo/running substep counts per pipeline sub-tab (for tool row badges). */
+export function subTabSubstepFlags(
+  run: RunData,
+  opts: BuildSubstepsOpts = {},
+): Partial<Record<PipelineSubTab, { count: number; labels: string[] }>> {
+  const flags: Partial<Record<PipelineSubTab, { count: number; labels: string[] }>> = {};
+  for (const stage of run.stages) {
+    const progress = buildStageProgress(stage, run, opts);
+    for (const sub of progress.substeps) {
+      if (sub.status !== "todo" && sub.status !== "running") continue;
+      const tab = sub.targetSubTab ?? "stage";
+      const entry = flags[tab] ?? { count: 0, labels: [] };
+      entry.count += 1;
+      if (entry.labels.length < 3) entry.labels.push(sub.label);
+      flags[tab] = entry;
+    }
+  }
+  return flags;
+}
+
+export function pendingActionToSubstep(
+  pending: {
+    kind: AttentionItem["kind"];
+    stageId: string;
+    title: string;
+    primaryLabel: string;
+    fileCount?: number;
+    subTab?: PipelineSubTab;
+  },
+): StageSubstep {
+  return attentionItemToSubstep({
+    kind: pending.kind,
+    priority: 1,
+    stageId: pending.stageId,
+    stageTitle: "",
+    title: pending.title,
+    message: "",
+    primaryLabel: pending.primaryLabel,
+    fileCount: pending.fileCount,
+    subTab: pending.subTab,
+    phase: "prepare",
+  });
+}

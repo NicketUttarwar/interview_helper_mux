@@ -1,6 +1,6 @@
 import { useApp } from "../../context/AppContext";
 import { resolvePendingAction } from "../../utils/pendingAction";
-import { primaryClickForPendingAction, navigateForPendingAction } from "../../utils/operatorNavigate";
+import { pendingActionToSubstep } from "../../utils/stageSubsteps";
 import { ReviewPanelControls } from "./ReviewPanelControls";
 
 interface Props {
@@ -12,42 +12,31 @@ export function PendingActionBanner({ compact, stageId }: Props) {
   const {
     run,
     apiGrants,
-    openActionModal,
     closeActionModal,
-    selectStage,
     actionModalOpen,
-    setActiveTab,
-    setPipelineSubTab,
     approveWriteAndContinue,
-    acknowledgeHandoff,
     actionBusy,
+    activateSubstep,
   } = useApp();
 
   const pending = resolvePendingAction(run, apiGrants);
   if (!pending) return null;
   if (stageId && pending.stageId !== stageId) return null;
 
-  const navHandlers = {
-    selectStage: (id: string) => void selectStage(id),
-    setActiveTab,
-    setPipelineSubTab,
-    openActionModal,
-    closeActionModal,
-    approveWrite: (id: string) => void approveWriteAndContinue(id),
-    acknowledgeHandoff: () => void acknowledgeHandoff(),
+  const onPrimary = () => {
+    if (pending.kind === "write_approval") {
+      void approveWriteAndContinue(pending.stageId);
+      return;
+    }
+    activateSubstep(pendingActionToSubstep(pending));
   };
 
-  const onPrimary = () => primaryClickForPendingAction(pending, navHandlers);
-
   const onReviewFiles = () => {
-    navigateForPendingAction(pending, navHandlers, { openModal: true });
+    activateSubstep(pendingActionToSubstep(pending), { openModal: true });
   };
 
   const onReviewInline = () => {
-    void selectStage(pending.stageId);
-    setActiveTab("pipeline");
-    setPipelineSubTab("stage");
-    closeActionModal();
+    activateSubstep(pendingActionToSubstep(pending), { openModal: false });
     requestAnimationFrame(() => {
       document.getElementById("write-approval-panel")?.scrollIntoView({
         behavior: "smooth",
@@ -77,7 +66,9 @@ export function PendingActionBanner({ compact, stageId }: Props) {
         {pending.kind === "write_approval" ? "📋" : pending.kind === "handoff" ? "✓" : "!"}
       </div>
       <div className="pending-action-copy">
-        <p className="pending-action-title">{pending.title}</p>
+        <p className="pending-action-title">
+          {pending.stageTitle} — {pending.title}
+        </p>
         <p className="pending-action-message">{handoffMessage}</p>
         {!compact && pending.kind === "write_approval" ? (
           <p className="hint sm pending-action-hint">

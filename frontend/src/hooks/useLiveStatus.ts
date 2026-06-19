@@ -4,6 +4,7 @@ import { PHASE_LABELS } from "../constants/phases";
 import { stageTitleForId } from "../utils/checkpoint";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { buildNumberedStages, resolvePipelineNav } from "../utils/pipelineNavigation";
+import { findActiveSubstep } from "../utils/stageSubsteps";
 import { useOperatorCommand } from "./useOperatorCommand";
 import {
   WORKFLOW_STEPS,
@@ -118,6 +119,13 @@ export function useLiveStatus(
     let activityKind = cmd.kind as LiveStatus["activityKind"];
     let headline = cmd.statusLine;
     let subline = run.journey?.next_action || nav.statusLine || "";
+    const activeSub = findActiveSubstep(run, {
+      jobRunning: opts.jobRunning,
+      apiGrants: opts.apiGrants,
+    });
+    if (activeSub && (activeSub.status === "todo" || activeSub.status === "running")) {
+      subline = activeSub.label;
+    }
     let primaryLabel = cmd.primaryLabel;
     let onPrimary = cmd.onPrimary;
 

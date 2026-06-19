@@ -4,7 +4,15 @@
 
 The GUI reads the same **journey snapshot** as this doc (`GET /api/runs/{id}` → `journey`). Primary CTA label = `journey.next_action`. **Live status bar** (all tabs) is the single command surface; **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
 
-**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export). The **Pipeline command center** shows **Pipeline step N of M** for individual stages. These counters measure different scopes — workflow phase is the operator journey; pipeline step is the numbered stage list in the left rail.
+**In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks) and `journey.phase_guidance` (per-phase goals and top actions). The **Steps sidebar** expands each pipeline stage into **substeps** — individual operator actions (save review, gate, handoff) built from guidance + attention queue. Click a substep to open the matching checkpoint modal or inline panel (`activateSubstep`). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export). The **Pipeline command center** shows **Pipeline step N of M** for individual stages. These counters measure different scopes — workflow phase is the operator journey; pipeline step is the numbered stage list in the left rail.
+
+### Three progress levels (GUI)
+
+| Level | Example | Where shown |
+|-------|---------|-------------|
+| **Workflow phase** | Prepare, Analyze, Export | Live status bar chips |
+| **Pipeline stage** | Ingest, Transcribe, G0 review | Steps sidebar, command center |
+| **Substep** | Save 2 files & continue, Complete transcript review | Sidebar under stage, modal mini-nav, activity strip |
 
 ### Two progress numbers (GUI)
 

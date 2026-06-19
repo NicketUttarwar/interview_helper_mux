@@ -591,7 +591,50 @@ def build_journey_snapshot(
         "blocking_coherence_contradictions": _blocking_coherence_contradiction_count(ctx),
         "sound_labels": _sound_labels(ctx),
         "phase_guidance": _build_phase_guidance(ctx, stages),
+        **_active_substep(ctx, job=job, blocking=blocking, hint=hint),
     }
+
+
+def _active_substep(
+    ctx: RunContext,
+    *,
+    job: dict[str, Any] | None,
+    blocking: dict[str, Any],
+    hint: dict[str, Any] | None,
+) -> dict[str, str | None]:
+    """Operator focus substep for GUI sidebar (mirrors client findActiveSubstep priority)."""
+    if blocking.get("blocked"):
+        sid = str(blocking.get("stage_id") or "")
+        return {
+            "active_substep_id": f"blocked:{sid}" if sid else "blocked",
+            "active_substep_label": str(blocking.get("message") or ""),
+        }
+    if job:
+        status = str(job.get("status") or "")
+        stage = str(job.get("pending_write_stage") or job.get("stage") or "")
+        if status == "awaiting_write_approval" and stage:
+            msg = str(job.get("message") or f"Save outputs for {stage}")
+            return {
+                "active_substep_id": "write_approval",
+                "active_substep_label": msg,
+            }
+        if status in ("running", "running_with_warnings") and stage:
+            title = stage.replace("_", " ")
+            return {
+                "active_substep_id": "running",
+                "active_substep_label": f"Running {title}…",
+            }
+        if status == "gate" and stage:
+            return {
+                "active_substep_id": f"gate:{stage}",
+                "active_substep_label": str(job.get("message") or "Checkpoint required"),
+            }
+    if hint and hint.get("label"):
+        return {
+            "active_substep_id": str(hint.get("stage_id") or hint.get("action") or "hint"),
+            "active_substep_label": str(hint["label"]),
+        }
+    return {"active_substep_id": None, "active_substep_label": None}
 
 
 def _sound_labels(ctx: RunContext) -> list[str]:

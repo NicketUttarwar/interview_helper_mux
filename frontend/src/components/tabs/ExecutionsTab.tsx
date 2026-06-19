@@ -5,6 +5,7 @@ import { PHASE_LABELS } from "../../constants/phases";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
+import { findActiveSubstep } from "../../utils/stageSubsteps";
 
 function jobStatusLabel(status?: string): string | null {
   if (!status || status === "idle" || status === "complete") return null;
@@ -32,6 +33,9 @@ export function ExecutionsTab() {
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
   const activeJobStatus = run?.job?.status;
+  const activeSubstepLabel = run
+    ? findActiveSubstep(run, { jobRunning: isJobActivelyRunning(run.job) })?.label
+    : null;
 
   const tryOpenRun = (id: string) => {
     if (!sessionReady || openRunLoading) return;
@@ -87,6 +91,11 @@ export function ExecutionsTab() {
               hashFull={run?.meta?.source_audio_hash}
               label=""
             />
+            {activeSubstepLabel ? (
+              <p className="hint sm executions-active-substep">
+                Current action: <strong>{activeSubstepLabel}</strong>
+              </p>
+            ) : null}
           </div>
         ) : null}
         <div className="runs-list">

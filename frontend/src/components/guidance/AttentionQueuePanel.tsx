@@ -5,7 +5,8 @@ import {
   listRequiredAttentionItems,
   type AttentionItem,
 } from "../../utils/attentionQueue";
-import { primaryClickForPendingAction } from "../../utils/operatorNavigate";
+import { attentionItemToSubstep } from "../../utils/stageSubsteps";
+import { SubstepRow } from "../pipeline/SubstepRow";
 
 const COLLAPSE_KEY = "attention_queue_collapsed";
 
@@ -19,11 +20,9 @@ export function AttentionQueuePanel({ compact, hideWhenSingleWriteApproval }: Pr
   const {
     run,
     apiGrants,
-    selectStage,
-    openActionModal,
-    approveWriteAndContinue,
     setActiveTab,
     setPipelineSubTab,
+    activateSubstep,
   } = useApp();
 
   const [collapsed, setCollapsed] = useState(() => {
@@ -59,28 +58,8 @@ export function AttentionQueuePanel({ compact, hideWhenSingleWriteApproval }: Pr
     }
   };
 
-  const navHandlers = {
-    selectStage: (id: string) => void selectStage(id),
-    setActiveTab,
-    setPipelineSubTab,
-    openActionModal,
-    closeActionModal: () => {},
-    approveWrite: (id: string) => void approveWriteAndContinue(id),
-  };
-
   const goToItem = (item: AttentionItem) => {
-    primaryClickForPendingAction(
-      {
-        kind: item.kind,
-        stageId: item.stageId,
-        stageTitle: item.stageTitle,
-        title: item.title,
-        message: item.message,
-        primaryLabel: item.primaryLabel,
-        subTab: item.subTab,
-      },
-      navHandlers,
-    );
+    activateSubstep(attentionItemToSubstep(item));
   };
 
   if (compact) {
@@ -119,13 +98,13 @@ export function AttentionQueuePanel({ compact, hideWhenSingleWriteApproval }: Pr
           <ol className="attention-queue-list">
             {required.map((item) => (
               <li key={`${item.kind}-${item.stageId}`} className={`attention-queue-row kind-${item.kind}`}>
-                <div className="attention-queue-row-copy">
-                  <p className="attention-queue-row-title">{item.title}</p>
-                  <p className="hint sm">{item.message}</p>
-                </div>
+                <SubstepRow
+                  substep={attentionItemToSubstep(item)}
+                  onClick={() => goToItem(item)}
+                />
                 <button
                   type="button"
-                  className="btn primary sm"
+                  className="btn primary sm attention-queue-primary"
                   onClick={() => goToItem(item)}
                 >
                   {item.primaryLabel}

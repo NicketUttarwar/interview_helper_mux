@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { SPINE_PATH } from "../../utils";
+import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface SpineSummary {
   window_total?: number;
@@ -19,11 +20,17 @@ interface QueryHit {
 }
 
 export function InterviewSpinePanel() {
-  const { run, refreshRun, showToast, confirm } = useApp();
+  const { run, selectedStage, refreshRun, showToast, confirm } = useApp();
   const [summary, setSummary] = useState<SpineSummary | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<QueryHit[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const spineStage =
+    selectedStage?.id === "interview_spine_build"
+      ? selectedStage
+      : run?.stages.find((s) => s.id === "interview_spine_build");
+  const spineComplete = spineStage?.status === "done";
 
   const load = useCallback(async () => {
     if (!run) return;
@@ -85,8 +92,8 @@ export function InterviewSpinePanel() {
   const events = summary.boundary_events || [];
   const retrievalOn = Boolean(summary.retrieval?.enabled);
 
-  return (
-    <div className="quality-offer-card interview-spine-card">
+  const body = (
+    <>
       <h4>Interview spine</h4>
       <p className="muted sm">
         {summary.window_total ?? 0} windows · {events.length} boundary events · retrieval{" "}
@@ -129,6 +136,16 @@ export function InterviewSpinePanel() {
         </ul>
       ) : null}
       <p className="muted sm">Artifact: {SPINE_PATH}</p>
-    </div>
+    </>
+  );
+
+  return (
+    <GatePanelShell
+      complete={spineComplete}
+      title="Interview spine complete"
+      className="quality-offer-card interview-spine-card"
+    >
+      {body}
+    </GatePanelShell>
   );
 }

@@ -2,7 +2,12 @@ import type { OperatorPhase, RunData } from "../../types";
 import { PHASE_LABELS, phaseLabel } from "../../constants/phases";
 import { ActionMarker } from "./ActionMarker";
 import { GuidanceActionButton } from "./GuidanceActionButton";
+import { SubstepRow } from "../pipeline/SubstepRow";
+import { guidanceItemToSubstep } from "../../utils/stageSubsteps";
+import { useApp } from "../../context/AppContext";
 import { WORKFLOW_STEPS } from "../../utils/workflowSteps";
+import { isPhaseFullyComplete } from "../../utils/phaseSubsteps";
+import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 interface Props {
   run: RunData;
@@ -22,9 +27,11 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
 
   const progress = phaseGuidance?.progress || run.journey?.phase_progress?.[phase];
   const actions = (phaseGuidance?.actions || []).slice(0, compact ? 2 : 3);
+  const phaseComplete = isPhaseFullyComplete(run, phase);
 
   return (
-    <section className="phase-guidance-banner panel-inset" aria-label="Phase guidance">
+    <section className={`phase-guidance-banner panel-inset${phaseComplete ? " phase-complete" : ""}`} aria-label="Phase guidance">
+      {phaseComplete ? <StepDoneBanner variant="phase" title={`${PHASE_LABELS[phase] || phase} phase complete`} /> : null}
       <div className="phase-guidance-head">
         <h3 className="phase-guidance-title">
           {PHASE_LABELS[phase] || phase} phase
@@ -81,21 +88,21 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
 }
 
 export function StartPhaseGuidance() {
-  const startGuidance = {
+  const { activateSubstep } = useApp();
+  const item = {
     id: "pick_audio",
     label: "Pick source audio on the Start tab",
     status: "todo" as const,
     kind: "start",
   };
+  const startSubstep = guidanceItemToSubstep(item, "start");
   return (
     <section className="phase-guidance-banner panel-inset" aria-label="Start guidance">
       <h3 className="phase-guidance-title">Start</h3>
       <p className="hint phase-guidance-goal">Pick source audio and optionally set your output type.</p>
-      <ul className="stage-guidance-list">
-        <li className="stage-guidance-item status-todo">
-          <ActionMarker status="todo" />
-          <span className="stage-guidance-label">{startGuidance.label}</span>
-          <GuidanceActionButton item={startGuidance} />
+      <ul className="pipeline-substeps start-phase-substeps">
+        <li>
+          <SubstepRow substep={startSubstep} onClick={() => activateSubstep(startSubstep)} />
         </li>
       </ul>
     </section>

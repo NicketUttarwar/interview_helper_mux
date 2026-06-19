@@ -9,6 +9,7 @@ import {
 } from "../../utils/writeApproval";
 import { ReviewPanelControls } from "./ReviewPanelControls";
 import type { StageInfo } from "../../types";
+import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 function fileKind(path: string): "audio" | "json" | "text" {
   if (path.endsWith(".wav")) return "audio";
@@ -39,6 +40,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
+  const [saveComplete, setSaveComplete] = useState(false);
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
@@ -147,6 +149,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         setEditorDirty(false);
       }
       await approveWriteAndContinue(stageId);
+      setSaveComplete(true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Approve failed";
       showToast(msg);
@@ -170,6 +173,18 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     }
   };
 
+  if (saveComplete || (stage.status === "done" && !writePendingForStage && !paths.length && !loading)) {
+    return (
+      <section
+        id="write-approval-panel"
+        className="write-approval-panel write-approval-panel--done panel-inset"
+        aria-label="Save review complete"
+      >
+        <StepDoneBanner variant="substep" title="Files saved — step complete" />
+      </section>
+    );
+  }
+
   if (!writePendingForStage && !paths.length && !loading) return null;
 
   const saveDisabled = actionBusy || !paths.length;
@@ -182,7 +197,15 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     >
       <div className="write-approval-head">
         <div>
-          <h3 className="stage-outputs-title">Review outputs before saving</h3>
+          <h3 className="stage-outputs-title">Save review — review outputs before saving</h3>
+          <p className="hint write-approval-substep">
+            Substep:{" "}
+            <strong>
+              {paths.length
+                ? `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
+                : "Save review before continuing"}
+            </strong>
+          </p>
           <p className="hint">
             <strong>{stage.title}</strong>
             {paths.length
@@ -285,8 +308,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             <>
               <span className="spinner-inline" aria-hidden /> Saving…
             </>
-          ) : actionBusy ? (
-            "Saving…"
           ) : paths.length ? (
             `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
           ) : (

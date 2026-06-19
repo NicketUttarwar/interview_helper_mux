@@ -1,15 +1,26 @@
 import type { GuidanceItem } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { guidanceActionLabel } from "../../utils/checkpointLabels";
+import { activateGuidanceItem } from "../../utils/activateSubstep";
 
 interface Props {
   item: GuidanceItem;
   className?: string;
+  stageId?: string;
 }
 
-export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props) {
-  const { run, selectStage, openActionModal, setPipelineSubTab, setActiveTab, runNextStage } =
-    useApp();
+export function GuidanceActionButton({ item, className = "btn ghost sm", stageId }: Props) {
+  const {
+    run,
+    selectStage,
+    openActionModal,
+    setPipelineSubTab,
+    setActiveTab,
+    runNextStage,
+    approveWriteAndContinue,
+    acknowledgeHandoff,
+    setActiveSubstepId,
+  } = useApp();
 
   if (item.status !== "todo") return null;
 
@@ -22,35 +33,27 @@ export function GuidanceActionButton({ item, className = "btn ghost sm" }: Props
     return null;
   }
 
-  const onClick = () => {
-    switch (item.kind || item.action) {
-      case "profile":
-      case "story_board":
-        setActiveTab("pipeline");
-        setPipelineSubTab(item.kind === "profile" ? "profile" : "story");
-        if (item.stage_id) void selectStage(item.stage_id);
-        return;
-      case "checkpoint":
-        if (item.stage_id) void selectStage(item.stage_id);
-        openActionModal();
-        return;
-      case "run":
-        if (item.stage_id) void selectStage(item.stage_id);
-        void runNextStage();
-        return;
-      case "start":
-        setActiveTab("start");
-        return;
-      default:
-        if (item.stage_id) void selectStage(item.stage_id);
-        else openActionModal();
-    }
+  const sid = stageId || item.stage_id || run?.stages.find((s) => s.status !== "done")?.id || "";
+  const handlers = {
+    selectStage: (id: string) => void selectStage(id),
+    setActiveTab,
+    setPipelineSubTab,
+    openActionModal,
+    closeActionModal: () => {},
+    runNextStage: () => void runNextStage(),
+    approveWrite: (id: string) => void approveWriteAndContinue(id),
+    acknowledgeHandoff: () => void acknowledgeHandoff(),
+    setActiveSubstepId,
   };
 
   const label = guidanceActionLabel(item.kind || item.action, item.stage_id);
 
   return (
-    <button type="button" className={className} onClick={onClick}>
+    <button
+      type="button"
+      className={className}
+      onClick={() => activateGuidanceItem(item, sid, handlers)}
+    >
       {label}
     </button>
   );

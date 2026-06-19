@@ -124,6 +124,7 @@ export function StagePrimaryAction({ stage, compact }: Props) {
             data-testid="stage-primary-action-btn"
             onClick={onClick}
           >
+            {spec.running ? <span className="spinner-inline" aria-hidden /> : null}
             {spec.label}
           </button>
         ) : (

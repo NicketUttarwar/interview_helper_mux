@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getSfxPrompts } from "../../api/client";
 import type { SfxBlockReason, StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
@@ -19,8 +19,9 @@ import { SfxPostListenPanel } from "./SfxPostListenPanel";
 import { PlacementAdjustmentsPanel } from "./PlacementAdjustmentsPanel";
 import { SfxBlockedPanel } from "./SfxBlockedPanel";
 import { SonicContextPanel } from "./SonicContextPanel";
-import { resolvePrecleanOffer } from "../../utils/preclean";
 import { collectSfxBlockReasons } from "../../utils/sfxBlockReasons";
+import { resolvePrecleanOffer } from "../../utils/preclean";
+import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface Props {
   stage: StageInfo;
@@ -39,6 +40,15 @@ const MIX_INTELLIGIBILITY_STAGES = new Set([
   "master_flow1",
   "master_flow2",
 ]);
+
+function wrapDoneGate(stage: StageInfo, children: ReactNode, title?: string) {
+  if (stage.status !== "done") return children;
+  return (
+    <GatePanelShell complete title={title ?? `${stage.title} complete`}>
+      {children}
+    </GatePanelShell>
+  );
+}
 
 export function GateActions({ stage }: Props) {
   const { run, config, timeline, setPipelineSubTab } = useApp();
@@ -107,7 +117,9 @@ export function GateActions({ stage }: Props) {
     return <SfxGatePanel stage={stage} />;
   }
 
-  return (
+  return wrapDoneGate(
+    stage,
+    (
     <div className="gate-actions">
       {precleanOffer ? (
         <div className="attention-optional">
@@ -173,6 +185,7 @@ export function GateActions({ stage }: Props) {
       <PlacementAdjustmentsPanel stage={stage} />
       </div>
     </div>
+    ),
   );
 }
 

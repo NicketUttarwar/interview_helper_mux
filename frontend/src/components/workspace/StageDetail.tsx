@@ -15,6 +15,9 @@ import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
 import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import type { LlmRoutingAttempt } from "../../types";
+import { useStageProgress } from "../../hooks/useStageProgress";
+import { stageNeedsPendingAction } from "../../utils/pendingAction";
+import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function StageDetail() {
   const {
@@ -31,6 +34,7 @@ export function StageDetail() {
     setPipelineSubTab,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
+  const { fullyComplete, activeSubstep } = useStageProgress(selectedStageId);
 
   const nav = useMemo(
     () =>
@@ -118,12 +122,18 @@ export function StageDetail() {
 
   const needsGateCheckpoint =
     !writePendingOnly &&
+    !fullyComplete &&
     (selectedStage.status === "action_required" ||
       showHandoff ||
       (run?.job?.status === "gate" && run.job.stage === selectedStage.id));
 
+  const showDoneShell =
+    fullyComplete &&
+    !showHandoff &&
+    !stageNeedsPendingAction(run, selectedStage.id, apiGrants);
+
   return (
-    <div className="panel stage-detail">
+    <div className={`panel stage-detail${showDoneShell ? " stage-detail--done" : ""}`}>
       <div className="stage-detail-head">
         <div>
           {stepEntry ? (
@@ -132,6 +142,9 @@ export function StageDetail() {
             </p>
           ) : null}
           <h2>
+            {isRunningThisStage ? (
+              <span className="spinner-inline stage-detail-head-spinner" aria-hidden />
+            ) : null}
             {selectedStage.title}
             {descParts.summary ? (
               <InfoTooltip
@@ -146,9 +159,36 @@ export function StageDetail() {
           </h2>
           {descParts.summary ? <p className="hint stage-detail-summary">{descParts.summary}</p> : null}
         </div>
-        <span className={`stage-status-pill ${selectedStage.status}`}>{statusLabel}</span>
+        <span className={`stage-status-pill ${isRunningThisStage ? "running" : selectedStage.status}`}>
+          {statusLabel}
+        </span>
       </div>
 
+      {activeSubstep && !showDoneShell ? (
+        <p className="hint stage-detail-active-substep">
+          Current action: <strong>{activeSubstep.label}</strong>
+        </p>
+      ) : null}
+
+      {showDoneShell ? (
+        <div className="stage-detail-done-shell">
+          <StepDoneBanner variant="step" />
+          <StageOutputsPanel stage={selectedStage} />
+          {!jobRunning ? (
+            <div className="stage-detail-actions">
+              <button
+                type="button"
+                className="btn ghost sm"
+                onClick={() => void redoFromStage()}
+                title="Clear this step and later markers, then re-run from here"
+              >
+                Redo from this step
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <>
       <StageGuidancePanel stage={selectedStage} />
 
       <StageActivityStrip />
@@ -194,6 +234,8 @@ export function StageDetail() {
           <TranscriptDockViewer />
         </section>
       ) : null}
+        </>
+      )}
 
       {llmAttempts.length > 0 ? (
         <div className="llm-routing-panel">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import type { AnalysisState, StoryBoardData } from "../../types";
@@ -13,6 +13,7 @@ import {
 } from "../../utils/toneTaxonomy";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
+import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 function investigationItems(queue: Record<string, unknown>): Array<Record<string, unknown>> {
   const items = queue.items ?? queue.investigations;
@@ -70,6 +71,20 @@ export function StoryBoardPanel() {
     await refreshRun();
   };
 
+  const openItems = useMemo(
+    () =>
+      data
+        ? investigationItems(data.investigation_queue).filter(
+            (it) => (it.status as string) !== "resolved",
+          )
+        : [],
+    [data],
+  );
+
+  const profileVerified =
+    run?.stages.find((s) => s.id === "analysis_profile")?.status === "done";
+  const storyComplete = Boolean(data && openItems.length === 0 && profileVerified);
+
   if (!data || !form) {
     return (
       <div className="story-board panel">
@@ -86,14 +101,11 @@ export function StoryBoardPanel() {
     );
   }
 
-  const openItems = investigationItems(data.investigation_queue).filter(
-    (it) => (it.status as string) !== "resolved",
-  );
   const brief = data.content_brief as { one_line_summary?: string };
   const sap = data.source_acoustic_profile as Record<string, string> | null;
 
-  return (
-    <div className="story-board panel">
+  const body = (
+    <>
       <h3>Story Board</h3>
       <p className="story-headline">{form.title || brief.one_line_summary || "Untitled interview"}</p>
       <label className="field">
@@ -186,6 +198,16 @@ export function StoryBoardPanel() {
           Edit timeline
         </button>
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <GatePanelShell
+      complete={storyComplete}
+      title="Story Board complete — profile verified, investigations resolved"
+      className="story-board panel"
+    >
+      {body}
+    </GatePanelShell>
   );
 }

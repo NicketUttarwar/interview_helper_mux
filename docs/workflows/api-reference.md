@@ -65,6 +65,18 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `pipeline_sub_tab` | string \| null | no | `stage` \| `story` \| `timeline` \| `profile` \| `files` \| `llm_calls` \| `volley_memory` |
 | `activity_log_tab` | string \| null | no | `live` \| `step` \| `all` — Pipeline inline activity panel tab |
 | `activity_log_collapsed` | bool \| null | no | When `true`, collapses the Pipeline activity log panel |
+| `pipeline_collapsed_stages` | string[] \| null | no | Stage ids the operator collapsed in the Steps sidebar |
+| `pipeline_expanded_done_stages` | string[] \| null | no | Done stage ids manually expanded for audit |
+| `pipeline_filter_needs_you` | bool \| null | no | When `true`, Steps sidebar shows only stages with todo substeps |
+
+### `GET /api/runs/{run_id}` — `journey` snapshot
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `journey.active_substep_id` | string \| null | Server-driven focus substep (`write_approval`, `running`, `gate:{stage}`, `blocked:{stage}`, …) — mirrors GUI `findActiveSubstep` |
+| `journey.active_substep_label` | string \| null | Human label for the active substep (headline / sidebar hint) |
+| `journey.phase_progress` | object | Per-phase `{done, total}` counts |
+| `journey.phase_guidance` | object | Phase goals and actionable items |
 
 ### `GET /api/config` response
 

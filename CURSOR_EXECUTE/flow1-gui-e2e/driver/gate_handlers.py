@@ -183,6 +183,44 @@ def try_primary_cta(page: Page, log: EventLogger, archive=None) -> bool:
     return False
 
 
+def try_active_substep(
+    page: Page,
+    log: EventLogger,
+    run: dict[str, Any],
+    archive: ExecutionScreenshotArchive | None = None,
+) -> bool:
+    """Click the journey-active substep in the Steps sidebar when visible."""
+    journey = run.get("journey") or {}
+    sub_id = journey.get("active_substep_id")
+    if sub_id and _click_testid(page, f"substep-{sub_id}", log, f"active substep {sub_id}", archive):
+        return True
+    loc = page.locator(
+        "button.pipeline-substep-row.status-todo, button.pipeline-substep-row.status-running"
+    )
+    if loc.count() == 0:
+        return False
+    tid = loc.first.get_attribute("data-testid")
+    if not tid:
+        return False
+    return _click_testid(page, tid, log, "first actionable substep", archive)
+
+
+def click_substep(
+    page: Page,
+    log: EventLogger,
+    run: dict[str, Any] | None = None,
+    *,
+    substep_id: str | None = None,
+    archive: ExecutionScreenshotArchive | None = None,
+) -> bool:
+    """Click a sidebar substep by id or fall back to journey-active / first todo substep."""
+    if substep_id and _click_testid(page, f"substep-{substep_id}", log, f"substep {substep_id}", archive):
+        return True
+    if run and try_active_substep(page, log, run, archive):
+        return True
+    return False
+
+
 def resolve_gates(
     page: Page,
     log: EventLogger,
@@ -261,6 +299,9 @@ def resolve_gates(
 
     if try_modal_continue(page, log, archive):
         return "gate:modal_continue"
+
+    if try_active_substep(page, log, run, archive):
+        return "action:substep"
 
     if try_primary_cta(page, log, archive):
         return "action:primary_cta"

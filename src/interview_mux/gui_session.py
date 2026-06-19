@@ -67,6 +67,9 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
         "input_audio_path",
         "activity_log_tab",
         "activity_log_collapsed",
+        "pipeline_collapsed_stages",
+        "pipeline_expanded_done_stages",
+        "pipeline_filter_needs_you",
     ):
         if key in updates:
             payload[key] = updates[key]

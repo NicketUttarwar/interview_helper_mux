@@ -22,6 +22,7 @@ from api_client import ApiClient  # noqa: E402
 from execution_screenshots import ExecutionScreenshotArchive  # noqa: E402
 from gate_handlers import (  # noqa: E402
     baseline_run_ids_for_wav,
+    click_substep,
     extract_run_id_from_page,
     resolve_gates,
     resolve_run_id_after_start,

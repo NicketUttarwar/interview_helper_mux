@@ -4628,6 +4628,28 @@ code {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .spinner-inline,
+  .live-status-dot.spinning,
+  .pipeline-substep-spinner,
+  .pipeline-step-title-spinner,
+  .workflow-chip-spinner {
+    animation: none;
+    border-top-color: var(--accent);
+    opacity: 0.85;
+  }
+
+  .step-running-connector .spinner-inline {
+    display: none;
+  }
+
+  .step-running-connector::before {
+    content: "▸";
+    margin-right: 0.35rem;
+    color: var(--accent);
+  }
+}
+
 .gate-loading {
   display: flex;
   align-items: center;
@@ -5706,4 +5728,283 @@ code {
 
 .pipeline-qc-promo {
   margin-bottom: 0.75rem;
+}
+
+/* --- Substeps & progress UX --- */
+.pipeline-step-list-context {
+  padding: 0.65rem 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.35rem;
+}
+
+.pipeline-step-context-phase {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.pipeline-step-context-here,
+.pipeline-step-context-next,
+.pipeline-step-context-blocked {
+  margin: 0.15rem 0 0;
+}
+
+.pipeline-step-row-wrap {
+  position: relative;
+}
+
+.pipeline-step-row-wrap.fully-done {
+  opacity: 0.85;
+}
+
+.pipeline-step-row-wrap.fully-done.collapsed .pipeline-step-row {
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.pipeline-step-row.fully-done {
+  opacity: 0.42;
+}
+
+.pipeline-substeps {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.35rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pipeline-substep-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.78rem;
+  cursor: default;
+}
+
+button.pipeline-substep-row {
+  cursor: pointer;
+}
+
+button.pipeline-substep-row:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.pipeline-substep-row.status-done {
+  opacity: 0.42;
+}
+
+.pipeline-substep-row.status-running {
+  color: var(--status-running);
+}
+
+.pipeline-substep-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-substep-action {
+  font-size: 0.7rem;
+}
+
+.pipeline-step-connector {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0 0.25rem 1.75rem;
+  list-style: none;
+  color: var(--status-running);
+  font-size: 0.75rem;
+}
+
+.step-done-banner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.step-done-banner-text {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.stage-detail--done .stage-detail-head {
+  opacity: 0.75;
+}
+
+.stage-detail-done-shell {
+  position: relative;
+  min-height: 8rem;
+}
+
+.stage-detail-done-shell .step-done-banner {
+  position: relative;
+  inset: auto;
+  min-height: 3rem;
+  margin-bottom: 0.75rem;
+  pointer-events: auto;
+}
+
+.stage-detail-active-substep {
+  margin: 0 0 0.75rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid var(--warning);
+}
+
+.stage-substep-strip {
+  list-style: none;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.stage-guidance-item.status-done {
+  opacity: 0.42;
+}
+
+.stage-guidance-item.status-done .stage-guidance-item-actions {
+  display: none;
+}
+
+.modal-substep-nav {
+  list-style: none;
+  margin: 0 0 0.65rem;
+  padding: 0 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pipeline-step-title-spinner {
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.stage-status-pill.running {
+  border-color: var(--status-running);
+  color: var(--status-running);
+}
+
+.btn.stage-primary-btn.running {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.attention-queue-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.attention-queue-row .attention-queue-primary {
+  align-self: flex-end;
+}
+
+.gate-panel--done {
+  opacity: 0.75;
+}
+
+.gate-panel-done-shell {
+  pointer-events: none;
+}
+
+.handoff-panel--done,
+.write-approval-panel--done {
+  opacity: 0.75;
+}
+
+.live-status-dot.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+.workflow-step-chip.running .workflow-chip-spinner {
+  margin-right: 0.25rem;
+}
+
+button.pipeline-substep-row:focus-visible,
+button.pipeline-step-row:focus-visible,
+.workflow-step-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.activity-log-substep-context {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0;
+}
+
+.pipeline-command-substep .btn.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.log-stage-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.log-stage-btn:hover {
+  opacity: 0.85;
+}
+
+.journey-shell.journey-phase-complete {
+  position: relative;
+}
+
+.journey-shell.journey-phase-complete .step-done-banner {
+  margin-bottom: 0.5rem;
+}
+
+.stage-reuse-section--done {
+  opacity: 0.75;
+}
+
+.executions-active-substep {
+  margin: 0.35rem 0 0;
+}
+
+.phase-guidance-banner.phase-complete {
+  position: relative;
+  opacity: 0.75;
+}
+
+.phase-guidance-banner.phase-complete .step-done-banner {
+  position: relative;
+  inset: auto;
+  margin-bottom: 0.5rem;
+  min-height: 2rem;
 }

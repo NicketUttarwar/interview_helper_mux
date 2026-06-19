@@ -14,6 +14,7 @@ import {
   type WorkflowStepId,
 } from "../utils/workflowSteps";
 import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
+import { buildPhaseSubsteps } from "../utils/phaseSubsteps";
 
 export function LiveStatusBar() {
   const {
@@ -40,6 +41,7 @@ export function LiveStatusBar() {
     setAlertsMuted,
     setLogFilterPreset,
     jobCompleteAt,
+    activeTab,
   } = useApp();
 
   const scrollPreview = useCallback(() => {
@@ -130,6 +132,16 @@ export function LiveStatusBar() {
     [run, apiGrants],
   );
 
+  const phaseSubsteps = useMemo(() => {
+    if (!run) return null;
+    const phase = run.journey?.phase ?? "prepare";
+    return buildPhaseSubsteps(run, phase, {
+      jobRunning,
+      apiGrants,
+      selectedStageId,
+    });
+  }, [run, jobRunning, apiGrants, selectedStageId]);
+
   const onActionBadgeClick = () => {
     if (requiredCount > 1) {
       setActiveTab("pipeline");
@@ -160,10 +172,11 @@ export function LiveStatusBar() {
       data-testid="live-status-bar"
       role="status"
       aria-live="polite"
+      aria-describedby={activeTab === "pipeline" ? "pipeline-step-context" : undefined}
     >
       <div className="live-status-main">
         <div className="live-status-headline-row">
-          <span className={`live-status-dot kind-${live.activityKind}`} aria-hidden />
+          <span className={`live-status-dot kind-${live.activityKind}${live.activityKind === "running" ? " spinning" : ""}`} aria-hidden />
           <div className="live-status-headlines">
             <p className="live-status-headline">{headline}</p>
             {subline ? (
@@ -288,6 +301,13 @@ export function LiveStatusBar() {
                 prog && prog.total > 0 ? ` · ${prog.done}/${prog.total}` : "";
               const attentionHint =
                 attentionCount > 0 ? ` · ${attentionCount} need you` : "";
+              const substepHint =
+                step.id === activeStepId &&
+                phaseSubsteps &&
+                phaseSubsteps.todoSubsteps.length > 0
+                  ? ` · ${phaseSubsteps.todoSubsteps.map((s) => s.label).join("; ")}`
+                  : "";
+              const isRunningChip = isActive && live.activityKind === "running";
               return (
                 <li key={step.id} className="workflow-step-item">
                   {i > 0 ? (
@@ -295,11 +315,14 @@ export function LiveStatusBar() {
                   ) : null}
                   <button
                     type="button"
-                    className={`workflow-step-chip status-${status}${isActive ? " current" : ""}`}
-                    title={`${step.tooltip}${progressHint}${attentionHint}`}
+                    className={`workflow-step-chip status-${status}${isActive ? " current" : ""}${isRunningChip ? " running" : ""}`}
+                    title={`${step.tooltip}${progressHint}${attentionHint}${substepHint}`}
                     aria-current={isActive ? "step" : undefined}
                     onClick={() => navigateToStep(step.id)}
                   >
+                    {isRunningChip ? (
+                      <span className="spinner-inline workflow-chip-spinner" aria-hidden />
+                    ) : null}
                     {status === "done" ? (
                       <span className="workflow-step-check">✓</span>
                     ) : status === "attention" ? (

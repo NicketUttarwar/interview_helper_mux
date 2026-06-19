@@ -29,6 +29,8 @@ import type {
 } from "../types";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { countRequiredAttention } from "../utils/attentionQueue";
+import { resolvePendingAction } from "../utils/pendingAction";
+import { pendingActionToSubstep } from "../utils/stageSubsteps";
 import {
   actionSummaryText,
   findHandoffStage,
@@ -43,6 +45,8 @@ import {
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
+import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
+import type { StageSubstep } from "../types";
 
 interface AppContextValue {
   activeTab: AppTab;
@@ -78,6 +82,10 @@ interface AppContextValue {
   activityLogCollapsed: boolean;
   logFilterPreset: LogFilterPreset | null;
   jobCompleteAt: number | null;
+  activeSubstepId: string | null;
+  pipelineCollapsedStages: string[];
+  pipelineExpandedDoneStages: string[];
+  pipelineFilterNeedsYou: boolean;
   setActivityLogTab: (tab: LogStreamTab) => void;
   setActivityLogCollapsed: (collapsed: boolean) => void;
   setLogFilterPreset: (preset: LogFilterPreset | null) => void;
@@ -110,6 +118,12 @@ interface AppContextValue {
   setTranscriptReview: (data: TranscriptReviewState | null) => void;
   confirm: (message: string) => Promise<boolean>;
   resolveConfirm: (ok: boolean) => void;
+  activateSubstep: (substep: StageSubstep, opts?: { openModal?: boolean }) => void;
+  setActiveSubstepId: (id: string | null) => void;
+  expandStage: (stageId: string) => void;
+  collapseStage: (stageId: string) => void;
+  toggleDoneStageExpanded: (stageId: string) => void;
+  setPipelineFilterNeedsYou: (enabled: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -183,6 +197,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [jobCompleteAt, setJobCompleteAt] = useState<number | null>(null);
+  const [activeSubstepId, setActiveSubstepIdState] = useState<string | null>(null);
+  const [pipelineCollapsedStages, setPipelineCollapsedStages] = useState<string[]>([]);
+  const [pipelineExpandedDoneStages, setPipelineExpandedDoneStages] = useState<string[]>(
+    [],
+  );
+  const [pipelineFilterNeedsYou, setPipelineFilterNeedsYouState] = useState(false);
 
   const logCountRef = useRef(0);
   const bootGenRef = useRef(0);
@@ -193,6 +213,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pipelineSubTabRef = useRef<PipelineSubTab>("stage");
   const activityLogTabRef = useRef<LogStreamTab>("live");
   const activityLogCollapsedRef = useRef(false);
+  const pipelineCollapsedRef = useRef<string[]>([]);
+  const pipelineExpandedDoneRef = useRef<string[]>([]);
+  const pipelineFilterNeedsYouRef = useRef(false);
   const lastNotifiedTsRef = useRef<string | null>(null);
   const lastActionRequiredIdRef = useRef<string | null>(null);
   const jobStatusPrevRef = useRef<string | null>(null);
@@ -255,6 +278,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activityLogCollapsedRef.current = activityLogCollapsed;
   }, [activityLogCollapsed]);
 
+  useEffect(() => {
+    activityLogCollapsedRef.current = activityLogCollapsed;
+  }, [activityLogCollapsed]);
+  useEffect(() => {
+    pipelineCollapsedRef.current = pipelineCollapsedStages;
+  }, [pipelineCollapsedStages]);
+  useEffect(() => {
+    pipelineExpandedDoneRef.current = pipelineExpandedDoneStages;
+  }, [pipelineExpandedDoneStages]);
+  useEffect(() => {
+    pipelineFilterNeedsYouRef.current = pipelineFilterNeedsYou;
+  }, [pipelineFilterNeedsYou]);
+
+  const setActiveSubstepId = useCallback((id: string | null) => {
+    setActiveSubstepIdState(id);
+  }, []);
+
+  const expandStage = useCallback((stageId: string) => {
+    setPipelineCollapsedStages((prev) => prev.filter((id) => id !== stageId));
+  }, []);
+
+  const collapseStage = useCallback((stageId: string) => {
+    setPipelineCollapsedStages((prev) => (prev.includes(stageId) ? prev : [...prev, stageId]));
+  }, []);
+
+  const toggleDoneStageExpanded = useCallback((stageId: string) => {
+    setPipelineExpandedDoneStages((prev) =>
+      prev.includes(stageId) ? prev.filter((id) => id !== stageId) : [...prev, stageId],
+    );
+  }, []);
+
   const pinSelectedStage = useCallback(() => {
     userPinnedStageAtRef.current = Date.now();
   }, []);
@@ -274,10 +328,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           pipeline_sub_tab: pipelineSubTabRef.current,
           activity_log_tab: activityLogTabRef.current,
           activity_log_collapsed: activityLogCollapsedRef.current,
+          pipeline_collapsed_stages: pipelineCollapsedRef.current,
+          pipeline_expanded_done_stages: pipelineExpandedDoneRef.current,
+          pipeline_filter_needs_you: pipelineFilterNeedsYouRef.current,
         }),
       }).catch(() => {});
     }, 200);
   }, []);
+
+  const setPipelineFilterNeedsYou = useCallback(
+    (enabled: boolean) => {
+      setPipelineFilterNeedsYouState(enabled);
+      pipelineFilterNeedsYouRef.current = enabled;
+      persistSessionUi();
+    },
+    [persistSessionUi],
+  );
 
   const setActivityLogTab = useCallback(
     (tab: LogStreamTab) => {
@@ -1073,6 +1139,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPipelineSubTabWrapped,
   ]);
 
+  const activateSubstep = useCallback(
+    (substep: StageSubstep, opts?: { openModal?: boolean }) => {
+      activateSubstepUtil(
+        substep,
+        {
+          selectStage: (id) => void selectStage(id),
+          setActiveTab,
+          setPipelineSubTab: setPipelineSubTabWrapped,
+          openActionModal,
+          closeActionModal: () => setActionModalOpen(false),
+          runNextStage: () => void runNextStage(),
+          approveWrite: (id) => void approveWriteAndContinue(id),
+          acknowledgeHandoff: () => void acknowledgeHandoff(),
+          setActiveSubstepId,
+        },
+        opts,
+      );
+      expandStage(substep.stageId);
+    },
+    [
+      selectStage,
+      setActiveTab,
+      setPipelineSubTabWrapped,
+      openActionModal,
+      runNextStage,
+      approveWriteAndContinue,
+      acknowledgeHandoff,
+      setActiveSubstepId,
+      expandStage,
+    ],
+  );
+
   const redoFromStage = useCallback(async () => {
     if (!selectedStageId || !runId) return;
     const ok = await confirm(`Redo from "${selectedStageId}"?`);
@@ -1157,6 +1255,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setActivityLogCollapsedState(active.activity_log_collapsed);
             activityLogCollapsedRef.current = active.activity_log_collapsed;
           }
+          if (Array.isArray(active.pipeline_collapsed_stages)) {
+            setPipelineCollapsedStages(active.pipeline_collapsed_stages);
+            pipelineCollapsedRef.current = active.pipeline_collapsed_stages;
+          }
+          if (Array.isArray(active.pipeline_expanded_done_stages)) {
+            setPipelineExpandedDoneStages(active.pipeline_expanded_done_stages);
+            pipelineExpandedDoneRef.current = active.pipeline_expanded_done_stages;
+          }
+          if (typeof active.pipeline_filter_needs_you === "boolean") {
+            setPipelineFilterNeedsYouState(active.pipeline_filter_needs_you);
+            pipelineFilterNeedsYouRef.current = active.pipeline_filter_needs_you;
+          }
           if (gen !== bootGenRef.current) return;
           if (serverRestarted && runIdRef.current) {
             const rid = runIdRef.current;
@@ -1211,8 +1321,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (pendingActionCount === 0) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
+      return;
     }
-  }, [pendingActionCount]);
+    const pending = resolvePendingAction(run, mergedApiGrants());
+    if (!pending) return;
+    const sub = pendingActionToSubstep(pending);
+    setActiveSubstepIdState(sub.id);
+    setPipelineCollapsedStages((prev) => prev.filter((id) => id !== pending.stageId));
+  }, [pendingActionCount, run, mergedApiGrants]);
+
+  useEffect(() => {
+    if (run?.journey?.active_substep_id) {
+      setActiveSubstepIdState(run.journey.active_substep_id);
+    }
+  }, [run?.journey?.active_substep_id]);
 
   useEffect(() => {
     if (activeTab === "executions") void refreshHome();
@@ -1252,6 +1374,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activityLogCollapsed,
     logFilterPreset,
     jobCompleteAt,
+    activeSubstepId,
+    pipelineCollapsedStages,
+    pipelineExpandedDoneStages,
+    pipelineFilterNeedsYou,
+    setPipelineFilterNeedsYou,
     setActivityLogTab,
     setActivityLogCollapsed,
     setLogFilterPreset,
@@ -1284,6 +1411,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTranscriptReview,
     confirm,
     resolveConfirm,
+    activateSubstep,
+    setActiveSubstepId,
+    expandStage,
+    collapseStage,
+    toggleDoneStageExpanded,
   };
 
   return (

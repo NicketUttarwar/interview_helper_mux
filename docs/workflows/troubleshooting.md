@@ -11,6 +11,7 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | Checkpoint modal shows wrong stage | Stale sidebar selection (fixed in current GUI) | Action modal title vs sidebar | Dismiss and reopen **Action**; modal auto-focuses blocking stage on all tabs |
+| Substep click does not scroll modal section | Modal closed or stage collapsed | `data-testid="substep-{id}"` in Steps list | Expand the step row; reopen **Action**; click substep again (sets `activeSubstepId` + scrolls `#modal-*`) |
 | Listen button does nothing | No global `.audio-player` in Stage view | Gate panel inline audio | Use **Listen** again (inline player); check Logs if play fails |
 | Record pickup fails silently | Mic permission denied | Browser site settings | Allow microphone; toast should appear on deny |
 | Clear session but Executions still highlights run | Expected — list is historical | `ASSETS/.gui/active_execution.json` | **Clear session** clears server active pointer; use **Resume server session** on empty Pipeline if needed |

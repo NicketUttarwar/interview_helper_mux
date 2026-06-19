@@ -89,6 +89,28 @@ flowchart TB
 
 **Mandatory gates:** G0, G1 (when gaps require record), G2. Details: [operator-gates.md](../workflows/operator-gates.md).
 
+### Substep loop (GUI)
+
+Within each pipeline stage the operator follows **substeps** (sidebar rows under the stage):
+
+1. **Run** automated stage (or accept reuse offer)
+2. **Save review** when write approval is enabled (`.pending_writes/`)
+3. **Handoff** skim when LLM JSON handoff applies
+4. **Gate** checkpoint (G0, G0.5, profile, G1, G2, SFX) when `action_required`
+5. Stage collapses with **Step complete** banner; focus advances via `journey.active_substep_id`
+
+```mermaid
+flowchart LR
+  subgraph stage [One pipeline stage]
+    R[Run / reuse]
+    W[Save review]
+    H[Handoff ack]
+    G[Gate checkpoint]
+    D[Done collapse]
+  end
+  R --> W --> H --> G --> D
+```
+
 **Optional quality offers** (never blocking): pre-clean before ingest and after G1 pickup — [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
 
 ---

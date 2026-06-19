@@ -9,6 +9,7 @@ import {
   resolveFocusStageId,
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
+import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function ActivityLogPanel() {
   const {
@@ -24,6 +25,8 @@ export function ActivityLogPanel() {
     setLogFilterPreset,
     setActiveTab,
   } = useApp();
+
+  const { activeSubstep } = useStageProgress(selectedStageId);
 
   const toolView = pipelineSubTab !== "stage";
 
@@ -115,7 +118,17 @@ export function ActivityLogPanel() {
   return (
     <aside className="activity-log-panel panel" aria-label="Pipeline activity log">
       <div className="activity-log-head panel-head">
-        <h3>Activity</h3>
+        <div>
+          <h3>Activity</h3>
+          {activityLogTab === "step" && activeSubstep ? (
+            <p className="hint sm activity-log-substep-context">
+              {activeSubstep.status === "running" ? (
+                <span className="spinner-inline" aria-hidden />
+              ) : null}
+              {activeSubstep.label}
+            </p>
+          ) : null}
+        </div>
         <div className="activity-log-head-actions">
           <button
             type="button"

@@ -3,7 +3,9 @@ import { filterLiveStream, latestEntry } from "../../utils/logStreams";
 import { escapeHtml, formatTs } from "../../utils";
 import { actionSummaryText } from "../../utils/checkpoint";
 import { resolvePendingAction } from "../../utils/pendingAction";
+import { pendingActionToSubstep } from "../../utils/stageSubsteps";
 import { stageTitleForId } from "../../utils/checkpoint";
+import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function ActivityTeaser() {
   const {
@@ -14,10 +16,9 @@ export function ActivityTeaser() {
     apiGrants,
     setActiveTab,
     setActivityLogCollapsed,
-    setPipelineSubTab,
-    selectStage,
-    openActionModal,
+    activateSubstep,
   } = useApp();
+  const { activeSubstepGlobal } = useStageProgress();
 
   if (activeTab === "pipeline") return null;
 
@@ -32,10 +33,7 @@ export function ActivityTeaser() {
 
   const goAttention = () => {
     if (!pending) return;
-    setActiveTab("pipeline");
-    setPipelineSubTab("stage");
-    if (pending.stageId) void selectStage(pending.stageId);
-    if (pending.kind !== "handoff") openActionModal();
+    activateSubstep(pendingActionToSubstep(pending));
   };
 
   return (
@@ -72,6 +70,8 @@ export function ActivityTeaser() {
       <div className="log-strip-body">
         {summary ? (
           <p className="activity-teaser-attention">{summary}</p>
+        ) : activeSubstepGlobal ? (
+          <p className="muted">{activeSubstepGlobal.label}</p>
         ) : runningTitle ? (
           <p className="muted">Running — {runningTitle}</p>
         ) : !last ? (

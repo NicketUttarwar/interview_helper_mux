@@ -28,7 +28,9 @@ source .venv/bin/activate
 2. Home → pick a file under **Input audio** (or resume **Previous executions**)
 3. Note `run_id` (e.g. `exec_001_a1b2c3d4e5f6_20260523T120000Z`) from the workspace header — includes a 12-char source-audio hash segment
 
-**Resume check:** stop the server, run `./scripts/run.sh` again — the GUI should **auto-restore** the last active run (tab, stage, sub-tab) from `ASSETS/.gui/active_execution.json`. Stage markers and `gui_log.jsonl` remain under `ASSETS/executions/<run_id>/`.
+**Resume check:** stop the server, run `./scripts/run.sh` again — the GUI should **auto-restore** the last active run (tab, stage, sub-tab, collapsed Steps rows, **Needs you only** filter) from `ASSETS/.gui/active_execution.json`. Stage markers and `gui_log.jsonl` remain under `ASSETS/executions/<run_id>/`.
+
+**Steps sidebar:** expand a pipeline step to see substeps (gates, write approval, handoff). Completed steps collapse with a **Step complete** banner; click a todo substep to jump to the matching panel.
 
 **Refresh check:** with an active run, refresh the browser — same run, Pipeline tab, stage focus, and log tail should return without clicking Resume.
 

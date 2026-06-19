@@ -3,6 +3,8 @@ import { useApp } from "../../context/AppContext";
 import { filterByStage } from "../../utils/logStreams";
 import { escapeHtml, formatTs } from "../../utils";
 import { resolvePendingAction } from "../../utils/pendingAction";
+import { pendingActionToSubstep } from "../../utils/stageSubsteps";
+import { useStageProgress } from "../../hooks/useStageProgress";
 
 export function StageActivityStrip() {
   const {
@@ -12,9 +14,9 @@ export function StageActivityStrip() {
     apiGrants,
     setActivityLogTab,
     setActivityLogCollapsed,
-    openActionModal,
-    selectStage,
+    activateSubstep,
   } = useApp();
+  const { activeSubstep } = useStageProgress(selectedStageId);
 
   const pending = useMemo(
     () => (run && selectedStageId ? resolvePendingAction(run, apiGrants) : null),
@@ -32,6 +34,15 @@ export function StageActivityStrip() {
 
   return (
     <div className="stage-activity-strip panel-inset">
+      {activeSubstep && (activeSubstep.status === "todo" || activeSubstep.status === "running") ? (
+        <p className="hint sm stage-activity-substep">
+          {activeSubstep.status === "running" ? (
+            <span className="spinner-inline" aria-hidden />
+          ) : null}
+          Current: <strong>{activeSubstep.label}</strong>
+        </p>
+      ) : null}
+
       {pendingOnStage ? (
         <div className="stage-activity-cta" role="alert">
           <p className="stage-activity-cta-text">
@@ -40,10 +51,7 @@ export function StageActivityStrip() {
           <button
             type="button"
             className="btn primary sm"
-            onClick={() => {
-              if (pendingOnStage.stageId) void selectStage(pendingOnStage.stageId);
-              openActionModal();
-            }}
+            onClick={() => activateSubstep(pendingActionToSubstep(pendingOnStage))}
           >
             {pendingOnStage.primaryLabel}
           </button>

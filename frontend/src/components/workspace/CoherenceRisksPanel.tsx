@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { COHERENCE_REPORT_PATH } from "../../utils";
 import type { CoherenceReport, CoherenceRisk } from "../../types";
+import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 export function CoherenceRisksPanel() {
   const { run, refreshRun, showToast, confirm } = useApp();
@@ -58,9 +59,14 @@ export function CoherenceRisksPanel() {
 
   const openRisks = (report.risks || []).filter((r) => r.status !== "resolved");
   const summary = report.summary;
+  const risksClosed = openRisks.length === 0;
 
   return (
-    <section className="coherence-risks-card quality-offer-card">
+    <GatePanelShell
+      complete={risksClosed}
+      title="Coherence review complete — no open risks"
+      className="coherence-risks-card quality-offer-card"
+    >
       <div className="coherence-risks-header">
         <h4>Coherence risks</h4>
         <button type="button" className="btn ghost sm" disabled={loading} onClick={() => void recompute()}>
@@ -89,6 +95,6 @@ export function CoherenceRisksPanel() {
         </ul>
       )}
       <p className="muted sm">Artifact: {COHERENCE_REPORT_PATH}</p>
-    </section>
+    </GatePanelShell>
   );
 }

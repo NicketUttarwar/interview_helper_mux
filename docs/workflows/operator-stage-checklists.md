@@ -4,7 +4,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
-**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` (orange-dot actionable items on each stage) and `journey.phase_guidance` (phase banner). **Substeps:** each `guidance` item with `status: todo` maps to a sidebar substep (`id` → `data-testid="substep-{id}"`); attention-queue items (write approval, handoff, reuse) merge into the same list. See [gui-surface-map.md](./gui-surface-map.md) § Steps sidebar. This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
 
 **`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
 

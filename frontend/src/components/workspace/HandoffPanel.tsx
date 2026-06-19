@@ -4,6 +4,7 @@ import { getHandoffPathsLocal } from "../../utils/checkpoint";
 import { findLatestHandoffAudit } from "../../utils/handoff";
 import { handoffSkimBullets } from "../../utils/handoffSkimHints";
 import { escapeHtml } from "../../utils";
+import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function HandoffPanel() {
   const { run, selectedStage, onCheckpointContinue, openArtifactInEditor, actionBusy } =
@@ -19,9 +20,19 @@ export function HandoffPanel() {
     return { paths, audit, visible: paths.length > 0 || Boolean(audit), skimBullets };
   }, [run, selectedStage]);
 
-  if (!visible || !selectedStage) return null;
+  if (!visible || !selectedStage || !run) return null;
+
+  const handoffAcked = Boolean(run.handoff_ack?.[selectedStage.id]);
 
   const editableSet = new Set(selectedStage.editable || []);
+
+  if (handoffAcked) {
+    return (
+      <div className="panel handoff-panel handoff-panel--done" id="stage-handoff-panel">
+        <StepDoneBanner variant="substep" title="Handoff acknowledged — step complete" />
+      </div>
+    );
+  }
 
   return (
     <div className="panel handoff-panel attention-required" id="stage-handoff-panel">

@@ -85,6 +85,10 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 31 | Audio quality drawer dead-end | **Open checkpoint** action in **AudioQualityDrawer** |
 | 32 | Executions list opaque | Job status pill, progress bar, clickable **last_log** → Logs |
 | 33 | Duplicate tab badges | Pipeline action badge removed — **LiveStatusBar** owns primary CTA badge |
+| 34 | Flat sidebar hid required actions | **Substeps** under each stage in `PipelineStepList`; click opens checkpoint via `activateSubstep` |
+| 35 | Done steps looked active | Collapsed gray rows + **Step complete** banner; `StageDetail` done shell |
+| 36 | Running step unclear in sidebar | `StepRunningConnector` + spinner on running substep row |
+| 37 | Scattered navigation logic | Single `activateSubstep` kernel; `useStageProgress` hook |
 | 34 | Session UI not restored | `activity_log_tab` + `activity_log_collapsed` in `active_execution.json` |
 | 35 | Timeline QC isolated | **TimelineQcChecklist** links to Pipeline activity log |
 | 36 | Desktop timeline surprise | Dismissible desktop-first hint in **TimelineWorkspace** |

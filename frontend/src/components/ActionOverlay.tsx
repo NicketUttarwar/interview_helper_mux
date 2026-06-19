@@ -1,9 +1,11 @@
 import { useApp } from "../context/AppContext";
 import { stageTitleForId } from "../utils/checkpoint";
 import { isJobActivelyRunning } from "../utils/jobStatus";
+import { useStageProgress } from "../hooks/useStageProgress";
 
 export function ActionOverlay() {
   const { jobRunning, actionBusy, run } = useApp();
+  const { activeSubstepGlobal } = useStageProgress();
   if (!jobRunning && !actionBusy) return null;
 
   const job = run?.job;
@@ -14,7 +16,9 @@ export function ActionOverlay() {
 
   let message: string;
   if (actionBusy) {
-    message = "Saving staged outputs and advancing…";
+    message = activeSubstepGlobal?.label || "Saving staged outputs and advancing…";
+  } else if (activeSubstepGlobal?.status === "running") {
+    message = activeSubstepGlobal.label;
   } else if (isJobActivelyRunning(job)) {
     message = stageTitle
       ? `Running ${stageTitle} — logs stream in Activity below.`

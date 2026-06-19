@@ -61,8 +61,20 @@
 
 ## Gate handler priority
 
-1. write approval → 2. handoff → 3. reuse decline → 4. preclean dismiss → 5. G0 → 6. G0.5 → 7. profile → 8. G1 upload → 9. G1 continue → 10. G2 → 11. G1.5 → 12. sfx post-listen → 13. preview listen → 14. LLM gate (blocker) → 15. job running (wait) → 16. primary CTA
+1. write approval → 2. handoff → 3. reuse decline → 4. preclean dismiss → 5. G0 → 6. G0.5 → 7. profile → 8. G1 upload → 9. G1 continue → 10. G2 → 11. G1.5 → 12. sfx post-listen → 13. preview listen → 14. LLM gate (blocker) → 15. job running (wait) → 16. modal continue → 17. **active substep** (`data-testid="substep-{id}"` from `journey.active_substep_id`) → 18. primary CTA
+
+### Substep navigation (Steps sidebar)
+
+When the GUI shows hierarchical substeps under each pipeline step, the driver may click:
+
+| Selector | When |
+|----------|------|
+| `data-testid="substep-{id}"` | `journey.active_substep_id` matches (e.g. `write_approval`, `gate:transcript_review`) |
+| `data-testid="pipeline-step-{stageId}"` | Expand a collapsed step row before substep clicks |
+| `.pipeline-substep-row.status-todo` | Fallback first actionable substep |
+
+Driver event: `action:substep`
 
 ## Log event names
 
-`gate:*`, `action:primary_cta`, `wait:job_running`, `blocker:llm_gate`, `blocker:stuck_state`
+`gate:*`, `action:primary_cta`, `action:substep`, `wait:job_running`, `blocker:llm_gate`, `blocker:stuck_state`

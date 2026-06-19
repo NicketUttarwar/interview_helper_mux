@@ -11,6 +11,7 @@ from interview_mux.journey_orchestrator import (
     NEXT_ACTION_COMPLETE_G2,
     NEXT_ACTION_PREPARE_G0,
     NEXT_ACTION_UNDERSTAND_PROFILE,
+    _active_substep,
     build_journey_snapshot,
 )
 from interview_mux.run_context import RunContext
@@ -72,6 +73,33 @@ def test_build_journey_snapshot_smoke(smoke_ctx):
     assert isinstance(snap["milestones"]["g0_complete"], bool)
     for key in ("sfx_generated", "sfx_listen_complete", "placement_qa_ready"):
         assert key in snap["milestones"]
+
+
+def test_active_substep_write_approval_priority():
+    job = {
+        "status": "awaiting_write_approval",
+        "stage": "ingest",
+        "pending_write_stage": "ingest",
+        "message": "Review ingest outputs before saving",
+    }
+    out = _active_substep(None, job=job, blocking={}, hint=None)
+    assert out["active_substep_id"] == "write_approval"
+    assert "ingest" in out["active_substep_label"].lower()
+
+
+def test_active_substep_running_job():
+    job = {"status": "running", "stage": "transcribe", "current_stage": "transcribe"}
+    out = _active_substep(None, job=job, blocking={}, hint=None)
+    assert out["active_substep_id"] == "running"
+    assert "transcribe" in out["active_substep_label"].lower()
+
+
+def test_active_substep_blocked_gate(smoke_ctx):
+    snap = build_journey_snapshot(smoke_ctx)
+    blocking = snap.get("blocking") or {}
+    assert blocking.get("blocked")
+    out = _active_substep(smoke_ctx, job=None, blocking=blocking, hint=snap.get("execute_hint"))
+    assert str(out.get("active_substep_id") or "").startswith("blocked:")
 
 
 def test_journey_milestones_sfx_generated(tmp_path, monkeypatch):

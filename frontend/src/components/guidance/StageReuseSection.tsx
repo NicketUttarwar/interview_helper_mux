@@ -4,6 +4,7 @@ import { useStageReuseOffers } from "../../hooks/useStageReuseOffers";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import { StageReuseOfferCard } from "./StageReuseOfferCard";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
+import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function StageReuseSection({ stage }: { stage: StageInfo }) {
   const { run, runId } = useApp();
@@ -15,6 +16,19 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
   );
 
   const activeHash = sourceHashShort(run?.meta);
+  const reuseDecision = run?.meta?.stage_reuse?.[stage.id];
+
+  if (reuseDecision?.action && stage.status !== "done") {
+    const title =
+      reuseDecision.action === "accept"
+        ? "Reuse accepted — continuing with prior outputs"
+        : "Running fresh — reuse declined";
+    return (
+      <section className="stage-reuse-section panel-inset stage-reuse-section--done" aria-label="Previous execution reuse">
+        <StepDoneBanner variant="substep" title={title} />
+      </section>
+    );
+  }
 
   if (stage.status === "done") return null;
   if (!loading && !candidates.length) return null;
