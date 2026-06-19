@@ -122,7 +122,7 @@ function buildWriteApprovalAction(run: RunData, stageId: string): OperatorAction
     primaryLabel: checkpointPrimaryLabel(stageId, "write_approval", { fileCount }),
     primaryKind: "open_modal",
     primaryDisabled: false,
-    modalAutoOpen: true,
+    modalAutoOpen: false,
     blockingReason: "write_approval",
   };
 }
@@ -134,14 +134,14 @@ function buildReuseAction(run: RunData, stageId: string): OperatorAction {
     mode: "needs_you",
     stageId,
     substepId: `stage_reuse:${stageId}`,
-    headline: "Choose reuse or run fresh",
+    headline: `${title} — reuse or run fresh`,
     subline: count
-      ? `${count} prior run${count === 1 ? "" : "s"} with same audio`
-      : `${title} — reuse from a previous execution?`,
-    primaryLabel: checkpointPrimaryLabel(stageId, "stage_reuse"),
+      ? `${count} prior run${count === 1 ? "" : "s"} with matching audio — choose below.`
+      : "Pick a prior run or run this step fresh using the buttons below.",
+    primaryLabel: "Show reuse options",
     primaryKind: "open_modal",
     primaryDisabled: false,
-    modalAutoOpen: true,
+    modalAutoOpen: false,
     blockingReason: "stage_reuse",
   };
 }
@@ -152,11 +152,11 @@ function buildHandoffAction(run: RunData, stage: StageInfo): OperatorAction {
     stageId: stage.id,
     substepId: `handoff:${stage.id}`,
     headline: `Review AI outputs from ${stage.title}`,
-    subline: "Skim generated files, then acknowledge to continue.",
+    subline: "Skim generated files below, then acknowledge to continue.",
     primaryLabel: checkpointPrimaryLabel(stage.id, "handoff"),
     primaryKind: "open_modal",
     primaryDisabled: false,
-    modalAutoOpen: true,
+    modalAutoOpen: false,
     blockingReason: "handoff_review",
   };
 }
@@ -196,7 +196,7 @@ function buildGateAction(
     primaryLabel: checkpointPrimaryLabel(stageId, "gate"),
     primaryKind: "open_modal",
     primaryDisabled: false,
-    modalAutoOpen: true,
+    modalAutoOpen: false,
     blockingReason: blockingReason ?? stageId,
   };
 }
@@ -439,22 +439,20 @@ export function resolveOperatorActionForStage(
     return buildLockedAction(stage);
   }
 
-  const precleanOffer =
-    stage.id === "audio_preclean" && stage.status === "pending"
-      ? resolvePrecleanOffer(stage, run.meta)
-      : null;
-  if (precleanOffer) {
+  if (
+    stage.id === "audio_preclean" &&
+    stage.status === "pending" &&
+    resolvePrecleanOffer(stage, run.meta)
+  ) {
     return {
       mode: "needs_you",
       stageId: stage.id,
-      substepId: "optional:review",
-      headline: "Optional audio pre-clean",
-      subline: "Skip to keep the original recording, or run cleaning first.",
-      primaryLabel: "View optional offer",
+      substepId: "preclean:run",
+      headline: "Run audio pre-clean",
+      subline: "Clean background noise on the source recording before ingest.",
+      primaryLabel: "Run audio cleaning",
       primaryKind: "open_modal",
       primaryDisabled: false,
-      secondaryLabel: "Skip optional step",
-      secondaryKind: "skip_optional",
       modalAutoOpen: false,
     };
   }

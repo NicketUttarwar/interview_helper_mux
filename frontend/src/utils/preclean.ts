@@ -42,7 +42,7 @@ export function resolvePrecleanOffer(
     offer = {
       checkpoint: "before_ingest",
       scope: "full_source",
-      prompt: "Clean source interview background noise before ingest?",
+      prompt: "Clean source interview background noise before ingest.",
     };
   } else if (stage.id === "g1_vo_pickup" && stage.status === "done") {
     offer = {
@@ -72,7 +72,6 @@ export function isOptionalStageSkipped(
 }
 
 export function getOptionalSkipLabel(stage: StageInfo): string {
-  if (stage.id === "audio_preclean") return "Skip optional audio cleaning";
   return "Skip optional step";
 }
 
@@ -85,15 +84,11 @@ export function findActiveStage(
 
 export function findNextRunnableStage(
   stages: StageInfo[],
-  meta?: RunMeta | null,
+  _meta?: RunMeta | null,
 ): StageInfo | undefined {
   for (const s of stages) {
     if (s.status === "action_required" || s.status === "awaiting_write_approval") return s;
     if (s.status === "pending" && s.phase !== "gate") {
-      // Optional pre-clean never blocks downstream steps (ingest can run without it).
-      if (s.id === "audio_preclean" && meta && resolvePrecleanOffer(s, meta)) {
-        continue;
-      }
       return s;
     }
   }

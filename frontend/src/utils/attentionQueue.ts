@@ -337,15 +337,15 @@ export function listAttentionItems(
 
   for (const stage of run.stages) {
     const offer = resolvePrecleanOffer(stage, run.meta);
-    if (offer) {
+    if (offer && stage.id === "g1_vo_pickup") {
       push({
         kind: "optional",
         priority: 7,
         stageId: stage.id,
         stageTitle: stage.title,
-        title: "Optional audio pre-clean",
+        title: "Optional pickup cleaning",
         message: offer.prompt,
-        primaryLabel: checkpointPrimaryLabel(stage.id, "optional"),
+        primaryLabel: "Run pickup cleaning",
         phase: stagePhase(stage),
         subTab: "stage",
         optional: true,

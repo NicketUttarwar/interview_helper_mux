@@ -405,7 +405,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const closeActionModal = useCallback(() => {
     userDismissedActionRef.current = true;
-    setActionModalOpen(false);
     requestAnimationFrame(() => {
       const focusTarget =
         document.querySelector<HTMLElement>('[data-testid="step-action-primary"]') ??
@@ -608,8 +607,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const openActionModal = useCallback(() => {
     userDismissedActionRef.current = false;
-    setActionModalOpen(true);
     void focusPendingStage();
+    setActiveTabState("pipeline");
+    setPipelineSubTab("stage");
   }, [focusPendingStage]);
 
   const lastAutoOpenKeyRef = useRef<string | null>(null);
@@ -631,15 +631,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPipelineFilterNeedsYouState(true);
       pipelineFilterNeedsYouRef.current = true;
     }
-    if (action.mode !== "needs_you" || !action.modalAutoOpen || !action.stageId) return;
+    if (action.mode !== "needs_you" || !action.stageId) return;
     if (userDismissedActionRef.current) return;
     const key = `${action.stageId}:${action.substepId ?? ""}:${action.blockingReason ?? ""}`;
-    if (lastAutoOpenKeyRef.current === key && actionModalOpen) return;
+    if (lastAutoOpenKeyRef.current === key) return;
     lastAutoOpenKeyRef.current = key;
     void selectStage(action.stageId);
     expandStage(action.stageId);
     if (action.substepId) setActiveSubstepIdState(action.substepId);
-    openActionModal();
   }, [
     run,
     run?.job?.status,
@@ -647,8 +646,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     run?.journey?.blocking,
     run?.journey?.active_operator_action,
     jobRunning,
-    actionModalOpen,
-    openActionModal,
     selectStage,
     expandStage,
   ]);
@@ -704,8 +701,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ) {
               playAttentionPing(alertsMuted);
               const sid = polled.pending_write_stage || polled.stage;
-              if (sid) expandStage(sid);
-              if (!userDismissedActionRef.current) openActionModal();
+              if (sid) {
+                void selectStage(sid);
+                expandStage(sid);
+              }
             } else {
               const focusId = refreshed
                 ? resolveOperatorAction(refreshed, {
@@ -790,14 +789,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (res.needs_stage_reuse && res.stage) {
           await selectStage(res.stage);
-          openActionModal();
+          expandStage(res.stage);
           playAttentionPing(alertsMuted);
           await refreshRun();
           return false;
         }
         if (res.awaiting_write_approval && res.pending_write_stage) {
           await selectStage(res.pending_write_stage);
-          openActionModal();
+          expandStage(res.pending_write_stage);
           playAttentionPing(alertsMuted);
           await refreshRun();
           return false;
@@ -1104,7 +1103,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     selectedStageIdRef.current = null;
     setServerActiveRunId(null);
     setSessionLoadError(null);
-    setActionModalOpen(false);
     setActiveTabState("start");
     activeTabRef.current = "start";
     await refreshHome();
@@ -1119,8 +1117,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (sid) {
         await selectStage(sid);
         setPipelineSubTabWrapped("files");
+        expandStage(sid);
       }
-      if (!userDismissedActionRef.current) openActionModal();
       return;
     }
     if (
@@ -1131,8 +1129,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (sid) {
         await selectStage(sid);
         setPipelineSubTabWrapped("files");
+        expandStage(sid);
       }
-      if (!userDismissedActionRef.current) openActionModal();
       return;
     }
     const blocking = current.journey?.blocking ?? current.blocking;
@@ -1142,12 +1140,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       expandStage(sid);
       if (blocking.reason === "stage_reuse") {
         setPipelineSubTabWrapped("stage");
-        if (!userDismissedActionRef.current) openActionModal();
         return;
       }
       if (blocking.reason === "write_approval") {
         setPipelineSubTabWrapped("files");
-        if (!userDismissedActionRef.current) openActionModal();
         return;
       }
       if (
@@ -1159,31 +1155,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         blocking.reason === "handoff_review"
       ) {
         setPipelineSubTabWrapped("stage");
-        openActionModal();
         playAttentionPing(alertsMuted);
         return;
       }
     }
     if (current.job?.needs_stage_reuse && current.job.stage) {
       await selectStage(current.job.stage);
+      expandStage(current.job.stage);
       setPipelineSubTabWrapped("stage");
-      if (!userDismissedActionRef.current) openActionModal();
       return;
     }
     const handoffStage = findHandoffStage(current);
     if (handoffStage) {
       await selectStage(handoffStage.id);
+      expandStage(handoffStage.id);
       setPipelineSubTabWrapped("stage");
-      if (!userDismissedActionRef.current) openActionModal();
       return;
     }
     if (hasActionRequiredStage(current.stages)) {
       const blocked = current.stages.find((s) => s.status === "action_required");
       if (blocked) {
         await selectStage(blocked.id);
+        expandStage(blocked.id);
         setPipelineSubTabWrapped("stage");
       }
-      if (!userDismissedActionRef.current) openActionModal();
       playAttentionPing(alertsMuted);
       return;
     }
@@ -1198,11 +1193,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       next.id === "g2_flow_select"
     ) {
       await selectStage(next.id);
+      expandStage(next.id);
       setPipelineSubTabWrapped("stage");
-      openActionModal();
       return;
     }
-    setActionModalOpen(false);
     userDismissedActionRef.current = false;
     await selectStage(next.id);
     expandStage(next.id);
@@ -1238,7 +1232,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ stage_id: stageId }),
       });
       showToast("Handoff acknowledged.");
-      setActionModalOpen(false);
       userDismissedActionRef.current = false;
       await refreshRun();
       await pollLog(true);
@@ -1287,7 +1280,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           method: "POST",
         });
         showToast("Outputs saved.");
-        setActionModalOpen(false);
         userDismissedActionRef.current = false;
         const refreshed = await refreshRun();
         await pollLog(true);
@@ -1310,13 +1302,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (blocking.reason === "stage_reuse") {
             setActiveSubstepIdState(`stage_reuse:${blocking.stage_id}`);
             setPipelineSubTabWrapped("stage");
-            openActionModal();
             return true;
           }
           if (blocking.reason === "handoff_review") {
             setActiveSubstepIdState(`handoff:${blocking.stage_id}`);
             setPipelineSubTabWrapped("stage");
-            openActionModal();
             return true;
           }
         }
@@ -1325,13 +1315,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           jobRunning: false,
           apiGrants: ALL_API_CONSENTS,
         });
-        if (nextAction.mode === "needs_you" && nextAction.modalAutoOpen) {
-          if (nextAction.stageId) {
-            await selectStage(nextAction.stageId);
-            expandStage(nextAction.stageId);
-          }
+        if (nextAction.mode === "needs_you" && nextAction.stageId) {
+          await selectStage(nextAction.stageId);
+          expandStage(nextAction.stageId);
           if (nextAction.substepId) setActiveSubstepIdState(nextAction.substepId);
-          openActionModal();
           return true;
         }
         if (nextAction.mode === "idle" && nextAction.stageId && nextAction.primaryKind === "run_stage") {
@@ -1440,7 +1427,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setActionBusy(true);
     try {
-      setActionModalOpen(false);
       userDismissedActionRef.current = false;
       await runNextStage();
       const refreshed = runId ? await refreshRun() : run;
@@ -1450,11 +1436,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         jobRunning: false,
         apiGrants: ALL_API_CONSENTS,
       });
-      if (nextAction.mode === "needs_you" && nextAction.modalAutoOpen && nextAction.stageId) {
+      if (nextAction.mode === "needs_you" && nextAction.stageId) {
         await selectStage(nextAction.stageId);
         expandStage(nextAction.stageId);
         if (nextAction.substepId) setActiveSubstepIdState(nextAction.substepId);
-        openActionModal();
       }
     } finally {
       setActionBusy(false);
@@ -1475,17 +1460,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activateSubstep = useCallback(
     (substep: StageSubstep, opts?: { openModal?: boolean }) => {
-      const modalKinds = new Set([
-        "write_approval",
-        "reuse",
-        "gate",
-        "handoff",
-        "blocked",
-        "checkpoint",
-      ]);
-      const openModal =
-        opts?.openModal ??
-        (modalKinds.has(substep.kind) || activeTabRef.current !== "pipeline");
+      const openModal = opts?.openModal ?? false;
       activateSubstepUtil(
         substep,
         {

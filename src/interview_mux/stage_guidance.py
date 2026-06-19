@@ -645,7 +645,7 @@ def _stage_actions(
             actions.append(
                 _guidance_item(
                     "preclean",
-                    "Accept or dismiss optional pre-clean, then run",
+                    "Run audio pre-clean before ingest",
                     "todo",
                     kind="preclean",
                 )

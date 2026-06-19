@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, ApiError } from "../../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { ALL_API_CONSENTS } from "../../utils";
 import { formatTs } from "../../utils";
@@ -17,15 +17,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const {
-    runId,
-    refreshRun,
-    runNextStage,
-    showToast,
-    openActionModal,
-    closeActionModal,
-    beginStageExecution,
-  } = useApp();
+  const { runId, refreshRun, runNextStage, showToast, beginStageExecution } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -45,7 +37,6 @@ export function StageReuseOfferCard({
     }
     try {
       if (action === "decline_and_run") {
-        closeActionModal();
         const started = await beginStageExecution({
           kind: "decline_reuse_and_run",
           stageId: stage.id,
@@ -65,7 +56,6 @@ export function StageReuseOfferCard({
           api_consents: ALL_API_CONSENTS,
         }),
       });
-      closeActionModal();
       await refreshRun();
       let pending: { paths?: string[] } | null = null;
       for (let i = 0; i < 8; i++) {
@@ -77,12 +67,11 @@ export function StageReuseOfferCard({
         await refreshRun();
       }
       if (pending?.paths?.length) {
-        openActionModal();
-      } else {
-        await runNextStage();
+        return;
       }
+      await runNextStage();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Reuse action failed");
+      showToast(e instanceof Error ? e.message : "Reuse action failed");
     } finally {
       setSubmitting(false);
     }

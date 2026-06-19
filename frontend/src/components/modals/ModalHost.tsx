@@ -1,14 +1,8 @@
 import { useApp } from "../../context/AppContext";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { OperatorActionModal } from "./OperatorActionModal";
 
 export function ModalHost() {
-  const { actionModalOpen, confirmMessage } = useApp();
+  const { confirmMessage } = useApp();
 
-  return (
-    <>
-      {confirmMessage ? <ConfirmDialog /> : null}
-      {actionModalOpen ? <OperatorActionModal /> : null}
-    </>
-  );
+  return confirmMessage ? <ConfirmDialog /> : null;
 }

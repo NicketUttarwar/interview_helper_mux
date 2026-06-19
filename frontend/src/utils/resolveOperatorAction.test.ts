@@ -69,7 +69,7 @@ describe("resolveOperatorAction", () => {
     const a = resolveOperatorAction(run);
     expect(a.mode).toBe("needs_you");
     expect(a.substepId).toBe("write_approval:ingest");
-    expect(a.modalAutoOpen).toBe(true);
+    expect(a.modalAutoOpen).toBe(false);
     expect(a.primaryKind).toBe("open_modal");
     expect(a.headline).toMatch(/Review Ingest/);
   });
@@ -203,7 +203,7 @@ describe("resolveOperatorAction gate branches", () => {
     expect(a.mode).toBe("needs_you");
     expect(a.stageId).toBe(stageId);
     expect(a.primaryKind).toBe("open_modal");
-    expect(a.modalAutoOpen).toBe(true);
+    expect(a.modalAutoOpen).toBe(false);
   });
 
   it("handoff_review blocking maps to needs_you", () => {

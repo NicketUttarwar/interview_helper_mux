@@ -9,6 +9,30 @@ export interface OperatorActionHandlers {
   skipOptional?: (stageId: string) => void;
 }
 
+function scrollToCheckpoint(substepId?: string | null, blockingReason?: string): void {
+  if (typeof document === "undefined") return;
+  const scroll = () => {
+    let target: Element | null = null;
+    if (blockingReason === "stage_reuse" || substepId?.includes("stage_reuse")) {
+      target = document.querySelector(".stage-reuse-section");
+    } else if (blockingReason === "write_approval" || substepId?.includes("write_approval")) {
+      target = document.getElementById("write-approval-panel");
+    } else if (blockingReason === "handoff_review" || substepId?.includes("handoff")) {
+      target = document.getElementById("stage-handoff-panel");
+    } else if (substepId?.includes("preclean")) {
+      target = document.querySelector(".preclean-offer-card");
+    } else {
+      target = document.getElementById("stage-gate-panel");
+    }
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(scroll);
+  } else {
+    scroll();
+  }
+}
+
 export function invokeOperatorActionPrimary(
   action: OperatorAction,
   handlers: OperatorActionHandlers,
@@ -16,6 +40,7 @@ export function invokeOperatorActionPrimary(
   switch (action.primaryKind) {
     case "open_modal":
       handlers.openModal(action.stageId, action.substepId);
+      scrollToCheckpoint(action.substepId, action.blockingReason);
       break;
     case "run_stage":
       if (action.stageId) handlers.runStage(action.stageId);
@@ -50,3 +75,5 @@ export function invokeOperatorActionSecondary(
 export function executeBodyForStage(stageId: string): ExecuteBody {
   return { mode: "stage", stage: stageId };
 }
+
+export { scrollToCheckpoint };

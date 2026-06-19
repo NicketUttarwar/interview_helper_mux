@@ -18,7 +18,7 @@ class StageInfo:
 ANALYSIS_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "audio_preclean",
-        "Audio pre-clean (optional)",
+        "Audio pre-clean",
         "Optional DeepFilterNet noise reduction before ingest; runs only when operator enables pre-clean.",
         "analysis",
         ("preclean/provider.json", "preclean/lineage.json"),

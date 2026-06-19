@@ -219,32 +219,33 @@ export function buildStageSubsteps(
   }
 
   const offer = resolvePrecleanOffer(stage, run.meta);
-  if (offer && !isOptionalStageSkipped(stage, run.meta)) {
+  if (offer && stage.id === "g1_vo_pickup" && !isOptionalStageSkipped(stage, run.meta)) {
     const hasOptional = substeps.some((s) => s.kind === "optional");
     if (!hasOptional) {
       substeps.push(
         {
           id: "optional:review",
-          label: "Review optional audio cleaning",
+          label: "Review optional pickup cleaning",
           status: "todo",
           kind: "optional",
           stageId: stage.id,
           source: "attention",
-          primaryLabel: "View optional offer",
-          targetSubTab: "stage",
-        },
-        {
-          id: "optional:skip",
-          label: "Skip this optional step",
-          status: "todo",
-          kind: "optional",
-          stageId: stage.id,
-          source: "attention",
-          primaryLabel: "Skip",
+          primaryLabel: "Run pickup cleaning",
           targetSubTab: "stage",
         },
       );
     }
+  } else if (offer && stage.id === "audio_preclean") {
+    substeps.push({
+      id: "preclean:run",
+      label: "Run audio cleaning",
+      status: stage.status === "done" ? "done" : "todo",
+      kind: "checkpoint",
+      stageId: stage.id,
+      source: "attention",
+      primaryLabel: "Run audio cleaning",
+      targetSubTab: "stage",
+    });
   }
 
   const hintId = run.journey?.active_substep_id;

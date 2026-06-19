@@ -13,70 +13,9 @@ function sub(partial: Partial<StageSubstep> & Pick<StageSubstep, "kind" | "stage
 }
 
 describe("activateSubstep", () => {
-  it("opens modal and targets write approval section", () => {
-    const openActionModal = vi.fn();
+  it("routes write approval to files sub-tab and scroll target", () => {
     const setPipelineSubTab = vi.fn();
     const selectStage = vi.fn();
-    activateSubstep(
-      sub({
-        kind: "write_approval",
-        stageId: "ingest",
-        targetSection: "modal-write-approval",
-        targetSubTab: "files",
-      }),
-      {
-        selectStage,
-        setActiveTab: vi.fn(),
-        setPipelineSubTab,
-        openActionModal,
-        closeActionModal: vi.fn(),
-        runNextStage: vi.fn(),
-      },
-      { scrollSection: false, openModal: true },
-    );
-    expect(selectStage).toHaveBeenCalledWith("ingest");
-    expect(setPipelineSubTab).toHaveBeenCalledWith("files");
-    expect(openActionModal).toHaveBeenCalled();
-  });
-
-  it("routes profile to profile sub-tab", () => {
-    const setPipelineSubTab = vi.fn();
-    activateSubstep(
-      sub({ kind: "profile", stageId: "analysis_profile" }),
-      {
-        selectStage: vi.fn(),
-        setActiveTab: vi.fn(),
-        setPipelineSubTab,
-        openActionModal: vi.fn(),
-        closeActionModal: vi.fn(),
-        runNextStage: vi.fn(),
-      },
-      { openModal: false },
-    );
-    expect(setPipelineSubTab).toHaveBeenCalledWith("profile");
-  });
-
-  it("does not auto-run for run kind todo (navigation only)", () => {
-    const runNextStage = vi.fn();
-    const openActionModal = vi.fn();
-    activateSubstep(
-      sub({ kind: "run", stageId: "ingest" }),
-      {
-        selectStage: vi.fn(),
-        setActiveTab: vi.fn(),
-        setPipelineSubTab: vi.fn(),
-        openActionModal,
-        closeActionModal: vi.fn(),
-        runNextStage,
-      },
-    );
-    expect(runNextStage).not.toHaveBeenCalled();
-    expect(openActionModal).not.toHaveBeenCalled();
-  });
-
-  it("inline write approval scrolls to panel without opening modal", () => {
-    const openActionModal = vi.fn();
-    const closeActionModal = vi.fn();
     const scrollIntoView = vi.fn();
     vi.stubGlobal(
       "document",
@@ -96,75 +35,83 @@ describe("activateSubstep", () => {
       sub({
         kind: "write_approval",
         stageId: "ingest",
-        targetSection: "modal-write-approval",
         targetSubTab: "files",
       }),
       {
-        selectStage: vi.fn(),
+        selectStage,
         setActiveTab: vi.fn(),
-        setPipelineSubTab: vi.fn(),
-        openActionModal,
-        closeActionModal,
+        setPipelineSubTab,
+        openActionModal: vi.fn(),
+        closeActionModal: vi.fn(),
         runNextStage: vi.fn(),
       },
-      { openModal: false },
     );
-
-    expect(openActionModal).not.toHaveBeenCalled();
-    expect(closeActionModal).toHaveBeenCalled();
+    expect(selectStage).toHaveBeenCalledWith("ingest");
+    expect(setPipelineSubTab).toHaveBeenCalledWith("files");
     expect(scrollIntoView).toHaveBeenCalled();
-
     vi.unstubAllGlobals();
   });
 
-  it("opens modal for gate substep when openModal true", () => {
-    const openActionModal = vi.fn();
+  it("routes profile to profile sub-tab", () => {
+    const setPipelineSubTab = vi.fn();
     activateSubstep(
-      sub({ kind: "gate", stageId: "transcript_review", targetSection: "modal-gates" }),
+      sub({ kind: "profile", stageId: "analysis_profile" }),
       {
         selectStage: vi.fn(),
         setActiveTab: vi.fn(),
-        setPipelineSubTab: vi.fn(),
-        openActionModal,
+        setPipelineSubTab,
+        openActionModal: vi.fn(),
         closeActionModal: vi.fn(),
         runNextStage: vi.fn(),
       },
-      { openModal: true, scrollSection: false },
     );
-    expect(openActionModal).toHaveBeenCalled();
+    expect(setPipelineSubTab).toHaveBeenCalledWith("profile");
   });
 
-  it("opens modal for reuse substep when openModal true", () => {
-    const openActionModal = vi.fn();
+  it("does not auto-run for run kind todo", () => {
+    const runNextStage = vi.fn();
     activateSubstep(
-      sub({ kind: "reuse", stageId: "transcribe", targetSection: "modal-reuse" }),
+      sub({ kind: "run", stageId: "ingest" }),
       {
         selectStage: vi.fn(),
         setActiveTab: vi.fn(),
         setPipelineSubTab: vi.fn(),
-        openActionModal,
+        openActionModal: vi.fn(),
         closeActionModal: vi.fn(),
-        runNextStage: vi.fn(),
+        runNextStage,
       },
-      { openModal: true, scrollSection: false },
     );
-    expect(openActionModal).toHaveBeenCalled();
+    expect(runNextStage).not.toHaveBeenCalled();
   });
 
-  it("opens modal for handoff substep when openModal true", () => {
-    const openActionModal = vi.fn();
+  it("scrolls to gate panel for gate substeps", () => {
+    const scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      "document",
+      {
+        getElementById: vi.fn((id: string) =>
+          id === "stage-gate-panel" ? { scrollIntoView } : null,
+        ),
+        querySelector: vi.fn(),
+      } as unknown as Document,
+    );
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+
     activateSubstep(
-      sub({ kind: "handoff", stageId: "ingest", targetSection: "modal-handoff" }),
+      sub({ kind: "gate", stageId: "transcript_review" }),
       {
         selectStage: vi.fn(),
         setActiveTab: vi.fn(),
         setPipelineSubTab: vi.fn(),
-        openActionModal,
+        openActionModal: vi.fn(),
         closeActionModal: vi.fn(),
         runNextStage: vi.fn(),
       },
-      { openModal: true, scrollSection: false },
     );
-    expect(openActionModal).toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

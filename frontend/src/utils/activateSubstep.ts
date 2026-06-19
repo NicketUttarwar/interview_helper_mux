@@ -47,13 +47,12 @@ function scrollToSelector(selector: string): void {
   }
 }
 
-/** Move the GUI to the right place for a substep activation. */
+/** Move the GUI to the right place for a substep activation (inline only). */
 export function activateSubstep(
   substep: StageSubstep,
   handlers: ActivateSubstepHandlers,
   opts: { openModal?: boolean; scrollSection?: boolean } = {},
 ): void {
-  const openModal = opts.openModal ?? false;
   const scrollSection = opts.scrollSection ?? true;
 
   handlers.setActiveSubstepId?.(substep.id);
@@ -66,49 +65,23 @@ export function activateSubstep(
 
   switch (substep.kind) {
     case "write_approval":
-      handlers.closeActionModal();
-      if (scrollSection) {
-        scrollToSection(
-          openModal
-            ? substep.targetSection || "modal-write-approval"
-            : "write-approval-panel",
-        );
-      }
-      if (openModal) handlers.openActionModal();
+      if (scrollSection) scrollToSection("write-approval-panel");
       return;
 
     case "handoff":
-      if (openModal) handlers.openActionModal();
-      else handlers.closeActionModal();
-      if (scrollSection) {
-        scrollToSection(
-          openModal
-            ? substep.targetSection || "modal-handoff"
-            : "stage-handoff-panel",
-        );
-      }
+      if (scrollSection) scrollToSection("stage-handoff-panel");
       return;
 
     case "reuse":
-      handlers.closeActionModal();
-      if (openModal) handlers.openActionModal();
-      else scrollToSelector(".stage-reuse-section");
-      if (scrollSection && openModal) {
-        scrollToSection(substep.targetSection || "modal-reuse");
-      }
+      if (scrollSection) scrollToSelector(".stage-reuse-section");
       return;
 
     case "gate":
     case "blocked":
     case "checkpoint":
-      if (openModal) handlers.openActionModal();
-      else handlers.closeActionModal();
-      if (scrollSection) {
-        scrollToSection(
-          openModal
-            ? substep.targetSection || "modal-gates"
-            : "stage-gate-panel",
-        );
+      if (scrollSection) scrollToSection("stage-gate-panel");
+      if (substep.id.includes("preclean")) {
+        scrollToSelector(".preclean-offer-card");
       }
       return;
 
@@ -126,11 +99,10 @@ export function activateSubstep(
         handlers.setActivityLogTab?.("live");
         handlers.setActivityLogCollapsed?.(false);
         handlers.showToast?.(
-          "This step is running in the background — watch Activity log below.",
+          "This step is running — watch the activity log below.",
         );
         return;
       }
-      if (openModal) handlers.openActionModal();
       return;
 
     case "start":
@@ -143,16 +115,12 @@ export function activateSubstep(
         return;
       }
       handlers.setPipelineSubTab("stage");
-      handlers.closeActionModal();
       scrollToSelector(".preclean-offer-card");
       return;
 
     default:
-      if (substep.targetSection && openModal) {
-        handlers.openActionModal();
-        if (scrollSection) scrollToSection(substep.targetSection);
-      } else if (openModal) {
-        handlers.openActionModal();
+      if (substep.targetSection && scrollSection) {
+        scrollToSection(substep.targetSection);
       }
   }
 }

@@ -121,11 +121,7 @@ export function GateActions({ stage }: Props) {
     stage,
     (
     <div className="gate-actions">
-      {precleanOffer ? (
-        <div className="attention-optional">
-          <PrecleanOfferCard stage={stage} offer={precleanOffer} />
-        </div>
-      ) : null}
+      {precleanOffer ? <PrecleanOfferCard stage={stage} offer={precleanOffer} /> : null}
 
       <div className="attention-required-wrap">
       <StageAudioActions stage={stage} />

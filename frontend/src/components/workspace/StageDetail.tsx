@@ -33,7 +33,6 @@ export function StageDetail() {
     config,
     selectedStage,
     selectedStageId,
-    actionModalOpen,
     jobRunning,
     apiGrants,
     actionBusy,
@@ -41,12 +40,12 @@ export function StageDetail() {
     redoFromStage,
     appendClientLog,
     setPipelineSubTab,
-    openActionModal,
     executeJob,
     runNextStage,
     setActivityLogTab,
     setActivityLogCollapsed,
     setActiveSubstepId,
+    expandStage,
     skipOptionalStage,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
@@ -138,17 +137,14 @@ export function StageDetail() {
     !showHandoff &&
     !stageNeedsPendingAction(run, selectedStage.id, apiGrants);
 
-  const modalOwnsCheckpoint =
-    actionModalOpen && stageAction.mode === "needs_you";
-
-  const showInlineCheckpoints = !modalOwnsCheckpoint;
-
   const handlePrimary = () => {
     invokeOperatorActionPrimary(stageAction, {
       openModal: (sid, subId) => {
-        if (sid) void selectStage(sid);
+        if (sid) {
+          void selectStage(sid);
+          expandStage(sid);
+        }
         if (subId) setActiveSubstepId(subId);
-        openActionModal();
       },
       runStage: (sid) => void executeJob(executeBodyForStage(sid)),
       continueNext: () => void runNextStage(),
@@ -222,29 +218,30 @@ export function StageDetail() {
         </div>
       ) : (
         <>
-          <StageGuidancePanel stage={selectedStage} hideActions={stageAction.mode === "needs_you"} />
+          <StageGuidancePanel stage={selectedStage} />
 
           {selectedStage.id === "assembly_preview" ? <PreviewListenPromo /> : null}
 
           <StageActivityStrip />
 
-          {showInlineCheckpoints && !writePendingOnly ? (
-            <StageReuseSection stage={selectedStage} />
-          ) : null}
-          {showInlineCheckpoints ? (
-            <WriteApprovalPanel stage={selectedStage} />
-          ) : null}
+          {!writePendingOnly ? <StageReuseSection stage={selectedStage} /> : null}
+          <WriteApprovalPanel stage={selectedStage} />
 
-          {showInlineCheckpoints && needsGateCheckpoint ? (
+          {needsGateCheckpoint ? (
             <div className="stage-detail-checkpoint panel-inset" id="stage-gate-panel">
               <h3 className="stage-outputs-title">Your action</h3>
               <GateActions stage={selectedStage} />
               {showHandoff ? <HandoffPanel /> : null}
             </div>
-          ) : showInlineCheckpoints &&
-            (selectedStage.status === "action_required" ||
-              (run?.job?.status === "gate" && run.job.stage === selectedStage.id)) ? (
+          ) : selectedStage.status === "action_required" ||
+            (run?.job?.status === "gate" && run.job.stage === selectedStage.id) ? (
             <GateActions stage={selectedStage} />
+          ) : null}
+
+          {showHandoff && !needsGateCheckpoint ? (
+            <div className="stage-detail-checkpoint panel-inset" id="stage-handoff-panel">
+              <HandoffPanel />
+            </div>
           ) : null}
 
           <StageOutputsPanel stage={selectedStage} />

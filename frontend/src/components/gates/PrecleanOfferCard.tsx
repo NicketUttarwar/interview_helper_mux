@@ -17,9 +17,10 @@ export function PrecleanOfferCard({
   stage: StageInfo;
   offer: Offer;
 }) {
-  const { run, runId, refreshRun, executeJob, showToast } = useApp();
+  const { run, runId, refreshRun, beginStageExecution, showToast } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const settled = precleanOfferSettled(run?.meta?.audio_preclean, offer.checkpoint);
+  const isBeforeIngest = offer.checkpoint === "before_ingest";
 
   useEffect(() => {
     if (settled) return;
@@ -38,7 +39,7 @@ export function PrecleanOfferCard({
 
   if (settled) return null;
 
-  const submit = async (action: "accept" | "dismiss") => {
+  const runCleaning = async () => {
     if (!runId || submitting) return;
     setSubmitting(true);
     try {
@@ -47,28 +48,20 @@ export function PrecleanOfferCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           checkpoint: offer.checkpoint,
-          action,
+          action: "accept",
           scope: offer.scope,
         }),
       });
-      if (action === "accept") {
-        showToast(
-          offer.checkpoint === "g1_vo_pickup"
-            ? "Running pickup cleaning…"
-            : "Running audio cleaning…",
-        );
-        await executeJob({ mode: "stage", stage: "audio_preclean" });
-      } else {
-        showToast("Skipped audio cleaning — continuing with original audio.");
-        await refreshRun();
-        if (offer.checkpoint === "before_ingest") {
-          await executeJob({ mode: "stage", stage: "ingest" });
-        }
-      }
+      showToast(
+        offer.checkpoint === "g1_vo_pickup"
+          ? "Running pickup cleaning…"
+          : "Running audio cleaning…",
+      );
+      await beginStageExecution({ kind: "execute", stageId: "audio_preclean" });
       await refreshRun();
     } catch (e) {
       showToast(
-        e instanceof ApiError ? e.message : "Could not save pre-clean choice — try again.",
+        e instanceof ApiError ? e.message : "Could not start audio cleaning — try again.",
       );
     } finally {
       setSubmitting(false);
@@ -77,29 +70,32 @@ export function PrecleanOfferCard({
 
   return (
     <div className="quality-offer-card preclean-offer-card">
-      <h4 className="quality-offer-title">Optional audio cleaning</h4>
+      <h4 className="quality-offer-title">
+        {isBeforeIngest ? "Audio pre-clean" : "Optional pickup cleaning"}
+      </h4>
       <p className="hint">{offer.prompt}</p>
-      <p className="muted">
-        Optional — never runs automatically. Skip to keep the original recording.
-      </p>
+      {isBeforeIngest ? (
+        <p className="muted">Required before ingest — reduces background noise on the source recording.</p>
+      ) : (
+        <p className="muted">Optional — clean new pickup recordings before VO ingest.</p>
+      )}
       <div className="flow-choice preclean-offer-actions">
-        <button
-          type="button"
-          className="btn ghost"
-          disabled={submitting}
-          data-testid={`preclean-dismiss-${offer.checkpoint}`}
-          onClick={() => void submit("dismiss")}
-        >
-          Skip cleaning
-        </button>
         <button
           type="button"
           className="btn primary"
           disabled={submitting}
           data-testid={`preclean-accept-${offer.checkpoint}`}
-          onClick={() => void submit("accept")}
+          onClick={() => void runCleaning()}
         >
-          Run cleaning
+          {submitting ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Starting…
+            </>
+          ) : isBeforeIngest ? (
+            "Run audio cleaning"
+          ) : (
+            "Run pickup cleaning"
+          )}
         </button>
       </div>
     </div>

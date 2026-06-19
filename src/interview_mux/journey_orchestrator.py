@@ -158,18 +158,6 @@ def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, boo
     return None
 
 
-def _optional_preclean_deferred(ctx: RunContext, stage_id: str) -> bool:
-    """True when optional audio pre-clean is pending but not required to block downstream."""
-    if stage_id != "audio_preclean" or ctx.is_done("audio_preclean"):
-        return False
-    from interview_mux.operator_quality import preclean_checkpoint_decision
-
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    if preclean_checkpoint_decision(meta, "before_ingest") == "accept":
-        return False
-    return True
-
-
 def _next_pending_stage_ids(ctx: RunContext) -> list[str]:
     from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
     from interview_mux.gates import get_selected_flow
@@ -182,8 +170,7 @@ def _next_pending_stage_ids(ctx: RunContext) -> list[str]:
         order.extend(FLOW2_ORDER)
     elif flow == "flow3":
         order.extend(FLOW3_ORDER)
-    pending = [sid for sid in order if not ctx.is_done(sid)]
-    return [sid for sid in pending if not _optional_preclean_deferred(ctx, sid)]
+    return [sid for sid in order if not ctx.is_done(sid)]
 
 
 def _blocking(

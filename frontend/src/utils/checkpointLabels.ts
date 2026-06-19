@@ -12,7 +12,7 @@ export function checkpointPrimaryLabel(
       ? `Save ${fc} file${fc === 1 ? "" : "s"} & continue`
       : "Save & continue";
   }
-  if (kind === "stage_reuse") return "Choose reuse or run fresh";
+  if (kind === "stage_reuse") return "Show reuse options";
   if (kind === "handoff") return "Review outputs";
   if (kind === "milestone") {
     if (stageId === "assembly_preview") return "Listen to preview";

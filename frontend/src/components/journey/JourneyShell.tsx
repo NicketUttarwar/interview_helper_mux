@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { useApp } from "../../context/AppContext";
 import { DeliverableCard } from "../workspace/DeliverableCard";
-import { AudioQualityDrawer } from "../workspace/AudioQualityDrawer";
 import { isPhaseFullyComplete } from "../../utils/phaseSubsteps";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
@@ -29,7 +28,6 @@ export function JourneyShell({ children }: JourneyShellProps) {
           title={`${phase.charAt(0).toUpperCase()}${phase.slice(1)} phase complete`}
         />
       ) : null}
-      <AudioQualityDrawer />
       {children}
       <DeliverableCard />
     </div>
