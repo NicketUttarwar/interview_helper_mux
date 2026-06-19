@@ -8,6 +8,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from interview_mux.operator_subprocess import run_command
+from interview_mux.operator_trace import log_api_call, resolve_ctx, resolve_stage
+
 logger = logging.getLogger(__name__)
 
 RUNTIME_IDS = frozenset({"mlx", "deepfilter", "mmaudio"})
@@ -93,12 +96,26 @@ def run_runtime_script(
     cwd: Path | None = None,
     env_extra: dict[str, str] | None = None,
     stdin_data: str | None = None,
+    ctx: Any = None,
+    stage: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     python = resolve_venv_python(runtime_id)
     script = repo_root() / script_rel
     if not script.is_file():
         raise LocalRuntimeUnavailable(f"Missing runtime script: {script}")
     cmd = [str(python), str(script), *args]
+    script_name = Path(script_rel).name
+    label = f"{runtime_id}/{script_name}"
+    sid = resolve_stage(stage)
+    run = resolve_ctx(ctx)
+    if run:
+        log_api_call(
+            "local_runtime",
+            label,
+            ctx=run,
+            stage=sid,
+            detail={"runtime_id": runtime_id, "script": script_rel},
+        )
     env = None
     if env_extra:
         import os
@@ -107,14 +124,61 @@ def run_runtime_script(
         env.update(env_extra)
     timeout = timeout_sec if timeout_sec is not None else _default_timeout(runtime_id)
     try:
-        return subprocess.run(
+        if stdin_data is not None:
+            if run:
+                from interview_mux.operator_subprocess import run_logged_command
+
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=str(cwd or repo_root()),
+                    env=env,
+                )
+                stdout, stderr = proc.communicate(stdin_data, timeout=timeout)
+                if proc.returncode != 0:
+                    from interview_mux.operator_subprocess import LocalCommandError
+
+                    run.log(
+                        f"Local runtime failed (exit {proc.returncode}): {label}",
+                        level="error",
+                        stage=sid,
+                        detail={"stderr": (stderr or "")[:500]},
+                    )
+                    raise LocalRuntimeUnavailable(
+                        f"Local runtime {runtime_id} failed: {(stderr or stdout or '')[:500]}"
+                    )
+                for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
+                    for line in (text or "").splitlines():
+                        if line.strip():
+                            run.log(
+                                line,
+                                level="info",
+                                stage=sid,
+                                detail={"stream": stream_name, "journey_kind": "execute"},
+                            )
+                run.log(f"Done: {label}", level="success", stage=sid)
+                return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
+            return subprocess.run(
+                cmd,
+                input=stdin_data,
+                cwd=str(cwd or repo_root()),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                check=False,
+            )
+        return run_command(
             cmd,
-            input=stdin_data,
+            ctx=run,
+            stage=sid,
+            label=label,
             cwd=str(cwd or repo_root()),
-            capture_output=True,
-            text=True,
             timeout=timeout,
-            env=env,
+            capture_output=True,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -127,23 +191,18 @@ def run_runtime_json(
     payload: dict[str, Any],
     *,
     timeout_sec: int | None = None,
+    ctx: Any = None,
+    stage: str | None = None,
 ) -> dict[str, Any]:
-    python = resolve_venv_python(runtime_id)
-    script = repo_root() / script_rel
-    if not script.is_file():
-        raise LocalRuntimeUnavailable(f"Missing runtime script: {script}")
-    timeout = timeout_sec if timeout_sec is not None else _default_timeout(runtime_id)
-    try:
-        proc = subprocess.run(
-            [str(python), str(script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} timed out after {timeout}s") from exc
+    proc = run_runtime_script(
+        runtime_id,
+        script_rel,
+        [],
+        timeout_sec=timeout_sec,
+        stdin_data=json.dumps(payload),
+        ctx=ctx,
+        stage=stage,
+    )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()[:500]
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err}")

@@ -279,6 +279,36 @@ class JobRunner:
             "Grant access in the GUI, then try again."
         )
 
+    def _busy_job_error(self, run_id: str, *, reason: str) -> dict[str, Any]:
+        job = self.get_job(run_id)
+        stage_id = job.get("current_stage") or job.get("stage")
+        title = self._stage_title(stage_id)
+        msg = job.get("message") or ""
+        if stage_id:
+            detail = f"{title} is already running"
+            if msg and msg not in detail:
+                detail = f"{detail} — {msg}"
+            error = (
+                f"A job is already running for this run ({detail}). "
+                "Watch Activity for live command output."
+            )
+        else:
+            error = (
+                "A job is already running for this run. "
+                "Watch Activity for live command output."
+            )
+        if reason == "directory":
+            error = (
+                f"{error} If nothing is progressing, another server process may hold "
+                "the run lock — stop duplicate instances or refresh after restart."
+            )
+        try:
+            ctx = RunContext(run_id, create=False)
+            ctx.log(error, level="warning", stage=stage_id or "gui")
+        except OSError:
+            pass
+        return {"ok": False, "error": error, "job": job}
+
     def start(
         self,
         run_id: str,
@@ -295,10 +325,10 @@ class JobRunner:
         lock = self._lock_for(run_id)
         dir_lock = RunDirectoryLock(run_id)
         if not lock.acquire(blocking=False):
-            return {"ok": False, "error": "A job is already running for this run."}
+            return self._busy_job_error(run_id, reason="thread")
         if not dir_lock.acquire(blocking=False):
             lock.release()
-            return {"ok": False, "error": "A job is already running for this run."}
+            return self._busy_job_error(run_id, reason="directory")
 
         ctx_pre = RunContext(run_id, create=False)
         consent_err = self._check_api_consent(
@@ -427,7 +457,10 @@ class JobRunner:
             }
 
         def _run() -> None:
+            from interview_mux.operator_trace import active_run_context
+
             ctx = RunContext(run_id, create=False)
+            ctx_token = active_run_context.set(ctx)
             label = stage or from_stage or mode
             info = STAGE_BY_ID.get(label or "")
             stage_ids = self._stages_for_execute(
@@ -637,6 +670,7 @@ class JobRunner:
                 clear_job_progress(run_id)
                 dir_lock.release()
                 lock.release()
+                active_run_context.reset(ctx_token)
 
         Thread(target=_run, daemon=True).start()
         return {"ok": True, "run_id": run_id, "mode": mode}

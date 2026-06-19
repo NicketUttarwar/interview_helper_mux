@@ -1634,10 +1634,18 @@ def create_app() -> FastAPI:
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
         if runner.is_running(run_id):
+            job = runner.get_job(run_id)
+            stage_id = job.get("current_stage") or job.get("stage")
+            stage_label = (
+                STAGE_BY_ID[stage_id].title
+                if stage_id and stage_id in STAGE_BY_ID
+                else (stage_id or "pipeline").replace("_", " ")
+            )
+            msg = job.get("message") or f"Running {stage_label}"
             raise HTTPException(
                 409,
-                "A job is already running for this run. Watch Logs for progress, "
-                "or refresh the page if the server restarted.",
+                f"A job is already running for this run ({stage_label}: {msg}). "
+                "Watch Activity for live command output.",
             )
         stage = body.stage or body.from_stage
         stage_label = (

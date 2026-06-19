@@ -188,6 +188,16 @@ def run_prompt_envelope(
     fmt = _default_response_format(task_kind, response_format)
     if fmt:
         kwargs["response_format"] = fmt
+    if ctx:
+        from interview_mux.operator_trace import log_api_call
+
+        log_api_call(
+            "OpenAI",
+            f"chat.completions ({chosen}, {task_kind})",
+            ctx=ctx,
+            stage=stage_key,
+            detail={"model": chosen, "task_kind": task_kind, "turns": len(chat_messages)},
+        )
     resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or ""
     envelope = normalize_envelope(_extract_json(content))
@@ -227,8 +237,9 @@ def run_prompt_envelope(
             f"LLM {stage_key}: status={envelope.get('status')} "
             f"needs={len(envelope.get('needs') or [])} "
             f"context_turns={turns} context_chars≈{chars}",
-            level="info",
+            level="success",
             stage=stage_key,
+            detail={"journey_kind": "execute", "model": chosen},
         )
     return envelope
 

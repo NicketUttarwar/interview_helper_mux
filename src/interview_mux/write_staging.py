@@ -272,14 +272,27 @@ def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
 
 def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     """Execute a stage function with optional write staging."""
-    if write_approval_enabled():
-        enter_stage_staging(stage_id)
+    from interview_mux.operator_trace import active_run_context, log_step
+
+    ctx_token = active_run_context.set(ctx)
     try:
-        fn()
-    finally:
+        log_step(f"Preparing stage: {stage_id}", ctx=ctx, stage=stage_id)
         if write_approval_enabled():
-            exit_stage_staging()
-    after_stage_write_check(ctx, stage_id)
+            enter_stage_staging(stage_id)
+        try:
+            fn()
+            ctx.log(
+                f"Stage finished: {stage_id}",
+                level="success",
+                stage=stage_id,
+                detail={"journey_kind": "execute", "event": "stage_finish"},
+            )
+        finally:
+            if write_approval_enabled():
+                exit_stage_staging()
+        after_stage_write_check(ctx, stage_id)
+    finally:
+        active_run_context.reset(ctx_token)
 
 
 def check_write_approval_before_execute(ctx: RunContext) -> WriteApprovalPending | None:

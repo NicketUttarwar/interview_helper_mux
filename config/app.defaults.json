@@ -212,7 +212,7 @@
     "story_board": true,
     "unified_preclean_drawer": true,
     "express_flow1": true,
-    "journey_log_filter": true,
+    "journey_log_filter": false,
     "require_preview_listen": false,
     "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,

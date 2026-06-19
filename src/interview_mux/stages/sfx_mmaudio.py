@@ -679,11 +679,13 @@ def _collect_cues(brief: dict, profile: str) -> list[dict]:
 
 def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
     """Trim generated output when plan duration is below MMAudio minimum."""
+    from interview_mux.operator_subprocess import run_command
+
     target_sec = float(duration_seconds)
     api_min_sec = clamp_duration_seconds(target_sec)
     if target_sec >= api_min_sec - 0.05:
         return
-    subprocess.run(
+    run_command(
         [
             "ffmpeg",
             "-y",
@@ -697,7 +699,8 @@ def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
             "1",
             str(path.with_suffix(".trim.wav")),
         ],
-        check=True,
+        stage="mmaudio_sfx_flow1",
+        label=f"ffmpeg trim {path.name}",
         capture_output=True,
     )
     trimmed = path.with_suffix(".trim.wav")
@@ -705,18 +708,23 @@ def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
 
 
 def _write_silent_wav(path: Path, duration_ms: int = 1500) -> None:
-    subprocess.run(
+    from interview_mux.operator_subprocess import run_command
+
+    run_command(
         [
             "ffmpeg",
             "-y",
             "-f",
             "lavfi",
             "-i",
-            "anullsrc=r=48000:cl=mono",
+            f"anullsrc=r=48000:cl=mono",
             "-t",
             str(duration_ms / 1000.0),
+            "-c:a",
+            "pcm_s16le",
             str(path),
         ],
-        check=True,
+        stage="mmaudio_sfx_flow1",
+        label=f"ffmpeg silent wav {path.name}",
         capture_output=True,
     )

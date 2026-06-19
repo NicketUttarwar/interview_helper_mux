@@ -68,7 +68,9 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
         f"offset={measured['target_offset']}:"
         "linear=true:print_format=summary"
     )
-    subprocess.run(
+    from interview_mux.operator_subprocess import run_command
+
+    run_command(
         [
             "ffmpeg",
             "-hide_banner",
@@ -80,9 +82,10 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
             loudnorm_filter,
             str(master),
         ],
-        check=True,
+        ctx=ctx,
+        stage=stage,
+        label=f"ffmpeg loudnorm master → {master_rel}",
         capture_output=True,
-        text=True,
     )
     ctx.mark_done(stage)
     ctx.log(
@@ -150,7 +153,9 @@ def _maybe_warn_low_sfx_energy(
 
 
 def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -> dict[str, str]:
-    measure = subprocess.run(
+    from interview_mux.operator_subprocess import run_command
+
+    measure = run_command(
         [
             "ffmpeg",
             "-hide_banner",
@@ -164,9 +169,8 @@ def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -
             "null",
             "-",
         ],
-        check=True,
+        label=f"ffmpeg loudnorm probe {assembly.name}",
         capture_output=True,
-        text=True,
     )
     return _extract_loudnorm_json(measure.stderr or "")
 

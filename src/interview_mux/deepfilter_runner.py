@@ -42,7 +42,18 @@ def enhance_wav(
     if cfg.get("compensate_delay"):
         args.append("--compensate-delay")
 
-    proc = run_runtime_script("deepfilter", "tools/deepfilter_enhance.py", args)
+    if ctx:
+        from interview_mux.operator_trace import log_api_call
+
+        log_api_call(
+            "DeepFilterNet",
+            f"enhance ({cfg.get('model', 'DeepFilterNet3')})",
+            ctx=ctx,
+            stage="audio_preclean",
+            detail={"input": str(input_path), "output": str(output_path)},
+        )
+
+    proc = run_runtime_script("deepfilter", "tools/deepfilter_enhance.py", args, ctx=ctx, stage="audio_preclean")
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()[:500]
         raise DeepFilterUnavailable(f"DeepFilterNet enhance failed: {err}")
@@ -50,12 +61,13 @@ def enhance_wav(
     if ctx:
         ctx.log(
             "DeepFilterNet enhanced audio",
-            level="debug",
+            level="success",
             stage="audio_preclean",
             detail={
                 "provider": "deepfilternet",
                 "input": str(input_path),
                 "output": str(output_path),
                 "model": cfg.get("model"),
+                "journey_kind": "execute",
             },
         )

@@ -113,7 +113,9 @@ def verify_master(path: Path, *, flow: FlowName | None = None) -> VerificationRe
 
 
 def _collect_metrics(path: Path) -> MasterMetrics:
-    probe = subprocess.run(
+    from interview_mux.operator_subprocess import run_command
+
+    probe = run_command(
         [
             "ffprobe",
             "-v",
@@ -124,9 +126,8 @@ def _collect_metrics(path: Path) -> MasterMetrics:
             "json",
             str(path),
         ],
+        label=f"ffprobe master metrics {path.name}",
         capture_output=True,
-        text=True,
-        check=True,
     )
     probe_data = json.loads(probe.stdout or "{}")
     stream = (probe_data.get("streams") or [{}])[0]
@@ -134,7 +135,7 @@ def _collect_metrics(path: Path) -> MasterMetrics:
     sample_rate = int(stream.get("sample_rate") or 0)
     channels = int(stream.get("channels") or 0)
 
-    loudness = subprocess.run(
+    loudness = run_command(
         [
             "ffmpeg",
             "-hide_banner",
@@ -147,9 +148,8 @@ def _collect_metrics(path: Path) -> MasterMetrics:
             "null",
             "-",
         ],
+        label=f"ffmpeg loudnorm measure {path.name}",
         capture_output=True,
-        text=True,
-        check=True,
     )
     loudness_data = _extract_loudnorm_json(loudness.stderr or "")
     integrated_lufs = float(loudness_data["input_i"])

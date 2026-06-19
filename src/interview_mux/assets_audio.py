@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 M4A_SUFFIX = ".m4a"
@@ -28,7 +27,9 @@ def ensure_wav_asset(source: Path) -> Path:
         "pcm_s16le",
         str(wav_path),
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    from interview_mux.operator_subprocess import run_command
+
+    run_command(cmd, label=f"ffmpeg convert {source.name} → wav", stage="setup")
     return wav_path
 
 

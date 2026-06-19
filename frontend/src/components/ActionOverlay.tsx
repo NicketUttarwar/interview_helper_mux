@@ -20,9 +20,11 @@ export function ActionOverlay() {
   } else if (activeSubstepGlobal?.status === "running") {
     message = activeSubstepGlobal.label;
   } else if (isJobActivelyRunning(job)) {
-    message = stageTitle
-      ? `Running ${stageTitle} — logs stream in Activity below.`
-      : "Pipeline step running — logs stream in Activity below.";
+    message =
+      job?.message ||
+      (stageTitle
+        ? `Running ${stageTitle} — live command output in Activity.`
+        : "Pipeline step running — live command output in Activity.");
   } else if (job?.message) {
     message = job.message;
   } else {

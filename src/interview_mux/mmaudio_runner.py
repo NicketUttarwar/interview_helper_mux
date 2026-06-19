@@ -199,6 +199,23 @@ def generate_text_to_audio(
     if not repo.is_dir():
         raise MMAudioUnavailable(f"MMAudio repo missing at {repo}")
 
+    stage_key = "mmaudio_sfx_flow1"
+    if ctx:
+        from interview_mux.operator_trace import log_api_call
+
+        log_api_call(
+            "MMAudio",
+            f"generate ({resolved_variant}, {duration:.1f}s)",
+            ctx=ctx,
+            stage=stage_key,
+            detail={
+                "asset_id": asset_id,
+                "role": role,
+                "variant": resolved_variant,
+                "duration_seconds": duration,
+            },
+        )
+
     with tempfile.TemporaryDirectory(prefix="mmaudio_out_") as tmp:
         proc = run_runtime_script(
             "mmaudio",
@@ -227,6 +244,8 @@ def generate_text_to_audio(
                 "--work-dir",
                 tmp,
             ],
+            ctx=ctx,
+            stage=stage_key,
         )
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()[:500]
@@ -248,8 +267,8 @@ def generate_text_to_audio(
     if ctx:
         ctx.log(
             f"MMAudio generated {output_wav.name}",
-            level="debug",
-            stage="mmaudio_sfx",
-            detail=meta,
+            level="success",
+            stage=stage_key,
+            detail={**meta, "journey_kind": "execute"},
         )
     return meta

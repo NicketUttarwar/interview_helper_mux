@@ -24,7 +24,7 @@ def test_ensure_wav_asset_converts_m4a(tmp_path: Path, monkeypatch) -> None:
         wav.write_bytes(b"RIFF-converted")
         return CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr("interview_mux.assets_audio.subprocess.run", fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", fake_run)
 
     out = ensure_wav_asset(m4a)
     assert out == wav.resolve()
@@ -44,7 +44,7 @@ def test_ensure_wav_asset_reuses_fresh_wav(tmp_path: Path, monkeypatch) -> None:
     def fail_run(*_args, **_kwargs):
         raise AssertionError("ffmpeg should not run when wav is up to date")
 
-    monkeypatch.setattr("interview_mux.assets_audio.subprocess.run", fail_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", fail_run)
     assert ensure_wav_asset(m4a) == wav.resolve()
 
 
@@ -60,7 +60,7 @@ def test_init_run_meta_stores_wav_path_for_m4a(tmp_path: Path, monkeypatch) -> N
         wav.write_bytes(b"RIFF")
         return CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr("interview_mux.assets_audio.subprocess.run", fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", fake_run)
 
     ctx = RunContext("exec_001_20260101T000000Z", create=True)
     ctx.init_run_meta(str(m4a))

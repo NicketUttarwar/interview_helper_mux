@@ -6,6 +6,7 @@ import {
   logJourneyKind,
   stageTitleById,
 } from "../../utils/logDisplay";
+import { parseLogDetail } from "../../utils";
 import { buildStageProgress } from "../../utils/stageSubsteps";
 import type { JourneyLogKind, LogLevel } from "../../types";
 
@@ -21,11 +22,10 @@ const JOURNEY_KINDS: JourneyLogKind[] = [
   "execute",
 ];
 
-function entryJourneyKind(detail: unknown): string | null {
-  if (detail && typeof detail === "object" && "journey_kind" in detail) {
-    return String((detail as { journey_kind: string }).journey_kind);
-  }
-  return null;
+function isStreamLog(detail: LogEntry["detail"]): boolean {
+  const parsed = parseLogDetail(detail as string | Record<string, unknown> | null | undefined);
+  const stream = parsed?.stream;
+  return stream === "stdout" || stream === "stderr";
 }
 
 export function LogsTab() {
@@ -40,7 +40,7 @@ export function LogsTab() {
     apiGrants,
     jobRunning,
   } = useApp();
-  const journeyFilterDefault = config?.journey_ui?.journey_log_filter !== false;
+  const journeyFilterDefault = config?.journey_ui?.journey_log_filter === true;
   const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [stageFilter, setStageFilter] = useState<string>("all");
@@ -68,6 +68,10 @@ export function LogsTab() {
   );
 
   useEffect(() => {
+    if (jobRunning) setJourneyFilter(false);
+  }, [jobRunning]);
+
+  useEffect(() => {
     if (!logFilterPreset) return;
     if (logFilterPreset.level) setLevelFilter(logFilterPreset.level);
     if (logFilterPreset.stage) setStageFilter(logFilterPreset.stage);
@@ -90,10 +94,11 @@ export function LogsTab() {
   const filtered = useMemo(() => {
     return logEntries.filter((e) => {
       if (journeyFilter) {
-        const kind = entryJourneyKind(e.detail);
+        const kind = logJourneyKind(e.detail);
         const isGate = e.level === "action";
-        if (!kind && !isGate && e.level === "info") return false;
-        if (kind && !JOURNEY_KINDS.includes(kind as JourneyLogKind) && !isGate) {
+        const isStream = isStreamLog(e.detail);
+        if (!kind && !isGate && !isStream && e.level === "info") return false;
+        if (kind && !JOURNEY_KINDS.includes(kind as JourneyLogKind) && !isGate && !isStream) {
           return false;
         }
       }
@@ -137,7 +142,9 @@ export function LogsTab() {
           </span>
         </div>
         <p className="hint logs-command-hint">
-          Current action is in the live status bar above. Use filters below to inspect history.
+          {jobRunning
+            ? "Job running — live command output streams below. Turn off Journey view to see every line."
+            : "Current action is in the live status bar above. Use filters below to inspect history."}
         </p>
         <div className="logs-toolbar-actions">
           <button

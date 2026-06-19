@@ -208,14 +208,16 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
 
     ffmpeg_calls: list[list[str]] = []
 
-    def fake_run(cmd: list[str], check: bool, capture_output: bool, text: bool = False):
+    def fake_run(cmd: list[str], **kwargs):
         ffmpeg_calls.append(cmd)
         out = Path(cmd[-1])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(_minimal_wav_bytes())
-        return None
+        from subprocess import CompletedProcess
 
-    monkeypatch.setattr(assembly_flow1.subprocess, "run", fake_run)
+        return CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", fake_run)
 
     ctx = FakeCtx()
     preview = assembly_flow1.run_preview(ctx)

@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, require_secret
+from interview_mux.operator_subprocess import format_command, run_command
+from interview_mux.operator_trace import log_api_call
 from interview_mux.run_context import RunContext
 
 
-def _aws(*args: str, capture: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["aws", *args],
-        check=True,
-        capture_output=capture,
-        text=True,
-    )
+def _aws(ctx: RunContext, *args: str) -> Any:
+    cmd = ["aws", *args]
+    operation = " ".join(args[:3]) if len(args) >= 3 else " ".join(args)
+    log_api_call("AWS", operation, ctx=ctx, stage="transcribe", detail={"cmd": cmd})
+    return run_command(cmd, ctx=ctx, stage="transcribe", label=format_command(cmd))
 
 
 def _read_transcript_json(path: Path) -> dict[str, Any]:
@@ -48,15 +47,27 @@ def run_transcribe(ctx: RunContext) -> None:
         raise FileNotFoundError(normalized)
 
     s3_uri = f"s3://{bucket}/{input_key}"
-    ctx.log(f"Uploading normalized audio to {s3_uri} for transcription.", level="info", stage="transcribe")
-    _aws("s3", "cp", str(normalized), s3_uri)
+    ctx.log(
+        f"Transcribe: uploading normalized audio to {s3_uri}",
+        level="action",
+        stage="transcribe",
+        detail={"journey_kind": "execute"},
+    )
+    _aws(ctx, "s3", "cp", str(normalized), s3_uri)
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
     media_uri = s3_uri
     out_dir = ctx.path("transcript")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    ctx.log(
+        f"Transcribe: starting AWS Transcribe job {job_name}",
+        level="action",
+        stage="transcribe",
+        detail={"journey_kind": "execute", "job_name": job_name},
+    )
     _aws(
+        ctx,
         "transcribe",
         "start-transcription-job",
         "--transcription-job-name",
@@ -83,8 +94,14 @@ def run_transcribe(ctx: RunContext) -> None:
         time.sleep(5)
         poll_count += 1
         if poll_count == 1 or poll_count % 6 == 0:
-            ctx.log(f"AWS Transcribe job {job_name}: {status}", level="info", stage="transcribe")
+            ctx.log(
+                f"AWS Transcribe job {job_name}: polling ({status})",
+                level="info",
+                stage="transcribe",
+                detail={"journey_kind": "execute", "poll": poll_count},
+            )
         proc = _aws(
+            ctx,
             "transcribe",
             "get-transcription-job",
             "--transcription-job-name",
@@ -97,10 +114,14 @@ def run_transcribe(ctx: RunContext) -> None:
         if status == "FAILED":
             raise RuntimeError(job.get("FailureReason", "Transcribe failed"))
 
-    # Always fetch via aws s3 cp — TranscriptFileUri is often an HTTPS URL that
-    # requires SigV4 auth and fails with AccessDenied when downloaded via curl.
+    ctx.log(
+        f"Transcribe: downloading result s3://{bucket}/{output_key}",
+        level="action",
+        stage="transcribe",
+        detail={"journey_kind": "execute"},
+    )
     local_out = out_dir / "aws_raw.json"
-    _aws("s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
+    _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
     raw = _read_transcript_json(local_out)
     full, speakers = _normalize_transcript(raw)

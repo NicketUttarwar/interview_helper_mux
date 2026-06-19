@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from interview_mux.mastering_bus import AssemblyBusMetrics
@@ -7,6 +8,8 @@ from interview_mux.stages import mastering
 
 
 class _Proc:
+    returncode = 0
+
     def __init__(self, *, stderr: str = "") -> None:
         self.stderr = stderr
 
@@ -47,10 +50,7 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     def _fake_measure(_path: Path) -> AssemblyBusMetrics:
         return bus
 
-    def _fake_run(cmd, check, capture_output, text):  # noqa: ANN001
-        assert check is True
-        assert capture_output is True
-        assert text is True
+    def _fake_run(cmd, **kwargs):  # noqa: ANN001
         calls.append(cmd)
         if "-f" in cmd and "null" in cmd:
             return _Proc(
@@ -67,7 +67,26 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
         return _Proc(stderr="")
 
     monkeypatch.setattr(mastering, "measure_assembly_bus", _fake_measure)
-    monkeypatch.setattr(mastering.subprocess, "run", _fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
+
+    class _FakePopen:
+        returncode = 0
+
+        def __init__(self, cmd, **kwargs):  # noqa: ANN001
+            calls.append(cmd)
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            out = Path(cmd[-1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"fake wav")
+
+        def wait(self, timeout=None):  # noqa: ANN001
+            return 0
+
+        def kill(self) -> None:
+            pass
+
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.Popen", _FakePopen)
     monkeypatch.setattr(mastering, "merged_config", lambda: {"flow1_target_lufs": -16.0})
     monkeypatch.setattr(mastering, "validate_pre_master", lambda *_a, **_k: [])
     monkeypatch.setattr(mastering, "_maybe_warn_low_sfx_energy", lambda *_a, **_k: None)
@@ -140,13 +159,13 @@ def test_master_wav_warns_low_sfx_energy(monkeypatch, tmp_path) -> None:
     def _fake_measure(_path: Path) -> AssemblyBusMetrics:
         return bus
 
-    def _fake_run(cmd, check, capture_output, text):  # noqa: ANN001
+    def _fake_run(cmd, **kwargs):  # noqa: ANN001
         return _Proc(
             stderr='{"input_i":"-30.0","input_lra":"2.0","input_tp":"-5.0","input_thresh":"-40.0","target_offset":"14.0"}'
         )
 
     monkeypatch.setattr(mastering, "measure_assembly_bus", _fake_measure)
-    monkeypatch.setattr(mastering.subprocess, "run", _fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
     monkeypatch.setattr(
         mastering,
         "merged_config",

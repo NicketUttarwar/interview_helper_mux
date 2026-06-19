@@ -3,29 +3,26 @@
 from __future__ import annotations
 
 import math
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from pydub import AudioSegment
 
+from interview_mux.operator_subprocess import run_command
+
 
 def wav_duration_ms(path: Path) -> int:
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    proc = run_command(cmd, label=f"ffprobe duration {path.name}", capture_output=True)
     return max(0, int(float(proc.stdout.strip()) * 1000))
 
 
@@ -126,7 +123,7 @@ def chunk_wav_by_max_bytes(path: Path, max_bytes: int, *, work_dir: Path) -> lis
     work_dir.mkdir(parents=True, exist_ok=True)
     pattern = work_dir / "chunk_%03d.wav"
     segment_sec = max(30, int(max_bytes / (48000 * 2 * 1.5)))
-    subprocess.run(
+    run_command(
         [
             "ffmpeg",
             "-y",
@@ -140,7 +137,7 @@ def chunk_wav_by_max_bytes(path: Path, max_bytes: int, *, work_dir: Path) -> lis
             "copy",
             str(pattern),
         ],
-        check=True,
+        label=f"ffmpeg chunk {path.name}",
         capture_output=True,
     )
     chunks = sorted(work_dir.glob("chunk_*.wav"))

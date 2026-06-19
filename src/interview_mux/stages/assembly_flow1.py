@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 from interview_mux.gates import check_edl_narrative_qc, check_edl_qc, check_narrative_qc
+from interview_mux.operator_subprocess import run_command
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     load_nle,
@@ -23,7 +24,7 @@ def _segment_by_id(ctx: RunContext) -> dict[str, dict]:
 
 
 def _wav_duration_ms(path: Path) -> int:
-    proc = subprocess.run(
+    proc = run_command(
         [
             "ffprobe",
             "-v",
@@ -34,9 +35,8 @@ def _wav_duration_ms(path: Path) -> int:
             "default=noprint_wrappers=1:nokey=1",
             str(path),
         ],
+        label=f"ffprobe duration {path.name}",
         capture_output=True,
-        text=True,
-        check=True,
     )
     return max(0, int(float(proc.stdout.strip()) * 1000))
 
@@ -398,7 +398,7 @@ def run_preview(ctx: RunContext) -> Path:
         if ctype == "speech":
             start = max(0, float(clip.get("source_start_ms", 0)) / 1000.0)
             end = max(start, float(clip.get("source_end_ms", 0)) / 1000.0)
-            subprocess.run(
+            run_command(
                 [
                     "ffmpeg",
                     "-y",
@@ -417,7 +417,8 @@ def run_preview(ctx: RunContext) -> Path:
                     "pcm_s16le",
                     str(out),
                 ],
-                check=True,
+                stage="assembly_preview",
+                label=f"ffmpeg speech clip {i}",
                 capture_output=True,
             )
             clip_paths.append(out)
@@ -435,7 +436,7 @@ def run_preview(ctx: RunContext) -> Path:
             if not fill_src.is_file():
                 skipped_missing.append(clip.get("event_id") or src_rel)
                 continue
-            subprocess.run(
+            run_command(
                 [
                     "ffmpeg",
                     "-y",
@@ -450,7 +451,8 @@ def run_preview(ctx: RunContext) -> Path:
                     "pcm_s16le",
                     str(out),
                 ],
-                check=True,
+                stage="assembly_preview",
+                label=f"ffmpeg disfluency clip {i}",
                 capture_output=True,
             )
             clip_paths.append(out)
@@ -464,7 +466,7 @@ def run_preview(ctx: RunContext) -> Path:
         if not vo_src.is_file():
             skipped_missing.append(clip.get("line_id") or src_rel)
             continue
-        subprocess.run(
+        run_command(
             [
                 "ffmpeg",
                 "-y",
@@ -479,7 +481,8 @@ def run_preview(ctx: RunContext) -> Path:
                 "pcm_s16le",
                 str(out),
             ],
-            check=True,
+            stage="assembly_preview",
+            label=f"ffmpeg vo_pickup clip {i}",
             capture_output=True,
         )
         clip_paths.append(out)

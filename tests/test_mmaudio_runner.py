@@ -44,7 +44,7 @@ def test_generate_passes_negative_separately(monkeypatch, tmp_path):
     out = tmp_path / "out.wav"
     captured_args: list[str] = []
 
-    def fake_run(runtime, script, args):
+    def fake_run(runtime, script, args, **kwargs):
         captured_args.extend(args)
         out.write_bytes(b"RIFF" + b"\x00" * 8)
         proc = MagicMock()

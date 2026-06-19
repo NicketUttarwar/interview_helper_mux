@@ -133,7 +133,9 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
             norm_dir = pickup / "normalized"
             norm_dir.mkdir(parents=True, exist_ok=True)
             out = norm_dir / found.name
-            subprocess.run(
+            from interview_mux.operator_subprocess import run_command
+
+            run_command(
                 [
                     "ffmpeg",
                     "-y",
@@ -149,7 +151,9 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
                     "pcm_s16le",
                     str(out),
                 ],
-                check=True,
+                ctx=ctx,
+                stage="vo_ingest",
+                label=f"ffmpeg normalize pickup {found.name}",
                 capture_output=True,
             )
             normalized += 1

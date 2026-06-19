@@ -1842,6 +1842,32 @@ code {
   padding: 0.45rem 0.65rem;
 }
 
+.input,
+input[type="search"],
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="url"],
+textarea:not(.artifact-editor):not(.tr-textarea) {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* Ensure readable text when the browser forces a light field background */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea:not(.artifact-editor):not(.tr-textarea) {
+  color-scheme: dark;
+}
+
 .profile-panel .hint {
   margin-bottom: 0.75rem;
 }
@@ -5434,6 +5460,20 @@ code {
 .log-entry-compact {
   font-size: 0.8rem;
   padding: 0.2rem 0;
+}
+
+.log-entry-stream .log-msg-mono {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  word-break: break-word;
+}
+
+.log-stream-badge {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  flex-shrink: 0;
 }
 
 .log-stage-btn {

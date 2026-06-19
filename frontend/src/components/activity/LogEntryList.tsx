@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { LogEntry } from "../../types";
-import { escapeHtml, formatTs } from "../../utils";
+import { escapeHtml, formatTs, parseLogDetail } from "../../utils";
 import {
   formatLogDetailBlock,
   logJourneyKind,
@@ -34,10 +34,13 @@ export function LogEntryList({
       {entries.map((e, i) => {
         const journeyKind = logJourneyKind(e.detail);
         const detailBlock = formatLogDetailBlock(e.detail);
+        const parsed = parseLogDetail(e.detail as string | Record<string, unknown> | null | undefined);
+        const stream = parsed?.stream;
+        const isStream = stream === "stdout" || stream === "stderr";
         return (
           <div
             key={`${e.ts}-${i}-${e.message.slice(0, 20)}`}
-            className={`log-entry level-${e.level || "info"}${compact ? " log-entry-compact" : ""}`}
+            className={`log-entry level-${e.level || "info"}${compact ? " log-entry-compact" : ""}${isStream ? " log-entry-stream" : ""}`}
           >
             <div className="log-entry-main">
               <span className="log-ts">{formatTs(e.ts)}</span>
@@ -48,6 +51,9 @@ export function LogEntryList({
               ) : (
                 <span className={`log-level-dot level-${e.level || "info"}`} aria-hidden />
               )}
+              {isStream ? (
+                <span className="log-stream-badge">{String(stream)}</span>
+              ) : null}
               {e.stage ? (
                 onStageClick ? (
                   <button
@@ -67,9 +73,11 @@ export function LogEntryList({
               {journeyKind ? (
                 <span className="log-journey-badge">{journeyKind}</span>
               ) : null}
-              <span className="log-msg">{escapeHtml(e.message)}</span>
+              <span className={`log-msg${isStream ? " log-msg-mono" : ""}`}>
+                {escapeHtml(e.message)}
+              </span>
             </div>
-            {e.detail && !compact ? (
+            {e.detail && !compact && !isStream ? (
               <>
                 <button
                   type="button"

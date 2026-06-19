@@ -289,6 +289,21 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
 
 def run_single_stage(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
+    from interview_mux.web.job_progress import notify_stage_start
+
+    notify_stage_start(
+        ctx.run_id,
+        stage,
+        index=1,
+        total=1,
+        stages_planned=[stage],
+    )
+    ctx.log(
+        f"Stage start: {stage}",
+        level="action",
+        stage=stage,
+        detail={"journey_kind": "execute", "event": "stage_start"},
+    )
     if stage not in (
         "transcript_review",
         "disfluency_review",

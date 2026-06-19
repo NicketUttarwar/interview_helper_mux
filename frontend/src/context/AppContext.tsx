@@ -705,6 +705,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (res.ok === false) {
           appendClientLog(res.error || "Failed to start job", "warning", stageForLog);
           showToast(res.error || "Failed to start");
+          const busyJob = (res as { job?: JobState }).job;
+          if (busyJob && isJobActivelyRunning(busyJob)) {
+            setRun((prev) => (prev ? { ...prev, job: busyJob } : prev));
+            setJobRunning(true);
+            setActivityLogTabState("live");
+            activityLogTabRef.current = "live";
+            setActivityLogCollapsedState(false);
+            activityLogCollapsedRef.current = false;
+            startJobPoll();
+          }
           if (res.needs_stage_reuse && res.stage) {
             await selectStage(res.stage);
             openActionModal();

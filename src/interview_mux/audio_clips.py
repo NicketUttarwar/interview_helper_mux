@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+
+from interview_mux.operator_subprocess import format_command, run_command
 
 
 def extract_clip(source: Path, dest: Path, start_ms: int, end_ms: int) -> None:
@@ -26,4 +27,8 @@ def extract_clip(source: Path, dest: Path, start_ms: int, end_ms: int) -> None:
         "pcm_s16le",
         str(dest),
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_command(
+        cmd,
+        label=f"ffmpeg extract clip → {dest.name}",
+        capture_output=True,
+    )

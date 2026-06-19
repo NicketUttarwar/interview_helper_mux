@@ -354,8 +354,10 @@ def _local_fallback_enabled() -> bool:
 
 def _local_denoise_fallback(source: Path, out_path: Path) -> None:
     """Offline denoise via ffmpeg (documented as ffmpeg_local provider)."""
+    from interview_mux.operator_subprocess import run_command
+
     filters = ["afftdn=nf=-25", "highpass=f=80", "lowpass=f=12000"]
-    subprocess.run(
+    run_command(
         [
             "ffmpeg",
             "-y",
@@ -371,9 +373,9 @@ def _local_denoise_fallback(source: Path, out_path: Path) -> None:
             "pcm_s16le",
             str(out_path),
         ],
-        check=True,
+        stage="audio_preclean",
+        label=f"ffmpeg local denoise → {out_path.name}",
         capture_output=True,
-        text=True,
     )
 
 

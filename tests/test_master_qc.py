@@ -6,13 +6,15 @@ from interview_mux import master_qc
 
 
 class _Proc:
+    returncode = 0
+
     def __init__(self, *, stdout: str = "", stderr: str = "") -> None:
         self.stdout = stdout
         self.stderr = stderr
 
 
 def test_verify_master_pass(monkeypatch) -> None:
-    def _fake_run(cmd, capture_output, text, check):  # noqa: ANN001
+    def _fake_run(cmd, **kwargs):  # noqa: ANN001
         if cmd[0] == "ffprobe":
             return _Proc(
                 stdout='{"streams":[{"sample_rate":"48000","channels":2}],"format":{"duration":"132.0"}}'
@@ -29,14 +31,14 @@ def test_verify_master_pass(monkeypatch) -> None:
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(master_qc.subprocess, "run", _fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
     result = master_qc.verify_master(Path("/tmp/flow_1_master/master.wav"), flow="flow1")
     assert result.ok is True
     assert result.failures == []
 
 
 def test_verify_master_failures(monkeypatch) -> None:
-    def _fake_run(cmd, capture_output, text, check):  # noqa: ANN001
+    def _fake_run(cmd, **kwargs):  # noqa: ANN001
         if cmd[0] == "ffprobe":
             return _Proc(
                 stdout='{"streams":[{"sample_rate":"32000","channels":2}],"format":{"duration":"80.0"}}'
@@ -52,7 +54,7 @@ def test_verify_master_failures(monkeypatch) -> None:
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(master_qc.subprocess, "run", _fake_run)
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
     result = master_qc.verify_master(Path("/tmp/flow_2_highlights/master.wav"), flow="flow2")
     assert result.ok is False
     assert any("Integrated LUFS" in line for line in result.failures)

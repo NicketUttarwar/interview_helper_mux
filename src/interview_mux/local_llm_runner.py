@@ -55,11 +55,23 @@ def generate_local_chat(
             "model_path": str(model_path),
         }
     )
+    if ctx:
+        from interview_mux.operator_trace import log_api_call
+
+        log_api_call(
+            "local_llm",
+            f"mlx infer ({model_id})",
+            ctx=ctx,
+            stage=stage_key,
+            detail={"model_id": model_id, "max_tokens": limit},
+        )
     proc = run_runtime_script(
         "mlx",
         "tools/local_llm_infer.py",
         [],
         stdin_data=stdin_payload,
+        ctx=ctx,
+        stage=stage_key,
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()[:500]
@@ -82,7 +94,8 @@ def generate_local_chat(
         ctx.log(
             f"Local LLM {stage_key}: {meta.get('latency_ms', '?')}ms, "
             f"~{meta.get('tokens_approx', '?')} tokens",
-            level="debug",
+            level="success",
             stage=stage_key,
+            detail={"journey_kind": "execute", "model_id": model_id},
         )
     return text.strip(), meta
