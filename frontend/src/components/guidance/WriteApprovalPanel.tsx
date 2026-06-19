@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
-import { resolveJobStatusContext } from "../../utils/operatorStatus";
+import {
+  resolvePendingWritePaths,
+  stageAwaitingWriteApproval,
+} from "../../utils/writeApproval";
 import { ReviewPanelControls } from "./ReviewPanelControls";
 import type { StageInfo } from "../../types";
 
@@ -20,23 +23,29 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
-  const { run, runId, refreshRun, runNextStage, showToast, closeActionModal, appendClientLog } =
-    useApp();
-  const [paths, setPaths] = useState<string[]>([]);
+  const {
+    run,
+    runId,
+    showToast,
+    appendClientLog,
+    approveWriteAndContinue,
+    actionBusy,
+  } = useApp();
+  const [apiPaths, setApiPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [editorValue, setEditorValue] = useState("");
+  const [contentLoading, setContentLoading] = useState(false);
   const [isJson, setIsJson] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editorDirty, setEditorDirty] = useState(false);
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
-  const jobCtx = run ? resolveJobStatusContext(run, false) : null;
-  const writePendingForStage = Boolean(
-    jobCtx?.awaitingWriteApproval &&
-      (run?.job?.pending_write_stage === stage.id ||
-        run?.job?.stage === stage.id ||
-        stage.status === "awaiting_write_approval"),
+  const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
+
+  const paths = useMemo(
+    () => resolvePendingWritePaths(run, stageId, apiPaths),
+    [run, stageId, apiPaths],
   );
 
   const loadPaths = useCallback(async () => {
@@ -47,20 +56,17 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       const data = await api<{ paths?: string[] }>(
         `/api/runs/${runId}/pending-writes/${stageId}`,
       );
-      const p = data.paths || [];
-      setPaths(p);
-      setSelectedPath((prev) => (prev && p.includes(prev) ? prev : p[0] || ""));
-      if (!p.length && writePendingForStage) {
-        setLoadError("Staged files are not listed yet — try refresh or open full-screen review.");
-      }
+      setApiPaths(data.paths || []);
     } catch (e) {
-      setPaths([]);
-      setSelectedPath("");
-      setLoadError(e instanceof ApiError ? e.message : "Could not load staged files");
+      const fallback = resolvePendingWritePaths(run, stageId);
+      if (!fallback.length) {
+        setApiPaths([]);
+        setLoadError(e instanceof ApiError ? e.message : "Could not load staged files");
+      }
     } finally {
       setLoading(false);
     }
-  }, [runId, stageId, writePendingForStage]);
+  }, [runId, stageId, run]);
 
   useEffect(() => {
     void loadPaths();
@@ -68,8 +74,10 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const loadContent = useCallback(
     async (path: string) => {
-      if (!runId || !path) return;
+      if (!runId || !path || fileKind(path) === "audio") return;
+      setContentLoading(true);
       setIsJson(isJsonArtifactPath(path));
+      setEditorDirty(false);
       try {
         const data = await api<Record<string, unknown> | { text?: string }>(
           `/api/runs/${runId}/pending-writes/${stageId}/content?path=${encodeURIComponent(path)}`,
@@ -81,85 +89,90 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         }
       } catch {
         setEditorValue("");
+        showToast(`Could not load ${path} — staged copy may be missing.`);
+      } finally {
+        setContentLoading(false);
       }
     },
-    [runId, stageId],
+    [runId, stageId, showToast],
   );
 
   useEffect(() => {
     if (selectedPath && fileKind(selectedPath) !== "audio") void loadContent(selectedPath);
   }, [selectedPath, loadContent]);
 
+  useEffect(() => {
+    setSelectedPath((prev) => {
+      if (prev && paths.includes(prev)) return prev;
+      return paths[0] || "";
+    });
+  }, [paths]);
+
+  const syncEditorToStaging = async (path: string, value: string, json: boolean) => {
+    if (!runId || !path) return;
+    if (json) {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      const v = validateArtifactWrite(path, parsed);
+      if (!v.ok) throw new Error(`Validation: ${v.errors[0]}`);
+      await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, data: parsed }),
+      });
+    } else {
+      await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, text: value }),
+      });
+    }
+  };
+
   const saveEdit = async () => {
-    if (!runId || !selectedPath) return;
+    if (!selectedPath) return;
     try {
-      if (isJson) {
-        const parsed = JSON.parse(editorValue) as Record<string, unknown>;
-        const v = validateArtifactWrite(selectedPath, parsed);
-        if (!v.ok) {
-          showToast(`Validation: ${v.errors[0]}`);
-          return;
-        }
-        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: selectedPath, data: parsed }),
-        });
-      } else {
-        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: selectedPath, text: editorValue }),
-        });
-      }
+      await syncEditorToStaging(selectedPath, editorValue, isJson);
+      setEditorDirty(false);
       showToast(`Updated ${selectedPath}`);
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Save failed");
+      showToast(e instanceof Error ? e.message : "Save failed");
     }
   };
 
   const approve = async () => {
-    if (!runId || submitting) return;
-    setSubmitting(true);
+    if (actionBusy) return;
     try {
-      await api(`/api/runs/${runId}/pending-writes/${stageId}/approve`, {
-        method: "POST",
-      });
-      showToast("Outputs saved — continuing.");
-      appendClientLog(`Write approval saved for ${stageId}`, "success");
-      closeActionModal();
-      await refreshRun();
-      await runNextStage();
+      if (editorDirty && selectedPath && fileKind(selectedPath) !== "audio") {
+        await syncEditorToStaging(selectedPath, editorValue, isJson);
+        setEditorDirty(false);
+      }
+      await approveWriteAndContinue(stageId);
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Approve failed";
+      const msg = e instanceof Error ? e.message : "Approve failed";
       showToast(msg);
       appendClientLog(msg, "warning");
-    } finally {
-      setSubmitting(false);
     }
   };
 
   const discard = async () => {
-    if (!runId || submitting) return;
-    setSubmitting(true);
+    if (!runId || actionBusy) return;
     try {
       await api(`/api/runs/${runId}/pending-writes/${stageId}/discard`, {
         method: "POST",
       });
       showToast("Discarded staged outputs — re-run this step when ready.");
       appendClientLog(`Write approval discarded for ${stageId}`, "info");
-      closeActionModal();
-      await refreshRun();
+      await loadPaths();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Discard failed";
       showToast(msg);
       appendClientLog(msg, "warning");
-    } finally {
-      setSubmitting(false);
     }
   };
 
   if (!writePendingForStage && !paths.length && !loading) return null;
+
+  const saveDisabled = actionBusy || !paths.length;
 
   return (
     <section
@@ -175,15 +188,17 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             {paths.length
               ? ` staged ${paths.length} file${paths.length === 1 ? "" : "s"}.`
               : " is waiting for your approval before files are saved to disk."}{" "}
-            Preview, edit if needed, then save to disk.
+            Files are pre-loaded below — edit if needed, then save to disk.
           </p>
         </div>
         <ReviewPanelControls requirePending={false} />
       </div>
 
       {loading ? (
-        <p className="hint empty-state">Loading staged files…</p>
-      ) : loadError ? (
+        <p className="hint empty-state">
+          <span className="spinner-inline" aria-hidden /> Loading staged files…
+        </p>
+      ) : loadError && !paths.length ? (
         <div className="write-approval-error">
           <p className="hint" role="alert">
             {loadError}
@@ -194,69 +209,94 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         </div>
       ) : null}
 
-      {!paths.length && !loading ? null : (
-      <div className="write-approval-layout">
-        <ul className="write-approval-file-list">
-          {paths.map((p) => {
-            const kind = fileKind(p);
-            const active = selectedPath === p;
-            return (
-              <li key={p} className={active ? "active" : ""}>
+      {paths.length ? (
+        <div className="write-approval-layout">
+          <ul className="write-approval-file-list">
+            {paths.map((p) => {
+              const kind = fileKind(p);
+              const active = selectedPath === p;
+              return (
+                <li key={p} className={active ? "active" : ""}>
+                  <button
+                    type="button"
+                    className={`write-approval-file-btn${active ? " active" : ""}`}
+                    onClick={() => setSelectedPath(p)}
+                  >
+                    <span className={`write-approval-kind kind-${kind}`}>
+                      {KIND_LABEL[kind]}
+                    </span>
+                    <code className="artifact-path">{p}</code>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="write-approval-preview">
+            {selectedPath && fileKind(selectedPath) === "audio" && run ? (
+              <audio
+                controls
+                className="write-approval-audio"
+                src={`/api/runs/${run.run_id}/audio?path=${encodeURIComponent(selectedPath)}&pending=1&pending_stage=${encodeURIComponent(stageId)}`}
+              />
+            ) : selectedPath ? (
+              <div className="write-approval-editor">
+                {contentLoading ? (
+                  <p className="hint">
+                    <span className="spinner-inline" aria-hidden /> Loading file content…
+                  </p>
+                ) : (
+                  <textarea
+                    className="artifact-editor-textarea"
+                    value={editorValue}
+                    onChange={(e) => {
+                      setEditorValue(e.target.value);
+                      setEditorDirty(true);
+                    }}
+                    rows={14}
+                    placeholder="Staged file content appears here…"
+                  />
+                )}
                 <button
                   type="button"
-                  className={`write-approval-file-btn${active ? " active" : ""}`}
-                  onClick={() => setSelectedPath(p)}
+                  className="btn ghost sm"
+                  disabled={contentLoading || !editorDirty}
+                  onClick={() => void saveEdit()}
                 >
-                  <span className={`write-approval-kind kind-${kind}`}>
-                    {KIND_LABEL[kind]}
-                  </span>
-                  <code className="artifact-path">{p}</code>
+                  Save edit to staging
                 </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        <div className="write-approval-preview">
-          {selectedPath && fileKind(selectedPath) === "audio" && run ? (
-            <audio
-              controls
-              className="write-approval-audio"
-              src={`/api/runs/${run.run_id}/audio?path=${encodeURIComponent(selectedPath)}&pending=1&pending_stage=${encodeURIComponent(stageId)}`}
-            />
-          ) : selectedPath ? (
-            <div className="write-approval-editor">
-              <textarea
-                className="artifact-editor-textarea"
-                value={editorValue}
-                onChange={(e) => setEditorValue(e.target.value)}
-                rows={14}
-              />
-              <button type="button" className="btn ghost sm" onClick={() => void saveEdit()}>
-                Save edit to staging
-              </button>
-            </div>
-          ) : (
-            <p className="hint empty-state">Select a file to preview.</p>
-          )}
+              </div>
+            ) : (
+              <p className="hint empty-state">Select a file to preview.</p>
+            )}
+          </div>
         </div>
-      </div>
-      )}
+      ) : null}
 
       <div className="write-approval-actions">
         <button
           type="button"
           className="btn primary"
           data-testid="write-approval-save-continue"
-          disabled={submitting || !paths.length}
+          disabled={saveDisabled}
           onClick={() => void approve()}
         >
-          Save &amp; continue
+          {actionBusy ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Saving…
+            </>
+          ) : actionBusy ? (
+            "Saving…"
+          ) : paths.length ? (
+            `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
+          ) : (
+            "Save & continue"
+          )}
         </button>
         <button
           type="button"
           className="btn ghost sm"
-          disabled={submitting}
+          disabled={actionBusy}
           onClick={() => void discard()}
         >
           Discard &amp; re-run

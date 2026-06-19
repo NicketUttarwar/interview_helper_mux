@@ -39,6 +39,7 @@ export function useOperatorCommand(
     onRunNext: () => void;
     onOpenCheckpoint: (stageId?: string) => void;
     onAcknowledgeHandoff: () => void;
+    onApproveWrite?: (stageId: string) => void;
     onGoLogs: () => void;
     onGoStart: () => void;
     onGoPipeline: () => void;
@@ -55,6 +56,7 @@ export function useOperatorCommand(
     onRunNext,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
+    onApproveWrite,
     onGoLogs,
     onGoStart,
     onGoPipeline,
@@ -90,6 +92,7 @@ export function useOperatorCommand(
       onExecute,
       onRunNext,
       onAcknowledgeHandoff,
+      onApproveWrite,
       onGoPipeline,
       onGoStory,
       onGoProfile,
@@ -149,13 +152,18 @@ export function useOperatorCommand(
     }
 
     if (blocking?.blocked && blocking.message) {
+      const isWriteApproval =
+        pending?.kind === "write_approval" ||
+        job?.status === "awaiting_write_approval";
       return {
         kind: "blocked",
         statusLine: blocking.message,
         primaryLabel: pending?.primaryLabel || nextAction || "Open checkpoint",
         primaryDisabled: false,
         secondaryLabel: "Pipeline",
-        onPrimary: () => onOpenCheckpoint(blocking.stage_id || undefined),
+        onPrimary: isWriteApproval && pending?.stageId && onApproveWrite
+          ? () => onApproveWrite(pending.stageId)
+          : () => onOpenCheckpoint(blocking.stage_id || undefined),
         onSecondary: onGoPipeline,
         handoffStage: null,
       };
@@ -312,6 +320,7 @@ export function useOperatorCommand(
     onRunNext,
     onOpenCheckpoint,
     onAcknowledgeHandoff,
+    onApproveWrite,
     onGoLogs,
     onGoStart,
     onGoPipeline,

@@ -13,7 +13,7 @@ import { StageGuidancePanel } from "../guidance/StageGuidancePanel";
 import { StageActivityStrip } from "../activity/StageActivityStrip";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
-import { stageNeedsPendingAction } from "../../utils/pendingAction";
+import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import type { LlmRoutingAttempt } from "../../types";
 
 export function StageDetail() {
@@ -111,12 +111,16 @@ export function StageDetail() {
     handoffPaths.length > 0 &&
     !run?.handoff_ack?.[selectedStage.id];
 
-  const needsCheckpoint =
-    selectedStage.status === "action_required" ||
-    selectedStage.status === "awaiting_write_approval" ||
-    showHandoff ||
-    (run?.job?.status === "gate" && run.job.stage === selectedStage.id) ||
-    stageNeedsPendingAction(run, selectedStage.id, apiGrants);
+  const writePendingOnly =
+    stageAwaitingWriteApproval(run, selectedStage.id) &&
+    selectedStage.status !== "action_required" &&
+    !showHandoff;
+
+  const needsGateCheckpoint =
+    !writePendingOnly &&
+    (selectedStage.status === "action_required" ||
+      showHandoff ||
+      (run?.job?.status === "gate" && run.job.stage === selectedStage.id));
 
   return (
     <div className="panel stage-detail">
@@ -149,18 +153,19 @@ export function StageDetail() {
 
       <StageActivityStrip />
 
-      {!actionModalOpen ? <StageReuseSection stage={selectedStage} /> : null}
+      {!actionModalOpen && !writePendingOnly ? <StageReuseSection stage={selectedStage} /> : null}
       {!actionModalOpen ? <WriteApprovalPanel stage={selectedStage} /> : null}
 
-      {needsCheckpoint ? (
+      {needsGateCheckpoint ? (
         <div className="stage-detail-checkpoint panel-inset">
           <h3 className="stage-outputs-title">Your action</h3>
           <GateActions stage={selectedStage} />
           {showHandoff ? <HandoffPanel /> : null}
         </div>
-      ) : (
+      ) : selectedStage.status === "action_required" ||
+        (run?.job?.status === "gate" && run.job.stage === selectedStage.id) ? (
         <GateActions stage={selectedStage} />
-      )}
+      ) : null}
 
       <StageOutputsPanel stage={selectedStage} />
 

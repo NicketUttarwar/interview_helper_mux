@@ -41,6 +41,8 @@ import {
   findNextRunnableStage,
   hasActionRequiredStage,
 } from "../utils/preclean";
+import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
+import { describeExecuteBody } from "../utils/operatorActionLog";
 
 interface AppContextValue {
   activeTab: AppTab;
@@ -59,6 +61,7 @@ interface AppContextValue {
   alertsMuted: boolean;
   toast: string | null;
   jobRunning: boolean;
+  actionBusy: boolean;
   transcriptReview: TranscriptReviewState | null;
   selectedStage: StageInfo | undefined;
   actionModalOpen: boolean;
@@ -99,9 +102,10 @@ interface AppContextValue {
   redoFromStage: () => Promise<void>;
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
+  approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
   onCheckpointContinue: () => Promise<void>;
   setAlertsMuted: (muted: boolean) => void;
-  appendClientLog: (message: string, level?: string) => void;
+  appendClientLog: (message: string, level?: string, stage?: string) => void;
   loadTranscriptReview: () => Promise<TranscriptReviewState | null>;
   setTranscriptReview: (data: TranscriptReviewState | null) => void;
   confirm: (message: string) => Promise<boolean>;
@@ -156,6 +160,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [toast, setToast] = useState<string | null>(null);
   const [jobRunning, setJobRunning] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jobRunningRef = useRef(false);
+  const actionBusyRef = useRef(false);
   const [transcriptReview, setTranscriptReview] =
     useState<TranscriptReviewState | null>(null);
   const [actionModalOpen, setActionModalOpen] = useState(false);
@@ -202,7 +210,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3500);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    const extended = jobRunningRef.current || actionBusyRef.current;
+    toastTimerRef.current = window.setTimeout(
+      () => setToast(null),
+      extended ? 7000 : 3500,
+    ) as unknown as ReturnType<typeof setTimeout>;
   }, []);
 
   const mergedApiGrants = useCallback(() => ALL_API_CONSENTS, []);
@@ -215,6 +228,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => actionSummaryText(run, mergedApiGrants()),
     [run, mergedApiGrants],
   );
+
+  useEffect(() => {
+    jobRunningRef.current = jobRunning;
+  }, [jobRunning]);
+  useEffect(() => {
+    actionBusyRef.current = actionBusy;
+  }, [actionBusy]);
 
   useEffect(() => {
     runIdRef.current = runId;
@@ -413,6 +433,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [runId, renderLogWithAlerts]);
 
+  const appendClientLogInternal = async (
+    rid: string | null,
+    message: string,
+    level = "info",
+    stage?: string,
+  ) => {
+    if (!rid) {
+      renderLogWithAlerts([
+        { ts: new Date().toISOString(), level: level as LogEntry["level"], message, stage },
+      ]);
+      return;
+    }
+    await api(`/api/runs/${rid}/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, level, stage }),
+    });
+    await pollLog();
+  };
+
+  const appendClientLog = useCallback(
+    (message: string, level = "info", stage?: string) => {
+      void appendClientLogInternal(runId, message, level, stage);
+    },
+    [runId, pollLog],
+  );
+
+  const logOperatorAction = useCallback(
+    (message: string, stage?: string | null) => {
+      appendClientLog(message, "action", stage || selectedStageIdRef.current || undefined);
+    },
+    [appendClientLog],
+  );
+
   const stopJobPoll = useCallback(() => {
     if (jobPollRef.current) {
       clearInterval(jobPollRef.current);
@@ -569,6 +623,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       const payload = { ...body, api_consents: ALL_API_CONSENTS };
+      const stageForLog = body.stage || body.from_stage || undefined;
+      logOperatorAction(describeExecuteBody(body), stageForLog);
       try {
         const res = await api<{
           ok?: boolean;
@@ -581,6 +637,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(payload),
         });
         if (res.ok === false) {
+          appendClientLog(res.error || "Failed to start job", "warning", stageForLog);
           showToast(res.error || "Failed to start");
           if (res.needs_stage_reuse && res.stage) {
             await selectStage(res.stage);
@@ -602,19 +659,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return;
         }
+        appendClientLog("Pipeline job started — streaming logs below.", "info", stageForLog);
+        setActivityLogTabState("live");
+        activityLogTabRef.current = "live";
+        setActivityLogCollapsedState(false);
+        activityLogCollapsedRef.current = false;
         startJobPoll();
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          showToast(
+          const msg =
             e.message ||
-              "A job is already running — watch Logs for progress, or refresh after a server restart.",
-          );
+            "Run is busy — watch Activity for progress, or refresh after a server restart.";
+          appendClientLog(msg, "warning", stageForLog);
+          showToast(msg);
           const job = runId ? await syncJobRunning(runId) : null;
-          if (isJobActivelyRunning(job)) startJobPoll();
-          else await refreshRun();
+          if (isJobActivelyRunning(job)) {
+            setActivityLogTabState("live");
+            activityLogTabRef.current = "live";
+            startJobPoll();
+          } else await refreshRun();
           return;
         }
-        showToast(e instanceof Error ? e.message : "Failed to start job");
+        const msg = e instanceof Error ? e.message : "Failed to start job";
+        appendClientLog(msg, "warning", stageForLog);
+        showToast(msg);
       }
     },
     [
@@ -627,6 +695,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectStage,
       openActionModal,
       syncJobRunning,
+      logOperatorAction,
+      appendClientLog,
     ],
   );
 
@@ -718,32 +788,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await openRun(id, { quiet: true, force: true });
   }, [runId, serverActiveRunId, openRun]);
 
-  const appendClientLogInternal = async (
-    rid: string | null,
-    message: string,
-    level = "info",
-  ) => {
-    if (!rid) {
-      renderLogWithAlerts([
-        { ts: new Date().toISOString(), level: level as LogEntry["level"], message },
-      ]);
-      return;
-    }
-    await api(`/api/runs/${rid}/log`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, level }),
-    });
-    await pollLog();
-  };
-
-  const appendClientLog = useCallback(
-    (message: string, level = "info") => {
-      void appendClientLogInternal(runId, message, level);
-    },
-    [runId],
-  );
-
   const startRun = useCallback(
     async (inputPath: string, flowIntent?: string) => {
       if (!sessionReady) {
@@ -803,6 +847,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const stageId =
       (run ? findHandoffStage(run)?.id : null) || selectedStageId || null;
     if (!stageId) return;
+    logOperatorAction(`Acknowledging AI review for ${stageId.replace(/_/g, " ")}…`, stageId);
     try {
       await api(`/api/runs/${runId}/handoff-ack`, {
         method: "POST",
@@ -810,40 +855,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ stage_id: stageId }),
       });
       showToast("Handoff acknowledged.");
+      setActionModalOpen(false);
+      userDismissedActionRef.current = false;
       await refreshRun();
+      await pollLog(true);
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Handoff acknowledgment failed");
+      const msg = e instanceof ApiError ? e.message : "Handoff acknowledgment failed";
+      appendClientLog(msg, "warning", stageId);
+      showToast(msg);
     }
-  }, [selectedStageId, runId, run, showToast, refreshRun]);
+  }, [selectedStageId, runId, run, showToast, refreshRun, logOperatorAction, appendClientLog, pollLog]);
 
   const runNextStage = useCallback(async () => {
-    if (!run) return;
-    if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
-      const sid = run.job.pending_write_stage || run.job.stage;
-      if (sid) await selectStage(sid);
-      openActionModal();
+    const current = runId ? await refreshRun() : run;
+    if (!current) return;
+    const write = pendingWriteInfo(current);
+    if (write?.paths.length) {
+      const sid = write.stageId;
+      if (sid) {
+        await selectStage(sid);
+        setPipelineSubTabWrapped("files");
+      }
+      showToast("Save staged outputs to disk before continuing.");
+      if (!userDismissedActionRef.current) openActionModal();
+      return;
+    }
+    if (
+      current.job?.status === "awaiting_write_approval" ||
+      current.job?.awaiting_write_approval
+    ) {
+      const sid = current.job.pending_write_stage || current.job.stage;
+      if (sid) {
+        await selectStage(sid);
+        setPipelineSubTabWrapped("files");
+      }
       showToast("Review stage outputs before saving to disk.");
       return;
     }
-    const handoffStage = findHandoffStage(run);
-    if (handoffStage) {
-      showToast(
-        `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
-      );
-      await selectStage(handoffStage.id);
+    if (current.job?.needs_stage_reuse && current.job.stage) {
+      await selectStage(current.job.stage);
+      setPipelineSubTabWrapped("stage");
+      showToast("Choose reuse from a prior execution or run this step fresh.");
       return;
     }
-    if (hasActionRequiredStage(run.stages)) {
-      const blocked = run.stages.find((s) => s.status === "action_required");
+    const handoffStage = findHandoffStage(current);
+    if (handoffStage) {
+      showToast(
+        `Review outputs from ${handoffStage.title}, then acknowledge to continue.`,
+      );
+      await selectStage(handoffStage.id);
+      setPipelineSubTabWrapped("stage");
+      return;
+    }
+    if (hasActionRequiredStage(current.stages)) {
+      const blocked = current.stages.find((s) => s.status === "action_required");
       showToast(
         `Complete checkpoint: ${blocked?.title || "action required"} before running.`,
       );
-      if (blocked) await selectStage(blocked.id);
+      if (blocked) {
+        await selectStage(blocked.id);
+        setPipelineSubTabWrapped("stage");
+      }
       openActionModal();
       playAttentionPing(alertsMuted);
       return;
     }
-    const next = findNextRunnableStage(run.stages);
+    const next = findNextRunnableStage(current.stages);
     if (!next) {
       showToast("No runnable stage — check gates or flow.");
       return;
@@ -854,26 +931,147 @@ export function AppProvider({ children }: { children: ReactNode }) {
       next.id === "g2_flow_select"
     ) {
       await selectStage(next.id);
+      setPipelineSubTabWrapped("stage");
       openActionModal();
       return;
     }
+    setActionModalOpen(false);
+    userDismissedActionRef.current = false;
+    await selectStage(next.id);
+    setPipelineSubTab("stage");
+    setActivityLogTabState("live");
+    activityLogTabRef.current = "live";
     await executeJob({ mode: "stage", stage: next.id });
-  }, [run, alertsMuted, showToast, selectStage, executeJob, openActionModal]);
+  }, [
+    run,
+    runId,
+    alertsMuted,
+    showToast,
+    selectStage,
+    executeJob,
+    openActionModal,
+    refreshRun,
+    setPipelineSubTabWrapped,
+  ]);
+
+  const approveWriteAndContinue = useCallback(
+    async (stageId?: string): Promise<boolean> => {
+      if (!runId || !run) return false;
+      const sid =
+        stageId ||
+        run.job?.pending_write_stage ||
+        run.job?.stage ||
+        pendingWriteInfo(run)?.stageId;
+      if (!sid) {
+        showToast("No staged outputs to save.");
+        return false;
+      }
+      const paths = resolvePendingWritePaths(run, sid);
+      if (!paths.length) {
+        showToast("Staged files are not listed yet — try refresh.");
+        return false;
+      }
+      setActionBusy(true);
+      logOperatorAction(
+        `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
+        sid,
+      );
+      try {
+        await api(`/api/runs/${runId}/pending-writes/${sid}/approve`, {
+          method: "POST",
+        });
+        showToast("Outputs saved — continuing.");
+        setActionModalOpen(false);
+        userDismissedActionRef.current = false;
+        const refreshed = await refreshRun();
+        await pollLog(true);
+        const stillPending = stageAwaitingWriteApproval(refreshed, sid);
+        if (stillPending) {
+          appendClientLog(
+            "Save completed but review gate still active — refresh or retry.",
+            "warning",
+            sid,
+          );
+          return false;
+        }
+        await runNextStage();
+        return true;
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Approve failed";
+        appendClientLog(msg, "warning", sid);
+        showToast(msg);
+        if (e instanceof ApiError && e.status === 409 && runId) {
+          const job = await syncJobRunning(runId);
+          if (isJobActivelyRunning(job)) {
+            setActivityLogTabState("live");
+            activityLogTabRef.current = "live";
+            startJobPoll();
+          }
+        }
+        return false;
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [
+      runId,
+      run,
+      showToast,
+      appendClientLog,
+      refreshRun,
+      runNextStage,
+      logOperatorAction,
+      pollLog,
+      syncJobRunning,
+      startJobPoll,
+    ],
+  );
 
   const onCheckpointContinue = useCallback(async () => {
-    if (!run || !selectedStage) return;
-    const paths = getHandoffPathsLocal(selectedStage, run.log_tail);
+    const current = runId ? await refreshRun() : run;
+    if (!current || !selectedStage) return;
+    const write = pendingWriteInfo(current);
+    if (
+      write &&
+      (write.stageId === selectedStage.id ||
+        selectedStage.status === "awaiting_write_approval")
+    ) {
+      await approveWriteAndContinue(write.stageId);
+      return;
+    }
+    const paths = getHandoffPathsLocal(selectedStage, current.log_tail);
     if (selectedStage.status === "done" && paths.length) {
-      await acknowledgeHandoff();
-      setActionModalOpen(false);
+      setActionBusy(true);
+      try {
+        await acknowledgeHandoff();
+        await runNextStage();
+      } finally {
+        setActionBusy(false);
+      }
       return;
     }
-    if (selectedStage.id === "g1_vo_pickup" && run.g1_clear) {
+    if (selectedStage.id === "g1_vo_pickup" && current.g1_clear) {
       await selectStage("g2_flow_select");
+      setPipelineSubTabWrapped("stage");
       return;
     }
-    await runNextStage();
-  }, [run, selectedStage, acknowledgeHandoff, selectStage, runNextStage]);
+    setActionBusy(true);
+    try {
+      await runNextStage();
+    } finally {
+      setActionBusy(false);
+    }
+  }, [
+    run,
+    runId,
+    selectedStage,
+    approveWriteAndContinue,
+    acknowledgeHandoff,
+    refreshRun,
+    runNextStage,
+    selectStage,
+    setPipelineSubTabWrapped,
+  ]);
 
   const redoFromStage = useCallback(async () => {
     if (!selectedStageId || !runId) return;
@@ -1037,6 +1235,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     alertsMuted,
     toast,
     jobRunning,
+    actionBusy,
     transcriptReview,
     selectedStage,
     actionModalOpen,
@@ -1077,6 +1276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     redoFromStage,
     startJobPoll,
     acknowledgeHandoff,
+    approveWriteAndContinue,
     onCheckpointContinue,
     setAlertsMuted,
     appendClientLog,

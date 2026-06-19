@@ -26,6 +26,7 @@ export function LiveStatusBar() {
     runNextStage,
     openActionModal,
     acknowledgeHandoff,
+    approveWriteAndContinue,
     selectStage,
     setActiveTab,
     setPipelineSubTab,
@@ -64,6 +65,7 @@ export function LiveStatusBar() {
       openActionModal();
     },
     onAcknowledgeHandoff: () => void acknowledgeHandoff(),
+    onApproveWrite: (stageId) => void approveWriteAndContinue(stageId),
     onGoLogs: () => {
       setLogFilterPreset({ stream: "live" });
       setActiveTab("logs");

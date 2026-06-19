@@ -9,6 +9,7 @@ import { PipelineTab } from "./tabs/PipelineTab";
 import { LogsTab } from "./tabs/LogsTab";
 import { ModalHost } from "./modals/ModalHost";
 import { Toast } from "./Toast";
+import { ActionOverlay } from "./ActionOverlay";
 import { LiveStatusBar } from "./LiveStatusBar";
 
 export function AppShell() {
@@ -32,6 +33,7 @@ export function AppShell() {
       </div>
       <ActivityTeaser />
       <ModalHost />
+      <ActionOverlay />
       <Toast />
     </div>
   );

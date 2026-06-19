@@ -3,6 +3,7 @@ import { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention } from "./attentionQueue";
+import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
 export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
@@ -169,6 +170,27 @@ export function actionSummaryText(
   return null;
 }
 
+export function checkpointContinueLabel(
+  run: RunData,
+  stage: StageInfo,
+  _grants: Record<string, boolean> = {},
+): string {
+  const write = pendingWriteInfo(run);
+  if (write && (write.stageId === stage.id || stage.status === "awaiting_write_approval")) {
+    const n = write.paths.length;
+    return n
+      ? `Save ${n} file${n === 1 ? "" : "s"} & continue`
+      : "Save & continue";
+  }
+  if (stage.status === "done") {
+    const paths = getHandoffPathsLocal(stage, run.log_tail);
+    if (paths.length && !run.handoff_ack?.[stage.id]) {
+      return "Acknowledge & continue";
+    }
+  }
+  return "Continue to next step";
+}
+
 export function checkpointContinueEnabled(
   run: RunData,
   stage: StageInfo,
@@ -176,6 +198,14 @@ export function checkpointContinueEnabled(
 ): boolean {
   if (isApiConsentJobPending(run, grants)) {
     return false;
+  }
+  if (stageAwaitingWriteApproval(run, stage.id)) {
+    const paths = resolvePendingWritePaths(run, stage.id);
+    return paths.length > 0;
+  }
+  const write = pendingWriteInfo(run);
+  if (write?.stageId === stage.id && write.paths.length > 0) {
+    return true;
   }
   if (stage.status === "action_required") {
     if (stage.id === "g1_vo_pickup") return Boolean(run.g1_clear);

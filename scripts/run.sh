@@ -104,23 +104,35 @@ PY
 fi
 
 _CURRENT_STEP="gui_session_reset"
-# Default 0: keep ASSETS/.gui/active_execution.json across ./scripts/run.sh restarts.
-# Opt-in fresh pointer: MUX_FRESH_SESSION=1 ./scripts/run.sh
-if [[ "${MUX_FRESH_SESSION:-0}" == "1" ]]; then
-  GUI_DIR="$("$VENV/bin/python" - <<'PY'
+# Every launch starts a fresh GUI session; prior executions remain under ASSETS/executions/.
+GUI_DIR="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config, repo_root
 cfg = merged_config()
 print((repo_root() / cfg.get("assets_root", "ASSETS") / ".gui").as_posix())
 PY
 )"
-  echo "Resetting GUI session state for a fresh launch ..."
-  rm -f \
-    "$GUI_DIR/active_execution.json" \
-    "$GUI_DIR/server_session.json" \
-    "$GUI_DIR/api_consent.json" \
-    "$GUI_DIR/active_execution.json.lock" \
-    "$GUI_DIR/server_session.json.lock" \
-    "$GUI_DIR/api_consent.json.lock"
+WEB_PORT="$("$VENV/bin/python" - <<'PY'
+from interview_mux.config import merged_config
+print(int(merged_config().get("web_port", 8765)))
+PY
+)"
+echo "Clearing GUI session state for a fresh launch ..."
+rm -f \
+  "$GUI_DIR/active_execution.json" \
+  "$GUI_DIR/server_session.json" \
+  "$GUI_DIR/api_consent.json" \
+  "$GUI_DIR/active_execution.json.lock" \
+  "$GUI_DIR/server_session.json.lock" \
+  "$GUI_DIR/api_consent.json.lock"
+
+if command -v lsof >/dev/null 2>&1; then
+  stale_pids="$(lsof -ti "tcp:${WEB_PORT}" 2>/dev/null || true)"
+  if [[ -n "${stale_pids}" ]]; then
+    echo "Stopping previous GUI server on port ${WEB_PORT} ..."
+    # shellcheck disable=SC2086
+    kill ${stale_pids} 2>/dev/null || true
+    sleep 1
+  fi
 fi
 
 _CURRENT_STEP="serve"

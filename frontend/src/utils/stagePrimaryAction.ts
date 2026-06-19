@@ -73,9 +73,9 @@ export function resolveStagePrimaryAction(
     return {
       kind: "checkpoint",
       label: fileCount
-        ? `Review ${fileCount} file${fileCount === 1 ? "" : "s"}`
-        : "Review & approve outputs",
-      sublabel: "Listen or preview staged files, then save to disk to continue.",
+        ? `Save ${fileCount} file${fileCount === 1 ? "" : "s"} & continue`
+        : "Save & continue",
+      sublabel: "Preview staged outputs if needed, then save to disk to advance.",
       disabled: false,
       targetStageId: stage.id,
     };

@@ -6,6 +6,7 @@ import {
   filterLiveStream,
   filterWarnings,
   resolveActiveStream,
+  resolveFocusStageId,
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
 
@@ -63,8 +64,13 @@ export function ActivityLogPanel() {
   useEffect(() => {
     if (jobRunning && activityLogTab !== "step") {
       setActivityLogTab("live");
+      return;
     }
-  }, [jobRunning, activityLogTab, setActivityLogTab]);
+    const focusStage = resolveFocusStageId(run, selectedStageId);
+    if (!jobRunning && focusStage && activityLogTab === "live") {
+      setActivityLogTab("step");
+    }
+  }, [jobRunning, activityLogTab, setActivityLogTab, run, selectedStageId]);
 
   useEffect(() => {
     if (toolView && !jobRunning && activityLogTab === "step") {

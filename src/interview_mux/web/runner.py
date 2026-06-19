@@ -48,8 +48,12 @@ from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 
 class RunBusyError(RuntimeError):
-    def __init__(self, run_id: str) -> None:
-        super().__init__(f"A job is already running for run {run_id}")
+    def __init__(self, run_id: str, *, detail: str | None = None) -> None:
+        msg = detail or (
+            f"Run {run_id} is busy — a pipeline step or save is already in progress. "
+            "Watch Activity for progress, then retry."
+        )
+        super().__init__(msg)
         self.run_id = run_id
 
 
@@ -100,6 +104,30 @@ class JobRunner:
     def _write_job(self, ctx: RunContext, payload: dict[str, Any]) -> None:
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         ctx.write_json("gui_job.json", payload)
+
+    def clear_operator_pause(
+        self,
+        ctx: RunContext,
+        stage_id: str,
+        *,
+        message: str,
+        level: str = "success",
+    ) -> None:
+        """Clear gui_job pause states (write approval, reuse offer) after operator action."""
+        ctx.log(message, level=level, stage=stage_id)
+        self._write_job(
+            ctx,
+            {
+                "status": "complete",
+                "stage": stage_id,
+                "current_stage": None,
+                "message": message,
+                "pending_write_stage": None,
+                "pending_write_paths": None,
+                "awaiting_write_approval": False,
+                "needs_stage_reuse": False,
+            },
+        )
 
     def lock_held(self, run_id: str) -> bool:
         """True when an in-process background job holds the run lock."""

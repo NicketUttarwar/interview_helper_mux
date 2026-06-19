@@ -1,4 +1,4 @@
-import type { RunData } from "../types";
+import type { RunData, PipelineSubTab } from "../types";
 import {
   listRequiredAttentionItems,
   topAttentionItem,
@@ -16,6 +16,7 @@ export interface PendingAction {
   primaryLabel: string;
   fileCount?: number;
   handoffPaths?: string[];
+  subTab?: PipelineSubTab;
 }
 
 function parseFileCountFromMessage(msg?: string): number | undefined {
@@ -36,6 +37,7 @@ function toPendingAction(item: AttentionItem): PendingAction {
     primaryLabel: item.primaryLabel,
     fileCount: item.fileCount,
     handoffPaths: item.handoffPaths,
+    subTab: item.subTab,
   };
 }
 

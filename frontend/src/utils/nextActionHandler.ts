@@ -7,6 +7,7 @@ export interface NextActionHandlers {
   onExecute: (body: ExecuteBody) => void;
   onRunNext: () => void;
   onAcknowledgeHandoff: () => void;
+  onApproveWrite?: (stageId: string) => void;
   onGoPipeline: () => void;
   onGoStory: () => void;
   onGoProfile: () => void;
@@ -41,6 +42,15 @@ export function resolveNextActionClick(
   const top = topAttentionItem(run);
 
   if (top && (run.journey?.blocking?.blocked || top.kind !== "milestone")) {
+    if (top.kind === "write_approval") {
+      return {
+        label: top.primaryLabel,
+        onClick: () => {
+          if (handlers.onApproveWrite) handlers.onApproveWrite(top.stageId);
+          else handlers.onOpenCheckpoint(top.stageId);
+        },
+      };
+    }
     return {
       label: top.primaryLabel,
       onClick: () => {

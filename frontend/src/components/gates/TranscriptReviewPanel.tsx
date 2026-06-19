@@ -10,7 +10,7 @@ import {
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 
 export function TranscriptReviewPanel() {
-  const { run, refreshRun, showToast, loadTranscriptReview, transcriptReview } =
+  const { run, refreshRun, showToast, loadTranscriptReview, transcriptReview, runNextStage } =
     useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +85,7 @@ export function TranscriptReviewPanel() {
         summary ? `${summary} · Transcript review complete` : "Transcript review complete",
       );
       await refreshRun();
+      await runNextStage();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Complete failed");
     }

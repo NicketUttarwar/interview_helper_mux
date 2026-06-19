@@ -7,6 +7,7 @@ import { resolvePrecleanOffer } from "../../utils/preclean";
 import { PHASE_LABELS } from "../../constants/phases";
 import { PendingActionBanner } from "../guidance/PendingActionBanner";
 import { resolvePendingAction } from "../../utils/pendingAction";
+import { primaryClickForPendingAction } from "../../utils/operatorNavigate";
 import { PhaseGuidanceBanner } from "../guidance/PhaseGuidanceBanner";
 import { AttentionQueuePanel } from "../guidance/AttentionQueuePanel";
 import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
@@ -23,9 +24,12 @@ export function PipelineCommandCenter() {
     sessionReady,
     selectStage,
     openActionModal,
+    setActiveTab,
+    setPipelineSubTab,
     acknowledgeHandoff,
     executeJob,
     runNextStage,
+    approveWriteAndContinue,
   } = useApp();
 
   const nav = useMemo(
@@ -71,6 +75,17 @@ export function PipelineCommandCenter() {
 
   const onHeaderClick = () => {
     if (!headerAction || headerAction.disabled) return;
+    if (pendingAction) {
+      primaryClickForPendingAction(pendingAction, {
+        selectStage: (id) => void selectStage(id),
+        setActiveTab,
+        setPipelineSubTab,
+        openActionModal,
+        closeActionModal: () => {},
+        approveWrite: (id) => void approveWriteAndContinue(id),
+      });
+      return;
+    }
     switch (headerAction.kind) {
       case "run":
         if (headerAction.targetStageId && headerAction.targetStageId !== actionStage?.id) {
@@ -116,7 +131,7 @@ export function PipelineCommandCenter() {
   return (
     <section className="pipeline-command-center panel" aria-label="Pipeline progress">
       <PhaseGuidanceBanner run={run} compact />
-      <AttentionQueuePanel />
+      <AttentionQueuePanel hideWhenSingleWriteApproval />
       <PreviewListenPromo />
       {qcFailed ? (
         <div className="pipeline-qc-promo panel-inset">

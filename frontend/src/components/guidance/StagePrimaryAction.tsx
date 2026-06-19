@@ -6,6 +6,7 @@ import {
   resolveStagePrimaryAction,
   type StagePrimaryActionSpec,
 } from "../../utils/stagePrimaryAction";
+import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import type { StageInfo } from "../../types";
 
 interface Props {
@@ -36,6 +37,8 @@ export function StagePrimaryAction({ stage, compact }: Props) {
     acknowledgeHandoff,
     executeJob,
     runNextStage,
+    approveWriteAndContinue,
+    actionBusy,
   } = useApp();
 
   const nav = useMemo(
@@ -82,6 +85,10 @@ export function StagePrimaryAction({ stage, compact }: Props) {
         }
         return;
       case "checkpoint":
+        if (stageAwaitingWriteApproval(run, stage.id)) {
+          void approveWriteAndContinue(stage.id);
+          return;
+        }
         if (spec.targetStageId) void selectStage(spec.targetStageId);
         openActionModal();
         return;
@@ -113,7 +120,7 @@ export function StagePrimaryAction({ stage, compact }: Props) {
           <button
             type="button"
             className={actionButtonClass(spec, compact)}
-            disabled={spec.disabled || !sessionReady}
+            disabled={spec.disabled || !sessionReady || actionBusy}
             data-testid="stage-primary-action-btn"
             onClick={onClick}
           >

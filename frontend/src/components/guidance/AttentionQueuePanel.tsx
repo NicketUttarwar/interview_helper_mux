@@ -3,20 +3,25 @@ import { useApp } from "../../context/AppContext";
 import {
   listAttentionItems,
   listRequiredAttentionItems,
+  type AttentionItem,
 } from "../../utils/attentionQueue";
+import { primaryClickForPendingAction } from "../../utils/operatorNavigate";
 
 const COLLAPSE_KEY = "attention_queue_collapsed";
 
 interface Props {
   compact?: boolean;
+  /** Hide when the only required item is write approval (inline panel covers it). */
+  hideWhenSingleWriteApproval?: boolean;
 }
 
-export function AttentionQueuePanel({ compact }: Props) {
+export function AttentionQueuePanel({ compact, hideWhenSingleWriteApproval }: Props) {
   const {
     run,
     apiGrants,
     selectStage,
     openActionModal,
+    approveWriteAndContinue,
     setActiveTab,
     setPipelineSubTab,
   } = useApp();
@@ -34,6 +39,14 @@ export function AttentionQueuePanel({ compact }: Props) {
   const required = listRequiredAttentionItems(run, apiGrants);
   const optional = listAttentionItems(run, apiGrants).filter((i) => i.optional);
 
+  if (
+    hideWhenSingleWriteApproval &&
+    required.length === 1 &&
+    required[0].kind === "write_approval"
+  ) {
+    return null;
+  }
+
   if (required.length === 0 && optional.length === 0) return null;
 
   const toggleCollapse = () => {
@@ -46,20 +59,28 @@ export function AttentionQueuePanel({ compact }: Props) {
     }
   };
 
-  const goToItem = (stageId: string, kind: string) => {
-    void selectStage(stageId);
-    setActiveTab("pipeline");
-    setPipelineSubTab(kind === "handoff" || kind === "write_approval" ? "files" : "stage");
-    if (kind === "handoff") {
-      requestAnimationFrame(() => {
-        document.getElementById("stage-handoff-panel")?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-      return;
-    }
-    openActionModal();
+  const navHandlers = {
+    selectStage: (id: string) => void selectStage(id),
+    setActiveTab,
+    setPipelineSubTab,
+    openActionModal,
+    closeActionModal: () => {},
+    approveWrite: (id: string) => void approveWriteAndContinue(id),
+  };
+
+  const goToItem = (item: AttentionItem) => {
+    primaryClickForPendingAction(
+      {
+        kind: item.kind,
+        stageId: item.stageId,
+        stageTitle: item.stageTitle,
+        title: item.title,
+        message: item.message,
+        primaryLabel: item.primaryLabel,
+        subTab: item.subTab,
+      },
+      navHandlers,
+    );
   };
 
   if (compact) {
@@ -105,13 +126,7 @@ export function AttentionQueuePanel({ compact }: Props) {
                 <button
                   type="button"
                   className="btn primary sm"
-                  onClick={() => {
-                    if (item.kind === "handoff") {
-                      goToItem(item.stageId, item.kind);
-                      return;
-                    }
-                    goToItem(item.stageId, item.kind);
-                  }}
+                  onClick={() => goToItem(item)}
                 >
                   {item.primaryLabel}
                 </button>
@@ -134,7 +149,7 @@ export function AttentionQueuePanel({ compact }: Props) {
                     <button
                       type="button"
                       className="btn ghost sm"
-                      onClick={() => goToItem(item.stageId, item.kind)}
+                      onClick={() => goToItem(item)}
                     >
                       View
                     </button>

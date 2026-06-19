@@ -418,7 +418,7 @@ def create_app() -> FastAPI:
         return {"ok": True, "active": None}
 
     @app.get("/api/assets")
-    def list_assets(recursive: bool = True) -> dict[str, Any]:
+    def list_assets(recursive: bool = False) -> dict[str, Any]:
         cfg = merged_config()
         assets = repo_root() / cfg.get("assets_root", "ASSETS")
         assets.mkdir(parents=True, exist_ok=True)
@@ -428,6 +428,8 @@ def create_app() -> FastAPI:
             if not p.is_file():
                 continue
             rel_parts = p.relative_to(assets).parts
+            if not recursive and len(rel_parts) != 1:
+                continue
             if any(part in SKIP_ASSET_PARTS for part in rel_parts):
                 continue
             if p.suffix.lower() not in AUDIO_EXTS:
@@ -1184,6 +1186,15 @@ def create_app() -> FastAPI:
         from interview_mux.write_staging import list_pending_paths
 
         paths = list_pending_paths(ctx, stage_id)
+        if not paths and ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            pending = meta.get("pending_write_approval") if isinstance(meta, dict) else {}
+            if isinstance(pending, dict):
+                info = pending.get(stage_id)
+                if isinstance(info, dict):
+                    raw = info.get("paths")
+                    if isinstance(raw, list):
+                        paths = [str(p) for p in raw if p]
         if not paths:
             raise HTTPException(404, f"No pending writes for stage: {stage_id}")
         return {"stage_id": stage_id, "paths": paths}
@@ -1234,6 +1245,15 @@ def create_app() -> FastAPI:
                 flushed = approve_stage_writes(ctx, stage_id)
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
+        title = STAGE_BY_ID.get(stage_id)
+        stage_label = title.title if title else stage_id.replace("_", " ")
+        runner.clear_operator_pause(
+            ctx,
+            stage_id,
+            message=(
+                f"{stage_label}: saved {len(flushed)} file(s) to disk — ready for next step."
+            ),
+        )
         refresh_journey_meta(ctx)
         return {"ok": True, "flushed": flushed, "stage_id": stage_id}
 
@@ -1248,6 +1268,14 @@ def create_app() -> FastAPI:
                 runner.invalidate_from(run_id, stage_id)
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
+        title = STAGE_BY_ID.get(stage_id)
+        stage_label = title.title if title else stage_id.replace("_", " ")
+        runner.clear_operator_pause(
+            ctx,
+            stage_id,
+            message=f"{stage_label}: discarded staged outputs — re-run when ready.",
+            level="info",
+        )
         refresh_journey_meta(ctx)
         return {"ok": True, "stage_id": stage_id}
 
@@ -1274,21 +1302,36 @@ def create_app() -> FastAPI:
             reuse_candidates_if_undecided,
         )
 
+        title = STAGE_BY_ID.get(stage_id)
+        stage_label = title.title if title else stage_id.replace("_", " ")
+        entry: dict[str, Any] = {}
+        copied: list[str] = []
+        action = body.action
+
         try:
             with runner.run_guard(run_id):
                 if body.action == "decline":
                     existing = get_reuse_decision(ctx, stage_id)
                     if existing and existing.get("action") == "decline":
                         refresh_journey_meta(ctx)
+                        runner.clear_operator_pause(
+                            ctx,
+                            stage_id,
+                            message=f"{stage_label}: reuse decision recorded — ready for next step.",
+                            level="info",
+                        )
                         return {"ok": True, "action": "decline", "stage_reuse": existing}
                     entry = record_reuse_decision(ctx, stage_id, action="decline")
                     append_operator_stage_reuse(ctx, stage_id, entry, source="gui_decline")
-                    refresh_journey_meta(ctx)
-                    return {"ok": True, "action": "decline", "stage_reuse": entry}
-
-                if reuse_already_applied(ctx, stage_id):
+                elif reuse_already_applied(ctx, stage_id):
                     entry = get_reuse_decision(ctx, stage_id) or {}
                     refresh_journey_meta(ctx)
+                    runner.clear_operator_pause(
+                        ctx,
+                        stage_id,
+                        message=f"{stage_label}: reuse already applied — ready for next step.",
+                        level="info",
+                    )
                     return {
                         "ok": True,
                         "action": "accept",
@@ -1296,41 +1339,52 @@ def create_app() -> FastAPI:
                         "copied": [],
                         "stage_done": ctx.is_done(stage_id),
                     }
-
-                source_id = body.source_run_id
-                if not source_id:
-                    raise HTTPException(400, "source_run_id is required when action is accept")
-                if not RunContext.exists(source_id):
-                    raise HTTPException(404, f"Source run not found: {source_id}")
-                source = RunContext(source_id, create=False)
-                if not prior_run_has_reusable_stage(source, stage_id):
-                    raise HTTPException(
-                        400,
-                        f"Run {source_id} does not have complete reusable outputs for {stage_id}",
+                else:
+                    source_id = body.source_run_id
+                    if not source_id:
+                        raise HTTPException(400, "source_run_id is required when action is accept")
+                    if not RunContext.exists(source_id):
+                        raise HTTPException(404, f"Source run not found: {source_id}")
+                    source = RunContext(source_id, create=False)
+                    if not prior_run_has_reusable_stage(source, stage_id):
+                        raise HTTPException(
+                            400,
+                            f"Run {source_id} does not have complete reusable outputs for {stage_id}",
+                        )
+                    allowed = {c.run_id for c in reuse_candidates_if_undecided(ctx, stage_id)}
+                    if source_id not in allowed:
+                        raise HTTPException(
+                            400,
+                            f"Run {source_id} is not an eligible reuse source for this stage",
+                        )
+                    entry = record_reuse_decision(
+                        ctx, stage_id, action="accept", source_run_id=source_id
                     )
-                allowed = {c.run_id for c in reuse_candidates_if_undecided(ctx, stage_id)}
-                if source_id not in allowed:
-                    raise HTTPException(
-                        400,
-                        f"Run {source_id} is not an eligible reuse source for this stage",
+                    copied = apply_stage_reuse(ctx, stage_id, source_id)
+                    append_operator_stage_reuse(
+                        ctx,
+                        stage_id,
+                        {**entry, "copied": copied},
+                        source="gui_accept",
                     )
-                entry = record_reuse_decision(
-                    ctx, stage_id, action="accept", source_run_id=source_id
-                )
-                copied = apply_stage_reuse(ctx, stage_id, source_id)
-                append_operator_stage_reuse(
-                    ctx,
-                    stage_id,
-                    {**entry, "copied": copied},
-                    source="gui_accept",
-                )
+                    action = "accept"
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
 
         refresh_journey_meta(ctx)
+        runner.clear_operator_pause(
+            ctx,
+            stage_id,
+            message=(
+                f"{stage_label}: reused {len(copied)} file(s) from prior execution."
+                if action == "accept" and copied
+                else f"{stage_label}: reuse decision recorded — ready for next step."
+            ),
+            level="success" if action == "accept" and copied else "info",
+        )
         return {
             "ok": True,
-            "action": "accept",
+            "action": action,
             "stage_reuse": entry,
             "copied": copied,
             "stage_done": ctx.is_done(stage_id),
@@ -1562,22 +1616,40 @@ def create_app() -> FastAPI:
                 meta["handoff_pending_writes"] = pending
 
             meta = ctx.mutate_run_meta(_patch)
+            title = STAGE_BY_ID.get(body.stage_id)
+            stage_label = title.title if title else body.stage_id.replace("_", " ")
             ctx.log(
                 f"Handoff acknowledged for {body.stage_id} — ready for next step.",
                 level="success",
                 stage=body.stage_id,
             )
+            runner.clear_operator_pause(
+                ctx,
+                body.stage_id,
+                message=f"{stage_label}: AI outputs reviewed — ready for next step.",
+            )
             return {"ok": True, "handoff_ack": meta.get("handoff_ack") or {}}
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
-        _ctx(run_id)
+        ctx = _ctx(run_id)
         if runner.is_running(run_id):
             raise HTTPException(
                 409,
                 "A job is already running for this run. Watch Logs for progress, "
                 "or refresh the page if the server restarted.",
             )
+        stage = body.stage or body.from_stage
+        stage_label = (
+            STAGE_BY_ID[stage].title
+            if stage and stage in STAGE_BY_ID
+            else (stage or body.mode).replace("_", " ")
+        )
+        ctx.log(
+            f"Operator requested: run {stage_label} (mode={body.mode})",
+            level="action",
+            stage=stage or "gui",
+        )
         set_active_execution(run_id)
         flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
         return runner.start(
@@ -2036,6 +2108,12 @@ def _assert_asset_input_path(rel: str) -> None:
             f"input_audio_path must be under {assets.relative_to(repo_root()).as_posix()}/",
         ) from exc
     rel_parts = resolved.relative_to(assets).parts
+    if len(rel_parts) != 1:
+        raise HTTPException(
+            400,
+            f"input_audio_path must be a file directly under "
+            f"{assets.relative_to(repo_root()).as_posix()}/ (not in subfolders)",
+        )
     if any(part in SKIP_ASSET_PARTS for part in rel_parts):
         raise HTTPException(400, "input_audio_path cannot be under executions/ or .gui/")
 

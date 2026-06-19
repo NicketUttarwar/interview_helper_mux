@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
+import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import type { StageInfo } from "../../types";
 
 function artifactPaths(stage: StageInfo): string[] {
@@ -12,7 +13,14 @@ function artifactPaths(stage: StageInfo): string[] {
 }
 
 export function ArtifactEditor() {
-  const { run, selectedStage, refreshRun, showToast, confirm, appendClientLog } = useApp();
+  const {
+    run,
+    selectedStage,
+    refreshRun,
+    showToast,
+    confirm,
+    appendClientLog,
+  } = useApp();
   const [paths, setPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [editorValue, setEditorValue] = useState("");
@@ -42,17 +50,37 @@ export function ArtifactEditor() {
     async (path: string) => {
       if (!run || !path) return;
       setIsJson(isJsonArtifactPath(path));
-      try {
-        const data = await api<Record<string, unknown> | { text?: string }>(
-          `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(path)}`,
-        );
+      setStatus(`Loading ${path}…`);
+      const applyPayload = (
+        data: Record<string, unknown> | { text?: string },
+        source: string,
+      ) => {
         if (isJsonArtifactPath(path)) {
           setEditorValue(JSON.stringify(data, null, 2));
         } else {
           setEditorValue((data as { text?: string }).text ?? "");
         }
-        setStatus(`Loaded ${path}`);
+        setStatus(`${source}: ${path}`);
+      };
+      try {
+        const data = await api<Record<string, unknown> | { text?: string }>(
+          `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(path)}`,
+        );
+        applyPayload(data, "Loaded");
       } catch {
+        const pendingStage =
+          run.job?.pending_write_stage || run.job?.stage || undefined;
+        if (pendingStage) {
+          try {
+            const staged = await api<Record<string, unknown> | { text?: string }>(
+              `/api/runs/${run.run_id}/pending-writes/${pendingStage}/content?path=${encodeURIComponent(path)}`,
+            );
+            applyPayload(staged, "Loaded staged copy");
+            return;
+          } catch {
+            /* fall through */
+          }
+        }
         setEditorValue("");
         setStatus(`${path} not found — run this stage first.`);
       }
@@ -79,6 +107,15 @@ export function ArtifactEditor() {
 
   const saveArtifact = async () => {
     if (!run || !selectedPath || !selectedStage) return;
+    if (stageAwaitingWriteApproval(run, selectedStage.id)) {
+      appendClientLog(
+        "Use Save & continue on the review panel to write staged outputs to disk.",
+        "info",
+        selectedStage.id,
+      );
+      showToast("Staged files need review approval — use Save & continue above.");
+      return;
+    }
     const invalidate = (await confirm(
       "Save to disk? Downstream stages may need re-run.",
     ))

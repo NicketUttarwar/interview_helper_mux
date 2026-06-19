@@ -24,7 +24,7 @@ interface DisfluencyReviewState {
 }
 
 export function DisfluencyReviewPanel() {
-  const { run, refreshRun, showToast, config } = useApp();
+  const { run, refreshRun, showToast, config, runNextStage } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
@@ -117,6 +117,7 @@ export function DisfluencyReviewPanel() {
       await api(`/api/runs/${run.run_id}/disfluency-review/complete`, { method: "POST" });
       showToast("Disfluency review complete");
       await refreshRun();
+      await runNextStage();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Complete failed");
     }

@@ -5,8 +5,10 @@ import {
   findPendingFocusStage,
   getHandoffPathsLocal,
   checkpointContinueEnabled,
+  checkpointContinueLabel,
   stageTitleForId,
 } from "../../utils/checkpoint";
+import { pendingWriteInfo, stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import { resolvePendingAction } from "../../utils/pendingAction";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
@@ -23,6 +25,7 @@ export function OperatorActionModal() {
     onCheckpointContinue,
     selectStage,
     apiGrants,
+    actionBusy,
   } = useApp();
 
   const pending = useMemo(() => resolvePendingAction(run, apiGrants), [run, apiGrants]);
@@ -75,6 +78,8 @@ export function OperatorActionModal() {
     handoffPaths.length > 0 &&
     !run.handoff_ack?.[selectedStage.id];
   const continueEnabled = checkpointContinueEnabled(run, selectedStage, apiGrants);
+  const continueLabel = checkpointContinueLabel(run, selectedStage, apiGrants);
+  const writePending = pendingWriteInfo(run);
   const statusSubline =
     pending?.message ||
     run.journey?.next_action ||
@@ -124,23 +129,33 @@ export function OperatorActionModal() {
         ) : null}
 
         <div className="modal-body-scroll">
-          <section id="modal-reuse">
-            <StageReuseSection stage={selectedStage} />
-          </section>
-          <section id="modal-write-approval">
-            <WriteApprovalPanel stage={selectedStage} />
-          </section>
-          <section id="modal-guidance">
-            <StageGuidancePanel stage={selectedStage} />
-          </section>
+          {pending?.kind === "stage_reuse" || run.job?.needs_stage_reuse ? (
+            <section id="modal-reuse">
+              <StageReuseSection stage={selectedStage} />
+            </section>
+          ) : null}
+          {pending?.kind === "write_approval" ||
+          stageAwaitingWriteApproval(run, selectedStage.id) ? (
+            <section id="modal-write-approval">
+              <WriteApprovalPanel stage={selectedStage} />
+            </section>
+          ) : null}
+          {selectedStage.guidance && pending?.kind !== "write_approval" ? (
+            <section id="modal-guidance">
+              <StageGuidancePanel stage={selectedStage} />
+            </section>
+          ) : null}
           {showHandoff ? (
             <section id="modal-handoff">
               <HandoffPanel />
             </section>
           ) : null}
-          <section id="modal-gates">
-            <GateActions stage={selectedStage} />
-          </section>
+          {selectedStage.status === "action_required" ||
+          (run.job?.status === "gate" && run.job.stage === selectedStage.id) ? (
+            <section id="modal-gates">
+              <GateActions stage={selectedStage} />
+            </section>
+          ) : null}
         </div>
 
         <div className="modal-actions modal-footer">
@@ -151,20 +166,28 @@ export function OperatorActionModal() {
             type="button"
             className="btn primary"
             data-testid="checkpoint-continue"
-            disabled={!continueEnabled}
+            disabled={!continueEnabled || actionBusy}
             onClick={() => void onCheckpointContinue()}
           >
-            Continue to next step
+            {actionBusy ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Working…
+              </>
+            ) : (
+              continueLabel
+            )}
           </button>
         </div>
+        {!continueEnabled && pending?.kind === "write_approval" ? (
+          <p className="hint modal-continue-hint">
+            {writePending?.paths.length
+              ? "Staged files are listed above — click Save & continue to write them to disk and advance."
+              : "Loading staged files… if this persists, use Retry above."}
+          </p>
+        ) : null}
         {!continueEnabled && selectedStage.status === "action_required" ? (
           <p className="hint modal-continue-hint">
             {continueHintForStage(selectedStage.id, run)}
-          </p>
-        ) : null}
-        {!continueEnabled && pending?.kind === "write_approval" ? (
-          <p className="hint modal-continue-hint">
-            Preview staged files, then Save &amp; continue to write them to disk.
           </p>
         ) : null}
         {!continueEnabled && pending?.kind === "stage_reuse" ? (

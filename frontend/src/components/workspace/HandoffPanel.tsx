@@ -6,7 +6,8 @@ import { handoffSkimBullets } from "../../utils/handoffSkimHints";
 import { escapeHtml } from "../../utils";
 
 export function HandoffPanel() {
-  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor } = useApp();
+  const { run, selectedStage, onCheckpointContinue, openArtifactInEditor, actionBusy } =
+    useApp();
 
   const { paths, audit, visible, skimBullets } = useMemo(() => {
     if (!run || !selectedStage) {
@@ -74,7 +75,8 @@ export function HandoffPanel() {
           type="button"
           className="btn primary sm"
           data-testid="handoff-acknowledge"
-          onClick={() => void acknowledgeHandoff()}
+          disabled={actionBusy}
+          onClick={() => void onCheckpointContinue()}
         >
           Acknowledge &amp; continue
         </button>

@@ -1923,6 +1923,52 @@ code {
   z-index: 1000;
 }
 
+.toast-extended {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.action-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: all;
+}
+
+.action-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.75rem 2rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  max-width: min(90vw, 22rem);
+  text-align: center;
+}
+
+.action-overlay-spinner {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.action-overlay-message {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
 .flow-choice {
   display: flex;
   gap: 0.75rem;

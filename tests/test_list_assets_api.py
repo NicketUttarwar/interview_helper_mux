@@ -28,6 +28,16 @@ def test_list_assets_excludes_executions_and_gui(tmp_path, monkeypatch) -> None:
     assert res.status_code == 200
     body = res.json()
     paths = {f["path"] for f in body["files"]}
+    assert paths == {"ASSETS/baba1_Vocals.wav"}
+    assert not any("executions" in p for p in paths)
+    assert not any("/input/" in p for p in paths)
+
+
+def test_list_assets_recursive_includes_subfolders(tmp_path, monkeypatch) -> None:
+    client = _seed_assets(tmp_path, monkeypatch)
+    res = client.get("/api/assets?recursive=1")
+    assert res.status_code == 200
+    paths = {f["path"] for f in res.json()["files"]}
     assert "ASSETS/baba1_Vocals.wav" in paths
     assert "ASSETS/input/interview.wav" in paths
     assert not any("executions" in p for p in paths)
@@ -80,6 +90,6 @@ def test_list_assets_survives_corrupt_run_summary(tmp_path, monkeypatch) -> None
     runs_res = client.get("/api/runs")
     assert assets_res.status_code == 200
     assert runs_res.status_code == 200
-    assert len(assets_res.json()["files"]) == 2
+    assert len(assets_res.json()["files"]) == 1
     run_ids = {r["run_id"] for r in runs_res.json()["runs"]}
     assert "exec_099_20260101T000099Z" in run_ids

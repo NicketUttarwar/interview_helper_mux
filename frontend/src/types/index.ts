@@ -285,6 +285,13 @@ export interface RunMeta {
       at?: string;
     }
   >;
+  pending_write_approval?: Record<
+    string,
+    {
+      paths?: string[];
+      created_at?: string;
+    }
+  >;
 }
 
 export interface SfxListenResult {

@@ -32,7 +32,7 @@ const emptyForm: ProfileFormState = {
 };
 
 export function ProfilePanel() {
-  const { run, selectedStage, refreshRun, showToast, confirm } = useApp();
+  const { run, selectedStage, refreshRun, showToast, confirm, runNextStage } = useApp();
   const [form, setForm] = useState<ProfileFormState>(emptyForm);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [verified, setVerified] = useState(false);
@@ -136,6 +136,7 @@ export function ProfilePanel() {
     showToast("Profile verified");
     await refreshRun();
     await loadProfile();
+    await runNextStage();
   };
 
   const setField = (key: keyof ProfileFormState, value: string) =>

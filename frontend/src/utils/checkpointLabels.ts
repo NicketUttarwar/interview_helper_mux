@@ -9,8 +9,8 @@ export function checkpointPrimaryLabel(
   const fc = opts?.fileCount;
   if (kind === "write_approval") {
     return fc
-      ? `Review ${fc} file${fc === 1 ? "" : "s"}`
-      : "Review & approve outputs";
+      ? `Save ${fc} file${fc === 1 ? "" : "s"} & continue`
+      : "Save & continue";
   }
   if (kind === "stage_reuse") return "Choose reuse or run fresh";
   if (kind === "handoff") return "Review outputs";
