@@ -3,6 +3,8 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { ContextIndexSummary, VolleyEntry } from "../../types";
 
+import { formatApiError } from "../../utils/safeApi";
+
 const KINDS = [
   "stage_conclusion",
   "investigation",
@@ -14,7 +16,7 @@ const KINDS = [
 ] as const;
 
 export function VolleyMemoryPanel() {
-  const { runId, setPipelineSubTab } = useApp();
+  const { runId, setPipelineSubTab, showToast, appendClientLog } = useApp();
   const [data, setData] = useState<ContextIndexSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +34,10 @@ export function VolleyMemoryPanel() {
       const res = await api<ContextIndexSummary>(`/api/runs/${runId}/context-index`);
       setData(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load volley memory");
+      const msg = formatApiError(e, "Volley memory");
+      setError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -67,7 +72,10 @@ export function VolleyMemoryPanel() {
       });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      const msg = formatApiError(e, "Save volley entry");
+      setError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setSaving(false);
     }
@@ -81,7 +89,10 @@ export function VolleyMemoryPanel() {
       });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalidate failed");
+      const msg = formatApiError(e, "Invalidate volley entry");
+      setError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     }
   };
 
@@ -100,7 +111,10 @@ export function VolleyMemoryPanel() {
       });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Add failed");
+      const msg = formatApiError(e, "Add volley entry");
+      setError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     }
   };
 
@@ -111,7 +125,10 @@ export function VolleyMemoryPanel() {
       await api(`/api/runs/${runId}/context-index/rebuild`, { method: "POST" });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Rebuild failed");
+      const msg = formatApiError(e, "Rebuild volley memory");
+      setError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }

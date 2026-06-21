@@ -3,8 +3,10 @@ import { api } from "../../api/client";
 import { useJourney } from "../../hooks/useJourney";
 import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
 
+import { formatApiError } from "../../utils/safeApi";
+
 export function DeliverableCard() {
-  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab } =
+  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab, setLogFilterPreset, showToast, appendClientLog } =
     useApp();
   const { deliverable, phase } = useJourney(run);
   const enabled = config?.journey_ui?.enabled !== false;
@@ -24,14 +26,25 @@ export function DeliverableCard() {
 
   const onPreviewListened = async () => {
     if (!runId) return;
-    await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
-    await refreshRun();
+    try {
+      await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
+      await refreshRun();
+    } catch (e) {
+      const msg = formatApiError(e, "Preview listened");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
+    }
   };
 
   const openActivity = () => {
     setActiveTab("pipeline");
     setPipelineSubTab("stage");
     setActivityLogTab("live");
+  };
+
+  const openActivityErrors = () => {
+    setLogFilterPreset({ level: "error", stream: "all", scrollToError: true });
+    setActiveTab("logs");
   };
 
   return (
@@ -63,7 +76,12 @@ export function DeliverableCard() {
           <code className="deliverable-path">{masterPath}</code>
           <audio controls src={playUrl(masterPath)} />
           {deliverable.qc_passed === false ? (
-            <span className="deliverable-warn">QC check failed — see activity log</span>
+            <>
+              <span className="deliverable-warn">QC check failed — see activity log</span>
+              <button type="button" className="btn ghost sm" onClick={openActivityErrors}>
+                View errors
+              </button>
+            </>
           ) : deliverable.qc_passed ? (
             <span className="deliverable-ok">QC pass</span>
           ) : null}

@@ -6,7 +6,7 @@ import pytest
 
 from interview_mux.disfluency.classify import classify_transcript_words, is_filler_text
 from interview_mux.disfluency.config import DEFAULT_FILLER_LEXICON, disfluency_enabled, disfluency_restore_enabled
-from interview_mux.disfluency.extract import confirmed_events, recompute_stats, write_skipped_artifact
+from interview_mux.disfluency.extract import confirmed_events, recompute_stats, write_disabled_artifact
 from interview_mux.disfluency.gaps import build_gap_candidates
 from interview_mux.disfluency.restore import build_restore_plan, split_speech_with_disfluencies
 from interview_mux.gates import check_disfluency_review_pending, require_disfluency_review_clear
@@ -94,7 +94,7 @@ def test_disfluency_extract_disabled_auto_completes(tmp_path: Path, monkeypatch)
     ctx.write_json("transcript/full.json", {"words": []})
     run_disfluency_extract(ctx)
     doc = ctx.read_json("transcript/disfluencies.json")
-    assert doc["status"] == "skipped"
+    assert doc["status"] == "disabled"
     assert ctx.is_done("disfluency_extract")
     assert ctx.is_done("disfluency_review")
 

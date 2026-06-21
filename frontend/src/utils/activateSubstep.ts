@@ -13,7 +13,7 @@ export interface ActivateSubstepHandlers {
   setActiveSubstepId?: (id: string | null) => void;
   setActivityLogCollapsed?: (collapsed: boolean) => void;
   setActivityLogTab?: (tab: LogStreamTab) => void;
-  showToast?: (msg: string) => void;
+  showToast?: (msg: string, level?: "info" | "error" | "warning") => void;
   skipOptionalStage?: (stageId: string) => void | Promise<void>;
 }
 

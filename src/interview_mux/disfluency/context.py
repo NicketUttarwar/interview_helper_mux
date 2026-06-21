@@ -18,7 +18,7 @@ def disfluency_summary_for_ctx(ctx: RunContext) -> dict[str, Any] | None:
         doc = ctx.read_json("transcript/disfluencies.json")
     except Exception:
         return None
-    if not isinstance(doc, dict) or str(doc.get("status")) == "skipped":
+    if not isinstance(doc, dict) or str(doc.get("status")) in {"skipped", "disabled", "no_assets"}:
         return None
 
     events = [e for e in (doc.get("events") or []) if isinstance(e, dict)]

@@ -32,6 +32,7 @@ export interface OperatorCommandState {
 
 function modeToKind(mode: string, jobStatus?: string): CommandKind {
   if (jobStatus === "error") return "error";
+  if (mode === "error") return "error";
   if (jobStatus === "interrupted") return "error";
   if (mode === "running") return "running";
   if (mode === "needs_you") return "blocked";
@@ -131,10 +132,13 @@ export function useOperatorCommand(
       onPrimary = onGoLogs;
       primaryLabel = "View logs";
       primaryDisabled = false;
-    } else if (run.job?.status === "error") {
-      onPrimary = onGoLogs;
-      primaryLabel = "View logs";
-      primaryDisabled = false;
+    } else if (action.mode === "error" || run.job?.status === "error") {
+      onPrimary =
+        action.primaryKind === "run_stage" && action.stageId
+          ? () => onExecute(executeBodyForStage(action.stageId!))
+          : onGoLogs;
+      primaryLabel = action.primaryLabel;
+      primaryDisabled = action.primaryDisabled;
     } else if (
       nextClick &&
       action.primaryKind === "none" &&

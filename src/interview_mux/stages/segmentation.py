@@ -6,6 +6,7 @@ from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
 from interview_mux.boundary_observability import observe_boundary_detection_input, pace_class_from_sap
+from interview_mux.operator_trace import logged_step
 from interview_mux.stage_enrichment import compact_value_features_summary, pause_ladder_hints
 from interview_mux.tone_taxonomy import compact_profile_style_hints
 from interview_mux.artifact_completeness import make_stage_persist
@@ -36,13 +37,14 @@ def run_boundaries(ctx: RunContext) -> None:
 
     persist = make_stage_persist("segments/boundaries.json", "boundary_detection")
 
-    run_analysis_llm_stage(
-        ctx,
-        "boundary_detection",
-        "segmentation/boundary-detection.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("boundary_detection/llm_stage", ctx=ctx, stage="boundary_detection"):
+        run_analysis_llm_stage(
+            ctx,
+            "boundary_detection",
+            "segmentation/boundary-detection.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_classification(ctx: RunContext) -> None:
@@ -76,11 +78,13 @@ def run_classification(ctx: RunContext) -> None:
         transform=_manifest_transform,
     )
 
-    run_analysis_llm_stage(
-        ctx,
-        "segment_classification",
-        "segmentation/segment-classification.system.txt",
-        build_input,
-        persist,
-    )
-    maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))
+    with logged_step("segment_classification/llm_stage", ctx=ctx, stage="segment_classification"):
+        run_analysis_llm_stage(
+            ctx,
+            "segment_classification",
+            "segmentation/segment-classification.system.txt",
+            build_input,
+            persist,
+        )
+    with logged_step("segment_classification/post_specialists", ctx=ctx, stage="segment_classification"):
+        maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))

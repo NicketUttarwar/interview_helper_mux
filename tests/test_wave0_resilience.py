@@ -288,4 +288,4 @@ def test_post_stage_specialist_failure_does_not_propagate(tmp_path):
         )
     assert outputs == []
     entries = read_log(ctx.run_dir)
-    assert any("Specialist" in e.get("message", "") and "failed" in e.get("message", "") for e in entries)
+    assert any("Post-stage specialist" in e.get("message", "") and "failed" in e.get("message", "") for e in entries)

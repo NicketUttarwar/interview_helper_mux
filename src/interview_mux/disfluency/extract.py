@@ -10,6 +10,7 @@ from interview_mux.disfluency.config import extract_settings
 from interview_mux.disfluency.gaps import build_gap_candidates
 from interview_mux.disfluency.vad import gap_has_voice_activity
 from interview_mux.disfluency.whisper_pass import transcribe_clip, whisper_available
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 
@@ -51,7 +52,8 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
     audio = _resolve_audio(ctx)
     lexicon = settings["filler_lexicon"]
 
-    events: list[dict[str, Any]] = list(classify_transcript_words(words, lexicon))
+    with logged_step("disfluency_extract/classify_words", ctx=ctx, stage="disfluency_extract"):
+        events: list[dict[str, Any]] = list(classify_transcript_words(words, lexicon))
     use_whisper = whisper_available()
     whisper_model = settings["whisper_model"]
 
@@ -67,65 +69,61 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
     for old in clips_dir.glob("*.wav"):
         old.unlink()
 
-    for gap in gaps:
-        if len(events) >= settings["max_events"]:
-            break
-        has_voice, _db = gap_has_voice_activity(
-            str(audio),
-            int(gap["start_ms"]),
-            int(gap["end_ms"]),
-            energy_dbfs=settings["vad_energy_dbfs"],
-        )
-        if not has_voice:
-            continue
-        if int(gap["end_ms"]) - int(gap["start_ms"]) < settings["min_event_ms"]:
-            continue
+    with logged_step("disfluency_extract/scan_gaps", ctx=ctx, stage="disfluency_extract"):
+        for gap in gaps:
+            if len(events) >= settings["max_events"]:
+                break
+            has_voice, _db = gap_has_voice_activity(
+                str(audio),
+                int(gap["start_ms"]),
+                int(gap["end_ms"]),
+                energy_dbfs=settings["vad_energy_dbfs"],
+            )
+            if not has_voice:
+                continue
+            if int(gap["end_ms"]) - int(gap["start_ms"]) < settings["min_event_ms"]:
+                continue
 
-        text = ""
-        confidence = 0.55
-        if use_whisper:
-            tmp = clips_dir / f"_gap_{gap['gap_index']}.wav"
-            extract_clip(audio, tmp, int(gap["start_ms"]), int(gap["end_ms"]))
-            try:
-                text, confidence = transcribe_clip(
-                    tmp,
-                    model_name=whisper_model,
-                    compute_type=settings["compute_type"],
-                    download_root=settings["weights_dir"],
-                )
-            except Exception as exc:
-                ctx.log(
-                    f"disfluency_extract: whisper failed on gap {gap['gap_index']}: {exc}",
-                    level="warning",
-                    stage="disfluency_extract",
-                )
-            finally:
-                if tmp.is_file():
-                    tmp.unlink()
-        if not is_filler_text(text, lexicon):
-            continue
-        events.append(
-            {
-                "start_ms": int(gap["start_ms"]),
-                "end_ms": int(gap["end_ms"]),
-                "speaker_id": str(gap.get("speaker_id") or ""),
-                "text": text,
-                "confidence": confidence,
-                "source": "vad_gap",
-                "label": "filled_pause",
-            }
-        )
+            text = ""
+            confidence = 0.55
+            if use_whisper:
+                tmp = clips_dir / f"_gap_{gap['gap_index']}.wav"
+                extract_clip(audio, tmp, int(gap["start_ms"]), int(gap["end_ms"]))
+                try:
+                    text, confidence = transcribe_clip(
+                        tmp,
+                        model_name=whisper_model,
+                        compute_type=settings["compute_type"],
+                        download_root=settings["weights_dir"],
+                    )
+                finally:
+                    if tmp.is_file():
+                        tmp.unlink()
+            if not is_filler_text(text, lexicon):
+                continue
+            events.append(
+                {
+                    "start_ms": int(gap["start_ms"]),
+                    "end_ms": int(gap["end_ms"]),
+                    "speaker_id": str(gap.get("speaker_id") or ""),
+                    "text": text,
+                    "confidence": confidence,
+                    "source": "vad_gap",
+                    "label": "filled_pause",
+                }
+            )
 
-    events = _dedupe_events(events)[: settings["max_events"]]
+    with logged_step("disfluency_extract/finalize_clips", ctx=ctx, stage="disfluency_extract"):
+        events = _dedupe_events(events)[: settings["max_events"]]
 
-    for i, ev in enumerate(events, start=1):
-        eid = f"fill_{i:04d}"
-        ev["event_id"] = eid
-        ev["review_status"] = "pending"
-        ev["include_in_restore"] = True
-        clip_rel = f"transcript/disfluency_clips/{eid}.wav"
-        extract_clip(audio, ctx.path(*clip_rel.split("/")), int(ev["start_ms"]), int(ev["end_ms"]))
-        ev["clip_path"] = clip_rel
+        for i, ev in enumerate(events, start=1):
+            eid = f"fill_{i:04d}"
+            ev["event_id"] = eid
+            ev["review_status"] = "pending"
+            ev["include_in_restore"] = True
+            clip_rel = f"transcript/disfluency_clips/{eid}.wav"
+            extract_clip(audio, ctx.path(*clip_rel.split("/")), int(ev["start_ms"]), int(ev["end_ms"]))
+            ev["clip_path"] = clip_rel
 
     stats = {
         "total": len(events),
@@ -133,9 +131,10 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
         "confirmed": 0,
         "rejected": 0,
     }
+    status = "no_assets" if not events else "ready"
     return {
         "schema_version": 1,
-        "status": "ready",
+        "status": status,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "model": {"vad": "energy_rms", "whisper": whisper_model if use_whisper else None},
         "events": events,
@@ -143,11 +142,10 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
     }
 
 
-def write_skipped_artifact(ctx: RunContext, *, reason: str) -> dict[str, Any]:
+def write_disabled_artifact(ctx: RunContext) -> dict[str, Any]:
     doc = {
         "schema_version": 1,
-        "status": "skipped",
-        "skip_reason": reason,
+        "status": "disabled",
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "model": {"vad": None, "whisper": None},
         "events": [],

@@ -538,7 +538,15 @@ class JobRunner:
                 )
             except Exception as exc:
                 err_msg = str(exc)
-                ctx.log(err_msg, level="error", stage=label, detail=traceback.format_exc())
+                tb = traceback.format_exc()
+                stage_id = stage or label
+                last_error = {
+                    "message": err_msg,
+                    "stage": stage_id,
+                    "error_class": type(exc).__name__,
+                    "traceback_excerpt": tb[:2000] if tb else None,
+                }
+                ctx.log(err_msg, level="error", stage=label, detail=tb)
                 self._write_job(
                     ctx,
                     {
@@ -547,7 +555,8 @@ class JobRunner:
                         "stage": stage,
                         "message": err_msg,
                         "error": err_msg,
-                        "traceback": traceback.format_exc(),
+                        "traceback": tb,
+                        "last_error": last_error,
                     },
                 )
             finally:

@@ -155,7 +155,11 @@ export function PipelineStepList() {
             (jobRunning || isJobActivelyRunning(run.job)) &&
             (run.job?.current_stage === entry.stage.id ||
               run.job?.stage === entry.stage.id);
-          const navStatus = isRunning ? "running" : status;
+          const isError =
+            run.job?.status === "error" &&
+            (run.job?.stage === entry.stage.id ||
+              run.job?.current_stage === entry.stage.id);
+          const navStatus = isRunning ? "running" : isError ? "error" : status;
           const progress = buildStageProgress(entry.stage, run, {
             jobRunning,
             actionBusy,
@@ -176,7 +180,9 @@ export function PipelineStepList() {
           const skipped = status === "skipped";
           const metaSuffix = skipped
             ? " · skipped"
-            : isRunning
+            : isError
+              ? " · failed"
+              : isRunning
               ? " · running"
               : progress.hasTodo || entry.stage.id === focusStageId
                 ? " · your turn"
@@ -197,7 +203,7 @@ export function PipelineStepList() {
                   <button
                     type="button"
                     tabIndex={isSelected || isFocus ? 0 : -1}
-                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${isFocus ? " sidebar-step--focus" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}${skipped ? " status-skipped" : ""}`}
+                    className={`pipeline-step-row status-${navStatus}${isSelected ? " selected" : ""}${isFocus ? " sidebar-step--focus" : ""}${isError ? " sidebar-step--error" : ""}${hasAction ? " has-action" : ""}${isRunning ? " running" : ""}${progress.fullyComplete ? " fully-done" : ""}${skipped ? " status-skipped" : ""}`}
                     data-testid={`pipeline-step-${entry.stage.id}`}
                     onClick={() => {
                       if (skipped) {

@@ -88,7 +88,10 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
     if (!run) return;
     void getSfxPrompts(run.run_id)
       .then((data) => setMmaudioQa(data.mmaudio_qa?.assets || []))
-      .catch(() => setMmaudioQa([]));
+      .catch((e) => {
+        setMmaudioQa([]);
+        showToast(e instanceof Error ? e.message : "Could not load MMAudio QA", "error");
+      });
   }, [run, stage.id]);
 
   const qaMap = useMemo(() => qaByAsset(mmaudioQa), [mmaudioQa]);
@@ -125,34 +128,46 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
     result: "pass" | "fail",
     note: string,
   ) => {
-    const body: { asset_id: string; result: "pass" | "fail"; note?: string } = {
-      asset_id: assetId,
-      result,
-    };
-    if (note.trim()) body.note = note.trim();
-    await postSfxListenResult(run.run_id, body);
-    showToast(`Post-listen: ${assetId} → ${result}`);
-    await refreshRun();
+    try {
+      const body: { asset_id: string; result: "pass" | "fail"; note?: string } = {
+        asset_id: assetId,
+        result,
+      };
+      if (note.trim()) body.note = note.trim();
+      await postSfxListenResult(run.run_id, body);
+      showToast(`Post-listen: ${assetId} → ${result}`);
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Post-listen save failed", "error");
+    }
   };
 
   const regenerateAsset = async (assetId: string) => {
-    await api(`/api/runs/${run.run_id}/sfx-prompts/regenerate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset_ids: [assetId] }),
-    });
-    showToast(`Regenerating ${assetId} via MMAudio…`);
-    await refreshRun();
+    try {
+      await api(`/api/runs/${run.run_id}/sfx-prompts/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset_ids: [assetId] }),
+      });
+      showToast(`Regenerating ${assetId} via MMAudio…`);
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Regenerate failed", "error");
+    }
   };
 
   const autoRefineFailed = async () => {
-    await api(`/api/runs/${run.run_id}/sfx-prompts/refine`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset_ids: failedIds, force: true }),
-    });
-    showToast("Auto-refine completed — review prompts and regenerate.");
-    await refreshRun();
+    try {
+      await api(`/api/runs/${run.run_id}/sfx-prompts/refine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset_ids: failedIds, force: true }),
+      });
+      showToast("Auto-refine completed — review prompts and regenerate.");
+      await refreshRun();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Auto-refine failed", "error");
+    }
   };
 
   const passAllAssets = async () => {

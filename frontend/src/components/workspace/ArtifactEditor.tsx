@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
 import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
+import { formatApiError, safeApi } from "../../utils/safeApi";
 import type { StageInfo } from "../../types";
 
 function artifactPaths(stage: StageInfo): string[] {
@@ -63,29 +64,48 @@ export function ArtifactEditor() {
         setStatus(`${source}: ${path}`);
       };
       try {
-        const data = await api<Record<string, unknown> | { text?: string }>(
-          `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(path)}`,
+        const data = await safeApi(
+          api<Record<string, unknown> | { text?: string }>(
+            `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(path)}`,
+          ),
+          {
+            label: `Load ${path}`,
+            onError: (msg) => {
+              appendClientLog(msg, "error", selectedStage?.id);
+            },
+          },
         );
-        applyPayload(data, "Loaded");
-      } catch {
+        if (data) {
+          applyPayload(data, "Loaded");
+          return;
+        }
         const pendingStage =
           run.job?.pending_write_stage || run.job?.stage || undefined;
         if (pendingStage) {
-          try {
-            const staged = await api<Record<string, unknown> | { text?: string }>(
+          const staged = await safeApi(
+            api<Record<string, unknown> | { text?: string }>(
               `/api/runs/${run.run_id}/pending-writes/${pendingStage}/content?path=${encodeURIComponent(path)}`,
-            );
+            ),
+            { label: `Load staged ${path}` },
+          );
+          if (staged) {
             applyPayload(staged, "Loaded staged copy");
             return;
-          } catch {
-            /* fall through */
           }
         }
         setEditorValue("");
-        setStatus(`${path} not found — run this stage first.`);
+        const msg = `${path} not found — run this stage first.`;
+        setStatus(msg);
+        showToast(msg, "error");
+      } catch (reason) {
+        setEditorValue("");
+        const msg = formatApiError(reason, `Load ${path}`);
+        setStatus(msg);
+        showToast(msg, "error");
+        appendClientLog(msg, "error", selectedStage?.id);
       }
     },
-    [run],
+    [run, selectedStage?.id, showToast, appendClientLog],
   );
 
   useEffect(() => {
@@ -160,7 +180,9 @@ export function ArtifactEditor() {
       appendClientLog(`Saved artifact ${selectedPath}`, "success");
       await refreshRun();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed");
+      const msg = formatApiError(e, "Save artifact");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", selectedStage.id);
     }
   };
 

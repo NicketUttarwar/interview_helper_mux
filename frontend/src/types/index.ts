@@ -1,5 +1,12 @@
 export type LogLevel = "info" | "success" | "warning" | "error" | "action";
 
+export type ToastLevel = "info" | "error" | "warning";
+
+export interface ToastState {
+  message: string;
+  level: ToastLevel;
+}
+
 export interface LogEntry {
   ts: string;
   level?: LogLevel;
@@ -178,7 +185,7 @@ export interface PhaseGuidance {
   progress?: { done: number; total: number } | null;
 }
 
-export type StageSubstepStatus = "todo" | "done" | "waiting" | "running";
+export type StageSubstepStatus = "todo" | "done" | "waiting" | "running" | "error";
 
 export type SubstepKind =
   | "guidance"
@@ -214,6 +221,7 @@ export interface StageProgressSummary {
   fullyComplete: boolean;
   hasTodo: boolean;
   hasRunning: boolean;
+  hasError: boolean;
   activeSubstep: StageSubstep | null;
   doneCount: number;
   totalCount: number;
@@ -768,6 +776,7 @@ export interface LogFilterPreset {
   stage?: string;
   level?: string;
   stream?: LogStreamTab;
+  scrollToError?: boolean;
 }
 
 export interface LiveStatus {

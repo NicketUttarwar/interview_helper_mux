@@ -75,7 +75,15 @@ export function LogsTab() {
     if (!logFilterPreset) return;
     if (logFilterPreset.level) setLevelFilter(logFilterPreset.level);
     if (logFilterPreset.stage) setStageFilter(logFilterPreset.stage);
+    const scrollToError = logFilterPreset.scrollToError;
     setLogFilterPreset(null);
+    if (scrollToError) {
+      requestAnimationFrame(() => {
+        scrollRef.current
+          ?.querySelector(".log-entry.level-error")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
   }, [logFilterPreset, setLogFilterPreset]);
 
   const stageFilterOptions = useMemo(() => {

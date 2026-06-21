@@ -1,4 +1,4 @@
-export type StepMode = "locked" | "idle" | "running" | "needs_you" | "done";
+export type StepMode = "locked" | "idle" | "running" | "needs_you" | "done" | "error";
 
 export type OperatorPrimaryKind =
   | "none"

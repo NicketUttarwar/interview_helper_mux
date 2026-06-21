@@ -7,6 +7,7 @@ import {
   filterWarnings,
   resolveActiveStream,
   resolveFocusStageId,
+  resolveLiveStageId,
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
 import { useStageProgress } from "../../hooks/useStageProgress";
@@ -58,11 +59,29 @@ export function ActivityLogPanel() {
     return logEntries;
   }, [activityLogTab, logEntries, run, jobRunning, selectedStageId]);
 
-  const pinnedErrors = useMemo(() => filterErrors(logEntries).slice(-5), [logEntries]);
-  const pinnedWarnings = useMemo(
-    () => filterWarnings(logEntries).slice(-3),
-    [logEntries],
-  );
+  const pinnedErrors = useMemo(() => {
+    const errors = filterErrors(logEntries).slice(-5);
+    if (activityLogTab === "step") {
+      return filterByStage(errors, selectedStageId).slice(-3);
+    }
+    if (activityLogTab === "live") {
+      const stageId = resolveLiveStageId(run, jobRunning, logEntries);
+      return filterByStage(errors, stageId).slice(-3);
+    }
+    return errors;
+  }, [logEntries, activityLogTab, selectedStageId, run, jobRunning]);
+
+  const pinnedWarnings = useMemo(() => {
+    const warnings = filterWarnings(logEntries).slice(-3);
+    if (activityLogTab === "step") {
+      return filterByStage(warnings, selectedStageId).slice(-2);
+    }
+    if (activityLogTab === "live") {
+      const stageId = resolveLiveStageId(run, jobRunning, logEntries);
+      return filterByStage(warnings, stageId).slice(-2);
+    }
+    return warnings;
+  }, [logEntries, activityLogTab, selectedStageId, run, jobRunning]);
 
   useEffect(() => {
     if (jobRunning && activityLogTab !== "step") {
@@ -124,6 +143,8 @@ export function ActivityLogPanel() {
             <p className="hint sm activity-log-substep-context">
               {activeSubstep.status === "running" ? (
                 <span className="spinner-inline" aria-hidden />
+              ) : activeSubstep.status === "error" ? (
+                <span className="log-level-dot level-error" aria-hidden />
               ) : null}
               {activeSubstep.label}
             </p>
@@ -192,10 +213,31 @@ export function ActivityLogPanel() {
         </p>
       ) : null}
 
-      {activityLogTab === "all" && (pinnedErrors.length || pinnedWarnings.length) ? (
+      {(activityLogTab === "live" || activityLogTab === "step") &&
+      (pinnedErrors.length || pinnedWarnings.length) ? (
         <div className="activity-log-pinned">
           {pinnedErrors.map((e, i) => (
             <div key={`err-${e.ts}-${i}`} className="log-entry level-error log-entry-compact">
+              <span className="log-msg">{e.message}</span>
+            </div>
+          ))}
+          {pinnedWarnings.map((e, i) => (
+            <div key={`warn-${e.ts}-${i}`} className="log-entry level-warning log-entry-compact">
+              <span className="log-msg">{e.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {activityLogTab === "all" && (pinnedErrors.length || pinnedWarnings.length) ? (
+        <div className="activity-log-pinned">
+          {pinnedErrors.map((e, i) => (
+            <div key={`all-err-${e.ts}-${i}`} className="log-entry level-error log-entry-compact">
+              <span className="log-msg">{e.message}</span>
+            </div>
+          ))}
+          {pinnedWarnings.map((e, i) => (
+            <div key={`all-warn-${e.ts}-${i}`} className="log-entry level-warning log-entry-compact">
               <span className="log-msg">{e.message}</span>
             </div>
           ))}

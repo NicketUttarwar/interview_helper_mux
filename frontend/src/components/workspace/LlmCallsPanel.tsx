@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { formatApiError } from "../../utils/safeApi";
 import type {
   LlmCallRecord,
   LlmCallSummary,
@@ -244,9 +245,9 @@ export function LlmCallsPanel() {
       }
     } catch (e) {
       setIndex(null);
-      const msg = e instanceof Error ? e.message : "Failed to load LLM calls";
-      showToast(msg);
-      appendClientLog(msg, "warning");
+      const msg = formatApiError(e, "LLM calls");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -331,9 +332,9 @@ export function LlmCallsPanel() {
       try {
         await loadRecord(path);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to load call";
-        showToast(msg);
-        appendClientLog(msg, "warning");
+        const msg = formatApiError(e, "Load LLM call");
+        showToast(msg, "error");
+        appendClientLog(msg, "error");
         return;
       }
     }
@@ -364,9 +365,9 @@ export function LlmCallsPanel() {
       setRecords((prev) => ({ ...prev, [path]: res.record }));
       showToast("LLM call saved");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Save failed";
-      showToast(msg);
-      appendClientLog(msg, "warning");
+      const msg = formatApiError(e, "Save LLM call");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setSavingPath(null);
     }
@@ -389,9 +390,9 @@ export function LlmCallsPanel() {
     try {
       await Promise.all([...calls].map((p) => loadRecord(p)));
     } catch {
-      const msg = "Some calls failed to load";
-      showToast(msg);
-      appendClientLog(msg, "warning");
+      const msg = "Some LLM calls failed to load";
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setExpandingAll(false);
     }

@@ -12,6 +12,7 @@ export function QcSummaryCard({
     setActiveTab,
     setPipelineSubTab,
     setActivityLogTab,
+    setLogFilterPreset,
     selectStage,
     redoFromStage,
   } = useApp();
@@ -30,6 +31,11 @@ export function QcSummaryCard({
     setActiveTab("pipeline");
     setPipelineSubTab("stage");
     setActivityLogTab("live");
+  };
+
+  const openErrors = () => {
+    setLogFilterPreset({ level: "error", stream: "all", scrollToError: true });
+    setActiveTab("logs");
   };
 
   const redoStep = async () => {
@@ -60,6 +66,9 @@ export function QcSummaryCard({
         <div className="stage-audio-actions flow-choice">
           <button type="button" className="btn ghost sm" onClick={openActivity}>
             View activity
+          </button>
+          <button type="button" className="btn ghost sm" onClick={openErrors}>
+            View errors
           </button>
           <button type="button" className="btn ghost sm" onClick={() => setActiveTab("logs")}>
             View Logs

@@ -4,6 +4,8 @@ import io
 import wave
 from pathlib import Path
 
+import pytest
+
 from interview_mux.run_context import RunContext
 from interview_mux.stages import assembly_flow1
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
@@ -178,11 +180,6 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
                 "line_id": "line_001",
                 "source_path": "vo_pickup/line_001.wav",
             },
-            {
-                "type": "vo_pickup",
-                "line_id": "line_missing",
-                "source_path": "vo_pickup/line_missing.wav",
-            },
             {"type": "transition", "text": "bridge"},
         ]
     }
@@ -226,5 +223,51 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
     assert preview.is_file()
     assert ctx.done == ["assembly_preview"]
     assert any(stage == "assembly_preview" and level == "success" for level, stage, _ in ctx.logs)
-    assert any(stage == "assembly_preview" and level == "warning" for level, stage, _ in ctx.logs)
     assert len(ffmpeg_calls) == 2
+
+
+def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_002"
+    (run_dir / "ingest").mkdir(parents=True, exist_ok=True)
+    (run_dir / "flow_1_master").mkdir(parents=True, exist_ok=True)
+    (run_dir / "ingest" / "normalized.wav").write_bytes(b"\x00")
+
+    edl = {
+        "clips": [
+            {"type": "speech", "source_start_ms": 0, "source_end_ms": 1000},
+            {
+                "type": "vo_pickup",
+                "line_id": "line_missing",
+                "source_path": "vo_pickup/line_missing.wav",
+            },
+        ]
+    }
+
+    class FakeCtx:
+        def __init__(self) -> None:
+            self.run_dir = run_dir
+            self.logs: list[tuple[str, str | None]] = []
+
+        def read_json(self, rel: str) -> dict:
+            return edl
+
+        def path(self, *parts: str) -> Path:
+            return self.run_dir.joinpath(*parts)
+
+        def log(
+            self,
+            message: str,
+            *,
+            level: str = "info",
+            stage: str | None = None,
+            detail: str | dict | None = None,
+        ) -> None:
+            self.logs.append((message, stage))
+
+    monkeypatch.setattr(
+        "interview_mux.operator_subprocess.subprocess.run",
+        lambda cmd, **kwargs: __import__("subprocess").CompletedProcess(cmd, 0, "", ""),
+    )
+
+    with pytest.raises(FileNotFoundError, match="line_missing"):
+        assembly_flow1.run_preview(FakeCtx())

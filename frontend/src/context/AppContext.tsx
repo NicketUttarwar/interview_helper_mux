@@ -26,7 +26,10 @@ import type {
   StageInfo,
   TimelineData,
   TranscriptReviewState,
+  ToastLevel,
+  ToastState,
 } from "../types";
+import { formatApiError } from "../utils/safeApi";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { countRequiredAttention } from "../utils/attentionQueue";
 import { resolveOperatorAction } from "../utils/resolveOperatorAction";
@@ -63,7 +66,7 @@ interface AppContextValue {
   runs: RunSummary[];
   apiGrants: Record<string, boolean>;
   alertsMuted: boolean;
-  toast: string | null;
+  toast: ToastState | null;
   jobRunning: boolean;
   actionBusy: boolean;
   transcriptReview: TranscriptReviewState | null;
@@ -96,7 +99,7 @@ interface AppContextValue {
   openArtifactInEditor: (path: string) => void;
   setSelectedAsset: (path: string | null) => void;
   setMenuOpen: (open: boolean) => void;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, level?: ToastLevel) => void;
   openActionModal: () => void;
   closeActionModal: () => void;
   clearSession: () => Promise<void>;
@@ -179,7 +182,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [alertsMuted, setAlertsMutedState] = useState(
     () => localStorage.getItem("gui_mute_alerts") === "1",
   );
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [jobRunning, setJobRunning] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -239,13 +242,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, selectedStageId],
   );
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
+  const showToast = useCallback((msg: string, level: ToastLevel = "info") => {
+    setToast({ message: msg, level });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     const extended = jobRunningRef.current || actionBusyRef.current;
     toastTimerRef.current = window.setTimeout(
       () => setToast(null),
-      extended ? 7000 : 3500,
+      extended ? 7000 : level === "error" ? 6000 : 3500,
     ) as unknown as ReturnType<typeof setTimeout>;
   }, []);
 
@@ -494,7 +497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ]);
 
     setHomeRefreshing(false);
-    if (errors.length) showToast(errors.join(" · "));
+    if (errors.length) showToast(errors.join(" · "), "error");
   }, [showToast]);
 
   const pollLog = useCallback(async (force?: boolean) => {
@@ -509,10 +512,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           prev ? { ...prev, log_tail: data.entries } : prev,
         );
       }
-    } catch {
-      /* ignore */
+    } catch (reason) {
+      showToast(formatApiError(reason, "Activity log"), "error");
     }
-  }, [runId, renderLogWithAlerts]);
+  }, [runId, renderLogWithAlerts, showToast]);
 
   const appendClientLogInternal = async (
     rid: string | null,
@@ -558,18 +561,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshRun = useCallback(async (): Promise<RunData | null> => {
     if (!runId) return null;
-    const runData = await api<RunData>(`/api/runs/${runId}`);
-    setRun(runData);
-    setShownPrecleanOffers(
-      new Set(runData.meta?.audio_preclean?.offered_at || []),
-    );
-    const tl = await api<TimelineData>(`/api/runs/${runId}/timeline`).catch(
-      () => null,
-    );
-    setTimeline(tl);
-    renderLogWithAlerts(runData.log_tail || []);
-    return runData;
-  }, [runId, renderLogWithAlerts]);
+    try {
+      const runData = await api<RunData>(`/api/runs/${runId}`);
+      setRun(runData);
+      setShownPrecleanOffers(
+        new Set(runData.meta?.audio_preclean?.offered_at || []),
+      );
+      const tl = await api<TimelineData>(`/api/runs/${runId}/timeline`).catch(
+        () => null,
+      );
+      setTimeline(tl);
+      renderLogWithAlerts(runData.log_tail || []);
+      return runData;
+    } catch (reason) {
+      showToast(formatApiError(reason, "Refresh run"), "error");
+      return null;
+    }
+  }, [runId, renderLogWithAlerts, showToast]);
 
   const selectStage = useCallback(
     async (stageId: string, opts?: { pinned?: boolean }) => {
@@ -658,11 +666,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRun((prev) => (prev ? { ...prev, job } : prev));
       maybeAutoSelectRunningStage(job);
       return job;
-    } catch {
+    } catch (reason) {
       setJobRunning(false);
+      showToast(formatApiError(reason, "Job status"), "error");
       return null;
     }
-  }, [maybeAutoSelectRunningStage]);
+  }, [maybeAutoSelectRunningStage, showToast]);
 
   const startJobPoll = useCallback(() => {
     stopJobPoll();
@@ -694,6 +703,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   }),
                 }).then(() => pollLog());
               }
+            } else if (polled.status === "error") {
+              showToast(
+                polled.last_error?.message || polled.message || "Step failed",
+                "error",
+              );
             }
             if (
               polled.status === "awaiting_write_approval" ||
@@ -722,8 +736,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           }
           await pollLog(true);
-        } catch {
+        } catch (reason) {
           stopJobPoll();
+          showToast(formatApiError(reason, "Job poll"), "error");
         }
       }, 1000);
     })();
@@ -775,8 +790,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ): Promise<boolean> => {
       if (res.ok === false) {
         setJobRunning(false);
-        appendClientLog(res.error || "Failed to start job", "warning", stageForLog);
-        showToast(res.error || "Failed to start");
+        appendClientLog(res.error || "Failed to start job", "error", stageForLog);
+        showToast(res.error || "Failed to start", "error");
         const busyJob = res.job;
         if (busyJob && isJobActivelyRunning(busyJob)) {
           setRun((prev) => (prev ? { ...prev, job: busyJob } : prev));
@@ -889,7 +904,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             e.message ||
             "Run is busy — watch Activity for progress, or refresh after a server restart.";
           appendClientLog(msg, "warning", stageId);
-          showToast(msg);
+          showToast(msg, "warning");
           const job = await syncJobRunning(runId);
           if (isJobActivelyRunning(job)) {
             setActivityLogTabState("live");
@@ -900,9 +915,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return false;
         }
-        const msg = e instanceof Error ? e.message : "Failed to start job";
-        appendClientLog(msg, "warning", stageId);
-        showToast(msg);
+        const msg = formatApiError(e, "Start job");
+        appendClientLog(msg, "error", stageId);
+        showToast(msg, "error");
         await refreshRun();
         return false;
       }
@@ -946,9 +961,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await handleJobStartResponse(res as { ok?: boolean }, body.mode);
         } catch (e) {
           setJobRunning(false);
-          const msg = e instanceof Error ? e.message : "Failed to start job";
-          appendClientLog(msg, "warning");
-          showToast(msg);
+          const msg = formatApiError(e, "Start job");
+          appendClientLog(msg, "error");
+          showToast(msg, "error");
         }
         return;
       }
@@ -1032,7 +1047,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const msg = e instanceof ApiError ? e.message : "Failed to open execution";
         setSessionLoadError(msg);
         setRun(null);
-        showToast(msg);
+        showToast(msg, "error");
         throw e;
       } finally {
         setOpenRunLoading(false);
@@ -1077,7 +1092,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         appendClientLog(`Created execution ${res.run_id}`, "success");
         await openRun(res.run_id);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to start run");
+        showToast(e instanceof Error ? e.message : "Failed to start run", "error");
       }
     },
     [appendClientLog, openRun, showToast, runId, sessionReady],
@@ -1239,7 +1254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Handoff acknowledgment failed";
       appendClientLog(msg, "warning", stageId);
-      showToast(msg);
+      showToast(msg, "error");
     }
   }, [
     selectedStageId,
@@ -1336,11 +1351,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
         appendClientLog(msg, "warning", sid);
-        showToast(msg);
+        showToast(msg, "error");
         if (e instanceof ApiError && e.status === 409 && runId) {
           const job = await syncJobRunning(runId);
           if (isJobActivelyRunning(job)) {
-            showToast("Step still running — wait for Activity log, then retry.");
+            showToast("Step still running — wait for Activity log, then retry.", "warning");
             setActivityLogTabState("live");
             activityLogTabRef.current = "live";
             startJobPoll();
@@ -1391,7 +1406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Could not skip optional step";
-        showToast(msg);
+        showToast(msg, "error");
         appendClientLog(msg, "warning", stageId);
       }
     },
@@ -1512,7 +1527,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refreshRun();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Redo failed";
-      showToast(msg);
+      showToast(msg, "error");
       appendClientLog(msg, "warning");
     }
   }, [selectedStageId, runId, refreshRun, confirm, appendClientLog, showToast]);
@@ -1555,7 +1570,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (gen !== bootGenRef.current) return;
         const msg = e instanceof Error ? e.message : "Failed to load session";
         setSessionLoadError(msg);
-        showToast(msg);
+        showToast(msg, "error");
       } finally {
         if (gen === bootGenRef.current) setSessionReady(true);
       }

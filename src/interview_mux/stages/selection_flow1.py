@@ -12,6 +12,7 @@ from interview_mux.nle_state import (
 )
 from interview_mux.gates import check_narrative_qc
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.artifact_completeness import make_stage_persist
@@ -78,14 +79,16 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             stage_key="full_master_ranking",
         )
 
-    run_flow_llm_stage(
-        ctx,
-        "full_master_ranking",
-        "selection/full-master-ranking.system.txt",
-        build_input,
-        persist,
-    )
-    maybe_run_post_stage_specialists(ctx, "full_master_ranking", build_input(ctx))
+    with logged_step("full_master_ranking/llm_stage", ctx=ctx, stage="full_master_ranking"):
+        run_flow_llm_stage(
+            ctx,
+            "full_master_ranking",
+            "selection/full-master-ranking.system.txt",
+            build_input,
+            persist,
+        )
+    with logged_step("full_master_ranking/post_specialists", ctx=ctx, stage="full_master_ranking"):
+        maybe_run_post_stage_specialists(ctx, "full_master_ranking", build_input(ctx))
 
 
 def run_transitions(ctx: RunContext) -> None:
@@ -101,13 +104,14 @@ def run_transitions(ctx: RunContext) -> None:
 
     persist = make_stage_persist("flow_1_master/transitions.json", "transitions")
 
-    run_flow_llm_stage(
-        ctx,
-        "transitions",
-        "assembly/transitions.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):
+        run_flow_llm_stage(
+            ctx,
+            "transitions",
+            "assembly/transitions.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_podcast_sfx_brief(ctx: RunContext) -> None:
@@ -129,10 +133,11 @@ def run_podcast_sfx_brief(ctx: RunContext) -> None:
 
     persist = make_stage_persist("flow_1_master/podcast_sfx_brief.json", "podcast_sfx_brief")
 
-    run_flow_llm_stage(
-        ctx,
-        "podcast_sfx_brief",
-        "assembly/podcast-sfx-brief.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("podcast_sfx_brief/llm_stage", ctx=ctx, stage="podcast_sfx_brief"):
+        run_flow_llm_stage(
+            ctx,
+            "podcast_sfx_brief",
+            "assembly/podcast-sfx-brief.system.txt",
+            build_input,
+            persist,
+        )

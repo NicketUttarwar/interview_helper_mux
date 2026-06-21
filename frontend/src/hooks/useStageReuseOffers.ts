@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ReuseCandidate } from "../types";
+import { formatApiError } from "../utils/safeApi";
 
 export interface StageReuseOffersState {
   candidates: ReuseCandidate[];
@@ -18,6 +19,7 @@ export function useStageReuseOffers(
     stage?: string;
     reuse_candidates?: ReuseCandidate[];
   },
+  onError?: (message: string) => void,
 ): StageReuseOffersState {
   const [candidates, setCandidates] = useState<ReuseCandidate[]>([]);
   const [currentHashShort, setCurrentHashShort] = useState<string | null>(null);
@@ -37,7 +39,9 @@ export function useStageReuseOffers(
         .then((offers) => {
           setCurrentHashShort(offers.current_source_audio_hash_short ?? null);
         })
-        .catch(() => undefined);
+        .catch((reason) => {
+          onError?.(formatApiError(reason, "Reuse offers"));
+        });
       setLoading(false);
       return;
     }
@@ -56,11 +60,12 @@ export function useStageReuseOffers(
           setCandidates([]);
         }
       })
-      .catch(() => {
+      .catch((reason) => {
         setCandidates([]);
+        onError?.(formatApiError(reason, "Reuse offers"));
       })
       .finally(() => setLoading(false));
-  }, [runId, stageId, stageStatus, job?.needs_stage_reuse, job?.stage, job?.reuse_candidates]);
+  }, [runId, stageId, stageStatus, job?.needs_stage_reuse, job?.stage, job?.reuse_candidates, onError]);
 
   useEffect(() => {
     refresh();

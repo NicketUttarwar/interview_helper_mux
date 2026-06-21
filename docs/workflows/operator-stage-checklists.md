@@ -422,6 +422,21 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 
 ---
 
+## Error tracing
+
+| Layer | Where to look | What you get |
+|-------|----------------|--------------|
+| GUI header / Steps | `job.status: error`, `job.last_error` on `GET /api/runs/{id}` | Human message, stage id, **Retry** CTA |
+| Activity log | `gui_log.jsonl` filtered by stage | `substep_fail` detail with traceback on stage wrapper failures |
+| Background job file | `gui_job.json` | `last_error.message`, `error_class`, full `traceback` on disk |
+| API (run-scoped) | `gui_log.jsonl` `stage: api` | Unhandled **5xx** on `/api/runs/{id}/*` — global FastAPI handler in `server.py` |
+| LLM / cloud | `gui_log.jsonl` `level: error` on stage | OpenAI/AWS failures via `operator_trace.log_failure` / `log_api_call` |
+| Local stacks | MMAudio / preclean stages | Retry warnings then hard-fail error lines before job `status: error` |
+
+**Tests:** `tests/test_stage_error_logging.py`, `tests/test_api_error_logging.py`, `tests/test_llm_runner_errors.py`, `tests/test_sfx_mmaudio_hard_fail.py`.
+
+---
+
 ## Post-export QA
 
 | Check | Pass | If fail |

@@ -115,6 +115,26 @@ describe("resolveOperatorAction", () => {
     expect(a.primaryKind).toBe("run_stage");
   });
 
+  it("error job maps to error mode with retry", () => {
+    const run = baseRun({
+      stages: [stage("transcribe", "pending", "Transcribe")],
+      job: {
+        status: "error",
+        stage: "transcribe",
+        message: "AWS transcription failed",
+        last_error: { message: "AWS transcription failed", stage: "transcribe" },
+      },
+    });
+    const a = resolveOperatorAction(run);
+    expect(a.mode).toBe("error");
+    expect(a.stageId).toBe("transcribe");
+    expect(a.substepId).toBe("error");
+    expect(a.headline).toMatch(/Transcribe failed/);
+    expect(a.subline).toBe("AWS transcription failed");
+    expect(a.primaryKind).toBe("run_stage");
+    expect(a.secondaryKind).toBe("view_logs");
+  });
+
   it("prefers server active_operator_action", () => {
     const run = baseRun({
       journey: {
@@ -177,6 +197,55 @@ describe("stepModeLabel", () => {
     expect(stepModeLabel("done")).toBe("Complete");
     expect(stepModeLabel("locked")).toBe("Waiting");
     expect(stepModeLabel("idle")).toBe("Ready");
+    expect(stepModeLabel("error")).toBe("Failed");
+  });
+});
+
+describe("resolveOperatorAction error mode", () => {
+  it("job status error maps to error mode with retry", () => {
+    const run = baseRun({
+      stages: [stage("ingest", "pending", "Ingest")],
+      job: {
+        status: "error",
+        stage: "ingest",
+        message: "Normalization failed",
+        last_error: { message: "ffmpeg exit 1" },
+      },
+    });
+    const a = resolveOperatorAction(run);
+    expect(a.mode).toBe("error");
+    expect(a.stageId).toBe("ingest");
+    expect(a.headline).toMatch(/Ingest failed/);
+    expect(a.subline).toBe("ffmpeg exit 1");
+    expect(a.primaryKind).toBe("run_stage");
+    expect(a.secondaryKind).toBe("view_logs");
+  });
+
+  it("error on selected stage via resolveOperatorActionForStage", () => {
+    const run = baseRun({
+      stages: [stage("ingest", "pending", "Ingest"), stage("transcribe", "locked", "Transcribe")],
+      job: {
+        status: "error",
+        stage: "ingest",
+        message: "Disk full",
+      },
+    });
+    const a = resolveOperatorActionForStage(run, "ingest", {});
+    expect(a.mode).toBe("error");
+    expect(a.primaryLabel).toMatch(/Retry Ingest/);
+  });
+
+  it("non-failing stage stays locked while another stage errored", () => {
+    const run = baseRun({
+      stages: [stage("ingest", "pending", "Ingest"), stage("transcribe", "locked", "Transcribe")],
+      job: {
+        status: "error",
+        stage: "ingest",
+        message: "Disk full",
+      },
+    });
+    const a = resolveOperatorActionForStage(run, "transcribe", {});
+    expect(a.mode).toBe("locked");
   });
 });
 

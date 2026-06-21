@@ -2,23 +2,29 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { COHERENCE_REPORT_PATH } from "../../utils";
+import { formatApiError } from "../../utils/safeApi";
 import type { CoherenceReport, CoherenceRisk } from "../../types";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 export function CoherenceRisksPanel() {
-  const { run, refreshRun, showToast, confirm } = useApp();
+  const { run, refreshRun, showToast, appendClientLog, confirm } = useApp();
   const [report, setReport] = useState<CoherenceReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!run) return;
+    setLoadError(null);
     try {
       const data = await api<CoherenceReport>(`/api/runs/${run.run_id}/coherence-report`);
       setReport(data);
-    } catch {
+    } catch (e) {
       setReport(null);
+      const msg = formatApiError(e, "Coherence report");
+      setLoadError(msg);
+      appendClientLog(msg, "error");
     }
-  }, [run]);
+  }, [run, appendClientLog]);
 
   useEffect(() => {
     void load();
@@ -37,10 +43,28 @@ export function CoherenceRisksPanel() {
       showToast("Coherence report recomputed.");
       await refreshRun();
       await load();
+    } catch (e) {
+      const msg = formatApiError(e, "Recompute coherence");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
   };
+
+  if (loadError && !report) {
+    return (
+      <section className="coherence-risks-card quality-offer-card">
+        <h4>Long-run coherence</h4>
+        <p className="error-text" role="alert">
+          {loadError}
+        </p>
+        <button type="button" className="btn ghost sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </section>
+    );
+  }
 
   if (!report?.gate?.activated) {
     return (

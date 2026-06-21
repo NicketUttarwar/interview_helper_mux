@@ -10,6 +10,7 @@ from interview_mux.audio_clips import extract_clip
 from interview_mux.audio_energy import find_silence_valley_ms, rms_at_ms
 from interview_mux.audio_timeline import snap_cut_to_word_boundary
 from interview_mux.config import merged_config
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
@@ -46,47 +47,48 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         raise FileNotFoundError(normalized)
 
     full = ctx.read_json("transcript/full.json")
-    chunks = _build_chunks(full)
-    clips_dir = ctx.path("transcript", "review_clips")
-    clips_dir.mkdir(parents=True, exist_ok=True)
+    with logged_step("transcript_review_build/chunk_queue", ctx=ctx, stage="transcript_review_build"):
+        chunks = _build_chunks(full)
+        clips_dir = ctx.path("transcript", "review_clips")
+        clips_dir.mkdir(parents=True, exist_ok=True)
 
-    for old in clips_dir.glob("*.wav"):
-        old.unlink()
+        for old in clips_dir.glob("*.wav"):
+            old.unlink()
 
-    for chunk in chunks:
-        _refine_chunk_edges(chunk, full.get("words") or [], normalized)
-        clip_start = int(chunk.get("clip_start_ms", chunk["start_ms"]))
-        clip_end = int(chunk.get("clip_end_ms", chunk["end_ms"]))
-        clip_path = clips_dir / f"{chunk['chunk_id']}.wav"
-        extract_clip(normalized, clip_path, clip_start, clip_end)
-        chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
-        chunk["acoustic_stress_score"] = _acoustic_stress_score(normalized, chunk)
+        for chunk in chunks:
+            _refine_chunk_edges(chunk, full.get("words") or [], normalized)
+            clip_start = int(chunk.get("clip_start_ms", chunk["start_ms"]))
+            clip_end = int(chunk.get("clip_end_ms", chunk["end_ms"]))
+            clip_path = clips_dir / f"{chunk['chunk_id']}.wav"
+            extract_clip(normalized, clip_path, clip_start, clip_end)
+            chunk["clip_path"] = f"transcript/review_clips/{chunk['chunk_id']}.wav"
+            chunk["acoustic_stress_score"] = _acoustic_stress_score(normalized, chunk)
 
-    sort_mode = _review_sort_mode()
-    ranked = _rank_review_chunks(chunks, sort_mode=sort_mode)
-    for rank, chunk in enumerate(ranked, start=1):
-        chunk["rank"] = rank
-        chunk["reviewed"] = False
-        chunk["needs_review"] = chunk["confidence"] < LOW_CONFIDENCE_THRESHOLD
+        sort_mode = _review_sort_mode()
+        ranked = _rank_review_chunks(chunks, sort_mode=sort_mode)
+        for rank, chunk in enumerate(ranked, start=1):
+            chunk["rank"] = rank
+            chunk["reviewed"] = False
+            chunk["needs_review"] = chunk["confidence"] < LOW_CONFIDENCE_THRESHOLD
 
-    queue = {
-        "version": 1,
-        "low_confidence_threshold": LOW_CONFIDENCE_THRESHOLD,
-        "sort_mode": sort_mode,
-        "chunk_count": len(ranked),
-        "chunks": ranked,
-    }
-    from interview_mux.prompt_validation import validate_transcript_review_queue
+        queue = {
+            "version": 1,
+            "low_confidence_threshold": LOW_CONFIDENCE_THRESHOLD,
+            "sort_mode": sort_mode,
+            "chunk_count": len(ranked),
+            "chunks": ranked,
+        }
+        from interview_mux.prompt_validation import validate_transcript_review_queue
 
-    q_errors = validate_transcript_review_queue(queue)
-    if q_errors:
-        ctx.log(
-            f"transcript_review_build: review_queue schema failed: {q_errors[:3]}",
-            level="error",
-            stage="transcript_review_build",
-        )
-        raise SystemExit(f"review_queue validation failed: {q_errors[0]}")
-    ctx.write_json("transcript/review_queue.json", queue)
+        q_errors = validate_transcript_review_queue(queue)
+        if q_errors:
+            ctx.log(
+                f"transcript_review_build: review_queue schema failed: {q_errors[:3]}",
+                level="error",
+                stage="transcript_review_build",
+            )
+            raise SystemExit(f"review_queue validation failed: {q_errors[0]}")
+        ctx.write_json("transcript/review_queue.json", queue)
 
     stress_scores = [float(c.get("acoustic_stress_score") or 0.0) for c in ranked]
     mean_stress = round(statistics.mean(stress_scores), 4) if stress_scores else 0.0

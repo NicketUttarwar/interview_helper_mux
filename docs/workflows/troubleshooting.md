@@ -28,6 +28,20 @@ Symptom → likely cause → **artifact to inspect** → **fix / re-run**. For r
 
 ---
 
+## Reading stage errors
+
+When a pipeline step fails (`gui_job.json` → `status: error`), use this order:
+
+1. **Pipeline header** — `StepActionHeader` shows **Failed** with the error message (`job.last_error.message` or `job.message`).
+2. **Steps sidebar** — the failing stage gets an **error** substep (`substepId: error`) with the same message; click it to focus the stage row.
+3. **`gui_log.jsonl`** — search for `level: error` on the stage id; stage wrapper failures include `detail.event: substep_fail` with `error_class` and `traceback`. API failures on run-scoped routes log `stage: api` with `API 5xx: …`.
+4. **`GET /api/runs/{id}`** — when `job.status === "error"`, `job.last_error` includes `message`, `stage`, optional `error_class`, and `traceback_excerpt` (first 2000 chars).
+5. **Retry** — use **Retry {stage}** in the header or re-run the stage after fixing the cited artifact or config issue.
+
+Background execute failures also write `last_error` into `gui_job.json` on disk; the run payload merges that with traceback when the GUI polls.
+
+---
+
 ## Pipeline / CLI
 
 | Symptom | Likely cause | Inspect | Action |

@@ -619,6 +619,21 @@ def _run_steps(
         token = active_pipeline_stage.set(name)
         try:
             run_wrapped_stage(ctx, name, fn)
+        except Exception:
+            ctx.log(
+                f"Pipeline batch aborted at {name} ({plan_idx}/{total})",
+                level="error",
+                stage=name,
+                detail={
+                    "event": "batch_abort",
+                    "failed_stage": name,
+                    "stage_index": plan_idx,
+                    "stage_total": total,
+                    "stages_planned": planned,
+                    "journey_kind": "execute",
+                },
+            )
+            raise
         finally:
             active_pipeline_stage.reset(token)
         pause_after_stage_if_needed(ctx, name)

@@ -13,6 +13,7 @@ from interview_mux.acoustic_profile import compact_for_volley, load_profile, pac
 from interview_mux.config import merged_config
 from interview_mux.disfluency.context import attach_disfluency_context
 from interview_mux.context_volley import transcript_quality_for_ctx
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.transcript_sampling import stratified_transcript_samples_from_words
 from interview_mux.value_analysis.extract import (
@@ -58,14 +59,15 @@ def run_speaker_roles(ctx: RunContext) -> None:
 
     persist = make_stage_persist("understanding/speakers.json", "speaker_roles")
 
-    run_analysis_llm_stage(
-        ctx,
-        "speaker_roles",
-        "understanding/speaker-roles.system.txt",
-        build_input,
-        persist,
-        sync_fn=lambda c, a: sync_speakers_to_state(c, a if "speakers" in a else {"speakers": a.get("speakers", [])}),
-    )
+    with logged_step("speaker_roles/llm_stage", ctx=ctx, stage="speaker_roles"):
+        run_analysis_llm_stage(
+            ctx,
+            "speaker_roles",
+            "understanding/speaker-roles.system.txt",
+            build_input,
+            persist,
+            sync_fn=lambda c, a: sync_speakers_to_state(c, a if "speakers" in a else {"speakers": a.get("speakers", [])}),
+        )
 
 
 def run_content_context(ctx: RunContext) -> None:
@@ -85,20 +87,22 @@ def run_content_context(ctx: RunContext) -> None:
 
     persist = make_stage_persist("understanding/content_brief.json", "content_context")
 
-    run_analysis_llm_stage(
-        ctx,
-        "content_context",
-        "understanding/content-context.system.txt",
-        build_input,
-        persist,
-        sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
-    )
+    with logged_step("content_context/llm_stage", ctx=ctx, stage="content_context"):
+        run_analysis_llm_stage(
+            ctx,
+            "content_context",
+            "understanding/content-context.system.txt",
+            build_input,
+            persist,
+            sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
+        )
     if ctx.is_done("content_context"):
-        maybe_auto_extract_value_features(ctx)
-        maybe_enqueue_orchestration_investigations(ctx)
-        from interview_mux.coherence import maybe_run_coherence_analysis
+        with logged_step("content_context/post_hooks", ctx=ctx, stage="content_context"):
+            maybe_auto_extract_value_features(ctx)
+            maybe_enqueue_orchestration_investigations(ctx)
+            from interview_mux.coherence import maybe_run_coherence_analysis
 
-        maybe_run_coherence_analysis(ctx, phase="post_content_context")
+            maybe_run_coherence_analysis(ctx, phase="post_content_context")
 
 
 def run_content_brief_reanchor(ctx: RunContext) -> None:
@@ -117,18 +121,20 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
 
     persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
 
-    run_analysis_llm_stage(
-        ctx,
-        "content_brief_reanchor",
-        "understanding/content-brief-reanchor.system.txt",
-        build_input,
-        persist,
-        sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
-    )
+    with logged_step("content_brief_reanchor/llm_stage", ctx=ctx, stage="content_brief_reanchor"):
+        run_analysis_llm_stage(
+            ctx,
+            "content_brief_reanchor",
+            "understanding/content-brief-reanchor.system.txt",
+            build_input,
+            persist,
+            sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
+        )
     if ctx.is_done("content_brief_reanchor"):
-        from interview_mux.coherence import maybe_run_coherence_analysis
+        with logged_step("content_brief_reanchor/post_hooks", ctx=ctx, stage="content_brief_reanchor"):
+            from interview_mux.coherence import maybe_run_coherence_analysis
 
-        maybe_run_coherence_analysis(ctx, phase="post_reanchor")
+            maybe_run_coherence_analysis(ctx, phase="post_reanchor")
 
 
 def run_source_acoustic_profile(ctx: RunContext) -> None:
@@ -140,10 +146,11 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
     preclean = ctx.path("preclean", "isolated.wav")
     analysis_wav = preclean if preclean.is_file() else normalized_wav
 
-    pacing = _derive_pacing(transcript)
-    energy = _derive_energy_profile(analysis_wav)
-    source_music_risk = _derive_source_music_risk(pacing, energy)
-    mix_contract = _derive_mix_contract(pacing, source_music_risk)
+    with logged_step("source_acoustic_profile/derive_metrics", ctx=ctx, stage="source_acoustic_profile"):
+        pacing = _derive_pacing(transcript)
+        energy = _derive_energy_profile(analysis_wav)
+        source_music_risk = _derive_source_music_risk(pacing, energy)
+        mix_contract = _derive_mix_contract(pacing, source_music_risk)
 
     prior_overrides: dict[str, Any] = {}
     if ctx.artifact_exists("understanding/source_acoustic_profile.json"):
@@ -163,7 +170,8 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
         "placement_hints": _placement_hints(pacing),
         "operator_overrides": prior_overrides,
     }
-    ctx.write_json("understanding/source_acoustic_profile.json", profile)
+    with logged_step("source_acoustic_profile/write", ctx=ctx, stage="source_acoustic_profile"):
+        ctx.write_json("understanding/source_acoustic_profile.json", profile)
     ctx.log(
         f"Source acoustic profile complete — pace={pacing.get('pace_class', 'unknown')}.",
         level="success",

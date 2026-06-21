@@ -12,6 +12,7 @@ from interview_mux.nle_state import (
     nle_has_operator_edits,
     segments_by_id_with_nle,
 )
+from interview_mux.operator_trace import logged_step
 from interview_mux.prompt_validation import validate_edl_flow1
 from interview_mux.disfluency.config import disfluency_restore_enabled, restore_settings
 from interview_mux.disfluency.extract import confirmed_events, load_disfluencies
@@ -272,64 +273,65 @@ def run_edl(ctx: RunContext) -> None:
             )
     check_narrative_qc(ctx, stage="edl_flow1", require_selection=True)
 
-    selection = ctx.read_json("flow_1_master/selection.json")
-    nle = load_nle(ctx)
-    by_id = _segment_by_id(ctx)
-    if nle_has_operator_edits(nle):
-        selection = apply_nle_to_selection(
-            selection, nle, segments_by_id=by_id
+    with logged_step("edl_flow1/load_inputs", ctx=ctx, stage="edl_flow1"):
+        selection = ctx.read_json("flow_1_master/selection.json")
+        nle = load_nle(ctx)
+        by_id = _segment_by_id(ctx)
+        if nle_has_operator_edits(nle):
+            selection = apply_nle_to_selection(
+                selection, nle, segments_by_id=by_id
+            )
+            ctx.write_json("flow_1_master/selection.json", selection)
+            ordered = selection.get("ordered_segment_ids") or []
+            excluded = selection.get("excluded_segment_ids") or []
+            ctx.log(
+                f"EDL: applied NLE edits — {len(ordered)} segments, "
+                f"{len(excluded)} excluded.",
+                level="info",
+                stage="edl_flow1",
+            )
+        gap_report = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
         )
-        ctx.write_json("flow_1_master/selection.json", selection)
-        ordered = selection.get("ordered_segment_ids") or []
-        excluded = selection.get("excluded_segment_ids") or []
-        ctx.log(
-            f"EDL: applied NLE edits — {len(ordered)} segments, "
-            f"{len(excluded)} excluded.",
-            level="info",
-            stage="edl_flow1",
+        transitions = (
+            ctx.read_json("flow_1_master/transitions.json")
+            if ctx.artifact_exists("flow_1_master/transitions.json")
+            else None
         )
-    gap_report = (
-        ctx.read_json("understanding/gap_report.json")
-        if ctx.artifact_exists("understanding/gap_report.json")
-        else None
-    )
-    transitions = (
-        ctx.read_json("flow_1_master/transitions.json")
-        if ctx.artifact_exists("flow_1_master/transitions.json")
-        else None
-    )
-    run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    restore_on = disfluency_restore_enabled(run_meta=run_meta)
-    disfluencies = load_disfluencies(ctx) if ctx.artifact_exists("transcript/disfluencies.json") else {}
-    confirmed = confirmed_events(disfluencies) if restore_on else []
-    restore_cfg = restore_settings()
-    plan = build_restore_plan(
-        ordered_segment_ids=list(selection.get("ordered_segment_ids") or []),
-        segments_by_id=by_id,
-        disfluencies=disfluencies,
-        settings=restore_cfg,
-    )
-    ctx.write_json("flow_1_master/disfluency_restore_plan.json", plan)
-    edl = build_flow1_edl(
-        selection=selection,
-        segments_by_id=by_id,
-        gap_report=gap_report,
-        transitions=transitions,
-        resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
-        vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
-        disfluency_events=confirmed,
-        restore_enabled=restore_on and bool(confirmed),
-        restore_cfg=restore_cfg,
-    )
+        run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        restore_on = disfluency_restore_enabled(run_meta=run_meta)
+        disfluencies = load_disfluencies(ctx) if ctx.artifact_exists("transcript/disfluencies.json") else {}
+        confirmed = confirmed_events(disfluencies) if restore_on else []
+        restore_cfg = restore_settings()
+
+    with logged_step("edl_flow1/build_restore_plan", ctx=ctx, stage="edl_flow1"):
+        plan = build_restore_plan(
+            ordered_segment_ids=list(selection.get("ordered_segment_ids") or []),
+            segments_by_id=by_id,
+            disfluencies=disfluencies,
+            settings=restore_cfg,
+        )
+        ctx.write_json("flow_1_master/disfluency_restore_plan.json", plan)
+
+    with logged_step("edl_flow1/build_edl", ctx=ctx, stage="edl_flow1"):
+        edl = build_flow1_edl(
+            selection=selection,
+            segments_by_id=by_id,
+            gap_report=gap_report,
+            transitions=transitions,
+            resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
+            vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
+            disfluency_events=confirmed,
+            restore_enabled=restore_on and bool(confirmed),
+            restore_cfg=restore_cfg,
+        )
 
     warnings = edl.get("warnings") or {}
     if warnings.get("missing_vo_files"):
-        ctx.log(
-            f"EDL: gap VO lines missing WAV (mux remains speech-only): "
-            f"{warnings['missing_vo_files']}",
-            level="warning",
-            stage="edl_flow1",
-        )
+        missing = sorted(set(warnings["missing_vo_files"]))
+        raise RuntimeError(f"edl_flow1: gap VO lines missing WAV: {missing}")
     if warnings.get("gap_targets_not_in_selection"):
         ctx.log(
             f"EDL: gap targets not in selection order: "
@@ -350,18 +352,19 @@ def run_edl(ctx: RunContext) -> None:
     check_edl_qc(ctx, stage="edl_flow1", edl=edl, strict=True)
     check_edl_narrative_qc(ctx, stage="edl_flow1", edl=edl)
 
-    edl_errors = validate_edl_flow1(edl)
-    if edl_errors:
-        for err in edl_errors:
-            ctx.log(
-                f"flow_1_master/edl.json: {err}",
-                level="error",
-                stage="edl_flow1",
+    with logged_step("edl_flow1/validate_write", ctx=ctx, stage="edl_flow1"):
+        edl_errors = validate_edl_flow1(edl)
+        if edl_errors:
+            for err in edl_errors:
+                ctx.log(
+                    f"flow_1_master/edl.json: {err}",
+                    level="error",
+                    stage="edl_flow1",
+                )
+            raise SystemExit(
+                f"edl_flow1: edl.json failed schema validation ({len(edl_errors)} error(s))"
             )
-        raise SystemExit(
-            f"edl_flow1: edl.json failed schema validation ({len(edl_errors)} error(s))"
-        )
-    ctx.write_json("flow_1_master/edl.json", edl)
+        ctx.write_json("flow_1_master/edl.json", edl)
     ctx.mark_done("edl_flow1")
 
 
@@ -373,7 +376,8 @@ def run_mix_flow1(ctx: RunContext) -> Path:
     from interview_mux.sound_design import mix_flow1
 
     check_edl_qc(ctx, stage="mix_flow1", strict=False)
-    return mix_flow1(ctx)
+    with logged_step("mix_flow1/render", ctx=ctx, stage="mix_flow1"):
+        return mix_flow1(ctx)
 
 
 def run_mux(ctx: RunContext) -> Path:
@@ -390,58 +394,90 @@ def run_preview(ctx: RunContext) -> Path:
     work = ctx.path("flow_1_master", "_preview_clips")
     work.mkdir(parents=True, exist_ok=True)
     clip_paths: list[Path] = []
-    skipped_missing: list[str] = []
 
-    for i, clip in enumerate(edl.get("clips") or []):
-        ctype = clip.get("type")
-        out = work / f"clip_{i:04d}.wav"
-        if ctype == "speech":
-            start = max(0, float(clip.get("source_start_ms", 0)) / 1000.0)
-            end = max(start, float(clip.get("source_end_ms", 0)) / 1000.0)
-            run_command(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(source),
-                    "-ss",
-                    str(start),
-                    "-to",
-                    str(end),
-                    "-vn",
-                    "-ac",
-                    "1",
-                    "-ar",
-                    "48000",
-                    "-c:a",
-                    "pcm_s16le",
-                    str(out),
-                ],
-                stage="assembly_preview",
-                label=f"ffmpeg speech clip {i}",
-                capture_output=True,
-            )
-            clip_paths.append(out)
-            continue
+    with logged_step("assembly_preview/render_clips", ctx=ctx, stage="assembly_preview"):
+        for i, clip in enumerate(edl.get("clips") or []):
+            ctype = clip.get("type")
+            out = work / f"clip_{i:04d}.wav"
+            if ctype == "speech":
+                start = max(0, float(clip.get("source_start_ms", 0)) / 1000.0)
+                end = max(start, float(clip.get("source_end_ms", 0)) / 1000.0)
+                run_command(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(source),
+                        "-ss",
+                        str(start),
+                        "-to",
+                        str(end),
+                        "-vn",
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "48000",
+                        "-c:a",
+                        "pcm_s16le",
+                        str(out),
+                    ],
+                    stage="assembly_preview",
+                    label=f"ffmpeg speech clip {i}",
+                    capture_output=True,
+                )
+                clip_paths.append(out)
+                continue
 
-        if ctype != "vo_pickup" and ctype != "disfluency":
-            continue
+            if ctype != "vo_pickup" and ctype != "disfluency":
+                continue
 
-        if ctype == "disfluency":
+            if ctype == "disfluency":
+                src_rel = clip.get("source_path")
+                if not src_rel:
+                    raise RuntimeError(
+                        f"assembly_preview: disfluency clip {clip.get('event_id') or i} missing source_path"
+                    )
+                fill_src = ctx.path(str(src_rel))
+                if not fill_src.is_file():
+                    raise FileNotFoundError(
+                        f"assembly_preview: disfluency clip missing WAV: {src_rel}"
+                    )
+                run_command(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(fill_src),
+                        "-vn",
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "48000",
+                        "-c:a",
+                        "pcm_s16le",
+                        str(out),
+                    ],
+                    stage="assembly_preview",
+                    label=f"ffmpeg disfluency clip {i}",
+                    capture_output=True,
+                )
+                clip_paths.append(out)
+                continue
+
             src_rel = clip.get("source_path")
             if not src_rel:
-                skipped_missing.append(clip.get("event_id") or "unknown")
-                continue
-            fill_src = ctx.path(str(src_rel))
-            if not fill_src.is_file():
-                skipped_missing.append(clip.get("event_id") or src_rel)
-                continue
+                raise RuntimeError(
+                    f"assembly_preview: vo_pickup clip {clip.get('line_id') or i} missing source_path"
+                )
+            vo_src = ctx.path(src_rel)
+            if not vo_src.is_file():
+                raise FileNotFoundError(f"assembly_preview: vo_pickup clip missing WAV: {src_rel}")
             run_command(
                 [
                     "ffmpeg",
                     "-y",
                     "-i",
-                    str(fill_src),
+                    str(vo_src),
                     "-vn",
                     "-ac",
                     "1",
@@ -452,40 +488,10 @@ def run_preview(ctx: RunContext) -> Path:
                     str(out),
                 ],
                 stage="assembly_preview",
-                label=f"ffmpeg disfluency clip {i}",
+                label=f"ffmpeg vo_pickup clip {i}",
                 capture_output=True,
             )
             clip_paths.append(out)
-            continue
-
-        src_rel = clip.get("source_path")
-        if not src_rel:
-            skipped_missing.append(clip.get("line_id") or "unknown")
-            continue
-        vo_src = ctx.path(src_rel)
-        if not vo_src.is_file():
-            skipped_missing.append(clip.get("line_id") or src_rel)
-            continue
-        run_command(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                str(vo_src),
-                "-vn",
-                "-ac",
-                "1",
-                "-ar",
-                "48000",
-                "-c:a",
-                "pcm_s16le",
-                str(out),
-            ],
-            stage="assembly_preview",
-            label=f"ffmpeg vo_pickup clip {i}",
-            capture_output=True,
-        )
-        clip_paths.append(out)
 
     if not clip_paths:
         raise SystemExit(
@@ -497,16 +503,11 @@ def run_preview(ctx: RunContext) -> Path:
     from interview_mux.sound_design import load_audio
 
     crossfade_ms = int((merged_config().get("mix") or {}).get("crossfade_ms_assembly_preview", 80))
-    clips = [load_audio(p) for p in clip_paths]
-    preview_audio = concat_clips_with_crossfade(clips, crossfade_ms)
-    preview = ctx.path("flow_1_master", "assembly_preview.wav")
-    preview_audio.export(str(preview), format="wav")
-    if skipped_missing:
-        ctx.log(
-            f"assembly_preview: skipped {len(skipped_missing)} missing VO pickup clip(s): {sorted(set(skipped_missing))}",
-            level="warning",
-            stage="assembly_preview",
-        )
+    with logged_step("assembly_preview/concat_export", ctx=ctx, stage="assembly_preview"):
+        clips = [load_audio(p) for p in clip_paths]
+        preview_audio = concat_clips_with_crossfade(clips, crossfade_ms)
+        preview = ctx.path("flow_1_master", "assembly_preview.wav")
+        preview_audio.export(str(preview), format="wav")
     ctx.log(
         f"Assembly preview ready (speech + VO, crossfade_ms={crossfade_ms}, clips={len(clips)}) — listen before MMAudio SFX generation.",
         level="success",

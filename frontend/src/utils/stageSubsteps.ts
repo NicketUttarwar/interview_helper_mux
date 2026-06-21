@@ -210,6 +210,29 @@ export function buildStageSubsteps(
     }
   }
 
+  const jobFailed = run.job?.status === "error";
+  const failedStageId = run.job?.current_stage || run.job?.stage;
+  if (jobFailed && failedStageId === stage.id) {
+    const errorMsg =
+      run.job?.last_error?.message || run.job?.message || `Failed — ${stage.title}`;
+    const runIdx = substeps.findIndex((s) => s.kind === "run");
+    if (runIdx >= 0) {
+      substeps = substeps.map((s, i) =>
+        i === runIdx ? { ...s, status: "error" as const, label: errorMsg } : s,
+      );
+    } else {
+      substeps.push({
+        id: "error",
+        label: errorMsg,
+        status: "error",
+        kind: "run",
+        stageId: stage.id,
+        source: "runtime",
+        targetSubTab: "stage",
+      });
+    }
+  }
+
   if (actionBusy && stageAwaitingWriteApproval(run, stage.id)) {
     substeps = substeps.map((s) =>
       s.kind === "write_approval"
@@ -285,7 +308,9 @@ export function buildStageProgress(
   const substeps = buildStageSubsteps(stage, run, opts);
   const hasTodo = substeps.some((s) => s.status === "todo");
   const hasRunning = substeps.some((s) => s.status === "running");
+  const hasError = substeps.some((s) => s.status === "error");
   const activeSubstep =
+    substeps.find((s) => s.status === "error") ??
     substeps.find((s) => s.status === "running") ??
     substeps.find((s) => s.status === "todo") ??
     null;
@@ -295,6 +320,7 @@ export function buildStageProgress(
     stage.status === "done" &&
     !hasTodo &&
     !hasRunning &&
+    !hasError &&
     !hasUnackedHandoff(stage, run) &&
     !stageAwaitingWriteApproval(run, stage.id);
 
@@ -304,6 +330,7 @@ export function buildStageProgress(
     fullyComplete,
     hasTodo,
     hasRunning,
+    hasError,
     activeSubstep,
     doneCount,
     totalCount,
@@ -327,6 +354,8 @@ export function findActiveSubstep(
 ): StageSubstep | null {
   for (const stage of run.stages) {
     const progress = buildStageProgress(stage, run, opts);
+    const errored = progress.substeps.find((s) => s.status === "error");
+    if (errored) return errored;
     const running = progress.substeps.find((s) => s.status === "running" && s.kind === "run");
     if (running) return running;
     const saving = progress.substeps.find(
@@ -386,7 +415,7 @@ export function subTabSubstepFlags(
   for (const stage of run.stages) {
     const progress = buildStageProgress(stage, run, opts);
     for (const sub of progress.substeps) {
-      if (sub.status !== "todo" && sub.status !== "running") continue;
+      if (sub.status !== "todo" && sub.status !== "running" && sub.status !== "error") continue;
       const tab = sub.targetSubTab ?? "stage";
       const entry = flags[tab] ?? { count: 0, labels: [] };
       entry.count += 1;

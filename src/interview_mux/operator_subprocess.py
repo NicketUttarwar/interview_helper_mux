@@ -19,6 +19,13 @@ def format_command(cmd: list[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in cmd)
 
 
+def _stderr_tail(capture: list[str], *, max_chars: int = 2048) -> str | None:
+    text = "".join(capture)
+    if not text:
+        return None
+    return text[-max_chars:]
+
+
 def _log_stream_line(
     ctx: RunContext,
     *,
@@ -106,7 +113,7 @@ def run_logged_command(
         cwd=cwd,
     )
     stdout_buf: list[str] = []
-    stderr_buf: list[str] = []
+    stderr_capture: list[str] = []
     threads: list[threading.Thread] = []
     if proc.stdout is not None:
         t = threading.Thread(
@@ -128,7 +135,7 @@ def run_logged_command(
             kwargs={
                 "stage": stage,
                 "stream": "stderr",
-                "capture": stderr_buf if capture_output else None,
+                "capture": stderr_capture,
             },
             daemon=True,
         )
@@ -139,10 +146,17 @@ def run_logged_command(
         rc = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         proc.kill()
+        for thread in threads:
+            thread.join(timeout=2)
+        stderr_tail = _stderr_tail(stderr_capture)
+        detail: dict[str, Any] = {"journey_kind": "execute", "timed_out": True}
+        if stderr_tail:
+            detail["stderr_tail"] = stderr_tail
         ctx.log(
             f"Command timed out after {timeout}s: {desc}",
             level="error",
             stage=stage,
+            detail=detail,
         )
         raise LocalCommandError(desc, returncode=None, timed_out=True) from exc
     finally:
@@ -150,11 +164,15 @@ def run_logged_command(
             thread.join(timeout=2)
 
     if rc != 0:
+        stderr_tail = _stderr_tail(stderr_capture)
+        detail = {"journey_kind": "execute", "returncode": rc}
+        if stderr_tail:
+            detail["stderr_tail"] = stderr_tail
         ctx.log(
             f"Command failed (exit {rc}): {desc}",
             level="error",
             stage=stage,
-            detail={"journey_kind": "execute", "returncode": rc},
+            detail=detail,
         )
         raise LocalCommandError(desc, returncode=rc)
 
@@ -169,7 +187,7 @@ def run_logged_command(
         cmd,
         rc,
         "".join(stdout_buf),
-        "".join(stderr_buf),
+        "".join(stderr_capture),
     )
 
 

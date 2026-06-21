@@ -18,6 +18,7 @@ export function StepActionHeader({
 }: Props) {
   const showSpinner = action.mode === "running" || busy;
   const modeLabel = stepModeLabel(action.mode);
+  const isError = action.mode === "error";
 
   return (
     <section
@@ -30,6 +31,8 @@ export function StepActionHeader({
         <span className="step-action-mode" data-testid="step-action-mode">
           {showSpinner ? (
             <span className="spinner-inline" aria-hidden />
+          ) : isError ? (
+            <span className="log-level-dot level-error" aria-hidden />
           ) : null}
           {modeLabel}
         </span>

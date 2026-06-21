@@ -5,6 +5,7 @@ from __future__ import annotations
 from interview_mux.analysis_memory import enqueue_investigations, load_analysis_state, save_analysis_state
 from interview_mux.artifact_completeness import artifact_status, compute_gaps
 from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_cfg, flow_hardening_enabled
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 HARD_CHECKPOINTS = frozenset(
@@ -121,10 +122,45 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
     checkpoint = STAGE_CHECKPOINTS.get(stage_key)
     if not checkpoint:
         return
-    if checkpoint == "post_transitions":
-        hard_errors, soft_errors = _validate_post_transitions_split(ctx)
-        if hard_errors:
-            summary = "; ".join(hard_errors[:4])
+    with logged_step(f"{stage_key}/cross_validate", ctx=ctx, stage=stage_key):
+        if checkpoint == "post_transitions":
+            hard_errors, soft_errors = _validate_post_transitions_split(ctx)
+            if hard_errors:
+                summary = "; ".join(hard_errors[:4])
+                ctx.log(
+                    f"Cross-artifact validation failed ({checkpoint}): {summary}",
+                    level="action",
+                    stage=stage_key,
+                )
+                raise SystemExit(
+                    f"Cross-artifact gate ({checkpoint}): {summary}. "
+                    f"Fix artifacts and re-run from --from-stage {stage_key}."
+                )
+            if soft_errors:
+                summary = "; ".join(soft_errors[:4])
+                enqueue_investigations(
+                    ctx,
+                    [
+                        {
+                            "kind": "cross_artifact_invalid",
+                            "question": summary,
+                            "priority": "medium",
+                            "blocking": False,
+                            "suggested_action": {"type": "rerun_stage", "stage": stage_key},
+                        }
+                    ],
+                    created_by_stage=stage_key,
+                )
+            return
+
+        errors = validate_cross_artifacts(ctx, checkpoint)
+        if not errors:
+            return
+        summary = "; ".join(errors[:4])
+        hard = checkpoint in HARD_CHECKPOINTS or (
+            checkpoint == "post_edl_audit" and _edl_audit_verdict(ctx) == "fail"
+        )
+        if hard:
             ctx.log(
                 f"Cross-artifact validation failed ({checkpoint}): {summary}",
                 level="action",
@@ -134,54 +170,20 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
                 f"Cross-artifact gate ({checkpoint}): {summary}. "
                 f"Fix artifacts and re-run from --from-stage {stage_key}."
             )
-        if soft_errors:
-            summary = "; ".join(soft_errors[:4])
-            enqueue_investigations(
-                ctx,
-                [
-                    {
-                        "kind": "cross_artifact_invalid",
-                        "question": summary,
-                        "priority": "medium",
-                        "blocking": False,
-                        "suggested_action": {"type": "rerun_stage", "stage": stage_key},
-                    }
-                ],
-                created_by_stage=stage_key,
-            )
-        return
-
-    errors = validate_cross_artifacts(ctx, checkpoint)
-    if not errors:
-        return
-    summary = "; ".join(errors[:4])
-    hard = checkpoint in HARD_CHECKPOINTS or (
-        checkpoint == "post_edl_audit" and _edl_audit_verdict(ctx) == "fail"
-    )
-    if hard:
-        ctx.log(
-            f"Cross-artifact validation failed ({checkpoint}): {summary}",
-            level="action",
-            stage=stage_key,
+        # reserved for future soft checkpoints (non-critical cross-validate paths)
+        enqueue_investigations(
+            ctx,
+            [
+                {
+                    "kind": "cross_artifact_invalid",
+                    "question": summary,
+                    "priority": "high",
+                    "blocking": False,
+                    "suggested_action": {"type": "rerun_stage", "stage": stage_key},
+                }
+            ],
+            created_by_stage=stage_key,
         )
-        raise SystemExit(
-            f"Cross-artifact gate ({checkpoint}): {summary}. "
-            f"Fix artifacts and re-run from --from-stage {stage_key}."
-        )
-    # reserved for future soft checkpoints (non-critical cross-validate paths)
-    enqueue_investigations(
-        ctx,
-        [
-            {
-                "kind": "cross_artifact_invalid",
-                "question": summary,
-                "priority": "high",
-                "blocking": False,
-                "suggested_action": {"type": "rerun_stage", "stage": stage_key},
-            }
-        ],
-        created_by_stage=stage_key,
-    )
 
 
 def _manifest_segment_ids(ctx: RunContext) -> set[str]:

@@ -1953,6 +1953,18 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
+.toast.level-error {
+  border-color: var(--danger);
+  background: rgba(239, 100, 100, 0.12);
+  color: var(--danger);
+}
+
+.error-boundary {
+  margin: 2rem auto;
+  max-width: 32rem;
+  padding: 1.25rem;
+}
+
 .action-overlay {
   position: fixed;
   inset: 0;
@@ -5392,6 +5404,16 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin: 0.75rem 0;
 }
 
+.stage-activity-strip.has-errors {
+  border-color: var(--danger);
+  background: rgba(239, 100, 100, 0.06);
+}
+
+.stage-activity-strip .log-entry-highlight .log-msg {
+  color: var(--danger);
+  font-weight: 500;
+}
+
 .stage-activity-strip-head {
   display: flex;
   align-items: center;
@@ -5747,6 +5769,17 @@ button.pipeline-substep-row:hover {
   color: var(--status-running);
 }
 
+.pipeline-substep-row.status-error,
+.substep-row--error {
+  color: var(--danger);
+  background: rgba(239, 100, 100, 0.08);
+}
+
+.log-copy-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .pipeline-substep-label {
   flex: 1;
   min-width: 0;
@@ -6039,6 +6072,11 @@ button.pipeline-step-row:focus-visible,
   background: rgba(201, 209, 217, 0.1);
 }
 
+.step-mode-error .step-action-mode {
+  color: var(--danger, #ef6464);
+  background: rgba(239, 100, 100, 0.14);
+}
+
 .step-action-headline {
   margin: 0;
   font-size: 1.05rem;
@@ -6055,6 +6093,16 @@ button.pipeline-step-row:focus-visible,
 .pipeline-step-row.sidebar-step--focus {
   outline: 2px solid var(--accent-attention, #ffb347);
   outline-offset: 1px;
+}
+
+.pipeline-step-row.sidebar-step--error {
+  outline: 2px solid var(--danger, #ef6464);
+  outline-offset: 1px;
+  box-shadow: inset 3px 0 0 var(--danger, #ef6464);
+}
+
+.pipeline-step-row.status-error {
+  border-left: 3px solid var(--danger);
 }
 
 .workflow-phase-bar-readonly .workflow-step-chip {

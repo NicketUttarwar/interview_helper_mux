@@ -63,6 +63,10 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **Terminology:** Job complete → **Step finished**; operator phase `complete` → **Record & choose**; stage done → **Done**.
 
+**Stage failure (error substep):** When `gui_job.status === "error"`, `resolveOperatorAction` returns `mode: error` and `substepId: error`. The Steps sidebar marks the failing stage with an **error** substep (`buildStageSubsteps` in `stageSubsteps.ts`) using `job.last_error.message`. Header primary becomes **Retry {stage}**; secondary **View live log** switches to the Logs tab. See [troubleshooting.md § Reading stage errors](./troubleshooting.md#reading-stage-errors).
+
+**ErrorBoundary:** `frontend/src/components/ErrorBoundary.tsx` wraps the React tree in `App.tsx`. Uncaught render errors show a fallback panel (**Something went wrong**) with **Try again** (clears local error state). Render failures are **not** written to `gui_log.jsonl` — use browser console + refresh; pipeline failures use the paths above.
+
 **Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`; **Retry load** when the run id is set but data failed to load.
 
 **Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
@@ -155,8 +159,8 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 
 | File | Purpose |
 |------|---------|
-| `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. |
-| `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`, `needs_stage_reuse`, `reuse_candidates`, `awaiting_write_approval`, `pending_write_stage`). |
+| `gui_log.jsonl` | Append-only **operator-visible** messages (`ts`, `level`, `message`, optional `stage`, `detail`). Written via `RunContext.log()` and `POST /api/runs/{id}/log`. Unhandled **5xx** on `/api/runs/{id}/*` routes also append here (`stage: api`). |
+| `gui_job.json` | **Current / last background job** for pipeline execute (`status`, `mode`, `stage`, `message`, `updated_at`, `needs_stage_reuse`, `reuse_candidates`, `awaiting_write_approval`, `pending_write_stage`, `last_error` when `status: error`). |
 
 **Where the UI shows them:** **Logs** tab and mini log strip load `GET /api/runs/{id}` → `log_tail` and poll `GET /api/runs/{id}/log?tail=…`; **job status** from `GET /api/runs/{id}/job` (nested under `job` on run fetch). Custom-run descriptive JSON writes trigger **handoff** only when artifacts are **complete** (`detail.handoff` / stage `handoff_paths`); batch runs pause until **Acknowledge & continue** (`POST …/handoff-ack`). Config: `journey_ui.require_handoff_between_stages`.
 

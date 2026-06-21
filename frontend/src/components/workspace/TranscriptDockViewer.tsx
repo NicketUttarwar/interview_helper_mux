@@ -15,6 +15,7 @@ import {
   findFuzzyWordMatches,
 } from "../../utils/fuzzyMatch";
 import type { TranscriptState, TranscriptWord } from "../../types";
+import { formatApiError } from "../../utils/safeApi";
 import {
   addCorrectionStats,
   emptyCorrectionStats,
@@ -75,7 +76,7 @@ export function TranscriptDockViewer({
   onWordsSaved,
   onCorrectionStatsChange,
 }: Props) {
-  const { runId, showToast, confirm } = useApp();
+  const { runId, showToast, appendClientLog, confirm } = useApp();
   const [transcript, setTranscript] = useState<TranscriptState | null>(null);
   const [words, setWords] = useState<TranscriptWord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,8 +116,10 @@ export function TranscriptDockViewer({
       const data = await api<TranscriptState>(`/api/runs/${runId}/transcript`);
       setTranscript(data);
       setWords(data.words || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load transcript");
+    } catch (reason) {
+      const msg = formatApiError(reason, "Transcript");
+      setError(msg);
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -156,12 +159,14 @@ export function TranscriptDockViewer({
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 1800);
       onWordsSaved?.();
-    } catch (e) {
+    } catch (reason) {
       setSaveStatus("idle");
-      showToast(e instanceof Error ? e.message : "Save failed");
+      const msg = formatApiError(reason, "Save transcript words");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
       for (const u of updates) pendingSaves.current.set(u.index, u.text);
     }
-  }, [runId, showToast, onWordsSaved]);
+  }, [runId, showToast, appendClientLog, onWordsSaved]);
 
   const queueSave = useCallback(
     (index: number, text: string) => {

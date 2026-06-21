@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatApiError } from "../utils/safeApi";
 import { api } from "../api/client";
 import { useApp } from "../context/AppContext";
 import { useNleHistory } from "./useNleHistory";
@@ -28,7 +29,7 @@ import {
 export type DirtyReason = "structural" | "trim" | null;
 
 export function useTimelineEditor() {
-  const { runId, timeline, refreshRun, run, showToast } = useApp();
+  const { runId, timeline, refreshRun, run, showToast, appendClientLog } = useApp();
   const [mode, setMode] = useState<TimelineMode>("source");
   const [zoom, setZoomState] = useState(1);
   const [playheadMs, setPlayheadMs] = useState(0);
@@ -80,21 +81,24 @@ export function useTimelineEditor() {
       const data = await api<TranscriptState>(`/api/runs/${runId}/transcript`);
       setTranscript(data);
       setWords(data.words || []);
-    } catch {
+    } catch (reason) {
       setTranscript(null);
       setWords([]);
+      const msg = formatApiError(reason, "Transcript");
+      appendClientLog(msg, "error");
     }
-  }, [runId]);
+  }, [runId, appendClientLog]);
 
   const loadAssembly = useCallback(async () => {
     if (!runId) return;
     try {
       const data = await api<AssemblyTimelineData>(`/api/runs/${runId}/assembly-timeline`);
       setAssembly(data);
-    } catch {
-      setAssembly({ ready: false, reason: "Failed to load assembly timeline." });
+    } catch (reason) {
+      setAssembly({ ready: false, reason: formatApiError(reason, "Assembly timeline") });
+      appendClientLog(formatApiError(reason, "Assembly timeline"), "error");
     }
-  }, [runId]);
+  }, [runId, appendClientLog]);
 
   const loadWaveform = useCallback(async () => {
     if (!runId || !timeline?.normalized_audio) return;
@@ -103,10 +107,11 @@ export function useTimelineEditor() {
         `/api/runs/${runId}/waveform?path=${encodeURIComponent(timeline.normalized_audio)}`,
       );
       setWaveform(data);
-    } catch {
+    } catch (reason) {
       setWaveform(null);
+      appendClientLog(formatApiError(reason, "Waveform"), "error");
     }
-  }, [runId, timeline?.normalized_audio]);
+  }, [runId, timeline?.normalized_audio, appendClientLog]);
 
   const loadAuxiliary = useCallback(async () => {
     if (!runId) return;
@@ -118,26 +123,29 @@ export function useTimelineEditor() {
         `/api/runs/${runId}/artifact?path=${encodeURIComponent("flow_1_master/selection.json")}`,
       );
       setSelectionOrder(sel.ordered_segment_ids || []);
-    } catch {
+    } catch (reason) {
       setSelectionOrder([]);
+      appendClientLog(formatApiError(reason, "Selection manifest"), "error");
     }
     try {
       const plan = await api<Record<string, unknown>>(
         `/api/runs/${runId}/artifact?path=${encodeURIComponent("flow_1_master/narrative_plan.json")}`,
       );
       setNarrativePlan(plan);
-    } catch {
+    } catch (reason) {
       setNarrativePlan(null);
+      appendClientLog(formatApiError(reason, "Narrative plan"), "error");
     }
     try {
       const brief = await api<Record<string, unknown>>(
         `/api/runs/${runId}/artifact?path=${encodeURIComponent("understanding/content_brief.json")}`,
       );
       setContentBrief(brief);
-    } catch {
+    } catch (reason) {
       setContentBrief(null);
+      appendClientLog(formatApiError(reason, "Content brief"), "error");
     }
-  }, [runId, loadTranscript, loadAssembly, loadWaveform]);
+  }, [runId, loadTranscript, loadAssembly, loadWaveform, appendClientLog]);
 
   useEffect(() => {
     void loadAuxiliary();
@@ -151,13 +159,17 @@ export function useTimelineEditor() {
         playhead_ms: Math.round(nextPlayhead ?? playheadMs),
         zoom: nextZoom ?? zoom,
       };
-      await api(`/api/runs/${runId}/nle`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data }),
-      });
+      try {
+        await api(`/api/runs/${runId}/nle`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+      } catch (reason) {
+        appendClientLog(formatApiError(reason, "Save NLE prefs"), "error");
+      }
     },
-    [runId, nle, playheadMs, zoom],
+    [runId, nle, playheadMs, zoom, appendClientLog],
   );
 
   const debouncedSavePrefs = useCallback(
@@ -272,19 +284,12 @@ export function useTimelineEditor() {
         });
         setDirtyReason(reason);
         await refreshRun();
-      } catch {
-        for (const id of ids) {
-          await api(`/api/runs/${runId}/nle/segment`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ segment_id: id, patch }),
-          });
-        }
-        setDirtyReason(reason);
-        await refreshRun();
+      } catch (reason) {
+        showToast(formatApiError(reason, "Batch segment update"), "error");
+        appendClientLog(formatApiError(reason, "Batch segment update"), "error");
       }
     },
-    [runId, refreshRun, pushHistoryBefore],
+    [runId, refreshRun, pushHistoryBefore, showToast, appendClientLog],
   );
 
   const patchSelectedSegment = useCallback(
@@ -352,17 +357,22 @@ export function useTimelineEditor() {
   const splitAtPlayhead = useCallback(async () => {
     if (!selectedSegmentId || !runId) return;
     pushHistoryBefore();
-    await api(`/api/runs/${runId}/nle/split`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        segment_id: selectedSegmentId,
-        at_ms: Math.round(playheadMs),
-      }),
-    });
-    setDirtyReason("structural");
-    await refreshRun();
-  }, [selectedSegmentId, runId, playheadMs, refreshRun, pushHistoryBefore]);
+    try {
+      await api(`/api/runs/${runId}/nle/split`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment_id: selectedSegmentId,
+          at_ms: Math.round(playheadMs),
+        }),
+      });
+      setDirtyReason("structural");
+      await refreshRun();
+    } catch (reason) {
+      showToast(formatApiError(reason, "Split segment"), "error");
+      appendClientLog(formatApiError(reason, "Split segment"), "error");
+    }
+  }, [selectedSegmentId, runId, playheadMs, refreshRun, pushHistoryBefore, showToast, appendClientLog]);
 
   const reorderSegment = useCallback(
     async (dragId: string, targetId: string) => {

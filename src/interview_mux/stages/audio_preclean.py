@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from interview_mux.deepfilter_runner import DeepFilterUnavailable, enhance_wav
+from interview_mux.deepfilter_runner import enhance_wav
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 
@@ -106,33 +106,24 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
 
     provider_name = "deepfilternet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if source.stat().st_size > _chunk_max_bytes():
-            ctx.log(
-                "deepfilter_chunked_enhance: source exceeds chunk_max_bytes — chunking",
-                level="info",
-                stage="audio_preclean",
-            )
-        _enhance_source_to_output(ctx=ctx, source=source, output=out_path)
-    except Exception as exc:
-        if not _local_fallback_enabled():
-            raise
+    if source.stat().st_size > _chunk_max_bytes():
         ctx.log(
-            f"DeepFilterNet pre-clean failed ({exc}); using ffmpeg_local fallback",
-            level="warning",
+            "deepfilter_chunked_enhance: source exceeds chunk_max_bytes — chunking",
+            level="info",
             stage="audio_preclean",
         )
-        _local_denoise_fallback(source, out_path)
-        provider_name = "ffmpeg_local"
-    _write_provider(ctx, scope, provider=provider_name)
-    _write_full_source_lineage(
-        ctx=ctx,
-        source=source,
-        source_sha=src_hash,
-        scope=scope,
-        output=out_path,
-        provider=provider_name,
-    )
+    with logged_step("audio_preclean/deepfilter_enhance", ctx=ctx, stage="audio_preclean"):
+        _enhance_source_to_output(ctx=ctx, source=source, output=out_path)
+    with logged_step("audio_preclean/write_lineage", ctx=ctx, stage="audio_preclean"):
+        _write_provider(ctx, scope, provider=provider_name)
+        _write_full_source_lineage(
+            ctx=ctx,
+            source=source,
+            source_sha=src_hash,
+            scope=scope,
+            output=out_path,
+            provider=provider_name,
+        )
     ctx.log(
         f"Audio pre-clean complete ({scope}) → preclean/isolated.wav",
         level="success",
@@ -198,34 +189,24 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
     clean_dir = pickup / "clean"
     clean_dir.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
-    for source in sources:
-        dest = clean_dir / source.name
-        try:
+    with logged_step("audio_preclean/vo_pickup_enhance", ctx=ctx, stage="audio_preclean"):
+        for source in sources:
+            dest = clean_dir / source.name
             _enhance_source_to_output(ctx=ctx, source=source, output=dest)
-            provider = "deepfilternet"
-        except Exception as exc:
-            if not _local_fallback_enabled():
-                raise
-            ctx.log(
-                f"DeepFilterNet pickup failed for {source.name} ({exc}); ffmpeg_local fallback",
-                level="warning",
-                stage="audio_preclean",
+            entries.append(
+                {
+                    "source_path": str(source),
+                    "source_sha256": _sha256(source),
+                    "output_path": f"vo_pickup/clean/{source.name}",
+                    "output_sha256": _sha256(dest),
+                    "provider": "deepfilternet",
+                }
             )
-            _local_denoise_fallback(source, dest)
-            provider = "ffmpeg_local"
-        entries.append(
-            {
-                "source_path": str(source),
-                "source_sha256": _sha256(source),
-                "output_path": f"vo_pickup/clean/{source.name}",
-                "output_sha256": _sha256(dest),
-                "provider": provider,
-            }
-        )
 
-    vo_provider = str(entries[0].get("provider") or "deepfilternet") if entries else "deepfilternet"
-    _write_provider(ctx, "vo_pickup", provider=vo_provider)
-    _write_vo_pickup_lineage(ctx, entries, provider=vo_provider)
+    vo_provider = "deepfilternet"
+    with logged_step("audio_preclean/vo_pickup_lineage", ctx=ctx, stage="audio_preclean"):
+        _write_provider(ctx, "vo_pickup", provider=vo_provider)
+        _write_vo_pickup_lineage(ctx, entries, provider=vo_provider)
     ctx.log(
         f"VO pickup pre-clean complete → {len(entries)} file(s) in vo_pickup/clean/",
         level="success",
@@ -280,7 +261,7 @@ def _can_skip_full_source(
     return (
         lineage.get("scope") == scope
         and lineage.get("source_sha256") == source_sha
-        and lineage.get("provider") in {"deepfilternet", "ffmpeg_local"}
+        and lineage.get("provider") == "deepfilternet"
     )
 
 
@@ -293,7 +274,7 @@ def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
         return False
     if lineage.get("scope") != "vo_pickup":
         return False
-    if lineage.get("provider") not in {"deepfilternet", "ffmpeg_local"}:
+    if lineage.get("provider") != "deepfilternet":
         return False
     files = lineage.get("files")
     if not isinstance(files, list):
@@ -345,40 +326,6 @@ def _enhance_source_to_output(*, ctx: RunContext, source: Path, output: Path) ->
     output.write_bytes(out_tmp.read_bytes())
 
 
-def _local_fallback_enabled() -> bool:
-    from interview_mux.config import merged_config
-
-    row = merged_config().get("audio_preclean") or {}
-    return bool(row.get("local_fallback_enabled", True))
-
-
-def _local_denoise_fallback(source: Path, out_path: Path) -> None:
-    """Offline denoise via ffmpeg (documented as ffmpeg_local provider)."""
-    from interview_mux.operator_subprocess import run_command
-
-    filters = ["afftdn=nf=-25", "highpass=f=80", "lowpass=f=12000"]
-    run_command(
-        [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(source),
-            "-af",
-            ",".join(filters),
-            "-ar",
-            "48000",
-            "-ac",
-            "1",
-            "-c:a",
-            "pcm_s16le",
-            str(out_path),
-        ],
-        stage="audio_preclean",
-        label=f"ffmpeg local denoise → {out_path.name}",
-        capture_output=True,
-    )
-
-
 def _write_provider(ctx: RunContext, scope: str, *, provider: str = "deepfilternet") -> None:
     row: dict[str, Any] = {
         "provider": provider,
@@ -389,8 +336,6 @@ def _write_provider(ctx: RunContext, scope: str, *, provider: str = "deepfiltern
 
         cfg = merged_config().get("deepfilter") or {}
         row["model"] = cfg.get("model", "DeepFilterNet3")
-    else:
-        row["filter_chain"] = "afftdn,highpass=80,lowpass=12000"
     ctx.write_json("preclean/provider.json", row)
 
 

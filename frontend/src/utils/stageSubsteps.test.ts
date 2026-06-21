@@ -210,6 +210,29 @@ describe("stageSubsteps", () => {
     expect(sub.targetSection).toBe("modal-gates");
   });
 
+  it("marks error substep when job status is error on stage", () => {
+    const transcribe = stage({
+      id: "transcribe",
+      title: "Transcribe",
+      status: "pending",
+      operator_phase: "prepare",
+    });
+    const run = minimalRun({
+      stages: [transcribe],
+      job: {
+        status: "error",
+        stage: "transcribe",
+        message: "AWS transcription failed",
+        last_error: { message: "AWS transcription failed" },
+      },
+    });
+    const subs = buildStageSubsteps(transcribe, run);
+    expect(subs.some((s) => s.status === "error")).toBe(true);
+    const progress = buildStageProgress(transcribe, run);
+    expect(progress.hasError).toBe(true);
+    expect(progress.fullyComplete).toBe(false);
+  });
+
   it("findActiveSubstep aligns with resolver substepId for write approval", () => {
     const ingest = stage({
       id: "ingest",

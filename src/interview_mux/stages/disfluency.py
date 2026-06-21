@@ -8,31 +8,23 @@ from interview_mux.disfluency.extract import (
     load_disfluencies,
     recompute_stats,
     run_extraction,
-    write_skipped_artifact,
+    write_disabled_artifact,
 )
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 
 def run_disfluency_extract(ctx: RunContext) -> None:
     if not disfluency_enabled():
-        write_skipped_artifact(ctx, reason="disabled_in_config")
+        write_disabled_artifact(ctx)
         ctx.log("disfluency_extract skipped (disabled in config).", level="info", stage="disfluency_extract")
         ctx.mark_done("disfluency_extract")
         ctx.mark_done("disfluency_review")
         return
 
-    try:
+    with logged_step("disfluency_extract/run_extraction", ctx=ctx, stage="disfluency_extract"):
         doc = run_extraction(ctx)
-    except FileNotFoundError:
-        raise
-    except Exception as exc:
-        ctx.log(f"disfluency_extract failed: {exc}", level="warning", stage="disfluency_extract")
-        write_skipped_artifact(ctx, reason=str(exc))
-        ctx.mark_done("disfluency_extract")
-        ctx.mark_done("disfluency_review")
-        return
-
-    ctx.write_json("transcript/disfluencies.json", doc)
+        ctx.write_json("transcript/disfluencies.json", doc)
     total = (doc.get("stats") or {}).get("total", 0)
     ctx.log(
         f"disfluency_extract: wrote {total} event(s) → transcript/disfluencies.json",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from interview_mux.disfluency.context import attach_disfluency_context
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.sonic_context import compact_for_volley as sonic_compact_for_volley, load_sonic_context
@@ -50,10 +51,11 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
         level="info",
         stage="edl_narrative_audit",
     )
-    run_flow_llm_stage(
-        ctx,
-        "edl_narrative_audit",
-        "selection/edl-narrative-audit.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("edl_narrative_audit/llm_stage", ctx=ctx, stage="edl_narrative_audit"):
+        run_flow_llm_stage(
+            ctx,
+            "edl_narrative_audit",
+            "selection/edl-narrative-audit.system.txt",
+            build_input,
+            persist,
+        )

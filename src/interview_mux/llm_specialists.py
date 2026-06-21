@@ -265,48 +265,40 @@ def maybe_run_pre_stage_specialists(
         return []
     outputs: list[dict[str, Any]] = []
     for spec_key in PRE_STAGE_SPECIALISTS.get(stage_key, ()):
+        import time
+
+        t0 = time.monotonic()
         try:
-            import time
-
-            t0 = time.monotonic()
             env = run_specialist(ctx, spec_key, stage_key, stage_input)
-            duration_ms = int((time.monotonic() - t0) * 1000)
-            outputs.append({"specialist": spec_key, "envelope": env})
-            _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
-            if spec_key == "comprehension_risk_blind":
-                risk_count = len((env.get("artifacts") or {}).get("comprehension_risks") or [])
-                inv_count = _process_specialist_investigations(
-                    ctx,
-                    parent_stage=stage_key,
-                    specialist_key=spec_key,
-                    envelope=env,
-                    cfg=cfg,
-                )
-                ctx.log(
-                    f"Pre-stage specialist {spec_key}: {risk_count} risks, {inv_count} investigation(s) enqueued",
-                    level="info",
-                    stage=stage_key,
-                    detail=json.dumps(
-                        {"duration_ms": duration_ms, "risk_count": risk_count, "investigation_count": inv_count},
-                        ensure_ascii=False,
-                    ),
-                )
         except Exception as exc:
-            from interview_mux.llm_flow_hardening import flow_hardening_enabled
-
-            level = "action" if flow_hardening_enabled() and spec_key == "comprehension_risk_blind" else "warning"
             ctx.log(
-                f"Pre-stage specialist {spec_key} failed: {exc}",
-                level=level,
+                f"Pre-stage specialist {spec_key} failed for {stage_key}: {exc}",
+                level="error",
                 stage=stage_key,
+                detail={"specialist": spec_key, "error_class": type(exc).__name__},
             )
-            if flow_hardening_enabled() and spec_key == "comprehension_risk_blind":
-                enqueue_specialist_investigation(
-                    ctx,
-                    parent_stage=stage_key,
-                    specialist_key=spec_key,
-                    question=f"Pre-stage specialist failed: {exc}",
-                )
+            continue
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        outputs.append({"specialist": spec_key, "envelope": env})
+        _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
+        if spec_key == "comprehension_risk_blind":
+            risk_count = len((env.get("artifacts") or {}).get("comprehension_risks") or [])
+            inv_count = _process_specialist_investigations(
+                ctx,
+                parent_stage=stage_key,
+                specialist_key=spec_key,
+                envelope=env,
+                cfg=cfg,
+            )
+            ctx.log(
+                f"Pre-stage specialist {spec_key}: {risk_count} risks, {inv_count} investigation(s) enqueued",
+                level="info",
+                stage=stage_key,
+                detail=json.dumps(
+                    {"duration_ms": duration_ms, "risk_count": risk_count, "investigation_count": inv_count},
+                    ensure_ascii=False,
+                ),
+            )
     return outputs
 
 
@@ -324,21 +316,23 @@ def maybe_run_post_stage_specialists(
     for spec_key in POST_STAGE_SPECIALISTS.get(stage_key, ()):
         try:
             env = run_specialist(ctx, spec_key, stage_key, stage_input)
-            outputs.append({"specialist": spec_key, "envelope": env})
-            _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
-            _process_specialist_investigations(
-                ctx,
-                parent_stage=stage_key,
-                specialist_key=spec_key,
-                envelope=env,
-                cfg=cfg,
-            )
         except Exception as exc:
             ctx.log(
-                f"Specialist {spec_key} failed: {exc}",
-                level="warning",
+                f"Post-stage specialist {spec_key} failed for {stage_key}: {exc}",
+                level="error",
                 stage=stage_key,
+                detail={"specialist": spec_key, "error_class": type(exc).__name__},
             )
+            continue
+        outputs.append({"specialist": spec_key, "envelope": env})
+        _persist_specialist_output(ctx, stage_key=stage_key, spec_key=spec_key, env=env)
+        _process_specialist_investigations(
+            ctx,
+            parent_stage=stage_key,
+            specialist_key=spec_key,
+            envelope=env,
+            cfg=cfg,
+        )
     return outputs
 
 

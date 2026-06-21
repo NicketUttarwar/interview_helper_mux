@@ -198,7 +198,20 @@ def run_prompt_envelope(
             stage=stage_key,
             detail={"model": chosen, "task_kind": task_kind, "turns": len(chat_messages)},
         )
-    resp = client.chat.completions.create(**kwargs)
+    try:
+        resp = client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        if ctx:
+            from interview_mux.operator_trace import log_failure
+
+            log_failure(
+                f"OpenAI chat.completions failed ({chosen}, {task_kind})",
+                exc,
+                ctx=ctx,
+                stage=stage_key,
+                detail={"provider": "OpenAI", "model": chosen, "task_kind": task_kind},
+            )
+        raise
     content = resp.choices[0].message.content or ""
     envelope = normalize_envelope(_extract_json(content))
     tier = resolved.tier if resolved else ("explicit" if model else "economy")

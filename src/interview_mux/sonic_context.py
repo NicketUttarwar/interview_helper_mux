@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 SONIC_CONTEXT_PATH = "understanding/sonic_context.json"
@@ -730,12 +731,15 @@ def build_sonic_context(ctx: RunContext) -> dict[str, Any]:
     value_features = _read_if_dict(ctx, "understanding/value_features.json") or {}
 
     style = state.get("style") if isinstance(state.get("style"), dict) else {}
-    atlas_bucket = classify_atlas_bucket(ctx)
-    posture = dict(SCENARIO_POSTURE.get(atlas_bucket, SCENARIO_POSTURE["one_on_one"]))
-    tags = build_tag_registry(ctx)
-    cues = build_cue_opportunities(ctx)
-    flags = build_segment_flags(ctx)
-    mix_policy = compute_mix_policy(ctx, atlas_bucket)
+    with logged_step("sonic_context/classify_scenario", ctx=ctx, stage="sonic_context_build"):
+        atlas_bucket = classify_atlas_bucket(ctx)
+        posture = dict(SCENARIO_POSTURE.get(atlas_bucket, SCENARIO_POSTURE["one_on_one"]))
+
+    with logged_step("sonic_context/build_registry", ctx=ctx, stage="sonic_context_build"):
+        tags = build_tag_registry(ctx)
+        cues = build_cue_opportunities(ctx)
+        flags = build_segment_flags(ctx)
+        mix_policy = compute_mix_policy(ctx, atlas_bucket)
 
     beats = brief.get("emotional_beats") or ((state.get("narrative") or {}).get("emotional_beats") or [])
     primary_mood = ""
@@ -789,7 +793,8 @@ def build_sonic_context(ctx: RunContext) -> dict[str, Any]:
         "segment_flags": flags,
         "value_features_summary": (value_features.get("profiles") if isinstance(value_features.get("profiles"), dict) else {}),
     }
-    doc["sonic_context_hash"] = compute_sonic_context_hash(doc)
+    with logged_step("sonic_context/finalize_hash", ctx=ctx, stage="sonic_context_build"):
+        doc["sonic_context_hash"] = compute_sonic_context_hash(doc)
     return doc
 
 

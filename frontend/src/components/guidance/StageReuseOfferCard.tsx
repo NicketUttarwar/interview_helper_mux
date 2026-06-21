@@ -71,7 +71,7 @@ export function StageReuseOfferCard({
       }
       await runNextStage();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Reuse action failed");
+      showToast(e instanceof Error ? e.message : "Reuse action failed", "error");
     } finally {
       setSubmitting(false);
     }

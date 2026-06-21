@@ -6,6 +6,7 @@ import {
   formatValueMetric,
   formatValueTags,
 } from "../../utils";
+import { formatApiError } from "../../utils/safeApi";
 
 export function ValueFeaturesPanel() {
   const { run, config, showToast } = useApp();
@@ -19,9 +20,10 @@ export function ValueFeaturesPanel() {
       `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(VALUE_FEATURES_PATH)}`,
     )
       .then(setData)
-      .catch(() => {
+      .catch((reason) => {
         setData(null);
         setMissing(true);
+        showToast(formatApiError(reason, "Value features"), "error");
       });
   }, [run]);
 
@@ -94,7 +96,7 @@ export function ValueFeaturesPanel() {
                   .then(setData)
                   .then(() => setMissing(false))
                   .catch((e) =>
-                    showToast(e instanceof Error ? e.message : "Extract failed"),
+                    showToast(e instanceof Error ? e.message : "Extract failed", "error"),
                   )
                   .finally(() => setExtracting(false));
               }}

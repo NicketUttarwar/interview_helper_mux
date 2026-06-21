@@ -8,6 +8,7 @@ from interview_mux.llm_specialists import (
     load_comprehension_risks,
     maybe_run_pre_stage_specialists,
 )
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.artifact_completeness import make_stage_persist
@@ -39,16 +40,18 @@ def run_missing_framing(ctx: RunContext) -> None:
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
 
-    maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
+    with logged_step("missing_framing/pre_specialists", ctx=ctx, stage="missing_framing"):
+        maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
-    run_analysis_llm_stage(
-        ctx,
-        "missing_framing",
-        "interviewer-gap/missing-framing.system.txt",
-        build_input,
-        persist,
-        sync_fn=lambda c, a: sync_gaps_to_state(c, a),
-    )
+    with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
+        run_analysis_llm_stage(
+            ctx,
+            "missing_framing",
+            "interviewer-gap/missing-framing.system.txt",
+            build_input,
+            persist,
+            sync_fn=lambda c, a: sync_gaps_to_state(c, a),
+        )
 
 
 def run_optimal_questions(ctx: RunContext) -> None:
@@ -83,13 +86,14 @@ def run_optimal_questions(ctx: RunContext) -> None:
         )
         _write_interviewer_script(c, lines)
 
-    run_analysis_llm_stage(
-        ctx,
-        "optimal_questions",
-        "interviewer-gap/optimal-questions.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("optimal_questions/llm_stage", ctx=ctx, stage="optimal_questions"):
+        run_analysis_llm_stage(
+            ctx,
+            "optimal_questions",
+            "interviewer-gap/optimal-questions.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
@@ -115,48 +119,49 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
     normalized = 0
     mix_cfg = merged_config().get("mix") or {}
     normalize = bool(mix_cfg.get("normalize_vo_pickup", True))
-    for line in report.get("interviewer_lines") or []:
-        if line.get("delivery") != "record":
-            continue
-        lid = line.get("line_id", "")
-        seg = line.get("targets_segment_id", "")
-        clean = pickup / "clean"
-        bases = [clean, pickup] if clean.is_dir() else [pickup]
-        candidates: list[Path] = []
-        for base in bases:
-            candidates.extend([base / f"{lid}.wav", base / f"{seg}.wav"])
-        found = next((p for p in candidates if p.is_file()), None)
-        if not found:
-            missing.append(lid or seg)
-            continue
-        if normalize and found.parent == pickup:
-            norm_dir = pickup / "normalized"
-            norm_dir.mkdir(parents=True, exist_ok=True)
-            out = norm_dir / found.name
-            from interview_mux.operator_subprocess import run_command
+    with logged_step("vo_ingest/validate_pickups", ctx=ctx, stage="vo_ingest"):
+        for line in report.get("interviewer_lines") or []:
+            if line.get("delivery") != "record":
+                continue
+            lid = line.get("line_id", "")
+            seg = line.get("targets_segment_id", "")
+            clean = pickup / "clean"
+            bases = [clean, pickup] if clean.is_dir() else [pickup]
+            candidates: list[Path] = []
+            for base in bases:
+                candidates.extend([base / f"{lid}.wav", base / f"{seg}.wav"])
+            found = next((p for p in candidates if p.is_file()), None)
+            if not found:
+                missing.append(lid or seg)
+                continue
+            if normalize and found.parent == pickup:
+                norm_dir = pickup / "normalized"
+                norm_dir.mkdir(parents=True, exist_ok=True)
+                out = norm_dir / found.name
+                from interview_mux.operator_subprocess import run_command
 
-            run_command(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(found),
-                    "-af",
-                    "loudnorm=I=-18:TP=-1.5:LRA=11",
-                    "-ar",
-                    "48000",
-                    "-ac",
-                    "1",
-                    "-c:a",
-                    "pcm_s16le",
-                    str(out),
-                ],
-                ctx=ctx,
-                stage="vo_ingest",
-                label=f"ffmpeg normalize pickup {found.name}",
-                capture_output=True,
-            )
-            normalized += 1
+                run_command(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(found),
+                        "-af",
+                        "loudnorm=I=-18:TP=-1.5:LRA=11",
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "1",
+                        "-c:a",
+                        "pcm_s16le",
+                        str(out),
+                    ],
+                    ctx=ctx,
+                    stage="vo_ingest",
+                    label=f"ffmpeg normalize pickup {found.name}",
+                    capture_output=True,
+                )
+                normalized += 1
     if missing:
         raise RuntimeError(
             f"Missing VO pickup files for: {missing}. "

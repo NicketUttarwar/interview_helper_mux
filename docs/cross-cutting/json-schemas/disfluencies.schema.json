@@ -5,7 +5,7 @@
   "required": ["schema_version", "status", "events", "stats"],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
-    "status": { "enum": ["ready", "skipped"] },
+    "status": { "enum": ["ready", "skipped", "no_assets", "disabled"] },
     "skip_reason": { "type": "string" },
     "computed_at": { "type": "string" },
     "model": {

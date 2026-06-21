@@ -33,6 +33,7 @@ export function useStageProgress(stageId?: string | null) {
     progress,
     substeps: progress?.substeps ?? [],
     fullyComplete: progress?.fullyComplete ?? false,
+    hasError: progress?.hasError ?? false,
     activeSubstep: progress?.activeSubstep ?? null,
     activeSubstepGlobal,
   };

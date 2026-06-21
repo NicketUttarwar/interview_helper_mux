@@ -5,8 +5,12 @@ export function Toast() {
   if (!toast) return null;
   const extended = jobRunning || actionBusy;
   return (
-    <div className={`toast${extended ? " toast-extended" : ""}`} role="status">
-      {toast}
+    <div
+      className={`toast level-${toast.level}${extended ? " toast-extended" : ""}`}
+      role="status"
+      aria-live={toast.level === "error" ? "assertive" : "polite"}
+    >
+      {toast.message}
     </div>
   );
 }

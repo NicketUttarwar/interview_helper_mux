@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -81,3 +82,6 @@ def test_run_logged_command_raises_on_failure(tmp_path, monkeypatch) -> None:
 
     entries = read_log(ctx.run_dir, tail=20)
     assert any("Command failed" in e.get("message", "") for e in entries)
+    fail = next(e for e in entries if "Command failed" in e.get("message", ""))
+    detail = json.loads(fail["detail"])
+    assert detail.get("stderr_tail") == "boom\n"

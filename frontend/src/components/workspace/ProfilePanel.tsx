@@ -12,6 +12,7 @@ import {
   TONE_CLASS_VALUES,
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
+import { formatApiError } from "../../utils/safeApi";
 import type { AnalysisState } from "../../types";
 import { ActionMarker } from "../guidance/ActionMarker";
 
@@ -32,7 +33,7 @@ const emptyForm: ProfileFormState = {
 };
 
 export function ProfilePanel() {
-  const { run, selectedStage, refreshRun, showToast, confirm, runNextStage } = useApp();
+  const { run, selectedStage, refreshRun, showToast, appendClientLog, confirm, runNextStage } = useApp();
   const [form, setForm] = useState<ProfileFormState>(emptyForm);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [verified, setVerified] = useState(false);
@@ -59,9 +60,12 @@ export function ProfilePanel() {
           : "Loaded profile",
       );
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Load failed");
+      const msg = formatApiError(e, "Load profile");
+      setStatus(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "analysis_profile");
     }
-  }, [run]);
+  }, [run, showToast, appendClientLog]);
 
   useEffect(() => {
     if (show && run?.profile_ready_for_review) void loadProfile();
@@ -100,7 +104,7 @@ export function ProfilePanel() {
     const data = collectAnalysisProfileFromForm(form, baseState);
     const v = validateArtifactWrite("understanding/analysis_state.json", data);
     if (!v.ok) {
-      showToast(`Profile schema errors: ${v.errors[0]}`);
+      showToast(`Profile schema errors: ${v.errors[0]}`, "error");
       return;
     }
     const invalidate = (await confirm(
@@ -118,25 +122,33 @@ export function ProfilePanel() {
       await refreshRun();
       await loadProfile();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed");
+      const msg = formatApiError(e, "Save profile");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "analysis_profile");
     }
   };
 
   const verifyProfile = async () => {
     if (!run) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
-    await api(`/api/runs/${run.run_id}/analysis-profile`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data, operator_verified: true }),
-    });
-    await api(`/api/runs/${run.run_id}/analysis-profile/verify`, {
-      method: "POST",
-    });
-    showToast("Profile verified");
-    await refreshRun();
-    await loadProfile();
-    await runNextStage();
+    try {
+      await api(`/api/runs/${run.run_id}/analysis-profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data, operator_verified: true }),
+      });
+      await api(`/api/runs/${run.run_id}/analysis-profile/verify`, {
+        method: "POST",
+      });
+      showToast("Profile verified");
+      await refreshRun();
+      await loadProfile();
+      await runNextStage();
+    } catch (e) {
+      const msg = formatApiError(e, "Verify profile");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "analysis_profile");
+    }
   };
 
   const setField = (key: keyof ProfileFormState, value: string) =>

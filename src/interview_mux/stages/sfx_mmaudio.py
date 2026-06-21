@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +12,10 @@ from interview_mux.mmaudio_runner import (
     generate_text_to_audio,
     mmaudio_cfg,
 )
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.sfx_prompt_review import require_sfx_generation
 from interview_mux.journey_log import log_journey
-
-logger = logging.getLogger(__name__)
 
 
 def _log_sfx_event(
@@ -59,44 +56,44 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     require_spend_artifacts_complete(ctx, stage)
     require_sfx_generation(ctx)
-    cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
+    with logged_step(f"{stage}/load_plan", ctx=ctx, stage=stage):
+        cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
 
-    crafted = _load_crafted_prompts(ctx)
-    generation_items = _collect_generation_items(ctx=ctx, profile=profile, fallback_cues=cues)
-    regen_ids = _read_regen_asset_ids(ctx)
-    if regen_ids:
-        generation_items = [item for item in generation_items if item["asset_id"] in regen_ids]
+        crafted = _load_crafted_prompts(ctx)
+        generation_items = _collect_generation_items(ctx=ctx, profile=profile, fallback_cues=cues)
+        regen_ids = _read_regen_asset_ids(ctx)
+        if regen_ids:
+            generation_items = [item for item in generation_items if item["asset_id"] in regen_ids]
 
     generation_meta: dict[str, Any] = {}
-    generation_failures: list[dict[str, Any]] = []
-    for item in generation_items:
-        asset_id = item["asset_id"]
-        out_file = assets_dir / f"{asset_id}.wav"
-        prompt_row = crafted.get(asset_id) if crafted else None
-        params = _resolve_generation_params(item, prompt_row)
-        sonic_hash = _sonic_context_hash(ctx)
-        plan_hash = _hash_generation_plan(item, prompt_row, params, sonic_context_hash=sonic_hash)
-        if _should_skip_generation(ctx, asset_id, plan_hash, out_file, regen_ids):
-            ctx.log(
-                f"MMAudio skipped {asset_id}.wav (plan hash unchanged)",
-                level="info",
-                stage=stage,
-            )
-            _log_sfx_event(
-                ctx,
-                f"MMAudio skipped {asset_id} (plan hash unchanged)",
-                stage=stage,
-                asset_id=asset_id,
-                event="skip",
-            )
-            generation_meta[asset_id] = {
-                "generation_status": "pass",
-                "plan_hash": plan_hash,
-                "sonic_context_hash": sonic_hash,
-                "skipped_generation": True,
-            }
-            continue
-        try:
+    with logged_step(f"{stage}/generate_assets", ctx=ctx, stage=stage):
+        for item in generation_items:
+            asset_id = item["asset_id"]
+            out_file = assets_dir / f"{asset_id}.wav"
+            prompt_row = crafted.get(asset_id) if crafted else None
+            params = _resolve_generation_params(item, prompt_row)
+            sonic_hash = _sonic_context_hash(ctx)
+            plan_hash = _hash_generation_plan(item, prompt_row, params, sonic_context_hash=sonic_hash)
+            if _should_skip_generation(ctx, asset_id, plan_hash, out_file, regen_ids):
+                ctx.log(
+                    f"MMAudio skipped {asset_id}.wav (plan hash unchanged)",
+                    level="info",
+                    stage=stage,
+                )
+                _log_sfx_event(
+                    ctx,
+                    f"MMAudio skipped {asset_id} (plan hash unchanged)",
+                    stage=stage,
+                    asset_id=asset_id,
+                    event="skip",
+                )
+                generation_meta[asset_id] = {
+                    "generation_status": "pass",
+                    "plan_hash": plan_hash,
+                    "sonic_context_hash": sonic_hash,
+                    "skipped_generation": True,
+                }
+                continue
             meta = _generate_with_retry(
                 ctx=ctx,
                 stage=stage,
@@ -111,8 +108,8 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             meta["prompt_text"] = params["prompt"]
             generation_meta[asset_id] = meta
             ctx.log(
-                "info",
                 f"MMAudio generated {asset_id}.wav",
+                level="info",
                 stage=stage,
                 detail={
                     "asset_id": asset_id,
@@ -135,73 +132,50 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                 asset_id=asset_id,
                 event="generate",
             )
-        except MMAudioUnavailable as exc:
-            logger.warning("MMAudio failed for %s: %s", asset_id, exc)
-            ctx.log(
-                "warning",
-                f"MMAudio SFX failed for {asset_id}; wrote silence placeholder",
-                stage=stage,
-                detail={"provider": "mmaudio", "asset_id": asset_id, "error": str(exc)[:200]},
+
+        if generation_meta:
+            _persist_generation_meta(ctx, generation_meta)
+        if regen_ids:
+            _clear_regen_asset_ids(ctx)
+
+        missing_assets = [
+            item["asset_id"]
+            for item in generation_items
+            if not (assets_dir / f"{item['asset_id']}.wav").is_file()
+        ]
+        if missing_assets:
+            raise RuntimeError(
+                f"MMAudio SFX incomplete — missing WAV for: {', '.join(sorted(missing_assets))}"
             )
-            _write_silent_wav(out_file, duration_ms=int(params["duration_seconds"] * 1000))
-            generation_meta[asset_id] = {
-                "generation_status": "placeholder",
-                "plan_hash": plan_hash,
-                "sonic_context_hash": sonic_hash,
-                "error": str(exc)[:200],
-                "placeholder": True,
-            }
-            generation_failures.append({"asset_id": asset_id, "error": str(exc)[:200], "type": "mmaudio_unavailable"})
-        except Exception as exc:
-            logger.warning("MMAudio generation failed for %s: %s", asset_id, exc)
-            ctx.log(
-                f"MMAudio SFX failed for {asset_id}; wrote silence placeholder ({exc})",
-                level="warning",
-                stage=stage,
-                detail={"asset_id": asset_id, "error": str(exc)[:200]},
+
+        if generation_items:
+            _mirror_assets_to_flow_dir(
+                ctx=ctx,
+                asset_ids=[item["asset_id"] for item in generation_items],
+                target_dir=out_dir,
             )
-            _write_silent_wav(out_file, duration_ms=int(params["duration_seconds"] * 1000))
-            generation_meta[asset_id] = {
-                "generation_status": "placeholder",
-                "plan_hash": plan_hash,
-                "sonic_context_hash": sonic_hash,
-                "error": str(exc)[:200],
-                "placeholder": True,
-            }
-            generation_failures.append({"asset_id": asset_id, "error": str(exc)[:200], "type": "generation_error"})
 
-    if generation_meta:
-        _persist_generation_meta(ctx, generation_meta, generation_failures)
-    if regen_ids:
-        _clear_regen_asset_ids(ctx)
+    with logged_step(f"{stage}/qa_and_finalize", ctx=ctx, stage=stage):
+        run_mmaudio_asset_qa(ctx)
+        _log_sfx_event(ctx, "MMAudio QA completed", stage=stage, event="qa")
+        from interview_mux.gates import sync_post_listen_gate_state
+        from interview_mux.operator_snapshots import persist_operator_mmaudio_snapshots
 
-    if generation_items:
-        _mirror_assets_to_flow_dir(
-            ctx=ctx,
-            asset_ids=[item["asset_id"] for item in generation_items],
-            target_dir=out_dir,
-        )
+        sync_post_listen_gate_state(ctx)
+        persist_operator_mmaudio_snapshots(ctx, source="mmaudio_sfx_flow")
+        maybe_auto_refine(ctx, stage)
+        persist_operator_mmaudio_snapshots(ctx, source="mmaudio_sfx_flow_post_refine")
 
-    run_mmaudio_asset_qa(ctx)
-    _log_sfx_event(ctx, "MMAudio QA completed", stage=stage, event="qa")
-    from interview_mux.gates import sync_post_listen_gate_state
-    from interview_mux.operator_snapshots import persist_operator_mmaudio_snapshots
+        manifest = {
+            "profile": profile,
+            "files": [p.name for p in sorted(assets_dir.glob("*.wav"))],
+            "asset_paths": [f"sound_design/assets/{p.name}" for p in sorted(assets_dir.glob("*.wav"))],
+            "provider": "mmaudio",
+        }
+        ctx.write_json(f"{out_rel}/manifest.json", manifest)
+        from interview_mux.placement_qa import maybe_run_placement_qa
 
-    sync_post_listen_gate_state(ctx)
-    persist_operator_mmaudio_snapshots(ctx, source="mmaudio_sfx_flow")
-    maybe_auto_refine(ctx, stage)
-    persist_operator_mmaudio_snapshots(ctx, source="mmaudio_sfx_flow_post_refine")
-
-    manifest = {
-        "profile": profile,
-        "files": [p.name for p in sorted(assets_dir.glob("*.wav"))],
-        "asset_paths": [f"sound_design/assets/{p.name}" for p in sorted(assets_dir.glob("*.wav"))],
-        "provider": "mmaudio",
-    }
-    ctx.write_json(f"{out_rel}/manifest.json", manifest)
-    from interview_mux.placement_qa import maybe_run_placement_qa
-
-    maybe_run_placement_qa(ctx)
+        maybe_run_placement_qa(ctx)
     ctx.mark_done(stage)
 
 
@@ -324,29 +298,25 @@ def _regenerate_assets_after_refine(
         out_file = assets_dir / f"{aid}.wav"
         prompt_row = crafted.get(aid)
         params = _resolve_generation_params(item, prompt_row)
-        try:
-            meta = generate_text_to_audio(
-                prompt=params["prompt"],
-                negative_prompt=params["negative_prompt"],
-                duration_seconds=params["duration_seconds"],
-                output_wav=out_file,
-                prompt_influence=params.get("prompt_influence"),
-                cfg_strength=params.get("cfg_strength"),
-                num_steps=params.get("num_steps"),
-                seed=params.get("seed"),
-                variant=params.get("variant"),
-                role=params.get("role"),
-                asset_id=aid,
-                run_id=ctx.run_id,
-                ctx=ctx,
-            )
-            _trim_wav_to_duration(out_file, params["duration_seconds"])
-            generation_meta[aid] = meta
-        except MMAudioUnavailable as exc:
-            logger.warning("MMAudio regen failed for %s: %s", aid, exc)
-            _write_silent_wav(out_file, duration_ms=int(params["duration_seconds"] * 1000))
+        meta = generate_text_to_audio(
+            prompt=params["prompt"],
+            negative_prompt=params["negative_prompt"],
+            duration_seconds=params["duration_seconds"],
+            output_wav=out_file,
+            prompt_influence=params.get("prompt_influence"),
+            cfg_strength=params.get("cfg_strength"),
+            num_steps=params.get("num_steps"),
+            seed=params.get("seed"),
+            variant=params.get("variant"),
+            role=params.get("role"),
+            asset_id=aid,
+            run_id=ctx.run_id,
+            ctx=ctx,
+        )
+        _trim_wav_to_duration(out_file, params["duration_seconds"])
+        generation_meta[aid] = meta
     if generation_meta:
-        _persist_generation_meta(ctx, generation_meta, [])
+        _persist_generation_meta(ctx, generation_meta)
     run_mmaudio_asset_qa(ctx)
     _log_sfx_event(ctx, "MMAudio QA completed after refine regen", stage=stage, event="qa")
     from interview_mux.operator_snapshots import persist_operator_mmaudio_snapshots
@@ -393,7 +363,6 @@ def _clear_regen_asset_ids(ctx: RunContext) -> None:
 def _persist_generation_meta(
     ctx: RunContext,
     generation_meta: dict[str, Any],
-    generation_failures: list[dict[str, Any]],
 ) -> None:
     def patch(m: dict[str, Any]) -> None:
         existing = m.get("sfx_generation_meta") or {}
@@ -408,12 +377,6 @@ def _persist_generation_meta(
             if isinstance(row, dict) and row.get("plan_hash"):
                 hashes[aid] = str(row.get("plan_hash"))
         m["sfx_generation_plan_hashes"] = hashes
-        if generation_failures:
-            prior = m.get("sfx_generation_failures") or []
-            if not isinstance(prior, list):
-                prior = []
-            prior.extend(generation_failures)
-            m["sfx_generation_failures"] = prior[-200:]
 
     ctx.mutate_run_meta(patch)
 
@@ -459,12 +422,18 @@ def _generate_with_retry(
             last_exc = exc
             if attempt == 0:
                 ctx.log(
-                    "mmaudio_retry",
+                    f"MMAudio retry for {asset_id}: {exc}",
                     level="warning",
                     stage=stage,
-                    detail={"asset_id": asset_id, "attempt": attempt + 1, "error": str(exc)[:200]},
+                    detail={"asset_id": asset_id, "attempt": attempt + 1, "error": str(exc)},
                 )
                 continue
+            ctx.log(
+                f"MMAudio SFX failed for {asset_id}: {exc}",
+                level="error",
+                stage=stage,
+                detail={"provider": "mmaudio", "asset_id": asset_id, "error": str(exc)},
+            )
             raise
     if last_exc:
         raise last_exc
@@ -627,7 +596,7 @@ def _load_sound_design_plan(ctx: RunContext) -> dict:
 def _load_fallback_cues(*, ctx: RunContext, brief_path: str, profile: str) -> list[dict]:
     """Fallback cues for runs without sound design plan asset definitions."""
     if ctx.path(brief_path).is_file():
-        brief = ctx.read_json(brief_path)
+        brief = ctx.read_json_required(brief_path)
         return _collect_cues(brief, profile)
     return [{"description": "short neutral stinger", "duration_ms": 1500, "role": "chapter_stinger"}]
 
@@ -706,25 +675,3 @@ def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
     trimmed = path.with_suffix(".trim.wav")
     trimmed.replace(path)
 
-
-def _write_silent_wav(path: Path, duration_ms: int = 1500) -> None:
-    from interview_mux.operator_subprocess import run_command
-
-    run_command(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"anullsrc=r=48000:cl=mono",
-            "-t",
-            str(duration_ms / 1000.0),
-            "-c:a",
-            "pcm_s16le",
-            str(path),
-        ],
-        stage="mmaudio_sfx_flow1",
-        label=f"ffmpeg silent wav {path.name}",
-        capture_output=True,
-    )

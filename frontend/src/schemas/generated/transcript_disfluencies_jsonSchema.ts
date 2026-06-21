@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const transcript_disfluencies_jsonSchema = z.object({
   "schema_version": z.number(),
-  "status": z.enum(["ready", "skipped"]),
+  "status": z.enum(["ready", "skipped", "no_assets", "disabled"]),
   "skip_reason": z.string().optional(),
   "computed_at": z.string().optional(),
   "model": z.object({

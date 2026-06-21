@@ -12,19 +12,29 @@ export function StageActivityStrip() {
 
   if (!selectedStageId) return null;
 
-  const entries = filterByStage(logEntries, selectedStageId).slice(-3);
+  const stageEntries = filterByStage(logEntries, selectedStageId);
+  const hasErrors = stageEntries.some((e) => e.level === "error");
+  const entries = stageEntries.slice(-3);
 
   if (!entries.length) return null;
 
   return (
-    <div className="stage-activity-strip panel-inset">
+    <div className={`stage-activity-strip panel-inset${hasErrors ? " has-errors" : ""}`}>
       <div className="stage-activity-strip-head">
-        <h4 className="stage-outputs-title">Recent step activity</h4>
+        <h4 className="stage-outputs-title">
+          {hasErrors ? (
+            <>
+              <span className="log-level-dot level-error" aria-hidden /> Recent step activity
+            </>
+          ) : (
+            "Recent step activity"
+          )}
+        </h4>
         <button
           type="button"
           className="btn ghost sm"
           onClick={() => {
-            setActivityLogTab("step");
+            setActivityLogTab(hasErrors ? "all" : "step");
             setActivityLogCollapsed(false);
           }}
         >
@@ -35,7 +45,7 @@ export function StageActivityStrip() {
         {entries.map((e, i) => (
           <div
             key={`${e.ts}-${i}`}
-            className={`log-entry level-${e.level || "info"} log-entry-compact`}
+            className={`log-entry level-${e.level || "info"} log-entry-compact${e.level === "error" ? " log-entry-highlight" : ""}`}
           >
             <span className="log-ts">{formatTs(e.ts)}</span>
             <span className="log-msg">{escapeHtml(e.message)}</span>

@@ -287,6 +287,13 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
                 stage=stage_id,
                 detail={"journey_kind": "execute", "event": "stage_finish"},
             )
+        except WriteApprovalPending:
+            raise
+        except Exception as exc:
+            from interview_mux.operator_trace import log_stage_error
+
+            log_stage_error(stage_id, exc, ctx=ctx)
+            raise
         finally:
             if write_approval_enabled():
                 exit_stage_staging()

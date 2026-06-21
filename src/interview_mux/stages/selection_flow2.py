@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
 from interview_mux.analysis_memory import load_analysis_state
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary, quotability_signals
 from interview_mux.tone_taxonomy import compact_profile_style_hints
@@ -30,13 +31,14 @@ def run_highlight_selection(ctx: RunContext) -> None:
 
     persist = make_stage_persist("flow_2_highlights/selection.json", "highlight_selection")
 
-    run_flow_llm_stage(
-        ctx,
-        "highlight_selection",
-        "selection/highlight-selection.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("highlight_selection/llm_stage", ctx=ctx, stage="highlight_selection"):
+        run_flow_llm_stage(
+            ctx,
+            "highlight_selection",
+            "selection/highlight-selection.system.txt",
+            build_input,
+            persist,
+        )
     if ctx.is_done("highlight_selection"):
         signals = quotability_signals(ctx)
         top_ids = [str(s.get("segment_id") or "") for s in signals[:3] if s.get("segment_id")]
@@ -65,10 +67,11 @@ def run_sfx_brief(ctx: RunContext) -> None:
 
     persist = make_stage_persist("flow_2_highlights/sfx_brief.json", "sfx_brief")
 
-    run_flow_llm_stage(
-        ctx,
-        "sfx_brief",
-        "assembly/sfx-brief.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sfx_brief/llm_stage", ctx=ctx, stage="sfx_brief"):
+        run_flow_llm_stage(
+            ctx,
+            "sfx_brief",
+            "assembly/sfx-brief.system.txt",
+            build_input,
+            persist,
+        )

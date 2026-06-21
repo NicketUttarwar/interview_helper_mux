@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import traceback
 from contextlib import contextmanager
 import mimetypes
 from datetime import datetime, timezone
@@ -9,7 +11,8 @@ from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.requests import Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -105,6 +108,43 @@ def _guarded_run(run_id: str):
     except RunBusyError as exc:
         raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
 SKIP_ASSET_PARTS = {"executions", ".gui"}
+
+_RUN_ID_IN_API_PATH = re.compile(r"^/api/runs/(?P<run_id>[^/]+)")
+
+
+def _run_id_from_request(request: Request) -> str | None:
+    match = _RUN_ID_IN_API_PATH.match(request.url.path)
+    return match.group("run_id") if match else None
+
+
+def _append_api_error_log(
+    run_id: str,
+    request: Request,
+    exc: BaseException,
+    *,
+    status_code: int,
+) -> None:
+    """Mirror unhandled run-scoped API failures to gui_log.jsonl."""
+    if not RunContext.exists(run_id):
+        return
+    ctx = RunContext(run_id, create=False)
+    tb = traceback.format_exc()
+    detail: dict[str, Any] = {
+        "path": request.url.path,
+        "method": request.method,
+        "status_code": status_code,
+        "error_class": type(exc).__name__,
+        "journey_kind": "api",
+    }
+    if tb and tb.strip() != "NoneType: None":
+        detail["traceback"] = tb
+    append_log(
+        ctx.run_dir,
+        f"API {status_code}: {exc}",
+        level="error" if status_code >= 500 else "warning",
+        stage="api",
+        detail=detail,
+    )
 
 
 class CreateRunBody(BaseModel):
@@ -592,12 +632,20 @@ def create_app() -> FastAPI:
         job = runner.get_job(run_id)
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
+            existing = job.get("last_error") if isinstance(job.get("last_error"), dict) else {}
             job = {
                 **job,
                 "last_error": {
-                    "message": job.get("message") or job.get("error") or "Job failed",
-                    "stage": job.get("stage") or job.get("current_stage"),
-                    "traceback_excerpt": str(tb)[:2000] if tb else None,
+                    "message": existing.get("message")
+                    or job.get("message")
+                    or job.get("error")
+                    or "Job failed",
+                    "stage": existing.get("stage")
+                    or job.get("stage")
+                    or job.get("current_stage"),
+                    "error_class": existing.get("error_class"),
+                    "traceback_excerpt": existing.get("traceback_excerpt")
+                    or (str(tb)[:2000] if tb else None),
                 },
             }
         journey = build_journey_snapshot(ctx, job=job, stages=stages)
@@ -2071,6 +2119,31 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "Source audio not found.")
         media = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
         return FileResponse(src, media_type=media, filename=src.name)
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        run_id = _run_id_from_request(request)
+        if run_id and exc.status_code >= 500:
+            try:
+                _append_api_error_log(run_id, request, exc, status_code=exc.status_code)
+            except Exception:
+                pass
+        detail = exc.detail
+        if isinstance(detail, dict):
+            content = detail
+        else:
+            content = {"detail": detail}
+        return JSONResponse(status_code=exc.status_code, content=content)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        run_id = _run_id_from_request(request)
+        if run_id:
+            try:
+                _append_api_error_log(run_id, request, exc, status_code=500)
+            except Exception:
+                pass
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

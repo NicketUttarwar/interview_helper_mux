@@ -7,6 +7,7 @@ import {
   resolvePendingWritePaths,
   stageAwaitingWriteApproval,
 } from "../../utils/writeApproval";
+import { formatApiError } from "../../utils/safeApi";
 import { ReviewPanelControls } from "./ReviewPanelControls";
 import type { StageInfo } from "../../types";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
@@ -90,14 +91,16 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         } else {
           setEditorValue((data as { text?: string }).text ?? "");
         }
-      } catch {
+      } catch (reason) {
         setEditorValue("");
-        showToast(`Could not load ${path} — staged copy may be missing.`);
+        const msg = formatApiError(reason, `Load ${path}`);
+        showToast(msg, "error");
+        appendClientLog(msg, "error", stageId);
       } finally {
         setContentLoading(false);
       }
     },
-    [runId, stageId, showToast],
+    [runId, stageId, showToast, appendClientLog],
   );
 
   useEffect(() => {
@@ -145,7 +148,8 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       setEditorDirty(false);
       showToast(`Updated ${selectedPath}`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed");
+      const msg = e instanceof Error ? e.message : "Save failed";
+      showToast(msg, "error");
     }
   };
 
@@ -166,8 +170,8 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Approve failed";
       setSaveError(msg);
-      showToast(msg);
-      appendClientLog(msg, "warning");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", stageId);
     }
   };
 
@@ -182,8 +186,8 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       await loadPaths();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Discard failed";
-      showToast(msg);
-      appendClientLog(msg, "warning");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", stageId);
     }
   };
 

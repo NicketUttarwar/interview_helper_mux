@@ -9,6 +9,7 @@ from interview_mux.prompt_validation import (
     validate_stage_artifacts,
 )
 from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
+from interview_mux.operator_trace import logged_step
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import compact_for_volley as sonic_compact_for_volley, load_sonic_context
@@ -63,13 +64,14 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_palettes"
         )
 
-    run_analysis_llm_stage(
-        ctx,
-        "sound_design_palettes",
-        "sound_design/theme-palettes.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sound_design_palettes/llm_stage", ctx=ctx, stage="sound_design_palettes"):
+        run_analysis_llm_stage(
+            ctx,
+            "sound_design_palettes",
+            "sound_design/theme-palettes.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_sound_design_plan_flow1(ctx: RunContext) -> None:
@@ -113,13 +115,14 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow1"
         )
 
-    run_flow_llm_stage(
-        ctx,
-        "sound_design_plan_flow1",
-        "sound_design/plan-flow1.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sound_design_plan_flow1/llm_stage", ctx=ctx, stage="sound_design_plan_flow1"):
+        run_flow_llm_stage(
+            ctx,
+            "sound_design_plan_flow1",
+            "sound_design/plan-flow1.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_sound_design_plan_flow2(ctx: RunContext) -> None:
@@ -160,13 +163,14 @@ def run_sound_design_plan_flow2(ctx: RunContext) -> None:
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow2"
         )
 
-    run_flow_llm_stage(
-        ctx,
-        "sound_design_plan_flow2",
-        "sound_design/plan-flow2.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sound_design_plan_flow2/llm_stage", ctx=ctx, stage="sound_design_plan_flow2"):
+        run_flow_llm_stage(
+            ctx,
+            "sound_design_plan_flow2",
+            "sound_design/plan-flow2.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_sfx_prompt_craft(ctx: RunContext) -> None:
@@ -211,13 +215,14 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             stage_key="sfx_prompt_craft",
         )
 
-    run_flow_llm_stage(
-        ctx,
-        "sfx_prompt_craft",
-        "sound_design/sfx-prompt-craft.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sfx_prompt_craft/llm_stage", ctx=ctx, stage="sfx_prompt_craft"):
+        run_flow_llm_stage(
+            ctx,
+            "sfx_prompt_craft",
+            "sound_design/sfx-prompt-craft.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -> None:
@@ -323,13 +328,14 @@ def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -
             detail={"asset_ids": [r.get("asset_id") for r in updates]},
         )
 
-    run_flow_llm_stage(
-        ctx,
-        "sfx_prompt_refine",
-        "sound_design/sfx-prompt-refine.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("sfx_prompt_refine/llm_stage", ctx=ctx, stage="sfx_prompt_refine"):
+        run_flow_llm_stage(
+            ctx,
+            "sfx_prompt_refine",
+            "sound_design/sfx-prompt-refine.system.txt",
+            build_input,
+            persist,
+        )
 
 
 def _increment_refine_attempts(ctx: RunContext, asset_ids: list[str]) -> None:

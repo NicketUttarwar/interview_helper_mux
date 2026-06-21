@@ -8,6 +8,7 @@ from interview_mux.interview_spine.config import spine_cfg, spine_enabled
 from interview_mux.interview_spine.features import build_speaker_stats, enrich_window_features
 from interview_mux.interview_spine.lineage import build_derived_from, can_skip_rebuild
 from interview_mux.interview_spine.windows import build_windows
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 
@@ -47,40 +48,43 @@ def run_interview_spine_build(ctx: RunContext) -> None:
         window_sec = float(cfg.get("window_sec_calm", 12))
 
     windows = build_windows(words, pace_class=pace_class, cfg=cfg)
-    windows = enrich_window_features(
-        windows,
-        wav_path=wav_path,
-        words=words,
-        prosody_enabled=bool(cfg.get("prosody_enabled", True)),
-    )
+    with logged_step("interview_spine_build/enrich_windows", ctx=ctx, stage="interview_spine_build"):
+        windows = enrich_window_features(
+            windows,
+            wav_path=wav_path,
+            words=words,
+            prosody_enabled=bool(cfg.get("prosody_enabled", True)),
+        )
 
     segments = transcript.get("segments") or []
-    boundary_events = build_boundary_events(
-        words=words,
-        windows=windows,
-        wav_path=wav_path,
-        segments=segments if isinstance(segments, list) else None,
-        min_sources=int(cfg.get("boundary_fusion_min_sources", 1)),
-    )
+    with logged_step("interview_spine_build/boundary_events", ctx=ctx, stage="interview_spine_build"):
+        boundary_events = build_boundary_events(
+            words=words,
+            windows=windows,
+            wav_path=wav_path,
+            segments=segments if isinstance(segments, list) else None,
+            min_sources=int(cfg.get("boundary_fusion_min_sources", 1)),
+        )
 
     retrieval_enabled = False
     sidecar_path: str | None = None
     vector_dim: int | None = None
     clap_model = str(cfg.get("clap_model_id", "laion/clap-htsat-fused"))
-    if cfg.get("clap_enabled", True):
-        retrieval_enabled, sidecar_path, vector_dim = build_clap_index(
-            ctx,
-            windows,
-            wav_path=wav_path,
-            model_id=clap_model,
-            timeout_sec=int(cfg.get("clap_timeout_sec", 120)),
-        )
-        if not retrieval_enabled:
-            ctx.log(
-                "CLAP retrieval unavailable; spine written without embeddings.",
-                level="warning",
-                stage="interview_spine_build",
+    with logged_step("interview_spine_build/clap_index", ctx=ctx, stage="interview_spine_build"):
+        if cfg.get("clap_enabled", True):
+            retrieval_enabled, sidecar_path, vector_dim = build_clap_index(
+                ctx,
+                windows,
+                wav_path=wav_path,
+                model_id=clap_model,
+                timeout_sec=int(cfg.get("clap_timeout_sec", 120)),
             )
+            if not retrieval_enabled:
+                ctx.log(
+                    "CLAP retrieval unavailable; spine written without embeddings.",
+                    level="warning",
+                    stage="interview_spine_build",
+                )
 
     speaker_stats = build_speaker_stats(windows)
     for win in windows:
@@ -117,7 +121,8 @@ def run_interview_spine_build(ctx: RunContext) -> None:
     if errors:
         raise SystemExit(f"interview_spine validation failed: {errors[0]}")
 
-    ctx.write_json("understanding/interview_spine.json", doc, stage_key="interview_spine_build")
+    with logged_step("interview_spine_build/write", ctx=ctx, stage="interview_spine_build"):
+        ctx.write_json("understanding/interview_spine.json", doc, stage_key="interview_spine_build")
     ctx.log(
         f"Interview spine complete — {len(windows)} windows, {len(boundary_events)} boundary events.",
         level="success",

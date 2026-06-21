@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from interview_mux.llm_specialists import (
     _process_specialist_investigations,
     apply_segment_topic_patches,
@@ -9,6 +11,7 @@ from interview_mux.llm_specialists import (
     maybe_run_pre_stage_specialists,
     specialists_enabled,
 )
+from interview_mux.session_log import read_log
 from run_fixtures import isolated_run_ctx
 
 _VALID_SEGMENT = {
@@ -177,7 +180,7 @@ def test_emphasis_coverage_specialist_enqueues(tmp_path):
     assert count == 1
 
 
-def test_pre_stage_specialist_failure_enqueues_investigation(tmp_path, monkeypatch):
+def test_pre_stage_specialist_failure_propagates(tmp_path, monkeypatch):
     from run_fixtures import patch_merged_config
 
     patch_merged_config(
@@ -194,9 +197,8 @@ def test_pre_stage_specialist_failure_enqueues_investigation(tmp_path, monkeypat
     with patch("interview_mux.llm_specialists.run_specialist", side_effect=RuntimeError("boom")):
         outputs = maybe_run_pre_stage_specialists(ctx, "missing_framing", {"segments": {}}, cfg=cfg)
     assert outputs == []
-    queue = ctx.read_json("understanding/investigation_queue.json")
-    items = [i for i in (queue.get("items") or []) if i.get("status") == "open"]
-    assert any(i.get("suggested_action", {}).get("specialist") == "comprehension_risk_blind" for i in items)
+    entries = read_log(ctx.run_dir)
+    assert any("Pre-stage specialist" in e.get("message", "") and "failed" in e.get("message", "") for e in entries)
 
 
 def test_apply_segment_topic_patches_invalidates_downstream_with_hardening(tmp_path, monkeypatch):

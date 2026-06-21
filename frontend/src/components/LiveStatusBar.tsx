@@ -45,6 +45,20 @@ export function LiveStatusBar() {
 
   const statusOnlyOnPipeline = activeTab === "pipeline" && Boolean(run);
 
+  const scrollToLogs = useCallback(
+    (opts?: { errors?: boolean }) => {
+      const errorCount = logEntries.filter((e) => e.level === "error").length;
+      const toErrors = opts?.errors ?? errorCount > 0;
+      setLogFilterPreset({
+        stream: toErrors ? "all" : "live",
+        level: toErrors ? "error" : undefined,
+        scrollToError: toErrors,
+      });
+      setActiveTab("logs");
+    },
+    [logEntries, setLogFilterPreset, setActiveTab],
+  );
+
   const scrollPreview = useCallback(() => {
     setActiveTab("pipeline");
     setPipelineSubTab("stage");
@@ -70,10 +84,7 @@ export function LiveStatusBar() {
     },
     onAcknowledgeHandoff: () => void acknowledgeHandoff(),
     onApproveWrite: (stageId) => void approveWriteAndContinue(stageId),
-    onGoLogs: () => {
-      setLogFilterPreset({ stream: "live" });
-      setActiveTab("logs");
-    },
+    onGoLogs: () => scrollToLogs(),
     onGoStart: () => setActiveTab("start"),
     onGoPipeline: () => {
       setActiveTab("pipeline");
@@ -143,10 +154,7 @@ export function LiveStatusBar() {
       },
       runStage: (sid) => void executeJob(executeBodyForStage(sid)),
       continueNext: () => void runNextStage(),
-      viewLogs: () => {
-        setLogFilterPreset({ stream: "live" });
-        setActiveTab("logs");
-      },
+      viewLogs: () => scrollToLogs(),
     });
   };
 
@@ -178,7 +186,7 @@ export function LiveStatusBar() {
                 type="button"
                 className="btn ghost sm live-status-error-chip"
                 onClick={() => {
-                  setLogFilterPreset({ level: "error", stream: "all" });
+                  setLogFilterPreset({ level: "error", stream: "all", scrollToError: true });
                   setActiveTab("logs");
                 }}
               >

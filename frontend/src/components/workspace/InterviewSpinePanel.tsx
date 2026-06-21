@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { SPINE_PATH } from "../../utils";
+import { formatApiError } from "../../utils/safeApi";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface SpineSummary {
@@ -20,11 +21,12 @@ interface QueryHit {
 }
 
 export function InterviewSpinePanel() {
-  const { run, selectedStage, refreshRun, showToast, confirm } = useApp();
+  const { run, selectedStage, refreshRun, showToast, appendClientLog, confirm } = useApp();
   const [summary, setSummary] = useState<SpineSummary | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<QueryHit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const spineStage =
     selectedStage?.id === "interview_spine_build"
@@ -34,15 +36,19 @@ export function InterviewSpinePanel() {
 
   const load = useCallback(async () => {
     if (!run) return;
+    setLoadError(null);
     try {
       const data = await api<SpineSummary>(
         `/api/runs/${run.run_id}/interview-spine?offset=0&limit=1`,
       );
       setSummary(data);
-    } catch {
+    } catch (e) {
       setSummary(null);
+      const msg = formatApiError(e, "Interview spine");
+      setLoadError(msg);
+      appendClientLog(msg, "error");
     }
-  }, [run]);
+  }, [run, appendClientLog]);
 
   useEffect(() => {
     void load();
@@ -57,6 +63,10 @@ export function InterviewSpinePanel() {
       showToast("Interview spine recomputed.");
       await refreshRun();
       await load();
+    } catch (e) {
+      const msg = formatApiError(e, "Recompute spine");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -75,10 +85,28 @@ export function InterviewSpinePanel() {
         },
       );
       setHits(res.hits || []);
+    } catch (e) {
+      const msg = formatApiError(e, "Spine query");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setLoading(false);
     }
   };
+
+  if (loadError && !summary) {
+    return (
+      <div className="quality-offer-card">
+        <h4>Interview spine</h4>
+        <p className="error-text" role="alert">
+          {loadError}
+        </p>
+        <button type="button" className="btn ghost sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!summary) {
     return (

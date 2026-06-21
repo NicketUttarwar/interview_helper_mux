@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Iterator
@@ -70,6 +71,61 @@ def log_api_call(
     )
 
 
+class StageSubstepError(Exception):
+    """Substep failure with an operator-visible label."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        self.stage = stage
+        super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
+
+
+def failure_detail(exc: BaseException) -> dict[str, Any]:
+    """Structured failure payload for operator logs."""
+    return {
+        "journey_kind": "execute",
+        "event": "substep_fail",
+        "error_class": type(exc).__name__,
+        "traceback": traceback.format_exc(),
+    }
+
+
+def log_failure(
+    message: str,
+    exc: BaseException,
+    *,
+    ctx: RunContext | None = None,
+    stage: str | None = None,
+    detail: str | dict[str, Any] | None = None,
+) -> None:
+    """Log an exception with traceback and error class."""
+    payload = failure_detail(exc)
+    if isinstance(detail, dict):
+        payload.update(detail)
+    elif detail is not None:
+        payload["detail"] = detail
+    log_step(message, ctx=ctx, stage=stage, level="error", detail=payload)
+
+
+def log_stage_error(
+    stage: str,
+    exc: BaseException,
+    *,
+    ctx: RunContext | None = None,
+    label: str | None = None,
+) -> None:
+    """Log a stage-level failure with traceback and error class."""
+    desc = label or f"Stage {stage}"
+    log_failure(f"Failed: {desc}", exc, ctx=ctx, stage=stage)
+
+
 @contextmanager
 def logged_step(
     label: str,
@@ -82,6 +138,12 @@ def logged_step(
     try:
         yield
         log_step(f"Done: {label}", ctx=ctx, stage=stage, level="success")
-    except Exception:
-        log_step(f"Failed: {label}", ctx=ctx, stage=stage, level="error")
+    except Exception as exc:
+        log_step(
+            f"Failed: {label}",
+            ctx=ctx,
+            stage=stage,
+            level="error",
+            detail=failure_detail(exc),
+        )
         raise

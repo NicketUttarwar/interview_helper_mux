@@ -26,8 +26,18 @@ class _Ctx:
     def mark_done(self, stage: str) -> None:
         self.done.append(stage)
 
-    def log(self, message: str, *, level: str = "info", stage: str | None = None, detail: str | None = None) -> None:
+    def log(
+        self,
+        message: str,
+        *,
+        level: str = "info",
+        stage: str | None = None,
+        detail: str | dict | None = None,
+    ) -> None:
         self.logs.append((message, stage))
+
+    def artifact_exists(self, rel: str) -> bool:
+        return (self._run_dir / rel).is_file()
 
 
 def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) -> None:
@@ -89,7 +99,6 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.Popen", _FakePopen)
     monkeypatch.setattr(mastering, "merged_config", lambda: {"flow1_target_lufs": -16.0})
     monkeypatch.setattr(mastering, "validate_pre_master", lambda *_a, **_k: [])
-    monkeypatch.setattr(mastering, "_maybe_warn_low_sfx_energy", lambda *_a, **_k: None)
 
     output = mastering.master_wav(ctx, assembly_rel, "flow_1_master/master.wav", flow="flow1")
 
@@ -106,81 +115,28 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     assert any("Assembly bus measured -18.50 LUFS" in msg for msg, _ in ctx.logs)
 
 
-def test_master_wav_warns_low_sfx_energy(monkeypatch, tmp_path) -> None:
-    from run_fixtures import isolated_run_ctx, sound_design_plan_with
-    import struct
-    import wave
+def test_master_wav_blocks_on_pre_master_errors(monkeypatch, tmp_path) -> None:
+    run_dir = tmp_path / "run_pre_fail"
+    run_dir.mkdir()
+    assembly_rel = "flow_1_master/assembly.wav"
+    assembly_path = run_dir / assembly_rel
+    assembly_path.parent.mkdir(parents=True, exist_ok=True)
+    assembly_path.write_bytes(b"fake wav")
+    ctx = _Ctx(run_dir)
 
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = isolated_run_ctx(tmp_path, "master_sfx_warn")
-    assembly = ctx.path("flow_1_master", "assembly.wav")
-    assembly.parent.mkdir(parents=True, exist_ok=True)
-    rate = 48000
-    n = rate
-    with wave.open(str(assembly), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(rate)
-        wf.writeframes(struct.pack(f"<{n}h", *([50] * n)))
-    ctx.write_json(
-        "understanding/sound_design_plan.json",
-        sound_design_plan_with(
-            assets=[
-                {
-                    "asset_id": "bed_01",
-                    "role": "ambient_bed",
-                    "description": "warm bed",
-                    "duration_seconds": 4.0,
-                }
-            ],
-            flow_plans={
-                "flow1": {
-                    "cues": [
-                        {
-                            "cue_id": "c1",
-                            "asset_id": "bed_01",
-                            "placement": "under_segment",
-                            "segment_id": "seg_001",
-                        }
-                    ]
-                }
-            },
-        ),
-        skip_handoff=True,
-    )
-
-    bus = AssemblyBusMetrics(
-        integrated_lufs=-30.0,
-        sample_rate_hz=48000,
-        channels=1,
-        duration_seconds=1.0,
-    )
-
-    def _fake_measure(_path: Path) -> AssemblyBusMetrics:
-        return bus
-
-    def _fake_run(cmd, **kwargs):  # noqa: ANN001
-        return _Proc(
-            stderr='{"input_i":"-30.0","input_lra":"2.0","input_tp":"-5.0","input_thresh":"-40.0","target_offset":"14.0"}'
-        )
-
-    monkeypatch.setattr(mastering, "measure_assembly_bus", _fake_measure)
-    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
     monkeypatch.setattr(
         mastering,
-        "merged_config",
-        lambda: {"flow1_target_lufs": -16.0, "mix": {"master_sfx_energy_threshold": 0.03}},
+        "validate_pre_master",
+        lambda *_a, **_k: ["mix_intelligibility QC failed"],
     )
-    monkeypatch.setattr(mastering, "validate_pre_master", lambda *_a, **_k: [])
+    monkeypatch.setattr(mastering, "record_qc_summary", lambda *_a, **_k: None)
 
-    logs: list[str] = []
-
-    def _capture_log(message: str, *, level: str = "info", stage: str | None = None, detail: str | None = None) -> None:
-        logs.append(message)
-
-    monkeypatch.setattr(ctx, "log", _capture_log)
-    mastering.master_wav(ctx, "flow_1_master/assembly.wav", "flow_1_master/master.wav", flow="flow1")
-    assert any("master_sfx_energy_low" in msg for msg in logs)
+    try:
+        mastering.master_wav(ctx, assembly_rel, "flow_1_master/master.wav", flow="flow1")
+    except RuntimeError as exc:
+        assert "pre_master validation failed" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for pre_master validation failure.")
 
 
 def test_extract_loudnorm_json_requires_expected_keys() -> None:

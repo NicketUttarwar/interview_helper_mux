@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { SonicContextData } from "../../types";
+import { formatApiError } from "../../utils/safeApi";
 import {
   sonicTagProvenanceText,
   summarizeSonicContextScenario,
@@ -10,7 +11,7 @@ import {
 const SONIC_CONTEXT_PATH = "understanding/sonic_context.json";
 
 export function SonicContextPanel() {
-  const { run } = useApp();
+  const { run, showToast } = useApp();
   const [loading, setLoading] = useState(false);
   const [doc, setDoc] = useState<SonicContextData | null>(null);
 
@@ -21,9 +22,12 @@ export function SonicContextPanel() {
       `/api/runs/${run.run_id}/artifact?path=${encodeURIComponent(SONIC_CONTEXT_PATH)}`,
     )
       .then((data) => setDoc(data))
-      .catch(() => setDoc(null))
+      .catch((reason) => {
+        setDoc(null);
+        showToast(formatApiError(reason, "Sonic context"), "error");
+      })
       .finally(() => setLoading(false));
-  }, [run]);
+  }, [run, showToast]);
 
   if (!run) return null;
   if (loading) {

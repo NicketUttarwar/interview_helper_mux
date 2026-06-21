@@ -7,6 +7,7 @@ from typing import Any
 from interview_mux.acoustic_profile import load_profile, placement_hints
 from interview_mux.audio_timeline import wav_duration_ms
 from interview_mux.prompt_validation import validate_sound_design_plan
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly_flow1 import resolve_vo_pickup_path
 from interview_mux.stages.sound_design_stages import _validate_sound_design_plan
@@ -39,28 +40,29 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
 
     adjusted = 0
     skipped = 0
-    for cue in cues:
-        if not isinstance(cue, dict):
-            continue
-        asset_id = str(cue.get("asset_id") or "")
-        asset = assets_by_id.get(asset_id, {})
-        role = str(asset.get("role") or cue.get("role") or "")
-        line_id = str(cue.get("line_id") or cue.get("gap_line_id") or "")
-        if role != "vo_bridge" and not line_id:
-            continue
-        line = _gap_line(gap_report, line_id)
-        if line:
-            wav = resolve_vo_pickup_path(ctx, line)
-        else:
-            wav = None
-        if wav is None or not wav.is_file():
-            skipped += 1
-            continue
-        dur = wav_duration_ms(wav)
-        cue["measured_duration_ms"] = dur
-        cue["pre_roll_ms"] = pre_roll
-        cue["post_roll_ms"] = post_roll
-        adjusted += 1
+    with logged_step("sound_design_vo_finalize/adjust_cues", ctx=ctx, stage="sound_design_vo_finalize"):
+        for cue in cues:
+            if not isinstance(cue, dict):
+                continue
+            asset_id = str(cue.get("asset_id") or "")
+            asset = assets_by_id.get(asset_id, {})
+            role = str(asset.get("role") or cue.get("role") or "")
+            line_id = str(cue.get("line_id") or cue.get("gap_line_id") or "")
+            if role != "vo_bridge" and not line_id:
+                continue
+            line = _gap_line(gap_report, line_id)
+            if line:
+                wav = resolve_vo_pickup_path(ctx, line)
+            else:
+                wav = None
+            if wav is None or not wav.is_file():
+                skipped += 1
+                continue
+            dur = wav_duration_ms(wav)
+            cue["measured_duration_ms"] = dur
+            cue["pre_roll_ms"] = pre_roll
+            cue["post_roll_ms"] = post_roll
+            adjusted += 1
 
     if adjusted == 0 and skipped == 0:
         ctx.log("vo_finalize: no VO bridge cues to adjust — skip", level="info", stage="sound_design_vo_finalize")
@@ -71,9 +73,10 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
     if errors:
         ctx.log(f"vo_finalize: SDP validation failed: {errors[:2]}", level="error", stage="sound_design_vo_finalize")
         raise SystemExit(f"sound_design_vo_finalize: invalid SDP after adjust: {errors[0]}")
-    _validate_sound_design_plan(plan)
-    ctx.write_json(sdp_path, plan)
-    _patch_sonic_context_vo_bridges(ctx, plan)
+    with logged_step("sound_design_vo_finalize/write", ctx=ctx, stage="sound_design_vo_finalize"):
+        _validate_sound_design_plan(plan)
+        ctx.write_json(sdp_path, plan)
+        _patch_sonic_context_vo_bridges(ctx, plan)
     ctx.log(
         f"vo_finalize: adjusted={adjusted} skipped={skipped}",
         level="success",

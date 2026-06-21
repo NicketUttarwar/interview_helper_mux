@@ -180,6 +180,8 @@ Stage `status` in **`GET /api/runs/{run_id}`** may be `awaiting_write_approval` 
 
 Mutating endpoints (artifact PUT, pending-write PUT, handoff-ack, NLE, VO upload, etc.) return **HTTP 409** `{"error": "run_busy"}` when `RunDirectoryLock` or the in-process job lock is held.
 
+**Global exception handler:** Unhandled exceptions and **HTTP 5xx** on routes under `/api/runs/{run_id}/…` append one line to that run’s `gui_log.jsonl` (`stage: api`, `level: error`, message `API {status}: …`, `detail` with path/method/error_class/traceback). Client **4xx** (404 run, 400 validation, 409 busy) are not logged. Handler registered in `create_app()` (`server.py`).
+
 When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land in `.pending_writes/<stage_id>/` until `POST …/approve`. Reuse copies use the same staging path when approval is enabled.
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
@@ -253,8 +255,10 @@ Exactly one of `from_stage` or `new_input_audio_path` must be provided — else 
 | Field | Type | Default |
 |-------|------|---------|
 | `message` | string | — |
-| `level` | string | `"info"` |
+| `level` | string | `"info"` — one of **`info`**, **`success`**, **`warning`**, **`error`**, **`action`** (GUI milestone / operator step; same append path as `RunContext.log()`) |
 | `stage` | string \| null | — |
+
+Levels are stored verbatim in `gui_log.jsonl`; the Logs tab filter matches `level` client-side.
 
 ### `TranscriptChunkBody`
 

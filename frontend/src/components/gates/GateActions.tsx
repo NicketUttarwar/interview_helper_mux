@@ -190,7 +190,7 @@ export function GateActions({ stage }: Props) {
 }
 
 function SfxGatePanel({ stage }: { stage: StageInfo }) {
-  const { run, selectStage } = useApp();
+  const { run, selectStage, showToast } = useApp();
   const [blocked, setBlocked] = useState<boolean | null>(null);
   const [blockReasons, setBlockReasons] = useState<SfxBlockReason[]>([]);
 
@@ -202,7 +202,8 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
         setBlocked(Boolean(review?.review_required && review?.can_generate === false));
         setBlockReasons(reasons);
       })
-      .catch(() => {
+      .catch((e) => {
+        showToast(e instanceof Error ? e.message : "Could not load SFX prompts", "error");
         setBlocked(false);
         setBlockReasons([]);
       });

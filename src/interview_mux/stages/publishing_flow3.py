@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 
 from interview_mux.analysis_memory import load_analysis_state
-from interview_mux.config import merged_config
 from interview_mux.show_description_qc import (
     validate_show_description,
     validate_show_description_tone_alignment,
 )
 from interview_mux.tone_taxonomy import tone_class_for_show_description
+from interview_mux.operator_trace import logged_step
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
@@ -23,11 +23,6 @@ def _warn_if_profile_unverified(ctx: RunContext) -> None:
             level="warning",
             stage="podcast_show_description",
         )
-
-
-def _show_description_qc_strict_enabled() -> bool:
-    sqc = merged_config().get("show_description_qc") or {}
-    return bool(sqc.get("strict"))
 
 
 def run_podcast_show_description(ctx: RunContext) -> None:
@@ -77,15 +72,14 @@ def run_podcast_show_description(ctx: RunContext) -> None:
             summary = "; ".join(errors[:4])
             c.log(
                 f"Show description QC failed ({len(errors)} issue(s)): {summary}",
-                level="error" if _show_description_qc_strict_enabled() else "warning",
+                level="error",
                 stage="podcast_show_description",
                 detail="show_description_qc_fail",
             )
-            if _show_description_qc_strict_enabled():
-                raise RuntimeError(
-                    f"show_description_qc strict: {len(errors)} issue(s). "
-                    f"Run: python tools/validate_show_description.py --run-id {c.run_id}"
-                )
+            raise RuntimeError(
+                f"show_description_qc: {len(errors)} issue(s). "
+                f"Run: python tools/validate_show_description.py --run-id {c.run_id}"
+            )
         write_validated_artifact(
             c,
             "flow_3_description/show_description.json",
@@ -99,13 +93,14 @@ def run_podcast_show_description(ctx: RunContext) -> None:
         level="info",
         stage="podcast_show_description",
     )
-    run_flow_llm_stage(
-        ctx,
-        "podcast_show_description",
-        "publishing/podcast-show-description.system.txt",
-        build_input,
-        persist,
-    )
+    with logged_step("podcast_show_description/llm_stage", ctx=ctx, stage="podcast_show_description"):
+        run_flow_llm_stage(
+            ctx,
+            "podcast_show_description",
+            "publishing/podcast-show-description.system.txt",
+            build_input,
+            persist,
+        )
     ctx.log(
         "Show description JSON ready — run export or full Flow 3 for plain-text copy.",
         level="success",
@@ -142,7 +137,8 @@ def run_export_show_description(ctx: RunContext) -> None:
     doc = ctx.read_json("flow_3_description/show_description.json")
     ctx.path("flow_3_description").mkdir(parents=True, exist_ok=True)
     md_path = ctx.path("flow_3_description/show_description.md")
-    md_path.write_text(_plain_export_text(doc), encoding="utf-8")
+    with logged_step("export_show_description/write_md", ctx=ctx, stage="export_show_description"):
+        md_path.write_text(_plain_export_text(doc), encoding="utf-8")
     ctx.mark_done("export_show_description")
     ctx.log(
         "Exported plain-text show description for podcast directories.",

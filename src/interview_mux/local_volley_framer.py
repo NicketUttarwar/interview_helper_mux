@@ -16,7 +16,6 @@ from interview_mux.context_volley import (
 )
 from interview_mux.local_llm_config import (
     LOCAL_FRAMER_PROMPT,
-    escalate_on_parse_error,
     force_escalate_stage,
     max_volley_turns,
     min_confidence,
@@ -117,7 +116,7 @@ def frame_volley_with_local(
     cfg: dict[str, Any] | None = None,
 ) -> LocalFramingResult:
     """
-    Run local MLX framer. On any failure returns escalate=True so OpenAI path is unchanged.
+    Run local MLX framer. Propagates failures; callers fall back to OpenAI only when MLX is unavailable.
     """
     resolved_cfg = cfg or merged_config()
     if not mlx_available():
@@ -187,17 +186,11 @@ def frame_volley_with_local(
             volley_turn_count=len(parsed.get("volley_turns") or []),
         )
     except Exception as exc:
-        if escalate_on_parse_error(resolved_cfg):
-            ctx.log(
-                f"Local LLM framing failed for {stage_key} ({exc}); using full volley + OpenAI.",
-                level="warning",
-                stage=stage_key,
-            )
-            return LocalFramingResult(
-                escalate=True,
-                reason=str(exc)[:200],
-                fallback=exc.__class__.__name__,
-            )
+        ctx.log(
+            f"Local LLM framing failed for {stage_key}: {exc}",
+            level="error",
+            stage=stage_key,
+        )
         raise
 
 
@@ -230,11 +223,16 @@ def prepare_volley_for_llm(
         )
     except Exception as exc:
         ctx.log(
-            f"Local volley prep failed for {stage_key}: {exc}",
-            level="warning",
+            f"Local LLM framing failed for {stage_key}: {exc} — escalating to OpenAI volley",
+            level="error",
             stage=stage_key,
+            detail={"fallback": "local_framing_failed", "error_class": type(exc).__name__},
         )
-        return volley, LocalFramingResult(escalate=True, reason=str(exc)[:200], fallback="prepare_failed")
+        return volley, LocalFramingResult(
+            escalate=True,
+            reason=f"local_framing_failed:{exc}",
+            fallback="local_framing_failed",
+        )
 
     if framing.used_local and framing.volley_turns:
         volley = apply_local_framing_to_volley(volley, framing.volley_turns)

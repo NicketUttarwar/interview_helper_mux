@@ -59,10 +59,12 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
   } else if (job?.status === "complete" || recentComplete) {
     headline = "Step finished";
     subline = action.subline || job?.message || subline;
-  } else if (job?.status === "error") {
+  } else if (job?.status === "error" || action.mode === "error") {
     activityKind = "error";
-    headline = "Step failed";
-    subline = job.last_error?.message || job.message || "See activity log for details.";
+    headline = action.headline || "Step failed";
+    subline = job?.last_error?.message || job?.message || action.subline || subline;
+    primaryLabel = action.primaryDisabled ? null : action.primaryLabel;
+    onPrimary = cmd.onPrimary;
   } else if (action.mode === "needs_you") {
     activityKind = "blocked";
     primaryLabel = action.primaryLabel;

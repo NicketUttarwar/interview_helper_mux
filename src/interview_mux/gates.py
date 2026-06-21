@@ -102,7 +102,7 @@ def check_disfluency_review_pending(ctx: RunContext) -> bool:
     if not ctx.artifact_exists("transcript/disfluencies.json"):
         return False
     doc = ctx.read_json("transcript/disfluencies.json")
-    if str(doc.get("status")) == "skipped":
+    if str(doc.get("status")) in {"skipped", "no_assets", "disabled"}:
         return False
     events = doc.get("events") or []
     if not events:

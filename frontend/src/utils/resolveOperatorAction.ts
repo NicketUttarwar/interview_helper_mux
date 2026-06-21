@@ -24,6 +24,7 @@ const MODE_LABELS: Record<StepMode, string> = {
   running: "Running",
   needs_you: "Needs you",
   done: "Complete",
+  error: "Failed",
 };
 
 export function stepModeLabel(mode: StepMode): string {
@@ -74,6 +75,26 @@ function fromServerAction(
     primaryDisabled: server.mode === "running" || server.mode === "locked",
     modalAutoOpen: Boolean(server.modal_auto_open),
     blockingReason: undefined,
+  };
+}
+
+function buildErrorAction(run: RunData): OperatorAction {
+  const job = run.job;
+  const stageId = job?.stage || job?.current_stage || null;
+  const title = stageTitle(run, stageId);
+  const msg = job?.last_error?.message || job?.message || "See activity log for details.";
+  return {
+    mode: "error",
+    stageId,
+    substepId: "error",
+    headline: stageId ? `${title} failed` : "Pipeline step failed",
+    subline: msg,
+    primaryLabel: stageId ? `Retry ${title}` : "Retry step",
+    primaryKind: stageId ? "run_stage" : "none",
+    primaryDisabled: !stageId,
+    secondaryLabel: "View live log",
+    secondaryKind: "view_logs",
+    modalAutoOpen: false,
   };
 }
 
@@ -298,6 +319,10 @@ export function resolveOperatorAction(
     };
   }
 
+  if (job?.status === "error") {
+    return buildErrorAction(run);
+  }
+
   if (jobCtx.isRunning || isJobActivelyRunning(job)) {
     return buildRunningAction(run, jobRunning);
   }
@@ -405,6 +430,10 @@ export function resolveOperatorActionForStage(
     : null;
 
   const runningStageId = job?.current_stage || job?.stage;
+  if (job?.status === "error" && runningStageId === stageId) {
+    return buildErrorAction(run);
+  }
+
   if (
     (jobCtx.isRunning || isJobActivelyRunning(job)) &&
     runningStageId === stageId

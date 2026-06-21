@@ -8,7 +8,7 @@ from typing import Any
 
 from interview_mux.config import merged_config, require_secret
 from interview_mux.operator_subprocess import format_command, run_command, touch_job_message
-from interview_mux.operator_trace import log_api_call
+from interview_mux.operator_trace import log_api_call, logged_step
 from interview_mux.run_context import RunContext
 
 
@@ -54,7 +54,8 @@ def run_transcribe(ctx: RunContext) -> None:
         detail={"journey_kind": "execute"},
     )
     touch_job_message(ctx, "Transcribe: uploading audio…")
-    _aws(ctx, "s3", "cp", str(normalized), s3_uri)
+    with logged_step("transcribe/s3_upload", ctx=ctx, stage="transcribe"):
+        _aws(ctx, "s3", "cp", str(normalized), s3_uri)
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
     media_uri = s3_uri
@@ -68,54 +69,56 @@ def run_transcribe(ctx: RunContext) -> None:
         detail={"journey_kind": "execute", "job_name": job_name},
     )
     touch_job_message(ctx, "Transcribe: starting AWS job…")
-    _aws(
-        ctx,
-        "transcribe",
-        "start-transcription-job",
-        "--transcription-job-name",
-        job_name,
-        "--language-code",
-        "en-US",
-        "--media-format",
-        "wav",
-        "--media",
-        f"MediaFileUri={media_uri}",
-        "--output-bucket-name",
-        bucket,
-        "--output-key",
-        output_key,
-        "--settings",
-        "ShowSpeakerLabels=true,MaxSpeakerLabels=4",
-        "--region",
-        region,
-    )
-
-    status = "IN_PROGRESS"
-    poll_count = 0
-    while status in ("IN_PROGRESS", "QUEUED"):
-        time.sleep(5)
-        poll_count += 1
-        if poll_count == 1 or poll_count % 6 == 0:
-            touch_job_message(ctx, f"Transcribe: waiting on AWS ({status.lower()})…")
-            ctx.log(
-                f"AWS Transcribe job {job_name}: polling ({status})",
-                level="info",
-                stage="transcribe",
-                detail={"journey_kind": "execute", "poll": poll_count},
-            )
-        proc = _aws(
+    with logged_step("transcribe/start_job", ctx=ctx, stage="transcribe"):
+        _aws(
             ctx,
             "transcribe",
-            "get-transcription-job",
+            "start-transcription-job",
             "--transcription-job-name",
             job_name,
+            "--language-code",
+            "en-US",
+            "--media-format",
+            "wav",
+            "--media",
+            f"MediaFileUri={media_uri}",
+            "--output-bucket-name",
+            bucket,
+            "--output-key",
+            output_key,
+            "--settings",
+            "ShowSpeakerLabels=true,MaxSpeakerLabels=4",
             "--region",
             region,
         )
-        job = json.loads(proc.stdout)["TranscriptionJob"]
-        status = job["TranscriptionJobStatus"]
-        if status == "FAILED":
-            raise RuntimeError(job.get("FailureReason", "Transcribe failed"))
+
+    with logged_step("transcribe/poll_job", ctx=ctx, stage="transcribe"):
+        status = "IN_PROGRESS"
+        poll_count = 0
+        while status in ("IN_PROGRESS", "QUEUED"):
+            time.sleep(5)
+            poll_count += 1
+            if poll_count == 1 or poll_count % 6 == 0:
+                touch_job_message(ctx, f"Transcribe: waiting on AWS ({status.lower()})…")
+                ctx.log(
+                    f"AWS Transcribe job {job_name}: polling ({status})",
+                    level="info",
+                    stage="transcribe",
+                    detail={"journey_kind": "execute", "poll": poll_count},
+                )
+            proc = _aws(
+                ctx,
+                "transcribe",
+                "get-transcription-job",
+                "--transcription-job-name",
+                job_name,
+                "--region",
+                region,
+            )
+            job = json.loads(proc.stdout)["TranscriptionJob"]
+            status = job["TranscriptionJobStatus"]
+            if status == "FAILED":
+                raise RuntimeError(job.get("FailureReason", "Transcribe failed"))
 
     ctx.log(
         f"Transcribe: downloading result s3://{bucket}/{output_key}",
@@ -125,12 +128,14 @@ def run_transcribe(ctx: RunContext) -> None:
     )
     touch_job_message(ctx, "Transcribe: downloading result…")
     local_out = out_dir / "aws_raw.json"
-    _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
+    with logged_step("transcribe/download_result", ctx=ctx, stage="transcribe"):
+        _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
-    raw = _read_transcript_json(local_out)
-    full, speakers = _normalize_transcript(raw)
-    ctx.write_json("transcript/full.json", full)
-    ctx.write_json("transcript/speakers.json", speakers)
+    with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
+        raw = _read_transcript_json(local_out)
+        full, speakers = _normalize_transcript(raw)
+        ctx.write_json("transcript/full.json", full)
+        ctx.write_json("transcript/speakers.json", speakers)
     ctx.log(
         f"Transcription complete — {len(full.get('words') or [])} words, "
         f"{len(speakers.get('speakers') or [])} speaker(s).",

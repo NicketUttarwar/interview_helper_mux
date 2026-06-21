@@ -20,6 +20,7 @@ from interview_mux.llm_flow_hardening import (
     llm_stage_progress_ok,
 )
 from interview_mux.llm_stage_routing import finalize_stage_attempt, run_llm_stage_with_routing
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 PersistFn = Callable[[RunContext, dict[str, Any]], None]
@@ -90,39 +91,42 @@ def _run_llm_stage_loop(
     prev_signature: tuple[Any, ...] | None = None
 
     for attempt in range(1, limit + 1):
-        budget_msg = check_primary_budget(ctx, stage_key)
-        if budget_msg:
-            ctx.log(budget_msg, level="action", stage=stage_key)
-            raise SystemExit(budget_msg)
-        stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
-        envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
-            ctx,
-            stage_key,
-            prompt_rel,
-            stage_input,
-            attempt=attempt,
-        )
-        finalize_stage_attempt(
-            ctx,
-            stage_key,
-            attempt,
-            envelope,
-            volley,
-            arbiter_result,
-            schema_errors,
-            shard_count,
-            persist_artifacts=persist_artifacts,
-            sync_fn=sync_fn,
-        )
-        _maybe_legacy_flow_persist(
-            ctx,
-            stage_key=stage_key,
-            envelope=envelope,
-            arbiter_result=arbiter_result,
-            schema_errors=schema_errors,
-            output_rel=output_rel,
-            persist_artifacts=persist_artifacts,
-        )
+        with logged_step(f"{stage_key}/attempt_{attempt}/budget", ctx=ctx, stage=stage_key):
+            budget_msg = check_primary_budget(ctx, stage_key)
+            if budget_msg:
+                ctx.log(budget_msg, level="action", stage=stage_key)
+                raise SystemExit(budget_msg)
+            stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
+        with logged_step(f"{stage_key}/attempt_{attempt}/routing", ctx=ctx, stage=stage_key):
+            envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
+                ctx,
+                stage_key,
+                prompt_rel,
+                stage_input,
+                attempt=attempt,
+            )
+        with logged_step(f"{stage_key}/attempt_{attempt}/finalize", ctx=ctx, stage=stage_key):
+            finalize_stage_attempt(
+                ctx,
+                stage_key,
+                attempt,
+                envelope,
+                volley,
+                arbiter_result,
+                schema_errors,
+                shard_count,
+                persist_artifacts=persist_artifacts,
+                sync_fn=sync_fn,
+            )
+            _maybe_legacy_flow_persist(
+                ctx,
+                stage_key=stage_key,
+                envelope=envelope,
+                arbiter_result=arbiter_result,
+                schema_errors=schema_errors,
+                output_rel=output_rel,
+                persist_artifacts=persist_artifacts,
+            )
         last_envelope = envelope
         last_arbiter = arbiter_result or {}
         last_schema_errors = schema_errors

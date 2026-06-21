@@ -11,6 +11,7 @@ import {
   TONE_CLASS_VALUES,
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
+import { formatApiError } from "../../utils/safeApi";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
@@ -21,19 +22,30 @@ function investigationItems(queue: Record<string, unknown>): Array<Record<string
 }
 
 export function StoryBoardPanel() {
-  const { runId, run, refreshRun, config, setPipelineSubTab } = useApp();
+  const { runId, run, refreshRun, config, setPipelineSubTab, showToast, appendClientLog } = useApp();
   const [data, setData] = useState<StoryBoardData | null>(null);
   const [form, setForm] = useState<ProfileFormState | null>(null);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!runId) return;
-    const sb = await api<StoryBoardData>(`/api/runs/${runId}/story-board`);
-    setData(sb);
-    setBaseState(sb.analysis_state);
-    setForm(loadProfileToForm(sb.analysis_state));
-  }, [runId]);
+    setLoadError(null);
+    try {
+      const sb = await api<StoryBoardData>(`/api/runs/${runId}/story-board`);
+      setData(sb);
+      setBaseState(sb.analysis_state);
+      setForm(loadProfileToForm(sb.analysis_state));
+    } catch (e) {
+      setData(null);
+      setForm(null);
+      const msg = formatApiError(e, "Story board");
+      setLoadError(msg);
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
+    }
+  }, [runId, showToast, appendClientLog]);
 
   useEffect(() => {
     void load();
@@ -55,6 +67,10 @@ export function StoryBoardPanel() {
       });
       await load();
       await refreshRun();
+    } catch (e) {
+      const msg = formatApiError(e, verify ? "Lock story" : "Save story");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
     } finally {
       setSaving(false);
     }
@@ -62,13 +78,19 @@ export function StoryBoardPanel() {
 
   const resolveInvestigation = async (itemId: string) => {
     if (!runId) return;
-    await api(`/api/runs/${runId}/investigation-queue/${itemId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "resolved" }),
-    });
-    await load();
-    await refreshRun();
+    try {
+      await api(`/api/runs/${runId}/investigation-queue/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "resolved" }),
+      });
+      await load();
+      await refreshRun();
+    } catch (e) {
+      const msg = formatApiError(e, "Resolve investigation");
+      showToast(msg, "error");
+      appendClientLog(msg, "error");
+    }
   };
 
   const openItems = useMemo(
@@ -84,6 +106,20 @@ export function StoryBoardPanel() {
   const profileVerified =
     run?.stages.find((s) => s.id === "analysis_profile")?.status === "done";
   const storyComplete = Boolean(data && openItems.length === 0 && profileVerified);
+
+  if (loadError) {
+    return (
+      <div className="story-board panel">
+        <h3>Story Board</h3>
+        <p className="error-text" role="alert">
+          {loadError}
+        </p>
+        <button type="button" className="btn ghost sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!data || !form) {
     return (

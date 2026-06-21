@@ -8,9 +8,10 @@ import {
   type TranscriptCorrectionStats,
 } from "../workspace/TranscriptDockViewer";
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
+import { formatApiError } from "../../utils/safeApi";
 
 export function TranscriptReviewPanel() {
-  const { run, refreshRun, showToast, loadTranscriptReview, transcriptReview, runNextStage } =
+  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview, runNextStage } =
     useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +21,19 @@ export function TranscriptReviewPanel() {
     emptyCorrectionStats(),
   );
 
+  const reportError = (reason: unknown, label: string) => {
+    const msg = formatApiError(reason, label);
+    setError(msg);
+    showToast(msg, "error");
+    appendClientLog(msg, "error", "transcript_review");
+  };
+
   useEffect(() => {
     setLoading(true);
     void loadTranscriptReview()
       .then(() => setLoading(false))
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "Load failed");
+      .catch((reason) => {
+        reportError(reason, "Transcript review");
         setLoading(false);
       });
   }, [loadTranscriptReview]);
@@ -58,18 +66,22 @@ export function TranscriptReviewPanel() {
     if (!run) return;
     const c = chunks.find((x) => x.chunk_id === chunkId);
     const bodyText = useOriginal ? c?.text || "" : text;
-    await api(`/api/runs/${run.run_id}/transcript-review/${chunkId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: bodyText, reviewed }),
-    });
-    showToast("Chunk saved");
-    const data = await loadTranscriptReview();
-    if (data) {
-      const cur = data.chunks.findIndex((x) => x.chunk_id === chunkId);
-      if (cur >= 0 && cur < data.chunks.length - 1) setIndex(cur + 1);
+    try {
+      await api(`/api/runs/${run.run_id}/transcript-review/${chunkId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: bodyText, reviewed }),
+      });
+      showToast("Chunk saved");
+      const data = await loadTranscriptReview();
+      if (data) {
+        const cur = data.chunks.findIndex((x) => x.chunk_id === chunkId);
+        if (cur >= 0 && cur < data.chunks.length - 1) setIndex(cur + 1);
+      }
+      await refreshRun();
+    } catch (reason) {
+      reportError(reason, "Save transcript chunk");
     }
-    await refreshRun();
   };
 
   const complete = async (acceptUnreviewed: boolean) => {
@@ -86,8 +98,8 @@ export function TranscriptReviewPanel() {
       );
       await refreshRun();
       await runNextStage();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Complete failed");
+    } catch (reason) {
+      reportError(reason, "Complete transcript review");
     }
   };
 

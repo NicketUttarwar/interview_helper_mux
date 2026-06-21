@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
+import { formatApiError } from "../../utils/safeApi";
 
 interface DisfluencyEvent {
   event_id: string;
@@ -18,22 +19,31 @@ interface DisfluencyEvent {
 
 interface DisfluencyReviewState {
   ready?: boolean;
+  status?: string;
   events?: DisfluencyEvent[];
   stats?: { total?: number; pending?: number; confirmed?: number; rejected?: number };
   pending_count?: number;
 }
 
 export function DisfluencyReviewPanel() {
-  const { run, refreshRun, showToast, config, runNextStage } = useApp();
+  const { run, refreshRun, showToast, appendClientLog, config, runNextStage } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
   const [index, setIndex] = useState(0);
 
+  const reportError = (reason: unknown, label: string) => {
+    const msg = formatApiError(reason, label);
+    setError(msg);
+    showToast(msg, "error");
+    appendClientLog(msg, "error", "disfluency_review");
+  };
+
   const load = async () => {
     if (!run) return null;
     const data = await api<DisfluencyReviewState>(`/api/runs/${run.run_id}/disfluency-review`);
     setState(data);
+    setError(null);
     return data;
   };
 
@@ -41,11 +51,23 @@ export function DisfluencyReviewPanel() {
     setLoading(true);
     void load()
       .then(() => setLoading(false))
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "Load failed");
+      .catch((reason) => {
+        reportError(reason, "Disfluency review");
         setLoading(false);
       });
   }, [run?.run_id]);
+
+  const complete = useCallback(async () => {
+    if (!run) return;
+    try {
+      await api(`/api/runs/${run.run_id}/disfluency-review/complete`, { method: "POST" });
+      showToast("Disfluency review complete");
+      await refreshRun();
+      await runNextStage();
+    } catch (reason) {
+      reportError(reason, "Complete disfluency review");
+    }
+  }, [run, refreshRun, runNextStage, showToast, appendClientLog]);
 
   if (!config?.disfluency_extract_enabled) {
     return (
@@ -65,14 +87,39 @@ export function DisfluencyReviewPanel() {
     );
   }
 
-  if (error) return <p className="empty-state">{error}</p>;
-
-  const events = state?.events || [];
-  if (!events.length) {
+  if (error) {
     return (
       <div className="gate-actions">
-        <p className="empty-state">No filler events detected.</p>
-        <button type="button" className="btn primary sm" data-testid="complete-disfluency-review" onClick={() => void complete()}>
+        <p className="empty-state error-text" role="alert">
+          {error}
+        </p>
+        <button type="button" className="btn ghost sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const events = state?.events || [];
+  const noAssets =
+    state?.status === "no_assets" ||
+    state?.status === "disabled" ||
+    (state?.ready && !events.length);
+
+  if (noAssets) {
+    return (
+      <div className="gate-actions">
+        <p className="hint">
+          {state?.status === "disabled"
+            ? "Disfluency extract is disabled for this run."
+            : "No filler clip assets were extracted — nothing to review."}
+        </p>
+        <button
+          type="button"
+          className="btn primary sm"
+          data-testid="complete-disfluency-review"
+          onClick={() => void complete()}
+        >
           Complete review
         </button>
       </div>
@@ -87,61 +134,64 @@ export function DisfluencyReviewPanel() {
 
   async function saveEvent(reviewStatus: "confirmed" | "rejected") {
     if (!run) return;
-    await api(`/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ review_status: reviewStatus, include_in_restore: reviewStatus === "confirmed" }),
-    });
-    showToast(reviewStatus === "confirmed" ? "Event confirmed" : "Event rejected");
-    const data = await load();
-    const pending = data?.events?.filter((e) => e.review_status === "pending") || [];
-    if (pending.length && idx < events.length - 1) setIndex(idx + 1);
-    await refreshRun();
+    try {
+      await api(`/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_status: reviewStatus,
+          include_in_restore: reviewStatus === "confirmed",
+        }),
+      });
+      showToast(reviewStatus === "confirmed" ? "Event confirmed" : "Event rejected");
+      const data = await load();
+      const pending = data?.events?.filter((e) => e.review_status === "pending") || [];
+      if (pending.length && idx < events.length - 1) setIndex(idx + 1);
+      await refreshRun();
+    } catch (reason) {
+      reportError(reason, "Save disfluency event");
+    }
   }
 
   async function toggleIncludeInRestore(checked: boolean) {
     if (!run || ev.review_status !== "confirmed") return;
-    await api(`/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ review_status: "confirmed", include_in_restore: checked }),
-    });
-    showToast(checked ? "Included in restore" : "Excluded from restore");
-    await load();
-    await refreshRun();
+    try {
+      await api(`/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_status: "confirmed", include_in_restore: checked }),
+      });
+      showToast(checked ? "Included in restore" : "Excluded from restore");
+      await load();
+      await refreshRun();
+    } catch (reason) {
+      reportError(reason, "Update restore flag");
+    }
   }
 
   async function confirmAllPending() {
     if (!run) return;
-    const pending = events.filter((e) => e.review_status === "pending");
-    for (const event of pending) {
-      await api(`/api/runs/${run.run_id}/disfluency-review/${event.event_id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          review_status: "confirmed",
-          include_in_restore: true,
-        }),
-      });
-    }
-    showToast(
-      pending.length
-        ? `Confirmed ${pending.length} filler clip${pending.length === 1 ? "" : "s"}`
-        : "No pending clips",
-    );
-    await load();
-    await refreshRun();
-  }
-
-  async function complete() {
-    if (!run) return;
     try {
-      await api(`/api/runs/${run.run_id}/disfluency-review/complete`, { method: "POST" });
-      showToast("Disfluency review complete");
+      const pending = events.filter((e) => e.review_status === "pending");
+      for (const event of pending) {
+        await api(`/api/runs/${run.run_id}/disfluency-review/${event.event_id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            review_status: "confirmed",
+            include_in_restore: true,
+          }),
+        });
+      }
+      showToast(
+        pending.length
+          ? `Confirmed ${pending.length} filler clip${pending.length === 1 ? "" : "s"}`
+          : "No pending clips",
+      );
+      await load();
       await refreshRun();
-      await runNextStage();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Complete failed");
+    } catch (reason) {
+      reportError(reason, "Confirm all pending");
     }
   }
 
@@ -180,7 +230,11 @@ export function DisfluencyReviewPanel() {
           {ev.confidence != null && <span>{Math.round(ev.confidence * 100)}% conf</span>}
         </div>
         <p className="disfluency-text">{ev.text || "(no text)"}</p>
-        {clipUrl && <audio controls src={clipUrl} className="tr-audio" />}
+        {clipUrl ? (
+          <audio controls src={clipUrl} className="tr-audio" />
+        ) : (
+          <p className="hint sm">Clip file missing — re-run disfluency extract if needed.</p>
+        )}
         {ev.review_status === "confirmed" && (
           <label className="toggle-row">
             <input

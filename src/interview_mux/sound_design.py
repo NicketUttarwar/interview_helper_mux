@@ -15,6 +15,7 @@ from interview_mux.config import merged_config
 from interview_mux.disfluency.config import restore_settings
 from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.mix_completeness import enforce_mix_completeness
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 
@@ -90,26 +91,28 @@ def mix_flow1(ctx: RunContext) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
     from interview_mux.placement_qa import maybe_run_placement_qa
 
-    maybe_run_placement_qa(ctx)
-    contract = mix_contract(ctx)
-    profile = load_profile(ctx)
-    pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
-    ctx.log(
-        (
-            f"mix_flow1: mix_contract pace={pace.get('pace_class', 'unknown')} "
-            f"underscore={contract.get('underscore_policy')} duck={contract.get('duck_under_speech_db')}db"
-        ),
-        level="info",
-        stage="mix_flow1",
-    )
-    crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
-    disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
-    speech_join_crossfades = _flow1_speech_join_crossfades(ctx)
-    words = _transcript_words(ctx)
-    ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
-    edl = ctx.read_json("flow_1_master/edl.json")
-    excluded_windows = _disfluency_excluded_windows(edl)
-    source = load_audio(ctx.path("ingest", "normalized.wav"))
+    with logged_step("mix_flow1/placement_qa", ctx=ctx, stage="mix_flow1"):
+        maybe_run_placement_qa(ctx)
+        contract = mix_contract(ctx)
+        profile = load_profile(ctx)
+        pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
+        ctx.log(
+            (
+                f"mix_flow1: mix_contract pace={pace.get('pace_class', 'unknown')} "
+                f"underscore={contract.get('underscore_policy')} duck={contract.get('duck_under_speech_db')}db"
+            ),
+            level="info",
+            stage="mix_flow1",
+        )
+        crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
+        disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
+        speech_join_crossfades = _flow1_speech_join_crossfades(ctx)
+        words = _transcript_words(ctx)
+        ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
+        edl = ctx.read_json("flow_1_master/edl.json")
+        excluded_windows = _disfluency_excluded_windows(edl)
+        source = load_audio(ctx.path("ingest", "normalized.wav"))
+
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     segment_timing: dict[str, tuple[int, int]] = {}
     speech_count = 0
@@ -118,140 +121,145 @@ def mix_flow1(ctx: RunContext) -> Path:
     missing_vo: list[str] = []
     prev_speech_seg_id = ""
 
-    for clip in edl.get("clips") or []:
-        ctype = str(clip.get("type") or "")
-        if ctype == "speech":
-            start = int(clip.get("source_start_ms", 0))
-            end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
-            audio = source[max(0, start) : max(start, end)]
-            seg_id = str(clip.get("segment_id") or "")
-            if seg_id:
-                t0 = int(clip.get("timeline_start_ms", len(base)))
-                _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
-            speech_count += 1
-            join_key = (prev_speech_seg_id, seg_id) if prev_speech_seg_id and seg_id else None
-            clip_crossfade = (
-                speech_join_crossfades[join_key]
-                if join_key and join_key in speech_join_crossfades
-                else crossfade_ms
+    with logged_step("mix_flow1/build_base_timeline", ctx=ctx, stage="mix_flow1"):
+        for clip in edl.get("clips") or []:
+            ctype = str(clip.get("type") or "")
+            if ctype == "speech":
+                start = int(clip.get("source_start_ms", 0))
+                end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
+                audio = source[max(0, start) : max(start, end)]
+                seg_id = str(clip.get("segment_id") or "")
+                if seg_id:
+                    t0 = int(clip.get("timeline_start_ms", len(base)))
+                    _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
+                speech_count += 1
+                join_key = (prev_speech_seg_id, seg_id) if prev_speech_seg_id and seg_id else None
+                clip_crossfade = (
+                    speech_join_crossfades[join_key]
+                    if join_key and join_key in speech_join_crossfades
+                    else crossfade_ms
+                )
+                if seg_id:
+                    prev_speech_seg_id = seg_id
+            elif ctype == "vo_pickup":
+                src_rel = clip.get("source_path")
+                line_id = str(clip.get("line_id") or "")
+                if src_rel:
+                    vo_path = ctx.path(str(src_rel))
+                    if vo_path.is_file():
+                        audio = load_audio(vo_path)
+                    else:
+                        audio = placeholder_from_clip(clip)
+                        missing_vo.append(line_id or str(src_rel))
+                else:
+                    audio = placeholder_from_clip(clip)
+                    missing_vo.append(line_id or "unknown")
+                vo_count += 1
+                clip_crossfade = crossfade_ms
+            elif ctype == "disfluency":
+                src_rel = clip.get("source_path")
+                if src_rel:
+                    fill_path = ctx.path(str(src_rel))
+                    if fill_path.is_file():
+                        audio = load_audio(fill_path)
+                    else:
+                        audio = placeholder_from_clip(clip)
+                else:
+                    audio = placeholder_from_clip(clip)
+                disfluency_count += 1
+                seg_id = str(clip.get("segment_id") or "")
+                if seg_id:
+                    t0 = int(clip.get("timeline_start_ms", len(base)))
+                    _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
+                clip_crossfade = disfluency_crossfade_ms
+            else:
+                continue
+            if len(base) == 0:
+                base = audio
+            else:
+                base = _append_mix_clip(base, audio, clip_crossfade)
+
+        if missing_vo:
+            ctx.log(
+                f"mix_flow1: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
+                level="warning",
+                stage="mix_flow1",
             )
-            if seg_id:
-                prev_speech_seg_id = seg_id
-        elif ctype == "vo_pickup":
-            src_rel = clip.get("source_path")
-            line_id = str(clip.get("line_id") or "")
-            if src_rel:
-                vo_path = ctx.path(str(src_rel))
-                if vo_path.is_file():
-                    audio = load_audio(vo_path)
-                else:
-                    audio = placeholder_from_clip(clip)
-                    missing_vo.append(line_id or str(src_rel))
-            else:
-                audio = placeholder_from_clip(clip)
-                missing_vo.append(line_id or "unknown")
-            vo_count += 1
-            clip_crossfade = crossfade_ms
-        elif ctype == "disfluency":
-            src_rel = clip.get("source_path")
-            if src_rel:
-                fill_path = ctx.path(str(src_rel))
-                if fill_path.is_file():
-                    audio = load_audio(fill_path)
-                else:
-                    audio = placeholder_from_clip(clip)
-            else:
-                audio = placeholder_from_clip(clip)
-            disfluency_count += 1
-            seg_id = str(clip.get("segment_id") or "")
-            if seg_id:
-                t0 = int(clip.get("timeline_start_ms", len(base)))
-                _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
-            clip_crossfade = disfluency_crossfade_ms
-        else:
-            continue
-        if len(base) == 0:
-            base = audio
-        else:
-            base = _append_mix_clip(base, audio, clip_crossfade)
 
-    if missing_vo:
         ctx.log(
-            f"mix_flow1: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
-            level="warning",
-            stage="mix_flow1",
-        )
-
-    ctx.log(
-        (
-            f"mix_flow1: base timeline {len(base)} ms — "
-            f"speech={speech_count}, vo={vo_count}, disfluency={disfluency_count}, "
-            f"segments={len(segment_timing)}, crossfade_ms={crossfade_ms}"
-        ),
-        level="info",
-        stage="mix_flow1",
-    )
-
-    overlays, overlay_stats = build_flow1_overlays(
-        ctx,
-        segment_timing=segment_timing,
-        timeline_ms=len(base),
-        contract=contract,
-        excluded_windows=excluded_windows,
-    )
-    mix = base
-    skipped_on_disfluency = 0
-    for cue in overlays:
-        clip_audio = cue["audio"]
-        if not isinstance(clip_audio, AudioSegment):
-            continue
-        pos = max(0, int(cue.get("position_ms", 0)))
-        if excluded_windows and _overlaps_excluded(pos, len(clip_audio), excluded_windows):
-            skipped_on_disfluency += 1
-            continue
-        mix = mix.overlay(clip_audio, position=pos)
-
-    if skipped_on_disfluency:
-        ctx.log(
-            f"mix_flow1: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
+            (
+                f"mix_flow1: base timeline {len(base)} ms — "
+                f"speech={speech_count}, vo={vo_count}, disfluency={disfluency_count}, "
+                f"segments={len(segment_timing)}, crossfade_ms={crossfade_ms}"
+            ),
             level="info",
             stage="mix_flow1",
         )
 
-    ctx.log(
-        (
-            f"mix_flow1: applied overlays beds={overlay_stats['beds']}, "
-            f"stingers={overlay_stats['stingers']}, bridges={overlay_stats['bridges']}, "
-            f"missing_assets={overlay_stats['missing_assets']}"
-        ),
-        level="info",
-        stage="mix_flow1",
-    )
+    with logged_step("mix_flow1/apply_overlays", ctx=ctx, stage="mix_flow1"):
+        overlays, overlay_stats = build_flow1_overlays(
+            ctx,
+            segment_timing=segment_timing,
+            timeline_ms=len(base),
+            contract=contract,
+            excluded_windows=excluded_windows,
+        )
+        mix = base
+        skipped_on_disfluency = 0
+        for cue in overlays:
+            clip_audio = cue["audio"]
+            if not isinstance(clip_audio, AudioSegment):
+                continue
+            pos = max(0, int(cue.get("position_ms", 0)))
+            if excluded_windows and _overlaps_excluded(pos, len(clip_audio), excluded_windows):
+                skipped_on_disfluency += 1
+                continue
+            mix = mix.overlay(clip_audio, position=pos)
+
+        if skipped_on_disfluency:
+            ctx.log(
+                f"mix_flow1: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
+                level="info",
+                stage="mix_flow1",
+            )
+
+        ctx.log(
+            (
+                f"mix_flow1: applied overlays beds={overlay_stats['beds']}, "
+                f"stingers={overlay_stats['stingers']}, bridges={overlay_stats['bridges']}, "
+                f"missing_assets={overlay_stats['missing_assets']}"
+            ),
+            level="info",
+            stage="mix_flow1",
+        )
 
     assembly = ctx.path("flow_1_master", "assembly.wav")
-    mix.export(str(assembly), format="wav")
-    ctx.log(
-        f"mix_flow1: assembly.wav ready ({len(mix)} ms, VO + beds + stingers)",
-        level="success",
-        stage="mix_flow1",
-        detail=str(assembly),
-    )
-    maybe_check_mix_intelligibility(
-        ctx,
-        assembly_path=assembly,
-        flow="flow1",
-        stage="mix_flow1",
-        speech_stem=base,
-        segment_timing=segment_timing,
-        contract=contract,
-    )
-    enforce_mix_completeness(
-        ctx,
-        flow="flow1",
-        stage="mix_flow1",
-        missing_vo=missing_vo,
-        missing_sfx=list(overlay_stats.get("missing_assets") or []),
-    )
+    with logged_step("mix_flow1/export_assembly", ctx=ctx, stage="mix_flow1"):
+        mix.export(str(assembly), format="wav")
+        ctx.log(
+            f"mix_flow1: assembly.wav ready ({len(mix)} ms, VO + beds + stingers)",
+            level="success",
+            stage="mix_flow1",
+            detail=str(assembly),
+        )
+
+    with logged_step("mix_flow1/post_mix_qc", ctx=ctx, stage="mix_flow1"):
+        maybe_check_mix_intelligibility(
+            ctx,
+            assembly_path=assembly,
+            flow="flow1",
+            stage="mix_flow1",
+            speech_stem=base,
+            segment_timing=segment_timing,
+            contract=contract,
+        )
+        enforce_mix_completeness(
+            ctx,
+            flow="flow1",
+            stage="mix_flow1",
+            missing_vo=missing_vo,
+            missing_sfx=list(overlay_stats.get("missing_assets") or []),
+        )
     ctx.mark_done("mix_flow1")
     return assembly
 
@@ -260,118 +268,124 @@ def mix_flow2(ctx: RunContext) -> Path:
     """Build Flow 2 montage assembly: highlights + SDP cold open / transitions / outro."""
     from interview_mux.placement_qa import maybe_run_placement_qa
 
-    maybe_run_placement_qa(ctx)
-    contract = mix_contract(ctx)
-    sonic = load_sonic_context(ctx) or {}
-    mix_policy = sonic.get("mix_policy") if isinstance(sonic.get("mix_policy"), dict) else {}
-    crossfade_ms = int(mix_policy.get("crossfade_ms_flow2") or _mix_cfg().get("crossfade_ms_flow2", 120))
-    words = _transcript_words(ctx)
-    ctx.log("mix_flow2: loading selection and segment manifest", level="info", stage="mix_flow2")
-    selection = ctx.read_json("flow_2_highlights/selection.json")
-    manifest = ctx.read_json("segments/manifest.json")
-    by_id = {s["segment_id"]: s for s in (manifest.get("segments") or [])}
-    source = load_audio(ctx.path("ingest", "normalized.wav"))
-    highlights = selection.get("highlights") or []
-    if not highlights:
-        raise RuntimeError("mix_flow2: no highlight clips in selection")
+    with logged_step("mix_flow2/placement_qa", ctx=ctx, stage="mix_flow2"):
+        maybe_run_placement_qa(ctx)
+        contract = mix_contract(ctx)
+        sonic = load_sonic_context(ctx) or {}
+        mix_policy = sonic.get("mix_policy") if isinstance(sonic.get("mix_policy"), dict) else {}
+        crossfade_ms = int(mix_policy.get("crossfade_ms_flow2") or _mix_cfg().get("crossfade_ms_flow2", 120))
+        words = _transcript_words(ctx)
+        ctx.log("mix_flow2: loading selection and segment manifest", level="info", stage="mix_flow2")
+        selection = ctx.read_json("flow_2_highlights/selection.json")
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {s["segment_id"]: s for s in (manifest.get("segments") or [])}
+        source = load_audio(ctx.path("ingest", "normalized.wav"))
+        highlights = selection.get("highlights") or []
+        if not highlights:
+            raise RuntimeError("mix_flow2: no highlight clips in selection")
 
-    sdp = load_sound_design_plan(ctx)
-    cue_plan = flow2_cues_from_sdp(ctx, sdp)
+        sdp = load_sound_design_plan(ctx)
+        cue_plan = flow2_cues_from_sdp(ctx, sdp)
+
     mix = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     speech_montage = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     missing_assets: list[str] = []
 
-    if cue_plan.get("before_timeline") and contract.get("underscore_policy") != "skip":
-        mix += cue_plan["before_timeline"][0].apply_gain(-14.0).fade_in(30).fade_out(80)
-    elif cue_plan.get("before_timeline"):
-        ctx.log("mix_flow2: cold_open skipped (underscore_policy=skip)", level="info", stage="mix_flow2")
+    with logged_step("mix_flow2/build_montage", ctx=ctx, stage="mix_flow2"):
+        if cue_plan.get("before_timeline") and contract.get("underscore_policy") != "skip":
+            mix += cue_plan["before_timeline"][0].apply_gain(-14.0).fade_in(30).fade_out(80)
+        elif cue_plan.get("before_timeline"):
+            ctx.log("mix_flow2: cold_open skipped (underscore_policy=skip)", level="info", stage="mix_flow2")
 
-    sfx_dir = ctx.path("flow_2_highlights", "sfx")
-    legacy_sfx = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
-    legacy_idx = 0
-    rendered = 0
-    transition_count = 0
+        sfx_dir = ctx.path("flow_2_highlights", "sfx")
+        legacy_sfx = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
+        legacy_idx = 0
+        rendered = 0
+        transition_count = 0
 
-    for i, hl in enumerate(highlights):
-        sid = hl.get("segment_id")
-        seg = by_id.get(sid) if sid else None
-        start_ms = hl.get("start_ms") or (seg and seg["start_ms"])
-        end_ms = hl.get("end_ms") or (seg and seg["end_ms"])
-        if start_ms is None or end_ms is None:
-            continue
-        rendered += 1
-        end_cut = _speech_slice_end_ms(ctx, int(end_ms), words)
-        slice_audio = source[int(start_ms) : end_cut]
-        if len(mix) == 0:
-            mix = slice_audio
-            speech_montage = slice_audio
-        else:
+        for i, hl in enumerate(highlights):
+            sid = hl.get("segment_id")
+            seg = by_id.get(sid) if sid else None
+            start_ms = hl.get("start_ms") or (seg and seg["start_ms"])
+            end_ms = hl.get("end_ms") or (seg and seg["end_ms"])
+            if start_ms is None or end_ms is None:
+                continue
+            rendered += 1
+            end_cut = _speech_slice_end_ms(ctx, int(end_ms), words)
+            slice_audio = source[int(start_ms) : end_cut]
+            if len(mix) == 0:
+                mix = slice_audio
+                speech_montage = slice_audio
+            else:
+                rank = int(hl.get("rank") or (i + 1))
+                prev_rank = int((highlights[i - 1] or {}).get("rank") or i)
+                _, join_cf = resolve_between_clip_transition(cue_plan, prev_rank, rank)
+                clip_crossfade = join_cf if join_cf is not None else crossfade_ms
+                mix = _append_mix_clip(mix, slice_audio, clip_crossfade)
+                speech_montage = _append_mix_clip(speech_montage, slice_audio, clip_crossfade)
             rank = int(hl.get("rank") or (i + 1))
-            prev_rank = int((highlights[i - 1] or {}).get("rank") or i)
-            _, join_cf = resolve_between_clip_transition(cue_plan, prev_rank, rank)
-            clip_crossfade = join_cf if join_cf is not None else crossfade_ms
-            mix = _append_mix_clip(mix, slice_audio, clip_crossfade)
-            speech_montage = _append_mix_clip(speech_montage, slice_audio, clip_crossfade)
-        rank = int(hl.get("rank") or (i + 1))
-        if i + 1 < len(highlights):
-            next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
-            trans, _trans_cf = resolve_between_clip_transition(cue_plan, rank, next_rank)
-            if trans is not None:
-                mix += trans.apply_gain(-12.0).fade_in(25).fade_out(100)
-                transition_count += 1
-            elif legacy_idx < len(legacy_sfx):
-                mix += load_audio(legacy_sfx[legacy_idx]).apply_gain(-12.0).fade_in(25).fade_out(100)
-                legacy_idx += 1
-                transition_count += 1
+            if i + 1 < len(highlights):
+                next_rank = int((highlights[i + 1] or {}).get("rank") or (i + 2))
+                trans, _trans_cf = resolve_between_clip_transition(cue_plan, rank, next_rank)
+                if trans is not None:
+                    mix += trans.apply_gain(-12.0).fade_in(25).fade_out(100)
+                    transition_count += 1
+                elif legacy_idx < len(legacy_sfx):
+                    mix += load_audio(legacy_sfx[legacy_idx]).apply_gain(-12.0).fade_in(25).fade_out(100)
+                    legacy_idx += 1
+                    transition_count += 1
 
-    if cue_plan.get("after_timeline"):
-        mix += cue_plan["after_timeline"][0].apply_gain(-14.0).fade_in(25).fade_out(110)
+        if cue_plan.get("after_timeline"):
+            mix += cue_plan["after_timeline"][0].apply_gain(-14.0).fade_in(25).fade_out(110)
 
-    if rendered == 0:
-        raise RuntimeError("mix_flow2: no highlight clips extracted")
+        if rendered == 0:
+            raise RuntimeError("mix_flow2: no highlight clips extracted")
 
-    missing_assets = list(cue_plan.get("missing_assets") or [])
-    if missing_assets:
+        missing_assets = list(cue_plan.get("missing_assets") or [])
+        if missing_assets:
+            ctx.log(
+                f"mix_flow2: missing SFX assets (skipped): {sorted(set(missing_assets))}",
+                level="warning",
+                stage="mix_flow2",
+            )
+
         ctx.log(
-            f"mix_flow2: missing SFX assets (skipped): {sorted(set(missing_assets))}",
-            level="warning",
+            (
+                f"mix_flow2: montage {len(mix)} ms — highlights={rendered}, "
+                f"transitions={transition_count}, crossfade_ms={crossfade_ms}, "
+                f"cold_open={bool(cue_plan.get('before_timeline'))}, "
+                f"outro={bool(cue_plan.get('after_timeline'))}"
+            ),
+            level="info",
             stage="mix_flow2",
         )
 
-    ctx.log(
-        (
-            f"mix_flow2: montage {len(mix)} ms — highlights={rendered}, "
-            f"transitions={transition_count}, crossfade_ms={crossfade_ms}, "
-            f"cold_open={bool(cue_plan.get('before_timeline'))}, "
-            f"outro={bool(cue_plan.get('after_timeline'))}"
-        ),
-        level="info",
-        stage="mix_flow2",
-    )
-
     assembly = ctx.path("flow_2_highlights", "assembly.wav")
-    mix.export(str(assembly), format="wav")
-    ctx.log(
-        f"mix_flow2: assembly.wav ready (shared transition asset + cold open when planned)",
-        level="success",
-        stage="mix_flow2",
-        detail=str(assembly),
-    )
-    maybe_check_mix_intelligibility(
-        ctx,
-        assembly_path=assembly,
-        flow="flow2",
-        stage="mix_flow2",
-        speech_stem=speech_montage,
-        segment_timing={},
-        contract=contract,
-    )
-    enforce_mix_completeness(
-        ctx,
-        flow="flow2",
-        stage="mix_flow2",
-        missing_sfx=list(missing_assets),
-    )
+    with logged_step("mix_flow2/export_assembly", ctx=ctx, stage="mix_flow2"):
+        mix.export(str(assembly), format="wav")
+        ctx.log(
+            f"mix_flow2: assembly.wav ready (shared transition asset + cold open when planned)",
+            level="success",
+            stage="mix_flow2",
+            detail=str(assembly),
+        )
+
+    with logged_step("mix_flow2/post_mix_qc", ctx=ctx, stage="mix_flow2"):
+        maybe_check_mix_intelligibility(
+            ctx,
+            assembly_path=assembly,
+            flow="flow2",
+            stage="mix_flow2",
+            speech_stem=speech_montage,
+            segment_timing={},
+            contract=contract,
+        )
+        enforce_mix_completeness(
+            ctx,
+            flow="flow2",
+            stage="mix_flow2",
+            missing_sfx=list(missing_assets),
+        )
     ctx.mark_done("mix_flow2")
     return assembly
 

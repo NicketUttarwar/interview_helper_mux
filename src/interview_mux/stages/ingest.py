@@ -5,6 +5,7 @@ from pathlib import Path
 
 from interview_mux.config import merged_config
 from interview_mux.operator_subprocess import format_command, run_logged_command, touch_job_message
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
 
@@ -59,30 +60,32 @@ def run_ingest(ctx: RunContext) -> Path:
         "pcm_s16le",
         str(normalized),
     ]
-    run_logged_command(
-        ctx,
-        cmd,
-        stage="ingest",
-        label=format_command(cmd),
-    )
+    with logged_step("ingest/ffmpeg_normalize", ctx=ctx, stage="ingest"):
+        run_logged_command(
+            ctx,
+            cmd,
+            stage="ingest",
+            label=format_command(cmd),
+        )
 
     touch_job_message(ctx, "Ingest: computing checksums…")
-    ctx.log("Ingest: hashing source audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
-    source_sha = _sha256(ctx.input_audio())
-    ctx.log("Ingest: hashing normalized audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
-    normalized_sha = _sha256(normalized)
+    with logged_step("ingest/checksums", ctx=ctx, stage="ingest"):
+        ctx.log("Ingest: hashing source audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
+        source_sha = _sha256(ctx.input_audio())
+        ctx.log("Ingest: hashing normalized audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
+        normalized_sha = _sha256(normalized)
 
-    checksums: dict[str, object] = {
-        "source_path": str(ctx.input_audio()),
-        "source_sha256": source_sha,
-        "normalized_sha256": normalized_sha,
-        "sample_rate": rate,
-    }
-    if preclean is not None:
-        ctx.log("Ingest: hashing preclean audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
-        checksums["preclean_path"] = "preclean/isolated.wav"
-        checksums["preclean_sha256"] = _sha256(preclean)
-    ctx.write_json("ingest/checksums.json", checksums)
+        checksums: dict[str, object] = {
+            "source_path": str(ctx.input_audio()),
+            "source_sha256": source_sha,
+            "normalized_sha256": normalized_sha,
+            "sample_rate": rate,
+        }
+        if preclean is not None:
+            ctx.log("Ingest: hashing preclean audio…", level="info", stage="ingest", detail={"journey_kind": "execute"})
+            checksums["preclean_path"] = "preclean/isolated.wav"
+            checksums["preclean_sha256"] = _sha256(preclean)
+        ctx.write_json("ingest/checksums.json", checksums)
     touch_job_message(ctx, "Ingest: finishing…")
     ctx.log(
         f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono).",

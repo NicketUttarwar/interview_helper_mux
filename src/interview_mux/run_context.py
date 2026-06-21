@@ -129,6 +129,57 @@ class RunContext:
         p = resolve_read_path(self, rel)
         return fs_read_json(p)
 
+    def artifact_exists_required(
+        self,
+        rel: str,
+        *,
+        stage: str | None = None,
+        label: str | None = None,
+    ) -> None:
+        """Raise FileNotFoundError when a required artifact is missing."""
+        if self.artifact_exists(rel):
+            return
+        from interview_mux.operator_trace import log_step, resolve_stage
+
+        desc = label or rel
+        sid = resolve_stage(stage)
+        msg = f"Required artifact missing: {desc}"
+        log_step(
+            msg,
+            ctx=self,
+            stage=sid,
+            level="error",
+            detail={"event": "missing_artifact", "path": rel, "journey_kind": "execute"},
+        )
+        raise FileNotFoundError(f"{msg} ({rel})")
+
+    def read_json_required(
+        self,
+        rel: str,
+        *,
+        stage: str | None = None,
+        label: str | None = None,
+    ) -> Any:
+        """Read JSON after verifying the artifact exists."""
+        self.artifact_exists_required(rel, stage=stage, label=label)
+        return self.read_json(rel)
+
+    def write_json_validated(
+        self,
+        rel: str,
+        data: Any,
+        *,
+        stage_key: str | None = None,
+        skip_handoff: bool = False,
+    ) -> Path:
+        """Write JSON with schema validation (delegates to write_json)."""
+        return self.write_json(rel, data, stage_key=stage_key, skip_handoff=skip_handoff)
+
+    def read_json_required(self, rel: str) -> Any:
+        if not self.artifact_exists(rel):
+            raise FileNotFoundError(f"Required artifact missing: {rel}")
+        return self.read_json(rel)
+
     def init_run_meta(
         self,
         input_audio_path: str,

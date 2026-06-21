@@ -7,12 +7,13 @@ import { sourceHashShort } from "../../utils/sourceAudioHash";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function StageReuseSection({ stage }: { stage: StageInfo }) {
-  const { run, runId } = useApp();
+  const { run, runId, showToast } = useApp();
   const { candidates, loading, currentHashShort } = useStageReuseOffers(
     runId,
     stage.id,
     stage.status,
     run?.job,
+    (msg) => showToast(msg, "error"),
   );
 
   const activeHash = sourceHashShort(run?.meta);

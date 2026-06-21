@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LogEntry } from "../../types";
 import { escapeHtml, formatTs, parseLogDetail } from "../../utils";
 import {
@@ -16,6 +16,21 @@ interface Props {
   compact?: boolean;
 }
 
+function errorIndices(entries: LogEntry[]): Set<number> {
+  const set = new Set<number>();
+  entries.forEach((e, i) => {
+    if (e.level === "error") set.add(i);
+  });
+  return set;
+}
+
+function copyEntryText(entry: LogEntry): string {
+  const detailBlock = formatLogDetailBlock(entry.detail);
+  const lines = [entry.message];
+  if (detailBlock.text.trim()) lines.push(detailBlock.text);
+  return lines.join("\n\n");
+}
+
 export function LogEntryList({
   entries,
   run,
@@ -23,7 +38,15 @@ export function LogEntryList({
   onStageClick,
   compact = false,
 }: Props) {
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(() => errorIndices(entries));
+
+  useEffect(() => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      errorIndices(entries).forEach((i) => next.add(i));
+      return next;
+    });
+  }, [entries]);
 
   if (!entries.length) {
     return <p className="log-empty muted">{emptyMessage}</p>;
@@ -37,6 +60,7 @@ export function LogEntryList({
         const parsed = parseLogDetail(e.detail as string | Record<string, unknown> | null | undefined);
         const stream = parsed?.stream;
         const isStream = stream === "stdout" || stream === "stderr";
+        const isError = e.level === "error";
         return (
           <div
             key={`${e.ts}-${i}-${e.message.slice(0, 20)}`}
@@ -76,6 +100,18 @@ export function LogEntryList({
               <span className={`log-msg${isStream ? " log-msg-mono" : ""}`}>
                 {escapeHtml(e.message)}
               </span>
+              {isError ? (
+                <button
+                  type="button"
+                  className="btn ghost sm log-copy-btn"
+                  title="Copy error"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(copyEntryText(e));
+                  }}
+                >
+                  Copy
+                </button>
+              ) : null}
             </div>
             {e.detail && !compact && !isStream ? (
               <>

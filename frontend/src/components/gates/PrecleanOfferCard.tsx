@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../api/client";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { getPrecleanBridge } from "../../context/AppContext";
 import { precleanOfferSettled } from "../../utils/preclean";
 import type { StageInfo } from "../../types";
+
+import { formatApiError } from "../../utils/safeApi";
 
 interface Offer {
   checkpoint: string;
@@ -17,7 +19,7 @@ export function PrecleanOfferCard({
   stage: StageInfo;
   offer: Offer;
 }) {
-  const { run, runId, refreshRun, beginStageExecution, showToast } = useApp();
+  const { run, runId, refreshRun, beginStageExecution, showToast, appendClientLog } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const settled = precleanOfferSettled(run?.meta?.audio_preclean, offer.checkpoint);
   const isBeforeIngest = offer.checkpoint === "before_ingest";
@@ -30,12 +32,17 @@ export function PrecleanOfferCard({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ checkpoint: offer.checkpoint, action: "offer" }),
-    }).then(() => {
-      const next = new Set(bridge.shown);
-      next.add(offer.checkpoint);
-      bridge.setShown?.(next);
-    });
-  }, [offer.checkpoint, settled]);
+    })
+      .then(() => {
+        const next = new Set(bridge.shown);
+        next.add(offer.checkpoint);
+        bridge.setShown?.(next);
+      })
+      .catch((reason) => {
+        const msg = formatApiError(reason, "Preclean offer");
+        appendClientLog(msg, "error");
+      });
+  }, [offer.checkpoint, settled, appendClientLog]);
 
   if (settled) return null;
 
@@ -60,9 +67,9 @@ export function PrecleanOfferCard({
       await beginStageExecution({ kind: "execute", stageId: "audio_preclean" });
       await refreshRun();
     } catch (e) {
-      showToast(
-        e instanceof ApiError ? e.message : "Could not start audio cleaning — try again.",
-      );
+      const msg = formatApiError(e, "Audio cleaning");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "audio_preclean");
     } finally {
       setSubmitting(false);
     }
