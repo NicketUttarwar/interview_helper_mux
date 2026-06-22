@@ -49,6 +49,10 @@ import {
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
+import { setRunState, bumpLocalVersion } from "./runStateStore";
+import { JobProvider } from "./providers/JobProvider";
+import { RunProvider } from "./providers/RunProvider";
+import { SessionProvider } from "./providers/SessionProvider";
 import type { StageSubstep } from "../types";
 
 interface AppContextValue {
@@ -564,6 +568,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const runData = await api<RunData>(`/api/runs/${runId}`);
       setRun(runData);
+      setRunState(runData);
       setShownPrecleanOffers(
         new Set(runData.meta?.audio_preclean?.offered_at || []),
       );
@@ -673,6 +678,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [maybeAutoSelectRunningStage, showToast]);
 
+  const jobPollStatusRef = useRef<string | null>(null);
+
   const startJobPoll = useCallback(() => {
     stopJobPoll();
     if (!runId) return;
@@ -684,6 +691,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       jobPollRef.current = setInterval(async () => {
         try {
           const polled = await api<JobState>(`/api/runs/${runId}/job`);
+          const prevStatus = jobPollStatusRef.current;
+          jobPollStatusRef.current = polled.status ?? null;
           setRun((prev) => (prev ? { ...prev, job: polled } : prev));
           maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
@@ -731,7 +740,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           } else {
             runRefreshTickRef.current += 1;
-            if (runRefreshTickRef.current % 5 === 0) {
+            const statusChanged = prevStatus !== polled.status;
+            if (statusChanged || runRefreshTickRef.current % 5 === 0) {
               await refreshRun();
             }
           }
@@ -1018,6 +1028,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         const runData = await api<RunData>(`/api/runs/${id}`);
         setRun(runData);
+        setRunState(runData);
         setShownPrecleanOffers(
           new Set(runData.meta?.audio_preclean?.offered_at || []),
         );
@@ -1295,6 +1306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           method: "POST",
         });
         showToast("Outputs saved.");
+        bumpLocalVersion();
         userDismissedActionRef.current = false;
         const refreshed = await refreshRun();
         await pollLog(true);
@@ -1571,7 +1583,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const msg = e instanceof Error ? e.message : "Failed to load session";
         setSessionLoadError(msg);
         showToast(msg, "error");
-      } finally {
+      }
+
+      const runQuery = new URLSearchParams(window.location.search).get("run");
+      const restoreRunId = runQuery || active?.run_id;
+
+      if (!restoreRunId) {
         if (gen === bootGenRef.current) setSessionReady(true);
       }
 
@@ -1579,33 +1596,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           await refreshHome({ enrichRuns: true });
           if (gen !== bootGenRef.current) return;
-          if (!active?.run_id) return;
-          const stageId = active.selected_stage_id ?? null;
+          if (!restoreRunId) return;
+          const stageId = active?.selected_stage_id ?? null;
           selectedStageIdRef.current = stageId;
           setSelectedStageId(stageId);
-          await openRun(active.run_id, {
+          await openRun(restoreRunId, {
             quiet: true,
             selectedStageId: stageId,
-            activeTab: active.active_tab ?? "pipeline",
-            pipelineSubTab: active.pipeline_sub_tab ?? "stage",
+            activeTab: active?.active_tab ?? "pipeline",
+            pipelineSubTab: active?.pipeline_sub_tab ?? "stage",
+            force: Boolean(runQuery),
           });
-          if (active.activity_log_tab) {
+          if (active?.activity_log_tab) {
             setActivityLogTabState(active.activity_log_tab as LogStreamTab);
             activityLogTabRef.current = active.activity_log_tab as LogStreamTab;
           }
-          if (typeof active.activity_log_collapsed === "boolean") {
+          if (typeof active?.activity_log_collapsed === "boolean") {
             setActivityLogCollapsedState(active.activity_log_collapsed);
             activityLogCollapsedRef.current = active.activity_log_collapsed;
           }
-          if (Array.isArray(active.pipeline_collapsed_stages)) {
+          if (Array.isArray(active?.pipeline_collapsed_stages)) {
             setPipelineCollapsedStages(active.pipeline_collapsed_stages);
             pipelineCollapsedRef.current = active.pipeline_collapsed_stages;
           }
-          if (Array.isArray(active.pipeline_expanded_done_stages)) {
+          if (Array.isArray(active?.pipeline_expanded_done_stages)) {
             setPipelineExpandedDoneStages(active.pipeline_expanded_done_stages);
             pipelineExpandedDoneRef.current = active.pipeline_expanded_done_stages;
           }
-          if (typeof active.pipeline_filter_needs_you === "boolean") {
+          if (typeof active?.pipeline_filter_needs_you === "boolean") {
             setPipelineFilterNeedsYouState(active.pipeline_filter_needs_you);
             pipelineFilterNeedsYouRef.current = active.pipeline_filter_needs_you;
           }
@@ -1615,10 +1633,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             await syncJobRunning(rid);
             const runData = await api<RunData>(`/api/runs/${rid}`);
             setRun(runData);
+            setRunState(runData);
             renderLogWithAlerts(runData.log_tail || []);
           }
         } catch {
           /* enrich/restore failures surface via toasts from openRun/refreshHome */
+        } finally {
+          if (gen === bootGenRef.current) setSessionReady(true);
         }
       })();
     })();
@@ -1793,14 +1814,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AppContext.Provider value={value}>
-      {children}
-      <PrecleanOffersBridge
-        shown={shownPrecleanOffers}
-        setShown={setShownPrecleanOffers}
-        runId={runId}
-      />
-    </AppContext.Provider>
+    <SessionProvider
+      value={{
+        sessionReady,
+        sessionLoadError,
+        serverActiveRunId,
+        activeTab,
+        pipelineSubTab,
+        setActiveTab: setActiveTabState,
+        setPipelineSubTab,
+        clearSession,
+        activityLogTab,
+        activityLogCollapsed,
+      }}
+    >
+      <RunProvider
+        value={{
+          runId,
+          run,
+          runs,
+          selectedStageId,
+          selectedStage,
+          openRunLoading,
+          openRun,
+          refreshRun,
+          selectStage,
+          startRun,
+          refreshHome,
+        }}
+      >
+        <JobProvider
+          value={{
+            jobRunning,
+            actionBusy,
+            executeJob,
+            startJobPoll,
+            runNextStage,
+            approveWriteAndContinue,
+          }}
+        >
+          <AppContext.Provider value={value}>
+            {children}
+            <PrecleanOffersBridge
+              shown={shownPrecleanOffers}
+              setShown={setShownPrecleanOffers}
+              runId={runId}
+            />
+          </AppContext.Provider>
+        </JobProvider>
+      </RunProvider>
+    </SessionProvider>
   );
 }
 

@@ -20,7 +20,7 @@ from interview_mux.source_audio_hash import (
     parse_hash_from_run_id,
 )
 
-EXEC_ID_RE = re.compile(r"^exec_\d{3}(?:_[a-f0-9]{12})?_\d{8}T\d{6}Z$")
+EXEC_ID_RE = re.compile(r"^exec_\d{3,}(?:_[a-f0-9]{12})?_\d{8}T\d{6}Z$")
 LEGACY_RUN_RE = re.compile(r"^run_\d{3}$")
 
 
@@ -316,6 +316,17 @@ class RunContext:
             info = STAGE_BY_ID.get(stage)
             paths = list(info.artifacts) if info else []
         self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
+        self.bump_snapshot_version()
+
+    def bump_snapshot_version(self) -> int:
+        if not self.artifact_exists("run_meta.json"):
+            return 0
+
+        def _patch(meta: dict[str, Any]) -> None:
+            meta["snapshot_version"] = int(meta.get("snapshot_version") or 0) + 1
+
+        meta = self.mutate_run_meta(_patch)
+        return int(meta.get("snapshot_version") or 0)
 
     def is_done(self, stage: str) -> bool:
         return self.final_path(".stage_done", stage).is_file()
@@ -441,6 +452,7 @@ class RunContext:
             "created_at": meta.get("created_at"),
             "updated_at": meta.get("updated_at"),
             "storage_path": meta.get("storage_root") or str(ctx.run_dir.relative_to(ctx.root)),
+            "working_dir": str(ctx.run_dir),
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "outputs": outputs,
         }

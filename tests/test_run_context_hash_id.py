@@ -10,6 +10,7 @@ from interview_mux.run_context import EXEC_ID_RE, RunContext
 def test_exec_id_re_accepts_hash_segment() -> None:
     assert EXEC_ID_RE.match("exec_001_a3f2b1c9d4e5_20260101T000000Z")
     assert EXEC_ID_RE.match("exec_001_20260101T000000Z")
+    assert EXEC_ID_RE.match("exec_1008_a3f2b1c9d4e5_20260622T211817Z")
 
 
 def test_allocate_run_id_with_hash() -> None:

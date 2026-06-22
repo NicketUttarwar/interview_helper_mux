@@ -10,14 +10,14 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 
 | Variable | Default | Used by | If wrong |
 |----------|---------|---------|----------|
-| `MUX_FRESH_SESSION` | `0` | `./scripts/run.sh` | `1` clears `ASSETS/.gui/active_execution.json` on every launch (no auto-restore); `0` keeps session pointer for refresh and restart |
+| `MUX_FRESH_SESSION` | `0` | `./scripts/run.sh` | `1` clears `ASSETS/.gui/application_state.json` (and legacy session files) on launch; `0` preserves session for refresh and restart |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
 
 ---
 
 ## GUI session persistence (`ASSETS/.gui/active_execution.json`)
 
-Written by `PUT /api/session/active`. Restored on `GET /api/session` → browser refresh and `./scripts/run.sh` restart (when `MUX_FRESH_SESSION=0`).
+Written by `PUT /api/session/active` into `application_state.json` (legacy `active_execution.json` synced). Restored on `GET /api/session` → browser refresh and `./scripts/run.sh` restart (when `MUX_FRESH_SESSION=0`).
 
 | Field | Values | Purpose |
 |-------|--------|---------|
@@ -50,7 +50,8 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `flow_intent` | Early planning before G2 |
 | `journey_ui.phase_sidebar` | `PipelineStepList` phase grouping | When `false`, flat numbered step list |
 | `journey_ui.story_board` | `StoryBoardPanel` tab | When `false`, hides story-board tool tab |
-| `journey_ui.unified_preclean_drawer` | `AudioQualityDrawer` + journey preclean hints | When `false`, drawer hidden (inline `PrecleanOfferCard` still works) |
+
+Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and the operator checkpoint modal. The legacy **Audio quality** drawer and `GET …/audio-quality` endpoint were removed.
 | `journey_ui.express_flow1` | Express Flow 1 CTAs in journey kernel | When `false`, hides express shortcuts |
 | `journey_ui.journey_log_filter` | Logs tab journey-scoped filter | When `false`, standard log filters only |
 | `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `POST …/milestones/preview-listened` before polish execute |

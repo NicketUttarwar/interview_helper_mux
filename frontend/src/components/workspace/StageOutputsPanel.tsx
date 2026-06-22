@@ -4,34 +4,65 @@ import { useApp } from "../../context/AppContext";
 import { escapeHtml } from "../../utils";
 import type { StageInfo } from "../../types";
 
-type ArtifactRowStatus = "pending" | "partial" | "complete";
+type ArtifactRowStatus = "pending" | "partial" | "complete" | "staged" | "n_a" | "skipped";
 
 function artifactRows(stage: StageInfo): {
   path: string;
+  label: string;
   status: ArtifactRowStatus;
+  phase: string;
   editable: boolean;
 }[] {
+  if (stage.outputs_view?.length) {
+    return stage.outputs_view.map((row) => ({
+      path: row.path,
+      label: row.label || row.path,
+      status: (row.status as ArtifactRowStatus) || "pending",
+      phase: row.phase || row.status,
+      editable: (stage.editable || []).includes(row.path),
+    }));
+  }
   const expected = stage.artifacts || [];
-  const presentSet = new Set(stage.artifacts_present || []);
   const statusMap = stage.artifacts_status || {};
+  const lifecycle = stage.artifacts_lifecycle || {};
   const editableSet = new Set(stage.editable || []);
-  const paths = [...new Set([...expected, ...Array.from(presentSet)])];
-  return paths
+  return expected
     .filter((p) => p && !p.endsWith("/"))
     .map((path) => {
-      const status: ArtifactRowStatus =
-        statusMap[path] ||
-        (presentSet.has(path) ? "complete" : "pending");
+      const phase = lifecycle[path];
+      let status: ArtifactRowStatus =
+        (statusMap[path] as ArtifactRowStatus) || "pending";
+      if (phase === "staged") status = "staged";
+      if (phase === "n_a" || phase === "skipped") status = "n_a";
+      if (phase === "committed" && status === "pending") status = "complete";
       return {
         path,
+        label: path.split("/").pop()?.replace(/_/g, " ") || path,
         status,
+        phase: phase || status,
         editable: editableSet.has(path),
       };
     });
 }
 
+function statusIcon(status: ArtifactRowStatus): string {
+  if (status === "complete" || status === "skipped") return "✓";
+  if (status === "partial" || status === "staged") return "◐";
+  if (status === "n_a") return "—";
+  return "○";
+}
+
+function statusLabel(status: ArtifactRowStatus): string {
+  if (status === "staged") return "staged — review to save";
+  if (status === "n_a") return "n/a (skipped)";
+  if (status === "skipped") return "skipped";
+  if (status === "pending") return "pending";
+  if (status === "partial") return "partial";
+  return "saved";
+}
+
 export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
-  const { runId, openArtifactInEditor, setPipelineSubTab, refreshRun, showToast } = useApp();
+  const { runId, run, openArtifactInEditor, setPipelineSubTab, refreshRun, showToast } = useApp();
   const [activeAudio, setActiveAudio] = useState<string | null>(null);
 
   const rows = useMemo(() => artifactRows(stage), [stage]);
@@ -53,6 +84,11 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
   return (
     <div className="stage-outputs panel nested">
       <h3 className="stage-outputs-title">Stage outputs</h3>
+      {run?.working_dir ? (
+        <p className="hint sm stage-outputs-wd">
+          Working directory: <code>{run.working_dir}</code>
+        </p>
+      ) : null}
 
       {apiProviders.length > 0 ? (
         <div className="stage-api-chips">
@@ -67,71 +103,74 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
 
       {rows.length > 0 ? (
         <ul className="artifact-checklist">
-          {rows.map(({ path, status, editable }) => {
-            const canOpen = status === "complete" || (stageDone && status === "partial");
+          {rows.map(({ path, label, status, editable }) => {
+            const canOpen =
+              status === "complete" ||
+              status === "staged" ||
+              (stageDone && status === "partial");
             const canFillGaps = stageDone && status === "partial" && Boolean(runId);
             return (
-            <li
-              key={path}
-              className={`artifact-checklist-item${status === "pending" ? " missing" : " present"}${status === "partial" ? " partial" : ""}`}
-            >
-              <span className="artifact-status" aria-hidden>
-                {status === "complete" ? "✓" : status === "partial" ? "◐" : "○"}
-              </span>
-              <code className="artifact-path">{escapeHtml(path)}</code>
-              {editable && canOpen ? <span className="badge-editable">editable</span> : null}
-              {status === "partial" && !stageDone ? (
-                <span className="hint sm">waiting for AI</span>
-              ) : null}
-              {status === "partial" && stageDone ? (
-                <span className="badge-partial">partial</span>
-              ) : null}
-              <span className="artifact-checklist-actions">
-                {canOpen ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      onClick={() => openArtifactInEditor(path)}
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      onClick={() => void navigator.clipboard?.writeText(path)}
-                    >
-                      Copy
-                    </button>
-                  </>
+              <li
+                key={path}
+                className={`artifact-checklist-item${status === "pending" ? " missing" : " present"}${status === "partial" || status === "staged" ? " partial" : ""}${status === "n_a" ? " na" : ""}`}
+              >
+                <span className="artifact-status" aria-hidden>
+                  {statusIcon(status)}
+                </span>
+                <code className="artifact-path">{escapeHtml(path === "(skipped)" ? label : path)}</code>
+                {editable && canOpen ? <span className="badge-editable">editable</span> : null}
+                {status === "partial" && !stageDone ? (
+                  <span className="hint sm">waiting for AI</span>
                 ) : null}
-                {canFillGaps ? (
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    onClick={() => {
-                      void api(`/api/runs/${runId}/fill-artifact-gaps`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ path }),
-                      })
-                        .then(() => {
-                          showToast(`Filling gaps for ${path}…`);
-                          return refreshRun();
+                {status === "staged" ? (
+                  <span className="badge-staged">in review</span>
+                ) : null}
+                <span className="artifact-checklist-actions">
+                  {canOpen ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        onClick={() => openArtifactInEditor(path)}
+                      >
+                        Open
+                      </button>
+                      {path !== "(skipped)" ? (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          onClick={() => void navigator.clipboard?.writeText(path)}
+                        >
+                          Copy
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {canFillGaps ? (
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={() => {
+                        void api(`/api/runs/${runId}/fill-artifact-gaps`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ path }),
                         })
-                        .catch((e) =>
-                          showToast(e instanceof Error ? e.message : "Fill gaps failed"),
-                        );
-                    }}
-                  >
-                    Fill gaps
-                  </button>
-                ) : null}
-                {status === "pending" ? (
-                  <span className="hint sm">pending</span>
-                ) : null}
-              </span>
-            </li>
+                          .then(() => {
+                            showToast(`Filling gaps for ${path}…`);
+                            return refreshRun();
+                          })
+                          .catch((e) =>
+                            showToast(e instanceof Error ? e.message : "Fill gaps failed"),
+                          );
+                      }}
+                    >
+                      Fill gaps
+                    </button>
+                  ) : null}
+                  <span className="hint sm">{statusLabel(status)}</span>
+                </span>
+              </li>
             );
           })}
         </ul>

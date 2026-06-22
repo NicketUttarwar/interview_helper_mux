@@ -270,12 +270,12 @@ def serve_cmd(
 
     from interview_mux.config import merged_config
 
-    from interview_mux.gui_session import touch_server_session
+    from interview_mux.application_session import on_server_start
 
     cfg = merged_config()
     chosen_port = port or int(cfg.get("web_port", 8765))
     url = f"http://{host}:{chosen_port}"
-    touch_server_session(port=chosen_port, host=host)
+    on_server_start(port=chosen_port, host=host)
 
     from interview_mux.gui_job_reconcile import reconcile_stale_jobs
 

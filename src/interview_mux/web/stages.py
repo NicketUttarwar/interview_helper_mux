@@ -550,4 +550,77 @@ def _stage_dict(s: StageInfo) -> dict[str, Any]:
         "editable": list(s.editable),
         "audio_outputs": list(s.audio_outputs),
         "api_providers": list(STAGE_API_PROVIDERS.get(s.id, ())),
+        "reuse_policy": reuse_policy_for(s.id),
     }
+
+
+# Reuse eligibility vs immediate-previous execution (hash-gated copy).
+_STAGE_REUSE_POLICY: dict[str, str] = {
+    sid: "eligible"
+    for sid in (
+        "audio_preclean",
+        "ingest",
+        "transcribe",
+        "transcript_review_build",
+        "disfluency_extract",
+        "source_acoustic_profile",
+        "interview_spine_build",
+        "speaker_roles",
+        "content_context",
+        "boundary_detection",
+        "segment_classification",
+        "content_brief_reanchor",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "missing_framing",
+        "optimal_questions",
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "full_master_ranking",
+        "transitions",
+        "sound_design_plan_flow1",
+        "sound_design_vo_finalize",
+        "edl_narrative_audit",
+        "edl_flow1",
+        "assembly_preview",
+        "sfx_prompt_craft",
+        "mmaudio_sfx_flow1",
+        "mix_flow1",
+        "master_flow1",
+        "highlight_selection",
+        "sound_design_plan_flow2",
+        "mmaudio_sfx_flow2",
+        "mix_flow2",
+        "master_flow2",
+        "podcast_show_description",
+        "export_show_description",
+        "transcript_review",
+        "analysis_profile",
+        "g1_vo_pickup",
+        "g2_flow_select",
+        "mux_flow1",
+        "mux_flow2",
+    )
+}
+_STAGE_REUSE_POLICY.update(
+    {
+        "vo_ingest": "on_demand",
+        "disfluency_review": "gate",
+        "transcript_review": "gate",
+        "analysis_profile": "gate",
+        "g1_vo_pickup": "gate",
+        "g2_flow_select": "gate",
+    }
+)
+
+
+def reuse_policy_for(stage_id: str) -> str:
+    """Return reuse policy: eligible | gate | on_demand | none."""
+    if stage_id in _STAGE_REUSE_POLICY:
+        return _STAGE_REUSE_POLICY[stage_id]
+    info = STAGE_BY_ID.get(stage_id)
+    if not info:
+        return "none"
+    if info.phase == "gate":
+        return "gate"
+    return "none"

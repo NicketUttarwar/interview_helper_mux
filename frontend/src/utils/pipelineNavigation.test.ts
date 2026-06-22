@@ -34,6 +34,22 @@ describe("stageNavStatus", () => {
     expect(stageNavStatus(numbered[0], run, null, null)).toBe("skipped");
   });
 
+  it("skipped optional audio_preclean shows skipped nav status", () => {
+    const preclean = stage({
+      id: "audio_preclean",
+      title: "Audio pre-clean",
+      status: "done",
+      stage_output_mode: "optional_skipped",
+      outputs_view: [
+        { path: "(skipped)", label: "Skipped", status: "complete", phase: "skipped" },
+        { path: "preclean/provider.json", label: "provider", status: "n_a", phase: "n_a" },
+      ],
+    });
+    const run = minimalRun({ stages: [preclean] });
+    const numbered = buildNumberedStages(run.stages);
+    expect(stageNavStatus(numbered[0], run, null, null)).toBe("done");
+  });
+
   it("focusStageId matches resolver stageId for write approval", () => {
     const ingest = stage({ id: "ingest", title: "Ingest", status: "awaiting_write_approval" });
     const run = minimalRun({

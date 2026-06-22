@@ -151,7 +151,12 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `PATCH` | `/api/runs/{run_id}/disfluency-restore` | — | **DisfluencyRestoreBody** (`enabled`) | `ok`, `disfluency_restore_enabled` | **404** |
 | `GET` | `/api/runs/{run_id}/story-board` | — | — | `analysis_state`, `investigation_queue`, `content_brief`, `narrative_plan` (nullable), `source_acoustic_profile` (nullable), `value_features` (nullable), `operator_verified` | **404** |
 | `PATCH` | `/api/runs/{run_id}/investigation-queue/{item_id}` | — | **InvestigationPatchBody** `{status}` | `ok`, `investigation_queue` — updates `understanding/investigation_queue.json` | **404** item/queue, **400** invalid queue |
-| `GET` | `/api/runs/{run_id}/audio-quality` | — | — | `audio_preclean`, `checkpoints[]` (`id`, `acknowledged`), `recommended` — **deprecated** for new UI; retained for `AudioQualityDrawer` when `journey_ui.enabled` (prefer inline `PrecleanOfferCard` + journey snapshot) | **404** |
+
+| `GET` | `/api/session/lineage` | — | — | Immediate-previous run + per-stage reuse eligibility | — |
+| `GET` | `/api/runs/{run_id}/workspace` | — | — | Working directory summary | — |
+| `POST` | `/api/runs/{run_id}/reuse-from-previous` | `{ accept_all?: bool, stage_ids?: string[] }` | — | Bulk copy from immediate previous execution (hash-gated) | **409** busy |
+
+**Removed:** `GET /api/runs/{run_id}/audio-quality` (404 — use journey snapshot + `PrecleanOfferCard`).
 | `POST` | `/api/runs/{run_id}/milestones/preview-listened` | — | — | `ok`, `journey` — sets `preview_listened_at` when `journey_ui.require_preview_listen` gates polish CTAs | **404** |
 | `GET` | `/api/runs/{run_id}/analysis-profile` | — | — | `analysis_state`, `investigation_queue`, `editable_paths`, `operator_verified`, `completion` | **404** |
 | `PUT` | `/api/runs/{run_id}/analysis-profile` | — | **AnalysisProfileBody** | `ok`, `operator_verified`, `completion` | **404** |

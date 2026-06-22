@@ -10,6 +10,7 @@ import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
 import { VolleyMemoryPanel } from "../workspace/VolleyMemoryPanel";
 import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
 import { JourneyShell } from "../journey/JourneyShell";
+import { PreviousSessionReusePanel } from "../guidance/PreviousSessionReusePanel";
 
 export function PipelineTab() {
   const {
@@ -68,6 +69,7 @@ export function PipelineTab() {
   return (
     <main className="view workspace-shell pipeline-tab pipeline-v2">
       <JourneyShell>
+        <PreviousSessionReusePanel compact />
         <div className="workspace-scroll">
           <div
             className={`pipeline-v2-body${activityLogCollapsed ? " log-collapsed" : ""}`}

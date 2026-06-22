@@ -80,6 +80,8 @@ from interview_mux.journey_orchestrator import (
 from interview_mux.journey_state import get_flow_intent, stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import RunBusyError, runner
+from interview_mux.web.session_routes import ActiveBody, register_session_routes
+from interview_mux.web.workspace_routes import register_workspace_routes
 from interview_mux.web.stages import LLM_ROUTING_STAGE_IDS, STAGE_BY_ID, all_stages_for_run
 from interview_mux.operator_snapshots import (
     append_operator_stage_reuse,
@@ -211,15 +213,6 @@ class PendingWriteContentBody(BaseModel):
 class ResetBody(BaseModel):
     from_stage: str | None = None
     new_input_audio_path: str | None = None
-
-
-class ActiveBody(BaseModel):
-    run_id: str | None = None
-    selected_stage_id: str | None = None
-    active_tab: str | None = None
-    pipeline_sub_tab: str | None = None
-    activity_log_tab: str | None = None
-    activity_log_collapsed: bool | None = None
 
 
 class NleBody(BaseModel):
@@ -410,54 +403,6 @@ def create_app() -> FastAPI:
             grants[body.provider] = body.granted
         return {"ok": True, "provider": body.provider, "granted": body.granted, "grants": grants}
 
-    @app.get("/api/session")
-    def get_session() -> dict[str, Any]:
-        active = get_active_execution()
-        session = get_server_session()
-        out: dict[str, Any] = {"server": session, "active": active}
-        if active and active.get("run_id"):
-            rid = active["run_id"]
-            if not RunContext.exists(rid):
-                clear_active_execution()
-                out["active"] = None
-            else:
-                ctx = _ctx(rid)
-                out["log"] = read_log(ctx.run_dir, tail=200)
-                out["run_summary"] = RunContext.summarize_run(rid)
-        return out
-
-    @app.put("/api/session/active")
-    def put_active(body: ActiveBody) -> dict[str, Any]:
-        updates = body.model_dump(exclude_unset=True)
-        if "run_id" in updates and updates["run_id"] is None:
-            clear_active_execution()
-            return {"ok": True, "active": None}
-        run_id = updates.get("run_id") or active_run_id()
-        if not run_id:
-            raise HTTPException(400, "run_id required")
-        if "active_tab" in updates and updates["active_tab"] not in VALID_ACTIVE_TABS:
-            raise HTTPException(400, f"Invalid active_tab: {updates['active_tab']}")
-        if "pipeline_sub_tab" in updates and updates["pipeline_sub_tab"] not in VALID_PIPELINE_SUB_TABS:
-            raise HTTPException(400, f"Invalid pipeline_sub_tab: {updates['pipeline_sub_tab']}")
-        if "activity_log_tab" in updates and updates["activity_log_tab"] not in VALID_ACTIVITY_LOG_TABS:
-            raise HTTPException(400, f"Invalid activity_log_tab: {updates['activity_log_tab']}")
-        try:
-            assert_session_allows_run_switch(run_id)
-        except ValueError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        _ctx(run_id)
-        if updates.get("run_id") and len(updates) == 1:
-            return set_active_execution(run_id)
-        try:
-            return merge_active_execution(updates if "run_id" in updates else {**updates, "run_id": run_id})
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-
-    @app.delete("/api/session/active")
-    def delete_active() -> dict[str, Any]:
-        clear_active_execution()
-        return {"ok": True, "active": None}
-
     @app.get("/api/assets")
     def list_assets(recursive: bool = False) -> dict[str, Any]:
         cfg = merged_config()
@@ -574,6 +519,9 @@ def create_app() -> FastAPI:
             set_flow_intent(ctx, body.flow_intent)
         ensure_analysis_workspace(ctx)
         refresh_journey_meta(ctx)
+        from interview_mux.session_lineage import record_immediate_previous_on_create
+
+        record_immediate_previous_on_create(ctx)
         meta = ctx.read_json("run_meta.json")
         set_active_execution(
             ctx.run_id,
@@ -656,6 +604,10 @@ def create_app() -> FastAPI:
         return {
             "run_id": run_id,
             "meta": meta,
+            "working_dir": str(ctx.run_dir),
+            "snapshot_version": meta.get("snapshot_version", 0),
+            "execution_number": meta.get("execution_number"),
+            "immediate_previous_run_id": meta.get("immediate_previous_run_id"),
             "handoff_ack": handoff_ack,
             "sfx_generated_assets": _discover_generated_sfx_assets(ctx),
             "legacy_migration_warnings": legacy_sfx_warnings(ctx),
@@ -1942,26 +1894,6 @@ def create_app() -> FastAPI:
         refresh_journey_meta(ctx)
         return {"ok": True, "investigation_queue": queue}
 
-    @app.get("/api/runs/{run_id}/audio-quality")
-    def get_audio_quality(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        preclean = meta.get("audio_preclean") if isinstance(meta.get("audio_preclean"), dict) else {}
-        journey = build_journey_snapshot(ctx)
-        checkpoints = []
-        for cp in sorted(journey.get("preclean_checkpoints") or []):
-            checkpoints.append(
-                {
-                    "id": cp,
-                    "acknowledged": preclean_acknowledged(meta, cp),
-                }
-            )
-        return {
-            "audio_preclean": preclean,
-            "checkpoints": checkpoints,
-            "recommended": journey.get("recommended_preclean"),
-        }
-
     @app.post("/api/runs/{run_id}/milestones/preview-listened")
     def post_preview_listened(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -2145,6 +2077,19 @@ def create_app() -> FastAPI:
                 pass
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
+    from fastapi import APIRouter
+
+    _session_router = APIRouter()
+    register_session_routes(_session_router, ctx_factory=_ctx)
+    app.include_router(_session_router)
+    _workspace_router = APIRouter()
+    register_workspace_routes(
+        _workspace_router,
+        ctx_factory=_ctx,
+        run_guard=runner.run_guard,
+    )
+    app.include_router(_workspace_router)
+
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
@@ -2324,12 +2269,31 @@ def _build_stage_list(
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status
+            from interview_mux.artifact_lifecycle import (
+                build_outputs_view,
+                split_artifact_lists,
+                stage_output_mode,
+            )
             from interview_mux.custom_run_handoff import handoff_paths_for_stage
 
-            s["artifacts_present"] = [a for a in info.artifacts if ctx.artifact_exists(a)]
+            committed, staged, lifecycle = split_artifact_lists(ctx, sid, info.artifacts)
+            s["artifacts_committed"] = committed
+            s["artifacts_staged"] = staged
+            s["artifacts_lifecycle"] = lifecycle
+            s["artifacts_present"] = committed
             s["artifacts_status"] = {
                 a: artifact_status(a, ctx) for a in info.artifacts if a and not a.endswith("/")
             }
+            s["outputs_view"] = build_outputs_view(ctx, sid)
+            s["stage_output_mode"] = stage_output_mode(ctx, sid)
+            from interview_mux.web.stages import reuse_policy_for
+
+            s["reuse_policy"] = reuse_policy_for(sid)
+            if s["stage_output_mode"] == "optional_skipped":
+                for a in info.artifacts:
+                    if a and not a.endswith("/"):
+                        s["artifacts_lifecycle"][a] = "n_a"
+                        s["artifacts_status"][a] = "complete"
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
             if ctx.is_done(sid):
                 handoff = handoff_paths_for_stage(ctx, sid)

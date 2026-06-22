@@ -40,7 +40,11 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `stage_guidance.py` | `stages[].guidance` and journey phase copy for GUI; guidance items expose stable `id` and optional `substep_label` for sidebar substeps | — |
 | `file_store.py` | Locked JSON read/write | BUILD-012 |
 | `session_log.py` | `gui_log.jsonl` append/read | BUILD-016 |
-| `gui_session.py` | Active run / server session under `ASSETS/.gui` | BUILD-014 |
+| `application_session.py` | Unified `application_state.json`, server bootstrap, session API payload | Session overhaul |
+| `session_lineage.py` | Immediate-previous run resolution, hash match | Session overhaul |
+| `artifact_lifecycle.py` | `outputs_view`, staged vs committed artifact phases | Session overhaul |
+| `ui_truth.py` | Run snapshot invariant validation (T1–T10) | Session overhaul |
+| `gui_session.py` | Back-compat re-exports delegating to `application_session` | BUILD-014 |
 | `gates.py` | G0/G1/G2 checks, profile gate, narrative QC enforcement | BUILD-017, 081 |
 | `narrative_qc.py` | Flow 1 topic/chapter validation (`validate_flow1_narrative`) | BUILD-067 |
 | `pipeline.py` | Stage orders, `run_analysis`, `run_flow1/2/3` | BUILD-028, 035–036, 043–044, 080 |

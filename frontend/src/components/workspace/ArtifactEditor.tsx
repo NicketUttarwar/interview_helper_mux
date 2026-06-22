@@ -27,6 +27,7 @@ export function ArtifactEditor() {
   const [editorValue, setEditorValue] = useState("");
   const [isJson, setIsJson] = useState(true);
   const [status, setStatus] = useState("");
+  const [loadedFromStaging, setLoadedFromStaging] = useState(false);
 
   useEffect(() => {
     if (!selectedStage) {
@@ -76,6 +77,7 @@ export function ArtifactEditor() {
           },
         );
         if (data) {
+          setLoadedFromStaging(false);
           applyPayload(data, "Loaded");
           return;
         }
@@ -89,10 +91,12 @@ export function ArtifactEditor() {
             { label: `Load staged ${path}` },
           );
           if (staged) {
-            applyPayload(staged, "Loaded staged copy");
+            setLoadedFromStaging(true);
+            applyPayload(staged, "Loaded staged copy (pending=1)");
             return;
           }
         }
+        setLoadedFromStaging(false);
         setEditorValue("");
         const msg = `${path} not found — run this stage first.`;
         setStatus(msg);
@@ -190,6 +194,11 @@ export function ArtifactEditor() {
     <div className="panel artifacts-panel">
       <div className="panel-head">
         <h3>File editor</h3>
+        {loadedFromStaging || (selectedStage && stageAwaitingWriteApproval(run, selectedStage.id)) ? (
+          <span className="stage-status-pill attention" title="Staged copy — use Save & continue on review panel to commit">
+            Staged (not saved)
+          </span>
+        ) : null}
         <select
           className="select"
           value={selectedPath}

@@ -14,6 +14,7 @@ import {
   type WorkflowStepId,
 } from "../utils/workflowSteps";
 import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
+import { SessionBanner } from "./SessionBanner";
 
 export function LiveStatusBar() {
   const {
@@ -166,6 +167,13 @@ export function LiveStatusBar() {
       aria-live="polite"
       aria-describedby={activeTab === "pipeline" ? "pipeline-step-context" : undefined}
     >
+      <SessionBanner
+        run={run}
+        onReviewReuse={() => {
+          setActiveTab("pipeline");
+          setPipelineSubTab("stage");
+        }}
+      />
       <div className="live-status-main">
         <div className="live-status-headline-row">
           <span

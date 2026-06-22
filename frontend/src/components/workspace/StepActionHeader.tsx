@@ -1,5 +1,5 @@
 import type { OperatorAction } from "../types/operatorAction";
-import { stepModeLabel } from "../utils/resolveOperatorAction";
+import { stepModeLabel } from "../../utils/resolveOperatorAction";
 
 interface Props {
   action: OperatorAction;

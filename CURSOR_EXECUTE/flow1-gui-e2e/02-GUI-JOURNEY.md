@@ -63,6 +63,17 @@
 
 1. write approval → 2. handoff → 3. reuse decline → 4. preclean dismiss → 5. G0 → 6. G0.5 → 7. profile → 8. G1 upload → 9. G1 continue → 10. G2 → 11. G1.5 → 12. sfx post-listen → 13. preview listen → 14. LLM gate (blocker) → 15. job running (wait) → 16. modal continue → 17. **active substep** (`data-testid="substep-{id}"` from `journey.active_substep_id`) → 18. **primary CTA** (`step-action-primary` → `checkpoint-continue` → `write-approval-save-continue` → sidebar substep)
 
+### Session banner (refresh / restart)
+
+| Selector | When |
+|----------|------|
+| `data-testid="session-banner"` | After boot or refresh — shows `run_id`, execution #, working directory |
+| `data-testid="live-status-bar"` | Operator headline + workflow chips stay in sync with journey phase |
+
+Assert **no** collapsible **Audio quality (optional)** and **no** `GET /api/runs/*/audio-quality` in network log on Pipeline tab.
+
+Write approval panel title must include **Save to working directory**.
+
 ### Primary CTA priority (Pipeline tab)
 
 | Selector | When |

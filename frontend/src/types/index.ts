@@ -37,7 +37,6 @@ export interface AppConfig {
     intent_at_start?: boolean;
     phase_sidebar?: boolean;
     story_board?: boolean;
-    unified_preclean_drawer?: boolean;
     express_flow1?: boolean;
     journey_log_filter?: boolean;
     require_preview_listen?: boolean;
@@ -246,7 +245,18 @@ export interface StageInfo {
   artifacts?: string[];
   editable?: string[];
   artifacts_present?: string[];
-  artifacts_status?: Record<string, "pending" | "partial" | "complete">;
+  artifacts_committed?: string[];
+  artifacts_staged?: string[];
+  artifacts_lifecycle?: Record<string, string>;
+  artifacts_status?: Record<string, "pending" | "partial" | "complete" | "staged" | "n_a">;
+  outputs_view?: Array<{
+    path: string;
+    label: string;
+    status: string;
+    phase: string;
+    kind: string;
+  }>;
+  stage_output_mode?: string;
   handoff_paths?: string[];
   audio_outputs_present?: string[];
   api_providers?: string[];
@@ -293,6 +303,10 @@ export interface JobState {
 
 export interface RunData {
   run_id: string;
+  working_dir?: string;
+  snapshot_version?: number;
+  execution_number?: number;
+  immediate_previous_run_id?: string | null;
   meta?: RunMeta;
   handoff_ack?: Record<string, string>;
   sfx_generated_assets?: Array<{ asset_id: string; path: string }>;
@@ -904,12 +918,6 @@ export interface StoryBoardData {
   interview_spine?: Record<string, unknown> | null;
   coherence_report?: CoherenceReport | null;
   operator_verified?: boolean;
-}
-
-export interface AudioQualityState {
-  audio_preclean?: Record<string, unknown>;
-  checkpoints: Array<{ id: string; acknowledged: boolean }>;
-  recommended?: string | null;
 }
 
 export interface LlmCallSummary {

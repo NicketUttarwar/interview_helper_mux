@@ -204,13 +204,12 @@
   "web": {
     "api_consent_persist": true
   },
-  "_comment_journey_ui": "Operator journey kernel — phase sidebar, story board, unified quality drawer",
+  "_comment_journey_ui": "Operator journey kernel — phase sidebar, story board",
   "journey_ui": {
     "enabled": true,
     "intent_at_start": true,
     "phase_sidebar": true,
     "story_board": true,
-    "unified_preclean_drawer": true,
     "express_flow1": true,
     "journey_log_filter": false,
     "require_preview_listen": false,

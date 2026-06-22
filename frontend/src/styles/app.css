@@ -3938,6 +3938,20 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
+.run-item-immediate-previous {
+  border-color: var(--border-strong, var(--accent)) !important;
+  background: color-mix(in srgb, var(--muted) 6%, var(--surface));
+}
+
+.runs-older-collapse {
+  margin-top: 0.75rem;
+}
+
+.runs-older-collapse summary {
+  cursor: pointer;
+  padding: 0.35rem 0;
+}
+
 /* Modal enhancements */
 .modal-lg {
   max-width: 720px;
@@ -4340,8 +4354,18 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   color: var(--warning);
 }
 
-.audio-quality-drawer {
-  margin: 0.5rem 0.75rem;
+.session-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.session-banner-wd {
+  font-family: var(--mono, monospace);
 }
 
 .story-board .story-headline {
@@ -4648,14 +4672,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .start-live-subline {
   margin-top: 0.35rem;
   color: var(--accent);
-}
-
-.audio-quality-recommended {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
 }
 
 /* Compact panels */

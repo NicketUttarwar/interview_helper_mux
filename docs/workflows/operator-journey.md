@@ -52,7 +52,7 @@ When the run is **blocked** at a gate, **StepActionHeader** shows **Needs you** 
 
 Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
-**Session restore:** Browser refresh and `./scripts/run.sh` restart (default) reload `active_execution.json` — same run, tab, and stage. Use **Menu → Clear session** only when starting over. Opt-in fresh pointer: `MUX_FRESH_SESSION=1 ./scripts/run.sh`.
+**Session restore:** Browser refresh and `./scripts/run.sh` restart (default) reload `application_state.json` via `GET /api/session` — same run, tab, and stage. `SessionBanner` shows execution context. Use **Menu → Clear session** only when starting over. Opt-in fresh pointer: `MUX_FRESH_SESSION=1 ./scripts/run.sh`. Optional deep link: `?run=exec_NNN`.
 
 **Same interview, new execution:** Starting a second run on the same WAV gets the same `source_audio_hash`. The **Executions** tab shows **Same audio** on matching runs. At each stage you can **Reuse outputs** from a prior execution instead of re-running expensive steps — [stage-execution-reuse.md](./stage-execution-reuse.md).
 

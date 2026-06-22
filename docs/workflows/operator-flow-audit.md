@@ -82,7 +82,7 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 28 | Sidebar ≠ running stage | Auto-select `job.stage` unless operator pinned sidebar (30s) |
 | 29 | MMAudio post-listen silent no-op | Inline audio ref + toast in **SfxPostListenPanel** / **StageAudioActions** |
 | 30 | QC fail only hints redo | **QcSummaryCard** inline redo + activity log link |
-| 31 | Audio quality drawer dead-end | **Open checkpoint** action in **AudioQualityDrawer** |
+| 31 | Pre-clean offer | **PrecleanOfferCard** / checkpoint modal (Audio quality drawer removed) |
 | 32 | Executions list opaque | Job status pill, progress bar, clickable **last_log** → Logs |
 | 33 | Duplicate tab badges | Pipeline action badge removed — **LiveStatusBar** owns primary CTA badge |
 | 34 | Flat sidebar hid required actions | **Substeps** under each stage in `PipelineStepList`; click opens checkpoint via `activateSubstep` |

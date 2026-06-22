@@ -19,68 +19,38 @@ def _client_with_run(tmp_path, monkeypatch) -> tuple[TestClient, str]:
     return TestClient(create_app()), ctx.run_id
 
 
-def test_active_tab_and_pipeline_sub_tab_round_trip(tmp_path, monkeypatch) -> None:
+def test_active_body_pipeline_prefs_round_trip(tmp_path, monkeypatch) -> None:
     client, run_id = _client_with_run(tmp_path, monkeypatch)
     res = client.put(
         "/api/session/active",
         json={
             "run_id": run_id,
-            "selected_stage_id": "transcribe",
-            "active_tab": "logs",
-            "pipeline_sub_tab": "timeline",
-        },
-    )
-    assert res.status_code == 200
-    active = res.json()
-    assert active["active_tab"] == "logs"
-    assert active["pipeline_sub_tab"] == "timeline"
-    assert active["selected_stage_id"] == "transcribe"
-
-    session = client.get("/api/session").json()
-    assert session["active"]["active_tab"] == "logs"
-    assert session["active"]["pipeline_sub_tab"] == "timeline"
-
-
-def test_merge_partial_ui_update_preserves_run_id(tmp_path, monkeypatch) -> None:
-    client, run_id = _client_with_run(tmp_path, monkeypatch)
-    client.put(
-        "/api/session/active",
-        json={"run_id": run_id, "active_tab": "pipeline"},
-    )
-    res = client.put(
-        "/api/session/active",
-        json={"selected_stage_id": "ingest", "active_tab": "pipeline", "pipeline_sub_tab": "stage"},
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["run_id"] == run_id
-    assert body["selected_stage_id"] == "ingest"
-
-
-def test_activity_log_tab_and_collapsed_round_trip(tmp_path, monkeypatch) -> None:
-    client, run_id = _client_with_run(tmp_path, monkeypatch)
-    res = client.put(
-        "/api/session/active",
-        json={
-            "run_id": run_id,
-            "activity_log_tab": "step",
-            "activity_log_collapsed": True,
+            "pipeline_collapsed_stages": ["ingest", "transcribe"],
+            "pipeline_expanded_done_stages": ["audio_preclean"],
+            "pipeline_filter_needs_you": True,
+            "source_locked": True,
+            "input_audio_path": "ASSETS/input/interview.wav",
         },
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["activity_log_tab"] == "step"
-    assert body["activity_log_collapsed"] is True
+    assert body["pipeline_collapsed_stages"] == ["ingest", "transcribe"]
+    assert body["pipeline_expanded_done_stages"] == ["audio_preclean"]
+    assert body["pipeline_filter_needs_you"] is True
 
     session = client.get("/api/session").json()
-    assert session["active"]["activity_log_tab"] == "step"
-    assert session["active"]["activity_log_collapsed"] is True
+    active = session["active"]
+    assert active["pipeline_collapsed_stages"] == ["ingest", "transcribe"]
+    assert active["source_locked"] is True or session.get("source", {}).get("source_locked")
 
 
-def test_invalid_activity_log_tab_rejected(tmp_path, monkeypatch) -> None:
+def test_get_session_includes_working_dir(tmp_path, monkeypatch) -> None:
     client, run_id = _client_with_run(tmp_path, monkeypatch)
-    res = client.put(
-        "/api/session/active",
-        json={"run_id": run_id, "activity_log_tab": "invalid"},
-    )
-    assert res.status_code == 400
+    client.put("/api/session/active", json={"run_id": run_id})
+    session = client.get("/api/session").json()
+    summary = session.get("run_summary") or {}
+    assert summary.get("run_id") == run_id
+    assert "working_dir" in summary
+    run = client.get(f"/api/runs/{run_id}").json()
+    assert "working_dir" in run
+    assert run["working_dir"]

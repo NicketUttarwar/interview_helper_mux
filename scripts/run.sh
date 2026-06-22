@@ -104,26 +104,32 @@ PY
 fi
 
 _CURRENT_STEP="gui_session_reset"
-# Every launch starts a fresh GUI session; prior executions remain under ASSETS/executions/.
+MUX_FRESH_SESSION="${MUX_FRESH_SESSION:-0}"
 GUI_DIR="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config, repo_root
 cfg = merged_config()
 print((repo_root() / cfg.get("assets_root", "ASSETS") / ".gui").as_posix())
 PY
 )"
+if [[ "$MUX_FRESH_SESSION" == "1" ]]; then
+  echo "MUX_FRESH_SESSION=1 — clearing GUI session state ..."
+  rm -f \
+    "$GUI_DIR/active_execution.json" \
+    "$GUI_DIR/application_state.json" \
+    "$GUI_DIR/server_session.json" \
+    "$GUI_DIR/api_consent.json" \
+    "$GUI_DIR/active_execution.json.lock" \
+    "$GUI_DIR/server_session.json.lock" \
+    "$GUI_DIR/api_consent.json.lock"
+else
+  echo "Preserving GUI session state (MUX_FRESH_SESSION=0) ..."
+fi
+
 WEB_PORT="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config
 print(int(merged_config().get("web_port", 8765)))
 PY
 )"
-echo "Clearing GUI session state for a fresh launch ..."
-rm -f \
-  "$GUI_DIR/active_execution.json" \
-  "$GUI_DIR/server_session.json" \
-  "$GUI_DIR/api_consent.json" \
-  "$GUI_DIR/active_execution.json.lock" \
-  "$GUI_DIR/server_session.json.lock" \
-  "$GUI_DIR/api_consent.json.lock"
 
 if command -v lsof >/dev/null 2>&1; then
   stale_pids="$(lsof -ti "tcp:${WEB_PORT}" 2>/dev/null || true)"

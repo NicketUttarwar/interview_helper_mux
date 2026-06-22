@@ -30,7 +30,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
 | Modals | `OperatorActionModal` | **Modal-first** checkpoints (write approval, reuse, gates, handoff); title from `resolveOperatorAction` |
-| Pipeline chrome | `JourneyShell` / `AudioQualityDrawer` | When `journey_ui.enabled`, collapsible **Audio quality** drawer polls deprecated `GET …/audio-quality`; pre-clean offers also appear inline via `PrecleanOfferCard` on matching stages |
+| Pipeline chrome | `JourneyShell` / `SessionBanner` / `PreviousSessionReusePanel` | `SessionBanner` in `LiveStatusBar` shows run, exec #, hash, phase, working dir; bulk reuse from immediate previous session on Start + Pipeline |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
 **Attention sound:** Short browser ping on new `level=action` log lines, job `gate` / `needs_operator`, and new `action_required` stages (unless muted).

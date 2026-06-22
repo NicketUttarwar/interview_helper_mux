@@ -54,6 +54,23 @@ These checks do not replace sections 1–5 below (real `exec_*` + listen tests),
 
 ---
 
+## 1b. Session & UI truth (2026 session overhaul)
+
+| Step | Action | Pass criteria |
+|------|--------|---------------|
+| 1b.1 | Refresh browser mid-run | `SessionBanner` shows run id, exec #, working dir; same stage/tab restored |
+| 1b.2 | `./scripts/run.sh` restart (`MUX_FRESH_SESSION=0`) | Session restores without manual resume |
+| 1b.3 | Skip `audio_preclean` | Outputs panel shows skip / n/a — never pending `provider.json` |
+| 1b.4 | Stage with write approval | Staged badge → **Save to working directory** → files at final paths, stage `done` |
+| 1b.5 | Second execution, same WAV | `PreviousSessionReusePanel` + immediate-previous reuse only |
+| 1b.6 | Pipeline tab | No **Audio quality (optional)** drawer; no `/audio-quality` network calls |
+
+Automated: `pytest tests/test_session_active_ui_fields.py tests/test_stage_outputs_skip.py tests/test_ui_truth_invariants.py -q`; `python tools/ui_truth_smoke.py --run-id <exec_*>`.
+
+- [ ] 1b.1–1b.6 passed
+
+---
+
 ## 2. G2 — all three flows (CLI + GUI)
 
 **Code:** `gates.set_selected_flow` accepts `flow1` \| `flow2` \| `flow3` (`src/interview_mux/gates.py`); CLI `tools/run_flow.py` and GUI `POST /api/runs/{run_id}/execute` with `mode: flow1|flow2|flow3` (`src/interview_mux/cli.py`, `src/interview_mux/web/server.py`, `web/runner.py`).

@@ -215,7 +215,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     >
       <div className="write-approval-head">
         <div>
-          <h3 className="stage-outputs-title">Save review — review outputs before saving</h3>
+          <h3 className="stage-outputs-title">Save to working directory — review outputs before saving</h3>
           <p className="hint write-approval-substep">
             Substep:{" "}
             <strong>
@@ -231,6 +231,16 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
               : " is waiting for your approval before files are saved to disk."}{" "}
             Files are pre-loaded below — edit if needed, then save to disk.
           </p>
+          {run?.working_dir ? (
+            <p className="hint sm write-approval-wd" title={run.working_dir}>
+              Working directory:{" "}
+              <code>
+                {run.working_dir.includes("/executions/")
+                  ? `executions/${run.working_dir.split("/executions/").pop()}`
+                  : run.working_dir}
+              </code>
+            </p>
+          ) : null}
         </div>
         <ReviewPanelControls requirePending={false} />
       </div>

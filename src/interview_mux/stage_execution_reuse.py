@@ -158,6 +158,8 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "g2_flow_select": ("operator/flow_selection.json",),
     "mux_flow1": ("flow_1_master/assembly.wav",),
     "mux_flow2": ("flow_2_highlights/assembly.wav",),
+    "sonic_context_build": ("understanding/sonic_context.json",),
+    "content_brief_reanchor": ("understanding/content_brief.json",),
 }
 
 
@@ -403,48 +405,44 @@ def _sdp_source_conflict(ctx: RunContext, source_run_id: str, stage_id: str) -> 
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
+    from interview_mux.session_lineage import resolve_immediate_previous_run_id
+
     current_hash = _stored_source_audio_hash(ctx)
     hash_short = _hash_short_for_ctx(ctx)
     if not current_hash and not hash_short:
         return []
-    candidates: list[ReuseCandidate] = []
-    for run_id in _run_ids_for_reuse_scan(ctx):
-        if not RunContext.exists(run_id):
-            continue
-        source = RunContext(run_id, create=False)
-        if not source_audio_hashes_match(ctx, source):
-            continue
-        if not prior_run_has_reusable_stage(source, stage_id):
-            continue
-        if stage_id == "vo_ingest" and not _gap_reports_match(ctx, source):
-            continue
-        meta = read_run_meta(source)
-        paths = list_copy_paths_for_stage(source, stage_id)
-        src_hash = _stored_source_audio_hash(source)
-        src_short = (
-            meta.get("source_audio_hash_short")
-            or (hash_short_from_full(src_hash) if src_hash else None)
-            or parse_hash_from_run_id(run_id)
+    prev_id = resolve_immediate_previous_run_id(ctx)
+    if not prev_id or not RunContext.exists(prev_id):
+        return []
+    source = RunContext(prev_id, create=False)
+    if not source_audio_hashes_match(ctx, source):
+        return []
+    if not prior_run_has_reusable_stage(source, stage_id):
+        return []
+    if stage_id == "vo_ingest" and not _gap_reports_match(ctx, source):
+        return []
+    meta = read_run_meta(source)
+    paths = list_copy_paths_for_stage(source, stage_id)
+    src_hash = _stored_source_audio_hash(source)
+    src_short = (
+        meta.get("source_audio_hash_short")
+        or (hash_short_from_full(src_hash) if src_hash else None)
+        or parse_hash_from_run_id(prev_id)
+    )
+    hash_in_id = parse_hash_from_run_id(prev_id)
+    return [
+        ReuseCandidate(
+            run_id=prev_id,
+            updated_at=meta.get("updated_at"),
+            execution_number=meta.get("execution_number"),
+            paths=paths,
+            source_audio_hash=str(src_hash) if src_hash else None,
+            source_audio_hash_short=str(src_short) if src_short else None,
+            hash_in_run_id=hash_in_id,
+            same_source_audio=True,
+            match_kind="hash",
         )
-        hash_in_id = parse_hash_from_run_id(run_id)
-        candidates.append(
-            ReuseCandidate(
-                run_id=run_id,
-                updated_at=meta.get("updated_at"),
-                execution_number=meta.get("execution_number"),
-                paths=paths,
-                source_audio_hash=str(src_hash) if src_hash else None,
-                source_audio_hash_short=str(src_short) if src_short else None,
-                hash_in_run_id=hash_in_id,
-                same_source_audio=True,
-                match_kind="hash",
-            )
-        )
-
-    def sort_key(c: ReuseCandidate) -> str:
-        return c.updated_at or ""
-
-    return sorted(candidates, key=sort_key, reverse=True)
+    ]
 
 
 def list_copy_paths_for_stage(source_ctx: RunContext, stage_id: str) -> list[str]:

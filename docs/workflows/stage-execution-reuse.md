@@ -1,6 +1,8 @@
 # Stage execution reuse
 
-At **every pipeline stage**, the GUI can offer to copy outputs from an earlier execution that used the **same canonical pipeline WAV** (`run_meta.source_audio_hash`, derived from the post-conversion `.wav` file — never from raw m4a/mp4 containers).
+At **every pipeline stage**, the GUI can offer to copy outputs from the **immediate previous execution** (`run_meta.immediate_previous_run_id`, execution_number − 1) when that run used the **same canonical pipeline WAV** (`run_meta.source_audio_hash`, derived from the post-conversion `.wav` file — never from raw m4a/mp4 containers).
+
+Older executions with matching hash are **not** scanned for reuse offers (session management overhaul, 2026-06).
 
 Fresh executions are the default. Reuse is **opt-in per stage** and only appears when strict eligibility checks pass.
 

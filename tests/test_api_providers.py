@@ -36,9 +36,12 @@ def test_merge_consents() -> None:
 
 
 def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
-    from run_fixtures import ensure_test_wav, patch_merged_config
-    from interview_mux.config import merged_config
+    import shutil
 
+    from interview_mux.config import merged_config, repo_root as real_repo_root
+    from run_fixtures import ensure_test_wav, patch_merged_config
+
+    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
     base_cfg = merged_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
