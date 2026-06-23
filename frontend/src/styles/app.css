@@ -2369,6 +2369,47 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   min-height: 100vh;
 }
 
+.operator-app-with-dock .operator-main-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 360px);
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+.operator-main-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.global-activity-dock {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.global-activity-dock .activity-log-panel {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+  position: sticky;
+  top: 0;
+}
+
+.pipeline-v2-body--no-side-log {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+}
+
+.log-entry-dump .log-msg {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
 .operator-body {
   flex: 1;
   min-height: 0;

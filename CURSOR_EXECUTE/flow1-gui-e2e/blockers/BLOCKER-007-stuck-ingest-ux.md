@@ -1,5 +1,7 @@
 # BLOCKER-007 — Stuck after ingest (UX regression)
 
+**Status: resolved** (checkpoint continuation contract — modal auto-open, `advanceFromCheckpoint`, write-approval save → ingest chain).
+
 ## Symptom
 
 Operator completes ingest but cannot advance to transcribe:
@@ -27,6 +29,7 @@ Operator completes ingest but cannot advance to transcribe:
 - Screenshot of StepActionHeader + sidebar focus row
 - `GET /api/runs/{id}` → `job`, `journey.blocking`, `journey.active_operator_action`
 - Activity log lines around ingest complete
+- **Dump last step** output showing `write_approval.approve` → `pipeline.stage.ingest` / `ingest.hash`
 
 ## Likely causes
 

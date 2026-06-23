@@ -244,8 +244,20 @@ class RunContext:
         level: str = "info",
         stage: str | None = None,
         detail: str | dict[str, Any] | None = None,
+        action_id: str | None = None,
+        origin: str | None = None,
     ) -> None:
-        append_log(self.run_dir, message, level=level, stage=stage, detail=detail)
+        from interview_mux.operator_log import operator_log
+
+        operator_log(
+            message,
+            run_dir=self.run_dir,
+            level=level,
+            stage=stage,
+            detail=detail,
+            action_id=action_id,
+            origin=origin,  # type: ignore[arg-type]
+        )
 
     def log_handoff(self, stage_id: str, paths: list[str], *, audit_path: str | None = None) -> None:
         """Operator-visible file handoff after a stage completes."""

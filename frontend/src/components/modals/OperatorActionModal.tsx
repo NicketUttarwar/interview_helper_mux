@@ -106,6 +106,13 @@ export function OperatorActionModal() {
   }, [run, selectedStage, action]);
 
   useEffect(() => {
+    if (!run || !selectedStage) return;
+    if (jobRunning && activePanel === "write") {
+      closeActionModal();
+    }
+  }, [jobRunning, activePanel, run, selectedStage, closeActionModal]);
+
+  useEffect(() => {
     const root = modalRef.current;
     if (!root) return;
     const focusable = root.querySelector<HTMLElement>(

@@ -13,7 +13,7 @@ export function FlowSelectPanel() {
   const {
     run,
     refreshRun,
-    runNextStage,
+    advanceFromCheckpoint,
     showToast,
     closeActionModal,
     jobRunning,
@@ -36,7 +36,7 @@ export function FlowSelectPanel() {
       showToast(`Selected ${label} — continuing pipeline.`);
       await refreshRun();
       closeActionModal();
-      await runNextStage();
+      await advanceFromCheckpoint();
     } catch (e) {
       showToast(formatApiError(e, "Flow selection"), "error");
     } finally {

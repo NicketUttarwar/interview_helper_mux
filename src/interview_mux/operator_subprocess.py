@@ -93,15 +93,31 @@ def run_logged_command(
     timeout: int | None = None,
     capture_output: bool = False,
     log_start: bool = True,
+    action_id: str | None = "subprocess.run",
 ) -> subprocess.CompletedProcess[str]:
     """Execute a command; stream stdout/stderr to the operator log."""
     desc = label or format_command(cmd)
+    trace_id = None
+    if action_id:
+        from interview_mux.operator_action_trace import begin_action, end_action
+
+        trace_id = begin_action(
+            action_id,
+            run_dir=ctx.run_dir,
+            stage=stage,
+            origin="subprocess",
+            summary=desc,
+            command=cmd,
+            function="operator_subprocess.run_logged_command",
+        )
     if log_start:
         ctx.log(
             f"$ {desc}",
             level="action",
             stage=stage,
-            detail={"journey_kind": "execute", "cmd": cmd},
+            detail={"journey_kind": "execute", "cmd": cmd, "action_id": action_id},
+            action_id=action_id,
+            origin="subprocess",
         )
         touch_job_message(ctx, f"Running: {desc}")
 
@@ -157,7 +173,13 @@ def run_logged_command(
             level="error",
             stage=stage,
             detail=detail,
+            action_id=action_id,
+            origin="subprocess",
         )
+        if trace_id:
+            from interview_mux.operator_action_trace import end_action
+
+            end_action(trace_id, run_dir=ctx.run_dir, status="error", detail=detail)
         raise LocalCommandError(desc, returncode=None, timed_out=True) from exc
     finally:
         for thread in threads:
@@ -173,7 +195,13 @@ def run_logged_command(
             level="error",
             stage=stage,
             detail=detail,
+            action_id=action_id,
+            origin="subprocess",
         )
+        if trace_id:
+            from interview_mux.operator_action_trace import end_action
+
+            end_action(trace_id, run_dir=ctx.run_dir, status="error", detail=detail)
         raise LocalCommandError(desc, returncode=rc)
 
     if log_start:
@@ -181,8 +209,14 @@ def run_logged_command(
             f"Command finished (exit 0): {desc}",
             level="success",
             stage=stage,
-            detail={"journey_kind": "execute"},
+            detail={"journey_kind": "execute", "action_id": action_id},
+            action_id=action_id,
+            origin="subprocess",
         )
+    if trace_id:
+        from interview_mux.operator_action_trace import end_action
+
+        end_action(trace_id, run_dir=ctx.run_dir, status="ok")
     return subprocess.CompletedProcess(
         cmd,
         rc,
@@ -203,6 +237,7 @@ def run_command(
     check: bool = True,
     log_start: bool = True,
     text: bool = True,
+    action_id: str | None = "subprocess.run",
 ) -> subprocess.CompletedProcess[str]:
     """
     Run a subprocess with operator logging when a run context is active.
@@ -221,6 +256,7 @@ def run_command(
             timeout=timeout,
             capture_output=capture_output,
             log_start=log_start,
+            action_id=action_id,
         )
         return proc
 

@@ -239,6 +239,12 @@ export function buildStageSubsteps(
         ? { ...s, status: "running", label: "Saving staged outputs…" }
         : s,
     );
+  } else if (!stageAwaitingWriteApproval(run, stage.id)) {
+    substeps = substeps.map((s) =>
+      s.kind === "write_approval" && s.status !== "done"
+        ? { ...s, status: "done", label: "Saved to disk" }
+        : s,
+    );
   }
 
   const offer = resolvePrecleanOffer(stage, run.meta);

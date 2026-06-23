@@ -4,10 +4,11 @@ import type { ExecuteBody } from "../../types";
 export interface JobContextValue {
   jobRunning: boolean;
   actionBusy: boolean;
-  executeJob: (body: ExecuteBody) => Promise<void>;
+  executeJob: (body: ExecuteBody, opts?: { source?: "user" | "checkpoint_continue" }) => Promise<void>;
   startJobPoll: () => void;
   runNextStage: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  advanceFromCheckpoint: () => Promise<void>;
 }
 
 const JobContext = createContext<JobContextValue | null>(null);

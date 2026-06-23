@@ -51,6 +51,11 @@ import { describeExecuteBody } from "../utils/operatorActionLog";
 import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
 import {
+  advancePipeline,
+  reconcileBusyRun,
+  type ExecuteJobSource,
+} from "../utils/checkpointContinuation";
+import {
   clampPipelineSubTab,
   pipelineSubTabAvailability,
 } from "../utils/pipelineSubTabAvailability";
@@ -120,7 +125,7 @@ interface AppContextValue {
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
   selectStage: (stageId: string) => Promise<void>;
-  executeJob: (body: ExecuteBody) => Promise<void>;
+  executeJob: (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => Promise<void>;
   beginStageExecution: (opts: {
     kind: "execute" | "decline_reuse_and_run";
     stageId: string;
@@ -131,9 +136,12 @@ interface AppContextValue {
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  advanceFromCheckpoint: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
   setAlertsMuted: (muted: boolean) => void;
-  appendClientLog: (message: string, level?: string, stage?: string) => void;
+  appendClientLog: (message: string, level?: string, stage?: string, actionId?: string) => void;
+  traceAction: (actionId: string, message: string, opts?: { level?: string; stage?: string }) => void;
+  dumpLastStep: () => Promise<void>;
   loadTranscriptReview: () => Promise<TranscriptReviewState | null>;
   setTranscriptReview: (data: TranscriptReviewState | null) => void;
   confirm: (message: string) => Promise<boolean>;
@@ -212,7 +220,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [shownPrecleanOffers, setShownPrecleanOffers] = useState<Set<string>>(
     () => new Set(),
   );
-  const [activityLogTab, setActivityLogTabState] = useState<LogStreamTab>("live");
+  const [activityLogTab, setActivityLogTabState] = useState<LogStreamTab>("all");
   const [activityLogCollapsed, setActivityLogCollapsedState] = useState(false);
   const [logFilterPreset, setLogFilterPresetState] = useState<LogFilterPreset | null>(
     null,
@@ -234,7 +242,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectedStageIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<AppTab>("start");
   const pipelineSubTabRef = useRef<PipelineSubTab>("stage");
-  const activityLogTabRef = useRef<LogStreamTab>("live");
+  const activityLogTabRef = useRef<LogStreamTab>("all");
   const activityLogCollapsedRef = useRef(false);
   const pipelineCollapsedRef = useRef<string[]>([]);
   const pipelineExpandedDoneRef = useRef<string[]>([]);
@@ -551,42 +559,88 @@ export function AppProvider({ children }: { children: ReactNode }) {
     message: string,
     level = "info",
     stage?: string,
+    actionId?: string,
   ) => {
-    const dedupeKey = `${level}:${message}`;
+    const dedupeKey = actionId || `${level}:${message}`;
     const now = Date.now();
-    const recent = recentClientLogRef.current;
-    if (recent && recent.key === dedupeKey && now - recent.at < 30_000) {
-      return;
+    if (level !== "error" && level !== "action") {
+      const recent = recentClientLogRef.current;
+      if (recent && recent.key === dedupeKey && now - recent.at < 5_000) {
+        return;
+      }
     }
     recentClientLogRef.current = { key: dedupeKey, at: now };
 
     if (!rid) {
       renderLogWithAlerts([
-        { ts: new Date().toISOString(), level: level as LogEntry["level"], message, stage },
+        {
+          ts: new Date().toISOString(),
+          level: level as LogEntry["level"],
+          message,
+          stage,
+          detail: actionId ? { action_id: actionId, origin: "gui" } : undefined,
+        },
       ]);
       return;
     }
     await api(`/api/runs/${rid}/log`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, level, stage }),
+      body: JSON.stringify({ message, level, stage, action_id: actionId }),
     });
     await pollLog();
   };
 
   const appendClientLog = useCallback(
-    (message: string, level = "info", stage?: string) => {
-      void appendClientLogInternal(runId, message, level, stage);
+    (message: string, level = "info", stage?: string, actionId?: string) => {
+      void appendClientLogInternal(runId, message, level, stage, actionId);
+    },
+    [runId, pollLog],
+  );
+
+  const traceAction = useCallback(
+    (
+      actionId: string,
+      message: string,
+      opts?: { level?: string; stage?: string },
+    ) => {
+      const level = opts?.level ?? "info";
+      const stage = opts?.stage || selectedStageIdRef.current || undefined;
+      void appendClientLogInternal(runId, message, level, stage, actionId);
     },
     [runId, pollLog],
   );
 
   const logOperatorAction = useCallback(
     (message: string, stage?: string | null) => {
-      appendClientLog(message, "action", stage || selectedStageIdRef.current || undefined);
+      traceAction("gui.operator.action", message, {
+        level: "action",
+        stage: stage || selectedStageIdRef.current || undefined,
+      });
     },
-    [appendClientLog],
+    [traceAction],
   );
+
+  const dumpLastStep = useCallback(async () => {
+    if (!runId) {
+      showToast("No active run for action trace.");
+      return;
+    }
+    try {
+      const { dumpLastAction } = await import("../api/actionTrace");
+      const { formatClientTraceDump } = await import("../utils/operatorActionTrace");
+      const serverText = await dumpLastAction(runId);
+      const clientText = formatClientTraceDump();
+      const combined = [serverText, clientText].filter(Boolean).join("\n\n");
+      if (combined) {
+        traceAction("gui.activity.dump_last", combined, { level: "info" });
+      }
+      showToast("Last action trace printed to log.");
+      await pollLog(true);
+    } catch (reason) {
+      showToast(formatApiError(reason, "Dump last step"), "error");
+    }
+  }, [runId, showToast, traceAction, pollLog]);
 
   const stopJobPoll = useCallback(() => {
     if (jobPollRef.current) {
@@ -711,6 +765,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void selectStage(action.stageId);
     expandStage(action.stageId);
     if (action.substepId) setActiveSubstepIdState(action.substepId);
+    if (action.modalAutoOpen !== false) {
+      setActionModalOpen(true);
+    }
   }, [
     operatorFocusKey,
     jobRunning,
@@ -733,6 +790,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, [maybeAutoSelectRunningStage, showToast]);
+
+  useEffect(() => {
+    if (!actionBusy) return;
+    const timer = setTimeout(() => {
+      if (!actionBusyRef.current || !runId) return;
+      void (async () => {
+        appendClientLog(
+          "Checkpoint action taking longer than expected — syncing with server.",
+          "warning",
+        );
+        await reconcileBusyRun({
+          runId,
+          syncJobRunning,
+          refreshRun,
+          startJobPoll,
+          setActivityLogTab: setActivityLogTabState,
+          showToast,
+          context: "generic",
+        });
+        setActionBusy(false);
+        actionBusyRef.current = false;
+      })();
+    }, 45000);
+    return () => clearTimeout(timer);
+  }, [actionBusy, runId, syncJobRunning, refreshRun, startJobPoll, showToast, appendClientLog]);
 
   const jobPollStatusRef = useRef<string | null>(null);
 
@@ -976,17 +1058,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         setJobRunning(false);
         if (e instanceof ApiError && e.status === 409) {
-          const msg =
-            e.message ||
-            "Run is busy — watch Activity for progress, or refresh after a server restart.";
-          appendClientLog(msg, "warning", stageId);
-          showToast(msg, "warning");
-          const job = await syncJobRunning(runId);
-          if (isJobActivelyRunning(job)) {
-            setActivityLogTabState("live");
-            activityLogTabRef.current = "live";
-            startJobPoll();
-          } else {
+          const { jobRunning: busy } = await reconcileBusyRun({
+            runId,
+            syncJobRunning,
+            refreshRun,
+            startJobPoll,
+            setActivityLogTab: setActivityLogTabState,
+            showToast,
+            context: "execute",
+          });
+          if (!busy) {
             await refreshRun();
           }
           return false;
@@ -1014,12 +1095,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const executeJob = useCallback(
-    async (body: ExecuteBody) => {
+    async (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => {
+      const fromCheckpoint = opts?.source === "checkpoint_continue";
       if (jobRunningRef.current) {
         showToast("A step is already running — watch the activity log.", "warning");
         return;
       }
-      if (actionBusyRef.current) {
+      if (actionBusyRef.current && !fromCheckpoint) {
         showToast("Saving checkpoint — wait a moment, then try again.", "warning");
         return;
       }
@@ -1334,6 +1416,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     expandStage,
   ]);
 
+  const advanceFromCheckpoint = useCallback(async () => {
+    userDismissedActionRef.current = false;
+    setActionBusy(false);
+    actionBusyRef.current = false;
+    const started = await advancePipeline({
+      run,
+      runId,
+      apiGrants: ALL_API_CONSENTS,
+      selectedStageId: selectedStageIdRef.current,
+      executeJob,
+      selectStage,
+      expandStage,
+      setActiveSubstepId: setActiveSubstepIdState,
+      setPipelineSubTab: setPipelineSubTabWrapped,
+      showToast,
+      refreshRun,
+      navigateToNextBlocker: runNextStage,
+    });
+    if (started) {
+      setActionModalOpen(false);
+    }
+  }, [
+    run,
+    runId,
+    executeJob,
+    selectStage,
+    expandStage,
+    showToast,
+    refreshRun,
+    runNextStage,
+    setPipelineSubTabWrapped,
+  ]);
+
   const acknowledgeHandoff = useCallback(async () => {
     if (!runId) return;
     const stageId =
@@ -1350,7 +1465,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       userDismissedActionRef.current = false;
       await refreshRun();
       await pollLog(true);
-      await runNextStage();
+      setActionModalOpen(false);
+      setActionBusy(false);
+      actionBusyRef.current = false;
+      await advanceFromCheckpoint();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Handoff acknowledgment failed";
       appendClientLog(msg, "warning", stageId);
@@ -1365,7 +1483,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logOperatorAction,
     appendClientLog,
     pollLog,
-    runNextStage,
+    advanceFromCheckpoint,
   ]);
 
   const approveWriteAndContinue = useCallback(
@@ -1385,86 +1503,99 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast("Staged files are not listed yet — try refresh.");
         return false;
       }
+      const hasLargeWav = paths.some((p) => p.endsWith(".wav"));
       setActionBusy(true);
-      logOperatorAction(
-        `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
-        sid,
+      traceAction(
+        "gui.write_approval.save",
+        hasLargeWav
+          ? `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")} — large audio may take a minute…`
+          : `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
+        { level: "action", stage: sid },
       );
       try {
         await api(`/api/runs/${runId}/pending-writes/${sid}/approve`, {
           method: "POST",
         });
         showToast("Outputs saved.");
+        traceAction(
+          "gui.write_approval.saved",
+          "Files saved. Starting next step — ingest may take several minutes for long audio (normalizing + hashing).",
+          { level: "info", stage: sid },
+        );
         bumpLocalVersion();
         userDismissedActionRef.current = false;
-        const refreshed = await refreshRun();
+        startJobPoll();
+        let refreshed = await refreshRun();
         await pollLog(true);
-        const stillPending = stageAwaitingWriteApproval(refreshed, sid);
+        let stillPending = stageAwaitingWriteApproval(refreshed, sid);
+        if (stillPending) {
+          refreshed = await refreshRun();
+          stillPending = stageAwaitingWriteApproval(refreshed, sid);
+        }
+        if (stillPending) {
+          try {
+            const pending = await api<{ paths?: string[] }>(
+              `/api/runs/${runId}/pending-writes/${sid}`,
+            );
+            if (!pending.paths?.length) {
+              refreshed = await refreshRun();
+              stillPending = stageAwaitingWriteApproval(refreshed, sid);
+            }
+          } catch {
+            /* keep stillPending */
+          }
+        }
         if (stillPending) {
           appendClientLog(
-            "Save completed but review gate still active — refresh or retry.",
+            "Save completed but review gate still active — refresh or retry once.",
             "warning",
             sid,
+            "gui.write_approval.still_pending",
           );
           return false;
         }
-        const focusId = findPendingFocusStage(refreshed, ALL_API_CONSENTS);
-        if (focusId) {
-          await selectStage(focusId);
-          expandStage(focusId);
-        }
-        const blocking = refreshed?.journey?.blocking ?? refreshed?.blocking;
-        if (blocking?.blocked && blocking.stage_id) {
-          if (blocking.reason === "stage_reuse") {
-            setActiveSubstepIdState(`stage_reuse:${blocking.stage_id}`);
-            setPipelineSubTabWrapped("stage");
-            return true;
-          }
-          if (blocking.reason === "handoff_review") {
-            setActiveSubstepIdState(`handoff:${blocking.stage_id}`);
-            setPipelineSubTabWrapped("stage");
-            return true;
-          }
-        }
-        const nextAction = resolveOperatorAction(refreshed, {
-          selectedStageId: selectedStageIdRef.current,
-          jobRunning: false,
+        setActionBusy(false);
+        actionBusyRef.current = false;
+        setActionModalOpen(false);
+        const started = await advancePipeline({
+          run: refreshed,
+          runId,
           apiGrants: ALL_API_CONSENTS,
+          selectedStageId: selectedStageIdRef.current,
+          executeJob,
+          selectStage,
+          expandStage,
+          setActiveSubstepId: setActiveSubstepIdState,
+          setPipelineSubTab: setPipelineSubTabWrapped,
+          showToast,
+          refreshRun,
+          navigateToNextBlocker: runNextStage,
         });
-        if (nextAction.mode === "needs_you" && nextAction.stageId) {
-          await selectStage(nextAction.stageId);
-          expandStage(nextAction.stageId);
-          if (nextAction.substepId) setActiveSubstepIdState(nextAction.substepId);
-          return true;
-        }
-        if (nextAction.mode === "idle" && nextAction.stageId && nextAction.primaryKind === "run_stage") {
-          const nextStage = refreshed?.stages.find((s) => s.id === nextAction.stageId);
-          if (nextStage) {
-            showToast(`Starting ${nextStage.title}…`);
-            await selectStage(nextStage.id);
-            expandStage(nextStage.id);
-            await executeJob({ mode: "stage", stage: nextStage.id });
-            return true;
-          }
-        }
-        await runNextStage();
+        void started;
         return true;
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
-        appendClientLog(msg, "warning", sid);
+        appendClientLog(msg, "warning", sid, "gui.write_approval.error");
         showToast(msg, "error");
         if (e instanceof ApiError && e.status === 409 && runId) {
-          const job = await syncJobRunning(runId);
-          if (isJobActivelyRunning(job)) {
-            showToast("Step still running — wait for Activity log, then retry.", "warning");
-            setActivityLogTabState("live");
-            activityLogTabRef.current = "live";
-            startJobPoll();
+          const { jobRunning: busy, writeApprovalCleared } = await reconcileBusyRun({
+            runId,
+            syncJobRunning,
+            refreshRun,
+            startJobPoll,
+            setActivityLogTab: setActivityLogTabState,
+            showToast,
+            context: "save",
+          });
+          if (busy) {
+            if (writeApprovalCleared) setActionModalOpen(false);
+            return writeApprovalCleared;
           }
         }
         return false;
       } finally {
         setActionBusy(false);
+        actionBusyRef.current = false;
       }
     },
     [
@@ -1474,12 +1605,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       appendClientLog,
       refreshRun,
       runNextStage,
+      executeJob,
       logOperatorAction,
+      traceAction,
       pollLog,
       syncJobRunning,
       startJobPoll,
       selectStage,
       expandStage,
+      setPipelineSubTabWrapped,
     ],
   );
 
@@ -1503,7 +1637,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast("Skipped optional step — not required for this run.");
         await refreshRun();
         if (offer.checkpoint === "before_ingest") {
-          await runNextStage();
+          await advanceFromCheckpoint();
         }
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Could not skip optional step";
@@ -1511,7 +1645,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         appendClientLog(msg, "warning", stageId);
       }
     },
-    [runId, run, showToast, refreshRun, runNextStage, appendClientLog],
+    [runId, run, showToast, refreshRun, advanceFromCheckpoint, appendClientLog],
   );
 
   const onCheckpointContinue = useCallback(async () => {
@@ -1544,19 +1678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActionBusy(true);
     try {
       userDismissedActionRef.current = false;
-      await runNextStage();
-      const refreshed = runId ? await refreshRun() : run;
-      if (!refreshed) return;
-      const nextAction = resolveOperatorAction(refreshed, {
-        selectedStageId: selectedStageIdRef.current,
-        jobRunning: false,
-        apiGrants: ALL_API_CONSENTS,
-      });
-      if (nextAction.mode === "needs_you" && nextAction.stageId) {
-        await selectStage(nextAction.stageId);
-        expandStage(nextAction.stageId);
-        if (nextAction.substepId) setActiveSubstepIdState(nextAction.substepId);
-      }
+      await advanceFromCheckpoint();
     } finally {
       setActionBusy(false);
     }
@@ -1567,7 +1689,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     approveWriteAndContinue,
     acknowledgeHandoff,
     refreshRun,
-    runNextStage,
+    advanceFromCheckpoint,
     selectStage,
     setPipelineSubTabWrapped,
     expandStage,
@@ -1901,9 +2023,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startJobPoll,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    advanceFromCheckpoint,
     onCheckpointContinue,
     setAlertsMuted,
     appendClientLog,
+    traceAction,
+    dumpLastStep,
     loadTranscriptReview,
     setTranscriptReview,
     confirm,
@@ -1954,6 +2079,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             startJobPoll,
             runNextStage,
             approveWriteAndContinue,
+            advanceFromCheckpoint,
           }}
         >
           <AppContext.Provider value={value}>

@@ -12,8 +12,12 @@ export function resolvePendingWritePaths(
   stageId: string,
   apiPaths?: string[],
 ): string[] {
-  if (apiPaths?.length) return apiPaths;
   if (!run || !stageId) return [];
+
+  const awaiting = stageAwaitingWriteApproval(run, stageId);
+  if (!awaiting) return [];
+
+  if (apiPaths?.length) return apiPaths;
 
   const job = run.job;
   if (

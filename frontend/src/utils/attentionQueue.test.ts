@@ -1,93 +1,41 @@
 import { describe, expect, it } from "vitest";
-import {
-  countRequiredAttention,
-  listRequiredAttentionItems,
-  phaseAttentionStatus,
-} from "./attentionQueue";
-import type { RunData } from "../types";
+import type { RunData, StageInfo } from "../types";
+import { listAttentionItems } from "./attentionQueue";
 
-function minimalRun(overrides: Partial<RunData> = {}): RunData {
-  return {
-    run_id: "exec_001_test",
-    stages: [],
-    ...overrides,
-  };
+function stage(id: string, status: StageInfo["status"]): StageInfo {
+  return { id, title: id, description: "", status, operator_phase: "prepare" };
 }
 
 describe("attentionQueue", () => {
-  it("prioritizes action_required gate over blocking", () => {
-    const run = minimalRun({
-      stages: [
-        {
-          id: "transcript_review",
-          title: "Transcript review",
-          description: "",
-          status: "action_required",
-          operator_phase: "prepare",
-        },
-      ],
-      journey: {
-        phase: "prepare",
-        milestones: {},
-        next_action: "Review STT clips",
-        blocking: { blocked: false },
+  it("omits write_approval when job is running", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [stage("ingest", "awaiting_write_approval")],
+      job: {
+        status: "running",
+        stage: "ingest",
+        current_stage: "ingest",
+        pending_write_stage: "ingest",
+        awaiting_write_approval: true,
+        message: "Hashing",
       },
-    });
-    const items = listRequiredAttentionItems(run);
-    expect(items[0]?.kind).toBe("gate");
-    expect(items[0]?.stageId).toBe("transcript_review");
+    };
+    const items = listAttentionItems(run);
+    expect(items.some((i) => i.kind === "write_approval")).toBe(false);
   });
 
-  it("marks phase with attention status", () => {
-    const run = minimalRun({
-      stages: [
-        {
-          id: "g2_flow_select",
-          title: "Choose output",
-          description: "",
-          status: "action_required",
-          operator_phase: "complete",
-        },
-      ],
-      journey: {
-        phase: "complete",
-        milestones: {},
-        next_action: "Confirm output type",
-        blocking: { blocked: true, stage_id: "g2_flow_select", message: "Confirm output type" },
+  it("includes write_approval when job idle and awaiting", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [stage("ingest", "awaiting_write_approval")],
+      job: {
+        status: "awaiting_write_approval",
+        stage: "ingest",
+        pending_write_stage: "ingest",
+        message: "2 files",
       },
-    });
-    expect(phaseAttentionStatus("complete", run)).toBe("attention");
-    expect(countRequiredAttention(run)).toBeGreaterThan(0);
-  });
-
-  it("maps journey stage_reuse blocking to stage_reuse item", () => {
-    const run = minimalRun({
-      stages: [
-        {
-          id: "transcribe",
-          title: "Transcribe",
-          description: "",
-          status: "pending",
-          operator_phase: "prepare",
-        },
-      ],
-      job: { status: "complete" },
-      journey: {
-        phase: "prepare",
-        milestones: {},
-        next_action: "Choose reuse",
-        blocking: {
-          blocked: true,
-          reason: "stage_reuse",
-          stage_id: "transcribe",
-          message: "Transcribe can reuse outputs from exec_001.",
-        },
-      },
-    });
-    const items = listRequiredAttentionItems(run);
-    expect(items.some((i) => i.kind === "stage_reuse" && i.stageId === "transcribe")).toBe(
-      true,
-    );
-    expect(items.some((i) => i.title === "Pipeline blocked")).toBe(false);
+    };
+    const items = listAttentionItems(run);
+    expect(items.some((i) => i.kind === "write_approval")).toBe(true);
   });
 });

@@ -69,7 +69,8 @@ function qaFailedAssets(qaMap: Map<string, MmaudioQaRow>): string[] {
 }
 
 export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
-  const { run, config, refreshRun, showToast } = useApp();
+  const { run, config, refreshRun, showToast, advanceFromCheckpoint, jobRunning, actionBusy } =
+    useApp();
   const inlineRef = useRef<HTMLAudioElement | null>(null);
   const [listenMode, setListenMode] = useState<"solo" | "under_speech">("solo");
   const [underSpeechSupported, setUnderSpeechSupported] = useState<boolean | null>(null);
@@ -122,6 +123,9 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
     (failedIds.length > 0 ||
       qaFailIds.length > 0 ||
       blockedAssetSet.size > 0);
+
+  const allReviewed = assets.every(({ asset_id }) => latest.has(asset_id));
+  const canContinue = allReviewed && !mixGateBlocked;
 
   const submitListen = async (
     assetId: string,
@@ -264,6 +268,19 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
             onClick={() => void passAllAssets()}
           >
             Pass all ({assets.length})
+          </button>
+        </div>
+      ) : null}
+      {canContinue ? (
+        <div className="flow-choice">
+          <button
+            type="button"
+            className="btn primary sm"
+            data-testid="sfx-post-listen-continue"
+            disabled={jobRunning || actionBusy}
+            onClick={() => void advanceFromCheckpoint()}
+          >
+            Continue pipeline
           </button>
         </div>
       ) : null}

@@ -8,7 +8,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     runId,
     refreshRun,
     selectStage,
-    executeJob,
+    advanceFromCheckpoint,
     showToast,
     appendClientLog,
     jobRunning,
@@ -29,8 +29,8 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     fd.append("file", file);
     await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
     const wasMissing = (run?.g1_missing || []).length > 0;
-    await refreshRun();
-    if (wasMissing && run?.g1_clear) {
+    const refreshed = await refreshRun();
+    if (wasMissing && refreshed && !(refreshed.g1_missing || []).length) {
       await selectStage("g1_vo_pickup");
     }
   };
@@ -123,7 +123,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           className="btn primary"
           data-testid="vo-continue"
           disabled={jobRunning || actionBusy}
-          onClick={() => void executeJob({ mode: "stage", stage: "vo_ingest" })}
+          onClick={() => void advanceFromCheckpoint()}
         >
           All VO recorded — continue
         </button>

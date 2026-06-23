@@ -32,6 +32,7 @@ Canonical rules so workflow chips, sidebar, middle-panel outputs, and operator-a
 | T1 | `done` stage must not have `artifacts_status[path]=pending` unless lifecycle is `n_a`/`skipped` |
 | T8 | `outputs_view` must not show `pending` for done stages (except staged write-approval) |
 | T9 | `awaiting_write_approval` must have staged artifacts |
+| T10 | `gui_job.status: complete` must not retain `awaiting_write_approval` or `pending_write_stage` |
 
 Run `python tools/ui_truth_smoke.py` against executions to audit.
 

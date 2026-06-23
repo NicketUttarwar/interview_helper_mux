@@ -61,7 +61,9 @@ def _click_role(
 
 
 def try_write_approval(page: Page, log: EventLogger, archive=None) -> bool:
+    """Single click only — GUI auto-starts next stage after save; do not retry while busy."""
     if _click_testid(page, "write-approval-save-continue", log, "write approval", archive):
+        time.sleep(1.0)
         return True
     if page.locator("#write-approval-panel").count() and _click_role(
         page, "Save & continue", log, archive=archive

@@ -304,4 +304,10 @@ describe("buttonSanity — AppContext openActionModal toggles modal state", () =
     expect(text).toContain("jobRunningRef.current");
     expect(text).toContain("actionBusyRef.current");
   });
+
+  it("checkpoint continue bypasses actionBusy guard", () => {
+    const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
+    expect(text).toContain("checkpoint_continue");
+    expect(text).toContain("advanceFromCheckpoint");
+  });
 });

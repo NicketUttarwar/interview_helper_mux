@@ -55,12 +55,13 @@ def validate_run_snapshot(
                 violations.append(
                     Violation("T9", f"Stage {sid} awaiting_write_approval without staged artifacts", sid)
                 )
-    if job and job.get("status") == "running":
-        run_stage = job.get("current_stage") or job.get("stage")
-        if run_stage:
-            match = next((s for s in stages if s.get("id") == run_stage), None)
-            if match and journey:
-                blocking = journey.get("blocking") or {}
-                if not blocking.get("blocked") and match.get("status") == "pending":
-                    pass  # running is OK
+    if job and job.get("status") in ("complete",):
+        if job.get("awaiting_write_approval") or job.get("pending_write_stage"):
+            violations.append(
+                Violation(
+                    "T10",
+                    "Job complete but write approval fields still set",
+                    str(job.get("pending_write_stage") or job.get("stage") or ""),
+                )
+            )
     return violations

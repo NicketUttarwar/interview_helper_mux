@@ -11,7 +11,7 @@ import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 import { formatApiError } from "../../utils/safeApi";
 
 export function TranscriptReviewPanel() {
-  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview, runNextStage } =
+  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview, advanceFromCheckpoint } =
     useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +97,7 @@ export function TranscriptReviewPanel() {
         summary ? `${summary} · Transcript review complete` : "Transcript review complete",
       );
       await refreshRun();
-      await runNextStage();
+      await advanceFromCheckpoint();
     } catch (reason) {
       reportError(reason, "Complete transcript review");
     }

@@ -46,6 +46,17 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
   let primaryLabel = action.primaryDisabled ? null : action.primaryLabel;
   let onPrimary: (() => void) | null = cmd.onPrimary;
 
+  const runningStage = job?.current_stage || job?.stage;
+  const jobMsg = (job?.message || "").toLowerCase();
+  if (
+    input.jobRunning &&
+    (runningStage === "ingest" || jobMsg.includes("hash") || jobMsg.includes("ingest"))
+  ) {
+    subline =
+      job?.message ||
+      "Hashing audio — this can take a few minutes for long files. Watch Activity log.";
+  }
+
   if (job?.status === "interrupted") {
     activityKind = "interrupted";
     headline = "Run interrupted";

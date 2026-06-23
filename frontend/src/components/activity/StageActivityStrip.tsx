@@ -1,6 +1,5 @@
 import { useApp } from "../../context/AppContext";
 import { filterByStage } from "../../utils/logStreams";
-import { escapeHtml, formatTs } from "../../utils";
 
 export function StageActivityStrip() {
   const {
@@ -14,9 +13,8 @@ export function StageActivityStrip() {
 
   const stageEntries = filterByStage(logEntries, selectedStageId);
   const hasErrors = stageEntries.some((e) => e.level === "error");
-  const entries = stageEntries.slice(-3);
 
-  if (!entries.length) return null;
+  if (!stageEntries.length) return null;
 
   return (
     <div className={`stage-activity-strip panel-inset${hasErrors ? " has-errors" : ""}`}>
@@ -24,15 +22,16 @@ export function StageActivityStrip() {
         <h4 className="stage-outputs-title">
           {hasErrors ? (
             <>
-              <span className="log-level-dot level-error" aria-hidden /> Recent step activity
+              <span className="log-level-dot level-error" aria-hidden /> Step has errors — see Activity log
             </>
           ) : (
-            "Recent step activity"
+            "Step activity in global log panel"
           )}
         </h4>
         <button
           type="button"
           className="btn ghost sm"
+          data-action-id="gui.activity.open_step"
           onClick={() => {
             setActivityLogTab("step");
             setActivityLogCollapsed(false);
@@ -40,17 +39,6 @@ export function StageActivityStrip() {
         >
           View in activity panel
         </button>
-      </div>
-      <div className="stage-activity-strip-body">
-        {entries.map((e, i) => (
-          <div
-            key={`${e.ts}-${i}`}
-            className={`log-entry level-${e.level || "info"} log-entry-compact${e.level === "error" ? " log-entry-highlight" : ""}`}
-          >
-            <span className="log-ts">{formatTs(e.ts)}</span>
-            <span className="log-msg">{escapeHtml(e.message)}</span>
-          </div>
-        ))}
       </div>
     </div>
   );

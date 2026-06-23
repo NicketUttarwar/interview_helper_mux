@@ -39,7 +39,7 @@ export function LogsTab() {
     setLogFilterPreset,
     activateSubstep,
     apiGrants,
-    jobRunning,
+    dumpLastStep,
   } = useApp();
   const journeyFilterDefault = config?.journey_ui?.journey_log_filter === true;
   const [journeyFilter, setJourneyFilter] = useState(journeyFilterDefault);
@@ -160,6 +160,16 @@ export function LogsTab() {
             : "Current action is in the live status bar above. Use filters below to inspect history."}
         </p>
         <div className="logs-toolbar-actions">
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-testid="action-trace-dump-last"
+            data-action-id="gui.activity.dump_last"
+            disabled={!runId}
+            onClick={() => void dumpLastStep()}
+          >
+            Dump last step
+          </button>
           <button
             type="button"
             className="btn ghost sm"

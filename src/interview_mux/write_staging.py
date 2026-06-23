@@ -172,6 +172,9 @@ def _staging_lock(ctx: RunContext, stage_id: str) -> FileLock:
     return FileLock(lock_path_for(root / ".staging.lock"))
 
 
+_LARGE_FLUSH_BYTES = 8 << 20  # 8 MiB
+
+
 def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
     with _staging_lock(ctx, stage_id):
         root = staging_root(ctx, stage_id)
@@ -180,13 +183,45 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             return []
         flushed: list[str] = []
         from interview_mux.file_store import atomic_copy
+        from interview_mux.operator_subprocess import touch_job_message
 
         for src in sorted(root.rglob("*")):
             if not src.is_file() or src.name.endswith(".lock"):
                 continue
             rel = str(src.relative_to(root)).replace("\\", "/")
             dest = ctx.run_dir.joinpath(*rel.split("/"))
-            atomic_copy(src, dest)
+            size = src.stat().st_size
+            if size >= _LARGE_FLUSH_BYTES:
+                mb = size / (1 << 20)
+                msg = f"Promoting {rel} ({mb:.1f} MiB) to working directory…"
+                touch_job_message(ctx, msg)
+                ctx.log(
+                    msg,
+                    level="info",
+                    stage=stage_id,
+                    action_id="write_approval.flush",
+                    origin="api",
+                    detail={
+                        "journey_kind": "execute",
+                        "event": "flush_progress",
+                        "path": rel,
+                        "bytes": size,
+                    },
+                )
+
+                def _progress(copied: int, total: int, *, _rel: str = rel) -> None:
+                    if total and copied >= total:
+                        ctx.log(
+                            f"Promoted {_rel}",
+                            level="info",
+                            stage=stage_id,
+                            action_id="write_approval.flush",
+                            origin="api",
+                        )
+
+                atomic_copy(src, dest, on_progress=_progress if size >= _LARGE_FLUSH_BYTES else None)
+            else:
+                atomic_copy(src, dest)
             flushed.append(rel)
         shutil.rmtree(root, ignore_errors=True)
     clear_pending_approval(ctx, stage_id)
@@ -317,14 +352,34 @@ def check_write_approval_before_execute(ctx: RunContext) -> WriteApprovalPending
 
 
 def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
-    flushed = flush_stage_writes(ctx, stage_id)
-    ctx.mark_done(stage_id, force=True)
-    now = datetime.now(timezone.utc).isoformat()
+    from interview_mux.operator_action_trace import begin_action, end_action
 
-    def _ack(meta: dict[str, Any]) -> None:
-        ack = dict(meta.get("handoff_ack") or {})
-        ack[stage_id] = now
-        meta["handoff_ack"] = ack
+    trace_id = begin_action(
+        "write_approval.approve",
+        run_dir=ctx.run_dir,
+        stage=stage_id,
+        origin="api",
+        summary=f"Approve staged writes for {stage_id}",
+        function="write_staging.approve_stage_writes",
+    )
+    try:
+        flushed = flush_stage_writes(ctx, stage_id)
+        ctx.mark_done(stage_id, force=True)
+        now = datetime.now(timezone.utc).isoformat()
 
-    ctx.mutate_run_meta(_ack)
-    return flushed
+        def _ack(meta: dict[str, Any]) -> None:
+            ack = dict(meta.get("handoff_ack") or {})
+            ack[stage_id] = now
+            meta["handoff_ack"] = ack
+
+        ctx.mutate_run_meta(_ack)
+        end_action(
+            trace_id,
+            run_dir=ctx.run_dir,
+            status="ok",
+            detail={"flushed": flushed, "stage_id": stage_id},
+        )
+        return flushed
+    except Exception:
+        end_action(trace_id, run_dir=ctx.run_dir, status="error")
+        raise

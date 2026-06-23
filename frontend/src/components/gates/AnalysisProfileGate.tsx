@@ -3,7 +3,7 @@ import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
 
 export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
-  const { run, runId, refreshRun, showToast, setPipelineSubTab, runNextStage } = useApp();
+  const { run, runId, refreshRun, showToast, setPipelineSubTab, advanceFromCheckpoint } = useApp();
   const ready = Boolean(run?.profile_ready_for_review);
   const verified = stage.status === "done" || Boolean(run?.profile_verified);
   const flow1Block =
@@ -15,7 +15,7 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
       await api(`/api/runs/${runId}/analysis-profile/verify`, { method: "POST" });
       showToast("Profile verified — you can continue.");
       await refreshRun();
-      await runNextStage();
+      await advanceFromCheckpoint();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not verify profile");
     }

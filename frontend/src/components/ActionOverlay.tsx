@@ -3,18 +3,17 @@ import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 
 export function ActionOverlay() {
-  const { jobRunning, actionBusy, run, selectedStageId, apiGrants } = useApp();
+  const { jobRunning, run, selectedStageId, apiGrants } = useApp();
   const action = useGlobalOperatorAction(run, {
     selectedStageId,
     jobRunning,
     apiGrants,
   });
-  if (!jobRunning && !actionBusy) return null;
+  if (!jobRunning) return null;
 
   const job = run?.job;
-  const message = actionBusy
-    ? action.headline || "Saving staged outputs and advancing…"
-    : action.mode === "running"
+  const message =
+    action.mode === "running"
       ? action.headline
       : isJobActivelyRunning(job)
         ? job?.message || action.headline

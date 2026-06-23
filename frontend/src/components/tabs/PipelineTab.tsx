@@ -1,7 +1,6 @@
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { PipelineToolRow } from "../pipeline/PipelineToolRow";
-import { ActivityLogPanel } from "../activity/ActivityLogPanel";
 import { StageDetail } from "../workspace/StageDetail";
 import { NlePanel } from "../workspace/NlePanel";
 import { ProfilePanel } from "../workspace/ProfilePanel";
@@ -72,7 +71,7 @@ export function PipelineTab() {
         <PreviousSessionReusePanel compact />
         <div className="workspace-scroll">
           <div
-            className={`pipeline-v2-body${activityLogCollapsed ? " log-collapsed" : ""}`}
+            className={`pipeline-v2-body${activityLogCollapsed ? " log-collapsed" : ""} pipeline-v2-body--no-side-log`}
           >
             <PipelineStepList />
             <div className="pipeline-v2-main">
@@ -85,7 +84,6 @@ export function PipelineTab() {
               {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
               {pipelineSubTab === "volley_memory" ? <VolleyMemoryPanel /> : null}
             </div>
-            <ActivityLogPanel />
           </div>
         </div>
       </JourneyShell>

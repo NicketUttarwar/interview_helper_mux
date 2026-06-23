@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
+import { GlobalActivityDock } from "./activity/GlobalActivityDock";
 import { PendingActionBanner } from "./guidance/PendingActionBanner";
 import { AttentionQueuePanel } from "./guidance/AttentionQueuePanel";
 import { AppTabs } from "./AppTabs";
@@ -17,10 +19,14 @@ export function AppShell() {
   const {
     activeTab,
     run,
+    runId,
     pendingActionCount,
     selectedStageId,
     jobRunning,
     apiGrants,
+    activityLogCollapsed,
+    dumpLastStep,
+    traceAction,
   } = useApp();
 
   const operatorAction = useGlobalOperatorAction(run, {
@@ -39,8 +45,22 @@ export function AppShell() {
     pendingActionCount > 1 &&
     !(operatorAction.mode === "needs_you" && operatorAction.stageId);
 
+  useEffect(() => {
+    const onClick = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      const el = target?.closest<HTMLElement>("[data-action-id]");
+      if (!el) return;
+      const actionId = el.getAttribute("data-action-id");
+      if (!actionId) return;
+      const label = el.getAttribute("aria-label") || el.textContent?.trim() || actionId;
+      traceAction(actionId, label, { level: "action" });
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [traceAction]);
+
   return (
-    <div className="operator-app">
+    <div className={`operator-app${runId ? " operator-app-with-dock" : ""}`}>
       <LiveStatusBar />
       {showPendingWrap ? (
         <div className="global-pending-action-wrap">
@@ -49,13 +69,18 @@ export function AppShell() {
         </div>
       ) : null}
       <AppTabs />
-      <div className="operator-body app-tab-content">
-        {activeTab === "start" ? <StartTab /> : null}
-        {activeTab === "executions" ? <ExecutionsTab /> : null}
-        {activeTab === "pipeline" ? <PipelineTab /> : null}
-        {activeTab === "logs" ? <LogsTab /> : null}
+      <div className="operator-main-row">
+        <div className="operator-body app-tab-content">
+          {activeTab === "start" ? <StartTab /> : null}
+          {activeTab === "executions" ? <ExecutionsTab /> : null}
+          {activeTab === "pipeline" ? <PipelineTab /> : null}
+          {activeTab === "logs" ? <LogsTab /> : null}
+        </div>
+        {runId && run ? (
+          <GlobalActivityDock onDump={() => void dumpLastStep()} />
+        ) : null}
       </div>
-      <ActivityTeaser />
+      {activityLogCollapsed ? <ActivityTeaser /> : null}
       <ModalHost />
       <ActionOverlay />
       <Toast />

@@ -27,6 +27,14 @@ source .venv/bin/activate
 
 **Pass:** Python 3.12.x, ffmpeg/ffprobe, aws CLI, imports smoke, `pip-audit` on `requirements.lock` with no unaccepted HIGH/CRITICAL findings.
 
+**Operator logging (LOG-00+):**
+
+```bash
+python tools/audit_operator_action_catalog.py
+python tools/audit_operator_logging.py
+.venv/bin/python -m pytest tests/test_operator_action_trace.py tests/test_ingest.py -q
+```
+
 ---
 
 ## June 2026 Wave 0 — Resilience harness

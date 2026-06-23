@@ -15,7 +15,13 @@ import { LogEntryList } from "./LogEntryList";
 import { useStageProgress } from "../../hooks/useStageProgress";
 import type { LogStreamTab } from "../../types";
 
-export function ActivityLogPanel() {
+export function ActivityLogPanel({
+  variant = "pipeline",
+  onDumpLast,
+}: {
+  variant?: "pipeline" | "global";
+  onDumpLast?: () => void;
+} = {}) {
   const {
     run,
     logEntries,
@@ -172,7 +178,10 @@ export function ActivityLogPanel() {
   }
 
   return (
-    <aside className="activity-log-panel panel" aria-label="Pipeline activity log">
+    <aside
+      className={`activity-log-panel panel${variant === "global" ? " activity-log-panel--global" : ""}`}
+      aria-label="Pipeline activity log"
+    >
       <div className="activity-log-head panel-head">
         <div>
           <h3>Activity</h3>
@@ -188,6 +197,17 @@ export function ActivityLogPanel() {
           ) : null}
         </div>
         <div className="activity-log-head-actions">
+          {onDumpLast ? (
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-testid="action-trace-dump-last"
+              data-action-id="gui.activity.dump_last"
+              onClick={() => onDumpLast()}
+            >
+              Dump last step
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn ghost sm"

@@ -17,7 +17,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, refreshRun, runNextStage, showToast, beginStageExecution, jobRunning, actionBusy } = useApp();
+  const { runId, refreshRun, advanceFromCheckpoint, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -58,7 +58,7 @@ export function StageReuseOfferCard({
       });
       await refreshRun();
       let pending: { paths?: string[] } | null = null;
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 15; i++) {
         pending = await api<{ paths?: string[] }>(
           `/api/runs/${runId}/pending-writes/${stage.id}`,
         ).catch(() => null);
@@ -67,9 +67,11 @@ export function StageReuseOfferCard({
         await refreshRun();
       }
       if (pending?.paths?.length) {
+        closeActionModal();
         return;
       }
-      await runNextStage();
+      closeActionModal();
+      await advanceFromCheckpoint();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Reuse action failed", "error");
     } finally {
@@ -124,7 +126,7 @@ export function StageReuseOfferCard({
                   type="button"
                   className="btn primary sm stage-reuse-accept-btn"
                   data-testid="reuse-accept"
-                  disabled={submitting}
+                  disabled={submitting || jobRunning || actionBusy}
                   onClick={() => void submit("accept", c.run_id)}
                 >
                   Reuse outputs
@@ -176,7 +178,7 @@ export function StageReuseOfferCard({
           type="button"
           className="btn primary sm"
           data-testid="reuse-run-fresh"
-          disabled={submitting}
+          disabled={submitting || jobRunning || actionBusy}
           onClick={() => void submit("decline_and_run")}
         >
           {submitting ? (

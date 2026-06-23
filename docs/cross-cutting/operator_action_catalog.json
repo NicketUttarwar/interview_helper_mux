@@ -1,0 +1,850 @@
+[
+  {
+    "action_id": "gui.start.select_audio",
+    "description": "Select input audio on Start tab",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.start.set_flow_intent",
+    "description": "Set optional flow intent on Start tab",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.run.create",
+    "description": "Create new execution from input audio",
+    "implementation": "server.post_runs",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.run.resume",
+    "description": "Resume prior execution",
+    "implementation": "server.put_session_active",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.executions.refresh",
+    "description": "Refresh executions list",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.session.clear",
+    "description": "Clear active session",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.session.resume_server",
+    "description": "Resume server session pointer",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.session.retry_load",
+    "description": "Retry loading active run",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.session.mute_alerts",
+    "description": "Mute attention sounds",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.session.open_logs_tab",
+    "description": "Open full Logs tab",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.api_consent.grant",
+    "description": "Grant API provider consent",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.confirm.ok",
+    "description": "Confirm destructive action",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.confirm.cancel",
+    "description": "Cancel confirm dialog",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.nav.tab",
+    "description": "Switch main application tab",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.activity.dump_last",
+    "description": "Dump last action trace to log panel",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.activity.open_step",
+    "description": "Open Activity panel filtered to current step",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.activity.toggle_collapsed",
+    "description": "Collapse or expand activity dock",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.activity.tab",
+    "description": "Switch activity log tab",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.write_approval.save",
+    "description": "Save staged files and continue pipeline",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.write_approval.discard",
+    "description": "Discard staged files and re-run stage",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.write_approval.saved",
+    "description": "Milestone after successful save",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.write_approval.error",
+    "description": "Write approval failed",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.write_approval.still_pending",
+    "description": "Save done but gate still active",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.operator.action",
+    "description": "Generic operator action log",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.step_action.primary",
+    "description": "Primary step action button",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.step_action.secondary",
+    "description": "Secondary step action button",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.checkpoint.continue",
+    "description": "Checkpoint modal continue",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.handoff.acknowledge",
+    "description": "Acknowledge AI handoff review",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.preclean.accept",
+    "description": "Accept optional audio pre-clean",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.preclean.dismiss",
+    "description": "Dismiss optional pre-clean offer",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.preclean.skip",
+    "description": "Skip optional pre-clean substep",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.stage_reuse.accept",
+    "description": "Reuse outputs from prior execution",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.stage_reuse.decline",
+    "description": "Decline reuse and run fresh",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g2.select_flow",
+    "description": "Select output flow at G2",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g2.use_planned",
+    "description": "Use planned flow intent at G2",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.transcript_review.complete",
+    "description": "Complete transcript review gate",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.disfluency_review.complete",
+    "description": "Complete disfluency review gate",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.analysis_profile.verify",
+    "description": "Verify analysis profile",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.live_status.primary",
+    "description": "Live status bar primary CTA",
+    "implementation": "*",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "api.write_approval.approve",
+    "description": "HTTP approve pending writes",
+    "implementation": "write_staging.approve_stage_writes",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "api.pipeline.execute",
+    "description": "HTTP start background pipeline job",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "write_approval.approve",
+    "description": "Flush staged writes to disk",
+    "implementation": "write_staging.approve_stage_writes",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "write_approval.discard",
+    "description": "Discard staged writes",
+    "implementation": "write_staging.discard_stage_writes",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute",
+    "description": "Background pipeline execute job",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_stage",
+    "description": "Run single pipeline stage",
+    "implementation": "pipeline.run_single_stage",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.run",
+    "description": "Run shell subprocess with log streaming",
+    "implementation": "operator_subprocess.run_logged_command",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.ffmpeg",
+    "description": "ffmpeg audio transform",
+    "implementation": "operator_subprocess.run_logged_command",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.deepfilter",
+    "description": "DeepFilterNet noise reduction",
+    "implementation": "deepfilter_runner.enhance_wav",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.mmaudio",
+    "description": "MMAudio text-to-audio generation",
+    "implementation": "mmaudio_runner",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.aws_transcribe",
+    "description": "AWS Transcribe CLI job",
+    "implementation": "transcribe_aws",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.local_llm",
+    "description": "Local MLX LLM subprocess",
+    "implementation": "local_llm_runner",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.local_runtime",
+    "description": "Local runtime script",
+    "implementation": "local_runtime",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.api_call",
+    "description": "External LLM or cloud API call",
+    "implementation": "operator_trace.log_api_call",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.primary",
+    "description": "LLM primary envelope call",
+    "implementation": "llm_runner",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.arbiter",
+    "description": "LLM arbiter call",
+    "implementation": "llm_runner",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "ingest.hash",
+    "description": "SHA256 hash progress during ingest",
+    "implementation": "ingest._sha256",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_stage",
+    "description": "Execute pipeline mode stage",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_analysis",
+    "description": "Execute pipeline mode analysis",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_analysis_until_g0",
+    "description": "Execute pipeline mode analysis_until_g0",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_flow1",
+    "description": "Execute pipeline mode flow1",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_flow2",
+    "description": "Execute pipeline mode flow2",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_flow3",
+    "description": "Execute pipeline mode flow3",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_flow1_until_preview",
+    "description": "Execute pipeline mode flow1_until_preview",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_flow1_polish",
+    "description": "Execute pipeline mode flow1_polish",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.execute_nle_apply",
+    "description": "Execute pipeline mode nle_apply",
+    "implementation": "runner.start",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.master_flow2",
+    "description": "Run pipeline stage master_flow2",
+    "implementation": "stages/master_flow2",
+    "stage": "master_flow2",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.boundary_detection",
+    "description": "Run pipeline stage boundary_detection",
+    "implementation": "stages/boundary_detection",
+    "stage": "boundary_detection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.missing_framing",
+    "description": "Run pipeline stage missing_framing",
+    "implementation": "stages/missing_framing",
+    "stage": "missing_framing",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.transcribe",
+    "description": "Run pipeline stage transcribe",
+    "implementation": "stages/transcribe",
+    "stage": "transcribe",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.mix_flow1",
+    "description": "Run pipeline stage mix_flow1",
+    "implementation": "stages/mix_flow1",
+    "stage": "mix_flow1",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sound_design_vo_finalize",
+    "description": "Run pipeline stage sound_design_vo_finalize",
+    "implementation": "stages/sound_design_vo_finalize",
+    "stage": "sound_design_vo_finalize",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.disfluency_review",
+    "description": "Run pipeline stage disfluency_review",
+    "implementation": "stages/disfluency_review",
+    "stage": "disfluency_review",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sfx_prompt_craft",
+    "description": "Run pipeline stage sfx_prompt_craft",
+    "implementation": "stages/sfx_prompt_craft",
+    "stage": "sfx_prompt_craft",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.master_flow1",
+    "description": "Run pipeline stage master_flow1",
+    "implementation": "stages/master_flow1",
+    "stage": "master_flow1",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.g1_vo_pickup",
+    "description": "Run pipeline stage g1_vo_pickup",
+    "implementation": "stages/g1_vo_pickup",
+    "stage": "g1_vo_pickup",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sonic_context_build",
+    "description": "Run pipeline stage sonic_context_build",
+    "implementation": "stages/sonic_context_build",
+    "stage": "sonic_context_build",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.interview_spine_build",
+    "description": "Run pipeline stage interview_spine_build",
+    "implementation": "stages/interview_spine_build",
+    "stage": "interview_spine_build",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.full_master_ranking",
+    "description": "Run pipeline stage full_master_ranking",
+    "implementation": "stages/full_master_ranking",
+    "stage": "full_master_ranking",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.audio_preclean",
+    "description": "Run pipeline stage audio_preclean",
+    "implementation": "stages/audio_preclean",
+    "stage": "audio_preclean",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sound_design_plan_flow1",
+    "description": "Run pipeline stage sound_design_plan_flow1",
+    "implementation": "stages/sound_design_plan_flow1",
+    "stage": "sound_design_plan_flow1",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.assembly_preview",
+    "description": "Run pipeline stage assembly_preview",
+    "implementation": "stages/assembly_preview",
+    "stage": "assembly_preview",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.g2_flow_select",
+    "description": "Run pipeline stage g2_flow_select",
+    "implementation": "stages/g2_flow_select",
+    "stage": "g2_flow_select",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.topic_coverage_audit",
+    "description": "Run pipeline stage topic_coverage_audit",
+    "implementation": "stages/topic_coverage_audit",
+    "stage": "topic_coverage_audit",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.source_acoustic_profile",
+    "description": "Run pipeline stage source_acoustic_profile",
+    "implementation": "stages/source_acoustic_profile",
+    "stage": "source_acoustic_profile",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.content_brief_reanchor",
+    "description": "Run pipeline stage content_brief_reanchor",
+    "implementation": "stages/content_brief_reanchor",
+    "stage": "content_brief_reanchor",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.analysis_profile",
+    "description": "Run pipeline stage analysis_profile",
+    "implementation": "stages/analysis_profile",
+    "stage": "analysis_profile",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sound_design_plan_flow2",
+    "description": "Run pipeline stage sound_design_plan_flow2",
+    "implementation": "stages/sound_design_plan_flow2",
+    "stage": "sound_design_plan_flow2",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.highlight_selection",
+    "description": "Run pipeline stage highlight_selection",
+    "implementation": "stages/highlight_selection",
+    "stage": "highlight_selection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.mmaudio_sfx_flow2",
+    "description": "Run pipeline stage mmaudio_sfx_flow2",
+    "implementation": "stages/mmaudio_sfx_flow2",
+    "stage": "mmaudio_sfx_flow2",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.disfluency_extract",
+    "description": "Run pipeline stage disfluency_extract",
+    "implementation": "stages/disfluency_extract",
+    "stage": "disfluency_extract",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.speaker_roles",
+    "description": "Run pipeline stage speaker_roles",
+    "implementation": "stages/speaker_roles",
+    "stage": "speaker_roles",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.sound_design_palettes",
+    "description": "Run pipeline stage sound_design_palettes",
+    "implementation": "stages/sound_design_palettes",
+    "stage": "sound_design_palettes",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.edl_narrative_audit",
+    "description": "Run pipeline stage edl_narrative_audit",
+    "implementation": "stages/edl_narrative_audit",
+    "stage": "edl_narrative_audit",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.mmaudio_sfx_flow1",
+    "description": "Run pipeline stage mmaudio_sfx_flow1",
+    "implementation": "stages/mmaudio_sfx_flow1",
+    "stage": "mmaudio_sfx_flow1",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.transcript_review_build",
+    "description": "Run pipeline stage transcript_review_build",
+    "implementation": "stages/transcript_review_build",
+    "stage": "transcript_review_build",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.export_show_description",
+    "description": "Run pipeline stage export_show_description",
+    "implementation": "stages/export_show_description",
+    "stage": "export_show_description",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.segment_classification",
+    "description": "Run pipeline stage segment_classification",
+    "implementation": "stages/segment_classification",
+    "stage": "segment_classification",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.content_context",
+    "description": "Run pipeline stage content_context",
+    "implementation": "stages/content_context",
+    "stage": "content_context",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.podcast_show_description",
+    "description": "Run pipeline stage podcast_show_description",
+    "implementation": "stages/podcast_show_description",
+    "stage": "podcast_show_description",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.narrative_arc_plan",
+    "description": "Run pipeline stage narrative_arc_plan",
+    "implementation": "stages/narrative_arc_plan",
+    "stage": "narrative_arc_plan",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.optimal_questions",
+    "description": "Run pipeline stage optimal_questions",
+    "implementation": "stages/optimal_questions",
+    "stage": "optimal_questions",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.transcript_review",
+    "description": "Run pipeline stage transcript_review",
+    "implementation": "stages/transcript_review",
+    "stage": "transcript_review",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.edl_flow1",
+    "description": "Run pipeline stage edl_flow1",
+    "implementation": "stages/edl_flow1",
+    "stage": "edl_flow1",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.transitions",
+    "description": "Run pipeline stage transitions",
+    "implementation": "stages/transitions",
+    "stage": "transitions",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.ingest",
+    "description": "Run pipeline stage ingest",
+    "implementation": "stages/ingest",
+    "stage": "ingest",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.mix_flow2",
+    "description": "Run pipeline stage mix_flow2",
+    "implementation": "stages/mix_flow2",
+    "stage": "mix_flow2",
+    "origin": "pipeline",
+    "doc_link": ""
+  }
+]

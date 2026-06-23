@@ -32,6 +32,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     appendClientLog,
     approveWriteAndContinue,
     actionBusy,
+    jobRunning,
   } = useApp();
   const [apiPaths, setApiPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -43,6 +44,8 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [editorDirty, setEditorDirty] = useState(false);
   const [saveComplete, setSaveComplete] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
@@ -164,12 +167,21 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         await syncEditorToStaging(selectedPath, editorValue, isJson);
         setEditorDirty(false);
       }
+      audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.removeAttribute("src");
       const ok = await approveWriteAndContinue(stageId);
-      if (ok) setSaveComplete(true);
-      else
+      if (ok) {
+        setApiPaths([]);
+        setSaveComplete(true);
+        setSaveError(null);
+      } else if (jobRunning) {
+        setApiPaths([]);
+        setSaveError(null);
+      } else {
         setSaveError(
           "Save did not complete — check Activity log and retry from the sidebar substep.",
         );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Approve failed";
       setSaveError(msg);
@@ -208,7 +220,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   if (!writePendingForStage && !paths.length && !loading) return null;
 
-  const saveDisabled = actionBusy || !paths.length;
+  const saveDisabled = actionBusy || jobRunning || !paths.length;
 
   return (
     <section
@@ -242,6 +254,12 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
                   ? `executions/${run.working_dir.split("/executions/").pop()}`
                   : run.working_dir}
               </code>
+            </p>
+          ) : null}
+          {paths.some((p) => p.endsWith(".wav")) ? (
+            <p className="hint sm write-approval-large-wav">
+              Large audio files may take up to a minute to save — click once and watch Activity
+              (Live).
             </p>
           ) : null}
         </div>
@@ -297,6 +315,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           <div className="write-approval-preview">
             {selectedPath && fileKind(selectedPath) === "audio" && run ? (
               <audio
+                ref={audioRef}
                 controls
                 className="write-approval-audio"
                 src={`/api/runs/${run.run_id}/audio?path=${encodeURIComponent(selectedPath)}&pending=1&pending_stage=${encodeURIComponent(stageId)}`}
@@ -340,12 +359,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           type="button"
           className="btn primary"
           data-testid="write-approval-save-continue"
+          data-action-id="gui.write_approval.save"
           disabled={saveDisabled}
           onClick={() => void approve()}
         >
-          {actionBusy ? (
+          {actionBusy || jobRunning ? (
             <>
-              <span className="spinner-inline" aria-hidden /> Saving…
+              <span className="spinner-inline" aria-hidden />{" "}
+              {jobRunning && !actionBusy ? "Next step running…" : "Saving…"}
             </>
           ) : paths.length ? (
             `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
@@ -356,12 +377,18 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         <button
           type="button"
           className="btn ghost sm"
-          disabled={actionBusy}
+          data-action-id="gui.write_approval.discard"
+          disabled={actionBusy || jobRunning}
           onClick={() => void discard()}
         >
           Discard &amp; re-run
         </button>
       </div>
+      {jobRunning && !actionBusy ? (
+        <p className="hint sm write-approval-running-hint">
+          Next step is running — watch Activity log (All/Live). Save is disabled until it finishes.
+        </p>
+      ) : null}
     </section>
   );
 }

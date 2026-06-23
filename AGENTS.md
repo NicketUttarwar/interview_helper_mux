@@ -23,12 +23,13 @@
 13. [docs/workflows/gui-surface-map.md](docs/workflows/gui-surface-map.md) — GUI ↔ API ↔ logs ↔ artifacts
 14. [docs/workflows/api-reference.md](docs/workflows/api-reference.md) — `/api/*` contract
 14b. [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md) — reuse prior exec_* stage outputs (same source audio hash)
-14c. Write approval — `journey_ui.require_write_approval_per_stage`; `.pending_writes/` — [gui-surface-map.md](docs/workflows/gui-surface-map.md), [api-reference.md](docs/workflows/api-reference.md)
+14c. Write approval — `journey_ui.require_write_approval_per_stage`; `.pending_writes/` — [gui-surface-map.md](docs/workflows/gui-surface-map.md), [api-reference.md](docs/workflows/api-reference.md). **Checkpoint completion:** gate panels and write approval must use `advanceFromCheckpoint()` (clears `actionBusy`, reconciles server state, auto-starts next stage via `executeJob` with `source: checkpoint_continue`).
 15. [docs/pipeline.md](docs/pipeline.md) — three flows, stage overview
 16. [docs/cross-cutting/artifact-layout.md](docs/cross-cutting/artifact-layout.md) — paths per run
 16b. [docs/cross-cutting/artifact-generation-and-validation.md](docs/cross-cutting/artifact-generation-and-validation.md) — flagship LLM artifacts, gap-fill, JSON Schema + Zod
 16c. [LLM-ANALYSIS-ARCHITECTURE.md](LLM-ANALYSIS-ARCHITECTURE.md) — LLM volley, routing, disk outputs; **§18 Flow hardening** (completion truth, preflight, cross-validate)
 16d. [docs/cross-cutting/llm-guidance-program.md](docs/cross-cutting/llm-guidance-program.md) — quality-first program index (P0–P4 tiers, quality layers, GUIDE tickets) · [docs/cross-cutting/stage-quality-scorecard.md](docs/cross-cutting/stage-quality-scorecard.md) — per-stage shipped status (prompt, arbiter, lint, crossval)
+16e. [docs/cross-cutting/operator-action-catalog.md](docs/cross-cutting/operator-action-catalog.md) — action_id catalog · [operator-logging-master-plan.md](docs/cross-cutting/operator-logging-master-plan.md)
 17. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — defaults + secrets keys
 18. [docs/build-out/doc-maintenance.md](docs/build-out/doc-maintenance.md) — docs to update per PR
 19. [docs/build-out/testing-and-verification.md](docs/build-out/testing-and-verification.md) — verify each wave

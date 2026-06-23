@@ -34,7 +34,7 @@ function qaTooltipText(row?: MmaudioQaRow): string | null {
 }
 
 export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
-  const { run, refreshRun, selectStage, showToast, runNextStage } = useApp();
+  const { run, refreshRun, selectStage, showToast, advanceFromCheckpoint } = useApp();
   const [data, setData] = useState<SfxPromptsResponse | null>(null);
   const [edits, setEdits] = useState<SfxPromptRow[]>([]);
 
@@ -90,7 +90,7 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     showToast("Prompts approved.");
     await refreshRun();
     await selectStage("sfx_prompt_craft");
-    await runNextStage();
+    await advanceFromCheckpoint();
   };
 
   return (

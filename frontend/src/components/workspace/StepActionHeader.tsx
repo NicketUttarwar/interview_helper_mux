@@ -62,6 +62,7 @@ export function StepActionHeader({
             type="button"
             className={`btn primary step-action-primary${showSpinner ? " running" : ""}`}
             data-testid="step-action-primary"
+            data-action-id="gui.step_action.primary"
             aria-label={busy ? "Saving…" : action.primaryLabel}
             disabled={action.primaryDisabled || busy}
             onClick={onPrimary}
@@ -79,6 +80,7 @@ export function StepActionHeader({
             type="button"
             className="btn ghost sm step-action-secondary"
             data-testid="step-action-secondary"
+            data-action-id="gui.step_action.secondary"
             disabled={busy && action.secondaryKind !== "skip_optional"}
             onClick={onSecondary}
           >

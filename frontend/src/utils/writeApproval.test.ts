@@ -11,12 +11,24 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("resolvePendingWritePaths", () => {
-  it("prefers API paths when provided", () => {
-    const run = runStub();
+  it("prefers API paths when awaiting approval", () => {
+    const run = runStub({
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+      },
+    });
     expect(resolvePendingWritePaths(run, "ingest", ["a.json", "b.json"])).toEqual([
       "a.json",
       "b.json",
     ]);
+  });
+
+  it("ignores API paths when write approval cleared", () => {
+    const run = runStub({
+      job: { status: "complete" },
+    });
+    expect(resolvePendingWritePaths(run, "ingest", ["a.json"])).toEqual([]);
   });
 
   it("falls back to job pending_write_paths", () => {
@@ -30,8 +42,12 @@ describe("resolvePendingWritePaths", () => {
     expect(resolvePendingWritePaths(run, "ingest")).toEqual(["input/checksum.json"]);
   });
 
-  it("falls back to run meta pending_write_approval", () => {
+  it("falls back to run meta pending_write_approval when awaiting", () => {
     const run = runStub({
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+      },
       meta: {
         pending_write_approval: {
           ingest: { paths: ["meta/a.json"] },

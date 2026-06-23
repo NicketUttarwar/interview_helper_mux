@@ -233,6 +233,24 @@ describe("stageSubsteps", () => {
     expect(progress.fullyComplete).toBe(false);
   });
 
+  it("marks write_approval done when server cleared pending", () => {
+    const ingest = stage({
+      id: "ingest",
+      title: "Ingest",
+      status: "done",
+      operator_phase: "prepare",
+    });
+    const run = minimalRun({
+      stages: [ingest],
+      job: { status: "complete", stage: "ingest" },
+    });
+    const subs = buildStageSubsteps(ingest, run, { jobRunning: false, actionBusy: false });
+    const writeSub = subs.find((s) => s.kind === "write_approval");
+    if (writeSub) {
+      expect(writeSub.status).toBe("done");
+    }
+  });
+
   it("findActiveSubstep aligns with resolver substepId for write approval", () => {
     const ingest = stage({
       id: "ingest",

@@ -4,6 +4,7 @@ import {
   getHandoffPathsLocal,
 } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
+import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
 import { resolvePrecleanOffer } from "./preclean";
@@ -144,7 +145,8 @@ export function listAttentionItems(
 
   const items: AttentionItem[] = [];
   const job = run.job;
-  const ctx = resolveJobStatusContext(run, false);
+  const jobRunning = isJobActivelyRunning(job);
+  const ctx = resolveJobStatusContext(run, jobRunning);
   const focusStageId = findPendingFocusStage(run, grants);
   const seen = new Set<string>();
 
@@ -179,7 +181,7 @@ export function listAttentionItems(
     }
   }
 
-  if (ctx.awaitingWriteApproval) {
+  if (ctx.awaitingWriteApproval && !jobRunning) {
     const sid = job?.pending_write_stage || job?.stage || focusStageId || "";
     if (sid) push(writeApprovalItem(run, sid, job?.message));
   }
@@ -231,7 +233,7 @@ export function listAttentionItems(
         phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
         subTab: "stage",
       });
-    } else if (reason === "write_approval") {
+    } else if (reason === "write_approval" && !jobRunning) {
       push(writeApprovalItem(run, sid, blocking.message));
     } else if (
       reason === "transcript_review" ||

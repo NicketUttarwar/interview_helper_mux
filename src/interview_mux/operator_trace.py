@@ -43,7 +43,7 @@ def log_step(
         merged.update(detail)
     elif detail is not None:
         merged["detail"] = detail
-    run.log(message, level=level, stage=sid, detail=merged)
+    run.log(message, level=level, stage=sid, detail=merged, action_id=merged.get("action_id"), origin=merged.get("origin"))
 
 
 def log_api_call(
@@ -53,12 +53,14 @@ def log_api_call(
     ctx: RunContext | None = None,
     stage: str | None = None,
     detail: dict[str, Any] | None = None,
+    action_id: str = "llm.api_call",
 ) -> None:
     """Log an external API or cloud CLI invocation before it runs."""
     payload: dict[str, Any] = {
         "provider": provider,
         "operation": operation,
         "journey_kind": "execute",
+        "action_id": action_id,
     }
     if detail:
         payload.update(detail)
@@ -132,18 +134,41 @@ def logged_step(
     *,
     ctx: RunContext | None = None,
     stage: str | None = None,
+    action_id: str | None = None,
 ) -> Iterator[None]:
     """Context manager that logs start, success, or failure for a named substep."""
-    log_step(f"Start: {label}", ctx=ctx, stage=stage, level="action")
+    run = resolve_ctx(ctx)
+    trace_id = None
+    aid = action_id or f"pipeline.substep.{label.replace('/', '.')}"
+    if run:
+        from interview_mux.operator_action_trace import begin_action, end_action
+
+        trace_id = begin_action(
+            aid,
+            run_dir=run.run_dir,
+            stage=resolve_stage(stage),
+            origin="pipeline",
+            summary=label,
+            function="operator_trace.logged_step",
+        )
+    log_step(f"Start: {label}", ctx=ctx, stage=stage, level="action", detail={"action_id": aid})
     try:
         yield
-        log_step(f"Done: {label}", ctx=ctx, stage=stage, level="success")
+        log_step(f"Done: {label}", ctx=ctx, stage=stage, level="success", detail={"action_id": aid})
+        if run and trace_id:
+            from interview_mux.operator_action_trace import end_action
+
+            end_action(trace_id, run_dir=run.run_dir, status="ok")
     except Exception as exc:
         log_step(
             f"Failed: {label}",
             ctx=ctx,
             stage=stage,
             level="error",
-            detail=failure_detail(exc),
+            detail={**failure_detail(exc), "action_id": aid},
         )
+        if run and trace_id:
+            from interview_mux.operator_action_trace import end_action
+
+            end_action(trace_id, run_dir=run.run_dir, status="error")
         raise

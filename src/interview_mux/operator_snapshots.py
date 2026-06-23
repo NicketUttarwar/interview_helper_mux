@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from interview_mux.file_store import read_json, write_json
@@ -11,6 +12,47 @@ from interview_mux.run_context import RunContext
 
 OPERATOR_DIR = "operator"
 MANIFEST_REL = f"{OPERATOR_DIR}/manifest.json"
+ACTION_TRACE_REL = f"{OPERATOR_DIR}/action_trace.jsonl"
+
+
+def record_action_trace_manifest(run_dir: Path) -> None:
+    """Record action_trace.jsonl in operator manifest when first written."""
+    from interview_mux.operator_action_trace import ACTION_TRACE_REL
+
+    rel = ACTION_TRACE_REL
+    trace_path = run_dir / rel
+    if not trace_path.is_file():
+        return
+    manifest_path = run_dir / MANIFEST_REL
+    if manifest_path.is_file():
+        data = read_json(manifest_path)
+        if isinstance(data, dict) and rel in (data.get("snapshots") or {}):
+            return
+    ctx = RunContext(run_dir.name, create=False)
+    if ctx.run_dir != run_dir:
+        # run_id folder name may differ; write manifest directly
+        manifest = _load_manifest_direct(run_dir)
+    else:
+        manifest = _load_manifest(ctx)
+    snapshots = manifest.setdefault("snapshots", {})
+    snapshots[rel] = {
+        "path": rel,
+        "updated_at": _now_iso(),
+        "source": "action_trace",
+    }
+    manifest["updated_at"] = _now_iso()
+    write_json(run_dir / MANIFEST_REL, manifest)
+
+
+def _load_manifest_direct(run_dir: Path) -> dict[str, Any]:
+    rel = MANIFEST_REL
+    path = run_dir / rel
+    if path.is_file():
+        data = read_json(path)
+        if isinstance(data, dict):
+            return data
+    run_id = run_dir.name
+    return {"version": 1, "run_id": run_id, "snapshots": {}}
 
 # Snapshot keys → relative paths under the run directory.
 SNAPSHOT_PATHS: dict[str, str] = {

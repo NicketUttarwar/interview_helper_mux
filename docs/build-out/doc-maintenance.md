@@ -23,6 +23,7 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 | New GUI panel or route | [gui-surface-map.md](../workflows/gui-surface-map.md), [api-reference.md](../workflows/api-reference.md), `web/stages.py`, `frontend/src/components/` |
 | Frontend / Vite build output | Rebuild `./scripts/build_gui.sh`; commit `src/interview_mux/web/static/index.html` + `static/assets/*` (not ignored — see `/ASSETS/` anchor in `.gitignore`) |
 | GUI UX / operator shell change | [ux-operator-model.md](../workflows/ux-operator-model.md), [gui-surface-map.md](../workflows/gui-surface-map.md), [operator-journey.md](../workflows/operator-journey.md), [operator-flow-audit.md](../workflows/operator-flow-audit.md), [troubleshooting.md](../workflows/troubleshooting.md), `resolveOperatorAction.ts`, `StepActionHeader.tsx` |
+| New operator action / GUI `data-action-id` | [operator-action-catalog.md](../cross-cutting/operator-action-catalog.md), `operator_action_catalog.json`; run `python tools/audit_operator_action_catalog.py` |
 | Gate or quality offer | [operator-gates.md](../workflows/operator-gates.md), checklists, [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md) if offer checkpoint |
 | LLM prompt copy | `docs/prompts/**/*.system.txt`, [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md), examples under `prompts/_shared/examples/`; gap-fill line when stage writes artifacts |
 | LLM guidance / quality tiers | [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md), [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18–20 |
@@ -60,6 +61,7 @@ Every code PR that changes behavior must keep docs authoritative. Agents: run th
 |-------|-------------------|
 | Python / ffmpeg / API versions | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
 | Operator logging | `.cursor/rules/interview-helper-mux.mdc` |
+| Operator action catalog / trace | [operator-action-catalog.md](../cross-cutting/operator-action-catalog.md), `operator_action_catalog.json`, `operator/action_trace.jsonl` |
 | Per-stage Pass / If fail | [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
 | HTTP request bodies | [api-reference.md](../workflows/api-reference.md) |
 | Ticket acceptance | [ticket-specs.md](./ticket-specs.md) |

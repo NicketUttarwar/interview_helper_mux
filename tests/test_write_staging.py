@@ -71,6 +71,19 @@ def test_approve_marks_stage_done(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert ctx.is_done("ingest")
 
 
+def test_flush_large_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    enter_stage_staging("audio_preclean")
+    wav = ctx.path("preclean/isolated.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"\x00" * (10 << 20))
+    exit_stage_staging()
+    flushed = flush_stage_writes(ctx, "audio_preclean")
+    assert "preclean/isolated.wav" in flushed
+    assert ctx.final_path("preclean", "isolated.wav").is_file()
+    assert not list_pending_paths(ctx, "audio_preclean")
+
+
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")

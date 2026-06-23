@@ -23,7 +23,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
 | **Pipeline** | **`PipelineStepList`** | Navigation spine — numbered steps + substeps; **Needs you only** filter; `sidebar-step--focus` highlights resolver focus stage |
 | **Pipeline** | **`StepActionHeader`** | Top of **`StageDetail`**: mode badge, headline, single primary (`data-testid="step-action-primary"`) |
-| **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
+| **Pipeline** | 2-column + global dock | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools); **`GlobalActivityDock`** on all tabs when run active (Live / This step / All + **Dump last step**) |
 | **Pipeline** | **`PipelineCommandCenter`** | Removed — step context in **`StepActionHeader`** + sidebar |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
 
@@ -87,6 +87,8 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 **Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
 
 **Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved.
+
+**Checkpoint continuation:** After any checkpoint (write approval, handoff ack, gate complete, reuse decide), the GUI calls `advanceFromCheckpoint()` → `advancePipeline()` which clears `actionBusy`, reconciles server state, auto-starts the next runnable stage (`executeJob` with `source: checkpoint_continue`), or focuses the next blocker. Optional single-call API: `POST …/continue-after-checkpoint` with `{ kind: "write_approval", stage_id }`.
 
 **Flow intent:** Optional at Start (`flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
 

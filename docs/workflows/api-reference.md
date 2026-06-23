@@ -99,7 +99,9 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
 | `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, `selected_flow`, … | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
-| `POST` | `/api/runs/{run_id}/log` | — | **LogBody** | `ok`, `entry` | **404** |
+| `POST` | `/api/runs/{run_id}/log` | — | **LogBody** (`message`, `level`, `stage`, optional `action_id`) | `ok`, `entry` | **404** |
+| `GET` | `/api/runs/{run_id}/action-trace` | `tail` (int, default 50) | — | `entries[]` — structured action trace rows | **404** |
+| `POST` | `/api/runs/{run_id}/action-trace/dump-last` | — | — | `ok`, `text`, `entries_used`; also appends dump to `gui_log.jsonl` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage routing summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `shard_count`, `primary_attempt_count`, `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors[]`) from `understanding/stage_runs/` | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |

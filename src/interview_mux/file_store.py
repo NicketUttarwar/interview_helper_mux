@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from filelock import FileLock
 
@@ -48,12 +49,30 @@ def write_bytes(path: Path, data: bytes) -> None:
         tmp.replace(path)
 
 
-def atomic_copy(src: Path, dest: Path) -> None:
-    """Promote src to dest via tmp + replace under dest lock."""
+def atomic_copy(
+    src: Path,
+    dest: Path,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> None:
+    """Promote src to dest via tmp + replace under dest lock (streaming copy)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    total = src.stat().st_size if src.is_file() else 0
     with FileLock(lock_path_for(dest)):
         tmp = dest.with_suffix(dest.suffix + ".tmp")
-        tmp.write_bytes(src.read_bytes())
+        if on_progress and total > 0:
+            copied = 0
+            chunk = 1 << 20
+            with src.open("rb") as fin, tmp.open("wb") as fout:
+                while True:
+                    block = fin.read(chunk)
+                    if not block:
+                        break
+                    fout.write(block)
+                    copied += len(block)
+                    on_progress(copied, total)
+        else:
+            shutil.copyfile(src, tmp)
         tmp.replace(dest)
 
 

@@ -52,6 +52,23 @@ describe("resolveOperatorAction", () => {
     expect(a.progress?.current).toBe(2);
   });
 
+  it("running job takes priority over write approval", () => {
+    const run = baseRun({
+      stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
+      job: {
+        status: "running",
+        stage: "ingest",
+        current_stage: "ingest",
+        pending_write_stage: "ingest",
+        awaiting_write_approval: true,
+        message: "Hashing source files",
+      },
+    });
+    const a = resolveOperatorAction(run, { jobRunning: true });
+    expect(a.mode).toBe("running");
+    expect(a.substepId).not.toBe("write_approval:ingest");
+  });
+
   it("awaiting_write_approval maps to needs_you", () => {
     const run = baseRun({
       stages: [

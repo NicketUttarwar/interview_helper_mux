@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.requests import Request
-from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from interview_mux.analysis_memory import (
@@ -248,6 +248,7 @@ class LogBody(BaseModel):
     message: str
     level: str = "info"
     stage: str | None = None
+    action_id: str | None = None
 
 
 class LlmCallVolleyTurn(BaseModel):
@@ -360,6 +361,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    from interview_mux.web.action_trace_middleware import ActionTraceMiddleware
+
+    app.add_middleware(ActionTraceMiddleware)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -659,8 +663,48 @@ def create_app() -> FastAPI:
     @app.post("/api/runs/{run_id}/log")
     def post_log(run_id: str, body: LogBody) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        entry = append_log(ctx.run_dir, body.message, level=body.level, stage=body.stage)
+        detail: dict[str, Any] = {"journey_kind": "execute", "origin": "gui"}
+        if body.action_id:
+            detail["action_id"] = body.action_id
+        from interview_mux.operator_log import operator_log
+
+        entry = operator_log(
+            body.message,
+            run_dir=ctx.run_dir,
+            level=body.level,
+            stage=body.stage,
+            action_id=body.action_id,
+            origin="gui",
+            detail=detail,
+        )
         return {"ok": True, "entry": entry}
+
+    @app.get("/api/runs/{run_id}/action-trace")
+    def get_action_trace(run_id: str, tail: int = 50) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.operator_action_trace import read_action_trace
+
+        return {"entries": read_action_trace(ctx.run_dir, tail=max(1, min(tail, 500)))}
+
+    @app.post("/api/runs/{run_id}/action-trace/dump-last")
+    def dump_last_action_trace(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.operator_action_catalog import load_catalog
+        from interview_mux.operator_action_trace import format_dump_text, read_action_trace
+        from interview_mux.operator_log import operator_log
+
+        entries = read_action_trace(ctx.run_dir, tail=100)
+        text = format_dump_text(entries, catalog=load_catalog())
+        operator_log(
+            "Action trace dump",
+            run_dir=ctx.run_dir,
+            level="info",
+            stage="api",
+            action_id="gui.activity.dump_last",
+            origin="api",
+            detail={"dump": text, "journey_kind": "execute"},
+        )
+        return {"ok": True, "text": text, "entries_used": len(entries)}
 
     @app.get("/api/runs/{run_id}/timeline")
     def get_timeline(run_id: str) -> dict[str, Any]:
@@ -1247,28 +1291,99 @@ def create_app() -> FastAPI:
             return {"ok": True, "path": body.path}
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
-    def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
+    async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
         from interview_mux.write_staging import approve_stage_writes, list_pending_paths
 
-        try:
+        def _approve_locked() -> list[str]:
             with runner.run_guard(run_id):
                 if not list_pending_paths(ctx, stage_id):
                     raise HTTPException(404, f"No pending writes for stage: {stage_id}")
-                flushed = approve_stage_writes(ctx, stage_id)
+                return approve_stage_writes(ctx, stage_id)
+
+        try:
+            flushed = await run_in_threadpool(_approve_locked)
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
+        except HTTPException:
+            raise
         title = STAGE_BY_ID.get(stage_id)
         stage_label = title.title if title else stage_id.replace("_", " ")
         runner.clear_operator_pause(
             ctx,
             stage_id,
             message=(
-                f"{stage_label}: saved {len(flushed)} file(s) to disk — ready for next step."
+                f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
             ),
+        )
+        ctx.log(
+            f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
+            level="success",
+            stage=stage_id,
+            action_id="api.write_approval.approve",
+            origin="api",
+            detail={
+                "journey_kind": "milestone",
+                "event": "write_approval_complete",
+                "paths": flushed,
+                "stage_id": stage_id,
+            },
         )
         refresh_journey_meta(ctx)
         return {"ok": True, "flushed": flushed, "stage_id": stage_id}
+
+    @app.post("/api/runs/{run_id}/continue-after-checkpoint")
+    async def continue_after_checkpoint(
+        run_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Approve staged writes and start the next runnable stage in one lock scope."""
+        kind = str(body.get("kind") or "write_approval")
+        stage_id = str(body.get("stage_id") or "")
+        if kind != "write_approval" or not stage_id:
+            raise HTTPException(400, "kind=write_approval and stage_id required")
+        ctx = _ctx(run_id)
+        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
+        from interview_mux.journey_orchestrator import refresh_journey_meta as _refresh_journey
+
+        def _approve_and_next() -> dict[str, Any]:
+            with runner.run_guard(run_id):
+                if not list_pending_paths(ctx, stage_id):
+                    raise HTTPException(404, f"No pending writes for stage: {stage_id}")
+                flushed = approve_stage_writes(ctx, stage_id)
+            runner.clear_operator_pause(
+                ctx,
+                stage_id,
+                message=f"Saved {len(flushed)} file(s) — advancing pipeline.",
+            )
+            _refresh_journey(ctx)
+            from interview_mux.pipeline import ANALYSIS_ORDER
+            from interview_mux.web.stages import STAGE_BY_ID
+
+            next_stage: str | None = None
+            if stage_id in ANALYSIS_ORDER:
+                idx = ANALYSIS_ORDER.index(stage_id)
+                for sid in ANALYSIS_ORDER[idx + 1 :]:
+                    if not ctx.is_done(sid):
+                        next_stage = sid
+                        break
+            if next_stage and next_stage in STAGE_BY_ID:
+                result = runner.start(run_id, mode="stage", stage=next_stage)
+                return {
+                    "ok": True,
+                    "flushed": flushed,
+                    "stage_id": stage_id,
+                    "started_stage": next_stage,
+                    "job": result,
+                }
+            return {"ok": True, "flushed": flushed, "stage_id": stage_id, "started_stage": None}
+
+        try:
+            return await run_in_threadpool(_approve_and_next)
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except HTTPException:
+            raise
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/discard")
     def discard_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:

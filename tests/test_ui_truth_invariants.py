@@ -39,3 +39,17 @@ def test_skip_artifacts_allowed() -> None:
         }
     ]
     assert not validate_run_snapshot(stages=stages)
+
+
+def test_t10_complete_job_no_write_approval_fields() -> None:
+    job = {
+        "status": "complete",
+        "stage": "audio_preclean",
+        "awaiting_write_approval": True,
+        "pending_write_stage": "audio_preclean",
+    }
+    v = validate_run_snapshot(stages=[], job=job)
+    assert any(x.code == "T10" for x in v)
+
+    clean_job = {"status": "complete", "stage": "ingest"}
+    assert not validate_run_snapshot(stages=[], job=clean_job)
