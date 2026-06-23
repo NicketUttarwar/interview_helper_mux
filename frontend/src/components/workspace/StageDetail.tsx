@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { GateActions } from "../gates/GateActions";
+import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
 import { HandoffPanel } from "./HandoffPanel";
 import { StageOutputsPanel } from "./StageOutputsPanel";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
@@ -17,6 +18,7 @@ import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import type { LlmRoutingAttempt } from "../../types";
 import { useStageProgress } from "../../hooks/useStageProgress";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
+import { resolvePrecleanOffer } from "../../utils/preclean";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
 import { StepActionHeader } from "./StepActionHeader";
@@ -26,7 +28,6 @@ import {
   invokeOperatorActionPrimary,
   invokeOperatorActionSecondary,
 } from "../../utils/operatorActionHandlers";
-
 export function StageDetail() {
   const {
     run,
@@ -47,6 +48,7 @@ export function StageDetail() {
     setActiveSubstepId,
     expandStage,
     skipOptionalStage,
+    openActionModal,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -152,7 +154,13 @@ export function StageDetail() {
       showHandoff ||
       (run?.job?.status === "gate" && run.job.stage === selectedStage.id));
 
+  const precleanOffer = run ? resolvePrecleanOffer(selectedStage, run.meta) : null;
+  const showPrecleanCheckpoint = Boolean(precleanOffer) && !fullyComplete;
+
   const handlePrimary = () => {
+    if (jobRunning || actionBusy) {
+      return;
+    }
     invokeOperatorActionPrimary(stageAction, {
       openModal: (sid, subId) => {
         if (sid) {
@@ -160,6 +168,7 @@ export function StageDetail() {
           expandStage(sid);
         }
         if (subId) setActiveSubstepId(subId);
+        openActionModal();
       },
       runStage: (sid) => void executeJob(executeBodyForStage(sid)),
       continueNext: () => void runNextStage(),
@@ -189,7 +198,7 @@ export function StageDetail() {
         onSecondary={
           stageAction.secondaryLabel ? handleSecondary : undefined
         }
-        busy={actionBusy}
+        busy={actionBusy || jobRunning}
       />
 
       <details className="stage-about-details">
@@ -239,6 +248,16 @@ export function StageDetail() {
 
           <StageActivityStrip />
 
+          {showPrecleanCheckpoint && precleanOffer ? (
+            <div
+              className="stage-detail-checkpoint panel-inset attention-required"
+              id="stage-preclean-panel"
+            >
+              <h3 className="stage-outputs-title">Audio quality</h3>
+              <PrecleanOfferCard stage={selectedStage} offer={precleanOffer} />
+            </div>
+          ) : null}
+
           {!writePendingOnly ? <StageReuseSection stage={selectedStage} /> : null}
           <WriteApprovalPanel stage={selectedStage} />
 
@@ -266,6 +285,7 @@ export function StageDetail() {
               <button
                 type="button"
                 className="btn ghost sm"
+                disabled={actionBusy}
                 onClick={() => void redoFromStage()}
                 title="Clear this step and later markers, then re-run from here"
               >

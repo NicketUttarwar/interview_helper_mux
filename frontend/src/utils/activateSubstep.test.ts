@@ -84,8 +84,9 @@ describe("activateSubstep", () => {
     expect(runNextStage).not.toHaveBeenCalled();
   });
 
-  it("scrolls to gate panel for gate substeps", () => {
+  it("scrolls to gate panel and opens modal for gate substeps", () => {
     const scrollIntoView = vi.fn();
+    const openActionModal = vi.fn();
     vi.stubGlobal(
       "document",
       {
@@ -106,12 +107,30 @@ describe("activateSubstep", () => {
         selectStage: vi.fn(),
         setActiveTab: vi.fn(),
         setPipelineSubTab: vi.fn(),
-        openActionModal: vi.fn(),
+        openActionModal,
         closeActionModal: vi.fn(),
         runNextStage: vi.fn(),
       },
     );
     expect(scrollIntoView).toHaveBeenCalled();
+    expect(openActionModal).toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it("runs stage for run kind todo substeps", () => {
+    const executeStage = vi.fn();
+    activateSubstep(
+      sub({ kind: "run", stageId: "ingest", status: "todo" }),
+      {
+        selectStage: vi.fn(),
+        setActiveTab: vi.fn(),
+        setPipelineSubTab: vi.fn(),
+        openActionModal: vi.fn(),
+        closeActionModal: vi.fn(),
+        runNextStage: vi.fn(),
+        executeStage,
+      },
+    );
+    expect(executeStage).toHaveBeenCalledWith("ingest");
   });
 });

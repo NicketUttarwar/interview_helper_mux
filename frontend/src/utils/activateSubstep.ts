@@ -1,5 +1,6 @@
 import type { AppTab, GuidanceItem, LogStreamTab, PipelineSubTab, StageSubstep } from "../types";
 import { guidanceItemToSubstep } from "./stageSubsteps";
+import { substepShouldOpenModal } from "./substepModal";
 
 export interface ActivateSubstepHandlers {
   selectStage: (id: string) => void | Promise<void>;
@@ -8,6 +9,7 @@ export interface ActivateSubstepHandlers {
   openActionModal: () => void;
   closeActionModal: () => void;
   runNextStage: () => void | Promise<void>;
+  executeStage?: (stageId: string) => void | Promise<void>;
   approveWrite?: (stageId: string) => void | Promise<void>;
   acknowledgeHandoff?: () => void | Promise<void>;
   setActiveSubstepId?: (id: string | null) => void;
@@ -47,7 +49,7 @@ function scrollToSelector(selector: string): void {
   }
 }
 
-/** Move the GUI to the right place for a substep activation (inline only). */
+/** Move the GUI to the right place for a substep activation. */
 export function activateSubstep(
   substep: StageSubstep,
   handlers: ActivateSubstepHandlers,
@@ -66,24 +68,29 @@ export function activateSubstep(
   switch (substep.kind) {
     case "write_approval":
       if (scrollSection) scrollToSection("write-approval-panel");
-      return;
+      break;
 
     case "handoff":
       if (scrollSection) scrollToSection("stage-handoff-panel");
-      return;
+      break;
 
     case "reuse":
       if (scrollSection) scrollToSelector(".stage-reuse-section");
-      return;
+      break;
 
     case "gate":
     case "blocked":
     case "checkpoint":
-      if (scrollSection) scrollToSection("stage-gate-panel");
-      if (substep.id.includes("preclean")) {
-        scrollToSelector(".preclean-offer-card");
+      if (scrollSection) {
+        if (substep.id.includes("preclean")) {
+          scrollToSelector(
+            "#stage-preclean-panel, #modal-preclean, .preclean-offer-card",
+          );
+        } else {
+          scrollToSection("stage-gate-panel");
+        }
       }
-      return;
+      break;
 
     case "profile":
       handlers.setPipelineSubTab("profile");
@@ -92,6 +99,9 @@ export function activateSubstep(
     case "story_board":
     case "milestone":
       handlers.setPipelineSubTab("story");
+      if (substep.targetSection === "preview-listen-promo" && scrollSection) {
+        scrollToSection("preview-listen-promo");
+      }
       return;
 
     case "run":
@@ -103,7 +113,11 @@ export function activateSubstep(
         );
         return;
       }
-      return;
+      if (substep.status === "todo" && handlers.executeStage) {
+        void handlers.executeStage(substep.stageId);
+        return;
+      }
+      break;
 
     case "start":
       handlers.setActiveTab("start");
@@ -115,13 +129,21 @@ export function activateSubstep(
         return;
       }
       handlers.setPipelineSubTab("stage");
-      scrollToSelector(".preclean-offer-card");
-      return;
+      if (scrollSection) {
+        scrollToSelector(
+          "#stage-preclean-panel, #modal-preclean, .preclean-offer-card",
+        );
+      }
+      break;
 
     default:
       if (substep.targetSection && scrollSection) {
         scrollToSection(substep.targetSection);
       }
+  }
+
+  if (opts.openModal ?? substepShouldOpenModal(substep)) {
+    handlers.openActionModal();
   }
 }
 
@@ -131,5 +153,11 @@ export function activateGuidanceItem(
   handlers: ActivateSubstepHandlers,
   opts?: { openModal?: boolean; scrollSection?: boolean },
 ): void {
-  activateSubstep(guidanceItemToSubstep(item, stageId), handlers, opts);
+  const substep = guidanceItemToSubstep(item, stageId);
+  const openModal =
+    opts?.openModal ??
+    (item.kind === "checkpoint" || item.kind === "action"
+      ? true
+      : substepShouldOpenModal(substep));
+  activateSubstep(substep, handlers, { ...opts, openModal });
 }

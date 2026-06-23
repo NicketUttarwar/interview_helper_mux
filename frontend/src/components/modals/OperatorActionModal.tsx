@@ -11,13 +11,14 @@ import {
 } from "../../utils/checkpoint";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import { buildNumberedStages } from "../../utils/pipelineNavigation";
+import { resolvePrecleanOffer } from "../../utils/preclean";
 import { GateActions } from "../gates/GateActions";
 import { HandoffPanel } from "../workspace/HandoffPanel";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
+import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
 import type { OperatorAction } from "../../types/operatorAction";
-
-type ActivePanel = "write" | "reuse" | "gate" | "handoff" | null;
+type ActivePanel = "write" | "reuse" | "gate" | "handoff" | "preclean" | null;
 
 function panelFromAction(
   action: OperatorAction | null,
@@ -45,6 +46,15 @@ function panelFromAction(
 
   if (reason === "handoff_review" || handoffPending) {
     return "handoff";
+  }
+
+  const precleanOffer = resolvePrecleanOffer(selectedStage, run.meta);
+  if (
+    reason === "preclean" ||
+    action?.substepId?.includes("preclean") ||
+    precleanOffer
+  ) {
+    return "preclean";
   }
 
   if (
@@ -114,7 +124,8 @@ export function OperatorActionModal() {
     activePanel === "write" ||
     activePanel === "reuse" ||
     activePanel === "gate" ||
-    activePanel === "handoff";
+    activePanel === "handoff" ||
+    activePanel === "preclean";
 
   if (!run) return null;
 
@@ -143,6 +154,9 @@ export function OperatorActionModal() {
   const continueLabel = checkpointContinueLabel(run, selectedStage, apiGrants);
   const writePending = pendingWriteInfo(run);
   const showHandoff = activePanel === "handoff";
+  const precleanOffer = selectedStage
+    ? resolvePrecleanOffer(selectedStage, run.meta)
+    : null;
   const stepNumber = run
     ? buildNumberedStages(run.stages).find((n) => n.stage.id === selectedStage.id)?.number
     : null;
@@ -153,6 +167,9 @@ export function OperatorActionModal() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="operator-action-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closeActionModal();
+      }}
     >
       <div
         className="modal-card panel modal-lg operator-action-modal"
@@ -203,8 +220,20 @@ export function OperatorActionModal() {
               <GateActions stage={selectedStage} />
             </section>
           ) : null}
-          {!activePanel ? (
+          {activePanel === "preclean" && precleanOffer ? (
+            <section id="modal-preclean" className="attention-required">
+              <PrecleanOfferCard stage={selectedStage} offer={precleanOffer} />
+            </section>
+          ) : null}
+          {!activePanel && action?.mode === "needs_you" ? (
+            <section id="modal-gates-fallback">
+              <GateActions stage={selectedStage} />
+            </section>
+          ) : null}
+          {!activePanel && action?.mode !== "needs_you" ? (
             <p className="empty-state">No checkpoint is active for this step.</p>
+          ) : activePanel === "preclean" && !precleanOffer ? (
+            <p className="empty-state">Audio cleaning is already in progress or complete.</p>
           ) : null}
         </div>
 
@@ -266,6 +295,11 @@ export function OperatorActionModal() {
         {!continueEnabled && showHandoff ? (
           <p className="hint modal-continue-hint">
             Skim AI outputs above, then acknowledge to continue.
+          </p>
+        ) : null}
+        {activePanel === "preclean" ? (
+          <p className="hint modal-continue-hint">
+            Click <strong>Run audio cleaning</strong> above to start — progress appears in the activity log.
           </p>
         ) : null}
       </div>

@@ -17,7 +17,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, refreshRun, runNextStage, showToast, beginStageExecution } = useApp();
+  const { runId, refreshRun, runNextStage, showToast, beginStageExecution, jobRunning, actionBusy } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -28,7 +28,7 @@ export function StageReuseOfferCard({
   };
 
   const submit = async (action: "accept" | "decline_and_run", sourceRunId?: string) => {
-    if (!runId || submitting) return;
+    if (!runId || submitting || jobRunning || actionBusy) return;
     setSubmitting(true);
     if (action === "accept") {
       showToast(`Reusing ${stage.title}…`);

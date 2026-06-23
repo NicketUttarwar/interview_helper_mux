@@ -48,6 +48,7 @@ import {
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
+import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
 import {
   clampPipelineSubTab,
@@ -427,6 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const closeActionModal = useCallback(() => {
     userDismissedActionRef.current = true;
+    setActionModalOpen(false);
     requestAnimationFrame(() => {
       const focusTarget =
         document.querySelector<HTMLElement>('[data-testid="step-action-primary"]') ??
@@ -654,7 +656,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void focusPendingStage();
     setActiveTabState("pipeline");
     setPipelineSubTabWrapped("stage");
-  }, [focusPendingStage, setPipelineSubTabWrapped]);
+    setActionModalOpen(true);
+    if (run) {
+      const action = resolveOperatorAction(run, {
+        selectedStageId: selectedStageIdRef.current,
+        jobRunning,
+        apiGrants: mergedApiGrants(),
+      });
+      if (action.blockingReason === "preclean") {
+        showToast(
+          "Audio cleaning panel opened — click Run audio cleaning in the modal or below to start.",
+          "info",
+        );
+      }
+    }
+  }, [
+    focusPendingStage,
+    setPipelineSubTabWrapped,
+    runId,
+    run,
+    jobRunning,
+    mergedApiGrants,
+    showToast,
+  ]);
 
   const lastAutoOpenKeyRef = useRef<string | null>(null);
 
@@ -862,6 +886,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       appendClientLog("Pipeline job started — streaming logs below.", "info", stageForLog);
+      const stageLabel = stageForLog?.replace(/_/g, " ") ?? "Step";
+      showToast(`${stageLabel} started — watch the activity log for progress.`);
       await pollLog(true);
       startJobPoll();
       return true;
@@ -885,6 +911,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       body?: ExecuteBody;
     }): Promise<boolean> => {
       if (!runId) return false;
+      if (jobRunningRef.current) {
+        showToast("A step is already running — watch the activity log.", "warning");
+        return false;
+      }
+      if (actionBusyRef.current) {
+        showToast("Saving checkpoint — wait a moment, then try again.", "warning");
+        return false;
+      }
       const { stageId, kind, body } = opts;
       const handoffStage = findHandoffStage(run);
       if (handoffStage) {
@@ -981,6 +1015,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const executeJob = useCallback(
     async (body: ExecuteBody) => {
+      if (jobRunningRef.current) {
+        showToast("A step is already running — watch the activity log.", "warning");
+        return;
+      }
+      if (actionBusyRef.current) {
+        showToast("Saving checkpoint — wait a moment, then try again.", "warning");
+        return;
+      }
       const stageForLog = body.stage || body.from_stage;
       if (!stageForLog) {
         if (!runId) return;
@@ -1534,7 +1576,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activateSubstep = useCallback(
     (substep: StageSubstep, opts?: { openModal?: boolean }) => {
-      const openModal = opts?.openModal ?? false;
       activateSubstepUtil(
         substep,
         {
@@ -1544,6 +1585,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           openActionModal,
           closeActionModal,
           runNextStage: () => void runNextStage(),
+          executeStage: (id) => void executeJob(executeBodyForStage(id)),
           approveWrite: (id) => void approveWriteAndContinue(id),
           acknowledgeHandoff: () => void acknowledgeHandoff(),
           setActiveSubstepId,
@@ -1552,7 +1594,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast,
           skipOptionalStage: (stageId) => void skipOptionalStage(stageId),
         },
-        { openModal },
+        opts,
       );
       expandStage(substep.stageId);
     },
@@ -1562,6 +1604,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPipelineSubTabWrapped,
       openActionModal,
       runNextStage,
+      executeJob,
       approveWriteAndContinue,
       acknowledgeHandoff,
       setActiveSubstepId,

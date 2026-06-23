@@ -54,6 +54,9 @@ export function StartTab() {
     openActionModal,
     acknowledgeHandoff,
     setPipelineSubTab,
+    selectStage,
+    setActiveSubstepId,
+    actionBusy,
   } = useApp();
   const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
   const intentEnabled = config?.journey_ui?.intent_at_start !== false;
@@ -61,12 +64,17 @@ export function StartTab() {
 
   const live = useLiveStatus(run, {
     jobRunning,
+    actionBusy,
     selectedStageId,
     logEntries,
     apiGrants,
     onExecute: (body) => void executeJob(body),
     onRunNext: () => void runNextStage(),
-    onOpenCheckpoint: () => openActionModal(),
+    onOpenCheckpoint: (stageId, substepId) => {
+      if (stageId) void selectStage(stageId);
+      if (substepId) setActiveSubstepId(substepId);
+      openActionModal();
+    },
     onAcknowledgeHandoff: () => void acknowledgeHandoff(),
     onGoLogs: () => setActiveTab("logs"),
     onGoStart: () => setActiveTab("start"),
@@ -167,7 +175,7 @@ export function StartTab() {
   }
 
   return (
-    <main className="view tab-view">
+    <main className="view tab-view start-tab-view">
       <section className="panel hero hero-compact">
         <h2>
           New execution
@@ -235,8 +243,8 @@ export function StartTab() {
                 role="button"
                 tabIndex={0}
               >
-                <div>
-                  <strong>{f.name}</strong>
+                <div className="asset-item-body">
+                  <strong title={f.name}>{f.name}</strong>
                   <div className="asset-meta">{formatBytes(f.size_bytes)}</div>
                 </div>
                 <button

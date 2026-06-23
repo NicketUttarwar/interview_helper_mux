@@ -3,7 +3,17 @@ import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
-  const { run, runId, refreshRun, selectStage, executeJob, showToast, appendClientLog } = useApp();
+  const {
+    run,
+    runId,
+    refreshRun,
+    selectStage,
+    executeJob,
+    showToast,
+    appendClientLog,
+    jobRunning,
+    actionBusy,
+  } = useApp();
   const recorderRef = useRef<{ media: MediaRecorder | null; chunks: Blob[] }>({
     media: null,
     chunks: [],
@@ -112,6 +122,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           type="button"
           className="btn primary"
           data-testid="vo-continue"
+          disabled={jobRunning || actionBusy}
           onClick={() => void executeJob({ mode: "stage", stage: "vo_ingest" })}
         >
           All VO recorded — continue

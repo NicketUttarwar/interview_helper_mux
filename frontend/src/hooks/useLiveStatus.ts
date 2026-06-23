@@ -77,6 +77,7 @@ export function useLiveStatus(
   run: RunData | null,
   opts: {
     jobRunning: boolean;
+    actionBusy?: boolean;
     selectedStageId: string | null;
     logEntries: LogEntry[];
     apiGrants: Record<string, boolean>;
@@ -97,6 +98,7 @@ export function useLiveStatus(
 ): LiveStatus {
   const cmd = useOperatorCommand(run, {
     jobRunning: opts.jobRunning,
+    actionBusy: opts.actionBusy,
     selectedStageId: opts.selectedStageId,
     apiGrants: opts.apiGrants,
     surface: "header",

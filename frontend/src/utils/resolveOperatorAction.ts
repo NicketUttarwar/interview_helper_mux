@@ -167,6 +167,24 @@ function buildReuseAction(run: RunData, stageId: string): OperatorAction {
   };
 }
 
+function buildPrecleanAction(stage: StageInfo): OperatorAction {
+  const isPickup = stage.id === "g1_vo_pickup";
+  return {
+    mode: "needs_you",
+    stageId: stage.id,
+    substepId: isPickup ? "preclean:pickup" : "preclean:run",
+    headline: isPickup ? "Optional pickup cleaning" : "Run audio pre-clean",
+    subline: isPickup
+      ? "Remove background noise from new pickup recordings before VO ingest."
+      : "Clean background noise on the source recording before ingest.",
+    primaryLabel: isPickup ? "Run pickup cleaning" : "Run audio cleaning",
+    primaryKind: "open_modal",
+    primaryDisabled: false,
+    modalAutoOpen: false,
+    blockingReason: "preclean",
+  };
+}
+
 function buildHandoffAction(run: RunData, stage: StageInfo): OperatorAction {
   return {
     mode: "needs_you",
@@ -387,6 +405,9 @@ export function resolveOperatorAction(
     if (next.status === "locked") {
       return buildLockedAction(next);
     }
+    if (next.status === "pending" && resolvePrecleanOffer(next, run.meta)) {
+      return buildPrecleanAction(next);
+    }
     if (next.status === "pending") {
       return buildIdleAction(run, next);
     }
@@ -468,22 +489,17 @@ export function resolveOperatorActionForStage(
     return buildLockedAction(stage);
   }
 
-  if (
-    stage.id === "audio_preclean" &&
-    stage.status === "pending" &&
-    resolvePrecleanOffer(stage, run.meta)
-  ) {
-    return {
-      mode: "needs_you",
-      stageId: stage.id,
-      substepId: "preclean:run",
-      headline: "Run audio pre-clean",
-      subline: "Clean background noise on the source recording before ingest.",
-      primaryLabel: "Run audio cleaning",
-      primaryKind: "open_modal",
-      primaryDisabled: false,
-      modalAutoOpen: false,
-    };
+  const precleanOffer = resolvePrecleanOffer(stage, run.meta);
+  if (precleanOffer) {
+    if (
+      stage.id === "audio_preclean" &&
+      stage.status === "pending"
+    ) {
+      return buildPrecleanAction(stage);
+    }
+    if (stage.id === "g1_vo_pickup" && stage.status === "done") {
+      return buildPrecleanAction(stage);
+    }
   }
 
   if (stage.status === "done") {

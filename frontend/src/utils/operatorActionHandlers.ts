@@ -1,6 +1,5 @@
 import type { ExecuteBody } from "../types";
 import type { OperatorAction } from "../types/operatorAction";
-
 export interface OperatorActionHandlers {
   openModal: (stageId?: string | null, substepId?: string | null) => void;
   runStage: (stageId: string) => void;
@@ -19,17 +18,25 @@ function scrollToCheckpoint(substepId?: string | null, blockingReason?: string):
       target = document.getElementById("write-approval-panel");
     } else if (blockingReason === "handoff_review" || substepId?.includes("handoff")) {
       target = document.getElementById("stage-handoff-panel");
-    } else if (substepId?.includes("preclean")) {
-      target = document.querySelector(".preclean-offer-card");
+    } else if (blockingReason === "preclean" || substepId?.includes("preclean")) {
+      target =
+        document.getElementById("modal-preclean") ??
+        document.getElementById("stage-preclean-panel") ??
+        document.querySelector(".preclean-offer-card");
     } else {
       target = document.getElementById("stage-gate-panel");
     }
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(scroll);
-  } else {
+  const runScroll = () => {
     scroll();
+    window.setTimeout(scroll, 120);
+    window.setTimeout(scroll, 320);
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(runScroll);
+  } else {
+    runScroll();
   }
 }
 

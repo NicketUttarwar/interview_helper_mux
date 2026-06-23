@@ -29,6 +29,7 @@ export function LiveStatusBar() {
     acknowledgeHandoff,
     approveWriteAndContinue,
     selectStage,
+    setActiveSubstepId,
     setActiveTab,
     setPipelineSubTab,
     showToast,
@@ -42,6 +43,7 @@ export function LiveStatusBar() {
     setLogFilterPreset,
     jobCompleteAt,
     activeTab,
+    actionBusy,
   } = useApp();
 
   const statusOnlyOnPipeline = activeTab === "pipeline" && Boolean(run);
@@ -73,14 +75,16 @@ export function LiveStatusBar() {
 
   const live = useLiveStatus(run, {
     jobRunning,
+    actionBusy,
     selectedStageId,
     logEntries,
     apiGrants,
     activeTab,
     onExecute: (body) => void executeJob(body),
     onRunNext: () => void runNextStage(),
-    onOpenCheckpoint: (stageId) => {
+    onOpenCheckpoint: (stageId, substepId) => {
       if (stageId) void selectStage(stageId);
+      if (substepId) setActiveSubstepId(substepId);
       openActionModal();
     },
     onAcknowledgeHandoff: () => void acknowledgeHandoff(),
@@ -149,8 +153,9 @@ export function LiveStatusBar() {
     setActiveTab("pipeline");
     if (operatorAction.mode !== "needs_you") return;
     invokeOperatorActionPrimary(operatorAction, {
-      openModal: (sid) => {
+      openModal: (sid, subId) => {
         if (sid) void selectStage(sid);
+        if (subId) setActiveSubstepId(subId);
         openActionModal();
       },
       runStage: (sid) => void executeJob(executeBodyForStage(sid)),
@@ -216,7 +221,7 @@ export function LiveStatusBar() {
                 type="button"
                 className="btn primary sm"
                 data-testid="live-status-primary"
-                disabled={live.primaryDisabled || !sessionReady}
+                disabled={live.primaryDisabled || !sessionReady || jobRunning || actionBusy}
                 onClick={live.onPrimary}
               >
                 {live.primaryLabel}

@@ -36,7 +36,10 @@ function GuidanceList({
           >
             <ActionMarker status={item.status} />
             <span className="stage-guidance-label">{item.label}</span>
-            {!hideActionButtons && item.kind === "navigate" ? (
+            {!hideActionButtons &&
+            (item.kind === "navigate" ||
+              item.kind === "checkpoint" ||
+              item.kind === "action") ? (
               <span className="stage-guidance-item-actions">
                 <GuidanceActionButton item={item} stageId={stageId} />
               </span>

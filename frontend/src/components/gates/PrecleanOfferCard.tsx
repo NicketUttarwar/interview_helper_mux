@@ -6,7 +6,6 @@ import { precleanOfferSettled } from "../../utils/preclean";
 import type { StageInfo } from "../../types";
 
 import { formatApiError } from "../../utils/safeApi";
-
 interface Offer {
   checkpoint: string;
   scope: string;
@@ -19,7 +18,7 @@ export function PrecleanOfferCard({
   stage: StageInfo;
   offer: Offer;
 }) {
-  const { run, runId, refreshRun, beginStageExecution, showToast, appendClientLog } = useApp();
+  const { run, runId, refreshRun, beginStageExecution, showToast, appendClientLog, closeActionModal, jobRunning, actionBusy } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const settled = precleanOfferSettled(run?.meta?.audio_preclean, offer.checkpoint);
   const isBeforeIngest = offer.checkpoint === "before_ingest";
@@ -47,7 +46,7 @@ export function PrecleanOfferCard({
   if (settled) return null;
 
   const runCleaning = async () => {
-    if (!runId || submitting) return;
+    if (!runId || submitting || jobRunning || actionBusy) return;
     setSubmitting(true);
     try {
       await api(`/api/runs/${runId}/preclean-offer`, {
@@ -64,7 +63,17 @@ export function PrecleanOfferCard({
           ? "Running pickup cleaning…"
           : "Running audio cleaning…",
       );
-      await beginStageExecution({ kind: "execute", stageId: "audio_preclean" });
+      const started = await beginStageExecution({ kind: "execute", stageId: "audio_preclean" });
+      if (started) {
+        closeActionModal();
+        appendClientLog(
+          offer.checkpoint === "g1_vo_pickup"
+            ? "Pickup cleaning started — watch the activity log for progress."
+            : "Audio cleaning started — watch the activity log for progress.",
+          "info",
+          "audio_preclean",
+        );
+      }
       await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, "Audio cleaning");
@@ -90,7 +99,7 @@ export function PrecleanOfferCard({
         <button
           type="button"
           className="btn primary"
-          disabled={submitting}
+          disabled={submitting || jobRunning || actionBusy}
           data-testid={`preclean-accept-${offer.checkpoint}`}
           onClick={() => void runCleaning()}
         >

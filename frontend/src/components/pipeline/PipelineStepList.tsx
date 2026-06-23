@@ -10,6 +10,7 @@ import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stag
 import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { stageNeedsAttention } from "../../utils/attentionQueue";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
+import { substepShouldOpenModal } from "../../utils/substepModal";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
 import { SubstepRow } from "./SubstepRow";
@@ -263,7 +264,11 @@ export function PipelineStepList() {
                           <SubstepRow
                             substep={sub}
                             selected={activeSubstepId === sub.id}
-                            onClick={() => activateSubstep(sub)}
+                            onClick={() =>
+                              activateSubstep(sub, {
+                                openModal: substepShouldOpenModal(sub),
+                              })
+                            }
                             onSkip={
                               sub.id === "optional:skip"
                                 ? () => void skipOptionalStage(sub.stageId)

@@ -17,6 +17,7 @@ export function ActivityTeaser() {
     setActivityLogCollapsed,
     openActionModal,
     selectStage,
+    setActiveSubstepId,
   } = useApp();
   const { activeSubstepGlobal } = useStageProgress();
 
@@ -40,6 +41,7 @@ export function ActivityTeaser() {
   const goAttention = () => {
     if (operatorAction.mode === "needs_you") {
       if (operatorAction.stageId) void selectStage(operatorAction.stageId);
+      if (operatorAction.substepId) setActiveSubstepId(operatorAction.substepId);
       openActionModal();
       setActiveTab("pipeline");
       return;

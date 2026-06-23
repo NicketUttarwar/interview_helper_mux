@@ -335,6 +335,20 @@ describe("resolveOperatorAction gate branches", () => {
     expect(a.primaryKind).toBe("run_stage");
   });
 
+  it("pending audio_preclean with offer maps to needs_you preclean", () => {
+    const run = baseRun({
+      stages: [stage("audio_preclean", "pending", "Audio pre-clean")],
+    });
+    const global = resolveOperatorAction(run);
+    expect(global.mode).toBe("needs_you");
+    expect(global.stageId).toBe("audio_preclean");
+    expect(global.primaryKind).toBe("open_modal");
+    expect(global.blockingReason).toBe("preclean");
+    const stageAction = resolveOperatorActionForStage(run, "audio_preclean", {});
+    expect(stageAction.mode).toBe("needs_you");
+    expect(stageAction.primaryLabel).toBe("Run audio cleaning");
+  });
+
   it("after ingest done global idle when transcribe still locked", () => {
     const run = baseRun({
       stages: [

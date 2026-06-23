@@ -45,13 +45,14 @@ export function useOperatorCommand(
   run: RunData | null,
   opts: {
     jobRunning: boolean;
+    actionBusy?: boolean;
     selectedStageId?: string | null;
     apiGrants?: Record<string, boolean>;
     surface?: "header" | "sidebar" | "banner";
     activeTab?: AppTab;
     onExecute: (body: ExecuteBody) => void;
     onRunNext: () => void;
-    onOpenCheckpoint: (stageId?: string) => void;
+    onOpenCheckpoint: (stageId?: string, substepId?: string | null) => void;
     onAcknowledgeHandoff: () => void;
     onApproveWrite?: (stageId: string) => void;
     onGoLogs: () => void;
@@ -64,6 +65,7 @@ export function useOperatorCommand(
 ): OperatorCommandState {
   const {
     jobRunning,
+    actionBusy = false,
     selectedStageId = null,
     apiGrants = {},
     onExecute,
@@ -114,19 +116,22 @@ export function useOperatorCommand(
     const nextClick = resolveNextActionClick(run, nextHandlers);
 
     const handlers = {
-      openModal: (sid?: string | null) => {
-        onOpenCheckpoint(sid ?? undefined);
+      openModal: (sid?: string | null, subId?: string | null) => {
+        onOpenCheckpoint(sid ?? undefined, subId ?? null);
       },
       runStage: (sid: string) => onExecute(executeBodyForStage(sid)),
       continueNext: () => onRunNext(),
       viewLogs: () => onGoLogs(),
     };
 
-    let onPrimary: (() => void) | null = () =>
+    let onPrimary: (() => void) | null = () => {
+      if (jobRunning || actionBusy) return;
       invokeOperatorActionPrimary(action, handlers);
+    };
 
     let primaryLabel = action.primaryLabel;
-    let primaryDisabled = action.primaryDisabled;
+    let primaryDisabled =
+      action.primaryDisabled || jobRunning || actionBusy;
 
     if (action.mode === "running") {
       onPrimary = onGoLogs;
@@ -177,6 +182,7 @@ export function useOperatorCommand(
   }, [
     run,
     jobRunning,
+    actionBusy,
     selectedStageId,
     apiGrants,
     onExecute,

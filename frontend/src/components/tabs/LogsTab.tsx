@@ -8,6 +8,7 @@ import {
 } from "../../utils/logDisplay";
 import { parseLogDetail } from "../../utils";
 import { buildStageProgress } from "../../utils/stageSubsteps";
+import { substepShouldOpenModal } from "../../utils/substepModal";
 import type { JourneyLogKind, LogEntry, LogLevel } from "../../types";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
@@ -61,7 +62,7 @@ export function LogsTab() {
         progress.substeps.find((s) => s.status === "todo" || s.status === "running") ||
         progress.substeps[0];
       if (target) {
-        activateSubstep(target, { openModal: target.kind === "gate" || target.kind === "checkpoint" });
+        activateSubstep(target, { openModal: substepShouldOpenModal(target) });
       }
     },
     [run, jobRunning, apiGrants, activateSubstep],

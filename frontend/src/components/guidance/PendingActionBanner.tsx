@@ -12,8 +12,10 @@ export function PendingActionBanner({ compact, stageId }: Props) {
     run,
     apiGrants,
     jobRunning,
+    actionBusy,
     setActiveTab,
     selectStage,
+    setActiveSubstepId,
     openActionModal,
     executeJob,
     runNextStage,
@@ -33,11 +35,15 @@ export function PendingActionBanner({ compact, stageId }: Props) {
   const stageTitle =
     run.stages.find((s) => s.id === action.stageId)?.title ?? action.stageId;
 
+  const busy = jobRunning || actionBusy;
+
   const onPrimary = () => {
+    if (busy) return;
     setActiveTab("pipeline");
     invokeOperatorActionPrimary(action, {
-      openModal: (sid) => {
+      openModal: (sid, subId) => {
         if (sid) void selectStage(sid);
+        if (subId) setActiveSubstepId(subId);
         openActionModal();
       },
       runStage: (sid) => void executeJob(executeBodyForStage(sid)),
@@ -80,9 +86,16 @@ export function PendingActionBanner({ compact, stageId }: Props) {
           type="button"
           className="btn primary sm"
           data-testid="pending-action-primary"
+          disabled={busy}
           onClick={onPrimary}
         >
-          {action.primaryLabel}
+          {busy ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Working…
+            </>
+          ) : (
+            action.primaryLabel
+          )}
         </button>
       </div>
     </div>

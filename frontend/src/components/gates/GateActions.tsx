@@ -53,8 +53,6 @@ function wrapDoneGate(stage: StageInfo, children: ReactNode, title?: string) {
 export function GateActions({ stage }: Props) {
   const { run, config, timeline, setPipelineSubTab } = useApp();
 
-  const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
-
   if (!run) return null;
 
   if (
@@ -121,8 +119,6 @@ export function GateActions({ stage }: Props) {
     stage,
     (
     <div className="gate-actions">
-      {precleanOffer ? <PrecleanOfferCard stage={stage} offer={precleanOffer} /> : null}
-
       <div className="attention-required-wrap">
       <StageAudioActions stage={stage} />
 

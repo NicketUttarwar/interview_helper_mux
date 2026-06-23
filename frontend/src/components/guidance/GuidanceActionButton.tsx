@@ -14,24 +14,23 @@ export function GuidanceActionButton({ item, className = "btn ghost sm", stageId
     run,
     selectStage,
     openActionModal,
+    closeActionModal,
     setPipelineSubTab,
     setActiveTab,
     runNextStage,
+    executeJob,
     approveWriteAndContinue,
     acknowledgeHandoff,
     setActiveSubstepId,
+    setActivityLogCollapsed,
+    setActivityLogTab,
+    showToast,
+    skipOptionalStage,
+    jobRunning,
+    actionBusy,
   } = useApp();
 
   if (item.status !== "todo") return null;
-
-  const journeyHint = run?.journey?.execute_hint;
-  if (
-    item.kind === "checkpoint" &&
-    journeyHint?.action === "checkpoint" &&
-    (!item.stage_id || journeyHint.stage_id === item.stage_id)
-  ) {
-    return null;
-  }
 
   const sid = stageId || item.stage_id || run?.stages.find((s) => s.status !== "done")?.id || "";
   const handlers = {
@@ -39,20 +38,32 @@ export function GuidanceActionButton({ item, className = "btn ghost sm", stageId
     setActiveTab,
     setPipelineSubTab,
     openActionModal,
-    closeActionModal: () => {},
+    closeActionModal,
     runNextStage: () => void runNextStage(),
+    executeStage: (id: string) =>
+      void executeJob({ mode: "stage", stage: id }),
     approveWrite: (id: string) => void approveWriteAndContinue(id),
     acknowledgeHandoff: () => void acknowledgeHandoff(),
     setActiveSubstepId,
+    setActivityLogCollapsed,
+    setActivityLogTab,
+    showToast,
+    skipOptionalStage: (id: string) => void skipOptionalStage(id),
   };
 
   const label = guidanceActionLabel(item.kind || item.action, item.stage_id);
+  const busy = jobRunning || actionBusy;
 
   return (
     <button
       type="button"
       className={className}
-      onClick={() => activateGuidanceItem(item, sid, handlers)}
+      disabled={busy}
+      onClick={() =>
+        activateGuidanceItem(item, sid, handlers, {
+          openModal: item.kind === "checkpoint" || item.kind === "action",
+        })
+      }
     >
       {label}
     </button>

@@ -28,6 +28,8 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
+  /* Display / prominent text scale (80% of prior large sizes; body text unchanged) */
+  --font-scale-large: 0.8;
 }
 
 * { box-sizing: border-box; }
@@ -69,6 +71,12 @@ body {
   min-height: 100vh;
 }
 
+h1 { font-size: 1rem; }
+h2 { font-size: 0.88rem; }
+h3 { font-size: 0.82rem; }
+h4 { font-size: 0.8rem; }
+h5, h6 { font-size: 0.78rem; }
+
 code {
   font-family: var(--mono);
   background: var(--surface-2);
@@ -90,7 +98,7 @@ code {
 
 .brand h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -173,7 +181,7 @@ code {
 
 .value-features-card h4 {
   margin: 0 0 0.35rem;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .value-features-dl {
@@ -263,11 +271,26 @@ code {
 .btn.block { width: 100%; margin-bottom: 0.5rem; }
 
 .asset-list, .runs-list {
+  gap: 0.5rem;
+}
+
+.runs-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
   max-height: 420px;
   overflow-y: auto;
+}
+
+.asset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 1200px) {
+  .asset-list {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
 }
 
 .asset-item, .run-item {
@@ -284,7 +307,14 @@ code {
   transition: border-color 0.15s, background 0.15s;
 }
 
-.asset-item strong,
+.asset-item strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
 .run-item strong {
   color: var(--text);
 }
@@ -297,6 +327,22 @@ code {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
   background: var(--accent-subtle);
+}
+
+.asset-item {
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+}
+
+.asset-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.asset-item .btn-start {
+  width: 100%;
+  justify-content: center;
 }
 
 .asset-meta {
@@ -443,7 +489,7 @@ code {
   width: 100%;
   min-height: 120px;
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   padding: 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -632,7 +678,7 @@ code {
 }
 
 .transcript-word-flow {
-  font-size: 1.05rem;
+  font-size: 0.84rem;
   line-height: 2;
   letter-spacing: 0.01em;
 }
@@ -826,7 +872,7 @@ code {
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 1.15rem;
+  font-size: 0.92rem;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
@@ -866,7 +912,7 @@ code {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   flex-wrap: wrap;
 }
 
@@ -880,7 +926,7 @@ code {
 
 .fuzzy-replace-arrow {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
 }
 
 .fuzzy-replace-target {
@@ -1124,7 +1170,7 @@ code {
 
 .tr-review-dock-section h4 {
   margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text);
 }
@@ -1262,7 +1308,7 @@ code {
 
 .segment-inspector-head h4 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .segment-inspector-text {
@@ -1809,7 +1855,7 @@ code {
 }
 
 .disfluency-text {
-  font-size: 1.1rem;
+  font-size: 0.88rem;
   margin: 0.5rem 0;
 }
 
@@ -2003,7 +2049,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .action-overlay-message {
   margin: 0;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.76rem;
   line-height: 1.45;
 }
 
@@ -2376,7 +2422,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border-radius: var(--radius);
   border: 2px solid var(--warning);
   background: color-mix(in srgb, var(--warning) 18%, var(--surface-2));
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
 }
 
@@ -2415,7 +2461,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .pending-action-icon {
-  font-size: 1.25rem;
+  font-size: 1rem;
   line-height: 1;
   flex-shrink: 0;
 }
@@ -2428,12 +2474,12 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .pending-action-title {
   margin: 0 0 0.2rem;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .pending-action-message {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   color: var(--text);
 }
 
@@ -2491,7 +2537,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .stage-activity-cta-text {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.704rem;
   flex: 1;
   min-width: 180px;
 }
@@ -2641,7 +2687,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   padding: 0.55rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
 }
 
 .operator-command-bar.kind-running {
@@ -2737,7 +2783,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1rem;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -2971,7 +3017,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .pipeline-step-list-title {
   margin: 0 0 0.75rem;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .pipeline-steps {
@@ -3088,7 +3134,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .stage-guidance-label {
   flex: 1;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
 }
 
 .stage-guidance-item-actions {
@@ -3152,7 +3198,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .pipeline-step-title {
-  font-size: 0.9rem;
+  font-size: 0.72rem;
   font-weight: 500;
 }
 
@@ -3224,7 +3270,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .quality-offer-title {
   margin: 0 0 0.5rem;
-  font-size: 1rem;
+  font-size: 0.8rem;
 }
 
 .preclean-offer-actions {
@@ -3367,6 +3413,10 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   max-width: 1200px;
 }
 
+.start-tab-view {
+  max-width: 1400px;
+}
+
 .pipeline-tab .tab-view,
 .pipeline-tab {
   max-width: none;
@@ -3408,7 +3458,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .stage-outputs-title {
   margin: 0 0 0.65rem;
-  font-size: 0.9rem;
+  font-size: 0.72rem;
 }
 
 .stage-api-chips {
@@ -4010,7 +4060,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .llm-calls-header h2 {
   margin: 0 0 0.35rem;
-  font-size: 1.1rem;
+  font-size: 0.88rem;
 }
 
 .llm-calls-toolbar {
@@ -4100,7 +4150,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .llm-tree-stage-head {
   margin-left: 0;
   border-left: none;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .llm-tree-attempt {
@@ -4272,7 +4322,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border-radius: 6px;
   background: rgba(255, 180, 60, 0.12);
   border: 1px solid rgba(255, 180, 60, 0.35);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
 }
 
 .stage-phase-group {
@@ -4315,7 +4365,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .flow-intent-card strong {
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.76rem;
 }
 
 .flow-intent-card:hover {
@@ -4369,7 +4419,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .story-board .story-headline {
-  font-size: 1.1rem;
+  font-size: 0.88rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
 }
@@ -4409,7 +4459,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   padding: 0.55rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
-  font-size: 0.88rem;
+  font-size: 0.704rem;
 }
 
 .workflow-step-bar.kind-running {
@@ -6106,7 +6156,7 @@ button.pipeline-step-row:focus-visible,
 
 .step-action-headline {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.84rem;
   line-height: 1.3;
 }
 
