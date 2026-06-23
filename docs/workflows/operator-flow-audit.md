@@ -142,6 +142,15 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 79 | Resolver test gap | Expanded `resolveOperatorAction.test.ts` gate matrix |
 | 80 | Dead command center mount | Removed `PipelineCommandCenter` from `PipelineTab` |
 
+### Tab hardening wave (81–82)
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 81 | Coherence 404 inflated Activity **All** tab | `GET …/coherence-report` returns inactive stub **200**; `CoherenceRisksPanel` uses `expected_empty` policy — no `appendClientLog` on pre-analysis absence; Activity **All** drops pinned strip + consecutive dedup for polluted tails |
+| 82 | `OperatorActionModal` dead state / modal-first drift | Modal component exists but is **not mounted** in `ModalHost`; `openActionModal` sets Pipeline + Stage only. **Inline checkpoints** (`StepActionHeader`, gate panels, write approval) are canonical. Re-enable modal mount only if product revives modal-first UX |
+
+**Navigation spine:** `navigatePipelineSubTab` (alias of guarded `setPipelineSubTab`) enforces `pipelineSubTabAvailability` — Story / Timeline / Profile greyed until `story_board_ready`, `timeline_ready`, `profile_ready_for_review` on run payload.
+
 ---
 
 ## References

@@ -5647,6 +5647,17 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   position: relative;
 }
 
+.pipeline-tool-btn--locked,
+.pipeline-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pipeline-tool-btn--locked:hover,
+.pipeline-tool-btn:disabled:hover {
+  background: transparent;
+}
+
 .pipeline-tool-btn .tool-badge {
   position: absolute;
   top: -4px;

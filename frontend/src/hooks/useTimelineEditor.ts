@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatApiError } from "../utils/safeApi";
+import { ApiError } from "../api/client";
+import { formatApiError, isExpectedEmptyApiError } from "../utils/safeApi";
 import { api } from "../api/client";
 import { useApp } from "../context/AppContext";
 import { useNleHistory } from "./useNleHistory";
@@ -84,8 +85,9 @@ export function useTimelineEditor() {
     } catch (reason) {
       setTranscript(null);
       setWords([]);
-      const msg = formatApiError(reason, "Transcript");
-      appendClientLog(msg, "error");
+      if (!isExpectedEmptyApiError(reason)) {
+        appendClientLog(formatApiError(reason, "Transcript"), "error");
+      }
     }
   }, [runId, appendClientLog]);
 
@@ -96,7 +98,9 @@ export function useTimelineEditor() {
       setAssembly(data);
     } catch (reason) {
       setAssembly({ ready: false, reason: formatApiError(reason, "Assembly timeline") });
-      appendClientLog(formatApiError(reason, "Assembly timeline"), "error");
+      if (!isExpectedEmptyApiError(reason)) {
+        appendClientLog(formatApiError(reason, "Assembly timeline"), "error");
+      }
     }
   }, [runId, appendClientLog]);
 
@@ -109,7 +113,9 @@ export function useTimelineEditor() {
       setWaveform(data);
     } catch (reason) {
       setWaveform(null);
-      appendClientLog(formatApiError(reason, "Waveform"), "error");
+      if (!isExpectedEmptyApiError(reason)) {
+        appendClientLog(formatApiError(reason, "Waveform"), "error");
+      }
     }
   }, [runId, timeline?.normalized_audio, appendClientLog]);
 
@@ -125,7 +131,9 @@ export function useTimelineEditor() {
       setSelectionOrder(sel.ordered_segment_ids || []);
     } catch (reason) {
       setSelectionOrder([]);
-      appendClientLog(formatApiError(reason, "Selection manifest"), "error");
+      if (!(reason instanceof ApiError && reason.status === 404)) {
+        appendClientLog(formatApiError(reason, "Selection manifest"), "error");
+      }
     }
     try {
       const plan = await api<Record<string, unknown>>(
@@ -134,7 +142,9 @@ export function useTimelineEditor() {
       setNarrativePlan(plan);
     } catch (reason) {
       setNarrativePlan(null);
-      appendClientLog(formatApiError(reason, "Narrative plan"), "error");
+      if (!(reason instanceof ApiError && reason.status === 404)) {
+        appendClientLog(formatApiError(reason, "Narrative plan"), "error");
+      }
     }
     try {
       const brief = await api<Record<string, unknown>>(
@@ -143,7 +153,9 @@ export function useTimelineEditor() {
       setContentBrief(brief);
     } catch (reason) {
       setContentBrief(null);
-      appendClientLog(formatApiError(reason, "Content brief"), "error");
+      if (!(reason instanceof ApiError && reason.status === 404)) {
+        appendClientLog(formatApiError(reason, "Content brief"), "error");
+      }
     }
   }, [runId, loadTranscript, loadAssembly, loadWaveform, appendClientLog]);
 

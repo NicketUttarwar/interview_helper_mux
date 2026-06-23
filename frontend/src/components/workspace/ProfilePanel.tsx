@@ -71,7 +71,16 @@ export function ProfilePanel() {
     if (show && run?.profile_ready_for_review) void loadProfile();
   }, [show, run?.profile_ready_for_review, loadProfile]);
 
-  if (!show) return null;
+  if (!show) {
+    return (
+      <div className="panel profile-panel">
+        <h3>Interview profile</h3>
+        <p className="hint">
+          The profile editor unlocks when the analysis profile stage is available in the pipeline.
+        </p>
+      </div>
+    );
+  }
 
   if (!run?.profile_ready_for_review && !run?.profile_verified) {
     const profileStage = run?.stages?.find((s) => s.id === "analysis_profile");

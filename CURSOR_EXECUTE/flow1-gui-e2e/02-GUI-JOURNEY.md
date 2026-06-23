@@ -96,6 +96,22 @@ When the GUI shows hierarchical substeps under each pipeline step, the driver ma
 
 Driver event: `action:substep`
 
+## Tab hardening regression steps (post-audit)
+
+Scripted checks for middle-panel tools and Activity stream policy. Run manually or extend `gui_driver.py`.
+
+| ID | Flow | Steps | Expected |
+|----|------|-------|----------|
+| P3 | Flow 1 early | Open Pipeline before `content_context` done → click **Story** 5× | Tab stays locked / toast; Activity **All** has no coherence error spam |
+| P5 | Flow 1 | Refresh with saved `pipeline_sub_tab: story` while locked | Restores to **Stage** |
+| P10 | Any | Job starts while Activity on **All** | Pin clears; tab switches to **Live** |
+| P14 | Flow 1 post-classify | **Timeline** → Assembly before EDL | Assembly button disabled |
+| P19 | Flow 1 | Activity **All** with duplicate errors in `gui_log.jsonl` | Scroll list dedupes consecutive identical lines |
+| F2-1 | Flow 2 | Same as P3/P5 on `selected_flow: flow_2` run | Timeline locked until segments; Story per `story_board_ready` |
+| F3-1 | Flow 3 | Same as P3/P5 on `selected_flow: flow_3` run | Same gating; narrative arc stages differ, sub-tab rules unchanged |
+
+Selectors: `data-testid="pipeline-tool-story"`, `pipeline-tool-timeline`, `pipeline-tool-profile`, Activity tabs `activity-log-all|activity-log-live|activity-log-step`.
+
 ## Log event names
 
 `gate:*`, `action:primary_cta`, `action:substep`, `wait:job_running`, `blocker:llm_gate`, `blocker:stuck_state`

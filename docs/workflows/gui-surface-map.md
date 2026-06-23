@@ -26,7 +26,22 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | **Pipeline** | 3-column layout | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools) \| **`ActivityLogPanel`** (Live / This step / All) |
 | **Pipeline** | **`PipelineCommandCenter`** | Removed — step context in **`StepActionHeader`** + sidebar |
 | **Pipeline** | **Tool icon row** | Stage \| Story \| Timeline \| Profile \| Files \| Debug \| Volley |
-| **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel |
+
+### Pipeline tool sub-tab prerequisites
+
+| Sub-tab | Unlocks when | Server flag | Fallback client rule |
+|---------|--------------|-------------|----------------------|
+| **Stage** | Always (active run) | — | — |
+| **Story** | Content understanding complete | `story_board_ready` | `content_context` done + `analysis_complete` |
+| **Timeline** | Segment manifest exists | `timeline_ready` | `timeline.segments.length > 0` |
+| **Profile** | Analysis profile ready for review | `profile_ready_for_review` or `profile_verified` | `analysis_profile` stage not `locked` |
+| **Files / Debug / Volley** | Always | — | — |
+
+Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip = `reason` from `pipelineSubTabAvailability`. Session restore clamps invalid `pipeline_sub_tab` to **Stage**.
+
+**Flow 2 / Flow 3:** Timeline gating is identical (needs classified segments). Story board may stay locked longer on Flow 2/3 until content stages complete — flags on `GET /api/runs/{id}` are flow-agnostic.
+
+| **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel (**This step**, not All) |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
 | Modals | `OperatorActionModal` | **Modal-first** checkpoints (write approval, reuse, gates, handoff); title from `resolveOperatorAction` |

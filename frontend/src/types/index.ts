@@ -323,6 +323,8 @@ export interface RunData {
   profile_verified?: boolean;
   profile_gate_pending?: boolean;
   profile_ready_for_review?: boolean;
+  story_board_ready?: boolean;
+  timeline_ready?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
   nle_dirty?: boolean;

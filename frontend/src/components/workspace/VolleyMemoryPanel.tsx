@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { ContextIndexSummary, VolleyEntry } from "../../types";
 
-import { formatApiError } from "../../utils/safeApi";
+import { formatApiError, isExpectedEmptyApiError } from "../../utils/safeApi";
 
 const KINDS = [
   "stage_conclusion",
@@ -36,8 +36,10 @@ export function VolleyMemoryPanel() {
     } catch (e) {
       const msg = formatApiError(e, "Volley memory");
       setError(msg);
-      showToast(msg, "error");
-      appendClientLog(msg, "error");
+      if (!isExpectedEmptyApiError(e)) {
+        showToast(msg, "error");
+        appendClientLog(msg, "error");
+      }
     } finally {
       setLoading(false);
     }
@@ -198,6 +200,9 @@ export function VolleyMemoryPanel() {
 
       {error ? <p className="error-text">{error}</p> : null}
       {loading && !data ? <p className="hint">Loading…</p> : null}
+      {!loading && data && entries.length === 0 ? (
+        <p className="hint">No volley memory entries yet — they appear as analysis stages complete.</p>
+      ) : null}
 
       <p className="hint sm volley-scroll-hint">Scroll horizontally on narrow screens to see all columns.</p>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import type { AnalysisState, StoryBoardData } from "../../types";
@@ -11,7 +11,7 @@ import {
   TONE_CLASS_VALUES,
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
-import { formatApiError } from "../../utils/safeApi";
+import { formatApiError, reportPanelFetchOutcome } from "../../utils/safeApi";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
@@ -28,6 +28,7 @@ export function StoryBoardPanel() {
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadErrorLoggedRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -37,13 +38,22 @@ export function StoryBoardPanel() {
       setData(sb);
       setBaseState(sb.analysis_state);
       setForm(loadProfileToForm(sb.analysis_state));
+      loadErrorLoggedRef.current = null;
     } catch (e) {
       setData(null);
       setForm(null);
       const msg = formatApiError(e, "Story board");
       setLoadError(msg);
       showToast(msg, "error");
-      appendClientLog(msg, "error");
+      if (loadErrorLoggedRef.current !== msg) {
+        loadErrorLoggedRef.current = msg;
+        reportPanelFetchOutcome({
+          error: e,
+          kind: "system",
+          label: "Story board",
+          appendClientLog,
+        });
+      }
     }
   }, [runId, showToast, appendClientLog]);
 

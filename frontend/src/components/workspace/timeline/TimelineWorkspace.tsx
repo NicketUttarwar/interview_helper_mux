@@ -291,6 +291,7 @@ export function TimelineWorkspace() {
           snapEnabled={snapEnabled}
           canUndo={history.canUndo}
           canRedo={history.canRedo}
+          assemblyAvailable={Boolean(assembly?.ready)}
           onModeChange={setMode}
           onZoomChange={setZoom}
           onSnapChange={setSnapEnabled}

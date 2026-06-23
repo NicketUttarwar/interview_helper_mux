@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import {
+  dedupeConsecutiveLogEntries,
+  excludePinnedEntries,
   filterByStage,
   filterErrors,
   filterLiveStream,
@@ -11,6 +13,7 @@ import {
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
 import { useStageProgress } from "../../hooks/useStageProgress";
+import type { LogStreamTab } from "../../types";
 
 export function ActivityLogPanel() {
   const {
@@ -35,6 +38,8 @@ export function ActivityLogPanel() {
   const [liveSeenTs, setLiveSeenTs] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
+  const userPinnedActivityTabRef = useRef(false);
+  const prevJobRunningRef = useRef(jobRunning);
 
   const activeStream = useMemo(
     () => resolveActiveStream(run, jobRunning, logEntries),
@@ -60,6 +65,7 @@ export function ActivityLogPanel() {
   }, [activityLogTab, logEntries, run, jobRunning, selectedStageId]);
 
   const pinnedErrors = useMemo(() => {
+    if (activityLogTab === "all") return [];
     const errors = filterErrors(logEntries).slice(-5);
     if (activityLogTab === "step") {
       return filterByStage(errors, selectedStageId).slice(-3);
@@ -72,6 +78,7 @@ export function ActivityLogPanel() {
   }, [logEntries, activityLogTab, selectedStageId, run, jobRunning]);
 
   const pinnedWarnings = useMemo(() => {
+    if (activityLogTab === "all") return [];
     const warnings = filterWarnings(logEntries).slice(-3);
     if (activityLogTab === "step") {
       return filterByStage(warnings, selectedStageId).slice(-2);
@@ -83,7 +90,36 @@ export function ActivityLogPanel() {
     return warnings;
   }, [logEntries, activityLogTab, selectedStageId, run, jobRunning]);
 
+  const scrollEntries = useMemo(() => {
+    const pinned = [...pinnedErrors, ...pinnedWarnings];
+    const withoutPinned = excludePinnedEntries(displayed, pinned);
+    const deduped =
+      activityLogTab === "all"
+        ? dedupeConsecutiveLogEntries(withoutPinned)
+        : withoutPinned;
+    return deduped.slice(-200);
+  }, [displayed, pinnedErrors, pinnedWarnings, activityLogTab]);
+
+  const selectActivityTab = (tab: LogStreamTab) => {
+    userPinnedActivityTabRef.current = true;
+    setActivityLogTab(tab);
+  };
+
   useEffect(() => {
+    const wasRunning = prevJobRunningRef.current;
+    prevJobRunningRef.current = jobRunning;
+    if (jobRunning && !wasRunning) {
+      userPinnedActivityTabRef.current = false;
+    }
+  }, [jobRunning]);
+
+  useEffect(() => {
+    if (userPinnedActivityTabRef.current) {
+      if (jobRunning && activityLogTab !== "step" && activityLogTab !== "live") {
+        setActivityLogTab("live");
+      }
+      return;
+    }
     if (jobRunning && activityLogTab !== "step") {
       setActivityLogTab("live");
       return;
@@ -95,6 +131,7 @@ export function ActivityLogPanel() {
   }, [jobRunning, activityLogTab, setActivityLogTab, run, selectedStageId]);
 
   useEffect(() => {
+    if (userPinnedActivityTabRef.current) return;
     if (toolView && !jobRunning && activityLogTab === "step") {
       setActivityLogTab("all");
     }
@@ -109,7 +146,7 @@ export function ActivityLogPanel() {
   useEffect(() => {
     if (!autoScroll || userScrolledRef.current || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [displayed, autoScroll]);
+  }, [scrollEntries, autoScroll]);
 
   const emptyMessage =
     activityLogTab === "step"
@@ -186,7 +223,7 @@ export function ActivityLogPanel() {
               tab === "live" && activeStream.isLive ? " live-stream" : ""
             }`}
             data-testid={`activity-log-${tab}`}
-            onClick={() => setActivityLogTab(tab)}
+            onClick={() => selectActivityTab(tab)}
           >
             {label}
             {tab === "live" && activeStream.isLive ? (
@@ -229,21 +266,6 @@ export function ActivityLogPanel() {
         </div>
       ) : null}
 
-      {activityLogTab === "all" && (pinnedErrors.length || pinnedWarnings.length) ? (
-        <div className="activity-log-pinned">
-          {pinnedErrors.map((e, i) => (
-            <div key={`all-err-${e.ts}-${i}`} className="log-entry level-error log-entry-compact">
-              <span className="log-msg">{e.message}</span>
-            </div>
-          ))}
-          {pinnedWarnings.map((e, i) => (
-            <div key={`all-warn-${e.ts}-${i}`} className="log-entry level-warning log-entry-compact">
-              <span className="log-msg">{e.message}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <div
         ref={scrollRef}
         className="activity-log-body prompt-log"
@@ -257,7 +279,7 @@ export function ActivityLogPanel() {
         }}
       >
         <LogEntryList
-          entries={displayed.slice(-200)}
+          entries={scrollEntries}
           run={run}
           emptyMessage={emptyMessage}
           compact={activityLogTab === "live"}

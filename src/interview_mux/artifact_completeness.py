@@ -249,6 +249,24 @@ def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
     return artifact_ready_for_review("understanding/analysis_state.json", ctx)
 
 
+def story_board_ready_for_gui(ctx: RunContext) -> bool:
+    """True when Story board panel has meaningful workspace content."""
+    if not ctx.is_done("content_context"):
+        return False
+    return ctx.artifact_exists("understanding/content_brief.json")
+
+
+def timeline_ready_for_gui(ctx: RunContext) -> bool:
+    """True when NLE timeline has classified segments."""
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return False
+    manifest = ctx.read_json("segments/manifest.json")
+    if not isinstance(manifest, dict):
+        return False
+    segments = manifest.get("segments")
+    return isinstance(segments, list) and len(segments) > 0
+
+
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     out = copy.deepcopy(base)
     for key, val in patch.items():

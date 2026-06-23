@@ -348,7 +348,7 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 | `GET` | `/api/runs/{run_id}/interview-spine` | query: `offset`, `limit` | Paginated spine manifest + windows |
 | `POST` | `/api/runs/{run_id}/recompute-interview-spine` | — | `ok`, `spine`, `derived_from`, window counts |
 | `POST` | `/api/runs/{run_id}/interview-spine/query` | `{ "query": "…", "top_k": 5 }` | `{ "ok", "query", "hits" }` CLAP or text fallback |
-| `GET` | `/api/runs/{run_id}/coherence-report` | — | Full `understanding/coherence_report.json` (404 below 30m gate if never built) |
+| `GET` | `/api/runs/{run_id}/coherence-report` | — | Full `understanding/coherence_report.json`; when missing, **200** inactive stub (`gate.activated: false`) |
 | `POST` | `/api/runs/{run_id}/recompute-coherence` | `{ "phase": "post_reanchor" }` optional | `ok`, `report` — rebuild from spine + brief |
 | `PATCH` | `/api/runs/{run_id}/acoustic-profile/overrides` | **AcousticProfileOverridesBody** | `ok`, `operator_overrides`, `effective` (`pace_class`, `underscore_policy`), `profile` |
 

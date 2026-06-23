@@ -34,7 +34,7 @@ export function StageActivityStrip() {
           type="button"
           className="btn ghost sm"
           onClick={() => {
-            setActivityLogTab(hasErrors ? "all" : "step");
+            setActivityLogTab("step");
             setActivityLogCollapsed(false);
           }}
         >

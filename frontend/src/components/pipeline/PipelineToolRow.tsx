@@ -2,6 +2,7 @@ import type { PipelineSubTab } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import { subTabAttentionFlags } from "../../utils/attentionQueue";
+import { pipelineSubTabAvailability } from "../../utils/pipelineSubTabAvailability";
 import { subTabSubstepFlags } from "../../utils/stageSubsteps";
 
 const TOOLS: { id: PipelineSubTab; label: string; short: string }[] = [
@@ -14,9 +15,12 @@ const TOOLS: { id: PipelineSubTab; label: string; short: string }[] = [
   { id: "volley_memory", label: "Volley", short: "Volley" },
 ];
 
+const GATED_TABS = new Set<PipelineSubTab>(["story", "timeline", "profile"]);
+
 export function PipelineToolRow() {
   const {
     run,
+    timeline,
     pipelineSubTab,
     setPipelineSubTab,
     apiGrants,
@@ -36,29 +40,39 @@ export function PipelineToolRow() {
   return (
     <nav className="pipeline-v2-tool-row" aria-label="Pipeline tools">
       {TOOLS.map((t) => {
-        const badge = flags[t.id] ?? 0;
+        const avail = pipelineSubTabAvailability(t.id, run, timeline);
+        const locked = !avail.available;
+        const badge = locked && GATED_TABS.has(t.id) ? 0 : (flags[t.id] ?? 0);
         const subInfo = substepFlags[t.id];
-        const subBadge = subInfo?.count ?? 0;
+        const subBadge = locked ? 0 : (subInfo?.count ?? 0);
         const totalBadge = Math.max(badge, subBadge);
         const needsYouHint =
           t.id === "stage" && operatorAction.mode === "needs_you"
             ? operatorAction.headline
             : null;
         const tooltip =
-          needsYouHint ||
-          (subInfo && subInfo.labels.length > 0
-            ? `${t.label} — ${subInfo.labels.join("; ")}`
-            : badge > 0
-              ? `${t.label} — ${badge} need you`
-              : t.label);
+          locked && avail.reason
+            ? avail.reason
+            : needsYouHint ||
+              (subInfo && subInfo.labels.length > 0
+                ? `${t.label} — ${subInfo.labels.join("; ")}`
+                : badge > 0
+                  ? `${t.label} — ${badge} need you`
+                  : t.label);
         return (
           <button
             key={t.id}
             type="button"
-            className={`btn ghost sm pipeline-tool-btn${pipelineSubTab === t.id ? " active" : ""}`}
+            className={`btn ghost sm pipeline-tool-btn${pipelineSubTab === t.id ? " active" : ""}${
+              locked ? " pipeline-tool-btn--locked" : ""
+            }`}
             data-testid={`pipeline-tool-${t.id}`}
             title={tooltip}
-            onClick={() => setPipelineSubTab(t.id)}
+            aria-disabled={locked || undefined}
+            disabled={locked}
+            onClick={() => {
+              if (!locked) setPipelineSubTab(t.id);
+            }}
           >
             {t.short}
             {totalBadge > 0 ? <span className="tool-badge">{totalBadge}</span> : null}

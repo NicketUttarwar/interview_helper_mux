@@ -75,6 +75,10 @@ export function LogsTab() {
     if (!logFilterPreset) return;
     if (logFilterPreset.level) setLevelFilter(logFilterPreset.level);
     if (logFilterPreset.stage) setStageFilter(logFilterPreset.stage);
+    if (logFilterPreset.stream === "live" && run?.job) {
+      const liveStage = run.job.current_stage || run.job.stage;
+      if (liveStage) setStageFilter(liveStage);
+    }
     const scrollToError = logFilterPreset.scrollToError;
     setLogFilterPreset(null);
     if (scrollToError) {

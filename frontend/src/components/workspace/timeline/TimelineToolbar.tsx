@@ -10,6 +10,7 @@ interface Props {
   snapEnabled: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  assemblyAvailable?: boolean;
   onModeChange: (mode: TimelineMode) => void;
   onZoomChange: (zoom: number) => void;
   onSnapChange: (snap: boolean) => void;
@@ -46,6 +47,7 @@ export function TimelineToolbar({
   snapEnabled,
   canUndo,
   canRedo,
+  assemblyAvailable,
   onModeChange,
   onZoomChange,
   onSnapChange,
@@ -64,6 +66,7 @@ export function TimelineToolbar({
   onRedo,
 }: Props) {
   const asideCount = segments.filter((s) => s.type === "aside" && !s._excluded).length;
+  const assemblyReady = assemblyAvailable !== false;
 
   return (
     <div className="nle-toolbar timeline-toolbar">
@@ -79,6 +82,12 @@ export function TimelineToolbar({
           <button
             type="button"
             className={`btn sm${mode === "assembly" ? " primary" : " ghost"}`}
+            disabled={!assemblyReady}
+            title={
+              assemblyReady
+                ? "Assembly preview"
+                : "Assembly preview appears after EDL / assembly stages"
+            }
             onClick={() => onModeChange("assembly")}
           >
             Assembly

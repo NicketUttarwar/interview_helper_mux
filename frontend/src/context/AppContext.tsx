@@ -49,6 +49,11 @@ import {
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
+import {
+  clampPipelineSubTab,
+  pipelineSubTabAvailability,
+} from "../utils/pipelineSubTabAvailability";
+import { navigatePipelineSubTab as navigatePipelineSubTabUtil } from "../utils/navigatePipelineSubTab";
 import { setRunState, bumpLocalVersion } from "./runStateStore";
 import { JobProvider } from "./providers/JobProvider";
 import { RunProvider } from "./providers/RunProvider";
@@ -100,6 +105,7 @@ interface AppContextValue {
   pinSelectedStage: () => void;
   setActiveTab: (tab: AppTab) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
+  navigatePipelineSubTab: (tab: PipelineSubTab, opts?: { force?: boolean }) => void;
   openArtifactInEditor: (path: string) => void;
   setSelectedAsset: (path: string | null) => void;
   setMenuOpen: (open: boolean) => void;
@@ -220,6 +226,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [pinnedUntil, setPinnedUntil] = useState<number | null>(null);
 
   const logCountRef = useRef(0);
+  const recentClientLogRef = useRef<{ key: string; at: number } | null>(null);
   const bootGenRef = useRef(0);
   const persistUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<string | null>(null);
@@ -394,13 +401,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const setPipelineSubTabWrapped = useCallback(
-    (tab: PipelineSubTab) => {
-      setPipelineSubTab(tab);
-      pipelineSubTabRef.current = tab;
-      persistSessionUi();
+    (tab: PipelineSubTab, opts?: { force?: boolean }) => {
+      navigatePipelineSubTabUtil(tab, run, timeline, {
+        force: opts?.force,
+        onBlocked: (reason) => showToast(reason, "warning"),
+        onNavigate: (next) => {
+          setPipelineSubTab(next);
+          pipelineSubTabRef.current = next;
+          persistSessionUi();
+        },
+      });
     },
-    [persistSessionUi],
+    [persistSessionUi, run, timeline, showToast],
   );
+
+  const navigatePipelineSubTab = setPipelineSubTabWrapped;
 
   const openArtifactInEditor = useCallback(
     (path: string) => {
@@ -535,6 +550,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     level = "info",
     stage?: string,
   ) => {
+    const dedupeKey = `${level}:${message}`;
+    const now = Date.now();
+    const recent = recentClientLogRef.current;
+    if (recent && recent.key === dedupeKey && now - recent.at < 30_000) {
+      return;
+    }
+    recentClientLogRef.current = { key: dedupeKey, at: now };
+
     if (!rid) {
       renderLogWithAlerts([
         { ts: new Date().toISOString(), level: level as LogEntry["level"], message, stage },
@@ -630,8 +653,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userDismissedActionRef.current = false;
     void focusPendingStage();
     setActiveTabState("pipeline");
-    setPipelineSubTab("stage");
-  }, [focusPendingStage]);
+    setPipelineSubTabWrapped("stage");
+  }, [focusPendingStage, setPipelineSubTabWrapped]);
 
   const lastAutoOpenKeyRef = useRef<string | null>(null);
 
@@ -1045,6 +1068,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           () => null,
         );
         setTimeline(tl);
+        const clampedSubTab = clampPipelineSubTab(subTab, runData, tl);
+        if (clampedSubTab !== subTab) {
+          setPipelineSubTab(clampedSubTab);
+          pipelineSubTabRef.current = clampedSubTab;
+          await api("/api/session/active", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              run_id: id,
+              selected_stage_id: stageId,
+              active_tab: tab,
+              pipeline_sub_tab: clampedSubTab,
+            }),
+          });
+        }
         renderLogWithAlerts(runData.log_tail || []);
         const resolvedStage =
           stageId ||
@@ -1235,7 +1273,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userDismissedActionRef.current = false;
     await selectStage(next.id);
     expandStage(next.id);
-    setPipelineSubTab("stage");
+    setPipelineSubTabWrapped("stage");
     setActivityLogTabState("live");
     activityLogTabRef.current = "live";
     showToast(`Starting ${next.title}…`);
@@ -1799,6 +1837,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pinSelectedStage,
     setActiveTab,
     setPipelineSubTab: setPipelineSubTabWrapped,
+    navigatePipelineSubTab,
     openArtifactInEditor,
     setSelectedAsset,
     setMenuOpen,

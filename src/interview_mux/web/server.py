@@ -570,9 +570,15 @@ def create_app() -> FastAPI:
         profile_verified = is_operator_profile_verified(ctx)
         profile_gate_pending = check_profile_gate_pending(ctx)
         df_pending = check_disfluency_review_pending(ctx)
-        from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+        from interview_mux.artifact_completeness import (
+            analysis_profile_ready_for_review,
+            story_board_ready_for_gui,
+            timeline_ready_for_gui,
+        )
 
         profile_ready = analysis_profile_ready_for_review(ctx)
+        story_board_ready = story_board_ready_for_gui(ctx)
+        timeline_ready = timeline_ready_for_gui(ctx)
         stages = _build_stage_list(
             ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
         )
@@ -620,6 +626,8 @@ def create_app() -> FastAPI:
             "profile_verified": profile_verified,
             "profile_gate_pending": profile_gate_pending,
             "profile_ready_for_review": profile_ready,
+            "story_board_ready": story_board_ready,
+            "timeline_ready": timeline_ready,
             "g1_missing": g1_missing,
             "g1_clear": not g1_missing,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
@@ -823,10 +831,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/runs/{run_id}/coherence-report")
     def get_coherence_report(run_id: str) -> dict[str, Any]:
+        from interview_mux.coherence.analyze import _inactive_report
+        from interview_mux.coherence.duration_gate import build_gate
+
         ctx = _ctx(run_id)
         path = "understanding/coherence_report.json"
         if not ctx.artifact_exists(path):
-            raise HTTPException(404, "Coherence report not found — run analysis on a 30m+ interview first.")
+            gate = build_gate(ctx)
+            return _inactive_report(gate, "pre_analysis")
         doc = ctx.read_json(path)
         return doc
 

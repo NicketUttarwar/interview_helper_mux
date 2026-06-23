@@ -112,6 +112,29 @@ export function latestEntry(entries: LogEntry[]): LogEntry | null {
   return entries.length ? entries[entries.length - 1] : null;
 }
 
+/** Remove entries already shown in the pinned strip. */
+export function excludePinnedEntries(
+  entries: LogEntry[],
+  pinned: LogEntry[],
+): LogEntry[] {
+  if (!pinned.length) return entries;
+  const pinnedTs = new Set(pinned.map((e) => e.ts));
+  return entries.filter((e) => !pinnedTs.has(e.ts));
+}
+
+/** Collapse consecutive identical message+level lines (polluted historical tail). */
+export function dedupeConsecutiveLogEntries(entries: LogEntry[]): LogEntry[] {
+  const out: LogEntry[] = [];
+  for (const e of entries) {
+    const prev = out[out.length - 1];
+    if (prev && prev.message === e.message && prev.level === e.level) {
+      continue;
+    }
+    out.push(e);
+  }
+  return out;
+}
+
 export function jobRunningStage(job: JobState | undefined): string | null {
   return job?.current_stage || job?.stage || null;
 }
