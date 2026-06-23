@@ -146,6 +146,41 @@ class JobRunner:
         """True only when this process is executing a background job for the run."""
         return self.lock_held(run_id)
 
+    def mark_write_approval_saving(
+        self,
+        ctx: RunContext,
+        stage_id: str,
+        paths: list[str],
+    ) -> None:
+        """Show live save progress in gui_job while staged files are promoted to disk."""
+        title = self._stage_title(stage_id)
+        has_large_wav = any(p.endswith(".wav") for p in paths)
+        hint = " — large audio may take up to a minute" if has_large_wav else ""
+        self._write_job(
+            ctx,
+            {
+                "status": "running",
+                "mode": "write_approval",
+                "stage": stage_id,
+                "current_stage": stage_id,
+                "message": f"Saving {len(paths)} file(s) for {title}{hint}…",
+                "pending_write_stage": stage_id,
+                "pending_write_paths": paths,
+            },
+        )
+        ctx.log(
+            f"Saving {len(paths)} staged file(s) for {title}{hint}…",
+            level="action",
+            stage=stage_id,
+            action_id="write_approval.save",
+            origin="api",
+            detail={
+                "journey_kind": "execute",
+                "event": "write_approval_save_start",
+                "paths": paths,
+            },
+        )
+
     @contextmanager
     def run_guard(self, run_id: str) -> Iterator[None]:
         """Serialize mutating API calls with background execute for one run."""
@@ -153,7 +188,7 @@ class JobRunner:
         dir_lock = RunDirectoryLock(run_id)
         if not lock.acquire(blocking=False):
             raise RunBusyError(run_id)
-        if not dir_lock.acquire(blocking=False):
+        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
             lock.release()
             raise RunBusyError(run_id)
         try:

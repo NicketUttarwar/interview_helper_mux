@@ -1505,6 +1505,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const hasLargeWav = paths.some((p) => p.endsWith(".wav"));
       setActionBusy(true);
+      actionBusyRef.current = true;
       traceAction(
         "gui.write_approval.save",
         hasLargeWav
@@ -1512,51 +1513,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
         { level: "action", stage: sid },
       );
+      let keepBusyForJob = false;
       try {
-        await api(`/api/runs/${runId}/pending-writes/${sid}/approve`, {
+        const res = await api<{
+          ok?: boolean;
+          flushed?: string[];
+          stage_id?: string;
+          started_stage?: string | null;
+          job?: {
+            ok?: boolean;
+            error?: string;
+            stage?: string;
+            status?: string;
+            message?: string;
+          };
+        }>(`/api/runs/${runId}/continue-after-checkpoint`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "write_approval", stage_id: sid }),
         });
         showToast("Outputs saved.");
         traceAction(
           "gui.write_approval.saved",
-          "Files saved. Starting next step — ingest may take several minutes for long audio (normalizing + hashing).",
+          res.started_stage
+            ? `Files saved. Starting ${res.started_stage.replace(/_/g, " ")}…`
+            : "Files saved — continuing pipeline.",
           { level: "info", stage: sid },
         );
         bumpLocalVersion();
         userDismissedActionRef.current = false;
-        startJobPoll();
-        let refreshed = await refreshRun();
-        await pollLog(true);
-        let stillPending = stageAwaitingWriteApproval(refreshed, sid);
-        if (stillPending) {
-          refreshed = await refreshRun();
-          stillPending = stageAwaitingWriteApproval(refreshed, sid);
-        }
-        if (stillPending) {
-          try {
-            const pending = await api<{ paths?: string[] }>(
-              `/api/runs/${runId}/pending-writes/${sid}`,
-            );
-            if (!pending.paths?.length) {
-              refreshed = await refreshRun();
-              stillPending = stageAwaitingWriteApproval(refreshed, sid);
-            }
-          } catch {
-            /* keep stillPending */
-          }
-        }
-        if (stillPending) {
-          appendClientLog(
-            "Save completed but review gate still active — refresh or retry once.",
-            "warning",
-            sid,
-            "gui.write_approval.still_pending",
-          );
-          return false;
-        }
-        setActionBusy(false);
-        actionBusyRef.current = false;
         setActionModalOpen(false);
+        const refreshed = await refreshRun();
+        await pollLog(true);
+        if (res.started_stage) {
+          keepBusyForJob = true;
+          if (res.job?.ok === false) {
+            await handleJobStartResponse(res.job, res.started_stage);
+            return false;
+          }
+          setJobRunning(true);
+          setRun((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  job: {
+                    status: "running",
+                    stage: res.started_stage!,
+                    current_stage: res.started_stage!,
+                    message:
+                      res.job?.message ||
+                      `Running ${res.started_stage!.replace(/_/g, " ")}…`,
+                  },
+                }
+              : prev,
+          );
+          setActivityLogTabState("live");
+          activityLogTabRef.current = "live";
+          setActivityLogCollapsedState(false);
+          activityLogCollapsedRef.current = false;
+          expandStage(res.started_stage);
+          await selectStage(res.started_stage);
+          appendClientLog(
+            `Pipeline continuing with ${res.started_stage.replace(/_/g, " ")} — watch Activity (Live).`,
+            "info",
+            res.started_stage,
+          );
+          startJobPoll();
+          return true;
+        }
         const started = await advancePipeline({
           run: refreshed,
           runId,
@@ -1588,14 +1612,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             context: "save",
           });
           if (busy) {
+            keepBusyForJob = true;
             if (writeApprovalCleared) setActionModalOpen(false);
             return writeApprovalCleared;
           }
         }
         return false;
       } finally {
-        setActionBusy(false);
-        actionBusyRef.current = false;
+        if (!keepBusyForJob) {
+          setActionBusy(false);
+          actionBusyRef.current = false;
+        }
       }
     },
     [
@@ -1614,6 +1641,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectStage,
       expandStage,
       setPipelineSubTabWrapped,
+      handleJobStartResponse,
     ],
   );
 

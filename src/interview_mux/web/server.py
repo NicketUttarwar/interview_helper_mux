@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -1290,16 +1291,26 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, "Provide data or text")
             return {"ok": True, "path": body.path}
 
+    def _approve_staged_writes_locked(
+        run_id: str,
+        ctx: RunContext,
+        stage_id: str,
+    ) -> list[str]:
+        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
+
+        with runner.run_guard(run_id):
+            paths = list_pending_paths(ctx, stage_id)
+            if not paths:
+                raise HTTPException(404, f"No pending writes for stage: {stage_id}")
+            runner.mark_write_approval_saving(ctx, stage_id, paths)
+            return approve_stage_writes(ctx, stage_id)
+
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
     async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
 
         def _approve_locked() -> list[str]:
-            with runner.run_guard(run_id):
-                if not list_pending_paths(ctx, stage_id):
-                    raise HTTPException(404, f"No pending writes for stage: {stage_id}")
-                return approve_stage_writes(ctx, stage_id)
+            return _approve_staged_writes_locked(run_id, ctx, stage_id)
 
         try:
             flushed = await run_in_threadpool(_approve_locked)
@@ -1343,22 +1354,34 @@ def create_app() -> FastAPI:
         if kind != "write_approval" or not stage_id:
             raise HTTPException(400, "kind=write_approval and stage_id required")
         ctx = _ctx(run_id)
-        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
         from interview_mux.journey_orchestrator import refresh_journey_meta as _refresh_journey
 
         def _approve_and_next() -> dict[str, Any]:
-            with runner.run_guard(run_id):
-                if not list_pending_paths(ctx, stage_id):
-                    raise HTTPException(404, f"No pending writes for stage: {stage_id}")
-                flushed = approve_stage_writes(ctx, stage_id)
+            flushed = _approve_staged_writes_locked(run_id, ctx, stage_id)
+            title = STAGE_BY_ID.get(stage_id)
+            stage_label = title.title if title else stage_id.replace("_", " ")
             runner.clear_operator_pause(
                 ctx,
                 stage_id,
-                message=f"Saved {len(flushed)} file(s) — advancing pipeline.",
+                message=(
+                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
+                ),
+            )
+            ctx.log(
+                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
+                level="success",
+                stage=stage_id,
+                action_id="api.write_approval.approve",
+                origin="api",
+                detail={
+                    "journey_kind": "milestone",
+                    "event": "write_approval_complete",
+                    "paths": flushed,
+                    "stage_id": stage_id,
+                },
             )
             _refresh_journey(ctx)
             from interview_mux.pipeline import ANALYSIS_ORDER
-            from interview_mux.web.stages import STAGE_BY_ID
 
             next_stage: str | None = None
             if stage_id in ANALYSIS_ORDER:

@@ -22,10 +22,11 @@ describe("gate panels use advanceFromCheckpoint", () => {
 });
 
 describe("approveWriteAndContinue chains advancePipeline", () => {
-  it("clears actionBusy before advancePipeline", () => {
+  it("uses continue-after-checkpoint for atomic save and advance", () => {
     const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
     expect(text).toContain("approveWriteAndContinue");
-    expect(text).toMatch(/actionBusyRef\.current = false[\s\S]*advancePipeline/);
-    expect(text).toContain("checkpoint_continue");
+    expect(text).toContain("continue-after-checkpoint");
+    expect(text).toContain("advancePipeline");
+    expect(text).toContain("keepBusyForJob");
   });
 });

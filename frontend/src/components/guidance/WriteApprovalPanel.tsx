@@ -3,6 +3,7 @@ import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
+import { isWriteApprovalSaving } from "../../utils/jobStatus";
 import {
   resolvePendingWritePaths,
   stageAwaitingWriteApproval,
@@ -49,6 +50,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
+  const savingToDisk = isWriteApprovalSaving(run?.job);
 
   const paths = useMemo(
     () => resolvePendingWritePaths(run, stageId, apiPaths),
@@ -220,7 +222,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   if (!writePendingForStage && !paths.length && !loading) return null;
 
-  const saveDisabled = actionBusy || jobRunning || !paths.length;
+  const saveDisabled = actionBusy || jobRunning || savingToDisk || !paths.length;
 
   return (
     <section
@@ -363,10 +365,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           disabled={saveDisabled}
           onClick={() => void approve()}
         >
-          {actionBusy || jobRunning ? (
+          {actionBusy || savingToDisk || jobRunning ? (
             <>
               <span className="spinner-inline" aria-hidden />{" "}
-              {jobRunning && !actionBusy ? "Next step running…" : "Saving…"}
+              {savingToDisk || actionBusy
+                ? "Saving to disk…"
+                : jobRunning
+                  ? "Next step running…"
+                  : "Saving…"}
             </>
           ) : paths.length ? (
             `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
@@ -384,9 +390,11 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           Discard &amp; re-run
         </button>
       </div>
-      {jobRunning && !actionBusy ? (
+      {(savingToDisk || jobRunning) && !actionBusy ? (
         <p className="hint sm write-approval-running-hint">
-          Next step is running — watch Activity log (All/Live). Save is disabled until it finishes.
+          {savingToDisk
+            ? "Promoting staged files to disk — watch Activity log (Live). Do not click Save again."
+            : "Next step is running — watch Activity log (All/Live). Save is disabled until it finishes."}
         </p>
       ) : null}
     </section>
