@@ -235,10 +235,9 @@ _phase_server() {
     fi
   fi
 
-  _log_step "SERVER" "Starting ./scripts/run.sh (MUX_FRESH_SESSION=1)"
+  _log_step "SERVER" "Starting ./scripts/run.sh (fresh session by default)"
   (
     cd "${REPO_ROOT}"
-    export MUX_FRESH_SESSION=1
     ./scripts/run.sh
   ) >> "${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!

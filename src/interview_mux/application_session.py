@@ -349,7 +349,7 @@ def build_session_payload() -> dict[str, Any]:
 
 
 def clear_session_files(*, fresh: bool = False) -> None:
-    """Clear session state when MUX_FRESH_SESSION=1."""
+    """Clear session state when launch requests a fresh GUI session."""
     if not fresh:
         return
     for name in (

@@ -114,6 +114,7 @@ export interface JourneyBlocking {
   reason?: JourneyBlockingReason | null;
   message?: string;
   stage_id?: string | null;
+  reuse_candidates?: import("./index").ReuseCandidate[];
 }
 
 export interface JourneyExecuteHint {

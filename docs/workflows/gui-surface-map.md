@@ -37,7 +37,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 
 **API consent:** GUI sends `api_consents` on every execute (assumes configured providers). Optional persist to `ASSETS/.gui/api_consent.json` via `POST /api/session/api-consent` for cross-relaunch convenience. Backend `runner.start` can reject execute when required providers are not granted (`job.status: needs_operator`).
 
-**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`, `pipeline_collapsed_stages`, `pipeline_expanded_done_stages`. Browser refresh and `./scripts/run.sh` restart (default) restore the last operator view via `GET /api/session` → `openRun`. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start — **`LiveStatusBar`** shows **Run interrupted**, not Idle.
+**Session persistence:** `ASSETS/.gui/active_execution.json` stores `run_id`, `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, etc. Browser refresh during one server process restores via `GET /api/session` → `openRun`. Each `./scripts/run.sh` launch clears session files by default. Stale `gui_job.json` with `status: running` is reconciled to `interrupted` on server start — **`LiveStatusBar`** shows **Run interrupted**, not Idle.
 
 ## Substeps (operator progress)
 

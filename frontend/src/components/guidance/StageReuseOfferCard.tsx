@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { ALL_API_CONSENTS } from "../../utils";

@@ -30,6 +30,35 @@ def test_reconcile_stale_running_job(tmp_path, monkeypatch) -> None:
     assert any("Server restarted" in e.get("message", "") for e in entries)
 
 
+def test_sanitize_gui_job_clears_after_reuse_decision(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    ctx = RunContext("exec_020_20260101T000020Z")
+    ctx.init_run_meta(_wav_path(tmp_path))
+    meta = ctx.read_json("run_meta.json")
+    meta.setdefault("stage_reuse", {})["transcribe"] = {
+        "action": "decline",
+        "at": "2026-01-01T00:00:00Z",
+    }
+    ctx.write_json("run_meta.json", meta)
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "needs_operator",
+            "stage": "transcribe",
+            "needs_stage_reuse": True,
+            "reuse_candidates": [{"run_id": "exec_old", "paths": []}],
+        },
+    )
+
+    from interview_mux.gui_job_reconcile import reconcile_job_if_stale
+
+    job = reconcile_job_if_stale(ctx.run_id, lock_held=False)
+    assert job.get("needs_stage_reuse") is False
+    assert job.get("status") == "complete"
+    on_disk = ctx.read_json("gui_job.json")
+    assert on_disk.get("needs_stage_reuse") is False
+
+
 def test_reconcile_stale_jobs_scans_all(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
     wav = _wav_path(tmp_path)

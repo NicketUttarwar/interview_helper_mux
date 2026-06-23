@@ -9,6 +9,46 @@ RUNNING_STATUSES = frozenset({"running", "running_with_warnings"})
 INTERRUPTED_MESSAGE = "Server restarted — safe to re-run."
 
 
+def sanitize_gui_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Drop stale reuse pause flags and backfill candidates from run_meta / disk."""
+    if not job:
+        return job
+    stage = job.get("pending_write_stage") or job.get("stage")
+    if not job.get("needs_stage_reuse") or not stage:
+        return job
+
+    from interview_mux.stage_execution_reuse import (
+        get_reuse_decision,
+        reuse_candidates_if_undecided,
+    )
+
+    stage_id = str(stage)
+    decision = get_reuse_decision(ctx, stage_id)
+    if decision:
+        out = dict(job)
+        out["needs_stage_reuse"] = False
+        out.pop("reuse_candidates", None)
+        if out.get("status") == "needs_operator":
+            out["status"] = "complete"
+            out["message"] = "Reuse decision recorded — continue when ready."
+        return out
+
+    candidates = job.get("reuse_candidates")
+    if not candidates:
+        found = reuse_candidates_if_undecided(ctx, stage_id)
+        if found:
+            out = dict(job)
+            out["reuse_candidates"] = [c.to_dict() for c in found]
+            return out
+        if job.get("status") == "needs_operator":
+            out = dict(job)
+            out["needs_stage_reuse"] = False
+            out["status"] = "idle"
+            out["message"] = "Reuse no longer available — run this step fresh."
+            return out
+    return job
+
+
 def _reconcile_job_file(ctx: RunContext) -> bool:
     """Rewrite stale on-disk running job to interrupted. Returns True if changed."""
     p = ctx.path("gui_job.json")
@@ -61,5 +101,9 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
         if status in RUNNING_STATUSES:
             _reconcile_job_file(ctx)
     data = ctx.read_json("gui_job.json")
+    sanitized = sanitize_gui_job(ctx, data)
+    if sanitized is not data and sanitized != data:
+        ctx.write_json("gui_job.json", sanitized)
+        data = sanitized
     data["run_id"] = run_id
     return data

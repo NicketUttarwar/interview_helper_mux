@@ -48,11 +48,11 @@ When the run is **blocked** at a gate, **StepActionHeader** shows **Needs you** 
 
 1. Place audio under `ASSETS/input/` (or anywhere under `ASSETS/` except `executions/`).
 2. `./scripts/bootstrap_venv.sh` and `config/secrets/secrets.env` — see [SETUP.md](../../SETUP.md).
-3. `./scripts/run.sh` → **Start** tab (or auto-restore last run if one was active).
+3. `./scripts/run.sh` → **Start** tab (fresh session each launch; resume prior runs from **Executions**).
 
 Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
-**Session restore:** Browser refresh and `./scripts/run.sh` restart (default) reload `application_state.json` via `GET /api/session` — same run, tab, and stage. `SessionBanner` shows execution context. Use **Menu → Clear session** only when starting over. Opt-in fresh pointer: `MUX_FRESH_SESSION=1 ./scripts/run.sh`. Optional deep link: `?run=exec_NNN`.
+**Session restore:** Browser refresh during one `./scripts/run.sh` process reloads `application_state.json` via `GET /api/session` — same run, tab, and stage. Each new `./scripts/run.sh` starts with a clean Start tab (session files cleared; `.venv` and `ASSETS/executions/` are kept). Resume a prior run from **Executions**, or use **Menu → Clear session** mid-session. Optional: `MUX_PRESERVE_SESSION=1 ./scripts/run.sh` to keep the pointer across that launch. Deep link: `?run=exec_NNN`.
 
 **Same interview, new execution:** Starting a second run on the same WAV gets the same `source_audio_hash`. The **Executions** tab shows **Same audio** on matching runs. At each stage you can **Reuse outputs** from a prior execution instead of re-running expensive steps — [stage-execution-reuse.md](./stage-execution-reuse.md).
 

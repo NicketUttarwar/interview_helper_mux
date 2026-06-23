@@ -59,7 +59,7 @@ These checks do not replace sections 1–5 below (real `exec_*` + listen tests),
 | Step | Action | Pass criteria |
 |------|--------|---------------|
 | 1b.1 | Refresh browser mid-run | `SessionBanner` shows run id, exec #, working dir; same stage/tab restored |
-| 1b.2 | `./scripts/run.sh` restart (`MUX_FRESH_SESSION=0`) | Session restores without manual resume |
+| 1b.2 | `./scripts/run.sh` restart | Fresh Start tab (session cleared); resume prior `exec_*` from **Executions** if needed |
 | 1b.3 | Skip `audio_preclean` | Outputs panel shows skip / n/a — never pending `provider.json` |
 | 1b.4 | Stage with write approval | Staged badge → **Save to working directory** → files at final paths, stage `done` |
 | 1b.5 | Second execution, same WAV | `PreviousSessionReusePanel` + immediate-previous reuse only |

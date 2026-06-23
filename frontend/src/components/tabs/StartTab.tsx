@@ -152,6 +152,14 @@ export function StartTab() {
             <button type="button" className="btn ghost" onClick={() => setActiveTab("logs")}>
               View logs
             </button>
+            <button
+              type="button"
+              className="btn danger ghost"
+              disabled={!sessionReady}
+              onClick={() => void clearSession()}
+            >
+              Clear session &amp; pick new audio
+            </button>
           </div>
         </section>
       </main>

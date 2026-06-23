@@ -183,6 +183,7 @@ def _blocking(
     reason: str | None = None
     message = ""
     stage_id: str | None = None
+    reuse_candidates_payload: list[dict[str, Any]] | None = None
 
     if job and job.get("status") in ("gate", "needs_operator", "awaiting_write_approval"):
         blocked = True
@@ -249,6 +250,7 @@ def _blocking(
                     reason = "stage_reuse"
                     stage_id = sid
                     message = "Choose reuse or run fresh"
+                    reuse_candidates_payload = [c.to_dict() for c in candidates]
 
     if not blocked and handoff_between_stages_enabled():
         handoff_sid = pending_handoff_stage(ctx)
@@ -274,12 +276,15 @@ def _blocking(
             stage_id = "g2_flow_select"
             message = NEXT_ACTION_COMPLETE_G2
 
-    return {
+    out: dict[str, Any] = {
         "blocked": blocked,
         "reason": reason,
         "message": message,
         "stage_id": stage_id,
     }
+    if reuse_candidates_payload:
+        out["reuse_candidates"] = reuse_candidates_payload
+    return out
 
 
 def _stage_display_title(stage_id: str) -> str:

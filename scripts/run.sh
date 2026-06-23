@@ -104,15 +104,48 @@ PY
 fi
 
 _CURRENT_STEP="gui_session_reset"
-MUX_FRESH_SESSION="${MUX_FRESH_SESSION:-0}"
+# Fresh GUI session on every ./scripts/run.sh launch (venv is preserved). Opt out: MUX_PRESERVE_SESSION=1
 GUI_DIR="$("$VENV/bin/python" - <<'PY'
 from interview_mux.config import merged_config, repo_root
 cfg = merged_config()
 print((repo_root() / cfg.get("assets_root", "ASSETS") / ".gui").as_posix())
 PY
 )"
-if [[ "$MUX_FRESH_SESSION" == "1" ]]; then
-  echo "MUX_FRESH_SESSION=1 — clearing GUI session state ..."
+if [[ "${MUX_PRESERVE_SESSION:-0}" == "1" ]]; then
+  echo "MUX_PRESERVE_SESSION=1 — keeping GUI session pointer across this launch ..."
+  if [[ -f "$GUI_DIR/application_state.json" ]]; then
+    ACTIVE_RUN="$("$VENV/bin/python" - <<'PY'
+import json
+from pathlib import Path
+p = Path("""$GUI_DIR/application_state.json""")
+try:
+    data = json.loads(p.read_text(encoding="utf-8"))
+    active = data.get("active") or {}
+    print(active.get("run_id") or "")
+except Exception:
+    print("")
+PY
+)"
+  elif [[ -f "$GUI_DIR/active_execution.json" ]]; then
+    ACTIVE_RUN="$("$VENV/bin/python" - <<'PY'
+import json
+from pathlib import Path
+p = Path("""$GUI_DIR/active_execution.json""")
+try:
+    data = json.loads(p.read_text(encoding="utf-8"))
+    print(data.get("run_id") or "")
+except Exception:
+    print("")
+PY
+)"
+  else
+    ACTIVE_RUN=""
+  fi
+  if [[ -n "$ACTIVE_RUN" ]]; then
+    echo "Will restore active execution: ${ACTIVE_RUN}"
+  fi
+else
+  echo "Clearing GUI session state for a fresh Start tab ..."
   rm -f \
     "$GUI_DIR/active_execution.json" \
     "$GUI_DIR/application_state.json" \
@@ -121,8 +154,6 @@ if [[ "$MUX_FRESH_SESSION" == "1" ]]; then
     "$GUI_DIR/active_execution.json.lock" \
     "$GUI_DIR/server_session.json.lock" \
     "$GUI_DIR/api_consent.json.lock"
-else
-  echo "Preserving GUI session state (MUX_FRESH_SESSION=0) ..."
 fi
 
 WEB_PORT="$("$VENV/bin/python" - <<'PY'

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
 import time
@@ -28,8 +27,6 @@ class ServerLifecycle:
             return
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = self.log_path.open("a", encoding="utf-8")
-        env = os.environ.copy()
-        env["MUX_FRESH_SESSION"] = "1"
         self._proc = subprocess.Popen(
             ["./scripts/run.sh"],
             cwd=str(self.repo_root),

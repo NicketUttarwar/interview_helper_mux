@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
@@ -52,6 +52,9 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     [run, stageId, apiPaths],
   );
 
+  const runRef = useRef(run);
+  runRef.current = run;
+
   const loadPaths = useCallback(async () => {
     if (!runId) return;
     setLoading(true);
@@ -62,7 +65,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       );
       setApiPaths(data.paths || []);
     } catch (e) {
-      const fallback = resolvePendingWritePaths(run, stageId);
+      const fallback = resolvePendingWritePaths(runRef.current, stageId);
       if (!fallback.length) {
         setApiPaths([]);
         setLoadError(e instanceof ApiError ? e.message : "Could not load staged files");
@@ -70,7 +73,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     } finally {
       setLoading(false);
     }
-  }, [runId, stageId, run]);
+  }, [runId, stageId]);
 
   useEffect(() => {
     void loadPaths();

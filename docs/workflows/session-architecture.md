@@ -6,7 +6,7 @@ Single-machine, single-operator session model for `interview_helper_mux`.
 
 | Tier | Location | Lifetime |
 |------|----------|----------|
-| Application session | `ASSETS/.gui/application_state.json` + in-process mirror | `./scripts/run.sh` process (preserved across browser refresh; cleared when `MUX_FRESH_SESSION=1`) |
+| Application session | `ASSETS/.gui/application_state.json` + in-process mirror | Cleared at each `./scripts/run.sh` launch (default); persists across browser refresh within one server process |
 | Execution workspace | `ASSETS/executions/exec_<n>_<hash?>_<timestamp>/` | Durable per pipeline run |
 | Client | React (`AppContext`, `runStateStore`) | Browser tab only |
 
@@ -23,8 +23,8 @@ Legacy files (`active_execution.json`, `server_session.json`) are kept in sync f
 
 ## Bootstrap (`./scripts/run.sh`)
 
-- `MUX_FRESH_SESSION=0` (default): preserve GUI session across server restart
-- `MUX_FRESH_SESSION=1`: clear `application_state.json` and legacy session files
+- **Default:** `./scripts/run.sh` clears `application_state.json` and legacy session files before serve
+- `MUX_PRESERVE_SESSION=1`: keep session pointer across this launch (old default behavior)
 
 On `interview_mux serve` start, `on_server_start()` assigns a new `operator_session_id` and writes `ASSETS/.gui/sessions/<id>/bootstrap.log`.
 

@@ -34,12 +34,12 @@ Place source audio under `ASSETS/input/` (any `.wav`; pick from GUI **Input audi
 
 | Mode | Command |
 |------|---------|
-| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, builds React static bundle if missing, keeps GUI session pointer across restarts (use `MUX_FRESH_SESSION=1` for a fresh launch), serves on `web_port` (default **8765**) |
+| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, builds React static bundle if missing, **clears GUI session** for a fresh Start tab each launch (`.venv` preserved; prior `exec_*` folders remain under `ASSETS/executions/`), serves on `web_port` (default **8765**) |
 | **Serve only** | `source .venv/bin/activate && python -m interview_mux serve` or `interview-mux serve` |
 | **Headless pipeline** | `./scripts/run.sh --cli` then `interview-mux` / `python -m interview_mux` with `--flow`, `--run-id`, `--analysis-only`, etc. |
 | **Stage CLIs** | `python tools/run_analysis.py --run-id <exec_*>` · `python tools/run_flow.py --flow flow1\|flow2\|flow3 --run-id <exec_*>` |
 
-GUI runs and artifacts live under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP` and resume after restart. Runs on the same source WAV share a hash — reuse prior stage outputs per step — [docs/cross-cutting/assets-and-executions.md](docs/cross-cutting/assets-and-executions.md) · [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md).
+GUI runs and artifacts live under `ASSETS/executions/exec_NNN_<hash12>_TIMESTAMP`. Resume a prior run from **Executions** in the GUI. Same source WAV shares a hash — reuse prior stage outputs per step — [docs/cross-cutting/assets-and-executions.md](docs/cross-cutting/assets-and-executions.md) · [docs/workflows/stage-execution-reuse.md](docs/workflows/stage-execution-reuse.md).
 
 ---
 

@@ -51,6 +51,32 @@ export function StageDetail() {
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
   const { fullyComplete } = useStageProgress(selectedStageId);
 
+  const layoutStageId = selectedStage?.id ?? selectedStageId;
+  const layoutStageStatus = selectedStage?.status;
+
+  const handoffPaths = useMemo(() => {
+    if (!selectedStage || !run) return [];
+    return getHandoffPathsLocal(selectedStage, run.log_tail);
+  }, [selectedStage, run?.log_tail]);
+
+  const showHandoff = useMemo(() => {
+    if (!selectedStage || !run) return false;
+    return (
+      layoutStageStatus === "done" &&
+      handoffPaths.length > 0 &&
+      !run.handoff_ack?.[selectedStage.id]
+    );
+  }, [selectedStage, run, layoutStageStatus, handoffPaths.length]);
+
+  const showDoneShell = useMemo(() => {
+    if (!run || !layoutStageId) return false;
+    return (
+      fullyComplete &&
+      !showHandoff &&
+      !stageNeedsPendingAction(run, layoutStageId, apiGrants)
+    );
+  }, [fullyComplete, showHandoff, run, layoutStageId, apiGrants]);
+
   const nav = useMemo(
     () =>
       resolvePipelineNav(run, {
@@ -100,9 +126,9 @@ export function StageDetail() {
 
   useEffect(() => {
     if (!run || selectedStageId) return;
-    const target = nav.currentStage || nav.nextStage;
-    if (target) void selectStage(target.id);
-  }, [run, selectedStageId, nav.currentStage, nav.nextStage, selectStage]);
+    const targetId = nav.currentStage?.id || nav.nextStage?.id;
+    if (targetId) void selectStage(targetId);
+  }, [run, selectedStageId, nav.currentStage?.id, nav.nextStage?.id, selectStage]);
 
   if (!selectedStage || !stageAction) {
     return (
@@ -113,12 +139,6 @@ export function StageDetail() {
   }
 
   const stepEntry = nav.numberedStages.find((n) => n.stage.id === selectedStage.id);
-
-  const handoffPaths = getHandoffPathsLocal(selectedStage, run?.log_tail);
-  const showHandoff =
-    selectedStage.status === "done" &&
-    handoffPaths.length > 0 &&
-    !run?.handoff_ack?.[selectedStage.id];
 
   const writePendingOnly =
     stageAwaitingWriteApproval(run, selectedStage.id) &&
@@ -131,11 +151,6 @@ export function StageDetail() {
     (selectedStage.status === "action_required" ||
       showHandoff ||
       (run?.job?.status === "gate" && run.job.stage === selectedStage.id));
-
-  const showDoneShell =
-    fullyComplete &&
-    !showHandoff &&
-    !stageNeedsPendingAction(run, selectedStage.id, apiGrants);
 
   const handlePrimary = () => {
     invokeOperatorActionPrimary(stageAction, {

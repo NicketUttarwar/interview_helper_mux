@@ -10,14 +10,14 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 
 | Variable | Default | Used by | If wrong |
 |----------|---------|---------|----------|
-| `MUX_FRESH_SESSION` | `0` | `./scripts/run.sh` | `1` clears `ASSETS/.gui/application_state.json` (and legacy session files) on launch; `0` preserves session for refresh and restart |
+| `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
 
 ---
 
 ## GUI session persistence (`ASSETS/.gui/active_execution.json`)
 
-Written by `PUT /api/session/active` into `application_state.json` (legacy `active_execution.json` synced). Restored on `GET /api/session` → browser refresh and `./scripts/run.sh` restart (when `MUX_FRESH_SESSION=0`).
+Written by `PUT /api/session/active` into `application_state.json` (legacy `active_execution.json` synced). Restored on `GET /api/session` during a **single** `./scripts/run.sh` process (browser refresh). Each new `./scripts/run.sh` launch clears session files by default; use `MUX_PRESERVE_SESSION=1` to keep the pointer across that launch.
 
 | Field | Values | Purpose |
 |-------|--------|---------|

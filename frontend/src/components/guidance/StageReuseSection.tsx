@@ -1,23 +1,31 @@
 import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { useStageReuseOffers } from "../../hooks/useStageReuseOffers";
+import { resolveStageReuseCheck } from "../../utils/stageReuseOffers";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import { StageReuseOfferCard } from "./StageReuseOfferCard";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function StageReuseSection({ stage }: { stage: StageInfo }) {
-  const { run, runId, showToast } = useApp();
-  const { candidates, loading, currentHashShort } = useStageReuseOffers(
+  const { run, runId, refreshRun } = useApp();
+  const reuseDecision = run?.meta?.stage_reuse?.[stage.id];
+  const activeHash = sourceHashShort(run?.meta);
+  const reuseCheck = resolveStageReuseCheck(run, stage.id, stage.status, run?.job);
+
+  const { candidates, visible } = useStageReuseOffers(
     runId,
     stage.id,
     stage.status,
     run?.job,
-    (msg) => showToast(msg, "error"),
+    undefined,
+    {
+      skip: Boolean(reuseDecision?.action),
+      hashShort: activeHash,
+      run,
+      onRefresh: () => void refreshRun(),
+    },
   );
-
-  const activeHash = sourceHashShort(run?.meta);
-  const reuseDecision = run?.meta?.stage_reuse?.[stage.id];
 
   if (reuseDecision?.action && stage.status !== "done") {
     const title =
@@ -32,7 +40,7 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
   }
 
   if (stage.status === "done") return null;
-  if (!loading && !candidates.length) return null;
+  if (!visible) return null;
 
   return (
     <section className="stage-reuse-section panel-inset" aria-label="Previous execution reuse">
@@ -53,15 +61,18 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
         ) : null}
       </div>
 
-      {loading ? (
-        <p className="hint stage-reuse-loading">Checking for reusable prior executions…</p>
-      ) : (
+      {candidates.length ? (
         <StageReuseOfferCard
           stage={stage}
           candidates={candidates}
-          currentHashShort={currentHashShort || activeHash}
+          currentHashShort={activeHash}
         />
-      )}
+      ) : reuseCheck.blocking ? (
+        <p className="hint stage-reuse-loading">
+          Reuse is pending but no prior outputs were found. Use <strong>Run fresh</strong> below or
+          refresh the run.
+        </p>
+      ) : null}
     </section>
   );
 }

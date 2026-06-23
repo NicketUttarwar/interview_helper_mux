@@ -512,9 +512,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       if (force || data.entries?.length !== logCountRef.current) {
         renderLogWithAlerts(data.entries);
-        setRun((prev) =>
-          prev ? { ...prev, log_tail: data.entries } : prev,
-        );
+        setRun((prev) => {
+          if (!prev) return prev;
+          const prevTail = prev.log_tail;
+          if (
+            prevTail?.length === data.entries?.length &&
+            prevTail?.[prevTail.length - 1]?.ts === data.entries?.[data.entries.length - 1]?.ts
+          ) {
+            return prev;
+          }
+          return { ...prev, log_tail: data.entries };
+        });
       }
     } catch (reason) {
       showToast(formatApiError(reason, "Activity log"), "error");
@@ -627,6 +635,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const lastAutoOpenKeyRef = useRef<string | null>(null);
 
+  const operatorFocusKey = run
+    ? `${run.job?.status ?? ""}:${run.job?.stage ?? ""}:${run.job?.needs_stage_reuse ?? ""}:${run.journey?.blocking?.reason ?? ""}:${run.journey?.blocking?.stage_id ?? ""}:${run.journey?.active_operator_action?.substep_id ?? ""}`
+    : "";
+
   useEffect(() => {
     if (!run || activeTabRef.current !== "pipeline") return;
     const action = resolveOperatorAction(run, {
@@ -653,14 +665,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     expandStage(action.stageId);
     if (action.substepId) setActiveSubstepIdState(action.substepId);
   }, [
-    run,
-    run?.job?.status,
-    run?.job?.pending_write_stage,
-    run?.journey?.blocking,
-    run?.journey?.active_operator_action,
+    operatorFocusKey,
     jobRunning,
     selectStage,
     expandStage,
+    run,
   ]);
 
   const syncJobRunning = useCallback(async (rid: string) => {
@@ -1685,7 +1694,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const focusId = findPendingFocusStage(run, mergedApiGrants());
     if (!focusId) return;
     expandStage(focusId);
-  }, [run?.journey?.blocking, run?.job?.status, run?.job?.needs_stage_reuse, run, expandStage]);
+  }, [
+    run?.journey?.blocking,
+    run?.job?.status,
+    run?.job?.needs_stage_reuse,
+    run?.job?.stage,
+    expandStage,
+    mergedApiGrants,
+  ]);
 
   useEffect(() => {
     if (!run) return;
@@ -1695,16 +1711,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apiGrants: ALL_API_CONSENTS,
     });
     const substepId = run.journey?.active_substep_id ?? opAction.substepId;
-    if (substepId) setActiveSubstepIdState(substepId);
+    if (substepId) {
+      setActiveSubstepIdState((prev) => (prev === substepId ? prev : substepId));
+    }
     if (opAction.stageId) {
-      setPipelineCollapsedStages((prev) => prev.filter((id) => id !== opAction.stageId));
+      setPipelineCollapsedStages((prev) => {
+        if (!prev.includes(opAction.stageId!)) return prev;
+        return prev.filter((id) => id !== opAction.stageId);
+      });
     }
   }, [
-    run,
     run?.journey?.blocking,
     run?.job?.status,
     run?.job?.needs_stage_reuse,
     run?.journey?.active_substep_id,
+    run?.job?.stage,
   ]);
 
   useEffect(() => {
