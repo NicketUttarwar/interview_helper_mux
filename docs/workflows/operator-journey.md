@@ -21,6 +21,8 @@ flowchart LR
 4. **Work** in **OperatorActionModal** (write approval, reuse, gates, handoff).
 5. **Continue** — modal closes, sidebar advances to the next blocker or runnable step.
 
+Every click and background job gives **toast or spinner feedback** — see [gui-flow-hardening.md](./gui-flow-hardening.md).
+
 **Live status bar** (all tabs) shows global status; on **Pipeline** the header primary lives in **StepActionHeader**. **Pipeline activity panel** (Live / This step / All) shows per-step `gui_log.jsonl` entries inline.
 
 **In-app guidance:** Each stage exposes `stages[].guidance` (prerequisites, actions, unlocks). The **Steps sidebar** expands each pipeline stage into **substeps** — a navigation checklist (save review, gate, handoff). Checkpoint work happens in **OperatorActionModal** (modal-first). Click a substep or **Review & continue** to open the modal (`activateSubstep`). The **Live status bar** shows **Workflow phase N of 7** (Prepare → Export) as a read-only progress bar on Pipeline.

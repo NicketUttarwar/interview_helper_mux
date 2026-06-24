@@ -12,6 +12,7 @@ import {
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
 import { formatApiError, reportPanelFetchOutcome } from "../../utils/safeApi";
+import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
@@ -22,17 +23,20 @@ function investigationItems(queue: Record<string, unknown>): Array<Record<string
 }
 
 export function StoryBoardPanel() {
-  const { runId, run, refreshRun, config, setPipelineSubTab, showToast, appendClientLog } = useApp();
+  const { runId, run, refreshRun, config, setPipelineSubTab, showToast, appendClientLog, advanceFromCheckpoint, setCheckpointBusy } = useApp();
   const [data, setData] = useState<StoryBoardData | null>(null);
   const [form, setForm] = useState<ProfileFormState | null>(null);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const loadErrorLoggedRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!runId) return;
     setLoadError(null);
+    setLoading(true);
     try {
       const sb = await api<StoryBoardData>(`/api/runs/${runId}/story-board`);
       setData(sb);
@@ -54,6 +58,8 @@ export function StoryBoardPanel() {
           appendClientLog,
         });
       }
+    } finally {
+      setLoading(false);
     }
   }, [runId, showToast, appendClientLog]);
 
@@ -62,44 +68,54 @@ export function StoryBoardPanel() {
   }, [load]);
 
   const save = async (verify?: boolean) => {
-    if (!runId || !form) return;
+    if (!runId || !form || !baseState || saving) return;
     setSaving(true);
     try {
-      if (verify) {
-        await api(`/api/runs/${runId}/analysis-profile/verify`, { method: "POST" });
-      }
-      await api(`/api/runs/${runId}/analysis-profile`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data: collectAnalysisProfileFromForm(form, baseState),
-        }),
+      const data = collectAnalysisProfileFromForm(form, baseState);
+      await completeAnalysisProfile({
+        runId,
+        data,
+        verify: Boolean(verify),
+        refreshRun,
+        advanceFromCheckpoint,
+        showToast,
+        appendClientLog,
+        setBusy: setCheckpointBusy,
+        successMessage: verify
+          ? "Story locked and profile verified — continuing pipeline."
+          : undefined,
       });
       await load();
-      await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, verify ? "Lock story" : "Save story");
-      showToast(msg, "error");
-      appendClientLog(msg, "error");
+      if (!verify) {
+        showToast(msg, "error");
+        appendClientLog(msg, "error");
+      }
     } finally {
       setSaving(false);
     }
   };
 
   const resolveInvestigation = async (itemId: string) => {
-    if (!runId) return;
+    if (!runId || resolvingId) return;
+    setResolvingId(itemId);
+    showToast("Resolving investigation…");
     try {
       await api(`/api/runs/${runId}/investigation-queue/${itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "resolved" }),
       });
+      showToast("Investigation resolved.");
       await load();
       await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, "Resolve investigation");
       showToast(msg, "error");
       appendClientLog(msg, "error");
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -132,6 +148,16 @@ export function StoryBoardPanel() {
   }
 
   if (!data || !form) {
+    if (loading) {
+      return (
+        <div className="story-board panel">
+          <h3>Story Board</h3>
+          <div className="gate-loading-skeleton panel-inset" aria-busy>
+            <span className="spinner-inline" aria-hidden /> Loading story board…
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="story-board panel">
         <h3>Story Board</h3>
@@ -196,9 +222,16 @@ export function StoryBoardPanel() {
                 <button
                   type="button"
                   className="btn ghost"
+                  disabled={resolvingId !== null}
                   onClick={() => void resolveInvestigation(String(it.id))}
                 >
-                  Resolve
+                  {resolvingId === String(it.id) ? (
+                    <>
+                      <span className="spinner-inline" aria-hidden /> Resolving…
+                    </>
+                  ) : (
+                    "Resolve"
+                  )}
                 </button>
               </li>
             ))}
@@ -238,7 +271,13 @@ export function StoryBoardPanel() {
           Save story
         </button>
         <button type="button" className="btn primary" disabled={saving} onClick={() => void save(true)}>
-          Lock story for podcast edit
+          {saving ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Locking…
+            </>
+          ) : (
+            "Lock story for podcast edit"
+          )}
         </button>
         <button type="button" className="btn ghost" onClick={() => setPipelineSubTab("timeline")}>
           Edit timeline

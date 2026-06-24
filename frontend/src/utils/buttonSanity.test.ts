@@ -309,5 +309,56 @@ describe("buttonSanity — AppContext openActionModal toggles modal state", () =
     const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
     expect(text).toContain("checkpoint_continue");
     expect(text).toContain("advanceFromCheckpoint");
+    expect(text).toContain("closeActionModalAfterSuccess");
+  });
+});
+
+describe("buttonSanity — guardBusy helper", () => {
+  it("guardBusy is exported and used by primary handlers", () => {
+    const guardText = readFileSync(join(ROOT, "utils/guardBusy.ts"), "utf8");
+    expect(guardText).toContain("export function guardBusy");
+    const stageDetail = readFileSync(join(ROOT, "components/workspace/StageDetail.tsx"), "utf8");
+    expect(stageDetail).toContain("guardBusy");
+    expect(stageDetail).toContain("guardPrimary");
+  });
+});
+
+describe("buttonSanity — analysis profile checkpoint", () => {
+  it("shared helper is used by gate, profile, and story panels", () => {
+    for (const rel of [
+      "components/gates/AnalysisProfileGate.tsx",
+      "components/workspace/ProfilePanel.tsx",
+      "components/workspace/StoryBoardPanel.tsx",
+    ]) {
+      const text = readFileSync(join(ROOT, rel), "utf8");
+      expect(text).toContain("completeAnalysisProfile");
+    }
+  });
+});
+
+describe("buttonSanity — holistic feedback hooks", () => {
+  it("useAsyncAction is used by handoff and preview listen panels", () => {
+    for (const rel of [
+      "components/workspace/HandoffPanel.tsx",
+      "components/guidance/PreviewListenPromo.tsx",
+    ]) {
+      const text = readFileSync(join(ROOT, rel), "utf8");
+      expect(text).toContain("useAsyncAction");
+    }
+  });
+
+  it("jobCompletionHint is wired in AppContext", () => {
+    const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
+    expect(text).toContain("jobCompletionHint");
+  });
+
+  it("secondary panels use async feedback patterns", () => {
+    const artifact = readFileSync(join(ROOT, "components/workspace/ArtifactEditor.tsx"), "utf8");
+    expect(artifact).toContain("saving");
+    expect(artifact).toContain("spinner-inline");
+    const deliverable = readFileSync(join(ROOT, "components/workspace/DeliverableCard.tsx"), "utf8");
+    expect(deliverable).toContain("useAsyncAction");
+    const timeline = readFileSync(join(ROOT, "hooks/useTimelineEditor.ts"), "utf8");
+    expect(timeline).toContain("Timeline updated");
   });
 });

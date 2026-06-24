@@ -239,6 +239,25 @@ export function buildStageSubsteps(
         ? { ...s, status: "running", label: "Saving staged outputs…" }
         : s,
     );
+  } else if (
+    actionBusy &&
+    stage.id === "analysis_profile" &&
+    stage.status === "action_required"
+  ) {
+    substeps = substeps.map((s) =>
+      s.kind === "gate" || s.kind === "profile" || s.id.includes("profile")
+        ? { ...s, status: "running", label: "Verifying profile…" }
+        : s,
+    );
+  } else if (
+    actionBusy &&
+    hasUnackedHandoff(stage, run)
+  ) {
+    substeps = substeps.map((s) =>
+      s.kind === "handoff"
+        ? { ...s, status: "running", label: "Acknowledging handoff…" }
+        : s,
+    );
   } else if (!stageAwaitingWriteApproval(run, stage.id)) {
     substeps = substeps.map((s) =>
       s.kind === "write_approval" && s.status !== "done"

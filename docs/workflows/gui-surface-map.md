@@ -88,7 +88,9 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved.
 
-**Checkpoint continuation:** After any checkpoint (write approval, handoff ack, gate complete, reuse decide), the GUI calls `advanceFromCheckpoint()` → `advancePipeline()` which clears `actionBusy`, reconciles server state, auto-starts the next runnable stage (`executeJob` with `source: checkpoint_continue`), or focuses the next blocker. Optional single-call API: `POST …/continue-after-checkpoint` with `{ kind: "write_approval", stage_id }`.
+**Checkpoint continuation:** After any checkpoint (write approval, handoff ack, gate complete, reuse decide), the GUI calls `advanceFromCheckpoint()` → `advancePipeline()` which clears `actionBusy`, reconciles server state, auto-starts the next runnable stage (`executeJob` with `source: checkpoint_continue`), or focuses the next blocker. Modal closes via `closeActionModalAfterSuccess` (not sticky dismiss). Optional single-call API: `POST …/continue-after-checkpoint` with `{ kind: "write_approval", stage_id }`.
+
+**Operator feedback (flow hardening):** See [gui-flow-hardening.md](./gui-flow-hardening.md). Summary: `guardBusy` on all primaries; job terminal toasts; `actionBusy` drives sidebar spinners; locked sub-tabs toast on click; `completeAnalysisProfile` unifies profile verify paths.
 
 **Flow intent:** Optional at Start (`flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
 
@@ -101,6 +103,8 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 | **Input audio** list + Refresh | `GET /api/assets` | — | Scans `ASSETS/`; skips `executions/`, `.gui/` |
 | Start execution on a file | `POST /api/runs` body `{ input_audio_path }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
 
+Start button shows **Creating execution…** toast; Refresh shows spinner while `homeRefreshing`.
+
 After create, UI switches to **Pipeline → Stage** (`GET /api/runs/{id}`).
 
 ---
@@ -112,6 +116,8 @@ After create, UI switches to **Pipeline → Stage** (`GET /api/runs/{id}`).
 | **Previous executions** list + Refresh | `GET /api/runs` | `last_log` tail per run | Summaries + `progress` %, `source_audio_hash_short`; **Same audio** when hash matches active session |
 | Resume execution | `PUT /api/session/active` `{ run_id }` | `ASSETS/.gui/active_execution.json` | Reopens existing `exec_*` workspace; switches to Pipeline |
 
+Locked runs toast **Clear session** when another execution is active. Refresh shows spinner.
+
 Browsing executions while another run is active does **not** stop job/log polling for the current session until the operator resumes a different run or clears the session.
 
 ---
@@ -122,9 +128,9 @@ Browsing executions while another run is active does **not** stop job/log pollin
 |----------------|-----------|---------|--------------|
 | **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Review outputs before saving** (`WriteApprovalPanel`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages | Always when `run_id` set |
 | **Story board** | `StoryBoardPanel` | Themes, investigations (`GET …/story-board`; `PATCH …/investigation-queue/{id}`), profile verify CTA | When analysis workspace exists |
-| **Timeline** | `NlePanel` | Mouse-first NLE: smart actions, review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification |
+| **Timeline** | `NlePanel` | Mouse-first NLE: smart actions (batch toasts), review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification |
 | **Profile JSON** | `ProfilePanel` | Analysis profile form | When `profile_ready_for_review` or profile verified |
-| **Files** | `ArtifactEditor` | JSON / text artifact editor (Zod pre-save for registered paths) | When stage has editable artifacts |
+| **Files** | `ArtifactEditor` | JSON / text artifact editor (Zod pre-save for registered paths); save spinner + toasts | When stage has editable artifacts |
 | **Debug** | `LlmCallsPanel` | LLM call record index/editor + routing summary tab (`GET …/llm-calls`, `GET …/llm-routing`) | Power-user audit path |
 | **Volley** | `VolleyMemoryPanel` | Volley Q&A memory index — view/edit/invalidate entries, rebuild from disk (`GET/PUT/POST …/context-index/*`) | Operator steering of prior context |
 

@@ -265,7 +265,6 @@ def serve_cmd(
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser tab"),
 ) -> None:
     """Launch the web GUI."""
-    import threading
     import webbrowser
 
     from interview_mux.config import merged_config
@@ -287,13 +286,21 @@ def serve_cmd(
         )
 
     if not no_browser:
-        def _open() -> None:
-            import time
+        from interview_mux.browser_refresh import (
+            schedule_open_and_hard_refresh,
+            should_force_browser_refresh,
+        )
 
-            time.sleep(0.8)
-            webbrowser.open(url)
-
-        threading.Thread(target=_open, daemon=True).start()
+        if should_force_browser_refresh():
+            console.print(
+                "[dim]Browser will open when the server is ready, then hard-refresh (Cmd+Shift+R).[/dim]"
+            )
+        schedule_open_and_hard_refresh(
+            url=url,
+            host=host,
+            port=chosen_port,
+            open_fn=webbrowser.open,
+        )
 
     from interview_mux.process_logging import configure_process_logging, serve_uvicorn_options
 

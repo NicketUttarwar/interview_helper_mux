@@ -155,13 +155,25 @@ export function VolleyMemoryPanel() {
         </p>
         <div className="row gap-sm">
           <button type="button" className="btn ghost sm" onClick={() => void load()} disabled={loading}>
-            Refresh
+            {loading ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Refreshing…
+              </>
+            ) : (
+              "Refresh"
+            )}
           </button>
           <button type="button" className="btn ghost sm" onClick={() => void addEntry()}>
             Add entry
           </button>
           <button type="button" className="btn ghost sm" onClick={() => void rebuild()} disabled={loading}>
-            Rebuild from disk
+            {loading ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Rebuilding…
+              </>
+            ) : (
+              "Rebuild from disk"
+            )}
           </button>
         </div>
       </header>
@@ -249,7 +261,13 @@ export function VolleyMemoryPanel() {
                         disabled={saving}
                         onClick={() => void saveEntry(entry.entry_id)}
                       >
-                        Save
+                        {saving ? (
+                          <>
+                            <span className="spinner-inline" aria-hidden /> Saving…
+                          </>
+                        ) : (
+                          "Save"
+                        )}
                       </button>
                       <button
                         type="button"

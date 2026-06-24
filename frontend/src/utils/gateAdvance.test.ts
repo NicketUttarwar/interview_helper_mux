@@ -9,15 +9,27 @@ const GATE_PANELS = [
   "components/gates/DisfluencyReviewPanel.tsx",
   "components/gates/VoPickupPanel.tsx",
   "components/gates/FlowSelectPanel.tsx",
-  "components/gates/AnalysisProfileGate.tsx",
   "components/gates/SfxPromptReviewPanel.tsx",
   "components/gates/SfxPostListenPanel.tsx",
+] as const;
+
+const PROFILE_CHECKPOINT_CONSUMERS = [
+  "components/gates/AnalysisProfileGate.tsx",
+  "components/workspace/ProfilePanel.tsx",
+  "components/workspace/StoryBoardPanel.tsx",
 ] as const;
 
 describe("gate panels use advanceFromCheckpoint", () => {
   it.each(GATE_PANELS)("%s", (rel) => {
     const text = readFileSync(join(ROOT, rel), "utf8");
     expect(text).toContain("advanceFromCheckpoint");
+  });
+});
+
+describe("analysis profile panels use shared checkpoint helper", () => {
+  it.each(PROFILE_CHECKPOINT_CONSUMERS)("%s", (rel) => {
+    const text = readFileSync(join(ROOT, rel), "utf8");
+    expect(text).toContain("completeAnalysisProfile");
   });
 });
 

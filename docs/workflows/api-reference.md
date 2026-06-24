@@ -133,6 +133,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |
+
+**GUI after approve/discard/gate complete:** The React client calls `advanceFromCheckpoint()` (refresh run → auto-execute next stage or focus blocker). See [gui-flow-hardening.md](./gui-flow-hardening.md).
 | `GET` | `/api/runs/{run_id}/sfx-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
 | `PUT` | `/api/runs/{run_id}/sfx-prompts` | — | **ArtifactBody** (`path` must be `sound_design/sfx_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
 | `POST` | `/api/runs/{run_id}/sfx-prompts/approve` | — | **SfxPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `sfx_prompts_approved` | **404** missing prompts artifact |

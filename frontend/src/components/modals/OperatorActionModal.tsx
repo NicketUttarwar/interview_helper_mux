@@ -77,6 +77,7 @@ export function OperatorActionModal() {
     selectedStage,
     selectedStageId,
     closeActionModal,
+    closeActionModalAfterSuccess,
     onCheckpointContinue,
     selectStage,
     apiGrants,
@@ -111,6 +112,25 @@ export function OperatorActionModal() {
       closeActionModal();
     }
   }, [jobRunning, activePanel, run, selectedStage, closeActionModal]);
+
+  useEffect(() => {
+    if (!run || !selectedStage || activePanel !== "gate") return;
+    if (actionBusy || jobRunning) return;
+    const gateCleared =
+      selectedStage.status === "done" ||
+      (selectedStage.id === "analysis_profile" && run.profile_verified);
+    if (gateCleared) {
+      closeActionModalAfterSuccess();
+    }
+  }, [
+    run,
+    selectedStage,
+    activePanel,
+    actionBusy,
+    jobRunning,
+    run?.profile_verified,
+    closeActionModalAfterSuccess,
+  ]);
 
   useEffect(() => {
     const root = modalRef.current;

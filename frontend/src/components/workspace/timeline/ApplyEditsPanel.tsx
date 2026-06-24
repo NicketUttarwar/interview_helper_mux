@@ -154,6 +154,7 @@ export function ApplyEditsPanel({
             }
             onBeforeApply(before);
             setApplying(true);
+            showToast("Applying timeline edits — watch the activity log.");
             await executeJob({
               mode: "nle_apply",
               nle_full_refresh: fullRefresh,

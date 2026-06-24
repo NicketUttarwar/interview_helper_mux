@@ -7,10 +7,14 @@ Synced with `pipelineSubTabAvailability.test.ts` and E2E rows in [flow1-gui-e2e/
 | Sub-tab | Prerequisite | Locked UX |
 |---------|--------------|-----------|
 | stage | run loaded | — |
-| story | `story_board_ready` | grey + tooltip |
-| timeline | `timeline_ready` | grey + tooltip |
-| profile | `profile_ready_for_review` | grey + tooltip |
+| story | `story_board_ready` | grey + tooltip + **toast on click** |
+| timeline | `timeline_ready` | grey + tooltip + **toast on click** |
+| profile | `profile_ready_for_review` | grey + tooltip + **toast on click** |
 | files, llm_calls, volley_memory | — | — |
+
+Navigation API: `navigatePipelineSubTab` in `AppContext` (guarded); locked clicks call `showToast(reason)`.
+
+**Flow hardening:** [gui-flow-hardening.md](./gui-flow-hardening.md) — full feedback contract for all panels and job terminals.
 
 ## Activity stream policy
 

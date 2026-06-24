@@ -5,10 +5,12 @@ import { findLatestHandoffAudit } from "../../utils/handoff";
 import { handoffSkimBullets } from "../../utils/handoffSkimHints";
 import { escapeHtml } from "../../utils";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 export function HandoffPanel() {
-  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor, actionBusy } =
+  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor, actionBusy, showToast } =
     useApp();
+  const { busy: ackBusy, run: runAck } = useAsyncAction("handoff");
 
   const { paths, audit, skimBullets } = useMemo(() => {
     if (!run || !selectedStage) {
@@ -29,6 +31,14 @@ export function HandoffPanel() {
     (paths.length > 0 ||
       Boolean(audit) ||
       run.journey?.blocking?.reason === "handoff_review");
+
+  const onAck = () =>
+    void runAck(() => acknowledgeHandoff(), {
+      showToast,
+      startMessage: "Acknowledging AI outputs…",
+    });
+
+  const ackDisabled = actionBusy || ackBusy;
 
   if (!handoffPending) {
     if (handoffAcked) {
@@ -58,10 +68,16 @@ export function HandoffPanel() {
             type="button"
             className="btn primary sm"
             data-testid="handoff-acknowledge"
-            disabled={actionBusy}
-            onClick={() => void acknowledgeHandoff()}
+            disabled={ackDisabled}
+            onClick={onAck}
           >
-            Acknowledge &amp; continue
+            {ackBusy ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Acknowledging…
+              </>
+            ) : (
+              "Acknowledge & continue"
+            )}
           </button>
         </div>
       </div>
@@ -102,6 +118,7 @@ export function HandoffPanel() {
                 className="btn ghost sm"
                 onClick={() => {
                   void navigator.clipboard?.writeText(p);
+                  showToast("Path copied.");
                 }}
               >
                 Copy path
@@ -120,10 +137,16 @@ export function HandoffPanel() {
           type="button"
           className="btn primary sm"
           data-testid="handoff-acknowledge"
-          disabled={actionBusy}
-          onClick={() => void acknowledgeHandoff()}
+          disabled={ackDisabled}
+          onClick={onAck}
         >
-          Acknowledge &amp; continue
+          {ackBusy ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Acknowledging…
+            </>
+          ) : (
+            "Acknowledge & continue"
+          )}
         </button>
       </div>
     </div>

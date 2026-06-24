@@ -105,6 +105,7 @@ export function LiveStatusBar() {
     },
     onScrollPreview: scrollPreview,
     jobCompleteAt,
+    showToast,
   });
 
   const activeStepId = currentWorkflowStep(run);

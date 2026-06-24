@@ -31,6 +31,7 @@ export function DisfluencyReviewPanel() {
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
   const [index, setIndex] = useState(0);
+  const [completing, setCompleting] = useState(false);
 
   const reportError = (reason: unknown, label: string) => {
     const msg = formatApiError(reason, label);
@@ -58,7 +59,8 @@ export function DisfluencyReviewPanel() {
   }, [run?.run_id]);
 
   const complete = useCallback(async () => {
-    if (!run) return;
+    if (!run || completing) return;
+    setCompleting(true);
     try {
       await api(`/api/runs/${run.run_id}/disfluency-review/complete`, { method: "POST" });
       showToast("Disfluency review complete");
@@ -66,6 +68,8 @@ export function DisfluencyReviewPanel() {
       await advanceFromCheckpoint();
     } catch (reason) {
       reportError(reason, "Complete disfluency review");
+    } finally {
+      setCompleting(false);
     }
   }, [run, refreshRun, advanceFromCheckpoint, showToast, appendClientLog]);
 
@@ -118,9 +122,16 @@ export function DisfluencyReviewPanel() {
           type="button"
           className="btn primary sm"
           data-testid="complete-disfluency-review"
+          disabled={completing}
           onClick={() => void complete()}
         >
-          Complete review
+          {completing ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Completing…
+            </>
+          ) : (
+            "Complete review"
+          )}
         </button>
       </div>
     );
@@ -266,8 +277,20 @@ export function DisfluencyReviewPanel() {
         </div>
       </div>
       {(stats?.pending ?? 0) === 0 && (
-        <button type="button" className="btn primary" data-testid="complete-disfluency-review" onClick={() => void complete()}>
-          Complete review
+        <button
+          type="button"
+          className="btn primary"
+          data-testid="complete-disfluency-review"
+          disabled={completing}
+          onClick={() => void complete()}
+        >
+          {completing ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Completing…
+            </>
+          ) : (
+            "Complete review"
+          )}
         </button>
       )}
     </>

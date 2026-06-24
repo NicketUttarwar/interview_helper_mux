@@ -28,6 +28,7 @@ import {
   invokeOperatorActionPrimary,
   invokeOperatorActionSecondary,
 } from "../../utils/operatorActionHandlers";
+import { guardBusy } from "../../utils/guardBusy";
 export function StageDetail() {
   const {
     run,
@@ -49,6 +50,7 @@ export function StageDetail() {
     expandStage,
     skipOptionalStage,
     openActionModal,
+    showToast,
   } = useApp();
   const [llmAttempts, setLlmAttempts] = useState<LlmRoutingAttempt[]>([]);
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -158,10 +160,8 @@ export function StageDetail() {
   const showPrecleanCheckpoint = Boolean(precleanOffer) && !fullyComplete;
 
   const handlePrimary = () => {
-    if (jobRunning || actionBusy) {
-      return;
-    }
     invokeOperatorActionPrimary(stageAction, {
+      guardPrimary: () => guardBusy(jobRunning, actionBusy, showToast),
       openModal: (sid, subId) => {
         if (sid) {
           void selectStage(sid);

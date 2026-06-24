@@ -17,6 +17,7 @@ export function AcousticProfilePanel() {
   const [status, setStatus] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [invalidateHint, setInvalidateHint] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!run) return;
@@ -54,15 +55,21 @@ export function AcousticProfilePanel() {
   }, [loadProfile]);
 
   const recompute = async () => {
-    if (!run) return;
+    if (!run || recomputing) return;
     if (!(await confirm("Recompute acoustic profile from current ingest/transcript?")))
       return;
-    await api(`/api/runs/${run.run_id}/recompute-acoustic-profile`, {
-      method: "POST",
-    });
-    showToast("Acoustic profile recomputed.");
-    await refreshRun();
-    await loadProfile();
+    setRecomputing(true);
+    showToast("Recomputing acoustic profile…");
+    try {
+      await api(`/api/runs/${run.run_id}/recompute-acoustic-profile`, {
+        method: "POST",
+      });
+      showToast("Acoustic profile recomputed.");
+      await refreshRun();
+      await loadProfile();
+    } finally {
+      setRecomputing(false);
+    }
   };
 
   const saveOverrides = async (overrides: Record<string, string>) => {
@@ -99,8 +106,19 @@ export function AcousticProfilePanel() {
 
   return (
     <>
-      <button type="button" className="btn sm primary" onClick={() => void recompute()}>
-        Recompute profile
+      <button
+        type="button"
+        className="btn sm primary"
+        disabled={recomputing}
+        onClick={() => void recompute()}
+      >
+        {recomputing ? (
+          <>
+            <span className="spinner-inline" aria-hidden /> Recomputing…
+          </>
+        ) : (
+          "Recompute profile"
+        )}
       </button>
       <div className="quality-offer-card acoustic-overrides-card">
         <h4>Operator overrides</h4>

@@ -34,7 +34,9 @@ export function SonicContextPanel() {
     return (
       <div className="quality-offer-card">
         <h4>Sonic context</h4>
-        <p className="muted sm">Loading sonic context…</p>
+        <div className="gate-loading-skeleton panel-inset" aria-busy>
+          <span className="spinner-inline" aria-hidden /> Loading sonic context…
+        </div>
       </div>
     );
   }

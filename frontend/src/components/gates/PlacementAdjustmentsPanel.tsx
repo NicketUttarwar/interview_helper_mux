@@ -57,7 +57,9 @@ export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {
     return (
       <div className="placement-qa-card quality-offer-card">
         <h4>Placement QA</h4>
-        <p className="muted sm">Loading placement adjustments…</p>
+        <div className="gate-loading-skeleton panel-inset" aria-busy>
+          <span className="spinner-inline" aria-hidden /> Loading placement adjustments…
+        </div>
       </div>
     );
   }

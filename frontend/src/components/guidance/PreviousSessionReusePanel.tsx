@@ -39,8 +39,9 @@ export function PreviousSessionReusePanel({ compact = false }: { compact?: boole
   if (!eligible.length && compact) return null;
 
   const bulkReuse = async () => {
-    if (!runId) return;
+    if (!runId || busy) return;
     setBusy(true);
+    showToast("Copying eligible stages from previous execution…");
     try {
       await api(`/api/runs/${runId}/reuse-from-previous`, {
         method: "POST",
@@ -70,7 +71,13 @@ export function PreviousSessionReusePanel({ compact = false }: { compact?: boole
         <>
           <p className="hint sm">{eligible.length} stage(s) can copy outputs.</p>
           <button type="button" className="btn primary sm" disabled={busy} onClick={() => void bulkReuse()}>
-            Copy all eligible outputs
+            {busy ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Copying…
+              </>
+            ) : (
+              "Copy all eligible outputs"
+            )}
           </button>
         </>
       ) : (

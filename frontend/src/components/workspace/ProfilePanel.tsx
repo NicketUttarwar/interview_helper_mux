@@ -13,6 +13,7 @@ import {
   formatClassLabel,
 } from "../../utils/toneTaxonomy";
 import { formatApiError } from "../../utils/safeApi";
+import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 import type { AnalysisState } from "../../types";
 import { ActionMarker } from "../guidance/ActionMarker";
 
@@ -33,11 +34,13 @@ const emptyForm: ProfileFormState = {
 };
 
 export function ProfilePanel() {
-  const { run, selectedStage, refreshRun, showToast, appendClientLog, confirm, runNextStage } = useApp();
+  const { run, selectedStage, refreshRun, showToast, appendClientLog, confirm, advanceFromCheckpoint, setCheckpointBusy } = useApp();
   const [form, setForm] = useState<ProfileFormState>(emptyForm);
   const [baseState, setBaseState] = useState<AnalysisState | null>(null);
   const [verified, setVerified] = useState(false);
   const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const show =
     selectedStage?.id === "analysis_profile" ||
@@ -109,7 +112,7 @@ export function ProfilePanel() {
   }
 
   const saveProfile = async () => {
-    if (!run) return;
+    if (!run || saving || verifying) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
     const v = validateArtifactWrite("understanding/analysis_state.json", data);
     if (!v.ok) {
@@ -121,6 +124,7 @@ export function ProfilePanel() {
     ))
       ? "content_context"
       : null;
+    setSaving(true);
     try {
       await api(`/api/runs/${run.run_id}/analysis-profile`, {
         method: "PUT",
@@ -134,29 +138,35 @@ export function ProfilePanel() {
       const msg = formatApiError(e, "Save profile");
       showToast(msg, "error");
       appendClientLog(msg, "error", "analysis_profile");
+    } finally {
+      setSaving(false);
     }
   };
 
   const verifyProfile = async () => {
-    if (!run) return;
+    if (!run || saving || verifying) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
+    const v = validateArtifactWrite("understanding/analysis_state.json", data);
+    if (!v.ok) {
+      showToast(`Profile schema errors: ${v.errors[0]}`, "error");
+      return;
+    }
+    setVerifying(true);
     try {
-      await api(`/api/runs/${run.run_id}/analysis-profile`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, operator_verified: true }),
+      await completeAnalysisProfile({
+        runId: run.run_id,
+        data,
+        verify: true,
+        refreshRun,
+        advanceFromCheckpoint,
+        showToast,
+        appendClientLog,
+        setBusy: setCheckpointBusy,
+        successMessage: "Profile verified",
       });
-      await api(`/api/runs/${run.run_id}/analysis-profile/verify`, {
-        method: "POST",
-      });
-      showToast("Profile verified");
-      await refreshRun();
       await loadProfile();
-      await runNextStage();
-    } catch (e) {
-      const msg = formatApiError(e, "Verify profile");
-      showToast(msg, "error");
-      appendClientLog(msg, "error", "analysis_profile");
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -302,13 +312,41 @@ export function ProfilePanel() {
         </label>
       </div>
       <div className="profile-actions">
-        <button type="button" className="btn primary sm" onClick={() => void saveProfile()}>
-          Save profile
+        <button
+          type="button"
+          className="btn primary sm"
+          disabled={saving || verifying}
+          onClick={() => void saveProfile()}
+        >
+          {saving ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Saving…
+            </>
+          ) : (
+            "Save profile"
+          )}
         </button>
-        <button type="button" className="btn ghost sm" data-testid="mark-profile-verified" onClick={() => void verifyProfile()}>
-          Mark verified
+        <button
+          type="button"
+          className="btn ghost sm"
+          data-testid="mark-profile-verified"
+          disabled={saving || verifying}
+          onClick={() => void verifyProfile()}
+        >
+          {verifying ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Verifying…
+            </>
+          ) : (
+            "Mark verified"
+          )}
         </button>
-        <button type="button" className="btn ghost sm" onClick={() => void loadProfile()}>
+        <button
+          type="button"
+          className="btn ghost sm"
+          disabled={saving || verifying}
+          onClick={() => void loadProfile()}
+        >
           Reload
         </button>
       </div>

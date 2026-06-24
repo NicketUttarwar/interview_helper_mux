@@ -37,6 +37,8 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
   const { run, refreshRun, selectStage, showToast, advanceFromCheckpoint } = useApp();
   const [data, setData] = useState<SfxPromptsResponse | null>(null);
   const [edits, setEdits] = useState<SfxPromptRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   useEffect(() => {
     if (!run) return;
@@ -65,8 +67,11 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
   };
 
   const saveEdits = async () => {
-    if (!run) return;
-    await api(`/api/runs/${run.run_id}/sfx-prompts`, {
+    if (!run || saving || approving) return;
+    setSaving(true);
+    showToast("Saving prompt edits…");
+    try {
+      await api(`/api/runs/${run.run_id}/sfx-prompts`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -78,11 +83,19 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     showToast("Prompt edits saved; approval reset.");
     await refreshRun();
     await selectStage("sfx_prompt_craft");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const approve = async () => {
-    if (!run) return;
-    await api(`/api/runs/${run.run_id}/sfx-prompts/approve`, {
+    if (!run || saving || approving) return;
+    setApproving(true);
+    showToast("Approving SFX prompts…");
+    try {
+      await api(`/api/runs/${run.run_id}/sfx-prompts/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approved_by: "operator_gui" }),
@@ -91,6 +104,11 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     await refreshRun();
     await selectStage("sfx_prompt_craft");
     await advanceFromCheckpoint();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Approve failed", "error");
+    } finally {
+      setApproving(false);
+    }
   };
 
   return (
@@ -233,17 +251,34 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
         </ul>
       ) : null}
       <div className="flow-choice">
-        <button type="button" className="btn ghost sm" onClick={() => void saveEdits()}>
-          Save edits
+        <button
+          type="button"
+          className="btn ghost sm"
+          disabled={saving || approving || !edits.length}
+          onClick={() => void saveEdits()}
+        >
+          {saving ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Saving…
+            </>
+          ) : (
+            "Save edits"
+          )}
         </button>
         <button
           type="button"
           className="btn primary sm"
           data-testid="approve-sfx-prompts"
-          disabled={!edits.length}
+          disabled={!edits.length || saving || approving}
           onClick={() => void approve()}
         >
-          Approve prompts
+          {approving ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Approving…
+            </>
+          ) : (
+            "Approve prompts"
+          )}
         </button>
       </div>
     </>

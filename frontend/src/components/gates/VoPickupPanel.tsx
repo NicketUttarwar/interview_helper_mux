@@ -19,19 +19,27 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     chunks: [],
   });
   const [recordingLine, setRecordingLine] = useState<string | null>(null);
+  const [uploadingLine, setUploadingLine] = useState<string | null>(null);
 
   const lines = voLines.filter((l) => l.delivery === "record");
 
   const uploadVoFile = async (lineId: string, file: Blob) => {
     if (!runId) return;
+    setUploadingLine(lineId);
+    showToast(`Uploading VO for ${lineId}…`);
     appendClientLog(`Uploading VO for line ${lineId}…`, "action");
-    const fd = new FormData();
-    fd.append("file", file);
-    await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
-    const wasMissing = (run?.g1_missing || []).length > 0;
-    const refreshed = await refreshRun();
-    if (wasMissing && refreshed && !(refreshed.g1_missing || []).length) {
-      await selectStage("g1_vo_pickup");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
+      showToast(`VO saved for ${lineId}.`);
+      const wasMissing = (run?.g1_missing || []).length > 0;
+      const refreshed = await refreshRun();
+      if (wasMissing && refreshed && !(refreshed.g1_missing || []).length) {
+        await selectStage("g1_vo_pickup");
+      }
+    } finally {
+      setUploadingLine(null);
     }
   };
 
@@ -87,6 +95,11 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
             {line.recorded_file ? `✓ ${line.recorded_file}` : "Missing"}
           </p>
           <div className="vo-actions">
+            {uploadingLine === line.line_id ? (
+              <span className="hint sm">
+                <span className="spinner-inline" aria-hidden /> Uploading…
+              </span>
+            ) : null}
             {recordingLine === line.line_id ? (
               <button
                 type="button"
@@ -99,6 +112,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
               <button
                 type="button"
                 className="btn sm btn-record"
+                disabled={uploadingLine !== null}
                 onClick={() => void startRecording(line.line_id)}
               >
                 Record

@@ -1,23 +1,31 @@
-import { api } from "../../api/client";
 import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { useState } from "react";
+import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 
 export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
-  const { run, runId, refreshRun, showToast, setPipelineSubTab, advanceFromCheckpoint } = useApp();
+  const { run, runId, refreshRun, showToast, setPipelineSubTab, advanceFromCheckpoint, setCheckpointBusy } = useApp();
+  const [verifying, setVerifying] = useState(false);
   const ready = Boolean(run?.profile_ready_for_review);
   const verified = stage.status === "done" || Boolean(run?.profile_verified);
   const flow1Block =
     run?.selected_flow === "flow1" && run?.profile_gate_pending;
 
   const verifyProfile = async () => {
-    if (!runId) return;
+    if (!runId || verifying) return;
+    setVerifying(true);
     try {
-      await api(`/api/runs/${runId}/analysis-profile/verify`, { method: "POST" });
-      showToast("Profile verified — you can continue.");
-      await refreshRun();
-      await advanceFromCheckpoint();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not verify profile");
+      await completeAnalysisProfile({
+        runId,
+        verify: true,
+        refreshRun,
+        advanceFromCheckpoint,
+        showToast,
+        setBusy: setCheckpointBusy,
+        successMessage: "Profile verified — you can continue.",
+      });
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -59,14 +67,22 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
             type="button"
             className="btn primary sm"
             data-testid="mark-profile-verified-modal"
+            disabled={verifying}
             onClick={() => void verifyProfile()}
           >
-            Mark profile verified
+            {verifying ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Verifying…
+              </>
+            ) : (
+              "Mark profile verified"
+            )}
           </button>
         ) : null}
         <button
           type="button"
           className="btn ghost sm"
+          disabled={verifying}
           onClick={() => setPipelineSubTab("profile")}
         >
           Open profile editor

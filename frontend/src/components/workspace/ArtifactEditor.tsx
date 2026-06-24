@@ -28,6 +28,7 @@ export function ArtifactEditor() {
   const [isJson, setIsJson] = useState(true);
   const [status, setStatus] = useState("");
   const [loadedFromStaging, setLoadedFromStaging] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!selectedStage) {
@@ -145,6 +146,8 @@ export function ArtifactEditor() {
     ))
       ? selectedStage.id
       : null;
+    setSaving(true);
+    showToast(`Saving ${selectedPath}…`, "info");
     try {
       if (isJson) {
         let data: unknown;
@@ -187,6 +190,8 @@ export function ArtifactEditor() {
       const msg = formatApiError(e, "Save artifact");
       showToast(msg, "error");
       appendClientLog(msg, "error", selectedStage.id);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -210,8 +215,19 @@ export function ArtifactEditor() {
             </option>
           ))}
         </select>
-        <button type="button" className="btn primary sm" onClick={() => void saveArtifact()}>
-          Save to file
+        <button
+          type="button"
+          className="btn primary sm"
+          disabled={saving || !selectedPath}
+          onClick={() => void saveArtifact()}
+        >
+          {saving ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Saving…
+            </>
+          ) : (
+            "Save to file"
+          )}
         </button>
       </div>
       <textarea

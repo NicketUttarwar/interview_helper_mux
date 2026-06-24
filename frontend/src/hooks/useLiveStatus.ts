@@ -105,6 +105,7 @@ export function useLiveStatus(
     onGoStory?: () => void;
     onGoProfile?: () => void;
     onScrollPreview?: () => void;
+    showToast?: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   },
 ): LiveStatus {
   const cmd = useOperatorCommand(run, {
@@ -125,6 +126,7 @@ export function useLiveStatus(
     onGoStory: opts.onGoStory,
     onGoProfile: opts.onGoProfile,
     onScrollPreview: opts.onScrollPreview,
+    showToast: opts.showToast,
   });
 
   return useMemo(() => {

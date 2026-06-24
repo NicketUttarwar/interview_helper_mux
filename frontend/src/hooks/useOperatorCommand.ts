@@ -8,6 +8,7 @@ import {
   invokeOperatorActionPrimary,
 } from "../utils/operatorActionHandlers";
 import { resolveNextActionClick, type NextActionHandlers } from "../utils/nextActionHandler";
+import { guardBusy } from "../utils/guardBusy";
 
 export type CommandKind =
   | "idle"
@@ -61,6 +62,7 @@ export function useOperatorCommand(
     onGoStory?: () => void;
     onGoProfile?: () => void;
     onScrollPreview?: () => void;
+    showToast?: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   },
 ): OperatorCommandState {
   const {
@@ -125,6 +127,12 @@ export function useOperatorCommand(
     };
 
     let onPrimary: (() => void) | null = () => {
+      if (
+        opts.showToast &&
+        guardBusy(jobRunning, actionBusy, opts.showToast)
+      ) {
+        return;
+      }
       if (jobRunning || actionBusy) return;
       invokeOperatorActionPrimary(action, handlers);
     };

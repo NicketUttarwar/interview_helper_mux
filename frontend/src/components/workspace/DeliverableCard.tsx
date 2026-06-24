@@ -2,16 +2,16 @@ import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { useJourney } from "../../hooks/useJourney";
 import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
-
-import { formatApiError } from "../../utils/safeApi";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 export function DeliverableCard() {
-  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab, setLogFilterPreset, showToast, appendClientLog } =
+  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab, setLogFilterPreset, showToast } =
     useApp();
   const { deliverable, phase } = useJourney(run);
   const enabled = config?.journey_ui?.enabled !== false;
   const requirePreview = config?.journey_ui?.require_preview_listen !== false;
   const { active: previewPromoActive } = usePreviewListenGate(run, requirePreview);
+  const { busy: previewBusy, run: runPreviewAction } = useAsyncAction("preview listened");
 
   if (!run || !enabled || !deliverable || deliverable.kind === "none") {
     return null;
@@ -26,14 +26,18 @@ export function DeliverableCard() {
 
   const onPreviewListened = async () => {
     if (!runId) return;
-    try {
-      await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
-      await refreshRun();
-    } catch (e) {
-      const msg = formatApiError(e, "Preview listened");
-      showToast(msg, "error");
-      appendClientLog(msg, "error");
-    }
+    await runPreviewAction(
+      async () => {
+        await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
+        await refreshRun();
+      },
+      {
+        showToast,
+        startMessage: "Recording preview listen…",
+        successMessage: "Preview listen recorded — continue to sound design",
+        errorMessage: "Preview listened",
+      },
+    );
   };
 
   const openActivity = () => {
@@ -62,8 +66,19 @@ export function DeliverableCard() {
         <div className="deliverable-row">
           <span>Listen to assembly preview before sound spend</span>
           <audio controls src={playUrl(previewPath)} />
-          <button type="button" className="btn ghost sm" onClick={() => void onPreviewListened()}>
-            Continue to sound
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={previewBusy}
+            onClick={() => void onPreviewListened()}
+          >
+            {previewBusy ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Saving…
+              </>
+            ) : (
+              "Continue to sound"
+            )}
           </button>
           <button type="button" className="btn ghost sm" onClick={openActivity}>
             View activity

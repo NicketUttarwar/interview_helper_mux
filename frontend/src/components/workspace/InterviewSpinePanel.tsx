@@ -27,6 +27,7 @@ export function InterviewSpinePanel() {
   const [hits, setHits] = useState<QueryHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const spineStage =
     selectedStage?.id === "interview_spine_build"
@@ -47,6 +48,8 @@ export function InterviewSpinePanel() {
       const msg = formatApiError(e, "Interview spine");
       setLoadError(msg);
       appendClientLog(msg, "error");
+    } finally {
+      setInitialLoading(false);
     }
   }, [run, appendClientLog]);
 
@@ -58,6 +61,7 @@ export function InterviewSpinePanel() {
     if (!run) return;
     if (!(await confirm("Recompute interview spine from current ingest/transcript/SAP?"))) return;
     setLoading(true);
+    showToast("Recomputing interview spine…");
     try {
       await api(`/api/runs/${run.run_id}/recompute-interview-spine`, { method: "POST" });
       showToast("Interview spine recomputed.");
@@ -108,6 +112,17 @@ export function InterviewSpinePanel() {
     );
   }
 
+  if (initialLoading && !summary) {
+    return (
+      <div className="quality-offer-card">
+        <h4>Interview spine</h4>
+        <div className="gate-loading-skeleton panel-inset" aria-busy>
+          <span className="spinner-inline" aria-hidden /> Loading spine…
+        </div>
+      </div>
+    );
+  }
+
   if (!summary) {
     return (
       <div className="quality-offer-card">
@@ -150,7 +165,13 @@ export function InterviewSpinePanel() {
           Search spine
         </button>
         <button type="button" className="btn sm primary" disabled={loading} onClick={() => void recompute()}>
-          Recompute spine
+          {loading ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Working…
+            </>
+          ) : (
+            "Recompute spine"
+          )}
         </button>
       </div>
       {hits.length > 0 ? (

@@ -26,6 +26,7 @@ export function PipelineToolRow() {
     apiGrants,
     jobRunning,
     selectedStageId,
+    showToast,
   } = useApp();
   const flags = subTabAttentionFlags(run, apiGrants);
   const operatorAction = useGlobalOperatorAction(run, {
@@ -69,9 +70,15 @@ export function PipelineToolRow() {
             data-testid={`pipeline-tool-${t.id}`}
             title={tooltip}
             aria-disabled={locked || undefined}
-            disabled={locked}
             onClick={() => {
-              if (!locked) setPipelineSubTab(t.id);
+              if (locked) {
+                showToast(
+                  avail.reason || `${t.label} unlocks after earlier pipeline stages.`,
+                  "info",
+                );
+                return;
+              }
+              setPipelineSubTab(t.id);
             }}
           >
             {t.short}

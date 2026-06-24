@@ -19,9 +19,10 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 | **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; review in modal, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |
 | **Stage execution reuse** | Before each automated stage (when candidates exist), choose **Reuse outputs** or **Run fresh instead** in the modal. Controlled by `journey_ui.enable_stage_reuse_offers` (default `true`). Not a gate — does not replace G0–G2. |
 | **Write approval** | After each automated stage (when enabled), **Review outputs before saving** in modal; preview, edit, **Save & continue** or **Discard & re-run**. Controlled by `journey_ui.require_write_approval_per_stage` (default `true`). Applies to reused copies too. |
-| **Steps sidebar substeps** | Navigation checklist only — click opens modal section. `journey.active_substep_id` and `journey.active_operator_action` mirror focus. |
+| **Steps sidebar substeps** | Navigation checklist only — click opens modal section. `journey.active_substep_id` and `journey.active_operator_action` mirror focus. `actionBusy` shows running substeps (write approval, profile verify, handoff). |
+| **Operator feedback** | No silent blocked clicks — `guardBusy` on primaries; job terminal toasts; checkpoint saves use `advanceFromCheckpoint`. See [gui-flow-hardening.md](./gui-flow-hardening.md). |
 
-See [ux-operator-model.md](./ux-operator-model.md), [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./stage-execution-reuse.md), and [api-reference.md](./api-reference.md).
+See [ux-operator-model.md](./ux-operator-model.md), [gui-flow-hardening.md](./gui-flow-hardening.md), [gui-surface-map.md](./gui-surface-map.md), [stage-execution-reuse.md](./stage-execution-reuse.md), and [api-reference.md](./api-reference.md).
 
 ---
 

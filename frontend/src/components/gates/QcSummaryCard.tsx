@@ -1,4 +1,5 @@
 import { useApp } from "../../context/AppContext";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 export function QcSummaryCard({
   qcKey,
@@ -15,7 +16,11 @@ export function QcSummaryCard({
     setLogFilterPreset,
     selectStage,
     redoFromStage,
+    showToast,
+    jobRunning,
+    actionBusy,
   } = useApp();
+  const { busy: redoBusy, run: runRedo } = useAsyncAction("redo");
   const summary = run?.meta?.qc_summaries?.[qcKey];
   if (!summary) return null;
 
@@ -38,10 +43,18 @@ export function QcSummaryCard({
     setActiveTab("logs");
   };
 
-  const redoStep = async () => {
-    if (stageId) await selectStage(stageId);
-    await redoFromStage();
-  };
+  const redoStep = () =>
+    void runRedo(
+      async () => {
+        if (stageId) await selectStage(stageId);
+        await redoFromStage();
+      },
+      {
+        showToast,
+        startMessage: `Redoing from ${label}…`,
+        successMessage: "Stage reset — run the step again when ready.",
+      },
+    );
 
   return (
     <div className={`qc-summary-card ${summary.passed ? "qc-pass" : "qc-fail"}`}>
@@ -74,8 +87,19 @@ export function QcSummaryCard({
             View Logs
           </button>
           {stageId ? (
-            <button type="button" className="btn primary sm" onClick={() => void redoStep()}>
-              Redo from this step
+            <button
+              type="button"
+              className="btn primary sm"
+              disabled={redoBusy || jobRunning || actionBusy}
+              onClick={redoStep}
+            >
+              {redoBusy ? (
+                <>
+                  <span className="spinner-inline" aria-hidden /> Resetting…
+                </>
+              ) : (
+                "Redo from this step"
+              )}
             </button>
           ) : null}
         </div>

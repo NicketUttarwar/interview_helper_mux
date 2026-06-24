@@ -1,5 +1,6 @@
 import type { GuidanceItem } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { guardBusy } from "../../utils/guardBusy";
 import { guidanceActionLabel } from "../../utils/checkpointLabels";
 import { activateGuidanceItem } from "../../utils/activateSubstep";
 
@@ -59,13 +60,20 @@ export function GuidanceActionButton({ item, className = "btn ghost sm", stageId
       type="button"
       className={className}
       disabled={busy}
-      onClick={() =>
+      onClick={() => {
+        if (guardBusy(jobRunning, actionBusy, showToast)) return;
         activateGuidanceItem(item, sid, handlers, {
           openModal: item.kind === "checkpoint" || item.kind === "action",
-        })
-      }
+        });
+      }}
     >
-      {label}
+      {busy ? (
+        <>
+          <span className="spinner-inline" aria-hidden /> Working…
+        </>
+      ) : (
+        label
+      )}
     </button>
   );
 }

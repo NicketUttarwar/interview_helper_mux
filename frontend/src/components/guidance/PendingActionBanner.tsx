@@ -1,6 +1,7 @@
 import { useApp } from "../../context/AppContext";
 import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import { invokeOperatorActionPrimary, executeBodyForStage } from "../../utils/operatorActionHandlers";
+import { guardBusy } from "../../utils/guardBusy";
 
 interface Props {
   compact?: boolean;
@@ -21,6 +22,7 @@ export function PendingActionBanner({ compact, stageId }: Props) {
     runNextStage,
     setActivityLogTab,
     setActivityLogCollapsed,
+    showToast,
   } = useApp();
 
   const action = useGlobalOperatorAction(run, {
@@ -38,10 +40,10 @@ export function PendingActionBanner({ compact, stageId }: Props) {
   const busy = jobRunning || actionBusy;
 
   const onPrimary = () => {
-    if (busy) return;
-    setActiveTab("pipeline");
     invokeOperatorActionPrimary(action, {
+      guardPrimary: () => guardBusy(jobRunning, actionBusy, showToast),
       openModal: (sid, subId) => {
+        setActiveTab("pipeline");
         if (sid) void selectStage(sid);
         if (subId) setActiveSubstepId(subId);
         openActionModal();

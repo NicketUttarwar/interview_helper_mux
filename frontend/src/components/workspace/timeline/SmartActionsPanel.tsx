@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useApp } from "../../../context/AppContext";
 import type { TimelineSegment } from "../../../types";
 import { estimateTrimRemovedMs, segmentHasFlags } from "../../../utils/nleHelpers";
 
@@ -25,6 +26,7 @@ export function SmartActionsPanel({
   onSilenceTrim,
   selectedSegmentIds,
 }: Props) {
+  const { showToast } = useApp();
   const [confirm, setConfirm] = useState<string | null>(null);
 
   const asideSegs = useMemo(
@@ -55,6 +57,7 @@ export function SmartActionsPanel({
   }, 0);
 
   const runConfirm = () => {
+    showToast("Applying batch edit…", "info");
     if (confirm === "asides") onExcludeAsides();
     else if (confirm === "tighten") onTightenAll(tightenTargets);
     else if (confirm === "offsel") onExcludeOffSelection(offSelSegs.map((s) => s.segment_id!));

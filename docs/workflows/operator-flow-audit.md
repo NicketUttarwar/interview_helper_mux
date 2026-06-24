@@ -1,6 +1,6 @@
 # Operator flow audit (GUI)
 
-Companion to [operator-journey.md](./operator-journey.md) (happy path) and [gui-surface-map.md](./gui-surface-map.md) (panels ↔ API). This doc captures **full tab/modal branching** and **UX fixes** applied after the 2026 operator flow audit.
+Companion to [operator-journey.md](./operator-journey.md) (happy path), [gui-surface-map.md](./gui-surface-map.md) (panels ↔ API), and [gui-flow-hardening.md](./gui-flow-hardening.md) (operator feedback contract). This doc captures **full tab/modal branching** and **UX fixes** applied after the 2026 operator flow audit.
 
 ---
 
@@ -142,12 +142,13 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 79 | Resolver test gap | Expanded `resolveOperatorAction.test.ts` gate matrix |
 | 80 | Dead command center mount | Removed `PipelineCommandCenter` from `PipelineTab` |
 
-### Tab hardening wave (81–82)
+### Tab hardening wave (81–83)
 
 | # | Issue | Fix |
 |---|-------|-----|
 | 81 | Coherence 404 inflated Activity **All** tab | `GET …/coherence-report` returns inactive stub **200**; `CoherenceRisksPanel` uses `expected_empty` policy — no `appendClientLog` on pre-analysis absence; Activity **All** drops pinned strip + consecutive dedup for polluted tails |
-| 82 | `OperatorActionModal` dead state / modal-first drift | Modal component exists but is **not mounted** in `ModalHost`; `openActionModal` sets Pipeline + Stage only. **Inline checkpoints** (`StepActionHeader`, gate panels, write approval) are canonical. Re-enable modal mount only if product revives modal-first UX |
+| 82 | Modal vs inline checkpoint drift | **Both** are active: `OperatorActionModal` mounts in `ModalHost` and auto-opens on `needs_you`; inline gate panels in `StageDetail` remain for dismissed-modal workflow. `closeActionModalAfterSuccess` closes without sticky dismiss; gate-complete auto-close re-opens via `operatorFocusKey` when next blocker appears |
+| 83 | Operator flow feedback gaps | Job terminal toasts (`complete` / `gate` / write approval); `guardBusy` on primaries; unified `completeAnalysisProfile` for Story / Profile / gate verify; sidebar collapse on checkpoint complete |
 
 **Navigation spine:** `navigatePipelineSubTab` (alias of guarded `setPipelineSubTab`) enforces `pipelineSubTabAvailability` — Story / Timeline / Profile greyed until `story_board_ready`, `timeline_ready`, `profile_ready_for_review` on run payload.
 

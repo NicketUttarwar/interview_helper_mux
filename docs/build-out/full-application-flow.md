@@ -99,6 +99,8 @@ Within each pipeline stage the operator follows **substeps** (sidebar rows under
 4. **Gate** checkpoint (G0, G0.5, profile, G1, G2, SFX) when `action_required`
 5. Stage collapses with **Step complete** banner; focus advances via `journey.active_substep_id`
 
+**GUI feedback:** Every substep and primary CTA follows [gui-flow-hardening.md](../workflows/gui-flow-hardening.md) — no silent blocked clicks; job terminals toast; checkpoint saves call `advanceFromCheckpoint()`.
+
 ```mermaid
 flowchart LR
   subgraph stage [One pipeline stage]

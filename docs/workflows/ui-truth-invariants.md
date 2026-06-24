@@ -51,3 +51,14 @@ Run `python tools/ui_truth_smoke.py` against executions to audit.
 - **Audio quality drawer** — removed; pre-clean only via `PrecleanOfferCard` + checkpoint modal
 - `GET /api/runs/{id}/audio-quality` — removed (404)
 - `journey_ui.unified_preclean_drawer` — removed from config
+
+## Operator feedback invariants
+
+| Invariant | Rule |
+|-----------|------|
+| F1 | Primary CTAs must not silently no-op when `jobRunning` or `actionBusy` — use `guardBusy` |
+| F2 | Checkpoint completion must use `advanceFromCheckpoint`, not direct `runNextStage` after gates |
+| F3 | Job `complete` must toast operator with `journey.next_action` or stage hint |
+| F4 | `actionBusy` must reflect in sidebar substeps for write approval, profile verify, handoff |
+
+See [gui-flow-hardening.md](./gui-flow-hardening.md).

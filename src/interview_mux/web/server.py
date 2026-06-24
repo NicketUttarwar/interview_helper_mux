@@ -2241,6 +2241,19 @@ def create_app() -> FastAPI:
     app.include_router(_workspace_router)
 
     if STATIC_DIR.is_dir():
+        from interview_mux.process_logging import launched_via_run_sh
+
+        if launched_via_run_sh():
+
+            @app.middleware("http")
+            async def _dev_no_cache_html(request: Request, call_next):  # type: ignore[misc]
+                response = await call_next(request)
+                path = request.url.path
+                if path in ("", "/") or path.endswith(".html"):
+                    response.headers["Cache-Control"] = "no-store, must-revalidate"
+                    response.headers["Pragma"] = "no-cache"
+                return response
+
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
     return app

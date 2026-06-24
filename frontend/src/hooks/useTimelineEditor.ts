@@ -288,6 +288,7 @@ export function useTimelineEditor() {
     async (ids: string[], patch: Record<string, unknown>, reason: DirtyReason = "structural") => {
       if (!runId || !ids.length) return;
       pushHistoryBefore();
+      showToast(`Updating ${ids.length} segment(s)…`, "info");
       try {
         await api(`/api/runs/${runId}/nle/batch`, {
           method: "POST",
@@ -296,6 +297,7 @@ export function useTimelineEditor() {
         });
         setDirtyReason(reason);
         await refreshRun();
+        showToast("Timeline updated", "success");
       } catch (reason) {
         showToast(formatApiError(reason, "Batch segment update"), "error");
         appendClientLog(formatApiError(reason, "Batch segment update"), "error");

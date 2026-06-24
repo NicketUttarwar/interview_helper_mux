@@ -101,7 +101,13 @@ export function ValueFeaturesPanel() {
                   .finally(() => setExtracting(false));
               }}
             >
-              Extract value features
+              {extracting ? (
+                <>
+                  <span className="spinner-inline" aria-hidden /> Extracting…
+                </>
+              ) : (
+                "Extract value features"
+              )}
             </button>
           ) : null}
           <p className="hint muted">

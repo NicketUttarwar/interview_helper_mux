@@ -4,7 +4,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
-**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` and **StepActionHeader** (mode + headline + primary). Checkpoint work is **modal-first** — see [ux-operator-model.md](./ux-operator-model.md). Sidebar substeps are navigation-only (`data-testid="substep-{id}"`). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` and **StepActionHeader** (mode + headline + primary). Checkpoint work is **modal-first** — see [ux-operator-model.md](./ux-operator-model.md). Sidebar substeps are navigation-only (`data-testid="substep-{id}"`). **Feedback contract** (toasts, spinners, `guardBusy`, `advanceFromCheckpoint`): [gui-flow-hardening.md](./gui-flow-hardening.md). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
 
 ### UX smoke scripts (Pipeline simplification)
 
@@ -15,16 +15,25 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 3. Click **Save & continue** (`write-approval-save-continue`); modal closes; transcribe reuse modal opens if candidates exist.
 4. Sidebar row for ingest collapses; transcribe row gets `sidebar-step--focus` when blocked.
 
-**Gates — G0 / G0.5 / G1 / G2**
-
-1. Each gate: StepActionHeader shows **Needs you**; modal shows single gate panel (no guidance embed).
-2. Complete gate in modal; modal closes; `runNextStage` advances without duplicate navigation toasts.
-
 **Write / reuse / handoff**
 
 1. Write approval: only one Save CTA (panel, not modal footer Continue).
 2. Reuse: modal shows reuse cards only; **Run fresh instead** advances.
 3. Handoff: acknowledge in modal; pipeline continues to next runnable stage.
+
+**Analyze — understanding phase**
+
+1. Job `complete` → toast **Step finished — {next_action}**; activity log switches to Live.
+2. Job `gate` / `needs_operator` → toast **Paused for your review**; modal auto-opens on Pipeline tab.
+3. Story Board loads with skeleton (not static placeholder); **Lock story** saves then verifies (PUT before verify POST).
+4. Profile verify from Story / Profile / gate modal — same `completeAnalysisProfile` path; sidebar shows **Verifying profile…** on `analysis_profile` substep while busy.
+5. Resolve investigations — per-item spinner + toast; open count drops in sidebar when `refreshRun` completes.
+6. Coherence / spine / SAP recompute buttons show spinner + start toast.
+
+**Gates — G0 / G0.5 / G1 / G2**
+
+1. Each gate: StepActionHeader shows **Needs you**; modal shows single gate panel (no guidance embed).
+2. Complete gate in modal; modal closes via `closeActionModalAfterSuccess`; `advanceFromCheckpoint` advances without duplicate navigation toasts.
 
 **E2E selectors:** prefer `step-action-primary` → modal panel buttons → sidebar substeps ([02-GUI-JOURNEY.md](../../CURSOR_EXECUTE/flow1-gui-e2e/02-GUI-JOURNEY.md)).
 

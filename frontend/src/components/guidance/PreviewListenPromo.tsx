@@ -1,13 +1,15 @@
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 interface Props {
   compact?: boolean;
 }
 
 export function PreviewListenPromo({ compact }: Props) {
-  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab } = useApp();
+  const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, showToast } = useApp();
+  const { busy, run: runListen } = useAsyncAction("preview-listen");
   const requirePreview = config?.journey_ui?.require_preview_listen !== false;
   const { active, previewPath } = usePreviewListenGate(run, requirePreview);
 
@@ -15,10 +17,18 @@ export function PreviewListenPromo({ compact }: Props) {
 
   const playUrl = `/api/runs/${runId}/audio?path=${encodeURIComponent(previewPath)}`;
 
-  const onListened = async () => {
-    await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
-    await refreshRun();
-  };
+  const onListened = () =>
+    void runListen(
+      async () => {
+        await api(`/api/runs/${runId}/milestones/preview-listened`, { method: "POST" });
+        await refreshRun();
+      },
+      {
+        showToast,
+        startMessage: "Recording preview listen milestone…",
+        successMessage: "Preview listened — you can continue to sound design.",
+      },
+    );
 
   const openPipeline = () => {
     setActiveTab("pipeline");
@@ -47,8 +57,19 @@ export function PreviewListenPromo({ compact }: Props) {
             Open preview
           </button>
         ) : null}
-        <button type="button" className="btn primary sm" onClick={() => void onListened()}>
-          I&apos;ve listened — continue to sound
+        <button
+          type="button"
+          className="btn primary sm"
+          disabled={busy}
+          onClick={onListened}
+        >
+          {busy ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Saving…
+            </>
+          ) : (
+            "I've listened — continue to sound"
+          )}
         </button>
       </div>
     </div>

@@ -6,6 +6,8 @@ export interface OperatorActionHandlers {
   continueNext: () => void;
   viewLogs: () => void;
   skipOptional?: (stageId: string) => void;
+  /** Return true to block the primary action (caller should show toast). */
+  guardPrimary?: () => boolean;
 }
 
 function scrollToCheckpoint(substepId?: string | null, blockingReason?: string): void {
@@ -44,6 +46,7 @@ export function invokeOperatorActionPrimary(
   action: OperatorAction,
   handlers: OperatorActionHandlers,
 ): void {
+  if (handlers.guardPrimary?.()) return;
   switch (action.primaryKind) {
     case "open_modal":
       handlers.openModal(action.stageId, action.substepId);

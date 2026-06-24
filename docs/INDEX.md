@@ -6,6 +6,7 @@ Flat hub for **interview_helper_mux**.
 
 - [workflows/operator-journey.md](./workflows/operator-journey.md) — **primary** happy path (Prepare → Ship)
 - [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) — full GUI flows, modals, resolved UX audit
+- [workflows/gui-flow-hardening.md](./workflows/gui-flow-hardening.md) — **operator feedback contract** (toasts, spinners, checkpoints)
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — G0, G1, G2, quality offers
 - [workflows/operator-sound-and-mix.md](./workflows/operator-sound-and-mix.md) — SAP → SDP → preview → mix
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)

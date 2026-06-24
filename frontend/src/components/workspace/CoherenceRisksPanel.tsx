@@ -14,6 +14,7 @@ export function CoherenceRisksPanel() {
   const { run, refreshRun, showToast, appendClientLog, confirm } = useApp();
   const [report, setReport] = useState<CoherenceReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -37,6 +38,8 @@ export function CoherenceRisksPanel() {
         showToast,
       });
       setLoadError(msg);
+    } finally {
+      setInitialLoading(false);
     }
   }, [run, appendClientLog, showToast]);
 
@@ -69,6 +72,17 @@ export function CoherenceRisksPanel() {
       setLoading(false);
     }
   };
+
+  if (initialLoading && !report && !loadError) {
+    return (
+      <section className="coherence-risks-card quality-offer-card">
+        <h4>Long-run coherence</h4>
+        <div className="gate-loading-skeleton panel-inset" aria-busy>
+          <span className="spinner-inline" aria-hidden /> Loading coherence report…
+        </div>
+      </section>
+    );
+  }
 
   if (loadError && !report) {
     return (
@@ -112,7 +126,13 @@ export function CoherenceRisksPanel() {
       <div className="coherence-risks-header">
         <h4>Coherence risks</h4>
         <button type="button" className="btn ghost sm" disabled={loading} onClick={() => void recompute()}>
-          Recompute
+          {loading ? (
+            <>
+              <span className="spinner-inline" aria-hidden /> Recomputing…
+            </>
+          ) : (
+            "Recompute"
+          )}
         </button>
       </div>
       <p className="muted sm">
@@ -123,7 +143,13 @@ export function CoherenceRisksPanel() {
       {openRisks.length === 0 ? (
         <p className="hint">No open coherence risks.</p>
       ) : (
-        <ul className="coherence-risk-list">
+        <>
+          {openRisks.some((r) => r.blocking) ? (
+            <p className="hint sm">
+              Blocking risks must be resolved on the Story Board before profile verification.
+            </p>
+          ) : null}
+          <ul className="coherence-risk-list">
           {openRisks.map((risk: CoherenceRisk) => (
             <li key={risk.risk_id} className={risk.blocking ? "coherence-risk blocking" : "coherence-risk"}>
               <span className="coherence-risk-kind">{risk.kind}</span>
@@ -135,6 +161,7 @@ export function CoherenceRisksPanel() {
             </li>
           ))}
         </ul>
+        </>
       )}
       <p className="muted sm">Artifact: {COHERENCE_REPORT_PATH}</p>
     </GatePanelShell>

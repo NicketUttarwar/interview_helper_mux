@@ -48,6 +48,8 @@ import {
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
 import { describeExecuteBody } from "../utils/operatorActionLog";
+import { guardBusy } from "../utils/guardBusy";
+import { jobCompletionHint } from "../utils/jobCompletionHints";
 import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
 import {
@@ -118,6 +120,7 @@ interface AppContextValue {
   showToast: (msg: string, level?: ToastLevel) => void;
   openActionModal: () => void;
   closeActionModal: () => void;
+  closeActionModalAfterSuccess: () => void;
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
@@ -138,6 +141,7 @@ interface AppContextValue {
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
   advanceFromCheckpoint: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
+  setCheckpointBusy: (busy: boolean) => void;
   setAlertsMuted: (muted: boolean) => void;
   appendClientLog: (message: string, level?: string, stage?: string, actionId?: string) => void;
   traceAction: (actionId: string, message: string, opts?: { level?: string; stage?: string }) => void;
@@ -254,6 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userDismissedActionRef = useRef(false);
+  const lastDismissedFocusKeyRef = useRef<string | null>(null);
   const userPinnedStageAtRef = useRef<number | null>(null);
   const runRefreshTickRef = useRef(0);
 
@@ -435,6 +440,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const closeActionModal = useCallback(() => {
+    if (run) {
+      const action = resolveOperatorAction(run, {
+        selectedStageId: selectedStageIdRef.current,
+        jobRunning: jobRunningRef.current,
+        apiGrants: ALL_API_CONSENTS,
+      });
+      lastDismissedFocusKeyRef.current = `${action.stageId ?? ""}:${action.substepId ?? ""}:${action.blockingReason ?? ""}`;
+    }
     userDismissedActionRef.current = true;
     setActionModalOpen(false);
     requestAnimationFrame(() => {
@@ -443,6 +456,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         document.querySelector<HTMLElement>('[data-testid="step-action-header"]');
       focusTarget?.focus();
     });
+  }, [run]);
+
+  const closeActionModalAfterSuccess = useCallback(() => {
+    userDismissedActionRef.current = false;
+    lastAutoOpenKeyRef.current = null;
+    setActionModalOpen(false);
+  }, []);
+
+  const setCheckpointBusy = useCallback((busy: boolean) => {
+    setActionBusy(busy);
+    actionBusyRef.current = busy;
   }, []);
 
   const confirm = useCallback((message: string) => {
@@ -758,8 +782,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pipelineFilterNeedsYouRef.current = true;
     }
     if (action.mode !== "needs_you" || !action.stageId) return;
-    if (userDismissedActionRef.current) return;
     const key = `${action.stageId}:${action.substepId ?? ""}:${action.blockingReason ?? ""}`;
+    if (
+      lastDismissedFocusKeyRef.current &&
+      lastDismissedFocusKeyRef.current !== key
+    ) {
+      userDismissedActionRef.current = false;
+    }
+    if (userDismissedActionRef.current && lastDismissedFocusKeyRef.current === key) {
+      return;
+    }
     if (lastAutoOpenKeyRef.current === key) return;
     lastAutoOpenKeyRef.current = key;
     void selectStage(action.stageId);
@@ -837,9 +869,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const refreshed = await refreshRun();
             stopJobPoll();
             void focusPendingStage();
+            setActivityLogTabState("live");
+            activityLogTabRef.current = "live";
             if (polled.status === "complete") {
               setJobCompleteAt(Date.now());
               const next = refreshed?.journey?.next_action;
+              const completedStage =
+                polled.current_stage || polled.stage || undefined;
+              const stageHint = jobCompletionHint(completedStage, refreshed);
+              showToast(
+                stageHint
+                  ? `Step finished — ${stageHint}`
+                  : next
+                    ? `Step finished — ${next}`
+                    : "Step finished.",
+                "success",
+              );
               if (next && runId) {
                 void api(`/api/runs/${runId}/log`, {
                   method: "POST",
@@ -855,18 +900,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 polled.last_error?.message || polled.message || "Step failed",
                 "error",
               );
+            } else if (
+              polled.status === "gate" ||
+              polled.status === "needs_operator"
+            ) {
+              showToast(
+                "Paused for your review — complete the checkpoint to continue.",
+                "info",
+              );
+              userDismissedActionRef.current = false;
+              lastAutoOpenKeyRef.current = null;
+              if (activeTabRef.current === "pipeline") {
+                setActionModalOpen(true);
+              }
             }
             if (
               polled.status === "awaiting_write_approval" ||
               polled.awaiting_write_approval
             ) {
+              showToast("Review staged outputs before continuing.", "info");
               playAttentionPing(alertsMuted);
               const sid = polled.pending_write_stage || polled.stage;
               if (sid) {
                 void selectStage(sid);
                 expandStage(sid);
               }
-            } else {
+              userDismissedActionRef.current = false;
+              lastAutoOpenKeyRef.current = null;
+              if (activeTabRef.current === "pipeline") {
+                setActionModalOpen(true);
+              }
+            } else if (
+              polled.status !== "gate" &&
+              polled.status !== "needs_operator"
+            ) {
               const focusId = refreshed
                 ? resolveOperatorAction(refreshed, {
                     selectedStageId: selectedStageIdRef.current,
@@ -1266,6 +1333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const body: Record<string, string> = { input_audio_path: inputPath };
         if (flowIntent) body.flow_intent = flowIntent;
+        showToast("Creating execution…", "info");
         const res = await api<{ run_id: string }>("/api/runs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1420,7 +1488,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userDismissedActionRef.current = false;
     setActionBusy(false);
     actionBusyRef.current = false;
-    const started = await advancePipeline({
+    const completedStageId = selectedStageIdRef.current;
+    await advancePipeline({
       run,
       runId,
       apiGrants: ALL_API_CONSENTS,
@@ -1434,8 +1503,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshRun,
       navigateToNextBlocker: runNextStage,
     });
-    if (started) {
+    const refreshed = runId ? await refreshRun() : null;
+    if (
+      completedStageId &&
+      refreshed?.stages.find((s) => s.id === completedStageId)?.status === "done"
+    ) {
+      collapseStage(completedStageId);
+    }
+    if (!actionBusyRef.current) {
       setActionModalOpen(false);
+      userDismissedActionRef.current = false;
+      lastAutoOpenKeyRef.current = null;
     }
   }, [
     run,
@@ -1447,6 +1525,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshRun,
     runNextStage,
     setPipelineSubTabWrapped,
+    collapseStage,
   ]);
 
   const acknowledgeHandoff = useCallback(async () => {
@@ -1726,6 +1805,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activateSubstep = useCallback(
     (substep: StageSubstep, opts?: { openModal?: boolean }) => {
+      if (guardBusy(jobRunningRef.current, actionBusyRef.current, showToast)) {
+        return;
+      }
       activateSubstepUtil(
         substep,
         {
@@ -2037,6 +2119,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast,
     openActionModal,
     closeActionModal,
+    closeActionModalAfterSuccess,
     clearSession,
     refreshHome,
     startRun,
@@ -2053,6 +2136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     approveWriteAndContinue,
     advanceFromCheckpoint,
     onCheckpointContinue,
+    setCheckpointBusy,
     setAlertsMuted,
     appendClientLog,
     traceAction,
