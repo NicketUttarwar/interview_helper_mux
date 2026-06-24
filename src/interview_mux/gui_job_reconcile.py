@@ -58,6 +58,32 @@ def _reconcile_job_file(ctx: RunContext) -> bool:
     status = data.get("status")
     if status not in RUNNING_STATUSES:
         return False
+    if data.get("mode") == "write_approval":
+        from interview_mux.write_staging import list_pending_paths
+
+        stage_id = str(data.get("pending_write_stage") or data.get("stage") or "")
+        paths = list_pending_paths(ctx, stage_id) if stage_id else []
+        if not paths:
+            meta_paths = data.get("pending_write_paths") or []
+            if isinstance(meta_paths, list):
+                paths = [str(p) for p in meta_paths]
+        if stage_id and paths:
+            data["status"] = "awaiting_write_approval"
+            data["mode"] = "stage"
+            data["stage"] = stage_id
+            data["current_stage"] = stage_id
+            data["message"] = "Awaiting your review"
+            data["pending_write_stage"] = stage_id
+            data["pending_write_paths"] = paths
+            data["awaiting_write_approval"] = True
+            ctx.write_json("gui_job.json", data)
+            append_log(
+                ctx.run_dir,
+                "Staged save interrupted — review outputs and save again.",
+                level="warning",
+                stage=stage_id,
+            )
+            return True
     data["status"] = "interrupted"
     data["message"] = INTERRUPTED_MESSAGE
     ctx.write_json("gui_job.json", data)

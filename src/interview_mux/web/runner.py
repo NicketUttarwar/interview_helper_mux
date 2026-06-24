@@ -355,12 +355,36 @@ class JobRunner:
             return True
         from interview_mux.gui_job_reconcile import reconcile_stale_job
 
-        if self.lock_held(run_id):
+        # When the caller already holds thread_lock (run_guard), lock_held(run_id) is
+        # always True — still attempt stale dir-lock recovery before giving up.
+        if not thread_lock.locked() and self.lock_held(run_id):
             return False
         reconcile_stale_job(run_id)
         if dir_lock.try_recover_stale():
             return True
         return dir_lock.acquire(blocking=False)
+
+    def restore_write_approval_pause(
+        self,
+        ctx: RunContext,
+        stage_id: str,
+        paths: list[str],
+    ) -> None:
+        """Revert gui_job to awaiting_write_approval after a failed staged save."""
+        title = self._stage_title(stage_id)
+        self._write_job(
+            ctx,
+            {
+                "status": "awaiting_write_approval",
+                "mode": "stage",
+                "stage": stage_id,
+                "current_stage": stage_id,
+                "message": f"{title} outputs await review before saving ({len(paths)} file(s)).",
+                "pending_write_stage": stage_id,
+                "pending_write_paths": paths,
+                "awaiting_write_approval": True,
+            },
+        )
 
     def _spawn_pipeline_thread(
         self,
@@ -540,6 +564,7 @@ class JobRunner:
                         "message": "Awaiting your review",
                         "pending_write_stage": exc.stage_id,
                         "pending_write_paths": exc.paths,
+                        "awaiting_write_approval": True,
                     },
                 )
             except StageReuseOfferPending as exc:
@@ -726,10 +751,21 @@ class JobRunner:
         )
         return {"ok": True, "run_id": run_id, "mode": "stage", "stage": stage_id}
 
-    def start(
+    def _next_analysis_stage(self, ctx: RunContext, after_stage_id: str) -> str | None:
+        if after_stage_id not in ANALYSIS_ORDER:
+            return None
+        idx = ANALYSIS_ORDER.index(after_stage_id)
+        for sid in ANALYSIS_ORDER[idx + 1 :]:
+            if not ctx.is_done(sid):
+                return sid
+        return None
+
+    def _try_start_with_held_locks(
         self,
         run_id: str,
         *,
+        lock: Lock,
+        dir_lock: RunDirectoryLock,
         mode: str,
         stage: str | None = None,
         flow: str | None = None,
@@ -739,14 +775,7 @@ class JobRunner:
         nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
-            return self._busy_job_error(run_id, reason="thread")
-        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            lock.release()
-            return self._busy_job_error(run_id, reason="directory")
-
+        """Run start() preflight checks and spawn pipeline thread without re-acquiring locks."""
         ctx_pre = RunContext(run_id, create=False)
         consent_err = self._check_api_consent(
             ctx_pre,
@@ -780,6 +809,7 @@ class JobRunner:
                     "message": msg,
                     "pending_write_stage": write_pending.stage_id,
                     "pending_write_paths": write_pending.paths,
+                    "awaiting_write_approval": True,
                 },
             )
             dir_lock.release()
@@ -885,7 +915,136 @@ class JobRunner:
             nle_full_refresh=nle_full_refresh,
             nle_apply_mode=nle_apply_mode,
         )
-        return {"ok": True, "run_id": run_id, "mode": mode}
+        return {"ok": True, "run_id": run_id, "mode": mode, "stage": stage}
+
+    def approve_write_and_continue(
+        self,
+        run_id: str,
+        stage_id: str,
+        *,
+        api_consents: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        """Flush staged writes and start the next runnable stage under one lock scope."""
+        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
+
+        lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
+        if not lock.acquire(blocking=False):
+            raise RunBusyError(run_id)
+        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+            lock.release()
+            raise RunBusyError(run_id)
+
+        ctx = RunContext(run_id, create=False)
+        title = STAGE_BY_ID.get(stage_id)
+        stage_label = title.title if title else stage_id.replace("_", " ")
+        try:
+            paths = list_pending_paths(ctx, stage_id)
+            if not paths:
+                dir_lock.release()
+                lock.release()
+                raise FileNotFoundError(f"No pending writes for stage: {stage_id}")
+
+            self.mark_write_approval_saving(ctx, stage_id, paths)
+            try:
+                flushed = approve_stage_writes(ctx, stage_id)
+            except Exception:
+                if list_pending_paths(ctx, stage_id):
+                    self.restore_write_approval_pause(ctx, stage_id, paths)
+                dir_lock.release()
+                lock.release()
+                raise
+
+            self.clear_operator_pause(
+                ctx,
+                stage_id,
+                message=(
+                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
+                ),
+            )
+            ctx.log(
+                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
+                level="success",
+                stage=stage_id,
+                action_id="api.write_approval.approve",
+                origin="api",
+                detail={
+                    "journey_kind": "milestone",
+                    "event": "write_approval_complete",
+                    "paths": flushed,
+                    "stage_id": stage_id,
+                },
+            )
+            refresh_journey_meta(ctx)
+
+            next_stage = self._next_analysis_stage(ctx, stage_id)
+            if next_stage and next_stage in STAGE_BY_ID:
+                job = self._try_start_with_held_locks(
+                    run_id,
+                    lock=lock,
+                    dir_lock=dir_lock,
+                    mode="stage",
+                    stage=next_stage,
+                    api_consents=api_consents,
+                )
+                return {
+                    "ok": True,
+                    "flushed": flushed,
+                    "stage_id": stage_id,
+                    "started_stage": next_stage,
+                    "job": job,
+                }
+
+            dir_lock.release()
+            lock.release()
+            return {
+                "ok": True,
+                "flushed": flushed,
+                "stage_id": stage_id,
+                "started_stage": None,
+            }
+        except RunBusyError:
+            raise
+        except Exception:
+            if lock.locked():
+                dir_lock.release()
+                lock.release()
+            raise
+
+    def start(
+        self,
+        run_id: str,
+        *,
+        mode: str,
+        stage: str | None = None,
+        flow: str | None = None,
+        from_stage: str | None = None,
+        until_stage: str | None = None,
+        nle_full_refresh: bool = False,
+        nle_apply_mode: str = "structural",
+        api_consents: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        lock = self._lock_for(run_id)
+        dir_lock = RunDirectoryLock(run_id)
+        if not lock.acquire(blocking=False):
+            return self._busy_job_error(run_id, reason="thread")
+        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+            lock.release()
+            return self._busy_job_error(run_id, reason="directory")
+
+        return self._try_start_with_held_locks(
+            run_id,
+            lock=lock,
+            dir_lock=dir_lock,
+            mode=mode,
+            stage=stage,
+            flow=flow,
+            from_stage=from_stage,
+            until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
+            api_consents=api_consents,
+        )
 
     def _preflight_flow1_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
         """Block flow1_polish when post-listen or mmaudio QA gates are not clear."""

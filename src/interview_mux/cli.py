@@ -286,21 +286,15 @@ def serve_cmd(
         )
 
     if not no_browser:
-        from interview_mux.browser_refresh import (
-            schedule_open_and_hard_refresh,
-            should_force_browser_refresh,
-        )
+        def _open() -> None:
+            import time
 
-        if should_force_browser_refresh():
-            console.print(
-                "[dim]Browser will open when the server is ready, then hard-refresh (Cmd+Shift+R).[/dim]"
-            )
-        schedule_open_and_hard_refresh(
-            url=url,
-            host=host,
-            port=chosen_port,
-            open_fn=webbrowser.open,
-        )
+            time.sleep(0.8)
+            webbrowser.open(url)
+
+        import threading
+
+        threading.Thread(target=_open, daemon=True).start()
 
     from interview_mux.process_logging import configure_process_logging, serve_uvicorn_options
 

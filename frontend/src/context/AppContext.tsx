@@ -54,6 +54,7 @@ import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { activateSubstep as activateSubstepUtil } from "../utils/activateSubstep";
 import {
   advancePipeline,
+  patchRunAfterWriteApproval,
   reconcileBusyRun,
   type ExecuteJobSource,
 } from "../utils/checkpointContinuation";
@@ -211,6 +212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobRunningRef = useRef(false);
   const actionBusyRef = useRef(false);
+  const approveInFlightRef = useRef(false);
   const [transcriptReview, setTranscriptReview] =
     useState<TranscriptReviewState | null>(null);
   const [actionModalOpen, setActionModalOpen] = useState(false);
@@ -782,6 +784,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pipelineFilterNeedsYouRef.current = true;
     }
     if (action.mode !== "needs_you" || !action.stageId) return;
+    if (
+      action.blockingReason === "write_approval" &&
+      run.stages.find((s) => s.id === action.stageId)?.status === "done"
+    ) {
+      return;
+    }
     const key = `${action.stageId}:${action.substepId ?? ""}:${action.blockingReason ?? ""}`;
     if (
       lastDismissedFocusKeyRef.current &&
@@ -825,6 +833,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!actionBusy) return;
+    const hasLargeWav = Boolean(
+      run?.job?.pending_write_paths?.some((p) => p.endsWith(".wav")),
+    );
+    const waitMs = hasLargeWav ? 120_000 : 45_000;
     const timer = setTimeout(() => {
       if (!actionBusyRef.current || !runId) return;
       void (async () => {
@@ -839,14 +851,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           startJobPoll,
           setActivityLogTab: setActivityLogTabState,
           showToast,
-          context: "generic",
+          context: "save",
         });
         setActionBusy(false);
         actionBusyRef.current = false;
+        approveInFlightRef.current = false;
       })();
-    }, 45000);
+    }, waitMs);
     return () => clearTimeout(timer);
-  }, [actionBusy, runId, syncJobRunning, refreshRun, startJobPoll, showToast, appendClientLog]);
+  }, [actionBusy, runId, run?.job?.pending_write_paths, syncJobRunning, refreshRun, startJobPoll, showToast, appendClientLog]);
 
   const jobPollStatusRef = useRef<string | null>(null);
 
@@ -868,6 +881,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!isJobActivelyRunning(polled)) {
             const refreshed = await refreshRun();
             stopJobPoll();
+            setActionBusy(false);
+            actionBusyRef.current = false;
+            approveInFlightRef.current = false;
             void focusPendingStage();
             setActivityLogTabState("live");
             activityLogTabRef.current = "live";
@@ -1568,6 +1584,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const approveWriteAndContinue = useCallback(
     async (stageId?: string): Promise<boolean> => {
       if (!runId || !run) return false;
+      if (approveInFlightRef.current) {
+        showToast("Save already in progress — watch Activity (Live).", "warning");
+        return false;
+      }
       const sid =
         stageId ||
         run.job?.pending_write_stage ||
@@ -1583,6 +1603,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       const hasLargeWav = paths.some((p) => p.endsWith(".wav"));
+      const liveJob = await syncJobRunning(runId);
+      if (isJobActivelyRunning(liveJob)) {
+        const savingSameStage =
+          liveJob?.mode === "write_approval" &&
+          (liveJob.pending_write_stage === sid || liveJob.stage === sid);
+        if (savingSameStage) {
+          showToast("Save already in progress — watch Activity (Live).", "warning");
+          setActivityLogTabState("live");
+          activityLogTabRef.current = "live";
+          startJobPoll();
+          return false;
+        }
+        const { jobRunning: busy } = await reconcileBusyRun({
+          runId,
+          syncJobRunning,
+          refreshRun,
+          startJobPoll,
+          setActivityLogTab: setActivityLogTabState,
+          showToast,
+          context: "save",
+        });
+        if (busy) return false;
+      }
+      approveInFlightRef.current = true;
       setActionBusy(true);
       actionBusyRef.current = true;
       traceAction(
@@ -1611,57 +1655,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind: "write_approval", stage_id: sid }),
         });
+
+        const nextStageId = res.started_stage ?? null;
+        const patched = patchRunAfterWriteApproval(run, {
+          savedStageId: sid,
+          nextStageId,
+          job: res.job,
+        });
+        setRun(patched);
+        setRunState(patched);
+        bumpLocalVersion();
+        userDismissedActionRef.current = false;
+        lastAutoOpenKeyRef.current = null;
+        setActionModalOpen(false);
+        collapseStage(sid);
+        setPipelineSubTabWrapped("stage");
+
         showToast("Outputs saved.");
         traceAction(
           "gui.write_approval.saved",
-          res.started_stage
-            ? `Files saved. Starting ${res.started_stage.replace(/_/g, " ")}…`
+          nextStageId
+            ? `Files saved. Starting ${nextStageId.replace(/_/g, " ")}…`
             : "Files saved — continuing pipeline.",
-          { level: "info", stage: sid },
+          { level: "success", stage: sid },
         );
-        bumpLocalVersion();
-        userDismissedActionRef.current = false;
-        setActionModalOpen(false);
-        const refreshed = await refreshRun();
-        await pollLog(true);
-        if (res.started_stage) {
+        appendClientLog(
+          nextStageId
+            ? `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — starting ${nextStageId.replace(/_/g, " ")}.`
+            : `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — step complete.`,
+          "success",
+          sid,
+          "gui.write_approval.saved",
+        );
+
+        if (nextStageId) {
           keepBusyForJob = true;
-          if (res.job?.ok === false) {
-            await handleJobStartResponse(res.job, res.started_stage);
-            return false;
-          }
-          setJobRunning(true);
-          setRun((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  job: {
-                    status: "running",
-                    stage: res.started_stage!,
-                    current_stage: res.started_stage!,
-                    message:
-                      res.job?.message ||
-                      `Running ${res.started_stage!.replace(/_/g, " ")}…`,
-                  },
-                }
-              : prev,
-          );
+          expandStage(nextStageId);
+          await selectStage(nextStageId);
           setActivityLogTabState("live");
           activityLogTabRef.current = "live";
           setActivityLogCollapsedState(false);
           activityLogCollapsedRef.current = false;
-          expandStage(res.started_stage);
-          await selectStage(res.started_stage);
+
+          if (res.job?.ok === false) {
+            if (res.job.needs_stage_reuse) {
+              setActiveSubstepIdState(`stage_reuse:${nextStageId}`);
+              showToast(
+                "Files saved — choose reuse from a prior run or run ingest fresh.",
+                "success",
+              );
+              playAttentionPing(alertsMuted);
+            } else {
+              await handleJobStartResponse(res.job, nextStageId);
+            }
+            await refreshRun();
+            await pollLog(true);
+            return true;
+          }
+
+          setJobRunning(true);
+          setActiveSubstepIdState(`run:${nextStageId}`);
           appendClientLog(
-            `Pipeline continuing with ${res.started_stage.replace(/_/g, " ")} — watch Activity (Live).`,
+            `Pipeline continuing with ${nextStageId.replace(/_/g, " ")} — watch Activity (Live).`,
             "info",
-            res.started_stage,
+            nextStageId,
           );
+          await refreshRun();
+          await pollLog(true);
           startJobPoll();
           return true;
         }
+
         const started = await advancePipeline({
-          run: refreshed,
+          run: patched,
           runId,
           apiGrants: ALL_API_CONSENTS,
           selectedStageId: selectedStageIdRef.current,
@@ -1674,7 +1740,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           refreshRun,
           navigateToNextBlocker: runNextStage,
         });
-        void started;
+        await refreshRun();
+        await pollLog(true);
+        if (started) keepBusyForJob = true;
         return true;
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
@@ -1698,6 +1766,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return false;
       } finally {
+        approveInFlightRef.current = false;
         if (!keepBusyForJob) {
           setActionBusy(false);
           actionBusyRef.current = false;
@@ -1721,6 +1790,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       expandStage,
       setPipelineSubTabWrapped,
       handleJobStartResponse,
+      collapseStage,
+      setActiveSubstepIdState,
+      alertsMuted,
     ],
   );
 

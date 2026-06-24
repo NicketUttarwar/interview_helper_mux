@@ -51,6 +51,8 @@ export function stageAwaitingWriteApproval(
   stageId: string,
 ): boolean {
   if (!run) return false;
+  const stage = run.stages.find((s) => s.id === stageId);
+  if (stage?.status === "awaiting_write_approval") return true;
   const ctx = resolveJobStatusContext(run, false);
   if (!ctx.awaitingWriteApproval) return false;
   const pendingStage = run.job?.pending_write_stage || run.job?.stage;

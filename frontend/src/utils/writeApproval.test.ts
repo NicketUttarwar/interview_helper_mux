@@ -70,4 +70,13 @@ describe("stageAwaitingWriteApproval", () => {
     expect(stageAwaitingWriteApproval(run, "ingest")).toBe(true);
     expect(stageAwaitingWriteApproval(run, "transcribe")).toBe(false);
   });
+
+  it("matches stage status when job was cleared after reuse accept", () => {
+    const run = runStub({
+      stages: [{ id: "ingest", title: "Ingest", status: "awaiting_write_approval", phase: "prepare" }],
+      job: { status: "complete" },
+    });
+    expect(stageAwaitingWriteApproval(run, "ingest")).toBe(true);
+    expect(resolvePendingWritePaths(run, "ingest", ["ingest/a.json"])).toEqual(["ingest/a.json"]);
+  });
 });

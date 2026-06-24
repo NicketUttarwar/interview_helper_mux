@@ -173,6 +173,4 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 
 _CURRENT_STEP="serve"
-# MUX_LAUNCHED_VIA=run.sh → browser opens when ready, then Cmd+Shift+R hard refresh (see browser_refresh.py).
-# Opt out: --no-browser or MUX_NO_BROWSER_REFRESH=1
 exec python -m interview_mux serve "$@"

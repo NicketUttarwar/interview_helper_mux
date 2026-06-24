@@ -1303,7 +1303,12 @@ def create_app() -> FastAPI:
             if not paths:
                 raise HTTPException(404, f"No pending writes for stage: {stage_id}")
             runner.mark_write_approval_saving(ctx, stage_id, paths)
-            return approve_stage_writes(ctx, stage_id)
+            try:
+                return approve_stage_writes(ctx, stage_id)
+            except Exception:
+                if list_pending_paths(ctx, stage_id):
+                    runner.restore_write_approval_pause(ctx, stage_id, paths)
+                raise
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
     async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -1353,60 +1358,16 @@ def create_app() -> FastAPI:
         stage_id = str(body.get("stage_id") or "")
         if kind != "write_approval" or not stage_id:
             raise HTTPException(400, "kind=write_approval and stage_id required")
-        ctx = _ctx(run_id)
-        from interview_mux.journey_orchestrator import refresh_journey_meta as _refresh_journey
 
         def _approve_and_next() -> dict[str, Any]:
-            flushed = _approve_staged_writes_locked(run_id, ctx, stage_id)
-            title = STAGE_BY_ID.get(stage_id)
-            stage_label = title.title if title else stage_id.replace("_", " ")
-            runner.clear_operator_pause(
-                ctx,
-                stage_id,
-                message=(
-                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
-                ),
-            )
-            ctx.log(
-                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
-                level="success",
-                stage=stage_id,
-                action_id="api.write_approval.approve",
-                origin="api",
-                detail={
-                    "journey_kind": "milestone",
-                    "event": "write_approval_complete",
-                    "paths": flushed,
-                    "stage_id": stage_id,
-                },
-            )
-            _refresh_journey(ctx)
-            from interview_mux.pipeline import ANALYSIS_ORDER
-
-            next_stage: str | None = None
-            if stage_id in ANALYSIS_ORDER:
-                idx = ANALYSIS_ORDER.index(stage_id)
-                for sid in ANALYSIS_ORDER[idx + 1 :]:
-                    if not ctx.is_done(sid):
-                        next_stage = sid
-                        break
-            if next_stage and next_stage in STAGE_BY_ID:
-                result = runner.start(run_id, mode="stage", stage=next_stage)
-                return {
-                    "ok": True,
-                    "flushed": flushed,
-                    "stage_id": stage_id,
-                    "started_stage": next_stage,
-                    "job": result,
-                }
-            return {"ok": True, "flushed": flushed, "stage_id": stage_id, "started_stage": None}
+            return runner.approve_write_and_continue(run_id, stage_id)
 
         try:
             return await run_in_threadpool(_approve_and_next)
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
-        except HTTPException:
-            raise
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/discard")
     def discard_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -1530,16 +1491,29 @@ def create_app() -> FastAPI:
             raise HTTPException(409, str(exc)) from exc
 
         refresh_journey_meta(ctx)
-        runner.clear_operator_pause(
-            ctx,
-            stage_id,
-            message=(
-                f"{stage_label}: reused {len(copied)} file(s) from prior execution."
-                if action == "accept" and copied
-                else f"{stage_label}: reuse decision recorded — ready for next step."
-            ),
-            level="success" if action == "accept" and copied else "info",
-        )
+        from interview_mux.write_staging import has_pending_writes, list_pending_paths
+
+        if action == "accept" and copied and has_pending_writes(ctx, stage_id):
+            paths = list_pending_paths(ctx, stage_id)
+            runner.restore_write_approval_pause(ctx, stage_id, paths)
+            ctx.log(
+                f"{stage_label}: reused {len(copied)} file(s) — review outputs before saving.",
+                level="action",
+                stage=stage_id,
+                action_id="api.stage_reuse.accept",
+                origin="api",
+            )
+        else:
+            runner.clear_operator_pause(
+                ctx,
+                stage_id,
+                message=(
+                    f"{stage_label}: reused {len(copied)} file(s) from prior execution."
+                    if action == "accept" and copied
+                    else f"{stage_label}: reuse decision recorded — ready for next step."
+                ),
+                level="success" if action == "accept" and copied else "info",
+            )
         return {
             "ok": True,
             "action": action,
@@ -2241,19 +2215,6 @@ def create_app() -> FastAPI:
     app.include_router(_workspace_router)
 
     if STATIC_DIR.is_dir():
-        from interview_mux.process_logging import launched_via_run_sh
-
-        if launched_via_run_sh():
-
-            @app.middleware("http")
-            async def _dev_no_cache_html(request: Request, call_next):  # type: ignore[misc]
-                response = await call_next(request)
-                path = request.url.path
-                if path in ("", "/") or path.endswith(".html"):
-                    response.headers["Cache-Control"] = "no-store, must-revalidate"
-                    response.headers["Pragma"] = "no-cache"
-                return response
-
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
     return app

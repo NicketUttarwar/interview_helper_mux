@@ -446,10 +446,7 @@ interview-mux serve
 |--------------|--------|
 | `--port` / `--host` / `--no-browser` | Passed through to `interview-mux serve` |
 | `MUX_PRESERVE_SESSION=1` | Keep `ASSETS/.gui/active_execution.json` and related session files on this launch (default clears them for a fresh Start tab) |
-| `MUX_NO_BROWSER_REFRESH=1` | Skip automatic hard refresh (Cmd+Shift+R) after launch when using `./scripts/run.sh` |
 | `./scripts/run.sh --cli …` | Headless: `python -m interview_mux …` without starting the web server |
-
-When launched via `./scripts/run.sh`, the GUI waits for the server, opens the app in your default browser, then sends **Cmd+Shift+R** (macOS) so cached JS/CSS are bypassed after a frontend rebuild.
 
 Default URL: `http://127.0.0.1:8765` (`web_port` in config).
 

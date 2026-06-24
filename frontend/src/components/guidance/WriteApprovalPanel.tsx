@@ -123,11 +123,20 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   }, [paths]);
 
   useEffect(() => {
+    if (stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id)) {
+      setSaveComplete(true);
+      setApiPaths([]);
+      setSaveError(null);
+      return;
+    }
     if (writePendingForStage || paths.length) {
       setSaveComplete(false);
       setSaveError(null);
     }
-  }, [writePendingForStage, paths.length]);
+  }, [writePendingForStage, paths.length, stage.status, stage.id, run]);
+
+  const stageComplete =
+    stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id);
 
   const syncEditorToStaging = async (path: string, value: string, json: boolean) => {
     if (!runId || !path) return;
@@ -162,7 +171,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   };
 
   const approve = async () => {
-    if (actionBusy) return;
+    if (actionBusy && !writePendingForStage) return;
     setSaveError(null);
     try {
       if (editorDirty && selectedPath && fileKind(selectedPath) !== "audio") {
@@ -208,7 +217,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     }
   };
 
-  if (saveComplete) {
+  if (saveComplete || stageComplete) {
     return (
       <section
         id="write-approval-panel"
@@ -220,9 +229,13 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     );
   }
 
-  if (!writePendingForStage && !paths.length && !loading) return null;
+  if (!writePendingForStage && !paths.length && !loading && !stageComplete) return null;
 
-  const saveDisabled = actionBusy || jobRunning || savingToDisk || !paths.length;
+  const saveDisabled =
+    jobRunning ||
+    savingToDisk ||
+    (actionBusy && !writePendingForStage) ||
+    !paths.length;
 
   return (
     <section

@@ -6,6 +6,99 @@ import { resolveOperatorAction } from "./resolveOperatorAction";
 import { isJobActivelyRunning } from "./jobStatus";
 import type { ExecuteBody } from "../types";
 
+export interface WriteApprovalAdvanceOpts {
+  savedStageId: string;
+  nextStageId?: string | null;
+  job?: JobState | null;
+}
+
+/** Optimistic run patch so the GUI leaves write-approval before the next refresh. */
+export function patchRunAfterWriteApproval(
+  run: RunData,
+  opts: WriteApprovalAdvanceOpts,
+): RunData {
+  const { savedStageId, nextStageId, job } = opts;
+  const meta = run.meta ? { ...run.meta } : {};
+  const pendingRaw = meta.pending_write_approval;
+  if (pendingRaw && typeof pendingRaw === "object") {
+    const pending = { ...(pendingRaw as Record<string, unknown>) };
+    delete pending[savedStageId];
+    if (Object.keys(pending).length) {
+      meta.pending_write_approval = pending;
+    } else {
+      delete meta.pending_write_approval;
+    }
+  }
+
+  const stages = run.stages.map((s) =>
+    s.id === savedStageId ? { ...s, status: "done" as const } : s,
+  );
+
+  const clearWriteFields = {
+    pending_write_stage: undefined,
+    pending_write_paths: undefined,
+    awaiting_write_approval: false,
+  };
+
+  let nextJob: JobState;
+  const jobIndicatesRunning =
+    job && typeof job === "object" && isJobActivelyRunning(job as JobState);
+  if (jobIndicatesRunning) {
+    nextJob = { ...(job as JobState), ...clearWriteFields };
+  } else if (nextStageId) {
+    nextJob = {
+      status: "running",
+      stage: nextStageId,
+      current_stage: nextStageId,
+      message: `Running ${nextStageId.replace(/_/g, " ")}…`,
+      ...clearWriteFields,
+    };
+  } else {
+    nextJob = {
+      status: "complete",
+      stage: savedStageId,
+      current_stage: undefined,
+      message: "Step complete — continuing pipeline.",
+      ...clearWriteFields,
+    };
+  }
+
+  const reuseStage = job?.needs_stage_reuse ? job.stage || nextStageId : null;
+  const reuseBlocking =
+    reuseStage && job
+      ? {
+          blocked: true as const,
+          reason: "stage_reuse" as const,
+          stage_id: reuseStage,
+          message: job.message,
+        }
+      : undefined;
+
+  const clearWriteBlocking = (blocking: RunData["blocking"]) => {
+    if (!blocking || blocking.reason !== "write_approval") return blocking;
+    return undefined;
+  };
+
+  return {
+    ...run,
+    meta,
+    stages,
+    job: nextJob,
+    blocking: reuseBlocking ?? clearWriteBlocking(run.blocking),
+    journey: run.journey
+      ? {
+          ...run.journey,
+          blocking: reuseBlocking ?? clearWriteBlocking(run.journey.blocking),
+          active_substep_id: reuseStage
+            ? `stage_reuse:${reuseStage}`
+            : nextStageId && isJobActivelyRunning(nextJob)
+              ? `run:${nextStageId}`
+              : run.journey.active_substep_id,
+        }
+      : run.journey,
+  };
+}
+
 export type ExecuteJobSource = "user" | "checkpoint_continue";
 
 export interface AdvancePipelineOpts {
