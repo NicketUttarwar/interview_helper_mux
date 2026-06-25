@@ -5504,7 +5504,16 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .activity-log-panel .activity-log-body.prompt-log {
   height: auto;
-  min-height: 8rem;
+  min-height: 16rem;
+}
+
+.global-activity-dock .activity-log-panel .activity-log-body.prompt-log {
+  min-height: 16rem;
+  flex: 1 1 16rem;
+}
+
+.global-activity-dock .activity-log-panel:not(.activity-log-collapsed) {
+  min-height: 22rem;
 }
 
 .activity-log-pinned {

@@ -60,14 +60,14 @@ def test_run_guard_acquires_when_caller_holds_thread_lock(tmp_path: Path, monkey
 def test_run_guard_busy_when_other_thread_holds_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     runner = JobRunner()
-    other = runner._lock_for(ctx.run_id)
-    assert other.acquire(blocking=False)
+    assert runner._acquire_thread_lock(ctx.run_id)
+    lock = runner._lock_for(ctx.run_id)
     try:
         with pytest.raises(RunBusyError):
             with runner.run_guard(ctx.run_id):
                 pass
     finally:
-        other.release()
+        runner._release_thread_lock(ctx.run_id, lock)
 
 
 def test_large_wav_flush_under_run_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,5 +111,5 @@ def test_recovers_orphaned_thread_lock_when_holder_gone(
     assert lock.acquire(blocking=False)
     runner._lock_holder_tid[ctx.run_id] = 0
     assert runner._recover_orphaned_thread_lock(ctx.run_id) is True
-    with runner.run_guard(ctx.run_id):
+    with runner.operator_guard(ctx.run_id):
         pass

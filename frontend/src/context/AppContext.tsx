@@ -60,6 +60,11 @@ import {
   reconcileBusyRun,
   type ExecuteJobSource,
 } from "../utils/checkpointContinuation";
+import {
+  focusNextRunnableStageWorkbench,
+  handleReuseFromAssetsForStage,
+  readyForStageMessage,
+} from "../utils/stageAdvance";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
 import {
   clampPipelineSubTab,
@@ -1472,10 +1477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPipelineSubTab: setPipelineSubTabWrapped,
       substepId: "run",
     });
-    setActivityLogTabState("live");
-    activityLogTabRef.current = "live";
-    showToast(`Starting ${next.title}…`);
-    await executeJob({ mode: "stage", stage: next.id });
+    showToast(readyForStageMessage(next.title), "info");
   }, [
     run,
     runId,
@@ -1578,7 +1580,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (stageId?: string): Promise<boolean> => {
       if (!runId || !run) return false;
       if (approveInFlightRef.current) {
-        showToast("Save already in progress — watch Activity (Live).", "warning");
         return false;
       }
       const sid =
@@ -1601,7 +1602,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           liveJob?.mode === "write_approval" &&
           (liveJob.pending_write_stage === sid || liveJob.stage === sid);
         if (savingSameStage) {
-          showToast("Save already in progress — watch Activity (Live).", "warning");
           setActivityLogTabState("live");
           activityLogTabRef.current = "live";
           startJobPoll();
@@ -1621,11 +1621,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       approveInFlightRef.current = true;
       setActionBusy(true);
       actionBusyRef.current = true;
-      traceAction(
-        "gui.write_approval.save",
-        `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
-        { level: "action", stage: sid },
+      setJobRunning(true);
+      setRun((prev) =>
+        prev
+          ? {
+              ...prev,
+              job: {
+                ...prev.job,
+                status: "running",
+                mode: "write_approval",
+                stage: sid,
+                current_stage: sid,
+                pending_write_stage: sid,
+                pending_write_paths: paths,
+                message: `Saving ${paths.length} file(s) for ${sid.replace(/_/g, " ")}…`,
+              },
+            }
+          : prev,
       );
+      setActivityLogTabState("live");
+      activityLogTabRef.current = "live";
+      startJobPoll();
       let keepBusyForJob = false;
       try {
         await runStepPrimaryPrep("write_approval");
@@ -1640,6 +1656,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind: "write_approval", stage_id: sid }),
         });
+
+        traceAction(
+          "gui.write_approval.save",
+          `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
+          { level: "action", stage: sid },
+        );
 
         const nextStageId = res.started_stage ?? null;
         const patched = patchRunAfterWriteApproval(run, {
@@ -1660,13 +1682,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         traceAction(
           "gui.write_approval.saved",
           nextStageId
-            ? `Files saved. Starting ${nextStageId.replace(/_/g, " ")}…`
-            : "Files saved — continuing pipeline.",
+            ? `Files saved. Ready for ${nextStageId.replace(/_/g, " ")}.`
+            : "Files saved — step complete.",
           { level: "success", stage: sid },
         );
         appendClientLog(
           nextStageId
-            ? `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — starting ${nextStageId.replace(/_/g, " ")}.`
+            ? `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — ready for ${nextStageId.replace(/_/g, " ")}.`
             : `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — step complete.`,
           "success",
           sid,
@@ -1674,13 +1696,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
 
         if (nextStageId) {
-          keepBusyForJob = true;
           expandStage(nextStageId);
-          await selectStage(nextStageId);
-          setActivityLogTabState("live");
-          activityLogTabRef.current = "live";
-          setActivityLogCollapsedState(false);
-          activityLogCollapsedRef.current = false;
+          await selectStage(nextStageId, { stepId: "run" });
+          setActiveSubstepIdState(`run:${nextStageId}`);
 
           if (res.job?.ok === false) {
             if (res.job.needs_stage_reuse) {
@@ -1690,28 +1708,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 "success",
               );
               playAttentionPing(alertsMuted);
-            } else {
-              await handleJobStartResponse(res.job, nextStageId);
             }
             await refreshRun();
             await pollLog(true);
             return true;
           }
 
-          setJobRunning(true);
-          setActiveSubstepIdState(`run:${nextStageId}`);
-          appendClientLog(
-            `Pipeline continuing with ${nextStageId.replace(/_/g, " ")} — watch Activity (Live).`,
-            "info",
-            nextStageId,
-          );
+          showToast(readyForStageMessage(nextStageId.replace(/_/g, " ")), "info");
           await refreshRun();
           await pollLog(true);
-          startJobPoll();
           return true;
         }
 
-        const started = await advancePipeline({
+        const advanced = await advancePipeline({
           run: patched,
           runId,
           apiGrants: ALL_API_CONSENTS,
@@ -1728,8 +1737,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         await refreshRun();
         await pollLog(true);
-        if (started) keepBusyForJob = true;
-        return true;
+        return advanced;
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
         appendClientLog(msg, "warning", sid, "gui.write_approval.error");
@@ -1752,8 +1760,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return false;
       } finally {
-        approveInFlightRef.current = false;
         if (!keepBusyForJob) {
+          approveInFlightRef.current = false;
           setActionBusy(false);
           actionBusyRef.current = false;
         }
@@ -1852,8 +1860,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!runId || !run) return;
       const stage = run.stages.find((s) => s.id === stageId);
       if (!stage) return;
+
+      const workbench = {
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+      };
+
+      const reuseOutcome = await handleReuseFromAssetsForStage({
+        runId,
+        run,
+        stage,
+        refreshRun,
+        showToast,
+        ...workbench,
+      });
+      if (reuseOutcome === "reused" || reuseOutcome === "failed") return;
+
       const offer = resolvePrecleanOffer(stage, run.meta);
-      if (!offer) return;
+      if (!offer) {
+        showToast(
+          "No prior outputs are available for this step — use Run to execute it.",
+          "info",
+        );
+        await focusStageWorkbench({
+          run,
+          stageId,
+          ...workbench,
+          substepId: "run",
+        });
+        return;
+      }
+
       try {
         await api(`/api/runs/${runId}/preclean-offer`, {
           method: "POST",
@@ -1865,17 +1904,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }),
         });
         showToast("Skipped optional step — not required for this run.");
-        await refreshRun();
-        if (offer.checkpoint === "before_ingest") {
-          await advanceFromCheckpoint();
-        }
+        const refreshed = await refreshRun();
+        const next = await focusNextRunnableStageWorkbench(refreshed ?? run, workbench);
+        if (next) showToast(readyForStageMessage(next.title), "info");
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Could not skip optional step";
         showToast(msg, "error");
         appendClientLog(msg, "warning", stageId);
       }
     },
-    [runId, run, showToast, refreshRun, advanceFromCheckpoint, appendClientLog],
+    [
+      runId,
+      run,
+      showToast,
+      refreshRun,
+      appendClientLog,
+      selectStage,
+      expandStage,
+      setActiveStepId,
+      setPipelineSubTabWrapped,
+    ],
   );
 
   const onCheckpointContinue = useCallback(async () => {

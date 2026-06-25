@@ -12,6 +12,7 @@ import { listAttentionItems, type AttentionItem } from "./attentionQueue";
 import { getHandoffPathsLocal } from "./checkpoint";
 import { flattenGuidanceItems } from "./stageGuidance";
 import { isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
+import { isWriteApprovalSaving } from "./jobStatus";
 import { stageAwaitingWriteApproval } from "./writeApproval";
 
 const USER_ACTION_KINDS = new Set<SubstepKind>([
@@ -236,7 +237,13 @@ export function buildStageSubsteps(
   if (actionBusy && stageAwaitingWriteApproval(run, stage.id)) {
     substeps = substeps.map((s) =>
       s.kind === "write_approval"
-        ? { ...s, status: "running", label: "Saving staged outputs…" }
+        ? { ...s, status: "running", label: "Saving staged outputs — please wait…" }
+        : s,
+    );
+  } else if (isWriteApprovalSaving(run.job) && stageAwaitingWriteApproval(run, stage.id)) {
+    substeps = substeps.map((s) =>
+      s.kind === "write_approval"
+        ? { ...s, status: "running", label: "Saving staged outputs — please wait…" }
         : s,
     );
   } else if (

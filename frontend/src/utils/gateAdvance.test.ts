@@ -4,25 +4,21 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = join(import.meta.dirname, "..");
 
-const GATE_PANELS = [
-  "components/gates/TranscriptReviewPanel.tsx",
-  "components/gates/DisfluencyReviewPanel.tsx",
-  "components/gates/VoPickupPanel.tsx",
-  "components/gates/FlowSelectPanel.tsx",
-  "components/gates/SfxPromptReviewPanel.tsx",
-  "components/gates/SfxPostListenPanel.tsx",
-] as const;
-
 const PROFILE_CHECKPOINT_CONSUMERS = [
   "components/gates/AnalysisProfileGate.tsx",
   "components/workspace/ProfilePanel.tsx",
   "components/workspace/StoryBoardPanel.tsx",
 ] as const;
 
-describe("gate panels use advanceFromCheckpoint", () => {
-  it.each(GATE_PANELS)("%s", (rel) => {
-    const text = readFileSync(join(ROOT, rel), "utf8");
-    expect(text).toContain("advanceFromCheckpoint");
+describe("gate panels use StageStepFooter for checkpoint actions", () => {
+  it("StageStepFooter wires gate completion and reuse actions", () => {
+    const footer = readFileSync(join(ROOT, "components/workspace/StageStepFooter.tsx"), "utf8");
+    expect(footer).toContain("completeTranscriptReview");
+    expect(footer).toContain("completeDisfluencyReview");
+    expect(footer).toContain("approveSfxPrompts");
+    expect(footer).toContain("declineReuseAndRun");
+    expect(footer).toContain("skipOptionalStage");
+    expect(footer).toContain("advanceFromCheckpoint");
   });
 });
 
@@ -39,6 +35,6 @@ describe("approveWriteAndContinue chains advancePipeline", () => {
     expect(text).toContain("approveWriteAndContinue");
     expect(text).toContain("continue-after-checkpoint");
     expect(text).toContain("advancePipeline");
-    expect(text).toContain("keepBusyForJob");
+    expect(text).toContain("readyForStageMessage");
   });
 });

@@ -40,7 +40,7 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     return ctx
 
 
-def test_approve_write_and_continue_flushes_and_starts_next(
+def test_approve_write_and_continue_flushes_without_auto_starting_next(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
@@ -66,7 +66,7 @@ def test_approve_write_and_continue_flushes_and_starts_next(
     assert result["started_stage"] == "ingest"
     assert not list_pending_paths(ctx, "audio_preclean")
     assert ctx.is_done("audio_preclean")
-    assert spawned == ["ingest"]
+    assert spawned == []
 
 
 def test_approve_write_and_continue_busy_when_lock_held(
@@ -75,9 +75,9 @@ def test_approve_write_and_continue_busy_when_lock_held(
     ctx = _ctx(tmp_path, monkeypatch)
     runner = JobRunner()
     lock = runner._lock_for(ctx.run_id)
-    assert lock.acquire(blocking=False)
+    assert runner._acquire_thread_lock(ctx.run_id)
     try:
         with pytest.raises(RunBusyError):
             runner.approve_write_and_continue(ctx.run_id, "audio_preclean")
     finally:
-        lock.release()
+        runner._release_thread_lock(ctx.run_id, lock)

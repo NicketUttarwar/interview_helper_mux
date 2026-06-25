@@ -65,6 +65,7 @@ class JobRunner:
         self._locks: dict[str, Lock] = {}
         self._global = Lock()
         self._lock_holder_tid: dict[str, int] = {}
+        self._starting_runs: set[str] = set()
 
     def _lock_for(self, run_id: str) -> Lock:
         with self._global:
@@ -152,15 +153,18 @@ class JobRunner:
             return False
         if self._holder_thread_alive(run_id):
             return False
-        if run_id not in self._lock_holder_tid:
-            return False
-        from interview_mux.gui_job_reconcile import RUNNING_STATUSES
+        from interview_mux.gui_job_reconcile import RUNNING_STATUSES, reconcile_stale_job
 
         if RunContext.exists(run_id):
             try:
-                status = RunContext(run_id, create=False).read_json("gui_job.json").get("status")
+                ctx = RunContext(run_id, create=False)
+                job = ctx.read_json("gui_job.json")
+                status = job.get("status")
                 if status in RUNNING_STATUSES:
-                    return False
+                    if job.get("mode") == "write_approval":
+                        reconcile_stale_job(run_id)
+                    elif run_id in self._lock_holder_tid:
+                        return False
             except OSError:
                 pass
         with self._global:
@@ -183,9 +187,25 @@ class JobRunner:
 
     def _release_thread_lock(self, run_id: str, lock: Lock) -> None:
         try:
-            lock.release()
+            holder = self._lock_holder_tid.get(run_id)
+            if holder is not None and holder == threading.get_ident() and lock.locked():
+                lock.release()
         finally:
             self._clear_lock_holder(run_id)
+
+    def _reserve_pipeline_start(self, run_id: str) -> bool:
+        """Mark a run as starting so execute cannot double-spawn before the worker acquires."""
+        if self.lock_held(run_id):
+            return False
+        with self._global:
+            if run_id in self._starting_runs:
+                return False
+            self._starting_runs.add(run_id)
+            return True
+
+    def _clear_pipeline_start_reservation(self, run_id: str) -> None:
+        with self._global:
+            self._starting_runs.discard(run_id)
 
     def _release_run_locks(self, run_id: str, dir_lock: RunDirectoryLock, lock: Lock) -> None:
         try:
@@ -209,6 +229,9 @@ class JobRunner:
 
     def is_running(self, run_id: str) -> bool:
         """True only when this process is executing a background job for the run."""
+        with self._global:
+            if run_id in self._starting_runs:
+                return True
         return self.lock_held(run_id)
 
     def mark_write_approval_saving(
@@ -244,24 +267,100 @@ class JobRunner:
             },
         )
 
+    def _read_gui_job(self, run_id: str) -> dict[str, Any]:
+        if not RunContext.exists(run_id):
+            return {}
+        try:
+            return RunContext(run_id, create=False).read_json("gui_job.json")
+        except OSError:
+            return {}
+
+    def _is_operator_pause_job(self, job: dict[str, Any]) -> bool:
+        status = job.get("status")
+        return bool(
+            job.get("awaiting_write_approval")
+            or job.get("needs_stage_reuse")
+            or status
+            in (
+                "awaiting_write_approval",
+                "needs_operator",
+                "gate",
+                "interrupted",
+            )
+        )
+
+    def _is_legitimate_pipeline_busy(self, run_id: str) -> bool:
+        """True when a live worker is executing a stage (not an operator pause)."""
+        if not self._holder_thread_alive(run_id):
+            return False
+        from interview_mux.gui_job_reconcile import RUNNING_STATUSES
+
+        job = self._read_gui_job(run_id)
+        status = job.get("status")
+        if status not in RUNNING_STATUSES:
+            return False
+        if job.get("mode") == "write_approval":
+            return self._holder_thread_alive(run_id)
+        return True
+
+    def _prepare_for_operator_action(self, run_id: str) -> None:
+        from interview_mux.gui_job_reconcile import reconcile_stale_job
+
+        if not self.lock_held(run_id):
+            reconcile_stale_job(run_id)
+        else:
+            self._recover_orphaned_thread_lock(run_id)
+
+    def _acquire_run_locks(
+        self,
+        run_id: str,
+        *,
+        operator_priority: bool = False,
+    ) -> tuple[Lock, RunDirectoryLock] | None:
+        """Acquire thread + directory locks; GUI operator actions may wait or recover stale locks."""
+        import time
+
+        deadline = time.monotonic() + (3.0 if operator_priority else 0.0)
+        while True:
+            self._prepare_for_operator_action(run_id)
+            lock = self._lock_for(run_id)
+            dir_lock = RunDirectoryLock(run_id)
+            if self._acquire_thread_lock(run_id):
+                if self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+                    return lock, dir_lock
+                self._release_thread_lock(run_id, lock)
+
+            if not operator_priority:
+                return None
+
+            if self._is_legitimate_pipeline_busy(run_id):
+                return None
+
+            job = self._read_gui_job(run_id)
+            if self._is_operator_pause_job(job) and not self._holder_thread_alive(run_id):
+                self._recover_orphaned_thread_lock(run_id)
+
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.1)
+
     @contextmanager
-    def run_guard(self, run_id: str) -> Iterator[None]:
+    def run_guard(self, run_id: str, *, operator_priority: bool = False) -> Iterator[None]:
         """Serialize mutating API calls with background execute for one run."""
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not self._acquire_thread_lock(run_id):
+        acquired = self._acquire_run_locks(run_id, operator_priority=operator_priority)
+        if acquired is None:
             raise RunBusyError(run_id)
-        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            self._release_thread_lock(run_id, lock)
-            raise RunBusyError(run_id)
+        lock, dir_lock = acquired
         try:
             yield
         finally:
-            try:
-                dir_lock.release()
-            except Exception:
-                pass
-            self._release_thread_lock(run_id, lock)
+            self._release_run_locks(run_id, dir_lock, lock)
+
+    @contextmanager
+    def operator_guard(self, run_id: str) -> Iterator[None]:
+        """GUI operator mutations — recover stale locks and wait briefly for pause handoff."""
+        with self.run_guard(run_id, operator_priority=True):
+            yield
 
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
         return merge_consents(
@@ -458,8 +557,6 @@ class JobRunner:
         self,
         run_id: str,
         *,
-        dir_lock: RunDirectoryLock,
-        lock: Lock,
         mode: str,
         stage: str | None = None,
         flow: str | None = None,
@@ -468,7 +565,7 @@ class JobRunner:
         nle_full_refresh: bool = False,
         nle_apply_mode: str = "structural",
     ) -> None:
-        def _run() -> None:
+        def _run(lock: Lock, dir_lock: RunDirectoryLock) -> None:
             from interview_mux.operator_trace import active_run_context
 
             ctx = RunContext(run_id, create=False)
@@ -623,6 +720,7 @@ class JobRunner:
             except WriteApprovalPending as exc:
                 ctx.log(str(exc), level="action", stage=exc.stage_id)
                 refresh_journey_meta(ctx)
+                self._release_run_locks(run_id, dir_lock, lock)
                 self._write_job(
                     ctx,
                     {
@@ -639,6 +737,7 @@ class JobRunner:
                 gate_msg = str(exc)
                 ctx.log(gate_msg, level="action", stage=exc.stage_id)
                 refresh_journey_meta(ctx)
+                self._release_run_locks(run_id, dir_lock, lock)
                 self._write_job(
                     ctx,
                     {
@@ -654,6 +753,7 @@ class JobRunner:
                 gate_msg = str(exc) or "Operator gate — action required."
                 ctx.log(gate_msg, level="action", stage=label, detail="Complete the gate in the GUI to continue.")
                 refresh_journey_meta(ctx)
+                self._release_run_locks(run_id, dir_lock, lock)
                 self._write_job(
                     ctx,
                     {
@@ -699,8 +799,53 @@ class JobRunner:
                     active_run_context.reset(ctx_token)
 
         def _run_with_holder() -> None:
-            self._record_lock_holder(run_id)
-            _run()
+            lock = self._lock_for(run_id)
+            dir_lock = RunDirectoryLock(run_id)
+            if not self._acquire_thread_lock(run_id):
+                self._clear_pipeline_start_reservation(run_id)
+                try:
+                    ctx = RunContext(run_id, create=False)
+                    ctx.log(
+                        "Could not start pipeline — run lock busy.",
+                        level="error",
+                        stage=stage or mode or "gui",
+                    )
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "error",
+                            "mode": mode,
+                            "stage": stage,
+                            "message": "Could not start pipeline — run lock busy.",
+                        },
+                    )
+                except OSError:
+                    pass
+                return
+            if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
+                self._release_thread_lock(run_id, lock)
+                self._clear_pipeline_start_reservation(run_id)
+                try:
+                    ctx = RunContext(run_id, create=False)
+                    ctx.log(
+                        "Could not start pipeline — directory lock busy.",
+                        level="error",
+                        stage=stage or mode or "gui",
+                    )
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "error",
+                            "mode": mode,
+                            "stage": stage,
+                            "message": "Could not start pipeline — directory lock busy.",
+                        },
+                    )
+                except OSError:
+                    pass
+                return
+            self._clear_pipeline_start_reservation(run_id)
+            _run(lock, dir_lock)
 
         Thread(target=_run_with_holder, daemon=True).start()
 
@@ -717,13 +862,10 @@ class JobRunner:
             record_reuse_decision,
         )
 
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not self._acquire_thread_lock(run_id):
+        acquired = self._acquire_run_locks(run_id, operator_priority=True)
+        if acquired is None:
             return self._busy_job_error(run_id, reason="thread")
-        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            self._release_thread_lock(run_id, lock)
-            return self._busy_job_error(run_id, reason="directory")
+        lock, dir_lock = acquired
 
         ctx = RunContext(run_id, create=False)
         title = STAGE_BY_ID.get(stage_id)
@@ -815,10 +957,11 @@ class JobRunner:
             stage=stage_id,
         )
         refresh_journey_meta(ctx)
+        self._release_run_locks(run_id, dir_lock, lock)
+        if not self._reserve_pipeline_start(run_id):
+            return self._busy_job_error(run_id, reason="thread")
         self._spawn_pipeline_thread(
             run_id,
-            dir_lock=dir_lock,
-            lock=lock,
             mode="stage",
             stage=stage_id,
             from_stage=stage_id,
@@ -834,12 +977,10 @@ class JobRunner:
                 return sid
         return None
 
-    def _try_start_with_held_locks(
+    def _preflight_and_spawn(
         self,
         run_id: str,
         *,
-        lock: Lock,
-        dir_lock: RunDirectoryLock,
         mode: str,
         stage: str | None = None,
         flow: str | None = None,
@@ -849,7 +990,7 @@ class JobRunner:
         nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
-        """Run start() preflight checks and spawn pipeline thread without re-acquiring locks."""
+        """Run start() preflight checks and spawn pipeline thread (worker acquires locks)."""
         ctx_pre = RunContext(run_id, create=False)
         consent_err = self._check_api_consent(
             ctx_pre,
@@ -886,7 +1027,7 @@ class JobRunner:
                     "awaiting_write_approval": True,
                 },
             )
-            self._release_run_locks(run_id, dir_lock, lock)
+            self._clear_pipeline_start_reservation(run_id)
             return {
                 "ok": False,
                 "error": msg,
@@ -911,7 +1052,7 @@ class JobRunner:
                     "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
                 },
             )
-            self._release_run_locks(run_id, dir_lock, lock)
+            self._clear_pipeline_start_reservation(run_id)
             return {
                 "ok": False,
                 "error": msg,
@@ -933,7 +1074,7 @@ class JobRunner:
                     "message": handoff_err,
                 },
             )
-            self._release_run_locks(run_id, dir_lock, lock)
+            self._clear_pipeline_start_reservation(run_id)
             return {
                 "ok": False,
                 "error": handoff_err,
@@ -965,7 +1106,7 @@ class JobRunner:
                     ],
                 },
             )
-            self._release_run_locks(run_id, dir_lock, lock)
+            self._clear_pipeline_start_reservation(run_id)
             return {
                 "ok": False,
                 "error": consent_err,
@@ -975,8 +1116,6 @@ class JobRunner:
 
         self._spawn_pipeline_thread(
             run_id,
-            dir_lock=dir_lock,
-            lock=lock,
             mode=mode,
             stage=stage,
             flow=flow,
@@ -997,13 +1136,10 @@ class JobRunner:
         """Flush staged writes and start the next runnable stage under one lock scope."""
         from interview_mux.write_staging import approve_stage_writes, list_pending_paths
 
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not self._acquire_thread_lock(run_id):
+        acquired = self._acquire_run_locks(run_id, operator_priority=True)
+        if acquired is None:
             raise RunBusyError(run_id)
-        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            self._release_thread_lock(run_id, lock)
-            raise RunBusyError(run_id)
+        lock, dir_lock = acquired
 
         ctx = RunContext(run_id, create=False)
         title = STAGE_BY_ID.get(stage_id)
@@ -1046,29 +1182,19 @@ class JobRunner:
             refresh_journey_meta(ctx)
 
             next_stage = self._next_analysis_stage(ctx, stage_id)
-            if next_stage and next_stage in STAGE_BY_ID:
-                job = self._try_start_with_held_locks(
-                    run_id,
-                    lock=lock,
-                    dir_lock=dir_lock,
-                    mode="stage",
-                    stage=next_stage,
-                    api_consents=api_consents,
-                )
-                return {
-                    "ok": True,
-                    "flushed": flushed,
-                    "stage_id": stage_id,
-                    "started_stage": next_stage,
-                    "job": job,
-                }
-
             self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": True,
                 "flushed": flushed,
                 "stage_id": stage_id,
-                "started_stage": None,
+                "started_stage": next_stage,
+                "job": {
+                    "status": "complete",
+                    "stage": stage_id,
+                    "message": (
+                        f"{stage_label}: saved {len(flushed)} file(s) — ready for next step."
+                    ),
+                },
             }
         except RunBusyError:
             raise
@@ -1090,27 +1216,23 @@ class JobRunner:
         nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
-        lock = self._lock_for(run_id)
-        dir_lock = RunDirectoryLock(run_id)
-        if not self._acquire_thread_lock(run_id):
+        if not self._reserve_pipeline_start(run_id):
             return self._busy_job_error(run_id, reason="thread")
-        if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            self._release_thread_lock(run_id, lock)
-            return self._busy_job_error(run_id, reason="directory")
-
-        return self._try_start_with_held_locks(
-            run_id,
-            lock=lock,
-            dir_lock=dir_lock,
-            mode=mode,
-            stage=stage,
-            flow=flow,
-            from_stage=from_stage,
-            until_stage=until_stage,
-            nle_full_refresh=nle_full_refresh,
-            nle_apply_mode=nle_apply_mode,
-            api_consents=api_consents,
-        )
+        try:
+            return self._preflight_and_spawn(
+                run_id,
+                mode=mode,
+                stage=stage,
+                flow=flow,
+                from_stage=from_stage,
+                until_stage=until_stage,
+                nle_full_refresh=nle_full_refresh,
+                nle_apply_mode=nle_apply_mode,
+                api_consents=api_consents,
+            )
+        except Exception:
+            self._clear_pipeline_start_reservation(run_id)
+            raise
 
     def _preflight_flow1_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
         """Block flow1_polish when post-listen or mmaudio QA gates are not clear."""

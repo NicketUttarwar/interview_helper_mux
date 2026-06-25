@@ -106,7 +106,7 @@ AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm"}
 def _guarded_run(run_id: str):
     """Serialize mutating API calls with background jobs (HTTP 409 on busy)."""
     try:
-        with runner.run_guard(run_id):
+        with runner.operator_guard(run_id):
             yield
     except RunBusyError as exc:
         raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
@@ -1298,7 +1298,7 @@ def create_app() -> FastAPI:
     ) -> list[str]:
         from interview_mux.write_staging import approve_stage_writes, list_pending_paths
 
-        with runner.run_guard(run_id):
+        with runner.operator_guard(run_id):
             paths = list_pending_paths(ctx, stage_id)
             if not paths:
                 raise HTTPException(404, f"No pending writes for stage: {stage_id}")
@@ -1353,7 +1353,7 @@ def create_app() -> FastAPI:
         run_id: str,
         body: dict[str, Any],
     ) -> dict[str, Any]:
-        """Approve staged writes and start the next runnable stage in one lock scope."""
+        """Approve staged writes and release the run lock without auto-starting the next stage."""
         kind = str(body.get("kind") or "write_approval")
         stage_id = str(body.get("stage_id") or "")
         if kind != "write_approval" or not stage_id:
@@ -1375,7 +1375,7 @@ def create_app() -> FastAPI:
         from interview_mux.write_staging import discard_stage_writes
 
         try:
-            with runner.run_guard(run_id):
+            with runner.operator_guard(run_id):
                 discard_stage_writes(ctx, stage_id)
                 runner.invalidate_from(run_id, stage_id)
         except RunBusyError as exc:
@@ -1428,7 +1428,7 @@ def create_app() -> FastAPI:
             )
 
         try:
-            with runner.run_guard(run_id):
+            with runner.operator_guard(run_id):
                 if body.action == "decline":
                     existing = get_reuse_decision(ctx, stage_id)
                     if existing and existing.get("action") == "decline":
@@ -2210,7 +2210,7 @@ def create_app() -> FastAPI:
     register_workspace_routes(
         _workspace_router,
         ctx_factory=_ctx,
-        run_guard=runner.run_guard,
+        run_guard=runner.operator_guard,
     )
     app.include_router(_workspace_router)
 

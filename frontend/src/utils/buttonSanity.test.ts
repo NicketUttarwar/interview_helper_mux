@@ -322,6 +322,8 @@ describe("buttonSanity — holistic feedback hooks", () => {
   it("useAsyncAction is used by preview listen panel", () => {
     const preview = readFileSync(join(ROOT, "components/guidance/PreviewListenPromo.tsx"), "utf8");
     expect(preview).toContain("useAsyncAction");
+    const live = readFileSync(join(ROOT, "components/LiveStatusBar.tsx"), "utf8");
+    expect(live).toContain('from "./guidance/PreviewListenPromo"');
   });
 
   it("step footer owns consolidated gate and save CTAs", () => {

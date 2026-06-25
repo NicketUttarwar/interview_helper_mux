@@ -46,7 +46,13 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
 
   const runningStage = job?.current_stage || job?.stage;
   const jobMsg = (job?.message || "").toLowerCase();
-  if (
+  if (job?.mode === "write_approval" && input.jobRunning) {
+    activityKind = "running";
+    headline = job?.message || action.headline || "Saving staged files to disk";
+    subline = "Please wait — no action needed. Watch Activity (Live) for progress.";
+    primaryLabel = "Saving to disk…";
+    onPrimary = null;
+  } else if (
     input.jobRunning &&
     (runningStage === "ingest" || jobMsg.includes("hash") || jobMsg.includes("ingest"))
   ) {

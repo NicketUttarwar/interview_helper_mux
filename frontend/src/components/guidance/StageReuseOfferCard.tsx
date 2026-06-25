@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { ALL_API_CONSENTS } from "../../utils";
 import { formatTs } from "../../utils";
+import { readyForStageMessage } from "../../utils/stageAdvance";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import type { ReuseCandidate, StageInfo } from "../../types";
 
@@ -17,7 +18,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, run, refreshRun, advanceFromCheckpoint, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
+  const { runId, run, refreshRun, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -78,7 +79,7 @@ export function StageReuseOfferCard({
         );
       closeActionModal();
       if (hasStagedWrites) return;
-      await advanceFromCheckpoint();
+      showToast(readyForStageMessage(stage.title), "info");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Reuse action failed", "error");
     } finally {

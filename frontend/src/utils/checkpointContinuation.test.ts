@@ -23,15 +23,16 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("patchRunAfterWriteApproval", () => {
-  it("builds running job from nextStageId when server job lacks status", () => {
-    const run = runStub();
+  it("builds complete job from nextStageId when server job lacks status", () => {
+    const run = runStub({ journey: { phase: "prepare" } });
     const patched = patchRunAfterWriteApproval(run, {
       savedStageId: "audio_preclean",
       nextStageId: "ingest",
       job: { ok: true, run_id: "exec_test", mode: "stage" } as never,
     });
-    expect(patched.job?.status).toBe("running");
-    expect(patched.job?.stage).toBe("ingest");
+    expect(patched.job?.status).toBe("complete");
+    expect(patched.job?.stage).toBe("audio_preclean");
+    expect(patched.journey?.active_substep_id).toBe("run:ingest");
   });
 
   it("marks saved stage done and clears write approval job fields", () => {
@@ -94,8 +95,10 @@ describe("advancePipeline", () => {
     expect(setActiveStepId).toHaveBeenCalledWith("write_approval");
   });
 
-  it("starts next runnable stage after write approval cleared", async () => {
+  it("focuses next runnable stage after write approval cleared without auto-run", async () => {
     const executeJob = vi.fn().mockResolvedValue(undefined);
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const showToast = vi.fn();
     const run = runStub({
       stages: [
         { id: "audio_preclean", title: "Pre-clean", status: "done", phase: "prepare" },
@@ -109,18 +112,20 @@ describe("advancePipeline", () => {
       apiGrants: {},
       selectedStageId: "audio_preclean",
       executeJob,
-      selectStage: vi.fn(),
+      selectStage,
       expandStage: vi.fn(),
       setActiveSubstepId: vi.fn(),
       setPipelineSubTab: vi.fn(),
-      showToast: vi.fn(),
+      showToast,
       refreshRun: vi.fn().mockResolvedValue(run),
       navigateToNextBlocker: vi.fn(),
     });
-    expect(started).toBe(true);
-    expect(executeJob).toHaveBeenCalledWith(
-      { mode: "stage", stage: "ingest" },
-      { source: "checkpoint_continue" },
+    expect(started).toBe(false);
+    expect(executeJob).not.toHaveBeenCalled();
+    expect(selectStage).toHaveBeenCalledWith("ingest", { stepId: "run" });
+    expect(showToast).toHaveBeenCalledWith(
+      "Ready for Ingest — use Run when you want to start.",
+      "info",
     );
   });
 });

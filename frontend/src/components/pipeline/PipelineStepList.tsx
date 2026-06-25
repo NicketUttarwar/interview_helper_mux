@@ -48,7 +48,6 @@ export function PipelineStepList() {
     setPipelineFilterNeedsYou,
     isStagePinned,
     showToast,
-    skipOptionalStage,
   } = useApp();
 
   const nav = useMemo(

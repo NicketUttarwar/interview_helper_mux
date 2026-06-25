@@ -14,6 +14,8 @@ interface StepActionHandlers {
   approveSfxPrompts: () => Promise<void>;
   acknowledgeHandoff?: () => Promise<void>;
   skipOptional: (stageId: string) => Promise<void>;
+  declineReuseAndRun: (stageId: string) => Promise<void>;
+  redoFromStage: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
   stageAction: OperatorAction | null;
 }
@@ -113,7 +115,14 @@ export async function invokeStepFooterAction(
 export async function invokeStepFooterSecondaryAction(
   step: StageStep,
   stage: StageInfo,
-  handlers: Pick<StepActionHandlers, "discardPendingWrites" | "completeTranscriptReview" | "skipOptional">,
+  handlers: Pick<
+    StepActionHandlers,
+    | "discardPendingWrites"
+    | "completeTranscriptReview"
+    | "skipOptional"
+    | "declineReuseAndRun"
+    | "redoFromStage"
+  >,
 ): Promise<void> {
   const label = (step.secondary_button || "").toLowerCase();
 
@@ -127,7 +136,17 @@ export async function invokeStepFooterSecondaryAction(
     return;
   }
 
-  if (step.kind === "reuse" && label.includes("fresh")) {
+  if (label.includes("redo")) {
+    await handlers.redoFromStage();
+    return;
+  }
+
+  if (step.kind === "preclean" && label.includes("skip")) {
     await handlers.skipOptional(stage.id);
+    return;
+  }
+
+  if (step.kind === "reuse" && label.includes("fresh")) {
+    await handlers.declineReuseAndRun(stage.id);
   }
 }

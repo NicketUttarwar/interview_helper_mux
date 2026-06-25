@@ -1,6 +1,7 @@
 import type { JobState, PipelineSubTab, RunData } from "../types";
 import { findPendingFocusStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
+import { readyForStageMessage } from "./stageAdvance";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import { isJobActivelyRunning } from "./jobStatus";
@@ -48,10 +49,10 @@ export function patchRunAfterWriteApproval(
     nextJob = { ...(job as JobState), ...clearWriteFields };
   } else if (nextStageId) {
     nextJob = {
-      status: "running",
-      stage: nextStageId,
-      current_stage: nextStageId,
-      message: `Running ${nextStageId.replace(/_/g, " ")}…`,
+      status: "complete",
+      stage: savedStageId,
+      current_stage: undefined,
+      message: `Step complete — ready for ${nextStageId.replace(/_/g, " ")}.`,
       ...clearWriteFields,
     };
   } else {
@@ -92,7 +93,7 @@ export function patchRunAfterWriteApproval(
           blocking: reuseBlocking ?? clearWriteBlocking(run.journey.blocking),
           active_substep_id: reuseStage
             ? `stage_reuse:${reuseStage}`
-            : nextStageId && isJobActivelyRunning(nextJob)
+            : nextStageId
               ? `run:${nextStageId}`
               : run.journey.active_substep_id,
         }
@@ -235,7 +236,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   ) {
     const nextStage = refreshed.stages.find((s) => s.id === nextAction.stageId);
     if (nextStage) {
-      opts.showToast(`Starting ${nextStage.title}…`);
+      opts.showToast(readyForStageMessage(nextStage.title), "info");
       await focusStageWorkbench({
         run: refreshed,
         stageId: nextStage.id,
@@ -245,17 +246,13 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
         setPipelineSubTab: opts.setPipelineSubTab,
         substepId: "run",
       });
-      await opts.executeJob(
-        { mode: "stage", stage: nextStage.id },
-        { source: "checkpoint_continue" },
-      );
-      return true;
+      return false;
     }
   }
 
   const next = findNextRunnableStage(refreshed.stages, refreshed.meta);
   if (next) {
-    opts.showToast(`Starting ${next.title}…`);
+    opts.showToast(readyForStageMessage(next.title), "info");
     await focusStageWorkbench({
       run: refreshed,
       stageId: next.id,
@@ -265,11 +262,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setPipelineSubTab: opts.setPipelineSubTab,
       substepId: "run",
     });
-    await opts.executeJob(
-      { mode: "stage", stage: next.id },
-      { source: "checkpoint_continue" },
-    );
-    return true;
+    return false;
   }
 
   await opts.navigateToNextBlocker();

@@ -15,6 +15,7 @@ import {
 } from "../utils/workflowSteps";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
 import { SessionBanner } from "./SessionBanner";
+import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
 
 export function LiveStatusBar() {
   const {

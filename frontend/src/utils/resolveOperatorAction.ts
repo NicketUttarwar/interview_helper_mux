@@ -103,6 +103,25 @@ function buildRunningAction(run: RunData, jobRunning: boolean): OperatorAction {
   const stageId = job?.current_stage || job?.stage || null;
   const title = stageTitle(run, stageId);
   const message = job?.message?.trim();
+  if (job?.mode === "write_approval" && stageId) {
+    const paths = resolvePendingWritePaths(run, stageId);
+    const fileCount = paths.length || parseFileCountFromMessage(message) || undefined;
+    const countLabel =
+      fileCount && fileCount > 1 ? `${fileCount} files` : "staged files";
+    return {
+      mode: "running",
+      stageId,
+      substepId: `write_approval:${stageId}`,
+      headline: `Saving ${title} outputs — ${countLabel}`,
+      subline: message || "Promoting staged files to disk — please wait.",
+      primaryLabel: "Saving to disk…",
+      primaryKind: "none",
+      primaryDisabled: true,
+      secondaryLabel: "View live log",
+      secondaryKind: "view_logs",
+      modalAutoOpen: false,
+    };
+  }
   const shortVerb = message || "in progress";
   const progress =
     job?.stage_index != null && job?.stage_total

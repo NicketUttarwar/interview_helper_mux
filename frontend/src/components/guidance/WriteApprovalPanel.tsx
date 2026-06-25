@@ -3,7 +3,8 @@ import { api, ApiError } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
-import { isWriteApprovalSaving } from "../../utils/jobStatus";
+import { isWriteApprovalSaveInProgress } from "../../utils/jobStatus";
+import { writeApprovalSaveInProgressLabel } from "../../utils/writeApprovalLabels";
 import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
   resolvePendingWritePaths,
@@ -33,7 +34,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     showToast,
     appendClientLog,
     actionBusy,
-    jobRunning,
   } = useApp();
   const [apiPaths, setApiPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -49,7 +49,10 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
-  const savingToDisk = isWriteApprovalSaving(run?.job);
+  const saveInProgress = isWriteApprovalSaveInProgress(run, {
+    actionBusy,
+    stageId: stage.id,
+  });
 
   const paths = useMemo(
     () => resolvePendingWritePaths(run, stageId, apiPaths),
@@ -125,7 +128,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     if (stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id)) {
       setSaveComplete(true);
       setApiPaths([]);
-      setSaveError(null);
       return;
     }
     if (writePendingForStage || paths.length) {
@@ -218,9 +220,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
               </code>
             </p>
           ) : null}
-          {paths.some((p) => p.endsWith(".wav")) ? (
+          {saveInProgress ? (
+            <p className="hint write-approval-saving-banner" role="status" aria-live="polite">
+              <span className="spinner-inline" aria-hidden />
+              {writeApprovalSaveInProgressLabel(paths.length)} No action needed — watch Activity (Live).
+            </p>
+          ) : paths.some((p) => p.endsWith(".wav")) ? (
             <p className="hint sm write-approval-large-wav">
-              Saving promotes staged audio to disk — watch Activity (Live) for progress.
+              Large audio files may take a minute to save — the button will show progress when saving starts.
             </p>
           ) : null}
         </div>
@@ -299,11 +306,10 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         </div>
       ) : null}
 
-      {(savingToDisk || jobRunning) && !actionBusy ? (
-        <p className="hint sm write-approval-running-hint">
-          {savingToDisk
-            ? "Promoting staged files to disk — watch Activity log (Live)."
-            : "Next step is running — watch Activity log (All/Live)."}
+      {saveInProgress ? (
+        <p className="hint sm write-approval-running-hint" role="status" aria-live="polite">
+          <span className="spinner-inline" aria-hidden />
+          {writeApprovalSaveInProgressLabel(paths.length)}
         </p>
       ) : null}
     </section>
