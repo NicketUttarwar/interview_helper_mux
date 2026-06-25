@@ -10,6 +10,7 @@ from interview_mux.config import merged_config, require_secret
 from interview_mux.operator_subprocess import format_command, run_command, touch_job_message
 from interview_mux.operator_trace import log_api_call, logged_step
 from interview_mux.run_context import RunContext
+from interview_mux.write_staging import resolve_read_path
 
 
 def _aws(ctx: RunContext, *args: str) -> Any:
@@ -42,9 +43,12 @@ def run_transcribe(ctx: RunContext) -> None:
     output_key = f"interview_mux/{ctx.run_id}/transcribe-output.json"
     region = secrets.get("AWS_DEFAULT_REGION") or secrets.get("AWS_REGION") or "us-east-1"
 
-    normalized = ctx.path("ingest", "normalized.wav")
-    if not normalized.is_file():
-        raise FileNotFoundError(normalized)
+    ctx.artifact_exists_required(
+        "ingest/normalized.wav",
+        stage="transcribe",
+        label="Normalized audio from ingest",
+    )
+    normalized = resolve_read_path(ctx, "ingest/normalized.wav")
 
     s3_uri = f"s3://{bucket}/{input_key}"
     ctx.log(

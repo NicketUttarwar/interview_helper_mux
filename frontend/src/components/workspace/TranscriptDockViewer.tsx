@@ -56,7 +56,6 @@ interface Props {
   onCorrectionStatsChange?: (stats: TranscriptCorrectionStats) => void;
 }
 
-const BATCH_REPLACE_CONFIRM_MIN = 3;
 const MAX_UNDO_STACK = 30;
 
 function findActiveWordIndex(words: TranscriptWord[], timeMs: number): number {
@@ -76,7 +75,7 @@ export function TranscriptDockViewer({
   onWordsSaved,
   onCorrectionStatsChange,
 }: Props) {
-  const { runId, showToast, appendClientLog, confirm } = useApp();
+  const { runId, showToast, appendClientLog } = useApp();
   const [transcript, setTranscript] = useState<TranscriptState | null>(null);
   const [words, setWords] = useState<TranscriptWord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +102,7 @@ export function TranscriptDockViewer({
   const editInputRef = useRef<HTMLInputElement>(null);
   const pendingSaves = useRef<Map<number, string>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveFlushChain = useRef<Promise<void>>(Promise.resolve());
   const lastFocusKey = useRef<string>("");
   const prevFuzzyMatchCount = useRef(0);
   const undoStack = useRef<UndoEntry[]>([]);
@@ -140,32 +140,55 @@ export function TranscriptDockViewer({
 
   const flushSaves = useCallback(async () => {
     if (!runId || pendingSaves.current.size === 0) return;
-    const updates = Array.from(pendingSaves.current.entries()).map(([index, text]) => ({
-      index,
-      text,
-    }));
-    pendingSaves.current.clear();
-    setSaveStatus("saving");
-    try {
-      const result = await api<{ words?: TranscriptWord[] }>(
-        `/api/runs/${runId}/transcript/words`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ updates }),
-        },
-      );
-      if (result.words) setWords(result.words);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 1800);
-      onWordsSaved?.();
-    } catch (reason) {
-      setSaveStatus("idle");
-      const msg = formatApiError(reason, "Save transcript words");
-      showToast(msg, "error");
-      appendClientLog(msg, "error");
-      for (const u of updates) pendingSaves.current.set(u.index, u.text);
-    }
+
+    const runFlush = async () => {
+      while (pendingSaves.current.size > 0) {
+        const updates = Array.from(pendingSaves.current.entries()).map(([index, text]) => ({
+          index,
+          text,
+        }));
+        pendingSaves.current.clear();
+        setSaveStatus("saving");
+        try {
+          const result = await api<{ words?: TranscriptWord[] }>(
+            `/api/runs/${runId}/transcript/words`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ updates }),
+            },
+          );
+          if (result.words) {
+            setWords((prev) => {
+              const next = [...prev];
+              const serverWords = result.words!;
+              for (const u of updates) {
+                const idx = u.index;
+                if (serverWords[idx]) {
+                  next[idx] = serverWords[idx];
+                } else if (next[idx]) {
+                  next[idx] = { ...next[idx], text: u.text, corrected: true };
+                }
+              }
+              return next;
+            });
+          }
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 1800);
+          onWordsSaved?.();
+        } catch (reason) {
+          setSaveStatus("idle");
+          const msg = formatApiError(reason, "Save transcript words");
+          showToast(msg, "error");
+          appendClientLog(msg, "error");
+          for (const u of updates) pendingSaves.current.set(u.index, u.text);
+          break;
+        }
+      }
+    };
+
+    saveFlushChain.current = saveFlushChain.current.then(runFlush).catch(() => runFlush());
+    await saveFlushChain.current;
   }, [runId, showToast, appendClientLog, onWordsSaved]);
 
   const queueSave = useCallback(
@@ -313,7 +336,7 @@ export function TranscriptDockViewer({
     endEdit();
   };
 
-  const applyFuzzyReplace = async () => {
+  const applyFuzzyReplace = () => {
     if (editingIndex === null) return;
     const trimmed = editDraft.trim();
     if (!trimmed) return;
@@ -321,16 +344,6 @@ export function TranscriptDockViewer({
     const targetIndices = new Set<number>([editingIndex]);
     for (const m of approvedFuzzyMatches) targetIndices.add(m.index);
     const indices = Array.from(targetIndices);
-    const fuzzyBatchCount = approvedFuzzyMatches.length;
-
-    if (indices.length >= BATCH_REPLACE_CONFIRM_MIN) {
-      const ok = await confirm(
-        fuzzyBatchCount > 0
-          ? `Replace ${indices.length} words with “${trimmed}”? ${fuzzyBatchCount} similar match${fuzzyBatchCount === 1 ? "" : "es"} plus the word you are editing.`
-          : `Replace this word with “${trimmed}”?`,
-      );
-      if (!ok) return;
-    }
 
     const changed = indices.filter((idx) => words[idx]?.text !== trimmed);
     const fuzzyChangedCount = changed.filter((idx) =>
@@ -674,7 +687,7 @@ export function TranscriptDockViewer({
             setSelectedFuzzyIndices(new Set(fuzzyMatches.map((m) => m.index)));
           }}
           onClearAllMatches={() => setSelectedFuzzyIndices(new Set())}
-          onReplace={() => void applyFuzzyReplace()}
+          onReplace={applyFuzzyReplace}
           onClose={() => setFuzzyPopoverDismissed(true)}
           onSeekToMatch={seekToWord}
         />

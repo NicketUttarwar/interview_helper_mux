@@ -84,6 +84,25 @@ def test_flush_large_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert not list_pending_paths(ctx, "audio_preclean")
 
 
+def test_read_path_falls_back_to_final_during_later_stage_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Prior-stage inputs must resolve from the run dir, not the active staging root."""
+    from interview_mux.write_staging import resolve_read_path
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    wav = ctx.final_path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\0" * 40)
+    enter_stage_staging("transcribe")
+    try:
+        assert not ctx.path("ingest", "normalized.wav").is_file()
+        assert resolve_read_path(ctx, "ingest/normalized.wav").is_file()
+        assert ctx.artifact_exists("ingest/normalized.wav")
+    finally:
+        exit_stage_staging()
+
+
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")

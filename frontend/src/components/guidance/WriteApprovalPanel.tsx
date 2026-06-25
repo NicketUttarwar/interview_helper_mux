@@ -27,6 +27,12 @@ const KIND_LABEL: Record<string, string> = {
   text: "Text",
 };
 
+interface FileCacheEntry {
+  value: string;
+  isJson: boolean;
+  dirty: boolean;
+}
+
 export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const {
     run,
@@ -44,8 +50,20 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
   const [saveComplete, setSaveComplete] = useState(false);
+  /** Bumps when cache dirty flags change so the file list can show edited markers. */
+  const [cacheRevision, setCacheRevision] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileCacheRef = useRef<Map<string, FileCacheEntry>>(new Map());
+  const selectedPathRef = useRef(selectedPath);
+  const editorValueRef = useRef(editorValue);
+  const editorDirtyRef = useRef(editorDirty);
+  const isJsonRef = useRef(isJson);
+
+  selectedPathRef.current = selectedPath;
+  editorValueRef.current = editorValue;
+  editorDirtyRef.current = editorDirty;
+  isJsonRef.current = isJson;
 
   const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
   const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
@@ -61,6 +79,28 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const runRef = useRef(run);
   runRef.current = run;
+
+  const bumpCacheRevision = useCallback(() => {
+    setCacheRevision((n) => n + 1);
+  }, []);
+
+  const writeCacheEntry = useCallback(
+    (path: string, entry: FileCacheEntry) => {
+      fileCacheRef.current.set(path, entry);
+      bumpCacheRevision();
+    },
+    [bumpCacheRevision],
+  );
+
+  const persistCurrentEditorToCache = useCallback(() => {
+    const path = selectedPathRef.current;
+    if (!path || fileKind(path) === "audio" || !editorDirtyRef.current) return;
+    writeCacheEntry(path, {
+      value: editorValueRef.current,
+      isJson: isJsonRef.current,
+      dirty: true,
+    });
+  }, [writeCacheEntry]);
 
   const loadPaths = useCallback(async () => {
     if (!runId) return;
@@ -86,21 +126,35 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     void loadPaths();
   }, [loadPaths]);
 
+  useEffect(() => {
+    fileCacheRef.current.clear();
+    bumpCacheRevision();
+  }, [stageId, bumpCacheRevision]);
+
   const loadContent = useCallback(
     async (path: string) => {
       if (!runId || !path || fileKind(path) === "audio") return;
+
+      const cached = fileCacheRef.current.get(path);
+      if (cached) {
+        setIsJson(cached.isJson);
+        setEditorValue(cached.value);
+        setEditorDirty(cached.dirty);
+        setContentLoading(false);
+        return;
+      }
+
       setContentLoading(true);
-      setIsJson(isJsonArtifactPath(path));
+      const json = isJsonArtifactPath(path);
+      setIsJson(json);
       setEditorDirty(false);
       try {
         const data = await api<Record<string, unknown> | { text?: string }>(
           `/api/runs/${runId}/pending-writes/${stageId}/content?path=${encodeURIComponent(path)}`,
         );
-        if (isJsonArtifactPath(path)) {
-          setEditorValue(JSON.stringify(data, null, 2));
-        } else {
-          setEditorValue((data as { text?: string }).text ?? "");
-        }
+        const value = json ? JSON.stringify(data, null, 2) : ((data as { text?: string }).text ?? "");
+        setEditorValue(value);
+        fileCacheRef.current.set(path, { value, isJson: json, dirty: false });
       } catch (reason) {
         setEditorValue("");
         const msg = formatApiError(reason, `Load ${path}`);
@@ -128,6 +182,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     if (stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id)) {
       setSaveComplete(true);
       setApiPaths([]);
+      fileCacheRef.current.clear();
       return;
     }
     if (writePendingForStage || paths.length) {
@@ -161,20 +216,63 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     [runId, stageId],
   );
 
+  const syncAllDirtyToStaging = useCallback(async () => {
+    persistCurrentEditorToCache();
+
+    const dirtyPaths = [...fileCacheRef.current.entries()].filter(
+      ([path, entry]) => entry.dirty && fileKind(path) !== "audio",
+    );
+
+    for (const [path, entry] of dirtyPaths) {
+      await syncEditorToStaging(path, entry.value, entry.isJson);
+      fileCacheRef.current.set(path, { ...entry, dirty: false });
+    }
+
+    const current = selectedPathRef.current;
+    if (current) {
+      const entry = fileCacheRef.current.get(current);
+      if (entry) setEditorDirty(entry.dirty);
+    }
+    bumpCacheRevision();
+  }, [persistCurrentEditorToCache, syncEditorToStaging, bumpCacheRevision]);
+
   useEffect(() => {
-    registerStepPrimaryPrep("write_approval", async () => {
-      if (!editorDirty || !selectedPath || fileKind(selectedPath) === "audio") return;
-      await syncEditorToStaging(selectedPath, editorValue, isJson);
-      setEditorDirty(false);
-    });
+    registerStepPrimaryPrep("write_approval", syncAllDirtyToStaging);
     return () => registerStepPrimaryPrep("write_approval", null);
-  }, [
-    editorDirty,
-    selectedPath,
-    editorValue,
-    isJson,
-    syncEditorToStaging,
-  ]);
+  }, [syncAllDirtyToStaging]);
+
+  const selectFile = useCallback(
+    (path: string) => {
+      if (path === selectedPath) return;
+      persistCurrentEditorToCache();
+      setSelectedPath(path);
+    },
+    [selectedPath, persistCurrentEditorToCache],
+  );
+
+  const handleEditorChange = useCallback(
+    (value: string) => {
+      setEditorValue(value);
+      setEditorDirty(true);
+      const path = selectedPathRef.current;
+      if (!path || fileKind(path) === "audio") return;
+      writeCacheEntry(path, {
+        value,
+        isJson: isJsonRef.current,
+        dirty: true,
+      });
+    },
+    [writeCacheEntry],
+  );
+
+  const isPathDirty = useCallback(
+    (path: string) => {
+      void cacheRevision;
+      if (path === selectedPath && editorDirty) return true;
+      return fileCacheRef.current.get(path)?.dirty ?? false;
+    },
+    [cacheRevision, selectedPath, editorDirty],
+  );
 
   if (saveComplete || stageComplete) {
     return (
@@ -207,7 +305,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             {paths.length
               ? ` staged ${paths.length} file${paths.length === 1 ? "" : "s"}.`
               : " is waiting for your approval before files are saved to disk."}{" "}
-            Preview each file below. Edits are included when you use{" "}
+            Preview each file below. Edits are kept while you switch files and are included when you use{" "}
             <strong>Save all files &amp; continue</strong> at the bottom of this step.
           </p>
           {run?.working_dir ? (
@@ -255,17 +353,19 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             {paths.map((p) => {
               const kind = fileKind(p);
               const active = selectedPath === p;
+              const dirty = isPathDirty(p);
               return (
                 <li key={p} className={active ? "active" : ""}>
                   <button
                     type="button"
-                    className={`write-approval-file-btn${active ? " active" : ""}`}
-                    onClick={() => setSelectedPath(p)}
+                    className={`write-approval-file-btn${active ? " active" : ""}${dirty ? " edited" : ""}`}
+                    onClick={() => selectFile(p)}
                   >
                     <span className={`write-approval-kind kind-${kind}`}>
                       {KIND_LABEL[kind]}
                     </span>
                     <code className="artifact-path">{p}</code>
+                    {dirty ? <span className="write-approval-edited-pill">Edited</span> : null}
                   </button>
                 </li>
               );
@@ -290,10 +390,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
                   <textarea
                     className="artifact-editor-textarea"
                     value={editorValue}
-                    onChange={(e) => {
-                      setEditorValue(e.target.value);
-                      setEditorDirty(true);
-                    }}
+                    onChange={(e) => handleEditorChange(e.target.value)}
                     rows={14}
                     placeholder="Staged file content appears here…"
                   />

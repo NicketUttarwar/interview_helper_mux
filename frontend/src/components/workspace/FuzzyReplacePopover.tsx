@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { formatMs } from "../../utils";
 import {
   correctionDiffersFromSource,
@@ -24,17 +24,34 @@ interface Props {
 
 const POPOVER_WIDTH = 300;
 const POPOVER_GAP = 10;
+const VIEWPORT_MARGIN = 12;
 
-function computePosition(anchorEl: HTMLElement | null): { left: number; top: number } | null {
+function isInteractivePopoverTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest("input, button, select, textarea, label, a, [role='slider']"),
+  );
+}
+
+function computePosition(
+  anchorEl: HTMLElement | null,
+  popoverHeight: number,
+): { left: number; top: number } | null {
   if (!anchorEl) return null;
   const rect = anchorEl.getBoundingClientRect();
-  let left = rect.right + POPOVER_GAP;
-  let top = rect.top - 4;
+  const maxHeight = Math.max(200, window.innerHeight - VIEWPORT_MARGIN * 2);
+  const height = Math.min(popoverHeight, maxHeight);
 
-  if (left + POPOVER_WIDTH > window.innerWidth - 12) {
-    left = Math.max(12, rect.left - POPOVER_WIDTH - POPOVER_GAP);
+  let left = rect.right + POPOVER_GAP;
+  if (left + POPOVER_WIDTH > window.innerWidth - VIEWPORT_MARGIN) {
+    left = Math.max(VIEWPORT_MARGIN, rect.left - POPOVER_WIDTH - POPOVER_GAP);
   }
-  top = Math.max(12, Math.min(top, window.innerHeight - 400));
+
+  let top = rect.top - 4;
+  if (top + height > window.innerHeight - VIEWPORT_MARGIN) {
+    top = window.innerHeight - VIEWPORT_MARGIN - height;
+  }
+  top = Math.max(VIEWPORT_MARGIN, top);
 
   return { left, top };
 }
@@ -60,11 +77,13 @@ export function FuzzyReplacePopover({
   onClose,
   onSeekToMatch,
 }: Props) {
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
-    setPosition(computePosition(anchorEl));
-  }, [anchorEl, matches.length, minScore, selectedMatchIndices.size]);
+    const height = popoverRef.current?.offsetHeight ?? 420;
+    setPosition(computePosition(anchorEl, height));
+  }, [anchorEl, matches.length, minScore, selectedMatchIndices.size, correctionDraft]);
 
   const selectedCount = matches.filter((m) => selectedMatchIndices.has(m.index)).length;
   const replaceTotal = selectedCount + 1;
@@ -104,12 +123,16 @@ export function FuzzyReplacePopover({
         }}
       />
       <div
+        ref={popoverRef}
         className="fuzzy-replace-popover"
         style={{ left: position.left, top: position.top }}
         role="dialog"
         aria-label="Fix similar words"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => {
+          if (!isInteractivePopoverTarget(e.target)) e.preventDefault();
+        }}
       >
+        <div className="fuzzy-replace-body">
         <div className="fuzzy-replace-head">
           <div>
             <span className="fuzzy-replace-title">Fix similar words</span>
@@ -238,9 +261,17 @@ export function FuzzyReplacePopover({
             excluded — will not be changed.
           </p>
         ) : null}
+        </div>
 
+        <div className="fuzzy-replace-footer">
         <div className="fuzzy-replace-actions">
-          <button type="button" className="btn primary sm" disabled={!canReplace} onClick={onReplace}>
+          <button
+            type="button"
+            className="btn primary sm"
+            disabled={!canReplace}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onReplace}
+          >
             {replaceLabel}
           </button>
         </div>
@@ -248,6 +279,7 @@ export function FuzzyReplacePopover({
         <p className="fuzzy-replace-shortcuts muted">
           Check/uncheck matches · click word to jump · Enter saves this word only
         </p>
+        </div>
       </div>
     </>
   );
