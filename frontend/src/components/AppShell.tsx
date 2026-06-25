@@ -1,9 +1,6 @@
 import { useEffect } from "react";
 import { useApp } from "../context/AppContext";
-import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { GlobalActivityDock } from "./activity/GlobalActivityDock";
-import { PendingActionBanner } from "./guidance/PendingActionBanner";
-import { AttentionQueuePanel } from "./guidance/AttentionQueuePanel";
 import { AppTabs } from "./AppTabs";
 import { ActivityTeaser } from "./activity/ActivityTeaser";
 import { StartTab } from "./tabs/StartTab";
@@ -18,32 +15,10 @@ import { LiveStatusBar } from "./LiveStatusBar";
 export function AppShell() {
   const {
     activeTab,
-    run,
     runId,
-    pendingActionCount,
-    selectedStageId,
-    jobRunning,
-    apiGrants,
-    activityLogCollapsed,
     dumpLastStep,
     traceAction,
   } = useApp();
-
-  const operatorAction = useGlobalOperatorAction(run, {
-    selectedStageId,
-    jobRunning,
-    apiGrants,
-  });
-
-  const showPendingWrap =
-    run &&
-    pendingActionCount > 0 &&
-    activeTab !== "pipeline" &&
-    !(operatorAction.mode === "needs_you" && pendingActionCount === 1);
-
-  const showAttentionQueue =
-    pendingActionCount > 1 &&
-    !(operatorAction.mode === "needs_you" && operatorAction.stageId);
 
   useEffect(() => {
     const onClick = (ev: MouseEvent) => {
@@ -62,12 +37,6 @@ export function AppShell() {
   return (
     <div className={`operator-app${runId ? " operator-app-with-dock" : ""}`}>
       <LiveStatusBar />
-      {showPendingWrap ? (
-        <div className="global-pending-action-wrap">
-          <PendingActionBanner compact />
-          {showAttentionQueue ? <AttentionQueuePanel compact /> : null}
-        </div>
-      ) : null}
       <AppTabs />
       <div className="operator-main-row">
         <div className="operator-body app-tab-content">
@@ -76,14 +45,14 @@ export function AppShell() {
           {activeTab === "pipeline" ? <PipelineTab /> : null}
           {activeTab === "logs" ? <LogsTab /> : null}
         </div>
-        {runId && run ? (
+        {runId ? (
           <GlobalActivityDock onDump={() => void dumpLastStep()} />
         ) : null}
       </div>
-      {activityLogCollapsed ? <ActivityTeaser /> : null}
+      {activeTab !== "pipeline" ? <ActivityTeaser /> : null}
       <ModalHost />
-      <ActionOverlay />
       <Toast />
+      <ActionOverlay />
     </div>
   );
 }

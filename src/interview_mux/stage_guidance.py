@@ -1048,3 +1048,11 @@ def attach_guidance_to_stages(
             profile_gate_pending=profile_gate_pending,
             profile_verified=profile_verified,
         )
+        from interview_mux.stage_steps import attach_steps_to_guidance
+
+        attach_steps_to_guidance(
+            ctx,
+            sid,
+            s["guidance"],
+            status=str(s.get("status") or "pending"),
+        )

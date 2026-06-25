@@ -10,12 +10,11 @@ import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stag
 import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { stageNeedsAttention } from "../../utils/attentionQueue";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
-import { substepShouldOpenModal } from "../../utils/substepModal";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
-import { SubstepRow } from "./SubstepRow";
 import { StepDoneBanner } from "./StepDoneBanner";
 import { StepRunningConnector } from "./StepRunningConnector";
+import { firstTodoStepId } from "../../utils/resolveActiveStep";
 
 function stageNeedsSubstepAttention(
   run: NonNullable<ReturnType<typeof useApp>["run"]>,
@@ -41,8 +40,7 @@ export function PipelineStepList() {
     jobRunning,
     actionBusy,
     pinSelectedStage,
-    activateSubstep,
-    activeSubstepId,
+    setActiveStepId,
     pipelineCollapsedStages,
     pipelineExpandedDoneStages,
     toggleDoneStageExpanded,
@@ -218,6 +216,8 @@ export function PipelineStepList() {
                       pinSelectedStage();
                       expandStage(entry.stage.id);
                       void selectStage(entry.stage.id);
+                      const stepId = firstTodoStepId(run, entry.stage.id);
+                      if (stepId) setActiveStepId(stepId);
                     }}
                     aria-current={navStatus === "current" || isRunning ? "step" : undefined}
                     aria-expanded={expanded}
@@ -256,28 +256,6 @@ export function PipelineStepList() {
                   </button>
                   {progress.fullyComplete && !expanded ? (
                     <StepDoneBanner variant="step" />
-                  ) : null}
-                  {expanded && progress.substeps.length > 0 ? (
-                    <ul className="pipeline-substeps" aria-label={`${entry.stage.title} substeps`}>
-                      {progress.substeps.map((sub) => (
-                        <li key={`${sub.kind}:${sub.id}`}>
-                          <SubstepRow
-                            substep={sub}
-                            selected={activeSubstepId === sub.id}
-                            onClick={() =>
-                              activateSubstep(sub, {
-                                openModal: substepShouldOpenModal(sub),
-                              })
-                            }
-                            onSkip={
-                              sub.id === "optional:skip"
-                                ? () => void skipOptionalStage(sub.stageId)
-                                : undefined
-                            }
-                          />
-                        </li>
-                      ))}
-                    </ul>
                   ) : null}
                 </div>
               </li>

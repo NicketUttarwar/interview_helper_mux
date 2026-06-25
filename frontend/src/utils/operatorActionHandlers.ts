@@ -10,24 +10,13 @@ export interface OperatorActionHandlers {
   guardPrimary?: () => boolean;
 }
 
-function scrollToCheckpoint(substepId?: string | null, blockingReason?: string): void {
+function scrollToCheckpoint(substepId?: string | null, _blockingReason?: string): void {
   if (typeof document === "undefined") return;
+  const raw = substepId?.includes(":") ? substepId.split(":").pop() : substepId;
   const scroll = () => {
-    let target: Element | null = null;
-    if (blockingReason === "stage_reuse" || substepId?.includes("stage_reuse")) {
-      target = document.querySelector(".stage-reuse-section");
-    } else if (blockingReason === "write_approval" || substepId?.includes("write_approval")) {
-      target = document.getElementById("write-approval-panel");
-    } else if (blockingReason === "handoff_review" || substepId?.includes("handoff")) {
-      target = document.getElementById("stage-handoff-panel");
-    } else if (blockingReason === "preclean" || substepId?.includes("preclean")) {
-      target =
-        document.getElementById("modal-preclean") ??
-        document.getElementById("stage-preclean-panel") ??
-        document.querySelector(".preclean-offer-card");
-    } else {
-      target = document.getElementById("stage-gate-panel");
-    }
+    const target =
+      (raw ? document.querySelector(`[data-testid="stage-step-${raw}"]`) : null) ??
+      document.querySelector(".stage-step-row--active");
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const runScroll = () => {

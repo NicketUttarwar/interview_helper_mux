@@ -172,11 +172,29 @@ export interface StageGuidance {
   prerequisites: GuidanceItem[];
   actions: GuidanceItem[];
   unlocks: string;
+  steps?: StageStep[];
   artifact_checks?: Array<{
     path: string;
     label: string;
     status: GuidanceItemStatus;
   }>;
+}
+
+export type StageStepStatus = "todo" | "active" | "done" | "blocked" | "waiting" | "skipped";
+
+export interface StageStep {
+  id: string;
+  number: number;
+  label: string;
+  instruction: string;
+  review: string[];
+  primary_button?: string | null;
+  secondary_button?: string | null;
+  kind: string;
+  status: StageStepStatus;
+  embed?: string | null;
+  next_hint?: string | null;
+  blocking_reason?: string | null;
 }
 
 export interface PhaseGuidance {
@@ -827,6 +845,7 @@ export interface LiveStatus {
 export interface SessionActive {
   run_id?: string;
   selected_stage_id?: string | null;
+  active_step_id?: string | null;
   active_tab?: AppTab;
   pipeline_sub_tab?: PipelineSubTab;
   source_locked?: boolean;

@@ -1,13 +1,11 @@
 import type { OperatorPhase, RunData } from "../../types";
 import { PHASE_LABELS, phaseLabel } from "../../constants/phases";
 import { ActionMarker } from "./ActionMarker";
-import { GuidanceActionButton } from "./GuidanceActionButton";
-import { SubstepRow } from "../pipeline/SubstepRow";
-import { guidanceItemToSubstep } from "../../utils/stageSubsteps";
 import { useApp } from "../../context/AppContext";
 import { WORKFLOW_STEPS } from "../../utils/workflowSteps";
 import { isPhaseFullyComplete } from "../../utils/phaseSubsteps";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
+import { firstTodoStepId } from "../../utils/resolveActiveStep";
 
 interface Props {
   run: RunData;
@@ -15,6 +13,7 @@ interface Props {
 }
 
 export function PhaseGuidanceBanner({ run, compact }: Props) {
+  const { setActiveTab, selectStage, setActiveStepId } = useApp();
   const phase = run.journey?.phase ?? "prepare";
   const phaseGuidance = run.journey?.phase_guidance?.[phase];
   const flowNote = run.display_flow || run.selected_flow || run.journey?.flow_intent;
@@ -28,6 +27,14 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
   const progress = phaseGuidance?.progress || run.journey?.phase_progress?.[phase];
   const actions = (phaseGuidance?.actions || []).slice(0, compact ? 2 : 3);
   const phaseComplete = isPhaseFullyComplete(run, phase);
+
+  const goToStage = (stageId?: string) => {
+    if (!stageId) return;
+    setActiveTab("pipeline");
+    void selectStage(stageId);
+    const stepId = firstTodoStepId(run, stageId);
+    if (stepId) setActiveStepId(stepId);
+  };
 
   return (
     <section className={`phase-guidance-banner panel-inset${phaseComplete ? " phase-complete" : ""}`} aria-label="Phase guidance">
@@ -51,15 +58,11 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
           <li className="stage-guidance-item status-todo">
             <ActionMarker status="todo" />
             <span className="stage-guidance-label">{blocking.message}</span>
-            <GuidanceActionButton
-              item={{
-                id: "blocking",
-                label: blocking.message,
-                status: "todo",
-                kind: "checkpoint",
-                stage_id: blocking.stage_id || undefined,
-              }}
-            />
+            {blocking.stage_id ? (
+              <button type="button" className="btn ghost sm" onClick={() => goToStage(blocking.stage_id || undefined)}>
+                Go to step
+              </button>
+            ) : null}
           </li>
         </ul>
       ) : null}
@@ -75,7 +78,15 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
                 {item.from_stage_title ? `${item.from_stage_title}: ` : ""}
                 {item.label}
               </span>
-              <GuidanceActionButton item={item} />
+              {item.stage_id || item.from_stage_id ? (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => goToStage(item.stage_id || item.from_stage_id)}
+                >
+                  Go to step
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -88,23 +99,15 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
 }
 
 export function StartPhaseGuidance() {
-  const { activateSubstep } = useApp();
-  const item = {
-    id: "pick_audio",
-    label: "Pick source audio on the Start tab",
-    status: "todo" as const,
-    kind: "start",
-  };
-  const startSubstep = guidanceItemToSubstep(item, "start");
   return (
     <section className="phase-guidance-banner panel-inset" aria-label="Start guidance">
       <h3 className="phase-guidance-title">Start</h3>
       <p className="hint phase-guidance-goal">Pick source audio and optionally set your output type.</p>
-      <ul className="pipeline-substeps start-phase-substeps">
-        <li>
-          <SubstepRow substep={startSubstep} onClick={() => activateSubstep(startSubstep)} />
-        </li>
-      </ul>
+      <ol className="hint sm start-phase-steps">
+        <li>Select a WAV from ASSETS/input</li>
+        <li>Optionally choose planned output (Flow 1, 2, or 3)</li>
+        <li>Click New execution</li>
+      </ol>
     </section>
   );
 }

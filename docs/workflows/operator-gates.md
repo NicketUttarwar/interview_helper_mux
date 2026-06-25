@@ -12,8 +12,7 @@ The web GUI enforces gates visually and blocks **Run next stage** while any stag
 
 | Mechanism | Operator experience |
 |-----------|---------------------|
-| **StepActionHeader** | Top of each step: mode badge (**Needs you** / **Running** / **Complete**), headline, one primary (`data-testid="step-action-primary"`) |
-| **OperatorActionModal** | **Modal-first** for write approval, reuse, gates, handoff — auto-opens on `needs_you` |
+| **StageStepWorkbench** | Numbered steps in the middle panel: instruction, review checklist, one primary CTA per active step |
 | **Attention ping** | Browser sound on gates / `action` log lines (mute in header) |
 | **API consent** | **Shipped default:** session execute sends `api_consents: { openai, openai, aws }` (see `frontend/src/utils/index.ts`). Optional consent modal CSS exists but is not wired — operators must have keys in `config/secrets/secrets.env`. Future: per-provider modal per original spec. |
 | **File handoff (custom run)** | After each stage that writes **complete** per-interview descriptive JSON (themes, brief, segments, flow plans, etc.), the pipeline **pauses**; review in modal, then **Acknowledge & continue** before the next automated stage. Partial/scaffold files do not trigger handoff. Controlled by `journey_ui.require_handoff_between_stages` (default `true`). Ingest/STT/checksum paths are excluded. |

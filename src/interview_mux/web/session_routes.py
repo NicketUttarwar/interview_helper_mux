@@ -32,6 +32,7 @@ from interview_mux.web.stages import STAGE_BY_ID, all_stages_for_run
 class ActiveBody(BaseModel):
     run_id: str | None = None
     selected_stage_id: str | None = None
+    active_step_id: str | None = None
     active_tab: str | None = None
     pipeline_sub_tab: str | None = None
     activity_log_tab: str | None = None

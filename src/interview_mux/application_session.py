@@ -219,6 +219,7 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
     active: dict[str, Any] = {**current, "run_id": str(run_id)}
     for key in (
         "selected_stage_id",
+        "active_step_id",
         "active_tab",
         "pipeline_sub_tab",
         "activity_log_tab",

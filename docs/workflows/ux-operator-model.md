@@ -1,45 +1,33 @@
 # UX operator model
 
-Canonical operator GUI model after the Pipeline UX simplification wave.
+Canonical operator GUI model — **inline step workbench** (no checkpoint modals).
 
 ## Mental model
 
-1. **Left sidebar** (`PipelineStepList`) — where you are in the numbered pipeline; one highlighted row when action is required.
-2. **StepActionHeader** — top of each step's main panel: mode badge, headline, one primary button.
-3. **OperatorActionModal** — checkpoint work (write approval, reuse, gates, handoff); auto-opens on `needs_you`.
-4. **LiveStatusBar** — global status on all tabs; on **Pipeline** tab primary lives in **StepActionHeader** (status-only bar); other tabs show resolver primary.
-5. **Feedback contract** — every click and job terminal shows toast and/or spinner; see [gui-flow-hardening.md](./gui-flow-hardening.md).
+1. **Left sidebar** (`PipelineStepList`) — numbered pipeline stages; click a stage to open its steps in the middle panel.
+2. **Middle panel** (`StageStepWorkbench`) — numbered steps 1..N with instruction, review checklist, embedded editors, and **one primary button** per active step (`data-testid="stage-step-primary"`).
+3. **StepActionHeader** — mode badge + headline + "What's next" line (no primary button on Pipeline tab).
+4. **Activity log** — right dock; Live / This step / All.
+5. **Modals** — destructive confirm (`ConfirmDialog`) only.
 
-## Step modes
+## Step modes (stage-level)
 
-| Mode | Badge | Primary button |
-|------|-------|----------------|
-| `running` | Running | Disabled "Running…" |
-| `needs_you` | Needs you | Stage-specific label from resolver (e.g. Save & continue, Choose reuse, Review outputs) — opens modal |
-| `done` | Complete | Continue to next step |
-| `locked` | Waiting | Disabled + prerequisite |
-| `idle` | Ready | Run {stage title} |
+| Mode | Badge | Operator action |
+|------|-------|-----------------|
+| `running` | Running | Watch activity log; run step shows spinner |
+| `needs_you` | Needs you | Expand active numbered step; use step footer CTA |
+| `done` | Complete | Review outputs; Continue to next stage |
+| `locked` | Waiting | Go to blocking stage link |
+| `idle` | Ready | Run step footer **Run {title}** |
 
 ## Component ownership
 
 | Concern | Owner |
 |---------|--------|
-| Unified action resolution | `resolveOperatorAction.ts` |
+| Step list (server) | `build_stage_steps()` in `stage_steps.py` |
+| Workbench UI | `StageStepWorkbench`, `StageStepRow`, `StageStepBody`, `StageStepFooter` |
 | Busy-click guard | `guardBusy.ts` |
-| Checkpoint continuation | `advanceFromCheckpoint` / `advancePipeline` |
-| Step top bar | `StepActionHeader.tsx` |
-| Checkpoint forms | `OperatorActionModal` + panel components |
-| Substep checklist | Sidebar `PipelineStepList` only |
-| Activity logs | `ActivityLogPanel` (right column) |
-| Async panel actions | `useAsyncAction` hook |
+| Checkpoint continuation | `advanceFromCheckpoint()` |
+| Session focus | `selected_stage_id` + `active_step_id` in `active_execution.json` |
 
-## Copy templates (Prepare)
-
-| Stage | Mode | Headline |
-|-------|------|----------|
-| `ingest` | running | Running Ingest — normalizing audio |
-| `ingest` | needs_you | Review ingest outputs before saving |
-| `transcribe` | needs_you (reuse) | Choose reuse or run fresh |
-| `transcript_review` | needs_you | Review speech-to-text clips |
-
-See [operator-gates.md](./operator-gates.md) for gate copy.
+See [gui-flow-hardening.md](./gui-flow-hardening.md) and [operator-stage-checklists.md](./operator-stage-checklists.md).

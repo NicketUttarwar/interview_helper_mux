@@ -7,16 +7,14 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveOperatorAction, resolveOperatorActionForStage } from "./resolveOperatorAction";
-import { substepShouldOpenModal } from "./substepModal";
 import { invokeOperatorActionPrimary } from "./operatorActionHandlers";
-import type { RunData, StageInfo, StageSubstep } from "../types";
+import type { RunData, StageInfo } from "../types";
 
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
 /** data-testid values referenced by CURSOR_EXECUTE/flow1-gui-e2e/driver/gate_handlers.py */
 const E2E_CRITICAL_TESTIDS: Array<string | { pattern: RegExp; label: string }> = [
-  "step-action-primary",
-  "checkpoint-continue",
+  "stage-step-primary",
   "write-approval-save-continue",
   "live-status-primary",
   "handoff-acknowledge",
@@ -30,8 +28,6 @@ const E2E_CRITICAL_TESTIDS: Array<string | { pattern: RegExp; label: string }> =
   { pattern: /select-flow-\$\{/, label: "select-flow (dynamic)" },
   "approve-sfx-prompts",
   "sfx-post-listen-pass-all",
-  "operator-action-modal",
-  "pending-action-primary",
   { pattern: /preclean-accept-\$\{/, label: "preclean-accept (dynamic)" },
   "start-tab-ready",
 ];
@@ -257,48 +253,21 @@ describe("buttonSanity — invokeOperatorActionPrimary wiring", () => {
   });
 });
 
-describe("buttonSanity — substep modal policy", () => {
-  function sub(partial: Partial<StageSubstep> & Pick<StageSubstep, "kind" | "stageId">): StageSubstep {
-    return {
-      id: partial.id ?? partial.kind,
-      label: partial.label ?? partial.kind,
-      status: partial.status ?? "todo",
-      source: partial.source ?? "attention",
-      ...partial,
-    };
-  }
-
-  const modalCases: Array<[string, StageSubstep, boolean]> = [
-    ["gate", sub({ kind: "gate", stageId: "g2_flow_select" }), true],
-    ["checkpoint preclean", sub({ kind: "checkpoint", id: "preclean:run", stageId: "audio_preclean" }), true],
-    ["write_approval", sub({ kind: "write_approval", stageId: "ingest" }), true],
-    ["handoff", sub({ kind: "handoff", stageId: "topic_coverage_audit" }), true],
-    ["reuse", sub({ kind: "reuse", stageId: "transcribe" }), true],
-    ["profile nav", sub({ kind: "profile", stageId: "analysis_profile" }), false],
-    ["optional skip", sub({ kind: "optional", id: "optional:skip", stageId: "audio_preclean" }), false],
-    ["optional preclean review", sub({ kind: "optional", id: "optional:review", stageId: "g1_vo_pickup" }), true],
-  ];
-
-  it.each(modalCases)("%s → openModal=%s", (_label, substep, expected) => {
-    expect(substepShouldOpenModal(substep)).toBe(expected);
+describe("buttonSanity — stage step workbench", () => {
+  it("StageStepWorkbench is the pipeline middle panel", () => {
+    const pipeline = readFileSync(join(ROOT, "components/tabs/PipelineTab.tsx"), "utf8");
+    expect(pipeline).toContain("StageStepWorkbench");
+    expect(pipeline).not.toContain("PipelineToolRow");
   });
-});
 
-describe("buttonSanity — ModalHost mounts OperatorActionModal", () => {
-  it("ModalHost imports and renders OperatorActionModal when actionModalOpen", () => {
+  it("ModalHost only mounts ConfirmDialog", () => {
     const text = readFileSync(join(ROOT, "components/modals/ModalHost.tsx"), "utf8");
-    expect(text).toContain("OperatorActionModal");
-    expect(text).toContain("actionModalOpen");
+    expect(text).toContain("ConfirmDialog");
+    expect(text).not.toContain("OperatorActionModal");
   });
 });
 
-describe("buttonSanity — AppContext openActionModal toggles modal state", () => {
-  it("openActionModal sets actionModalOpen true", () => {
-    const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
-    expect(text).toMatch(/setActionModalOpen\(true\)/);
-    expect(text).toMatch(/setActionModalOpen\(false\)/);
-  });
-
+describe("buttonSanity — AppContext checkpoint flow", () => {
   it("executeJob guards against duplicate runs", () => {
     const text = readFileSync(join(ROOT, "context/AppContext.tsx"), "utf8");
     expect(text).toContain("jobRunningRef.current");
@@ -317,9 +286,8 @@ describe("buttonSanity — guardBusy helper", () => {
   it("guardBusy is exported and used by primary handlers", () => {
     const guardText = readFileSync(join(ROOT, "utils/guardBusy.ts"), "utf8");
     expect(guardText).toContain("export function guardBusy");
-    const stageDetail = readFileSync(join(ROOT, "components/workspace/StageDetail.tsx"), "utf8");
-    expect(stageDetail).toContain("guardBusy");
-    expect(stageDetail).toContain("guardPrimary");
+    const workbench = readFileSync(join(ROOT, "components/workspace/StageStepWorkbench.tsx"), "utf8");
+    expect(workbench).toContain("StageStepRow");
   });
 });
 

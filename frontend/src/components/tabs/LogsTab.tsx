@@ -8,7 +8,7 @@ import {
 } from "../../utils/logDisplay";
 import { parseLogDetail } from "../../utils";
 import { buildStageProgress } from "../../utils/stageSubsteps";
-import { substepShouldOpenModal } from "../../utils/substepModal";
+import { firstTodoStepId } from "../../utils/resolveActiveStep";
 import type { JourneyLogKind, LogEntry, LogLevel } from "../../types";
 
 const LEVELS: LogLevel[] = ["info", "success", "warning", "error", "action"];
@@ -39,6 +39,10 @@ export function LogsTab() {
     setLogFilterPreset,
     activateSubstep,
     apiGrants,
+    jobRunning,
+    setActiveTab,
+    selectStage,
+    setActiveStepId,
     dumpLastStep,
   } = useApp();
   const journeyFilterDefault = config?.journey_ui?.journey_log_filter === true;
@@ -55,17 +59,12 @@ export function LogsTab() {
   const onStageClick = useCallback(
     (stageId: string) => {
       if (!run) return;
-      const stage = run.stages.find((s) => s.id === stageId);
-      if (!stage) return;
-      const progress = buildStageProgress(stage, run, { jobRunning, apiGrants });
-      const target =
-        progress.substeps.find((s) => s.status === "todo" || s.status === "running") ||
-        progress.substeps[0];
-      if (target) {
-        activateSubstep(target, { openModal: substepShouldOpenModal(target) });
-      }
+      setActiveTab("pipeline");
+      void selectStage(stageId);
+      const stepId = firstTodoStepId(run, stageId);
+      if (stepId) setActiveStepId(stepId);
     },
-    [run, jobRunning, apiGrants, activateSubstep],
+    [run, setActiveTab, selectStage, setActiveStepId],
   );
 
   useEffect(() => {

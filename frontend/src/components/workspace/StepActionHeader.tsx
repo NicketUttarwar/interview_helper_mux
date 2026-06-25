@@ -1,22 +1,14 @@
-import type { OperatorAction } from "../types/operatorAction";
+import type { OperatorAction } from "../../types/operatorAction";
 import { stepModeLabel } from "../../utils/resolveOperatorAction";
 
 interface Props {
   action: OperatorAction;
   stepNumber?: number | null;
-  onPrimary: () => void;
-  onSecondary?: () => void;
-  busy?: boolean;
+  whatsNext?: string | null;
 }
 
-export function StepActionHeader({
-  action,
-  stepNumber,
-  onPrimary,
-  onSecondary,
-  busy = false,
-}: Props) {
-  const showSpinner = action.mode === "running" || busy;
+export function StepActionHeader({ action, stepNumber, whatsNext }: Props) {
+  const showSpinner = action.mode === "running";
   const modeLabel = stepModeLabel(action.mode);
   const isError = action.mode === "error";
 
@@ -54,39 +46,12 @@ export function StepActionHeader({
               {action.progress.label ? ` — ${action.progress.label}` : ""}
             </p>
           ) : null}
+          {whatsNext ? (
+            <p className="whats-next-bar hint sm">
+              What&apos;s next: {whatsNext}
+            </p>
+          ) : null}
         </div>
-      </div>
-      <div className="step-action-buttons">
-        {action.primaryLabel && action.primaryKind !== "none" ? (
-          <button
-            type="button"
-            className={`btn primary step-action-primary${showSpinner ? " running" : ""}`}
-            data-testid="step-action-primary"
-            data-action-id="gui.step_action.primary"
-            aria-label={busy ? "Saving…" : action.primaryLabel}
-            disabled={action.primaryDisabled || busy}
-            onClick={onPrimary}
-          >
-            {showSpinner ? (
-              <span className="spinner-inline" aria-hidden />
-            ) : null}
-            {busy ? "Saving…" : action.primaryLabel}
-          </button>
-        ) : action.primaryLabel ? (
-          <span className="step-action-status-only">{action.primaryLabel}</span>
-        ) : null}
-        {action.secondaryLabel && onSecondary ? (
-          <button
-            type="button"
-            className="btn ghost sm step-action-secondary"
-            data-testid="step-action-secondary"
-            data-action-id="gui.step_action.secondary"
-            disabled={busy && action.secondaryKind !== "skip_optional"}
-            onClick={onSecondary}
-          >
-            {action.secondaryLabel}
-          </button>
-        ) : null}
       </div>
     </section>
   );

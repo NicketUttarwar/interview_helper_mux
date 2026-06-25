@@ -1,13 +1,6 @@
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
-import { PipelineToolRow } from "../pipeline/PipelineToolRow";
-import { StageDetail } from "../workspace/StageDetail";
-import { NlePanel } from "../workspace/NlePanel";
-import { ProfilePanel } from "../workspace/ProfilePanel";
-import { ArtifactEditor } from "../workspace/ArtifactEditor";
-import { LlmCallsPanel } from "../workspace/LlmCallsPanel";
-import { VolleyMemoryPanel } from "../workspace/VolleyMemoryPanel";
-import { StoryBoardPanel } from "../workspace/StoryBoardPanel";
+import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
 import { JourneyShell } from "../journey/JourneyShell";
 import { PreviousSessionReusePanel } from "../guidance/PreviousSessionReusePanel";
 
@@ -15,7 +8,6 @@ export function PipelineTab() {
   const {
     runId,
     run,
-    pipelineSubTab,
     setActiveTab,
     serverActiveRunId,
     openRun,
@@ -75,14 +67,7 @@ export function PipelineTab() {
           >
             <PipelineStepList />
             <div className="pipeline-v2-main">
-              <PipelineToolRow />
-              {pipelineSubTab === "stage" ? <StageDetail /> : null}
-              {pipelineSubTab === "story" ? <StoryBoardPanel /> : null}
-              {pipelineSubTab === "timeline" ? <NlePanel /> : null}
-              {pipelineSubTab === "profile" ? <ProfilePanel /> : null}
-              {pipelineSubTab === "files" ? <ArtifactEditor /> : null}
-              {pipelineSubTab === "llm_calls" ? <LlmCallsPanel /> : null}
-              {pipelineSubTab === "volley_memory" ? <VolleyMemoryPanel /> : null}
+              <StageStepWorkbench />
             </div>
           </div>
         </div>
