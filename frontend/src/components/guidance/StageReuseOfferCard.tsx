@@ -58,19 +58,26 @@ export function StageReuseOfferCard({
       });
       await refreshRun();
       let pending: { paths?: string[] } | null = null;
-      for (let i = 0; i < 15; i++) {
+      let refreshed = run;
+      for (let i = 0; i < 60; i++) {
         pending = await api<{ paths?: string[] }>(
           `/api/runs/${runId}/pending-writes/${stage.id}`,
         ).catch(() => null);
         if (pending?.paths?.length) break;
         await new Promise((r) => setTimeout(r, 300));
-        await refreshRun();
+        refreshed = (await refreshRun()) ?? refreshed;
       }
-      if (pending?.paths?.length) {
-        closeActionModal();
-        return;
-      }
+      const hasStagedWrites =
+        Boolean(pending?.paths?.length) ||
+        Boolean(
+          refreshed?.meta?.pending_write_approval &&
+            typeof refreshed.meta.pending_write_approval === "object" &&
+            (refreshed.meta.pending_write_approval as Record<string, { paths?: string[] }>)[
+              stage.id
+            ]?.paths?.length,
+        );
       closeActionModal();
+      if (hasStagedWrites) return;
       await advanceFromCheckpoint();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Reuse action failed", "error");

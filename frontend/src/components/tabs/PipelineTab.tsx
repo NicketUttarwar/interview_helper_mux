@@ -1,8 +1,15 @@
+import { useCallback, useRef } from "react";
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
 import { JourneyShell } from "../journey/JourneyShell";
 import { PreviousSessionReusePanel } from "../guidance/PreviousSessionReusePanel";
+import { useOverscrollRetry } from "../../hooks/useOverscrollRetry";
+import {
+  clearPendingCheckpointScroll,
+  getPendingCheckpointScroll,
+  tryScrollToCheckpoint,
+} from "../../utils/checkpointScrollRetry";
 
 export function PipelineTab() {
   const {
@@ -16,7 +23,18 @@ export function PipelineTab() {
     retryOpenRun,
     sessionReady,
     activityLogCollapsed,
+    refreshRun,
   } = useApp();
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const handleOverscrollRetry = useCallback(async () => {
+    await refreshRun();
+    const pending = getPendingCheckpointScroll();
+    if (pending && tryScrollToCheckpoint(pending)) {
+      clearPendingCheckpointScroll();
+    }
+  }, [refreshRun]);
+  const { overscrollLoading } = useOverscrollRetry(scrollRef, handleOverscrollRetry, Boolean(runId));
 
   if (!runId || !run) {
     const resumeId = runId || serverActiveRunId;
@@ -61,7 +79,12 @@ export function PipelineTab() {
     <main className="view workspace-shell pipeline-tab pipeline-v2">
       <JourneyShell>
         <PreviousSessionReusePanel compact />
-        <div className="workspace-scroll">
+        <div className="workspace-scroll" ref={scrollRef}>
+          {overscrollLoading ? (
+            <div className="overscroll-retry-indicator" aria-busy="true">
+              <span className="spinner-inline" aria-hidden /> Checking…
+            </div>
+          ) : null}
           <div
             className={`pipeline-v2-body${activityLogCollapsed ? " log-collapsed" : ""} pipeline-v2-body--no-side-log`}
           >

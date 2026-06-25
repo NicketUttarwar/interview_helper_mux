@@ -1993,6 +1993,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   max-width: 360px;
   z-index: 1000;
+  cursor: pointer;
 }
 
 .toast-extended {
@@ -2429,9 +2430,31 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .workspace-scroll {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   padding: 0 1.25rem 1rem;
+}
+
+.overscroll-retry-indicator {
+  position: sticky;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 auto 0.5rem;
+  padding: 0.4rem 0.75rem;
+  width: fit-content;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
 
 .operator-log-dock {

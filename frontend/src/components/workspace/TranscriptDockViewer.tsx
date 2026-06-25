@@ -383,11 +383,11 @@ export function TranscriptDockViewer({
   }, [flushSaves, showToast, onCorrectionStatsChange]);
 
   const handleEditBlur = (index: number) => {
-    window.setTimeout(() => {
+    queueMicrotask(() => {
       const active = document.activeElement;
       if (active?.closest(".fuzzy-replace-popover")) return;
       commitEdit(index);
-    }, 0);
+    });
   };
 
   const startEdit = (index: number) => {

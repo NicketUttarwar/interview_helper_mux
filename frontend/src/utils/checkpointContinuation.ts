@@ -228,11 +228,11 @@ export async function reconcileBusyRun(opts: ReconcileBusyOpts): Promise<{
       stage === "ingest" || (job?.message || "").toLowerCase().includes("hash");
     const msg = opts.context === "save"
       ? saving
-        ? "Save in progress — watch Activity (Live). Do not click Save again."
+        ? "Save in progress — watch Activity (Live)."
         : isIngest
-          ? "Ingest still running — watch Activity (Live). Do not click Save again."
-          : "Step still running — watch Activity, then retry if needed."
-      : "A step is already running — watch Activity for progress.";
+          ? "Ingest running — watch Activity (Live)."
+          : "Step running — watch Activity (Live)."
+      : "A step is already running — watch Activity (Live).";
     opts.showToast(msg, "warning");
     opts.setActivityLogTab("live");
     opts.startJobPoll();

@@ -273,8 +273,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           ) : null}
           {paths.some((p) => p.endsWith(".wav")) ? (
             <p className="hint sm write-approval-large-wav">
-              Large audio files may take up to a minute to save — click once and watch Activity
-              (Live).
+              Saving promotes staged audio to disk — watch Activity (Live) for progress.
             </p>
           ) : null}
         </div>
@@ -406,7 +405,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       {(savingToDisk || jobRunning) && !actionBusy ? (
         <p className="hint sm write-approval-running-hint">
           {savingToDisk
-            ? "Promoting staged files to disk — watch Activity log (Live). Do not click Save again."
+            ? "Promoting staged files to disk — watch Activity log (Live)."
             : "Next step is running — watch Activity log (All/Live). Save is disabled until it finishes."}
         </p>
       ) : null}

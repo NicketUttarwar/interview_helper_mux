@@ -121,6 +121,7 @@ interface AppContextValue {
   setSelectedAsset: (path: string | null) => void;
   setMenuOpen: (open: boolean) => void;
   showToast: (msg: string, level?: ToastLevel) => void;
+  dismissToast: () => void;
   openActionModal: () => void;
   closeActionModal: () => void;
   closeActionModalAfterSuccess: () => void;
@@ -241,7 +242,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
   const [pipelineFilterNeedsYou, setPipelineFilterNeedsYouState] = useState(true);
-  const [pinnedUntil, setPinnedUntil] = useState<number | null>(null);
+  const [pinnedStageId, setPinnedStageId] = useState<string | null>(null);
 
   const logCountRef = useRef(0);
   const recentClientLogRef = useRef<{ key: string; at: number } | null>(null);
@@ -265,7 +266,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userDismissedActionRef = useRef(false);
   const lastDismissedFocusKeyRef = useRef<string | null>(null);
-  const userPinnedStageAtRef = useRef<number | null>(null);
+  const userPinnedStageIdRef = useRef<string | null>(null);
   const runRefreshTickRef = useRef(0);
 
   const selectedStage = useMemo(
@@ -273,9 +274,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, selectedStageId],
   );
 
-  const showToast = useCallback((msg: string, level: ToastLevel = "info") => {
-    setToast({ message: msg, level });
+  const dismissToast = useCallback(() => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = null;
+    setToast(null);
+  }, []);
+
+  const showToast = useCallback((msg: string, level: ToastLevel = "info") => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message: msg, level });
     const extended = jobRunningRef.current || actionBusyRef.current;
     toastTimerRef.current = window.setTimeout(
       () => setToast(null),
@@ -352,9 +359,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const pinSelectedStage = useCallback(() => {
-    const until = Date.now() + 30_000;
-    userPinnedStageAtRef.current = until;
-    setPinnedUntil(until);
+    const sid = selectedStageIdRef.current;
+    if (!sid) return;
+    userPinnedStageIdRef.current = sid;
+    setPinnedStageId(sid);
   }, []);
 
   const persistSessionUi = useCallback(() => {
@@ -697,9 +705,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectStage = useCallback(
     async (stageId: string, opts?: { pinned?: boolean }) => {
       if (opts?.pinned !== false) {
-        const until = Date.now() + 30_000;
-        userPinnedStageAtRef.current = until;
-        setPinnedUntil(until);
+        userPinnedStageIdRef.current = stageId;
+        setPinnedStageId(stageId);
       }
       setSelectedStageId(stageId);
       selectedStageIdRef.current = stageId;
@@ -715,8 +722,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!job || !isJobActivelyRunning(job)) return;
       const stageId = job.current_stage || job.stage;
       if (!stageId) return;
-      const pinnedUntilTs = userPinnedStageAtRef.current;
-      if (pinnedUntilTs && Date.now() < pinnedUntilTs) return;
+      const pinnedSid = userPinnedStageIdRef.current;
+      if (pinnedSid && pinnedSid !== stageId) return;
       if (selectedStageIdRef.current === stageId) return;
       setSelectedStageId(stageId);
       selectedStageIdRef.current = stageId;
@@ -776,36 +783,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, [maybeAutoSelectRunningStage, showToast]);
-
-  useEffect(() => {
-    if (!actionBusy) return;
-    const hasLargeWav = Boolean(
-      run?.job?.pending_write_paths?.some((p) => p.endsWith(".wav")),
-    );
-    const waitMs = hasLargeWav ? 120_000 : 45_000;
-    const timer = setTimeout(() => {
-      if (!actionBusyRef.current || !runId) return;
-      void (async () => {
-        appendClientLog(
-          "Checkpoint action taking longer than expected — syncing with server.",
-          "warning",
-        );
-        await reconcileBusyRun({
-          runId,
-          syncJobRunning,
-          refreshRun,
-          startJobPoll,
-          setActivityLogTab: setActivityLogTabState,
-          showToast,
-          context: "save",
-        });
-        setActionBusy(false);
-        actionBusyRef.current = false;
-        approveInFlightRef.current = false;
-      })();
-    }, waitMs);
-    return () => clearTimeout(timer);
-  }, [actionBusy, runId, run?.job?.pending_write_paths, syncJobRunning, refreshRun, startJobPoll, showToast, appendClientLog]);
 
   const jobPollStatusRef = useRef<string | null>(null);
 
@@ -1027,7 +1004,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       if (actionBusyRef.current) {
-        showToast("Saving checkpoint — wait a moment, then try again.", "warning");
+        showToast("Checkpoint save in progress — watch Activity (Live).", "warning");
         return false;
       }
       const { stageId, kind, body } = opts;
@@ -1131,7 +1108,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (actionBusyRef.current && !fromCheckpoint) {
-        showToast("Saving checkpoint — wait a moment, then try again.", "warning");
+        showToast("Checkpoint save in progress — watch Activity (Live).", "warning");
         return;
       }
       const stageForLog = body.stage || body.from_stage;
@@ -1548,7 +1525,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast("Staged files are not listed yet — try refresh.");
         return false;
       }
-      const hasLargeWav = paths.some((p) => p.endsWith(".wav"));
       const liveJob = await syncJobRunning(runId);
       if (isJobActivelyRunning(liveJob)) {
         const savingSameStage =
@@ -1577,9 +1553,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       actionBusyRef.current = true;
       traceAction(
         "gui.write_approval.save",
-        hasLargeWav
-          ? `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")} — large audio may take a minute…`
-          : `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
+        `Saving ${paths.length} staged file(s) for ${sid.replace(/_/g, " ")}…`,
         { level: "action", stage: sid },
       );
       let keepBusyForJob = false;
@@ -2038,26 +2012,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (activeTab === "executions") void refreshHome();
   }, [activeTab, refreshHome]);
 
-  useEffect(() => {
-    if (!pinnedUntil) return;
-    const remaining = pinnedUntil - Date.now();
-    if (remaining <= 0) {
-      setPinnedUntil(null);
-      return;
-    }
-    const timer = setTimeout(() => setPinnedUntil(null), remaining);
-    return () => clearTimeout(timer);
-  }, [pinnedUntil]);
-
   const isStagePinned = useMemo(() => {
-    if (!pinnedUntil || Date.now() >= pinnedUntil || !run || !selectedStageId) return false;
+    if (!pinnedStageId || !run || !selectedStageId || pinnedStageId !== selectedStageId) {
+      return false;
+    }
     const focusId = resolveOperatorAction(run, {
       selectedStageId,
       jobRunning,
       apiGrants: ALL_API_CONSENTS,
     }).stageId;
     return Boolean(focusId && selectedStageId !== focusId);
-  }, [pinnedUntil, run, selectedStageId, jobRunning]);
+  }, [pinnedStageId, run, selectedStageId, jobRunning]);
 
   const value: AppContextValue = {
     activeTab,
@@ -2112,6 +2077,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSelectedAsset,
     setMenuOpen,
     showToast,
+    dismissToast,
     openActionModal,
     closeActionModal,
     closeActionModalAfterSuccess,

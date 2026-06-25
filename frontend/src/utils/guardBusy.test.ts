@@ -15,7 +15,7 @@ describe("guardBusy", () => {
     const toast = vi.fn();
     expect(guardBusy(false, true, toast)).toBe(true);
     expect(toast).toHaveBeenCalledWith(
-      "Saving checkpoint — wait a moment, then try again.",
+      "Checkpoint save in progress — watch Activity (Live).",
       "warning",
     );
   });

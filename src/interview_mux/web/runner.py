@@ -154,8 +154,6 @@ class JobRunner:
     ) -> None:
         """Show live save progress in gui_job while staged files are promoted to disk."""
         title = self._stage_title(stage_id)
-        has_large_wav = any(p.endswith(".wav") for p in paths)
-        hint = " — large audio may take up to a minute" if has_large_wav else ""
         self._write_job(
             ctx,
             {
@@ -163,13 +161,13 @@ class JobRunner:
                 "mode": "write_approval",
                 "stage": stage_id,
                 "current_stage": stage_id,
-                "message": f"Saving {len(paths)} file(s) for {title}{hint}…",
+                "message": f"Saving {len(paths)} file(s) for {title}…",
                 "pending_write_stage": stage_id,
                 "pending_write_paths": paths,
             },
         )
         ctx.log(
-            f"Saving {len(paths)} staged file(s) for {title}{hint}…",
+            f"Saving {len(paths)} staged file(s) for {title}…",
             level="action",
             stage=stage_id,
             action_id="write_approval.save",

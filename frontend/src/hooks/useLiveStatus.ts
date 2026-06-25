@@ -36,8 +36,6 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     apiGrants: input.apiGrants,
   });
 
-  const recentComplete =
-    input.jobCompleteAt != null && Date.now() - input.jobCompleteAt < 30_000;
   const job = run.job;
 
   let activityKind = cmd.kind as LiveStatus["activityKind"];
@@ -52,9 +50,7 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     input.jobRunning &&
     (runningStage === "ingest" || jobMsg.includes("hash") || jobMsg.includes("ingest"))
   ) {
-    subline =
-      job?.message ||
-      "Hashing audio — this can take a few minutes for long files. Watch Activity log.";
+    subline = job?.message || "Ingest running — watch Activity log.";
   }
 
   if (job?.status === "interrupted") {
@@ -67,7 +63,7 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     subline = job?.message || action.subline || subline;
     primaryLabel = "View logs";
     onPrimary = cmd.onPrimary;
-  } else if (job?.status === "complete" || recentComplete) {
+  } else if (job?.status === "complete") {
     headline = "Step finished";
     subline = action.subline || job?.message || subline;
   } else if (job?.status === "error" || action.mode === "error") {

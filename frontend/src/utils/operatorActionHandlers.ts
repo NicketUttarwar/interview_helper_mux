@@ -1,5 +1,6 @@
 import type { ExecuteBody } from "../types";
 import type { OperatorAction } from "../types/operatorAction";
+import { scrollToCheckpoint } from "./checkpointScrollRetry";
 export interface OperatorActionHandlers {
   openModal: (stageId?: string | null, substepId?: string | null) => void;
   runStage: (stageId: string) => void;
@@ -10,27 +11,6 @@ export interface OperatorActionHandlers {
   guardPrimary?: () => boolean;
 }
 
-function scrollToCheckpoint(substepId?: string | null, _blockingReason?: string): void {
-  if (typeof document === "undefined") return;
-  const raw = substepId?.includes(":") ? substepId.split(":").pop() : substepId;
-  const scroll = () => {
-    const target =
-      (raw ? document.querySelector(`[data-testid="stage-step-${raw}"]`) : null) ??
-      document.querySelector(".stage-step-row--active");
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  const runScroll = () => {
-    scroll();
-    window.setTimeout(scroll, 120);
-    window.setTimeout(scroll, 320);
-  };
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(runScroll);
-  } else {
-    runScroll();
-  }
-}
-
 export function invokeOperatorActionPrimary(
   action: OperatorAction,
   handlers: OperatorActionHandlers,
@@ -39,7 +19,7 @@ export function invokeOperatorActionPrimary(
   switch (action.primaryKind) {
     case "open_modal":
       handlers.openModal(action.stageId, action.substepId);
-      scrollToCheckpoint(action.substepId, action.blockingReason);
+      scrollToCheckpoint(action.substepId);
       break;
     case "run_stage":
       if (action.stageId) handlers.runStage(action.stageId);
@@ -75,4 +55,4 @@ export function executeBodyForStage(stageId: string): ExecuteBody {
   return { mode: "stage", stage: stageId };
 }
 
-export { scrollToCheckpoint };
+export { scrollToCheckpoint } from "./checkpointScrollRetry";

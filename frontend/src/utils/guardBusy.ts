@@ -14,7 +14,7 @@ export function guardBusy(
     return true;
   }
   if (actionBusy) {
-    showToast("Saving checkpoint — wait a moment, then try again.", "warning");
+    showToast("Checkpoint save in progress — watch Activity (Live).", "warning");
     return true;
   }
   return false;
