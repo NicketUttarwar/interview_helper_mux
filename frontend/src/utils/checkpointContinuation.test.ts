@@ -68,6 +68,32 @@ describe("patchRunAfterWriteApproval", () => {
 });
 
 describe("advancePipeline", () => {
+  it("focuses write approval step on stage tab when writes pending", async () => {
+    const setActiveStepId = vi.fn();
+    const setPipelineSubTab = vi.fn();
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub();
+    const started = await advancePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "audio_preclean",
+      executeJob: vi.fn(),
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setActiveStepId,
+      setPipelineSubTab,
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+    });
+    expect(started).toBe(false);
+    expect(selectStage).toHaveBeenCalledWith("audio_preclean", { stepId: "write_approval" });
+    expect(setPipelineSubTab).toHaveBeenCalledWith("stage");
+    expect(setActiveStepId).toHaveBeenCalledWith("write_approval");
+  });
+
   it("starts next runnable stage after write approval cleared", async () => {
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const run = runStub({

@@ -16,6 +16,11 @@ _ASSET_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Shipped bundle must expose the atomic checkpoint save API (not legacy /approve-only).
+_REQUIRED_JS_MARKERS = (
+    "continue-after-checkpoint",
+)
+
 
 def static_dir() -> Path:
     return _STATIC_DIR
@@ -46,10 +51,35 @@ def missing_referenced_assets(static_root: Path | None = None) -> list[str]:
     return missing
 
 
+def primary_js_bundle(static_root: Path | None = None) -> Path | None:
+    """Main entry script referenced from index.html."""
+    root = static_root or _STATIC_DIR
+    for name in referenced_asset_names(root / "index.html"):
+        if name.endswith(".js"):
+            path = root / "assets" / name
+            if path.is_file():
+                return path
+    return None
+
+
+def bundle_contract_ok(static_root: Path | None = None) -> bool:
+    """True when the built JS exposes required save/checkpoint API symbols."""
+    js = primary_js_bundle(static_root)
+    if js is None:
+        return False
+    try:
+        text = js.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return all(marker in text for marker in _REQUIRED_JS_MARKERS)
+
+
 def needs_gui_build(static_root: Path | None = None) -> bool:
-    """True when index.html is missing or any hashed bundle file it references is absent."""
+    """True when index.html is missing, assets are absent, or API contract is stale."""
     root = static_root or _STATIC_DIR
     index_path = root / "index.html"
     if not index_path.is_file():
         return True
-    return bool(missing_referenced_assets(root))
+    if missing_referenced_assets(root):
+        return True
+    return not bundle_contract_ok(root)

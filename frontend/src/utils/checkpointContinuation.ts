@@ -1,9 +1,10 @@
-import type { JobState, RunData } from "../types";
+import type { JobState, PipelineSubTab, RunData } from "../types";
 import { findPendingFocusStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import { isJobActivelyRunning } from "./jobStatus";
+import { resolveFocusStepId } from "./resolveActiveStep";
 import type { ExecuteBody } from "../types";
 
 export interface WriteApprovalAdvanceOpts {
@@ -24,7 +25,7 @@ export function patchRunAfterWriteApproval(
     const pending = { ...(pendingRaw as Record<string, unknown>) };
     delete pending[savedStageId];
     if (Object.keys(pending).length) {
-      meta.pending_write_approval = pending;
+      meta.pending_write_approval = pending as RunData["meta"] extends { pending_write_approval?: infer P } ? P : never;
     } else {
       delete meta.pending_write_approval;
     }
@@ -107,13 +108,39 @@ export interface AdvancePipelineOpts {
   apiGrants: Record<string, boolean>;
   selectedStageId: string | null;
   executeJob: (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => Promise<void>;
-  selectStage: (id: string) => Promise<void>;
+  selectStage: (id: string, opts?: { stepId?: string | null }) => Promise<void>;
   expandStage: (id: string) => void;
   setActiveSubstepId: (id: string | null) => void;
-  setPipelineSubTab: (tab: "stage" | "files" | "logs") => void;
+  setActiveStepId?: (id: string | null) => void;
+  setPipelineSubTab: (tab: PipelineSubTab) => void;
   showToast: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   refreshRun: () => Promise<RunData | null>;
   navigateToNextBlocker: () => Promise<void>;
+}
+
+export interface FocusStageWorkbenchOpts {
+  run: RunData | null;
+  stageId: string;
+  selectStage: (id: string, opts?: { stepId?: string | null }) => Promise<void>;
+  expandStage: (id: string) => void;
+  setActiveStepId?: (id: string | null) => void;
+  setPipelineSubTab: (tab: PipelineSubTab) => void;
+  substepId?: string | null;
+  blockingReason?: string | null;
+  subTab?: PipelineSubTab;
+}
+
+/** Select a stage and land on the correct numbered workbench step. */
+export async function focusStageWorkbench(opts: FocusStageWorkbenchOpts): Promise<string | null> {
+  const stepId = resolveFocusStepId(opts.run, opts.stageId, {
+    substepId: opts.substepId,
+    blockingReason: opts.blockingReason,
+  });
+  await opts.selectStage(opts.stageId, { stepId });
+  opts.expandStage(opts.stageId);
+  opts.setPipelineSubTab(opts.subTab ?? "stage");
+  if (stepId) opts.setActiveStepId?.(stepId);
+  return stepId;
 }
 
 export interface ReconcileBusyOpts {
@@ -133,38 +160,52 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
 
   const write = pendingWriteInfo(refreshed);
   if (write?.paths.length) {
-    await opts.selectStage(write.stageId);
-    opts.setPipelineSubTab("files");
-    opts.expandStage(write.stageId);
+    await focusStageWorkbench({
+      run: refreshed,
+      stageId: write.stageId,
+      selectStage: opts.selectStage,
+      expandStage: opts.expandStage,
+      setActiveStepId: opts.setActiveStepId,
+      setPipelineSubTab: opts.setPipelineSubTab,
+      blockingReason: "write_approval",
+    });
     return false;
   }
 
   const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
   if (blocking?.blocked && blocking.stage_id) {
-    await opts.selectStage(blocking.stage_id);
-    opts.expandStage(blocking.stage_id);
-    if (blocking.reason === "stage_reuse") {
-      opts.setActiveSubstepId(`stage_reuse:${blocking.stage_id}`);
-      opts.setPipelineSubTab("stage");
-      return false;
-    }
-    if (blocking.reason === "handoff_review") {
-      opts.setActiveSubstepId(`handoff:${blocking.stage_id}`);
-      opts.setPipelineSubTab("stage");
-      return false;
-    }
-    if (blocking.reason === "write_approval") {
-      opts.setPipelineSubTab("files");
-      return false;
-    }
-    opts.setPipelineSubTab("stage");
+    const substepId =
+      blocking.reason === "stage_reuse"
+        ? `stage_reuse:${blocking.stage_id}`
+        : blocking.reason === "handoff_review"
+          ? `handoff:${blocking.stage_id}`
+          : blocking.reason === "write_approval"
+            ? `write_approval:${blocking.stage_id}`
+            : null;
+    if (substepId) opts.setActiveSubstepId(substepId);
+    await focusStageWorkbench({
+      run: refreshed,
+      stageId: blocking.stage_id,
+      selectStage: opts.selectStage,
+      expandStage: opts.expandStage,
+      setActiveStepId: opts.setActiveStepId,
+      setPipelineSubTab: opts.setPipelineSubTab,
+      substepId,
+      blockingReason: blocking.reason,
+    });
     return false;
   }
 
   const focusId = findPendingFocusStage(refreshed, opts.apiGrants);
   if (focusId) {
-    await opts.selectStage(focusId);
-    opts.expandStage(focusId);
+    await focusStageWorkbench({
+      run: refreshed,
+      stageId: focusId,
+      selectStage: opts.selectStage,
+      expandStage: opts.expandStage,
+      setActiveStepId: opts.setActiveStepId,
+      setPipelineSubTab: opts.setPipelineSubTab,
+    });
   }
 
   const nextAction = resolveOperatorAction(refreshed, {
@@ -174,9 +215,16 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   });
 
   if (nextAction.mode === "needs_you" && nextAction.stageId) {
-    await opts.selectStage(nextAction.stageId);
-    opts.expandStage(nextAction.stageId);
     if (nextAction.substepId) opts.setActiveSubstepId(nextAction.substepId);
+    await focusStageWorkbench({
+      run: refreshed,
+      stageId: nextAction.stageId,
+      selectStage: opts.selectStage,
+      expandStage: opts.expandStage,
+      setActiveStepId: opts.setActiveStepId,
+      setPipelineSubTab: opts.setPipelineSubTab,
+      substepId: nextAction.substepId,
+    });
     return false;
   }
 
@@ -188,8 +236,15 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     const nextStage = refreshed.stages.find((s) => s.id === nextAction.stageId);
     if (nextStage) {
       opts.showToast(`Starting ${nextStage.title}…`);
-      await opts.selectStage(nextStage.id);
-      opts.expandStage(nextStage.id);
+      await focusStageWorkbench({
+        run: refreshed,
+        stageId: nextStage.id,
+        selectStage: opts.selectStage,
+        expandStage: opts.expandStage,
+        setActiveStepId: opts.setActiveStepId,
+        setPipelineSubTab: opts.setPipelineSubTab,
+        substepId: "run",
+      });
       await opts.executeJob(
         { mode: "stage", stage: nextStage.id },
         { source: "checkpoint_continue" },
@@ -201,8 +256,15 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   const next = findNextRunnableStage(refreshed.stages, refreshed.meta);
   if (next) {
     opts.showToast(`Starting ${next.title}…`);
-    await opts.selectStage(next.id);
-    opts.expandStage(next.id);
+    await focusStageWorkbench({
+      run: refreshed,
+      stageId: next.id,
+      selectStage: opts.selectStage,
+      expandStage: opts.expandStage,
+      setActiveStepId: opts.setActiveStepId,
+      setPipelineSubTab: opts.setPipelineSubTab,
+      substepId: "run",
+    });
     await opts.executeJob(
       { mode: "stage", stage: next.id },
       { source: "checkpoint_continue" },

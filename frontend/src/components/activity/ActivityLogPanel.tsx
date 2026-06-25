@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
+import { useActivityLogPanelHeightCap } from "../../hooks/useActivityLogPanelHeightCap";
 import {
   dedupeConsecutiveLogEntries,
   excludePinnedEntries,
@@ -43,6 +44,7 @@ export function ActivityLogPanel({
   const [autoScroll, setAutoScroll] = useState(true);
   const [liveSeenTs, setLiveSeenTs] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { panelRef, maxPanelHeight } = useActivityLogPanelHeightCap(!activityLogCollapsed);
   const userScrolledRef = useRef(false);
   const userPinnedActivityTabRef = useRef(false);
   const prevJobRunningRef = useRef(jobRunning);
@@ -179,8 +181,10 @@ export function ActivityLogPanel({
 
   return (
     <aside
+      ref={panelRef}
       className={`activity-log-panel panel${variant === "global" ? " activity-log-panel--global" : ""}`}
       aria-label="Pipeline activity log"
+      style={maxPanelHeight ? { maxHeight: maxPanelHeight } : undefined}
     >
       <div className="activity-log-head panel-head">
         <div>

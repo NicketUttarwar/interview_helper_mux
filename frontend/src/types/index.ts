@@ -1,6 +1,6 @@
 export type LogLevel = "info" | "success" | "warning" | "error" | "action";
 
-export type ToastLevel = "info" | "error" | "warning";
+export type ToastLevel = "info" | "success" | "error" | "warning";
 
 export interface ToastState {
   message: string;

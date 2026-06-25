@@ -2386,17 +2386,21 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .global-activity-dock {
+  align-self: start;
   min-height: 0;
+  max-height: 100vh;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--surface);
+  overflow: hidden;
 }
 
 .global-activity-dock .activity-log-panel {
-  max-height: none;
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
+  width: 100%;
+  overflow: hidden;
   position: sticky;
   top: 0;
 }
@@ -5410,9 +5414,16 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 280px);
-  min-height: 320px;
+  min-height: 0;
+  overflow: hidden;
   position: sticky;
   top: 120px;
+}
+
+.activity-log-panel--global {
+  min-height: auto;
+  max-height: none;
+  top: 0;
 }
 
 .activity-log-panel.activity-log-collapsed {
@@ -5482,13 +5493,18 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .activity-log-body {
-  flex: 1;
-  overflow: auto;
-  min-height: 180px;
+  flex: 1 1 0;
+  overflow-y: auto;
+  min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.5rem;
   background: var(--bg);
+}
+
+.activity-log-panel .activity-log-body.prompt-log {
+  height: auto;
+  min-height: 8rem;
 }
 
 .activity-log-pinned {

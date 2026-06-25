@@ -5,12 +5,9 @@ import { findLatestHandoffAudit } from "../../utils/handoff";
 import { handoffSkimBullets } from "../../utils/handoffSkimHints";
 import { escapeHtml } from "../../utils";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
-import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 export function HandoffPanel() {
-  const { run, selectedStage, acknowledgeHandoff, openArtifactInEditor, actionBusy, showToast } =
-    useApp();
-  const { busy: ackBusy, run: runAck } = useAsyncAction("handoff");
+  const { run, selectedStage, openArtifactInEditor, showToast } = useApp();
 
   const { paths, audit, skimBullets } = useMemo(() => {
     if (!run || !selectedStage) {
@@ -32,14 +29,6 @@ export function HandoffPanel() {
       Boolean(audit) ||
       run.journey?.blocking?.reason === "handoff_review");
 
-  const onAck = () =>
-    void runAck(() => acknowledgeHandoff(), {
-      showToast,
-      startMessage: "Acknowledging AI outputs…",
-    });
-
-  const ackDisabled = actionBusy || ackBusy;
-
   if (!handoffPending) {
     if (handoffAcked) {
       return (
@@ -60,26 +49,9 @@ export function HandoffPanel() {
           <h3>Review AI-generated outputs</h3>
         </div>
         <p className="hint sm">
-          No output files were listed for this step. Acknowledge when ready for the next automated
-          step.
+          No output files were listed for this step. Use{" "}
+          <strong>Acknowledge &amp; continue</strong> at the bottom of this step when ready.
         </p>
-        <div className="handoff-footer">
-          <button
-            type="button"
-            className="btn primary sm"
-            data-testid="handoff-acknowledge"
-            disabled={ackDisabled}
-            onClick={onAck}
-          >
-            {ackBusy ? (
-              <>
-                <span className="spinner-inline" aria-hidden /> Acknowledging…
-              </>
-            ) : (
-              "Acknowledge & continue"
-            )}
-          </button>
-        </div>
       </div>
     );
   }
@@ -90,8 +62,8 @@ export function HandoffPanel() {
         <h3>Review AI-generated outputs</h3>
       </div>
       <p className="hint sm">
-        Skim the files below. Edit in Files if needed. Acknowledge when ready for the next
-        automated step.
+        Skim the files below. Edit in Files if needed. Use{" "}
+        <strong>Acknowledge &amp; continue</strong> at the bottom of this step when ready.
       </p>
       {skimBullets.length ? (
         <ul className="handoff-skim-list">
@@ -132,23 +104,6 @@ export function HandoffPanel() {
           </li>
         ) : null}
       </ul>
-      <div className="handoff-footer">
-        <button
-          type="button"
-          className="btn primary sm"
-          data-testid="handoff-acknowledge"
-          disabled={ackDisabled}
-          onClick={onAck}
-        >
-          {ackBusy ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Acknowledging…
-            </>
-          ) : (
-            "Acknowledge & continue"
-          )}
-        </button>
-      </div>
     </div>
   );
 }

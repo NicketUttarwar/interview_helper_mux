@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getSfxPrompts } from "../../api/client";
 import { InfoTooltip } from "../InfoTooltip";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml, formatTs } from "../../utils";
+import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import { summarizeSonicContextScenario } from "../../utils/profile";
 import type { MmaudioQaRow, SfxPromptRow, SfxPromptsResponse, StageInfo } from "../../types";
 
@@ -34,11 +35,11 @@ function qaTooltipText(row?: MmaudioQaRow): string | null {
 }
 
 export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
-  const { run, refreshRun, selectStage, showToast, advanceFromCheckpoint } = useApp();
+  const { run, refreshRun } = useApp();
   const [data, setData] = useState<SfxPromptsResponse | null>(null);
   const [edits, setEdits] = useState<SfxPromptRow[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [approving, setApproving] = useState(false);
+  const editsRef = useRef(edits);
+  editsRef.current = edits;
 
   useEffect(() => {
     if (!run) return;
@@ -66,50 +67,26 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     setEdits((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
-  const saveEdits = async () => {
-    if (!run || saving || approving) return;
-    setSaving(true);
-    showToast("Saving prompt edits…");
-    try {
+  useEffect(() => {
+    registerStepPrimaryPrep("sfx_prompt_review", async () => {
+      if (!run || !editsRef.current.length) return;
+      const original = data?.prompts || [];
+      const changed =
+        JSON.stringify(editsRef.current) !== JSON.stringify(original);
+      if (!changed) return;
       await api(`/api/runs/${run.run_id}/sfx-prompts`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: "sound_design/sfx_prompts.json",
-        data: { prompts: edits },
-        invalidate_from: "sfx_prompt_craft",
-      }),
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "sound_design/sfx_prompts.json",
+          data: { prompts: editsRef.current },
+          invalidate_from: "sfx_prompt_craft",
+        }),
+      });
+      await refreshRun();
     });
-    showToast("Prompt edits saved; approval reset.");
-    await refreshRun();
-    await selectStage("sfx_prompt_craft");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed", "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const approve = async () => {
-    if (!run || saving || approving) return;
-    setApproving(true);
-    showToast("Approving SFX prompts…");
-    try {
-      await api(`/api/runs/${run.run_id}/sfx-prompts/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approved_by: "operator_gui" }),
-    });
-    showToast("Prompts approved.");
-    await refreshRun();
-    await selectStage("sfx_prompt_craft");
-    await advanceFromCheckpoint();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Approve failed", "error");
-    } finally {
-      setApproving(false);
-    }
-  };
+    return () => registerStepPrimaryPrep("sfx_prompt_review", null);
+  }, [run, data?.prompts, refreshRun]);
 
   return (
     <>
@@ -250,37 +227,9 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
           ))}
         </ul>
       ) : null}
-      <div className="flow-choice">
-        <button
-          type="button"
-          className="btn ghost sm"
-          disabled={saving || approving || !edits.length}
-          onClick={() => void saveEdits()}
-        >
-          {saving ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Saving…
-            </>
-          ) : (
-            "Save edits"
-          )}
-        </button>
-        <button
-          type="button"
-          className="btn primary sm"
-          data-testid="approve-sfx-prompts"
-          disabled={!edits.length || saving || approving}
-          onClick={() => void approve()}
-        >
-          {approving ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Approving…
-            </>
-          ) : (
-            "Approve prompts"
-          )}
-        </button>
-      </div>
+      <p className="hint sm">
+        Use <strong>Approve prompts</strong> at the bottom of this step to save edits and continue.
+      </p>
     </>
   );
 }

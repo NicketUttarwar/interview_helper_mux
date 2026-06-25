@@ -1,11 +1,18 @@
 import type { ExecuteBody, StageInfo, StageStep } from "../types";
 import type { OperatorAction } from "../types/operatorAction";
 import { executeBodyForStage } from "./operatorActionHandlers";
+import { runStepPrimaryPreps } from "./stepPrimaryPrep";
 
 interface StepActionHandlers {
   executeJob: (body: ExecuteBody) => Promise<void>;
   runNextStage: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
+  approveWriteAndContinue: (stageId: string) => Promise<boolean>;
+  discardPendingWrites: (stageId: string) => Promise<void>;
+  completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
+  completeDisfluencyReview: () => Promise<void>;
+  approveSfxPrompts: () => Promise<void>;
+  acknowledgeHandoff?: () => Promise<void>;
   skipOptional: (stageId: string) => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
   stageAction: OperatorAction | null;
@@ -26,6 +33,44 @@ export async function invokeStepFooterAction(
   if (step.kind === "locked" && step.blocking_reason) {
     await handlers.selectStage(step.blocking_reason);
     return;
+  }
+
+  if (step.kind === "write_approval" || label.includes("save all") || label.includes("save &")) {
+    await handlers.approveWriteAndContinue(stage.id);
+    return;
+  }
+
+  if (
+    step.id === "complete_g0" ||
+    (step.embed === "transcript_review" && label.includes("complete transcript"))
+  ) {
+    await runStepPrimaryPreps(["transcript_review_flush", step.id]);
+    await handlers.completeTranscriptReview(false);
+    return;
+  }
+
+  if (
+    step.id === "complete_g05" ||
+    (step.embed === "disfluency_review" && label.includes("complete review"))
+  ) {
+    await handlers.completeDisfluencyReview();
+    return;
+  }
+
+  if (
+    step.id === "prompt_review" ||
+    (step.embed === "sfx_prompt_review" && label.includes("approve"))
+  ) {
+    await runStepPrimaryPreps(["sfx_prompt_review", step.id]);
+    await handlers.approveSfxPrompts();
+    return;
+  }
+
+  if (step.kind === "handoff" || label.includes("acknowledge")) {
+    if (handlers.acknowledgeHandoff) {
+      await handlers.acknowledgeHandoff();
+      return;
+    }
   }
 
   if (
@@ -63,4 +108,26 @@ export async function invokeStepFooterAction(
   }
 
   await handlers.advanceFromCheckpoint();
+}
+
+export async function invokeStepFooterSecondaryAction(
+  step: StageStep,
+  stage: StageInfo,
+  handlers: Pick<StepActionHandlers, "discardPendingWrites" | "completeTranscriptReview" | "skipOptional">,
+): Promise<void> {
+  const label = (step.secondary_button || "").toLowerCase();
+
+  if (step.kind === "write_approval" || label.includes("discard")) {
+    await handlers.discardPendingWrites(stage.id);
+    return;
+  }
+
+  if (label.includes("accept remaining")) {
+    await handlers.completeTranscriptReview(true);
+    return;
+  }
+
+  if (step.kind === "reuse" && label.includes("fresh")) {
+    await handlers.skipOptional(stage.id);
+  }
 }

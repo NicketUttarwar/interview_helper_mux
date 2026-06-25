@@ -62,3 +62,112 @@ def test_done_stage_summary(tmp_path) -> None:
     guidance = build_stage_guidance(ctx, "ingest", status="done")
     steps = build_stage_steps(ctx, "ingest", status="done", guidance=guidance)
     assert steps[0]["kind"] == "done"
+
+
+def test_preclean_steps_after_accept_before_run(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "steps_preclean_accept")
+    init_run_meta_for_test(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {
+        "enabled": True,
+        "scope": "full_source",
+        "decisions": [{"checkpoint": "before_ingest", "action": "accept"}],
+    }
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    guidance = build_stage_guidance(ctx, "audio_preclean", status="pending")
+    steps = build_stage_steps(ctx, "audio_preclean", status="pending", guidance=guidance)
+    by_id = {s["id"]: s for s in steps}
+    assert by_id["review_offer"]["status"] == "done"
+    assert by_id["wait_run"]["status"] == "waiting"
+    assert "continue_ingest" not in by_id
+    assert "write_approval" not in by_id
+
+
+def test_preclean_steps_while_running(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "steps_preclean_running")
+    init_run_meta_for_test(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {
+        "enabled": True,
+        "scope": "full_source",
+        "decisions": [{"checkpoint": "before_ingest", "action": "accept"}],
+    }
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    ctx.write_json(
+        "gui_job.json",
+        {"status": "running", "stage": "audio_preclean", "current_stage": "audio_preclean"},
+        skip_handoff=True,
+    )
+    guidance = build_stage_guidance(ctx, "audio_preclean", status="pending")
+    steps = build_stage_steps(ctx, "audio_preclean", status="pending", guidance=guidance)
+    by_id = {s["id"]: s for s in steps}
+    assert by_id["review_offer"]["status"] == "done"
+    assert by_id["wait_run"]["status"] == "active"
+    assert "continue_ingest" not in by_id
+
+
+def test_preclean_steps_awaiting_write_approval(tmp_path, monkeypatch) -> None:
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    monkeypatch.setattr(
+        "interview_mux.write_staging.merged_config",
+        lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "steps_preclean_write")
+    init_run_meta_for_test(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {
+        "enabled": True,
+        "scope": "full_source",
+        "decisions": [{"checkpoint": "before_ingest", "action": "accept"}],
+    }
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    enter_stage_staging("audio_preclean")
+    iso = ctx.path("preclean/isolated.wav")
+    iso.parent.mkdir(parents=True, exist_ok=True)
+    iso.write_bytes(b"wav")
+    ctx.path("preclean/lineage.json").write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+    guidance = build_stage_guidance(ctx, "audio_preclean", status="awaiting_write_approval")
+    steps = build_stage_steps(
+        ctx, "audio_preclean", status="awaiting_write_approval", guidance=guidance
+    )
+    by_id = {s["id"]: s for s in steps}
+    assert by_id["review_offer"]["status"] == "done"
+    assert by_id["wait_run"]["status"] == "done"
+    assert by_id["write_approval"]["status"] == "todo"
+    assert "continue_ingest" not in by_id
+
+
+def test_automated_steps_awaiting_write_marks_run_done(tmp_path, monkeypatch) -> None:
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    monkeypatch.setattr(
+        "interview_mux.write_staging.merged_config",
+        lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "steps_ingest_write")
+    init_run_meta_for_test(ctx)
+    enter_stage_staging("ingest")
+    wav = ctx.path("ingest/normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"wav")
+    ctx.path("ingest/checksums.json").write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+    guidance = build_stage_guidance(ctx, "ingest", status="awaiting_write_approval")
+    steps = build_stage_steps(ctx, "ingest", status="awaiting_write_approval", guidance=guidance)
+    by_id = {s["id"]: s for s in steps}
+    assert by_id["run"]["status"] == "done"
+    assert by_id["write_approval"]["status"] == "todo"
+    assert "complete" not in by_id
+
+
+def test_preclean_steps_done(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "steps_preclean_done")
+    init_run_meta_for_test(ctx)
+    ctx.mark_done("audio_preclean")
+    guidance = build_stage_guidance(ctx, "audio_preclean", status="done")
+    steps = build_stage_steps(ctx, "audio_preclean", status="done", guidance=guidance)
+    kinds = [s["kind"] for s in steps]
+    assert "done" in kinds
+    assert any(s["id"] == "continue_ingest" for s in steps)

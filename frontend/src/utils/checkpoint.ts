@@ -4,6 +4,7 @@ import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention } from "./attentionQueue";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
+import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
 export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
@@ -111,7 +112,7 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
       return "Listen to outputs and pass or fail the sound check above.";
     default:
       if (stageId === "ingest" || stageId.endsWith("_ingest")) {
-        return "Preview staged files, then Save & continue to write them to disk.";
+        return "Preview staged files, then Save all files & continue at the bottom of the step.";
       }
       return "Complete the required steps above before continuing.";
   }
@@ -177,10 +178,7 @@ export function checkpointContinueLabel(
 ): string {
   const write = pendingWriteInfo(run);
   if (write && (write.stageId === stage.id || stage.status === "awaiting_write_approval")) {
-    const n = write.paths.length;
-    return n
-      ? `Save ${n} file${n === 1 ? "" : "s"} & continue`
-      : "Save & continue";
+    return writeApprovalPrimaryLabel(write.paths.length);
   }
   if (stage.status === "done") {
     const paths = getHandoffPathsLocal(stage, run.log_tail);

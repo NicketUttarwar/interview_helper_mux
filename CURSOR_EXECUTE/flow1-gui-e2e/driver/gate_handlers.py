@@ -65,15 +65,19 @@ def try_write_approval(page: Page, log: EventLogger, archive=None) -> bool:
     if _click_testid(page, "write-approval-save-continue", log, "write approval", archive):
         time.sleep(1.0)
         return True
-    if page.locator("#write-approval-panel").count() and _click_role(
-        page, "Save & continue", log, archive=archive
-    ):
+    if _click_testid(page, "stage-step-primary", log, "write approval footer", archive):
+        time.sleep(1.0)
         return True
-    return _click_role(page, "Save & continue", log, archive=archive)
+    for label in ("Save all files & continue", "Save & continue"):
+        if _click_role(page, label, log, archive=archive):
+            return True
+    return False
 
 
 def try_handoff(page: Page, log: EventLogger, archive=None) -> bool:
     if _click_testid(page, "handoff-acknowledge", log, "handoff", archive):
+        return True
+    if _click_testid(page, "stage-step-primary", log, "handoff footer", archive):
         return True
     if _click_role(page, "Acknowledge & continue", log, archive=archive):
         return True

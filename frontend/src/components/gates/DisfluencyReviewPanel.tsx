@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
@@ -26,12 +26,11 @@ interface DisfluencyReviewState {
 }
 
 export function DisfluencyReviewPanel() {
-  const { run, refreshRun, showToast, appendClientLog, config, advanceFromCheckpoint } = useApp();
+  const { run, refreshRun, showToast, appendClientLog, config } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
   const [index, setIndex] = useState(0);
-  const [completing, setCompleting] = useState(false);
 
   const reportError = (reason: unknown, label: string) => {
     const msg = formatApiError(reason, label);
@@ -57,21 +56,6 @@ export function DisfluencyReviewPanel() {
         setLoading(false);
       });
   }, [run?.run_id]);
-
-  const complete = useCallback(async () => {
-    if (!run || completing) return;
-    setCompleting(true);
-    try {
-      await api(`/api/runs/${run.run_id}/disfluency-review/complete`, { method: "POST" });
-      showToast("Disfluency review complete");
-      await refreshRun();
-      await advanceFromCheckpoint();
-    } catch (reason) {
-      reportError(reason, "Complete disfluency review");
-    } finally {
-      setCompleting(false);
-    }
-  }, [run, refreshRun, advanceFromCheckpoint, showToast, appendClientLog]);
 
   if (!config?.disfluency_extract_enabled) {
     return (
@@ -116,23 +100,8 @@ export function DisfluencyReviewPanel() {
         <p className="hint">
           {state?.status === "disabled"
             ? "Disfluency extract is disabled for this run."
-            : "No filler clip assets were extracted — nothing to review."}
+            : "No filler clip assets were extracted — nothing to review. Use Complete review at the bottom of this step when ready."}
         </p>
-        <button
-          type="button"
-          className="btn primary sm"
-          data-testid="complete-disfluency-review"
-          disabled={completing}
-          onClick={() => void complete()}
-        >
-          {completing ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Completing…
-            </>
-          ) : (
-            "Complete review"
-          )}
-        </button>
       </div>
     );
   }
@@ -276,23 +245,6 @@ export function DisfluencyReviewPanel() {
           </button>
         </div>
       </div>
-      {(stats?.pending ?? 0) === 0 && (
-        <button
-          type="button"
-          className="btn primary"
-          data-testid="complete-disfluency-review"
-          disabled={completing}
-          onClick={() => void complete()}
-        >
-          {completing ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Completing…
-            </>
-          ) : (
-            "Complete review"
-          )}
-        </button>
-      )}
     </>
   );
 }

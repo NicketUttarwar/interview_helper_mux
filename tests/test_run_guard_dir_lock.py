@@ -89,3 +89,27 @@ def test_large_wav_flush_under_run_guard(tmp_path: Path, monkeypatch: pytest.Mon
     assert "preclean/isolated.wav" in flushed
     assert ctx.final_path("preclean/isolated.wav").is_file()
     assert not list_pending_paths(ctx, "audio_preclean")
+
+
+def test_recovers_orphaned_thread_lock_when_holder_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stale in-process lock must not block save after pipeline thread exited without release."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "awaiting_write_approval",
+            "mode": "stage",
+            "stage": "audio_preclean",
+            "pending_write_stage": "audio_preclean",
+            "pending_write_paths": ["preclean/lineage.json"],
+        },
+    )
+    runner = JobRunner()
+    lock = runner._lock_for(ctx.run_id)
+    assert lock.acquire(blocking=False)
+    runner._lock_holder_tid[ctx.run_id] = 0
+    assert runner._recover_orphaned_thread_lock(ctx.run_id) is True
+    with runner.run_guard(ctx.run_id):
+        pass

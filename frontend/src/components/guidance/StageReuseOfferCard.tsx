@@ -17,7 +17,7 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, refreshRun, advanceFromCheckpoint, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
+  const { runId, run, refreshRun, advanceFromCheckpoint, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 

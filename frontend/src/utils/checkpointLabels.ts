@@ -1,6 +1,8 @@
 import type { AttentionKind } from "./attentionQueue";
 
 /** Human primary-button labels for gates and checkpoints. */
+import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
+
 export function checkpointPrimaryLabel(
   stageId: string,
   kind: AttentionKind,
@@ -8,9 +10,7 @@ export function checkpointPrimaryLabel(
 ): string {
   const fc = opts?.fileCount;
   if (kind === "write_approval") {
-    return fc
-      ? `Save ${fc} file${fc === 1 ? "" : "s"} & continue`
-      : "Save & continue";
+    return writeApprovalPrimaryLabel(fc);
   }
   if (kind === "stage_reuse") return "Show reuse options";
   if (kind === "handoff") return "Review outputs";

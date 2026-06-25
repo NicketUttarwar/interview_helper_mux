@@ -149,7 +149,7 @@ export function GateActions({ stage }: Props) {
         <DisfluencyRestorePanel stageId={stage.id} />
       ) : null}
 
-      {run.journey?.phase === "ship" || run.journey?.phase === "export" ? (
+      {run.journey?.phase === "ship" ? (
         <>
           {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
             <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />

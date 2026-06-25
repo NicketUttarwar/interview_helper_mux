@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Run interview_helper_mux web GUI. Any failure exits the whole process.
-# Pass --cli for headless pipeline mode (legacy).
+#
+# Usage:
+#   ./scripts/run.sh              # venv + deps + fresh GUI build + serve (default)
+#   ./scripts/run.sh --no-gui-build   # skip React build (requires existing static bundle)
+#   MUX_SKIP_GUI_BUILD=1 ./scripts/run.sh   # same as --no-gui-build
+#   ./scripts/run.sh --cli …      # headless pipeline mode (legacy)
 #
 # Error output (bootstrap + pipeline) is mirrored to stderr on this terminal when
 # MUX_MIRROR_OPERATOR_ERRORS=1 (default). Operator log file: gui_log.jsonl per run.
@@ -39,6 +44,45 @@ export PYTHONUNBUFFERED=1
 export MUX_LAUNCHED_VIA=run.sh
 export MUX_MIRROR_OPERATOR_ERRORS="${MUX_MIRROR_OPERATOR_ERRORS:-1}"
 
+SKIP_GUI_BUILD="${MUX_SKIP_GUI_BUILD:-0}"
+CLI_MODE=0
+SERVE_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-gui-build)
+      SKIP_GUI_BUILD=1
+      shift
+      ;;
+    --cli)
+      CLI_MODE=1
+      shift
+      break
+      ;;
+    -h | --help)
+      cat <<'EOF'
+Usage: ./scripts/run.sh [options] [serve args…]
+
+  Default: refresh .venv deps, rebuild React GUI, clear session, serve on web_port.
+
+Options:
+  --no-gui-build    Skip ./scripts/build_gui.sh (requires a complete static bundle)
+  --cli             Headless: python -m interview_mux … (no web server)
+  -h, --help        Show this help
+
+Environment:
+  MUX_SKIP_GUI_BUILD=1   Same as --no-gui-build
+  MUX_PRESERVE_SESSION=1 Keep GUI session pointer across this launch
+EOF
+      exit 0
+      ;;
+    *)
+      SERVE_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
 VENV="$ROOT/.venv"
 PY="${PYTHON:-/opt/homebrew/bin/python3.12}"
 if [[ ! -x "$PY" ]]; then
@@ -64,31 +108,39 @@ fi
 pip install -q "$ROOT"
 
 _CURRENT_STEP="gui_build"
-if "$VENV/bin/python" - <<'PY'
-from interview_mux.gui_bundle import needs_gui_build
-raise SystemExit(0 if needs_gui_build() else 1)
+_gui_bundle_ok() {
+  "$VENV/bin/python" - <<'PY'
+from interview_mux.gui_bundle import bundle_contract_ok, needs_gui_build
+raise SystemExit(0 if bundle_contract_ok() and not needs_gui_build() else 1)
 PY
-then
-  if ! command -v npm >/dev/null 2>&1; then
-    _bash_fatal "GUI static bundle is missing or incomplete and npm is not installed. See SETUP.md § GUI dependencies."
+}
+
+if [[ "$SKIP_GUI_BUILD" == "1" ]]; then
+  if ! _gui_bundle_ok; then
+    _bash_fatal "GUI static bundle is missing, incomplete, or stale API contract — run without --no-gui-build or ./scripts/build_gui.sh"
     exit 1
   fi
-  echo "Building React GUI (missing or stale static bundle) ..."
+  echo "Skipping GUI build (--no-gui-build / MUX_SKIP_GUI_BUILD=1) ..."
+else
+  if ! command -v npm >/dev/null 2>&1; then
+    _bash_fatal "npm is required to build the GUI. Install Node.js 20+ or pass --no-gui-build."
+    exit 1
+  fi
+  echo "Building React GUI (fresh bundle on every launch) ..."
   "$ROOT/scripts/build_gui.sh"
-  if "$VENV/bin/python" - <<'PY'
-from interview_mux.gui_bundle import needs_gui_build
-raise SystemExit(0 if needs_gui_build() else 1)
-PY
-  then
-    _bash_fatal "GUI build finished but bundle is still incomplete. Run: ./scripts/build_gui.sh"
+  if ! _gui_bundle_ok; then
+    _bash_fatal "GUI build finished but bundle is incomplete or missing checkpoint save API. Run: ./scripts/build_gui.sh"
     exit 1
   fi
 fi
 
-if [[ "${1:-}" == "--cli" ]]; then
-  shift
+if [[ "$CLI_MODE" == "1" ]]; then
   _CURRENT_STEP="cli"
-  exec python -m interview_mux "$@"
+  if (($# > 0)); then
+    exec python -m interview_mux "$@"
+  else
+    exec python -m interview_mux
+  fi
 fi
 
 _CURRENT_STEP="local_llm_check"
@@ -173,4 +225,8 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 
 _CURRENT_STEP="serve"
-exec python -m interview_mux serve "$@"
+if ((${#SERVE_ARGS[@]} > 0)); then
+  exec python -m interview_mux serve "${SERVE_ARGS[@]}"
+else
+  exec python -m interview_mux serve
+fi

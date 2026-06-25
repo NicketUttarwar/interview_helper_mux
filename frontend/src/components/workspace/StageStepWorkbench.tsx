@@ -8,7 +8,7 @@ import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import { useActiveStageStep } from "../../hooks/useActiveStageStep";
 import { useStageProgress } from "../../hooks/useStageProgress";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
-import { firstTodoStepId } from "../../utils/resolveActiveStep";
+import { resolveFocusStepId, shouldAdvanceStaleStep } from "../../utils/resolveActiveStep";
 import { scrollToStageStep } from "../../utils/activateStageStep";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
 
@@ -59,9 +59,15 @@ export function StageStepWorkbench() {
 
   useEffect(() => {
     if (!selectedStageId || activeStepId) return;
-    const first = firstTodoStepId(run, selectedStageId);
+    const first = resolveFocusStepId(run, selectedStageId);
     if (first) setActiveStepId(first);
   }, [selectedStageId, activeStepId, run, setActiveStepId]);
+
+  useEffect(() => {
+    if (!run || !selectedStageId || !activeStepId) return;
+    const next = shouldAdvanceStaleStep(run, selectedStageId, activeStepId);
+    if (next) setActiveStepId(next);
+  }, [run, selectedStageId, activeStepId, setActiveStepId]);
 
   useEffect(() => {
     if (activeStepId) scrollToStageStep(activeStepId);

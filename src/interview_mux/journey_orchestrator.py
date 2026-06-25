@@ -312,7 +312,7 @@ def _gate_headline(stage_id: str, reason: str | None) -> str:
 
 def _gate_primary_label(stage_id: str, reason: str | None) -> str:
     if reason == "write_approval":
-        return "Save & continue"
+        return "Save all files & continue"
     if reason == "stage_reuse":
         return "Choose reuse or run fresh"
     if reason == "handoff_review":
@@ -360,7 +360,7 @@ def _write_approval_action(
             else "Preview staged outputs, then save to disk."
         ),
         "primary_label": (
-            f"Save {fc} file{'s' if fc != 1 else ''} & continue" if fc else "Save & continue"
+            f"Save all {fc} files & continue" if fc > 1 else "Save all files & continue"
         ),
         "modal_auto_open": True,
     }

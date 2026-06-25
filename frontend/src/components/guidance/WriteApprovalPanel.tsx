@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
 import { isJsonArtifactPath } from "../../utils";
 import { isWriteApprovalSaving } from "../../utils/jobStatus";
+import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
   resolvePendingWritePaths,
   stageAwaitingWriteApproval,
@@ -31,7 +32,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     runId,
     showToast,
     appendClientLog,
-    approveWriteAndContinue,
     actionBusy,
     jobRunning,
   } = useApp();
@@ -44,7 +44,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
   const [saveComplete, setSaveComplete] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -131,91 +130,49 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     }
     if (writePendingForStage || paths.length) {
       setSaveComplete(false);
-      setSaveError(null);
     }
   }, [writePendingForStage, paths.length, stage.status, stage.id, run]);
 
   const stageComplete =
     stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id);
 
-  const syncEditorToStaging = async (path: string, value: string, json: boolean) => {
-    if (!runId || !path) return;
-    if (json) {
-      const parsed = JSON.parse(value) as Record<string, unknown>;
-      const v = validateArtifactWrite(path, parsed);
-      if (!v.ok) throw new Error(`Validation: ${v.errors[0]}`);
-      await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, data: parsed }),
-      });
-    } else {
-      await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, text: value }),
-      });
-    }
-  };
+  const syncEditorToStaging = useCallback(
+    async (path: string, value: string, json: boolean) => {
+      if (!runId || !path) return;
+      if (json) {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        const v = validateArtifactWrite(path, parsed);
+        if (!v.ok) throw new Error(`Validation: ${v.errors[0]}`);
+        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, data: parsed }),
+        });
+      } else {
+        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, text: value }),
+        });
+      }
+    },
+    [runId, stageId],
+  );
 
-  const saveEdit = async () => {
-    if (!selectedPath) return;
-    try {
+  useEffect(() => {
+    registerStepPrimaryPrep("write_approval", async () => {
+      if (!editorDirty || !selectedPath || fileKind(selectedPath) === "audio") return;
       await syncEditorToStaging(selectedPath, editorValue, isJson);
       setEditorDirty(false);
-      showToast(`Updated ${selectedPath}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Save failed";
-      showToast(msg, "error");
-    }
-  };
-
-  const approve = async () => {
-    if (actionBusy && !writePendingForStage) return;
-    setSaveError(null);
-    try {
-      if (editorDirty && selectedPath && fileKind(selectedPath) !== "audio") {
-        await syncEditorToStaging(selectedPath, editorValue, isJson);
-        setEditorDirty(false);
-      }
-      audioRef.current?.pause();
-      if (audioRef.current) audioRef.current.removeAttribute("src");
-      const ok = await approveWriteAndContinue(stageId);
-      if (ok) {
-        setApiPaths([]);
-        setSaveComplete(true);
-        setSaveError(null);
-      } else if (jobRunning) {
-        setApiPaths([]);
-        setSaveError(null);
-      } else {
-        setSaveError(
-          "Save did not complete — check Activity log and retry from the sidebar substep.",
-        );
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Approve failed";
-      setSaveError(msg);
-      showToast(msg, "error");
-      appendClientLog(msg, "error", stageId);
-    }
-  };
-
-  const discard = async () => {
-    if (!runId || actionBusy) return;
-    try {
-      await api(`/api/runs/${runId}/pending-writes/${stageId}/discard`, {
-        method: "POST",
-      });
-      showToast("Discarded staged outputs — re-run this step when ready.");
-      appendClientLog(`Write approval discarded for ${stageId}`, "info");
-      await loadPaths();
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Discard failed";
-      showToast(msg, "error");
-      appendClientLog(msg, "error", stageId);
-    }
-  };
+    });
+    return () => registerStepPrimaryPrep("write_approval", null);
+  }, [
+    editorDirty,
+    selectedPath,
+    editorValue,
+    isJson,
+    syncEditorToStaging,
+  ]);
 
   if (saveComplete || stageComplete) {
     return (
@@ -231,12 +188,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   if (!writePendingForStage && !paths.length && !loading && !stageComplete) return null;
 
-  const saveDisabled =
-    jobRunning ||
-    savingToDisk ||
-    (actionBusy && !writePendingForStage) ||
-    !paths.length;
-
   return (
     <section
       id="write-approval-panel"
@@ -247,19 +198,15 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         <div>
           <h3 className="stage-outputs-title">Save to working directory — review outputs before saving</h3>
           <p className="hint write-approval-substep">
-            Substep:{" "}
-            <strong>
-              {paths.length
-                ? `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
-                : "Save review before continuing"}
-            </strong>
+            Substep: <strong>Review staged outputs</strong>
           </p>
           <p className="hint">
             <strong>{stage.title}</strong>
             {paths.length
               ? ` staged ${paths.length} file${paths.length === 1 ? "" : "s"}.`
               : " is waiting for your approval before files are saved to disk."}{" "}
-            Files are pre-loaded below — edit if needed, then save to disk.
+            Preview each file below. Edits are included when you use{" "}
+            <strong>Save all files &amp; continue</strong> at the bottom of this step.
           </p>
           {run?.working_dir ? (
             <p className="hint sm write-approval-wd" title={run.working_dir}>
@@ -277,7 +224,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             </p>
           ) : null}
         </div>
-        <ReviewPanelControls requirePending={false} />
+        <ReviewPanelControls />
       </div>
 
       {loading ? (
@@ -292,14 +239,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           <button type="button" className="btn ghost sm" onClick={() => void loadPaths()}>
             Retry
           </button>
-        </div>
-      ) : null}
-
-      {saveError ? (
-        <div className="write-approval-error">
-          <p className="hint" role="alert">
-            {saveError}
-          </p>
         </div>
       ) : null}
 
@@ -352,14 +291,6 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
                     placeholder="Staged file content appears here…"
                   />
                 )}
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  disabled={contentLoading || !editorDirty}
-                  onClick={() => void saveEdit()}
-                >
-                  Save edit to staging
-                </button>
               </div>
             ) : (
               <p className="hint empty-state">Select a file to preview.</p>
@@ -368,45 +299,11 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         </div>
       ) : null}
 
-      <div className="write-approval-actions">
-        <button
-          type="button"
-          className="btn primary"
-          data-testid="write-approval-save-continue"
-          data-action-id="gui.write_approval.save"
-          disabled={saveDisabled}
-          onClick={() => void approve()}
-        >
-          {actionBusy || savingToDisk || jobRunning ? (
-            <>
-              <span className="spinner-inline" aria-hidden />{" "}
-              {savingToDisk || actionBusy
-                ? "Saving to disk…"
-                : jobRunning
-                  ? "Next step running…"
-                  : "Saving…"}
-            </>
-          ) : paths.length ? (
-            `Save ${paths.length} file${paths.length === 1 ? "" : "s"} & continue`
-          ) : (
-            "Save & continue"
-          )}
-        </button>
-        <button
-          type="button"
-          className="btn ghost sm"
-          data-action-id="gui.write_approval.discard"
-          disabled={actionBusy || jobRunning}
-          onClick={() => void discard()}
-        >
-          Discard &amp; re-run
-        </button>
-      </div>
       {(savingToDisk || jobRunning) && !actionBusy ? (
         <p className="hint sm write-approval-running-hint">
           {savingToDisk
             ? "Promoting staged files to disk — watch Activity log (Live)."
-            : "Next step is running — watch Activity log (All/Live). Save is disabled until it finishes."}
+            : "Next step is running — watch Activity log (All/Live)."}
         </p>
       ) : null}
     </section>

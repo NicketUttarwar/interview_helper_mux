@@ -11,6 +11,7 @@ from starlette.responses import Response
 
 _ROUTE_ACTIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^/api/runs/[^/]+/execute$"), "api.pipeline.execute"),
+    (re.compile(r"^/api/runs/[^/]+/continue-after-checkpoint$"), "api.write_approval.continue"),
     (re.compile(r"^/api/runs/[^/]+/pending-writes/[^/]+/approve$"), "api.write_approval.approve"),
     (re.compile(r"^/api/runs/[^/]+/pending-writes/[^/]+/discard$"), "api.write_approval.discard"),
     (re.compile(r"^/api/runs/[^/]+/handoff-ack$"), "api.handoff.acknowledge"),

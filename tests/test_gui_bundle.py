@@ -9,6 +9,7 @@ import pytest
 
 from interview_mux.config import repo_root
 from interview_mux.gui_bundle import (
+    bundle_contract_ok,
     missing_referenced_assets,
     needs_gui_build,
     referenced_asset_names,
@@ -23,7 +24,21 @@ def test_shipped_static_bundle_is_complete() -> None:
         pytest.skip("GUI not built yet — run ./scripts/build_gui.sh")
     assert referenced_asset_names()
     assert missing_referenced_assets(root) == []
+    assert bundle_contract_ok(root) is True
     assert needs_gui_build(root) is False
+
+
+def test_needs_gui_build_when_checkpoint_api_missing(tmp_path: Path) -> None:
+    root = tmp_path / "static"
+    assets = root / "assets"
+    assets.mkdir(parents=True)
+    (assets / "index-old.js").write_text('pending-writes/${s}/approve', encoding="utf-8")
+    (root / "index.html").write_text(
+        '<script type="module" crossorigin src="/assets/index-old.js"></script>\n',
+        encoding="utf-8",
+    )
+    assert bundle_contract_ok(root) is False
+    assert needs_gui_build(root) is True
 
 
 def test_needs_gui_build_when_asset_missing(tmp_path: Path) -> None:

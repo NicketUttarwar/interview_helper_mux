@@ -224,7 +224,7 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 "mark_reviewed",
                 3,
                 "Mark chunks reviewed",
-                instruction="Save each chunk or click Mark reviewed (no change) to advance.",
+                instruction="Work through each clip. Edits auto-save when you change clips or complete review.",
                 review=["Progress shows X of Y chunks reviewed"],
                 kind="gate",
                 status="todo" if status == "action_required" else "done",
@@ -237,6 +237,7 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 instruction="Merges corrections into full.json. Required before any analysis stage.",
                 review=["Correction summary shows edit count"],
                 primary_button="Complete transcript review",
+                secondary_button="Accept remaining & complete",
                 kind="gate",
                 status="todo" if status == "action_required" else "done",
                 embed="transcript_review",
@@ -382,39 +383,112 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
     return []
 
 
-def _preclean_steps(status: str) -> list[dict[str, Any]]:
-    return [
+def _preclean_steps(ctx: RunContext, status: str) -> list[dict[str, Any]]:
+    from interview_mux.operator_quality import preclean_checkpoint_decision
+
+    nxt = _next_stage_title(PRECLEAN_STAGE)
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    decision = preclean_checkpoint_decision(meta, "before_ingest")
+    dismissed = decision == "dismiss"
+    accepted = decision == "accept"
+    running = _job_running_stage(ctx, PRECLEAN_STAGE)
+    needs_write = _needs_write(ctx, PRECLEAN_STAGE) or status == "awaiting_write_approval"
+    stage_done = status == "done" or ctx.is_done(PRECLEAN_STAGE)
+
+    steps: list[dict[str, Any]] = []
+    num = 1
+
+    offer_done = dismissed or accepted or running or needs_write or stage_done
+    steps.append(
         _step(
             "review_offer",
-            1,
+            num,
             "Review the pre-clean offer",
             instruction="Optional: remove steady background noise from your source recording before ingest.",
             review=["Read scope (full source vs pickup-only)"],
             primary_button="Run audio cleaning",
             secondary_button="Skip this optional step",
             kind="preclean",
-            status="todo" if status != "done" else "done",
-        ),
-        _step(
-            "wait_run",
-            2,
-            "Wait for cleaning to finish",
-            instruction="DeepFilterNet runs locally. Watch the activity log.",
-            primary_button="Running…",
-            kind="run",
-            status="waiting",
-        ),
-        _step(
-            "continue_ingest",
-            3,
-            "Continue to ingest",
-            instruction="Pre-clean is complete or skipped. Ingest will use the cleaned WAV if you accepted.",
-            primary_button="Continue to Ingest",
-            kind="info",
-            status="done" if status == "done" else "todo",
-            next_hint="Next: Ingest",
-        ),
-    ]
+            status="done" if offer_done else "todo",
+        )
+    )
+    num += 1
+
+    if not dismissed:
+        if not accepted:
+            wait_status = "waiting"
+        elif running:
+            wait_status = "active"
+        elif needs_write or stage_done:
+            wait_status = "done"
+        else:
+            wait_status = "waiting"
+        steps.append(
+            _step(
+                "wait_run",
+                num,
+                "Wait for cleaning to finish",
+                instruction="DeepFilterNet runs locally. Watch the activity log.",
+                primary_button="Running…" if running else None,
+                kind="run",
+                status=wait_status,
+            )
+        )
+        num += 1
+
+    if needs_write:
+        steps.append(
+            _step(
+                "write_approval",
+                num,
+                "Review outputs before saving",
+                instruction="Pre-clean finished. Preview staged files before they are written to disk.",
+                review=[
+                    "Play preclean/isolated.wav — confirm noise is reduced",
+                    "Open lineage.json — scope and provider are recorded",
+                ],
+                primary_button="Save all files & continue",
+                secondary_button="Discard & re-run",
+                kind="write_approval",
+                status="todo",
+            )
+        )
+        num += 1
+
+    if dismissed or (stage_done and not needs_write):
+        steps.append(
+            _step(
+                "continue_ingest",
+                num,
+                "Continue to ingest",
+                instruction="Pre-clean is complete or skipped. Ingest will use the cleaned WAV if you accepted.",
+                primary_button="Continue to Ingest",
+                kind="done" if stage_done else "info",
+                status="done" if stage_done else "todo",
+                next_hint="Next: Ingest",
+            )
+        )
+        num += 1
+
+    if stage_done and not needs_write:
+        for row in steps:
+            if row["status"] in ("todo", "waiting", "active"):
+                row["status"] = "done"
+        steps.append(
+            _step(
+                "complete",
+                num,
+                "Step complete",
+                instruction="Audio pre-clean finished. Continue to ingest.",
+                primary_button=f"Continue to {nxt}" if nxt else "Continue",
+                secondary_button="Redo from this step",
+                kind="done",
+                status="done",
+                next_hint=f"Next: {nxt}" if nxt else None,
+            )
+        )
+
+    return steps
 
 
 def _locked_steps(stage_id: str, guidance: dict[str, Any]) -> list[dict[str, Any]]:
@@ -469,8 +543,13 @@ def _automated_steps(
     steps: list[dict[str, Any]] = []
     num = 1
 
+    needs_write = _needs_write(ctx, stage_id) or status == "awaiting_write_approval"
+    running = _job_running_stage(ctx, stage_id)
+    stage_done = status == "done" or ctx.is_done(stage_id)
+    past_run = stage_done or needs_write or running
+
     prereq_items = [p.get("label", "") for p in (guidance.get("prerequisites") or []) if p.get("label")]
-    prereq_status = "done" if _prereqs_met(guidance) or status == "done" else "todo"
+    prereq_status = "done" if _prereqs_met(guidance) or past_run else "todo"
     steps.append(
         _step(
             "prereqs",
@@ -501,11 +580,14 @@ def _automated_steps(
         )
         num += 1
 
-    run_status = "active" if _job_running_stage(ctx, stage_id) else (
-        "done" if status == "done" or ctx.is_done(stage_id) else "todo"
-    )
     if status == "locked":
         run_status = "blocked"
+    elif running:
+        run_status = "active"
+    elif past_run:
+        run_status = "done"
+    else:
+        run_status = "todo"
     steps.append(
         _step(
             "run",
@@ -522,6 +604,7 @@ def _automated_steps(
 
     review_bullets = STAGE_REVIEW.get(stage_id, [])
     embed = STAGE_EMBED.get(stage_id)
+    embed_status = "done" if stage_done or needs_write else "todo"
 
     if stage_id in NLE_EMBED_STAGES:
         steps.append(
@@ -532,7 +615,7 @@ def _automated_steps(
                 instruction="Use the timeline below to verify segment order. Trim or exclude segments if needed.",
                 review=["Source timeline shows all segments", "QC checklist items resolved"],
                 kind="embed_timeline",
-                status="todo" if status != "done" else "done",
+                status=embed_status,
                 embed="timeline",
             )
         )
@@ -552,7 +635,7 @@ def _automated_steps(
                     review=["Each asset has a prompt", "Edit text if needed"],
                     primary_button="Approve prompts",
                     kind="gate",
-                    status="todo" if status != "done" else "done",
+                    status=embed_status,
                     embed="sfx_prompt_review",
                 )
             )
@@ -566,7 +649,7 @@ def _automated_steps(
                 "Review outputs before saving",
                 instruction="Preview staged files before they are written to disk.",
                 review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                primary_button="Save & continue",
+                primary_button="Save all files & continue",
                 secondary_button="Discard & re-run",
                 kind="write_approval",
                 status="todo",
@@ -585,7 +668,7 @@ def _automated_steps(
                 review=review_bullets,
                 primary_button="I've reviewed — continue" if embed == "listen" else None,
                 kind=listen_kind,
-                status="todo" if status != "done" else "done",
+                status=embed_status,
                 embed=embed,
             )
         )
@@ -635,7 +718,7 @@ def _automated_steps(
         )
         num += 1
 
-    if status == "done":
+    if status == "done" and not needs_write:
         for s in steps:
             if s["status"] == "todo":
                 s["status"] = "done"
@@ -671,7 +754,7 @@ def build_stage_steps(
         return _locked_steps(stage_id, guidance)
 
     if stage_id == PRECLEAN_STAGE:
-        return _preclean_steps(status)
+        return _preclean_steps(ctx, status)
 
     if stage_id in GATE_STAGES:
         return _gate_steps(ctx, stage_id, status)

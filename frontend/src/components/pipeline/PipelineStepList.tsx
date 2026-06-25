@@ -14,7 +14,7 @@ import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
 import { StepDoneBanner } from "./StepDoneBanner";
 import { StepRunningConnector } from "./StepRunningConnector";
-import { firstTodoStepId } from "../../utils/resolveActiveStep";
+import { resolveFocusStepId } from "../../utils/resolveActiveStep";
 
 function stageNeedsSubstepAttention(
   run: NonNullable<ReturnType<typeof useApp>["run"]>,
@@ -40,7 +40,6 @@ export function PipelineStepList() {
     jobRunning,
     actionBusy,
     pinSelectedStage,
-    setActiveStepId,
     pipelineCollapsedStages,
     pipelineExpandedDoneStages,
     toggleDoneStageExpanded,
@@ -215,9 +214,9 @@ export function PipelineStepList() {
                       }
                       pinSelectedStage();
                       expandStage(entry.stage.id);
-                      void selectStage(entry.stage.id);
-                      const stepId = firstTodoStepId(run, entry.stage.id);
-                      if (stepId) setActiveStepId(stepId);
+                      void selectStage(entry.stage.id, {
+                        stepId: resolveFocusStepId(run, entry.stage.id),
+                      });
                     }}
                     aria-current={navStatus === "current" || isRunning ? "step" : undefined}
                     aria-expanded={expanded}

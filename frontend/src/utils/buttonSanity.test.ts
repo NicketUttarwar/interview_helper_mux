@@ -81,6 +81,18 @@ function collectComponentSources(): string {
 
 describe("buttonSanity — E2E testid presence", () => {
   const corpus = collectComponentSources();
+  const stepFooter = readFileSync(
+    join(ROOT, "components/workspace/StageStepFooter.tsx"),
+    "utf8",
+  );
+  const footerOnlyTestids = new Set([
+    "stage-step-primary",
+    "write-approval-save-continue",
+    "handoff-acknowledge",
+    "complete-transcript-review",
+    "complete-disfluency-review",
+    "approve-sfx-prompts",
+  ]);
 
   it.each(
     E2E_CRITICAL_TESTIDS.map((entry) =>
@@ -89,6 +101,8 @@ describe("buttonSanity — E2E testid presence", () => {
   )("%s is declared in component source", (_label, needle) => {
     if (needle instanceof RegExp) {
       expect(corpus).toMatch(needle);
+    } else if (footerOnlyTestids.has(needle)) {
+      expect(stepFooter).toContain(`"${needle}"`);
     } else {
       expect(corpus).toContain(`data-testid="${needle}"`);
     }
@@ -305,14 +319,17 @@ describe("buttonSanity — analysis profile checkpoint", () => {
 });
 
 describe("buttonSanity — holistic feedback hooks", () => {
-  it("useAsyncAction is used by handoff and preview listen panels", () => {
-    for (const rel of [
-      "components/workspace/HandoffPanel.tsx",
-      "components/guidance/PreviewListenPromo.tsx",
-    ]) {
-      const text = readFileSync(join(ROOT, rel), "utf8");
-      expect(text).toContain("useAsyncAction");
-    }
+  it("useAsyncAction is used by preview listen panel", () => {
+    const preview = readFileSync(join(ROOT, "components/guidance/PreviewListenPromo.tsx"), "utf8");
+    expect(preview).toContain("useAsyncAction");
+  });
+
+  it("step footer owns consolidated gate and save CTAs", () => {
+    const footer = readFileSync(join(ROOT, "components/workspace/StageStepFooter.tsx"), "utf8");
+    expect(footer).toContain("write-approval-save-continue");
+    expect(footer).toContain("handoff-acknowledge");
+    const handoff = readFileSync(join(ROOT, "components/workspace/HandoffPanel.tsx"), "utf8");
+    expect(handoff).not.toContain("data-testid=\"handoff-acknowledge\"");
   });
 
   it("jobCompletionHint is wired in AppContext", () => {

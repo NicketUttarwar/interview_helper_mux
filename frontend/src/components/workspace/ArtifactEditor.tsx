@@ -134,11 +134,11 @@ export function ArtifactEditor() {
     if (!run || !selectedPath || !selectedStage) return;
     if (stageAwaitingWriteApproval(run, selectedStage.id)) {
       appendClientLog(
-        "Use Save & continue on the review panel to write staged outputs to disk.",
+        "Use Save all files & continue on the step footer to write staged outputs to disk.",
         "info",
         selectedStage.id,
       );
-      showToast("Staged files need review approval — use Save & continue above.");
+      showToast("Staged files need review approval — use Save all files & continue below.");
       return;
     }
     const invalidate = (await confirm(
@@ -195,12 +195,15 @@ export function ArtifactEditor() {
     }
   };
 
+  const stagedAwaitingSave =
+    loadedFromStaging || (selectedStage && stageAwaitingWriteApproval(run, selectedStage.id));
+
   return (
     <div className="panel artifacts-panel">
       <div className="panel-head">
         <h3>File editor</h3>
-        {loadedFromStaging || (selectedStage && stageAwaitingWriteApproval(run, selectedStage.id)) ? (
-          <span className="stage-status-pill attention" title="Staged copy — use Save & continue on review panel to commit">
+        {stagedAwaitingSave ? (
+          <span className="stage-status-pill attention" title="Staged copy — use Save all files & continue on the step footer to commit">
             Staged (not saved)
           </span>
         ) : null}
@@ -215,20 +218,22 @@ export function ArtifactEditor() {
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          className="btn primary sm"
-          disabled={saving || !selectedPath}
-          onClick={() => void saveArtifact()}
-        >
-          {saving ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Saving…
-            </>
-          ) : (
-            "Save to file"
-          )}
-        </button>
+        {!stagedAwaitingSave ? (
+          <button
+            type="button"
+            className="btn primary sm"
+            disabled={saving || !selectedPath}
+            onClick={() => void saveArtifact()}
+          >
+            {saving ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Saving…
+              </>
+            ) : (
+              "Save to file"
+            )}
+          </button>
+        ) : null}
       </div>
       <textarea
         className="artifact-editor"

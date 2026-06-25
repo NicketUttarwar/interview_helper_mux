@@ -13,7 +13,7 @@ import {
   workflowStepAttentionCount,
   type WorkflowStepId,
 } from "../utils/workflowSteps";
-import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
+import { substepIdToStepId } from "../utils/resolveActiveStep";
 import { SessionBanner } from "./SessionBanner";
 
 export function LiveStatusBar() {
@@ -83,7 +83,10 @@ export function LiveStatusBar() {
     onExecute: (body) => void executeJob(body),
     onRunNext: () => void runNextStage(),
     onOpenCheckpoint: (stageId, substepId) => {
-      if (stageId) void selectStage(stageId);
+      if (stageId) {
+        const stepId = substepIdToStepId(substepId);
+        void selectStage(stageId, { stepId });
+      }
       if (substepId) setActiveSubstepId(substepId);
       openActionModal();
     },

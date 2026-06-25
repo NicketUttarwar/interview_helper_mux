@@ -3,6 +3,7 @@ from __future__ import annotations
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import threading
 from threading import Lock, Thread
 from typing import Any, Iterator
 
@@ -63,6 +64,7 @@ class JobRunner:
     def __init__(self) -> None:
         self._locks: dict[str, Lock] = {}
         self._global = Lock()
+        self._lock_holder_tid: dict[str, int] = {}
 
     def _lock_for(self, run_id: str) -> Lock:
         with self._global:
@@ -129,6 +131,69 @@ class JobRunner:
             },
         )
 
+    def _record_lock_holder(self, run_id: str) -> None:
+        self._lock_holder_tid[run_id] = threading.get_ident()
+
+    def _clear_lock_holder(self, run_id: str) -> None:
+        self._lock_holder_tid.pop(run_id, None)
+
+    def _holder_thread_alive(self, run_id: str) -> bool:
+        tid = self._lock_holder_tid.get(run_id)
+        if tid is None:
+            return False
+        return any(t.ident == tid and t.is_alive() for t in threading.enumerate())
+
+    def _recover_orphaned_thread_lock(self, run_id: str) -> bool:
+        """Replace in-process run lock when holder thread died but lock was never released."""
+        lock = self._lock_for(run_id)
+        if lock.acquire(blocking=False):
+            lock.release()
+            self._clear_lock_holder(run_id)
+            return False
+        if self._holder_thread_alive(run_id):
+            return False
+        if run_id not in self._lock_holder_tid:
+            return False
+        from interview_mux.gui_job_reconcile import RUNNING_STATUSES
+
+        if RunContext.exists(run_id):
+            try:
+                status = RunContext(run_id, create=False).read_json("gui_job.json").get("status")
+                if status in RUNNING_STATUSES:
+                    return False
+            except OSError:
+                pass
+        with self._global:
+            self._locks[run_id] = Lock()
+            self._lock_holder_tid.pop(run_id, None)
+        return True
+
+    def _acquire_thread_lock(self, run_id: str) -> bool:
+        self._recover_orphaned_thread_lock(run_id)
+        lock = self._lock_for(run_id)
+        if lock.acquire(blocking=False):
+            self._record_lock_holder(run_id)
+            return True
+        if self._recover_orphaned_thread_lock(run_id):
+            lock = self._lock_for(run_id)
+            if lock.acquire(blocking=False):
+                self._record_lock_holder(run_id)
+                return True
+        return False
+
+    def _release_thread_lock(self, run_id: str, lock: Lock) -> None:
+        try:
+            lock.release()
+        finally:
+            self._clear_lock_holder(run_id)
+
+    def _release_run_locks(self, run_id: str, dir_lock: RunDirectoryLock, lock: Lock) -> None:
+        try:
+            dir_lock.release()
+        except Exception:
+            pass
+        self._release_thread_lock(run_id, lock)
+
     def lock_held(self, run_id: str) -> bool:
         """True when an in-process background job holds the run lock."""
         lock = self._lock_for(run_id)
@@ -184,16 +249,19 @@ class JobRunner:
         """Serialize mutating API calls with background execute for one run."""
         lock = self._lock_for(run_id)
         dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
+        if not self._acquire_thread_lock(run_id):
             raise RunBusyError(run_id)
         if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            lock.release()
+            self._release_thread_lock(run_id, lock)
             raise RunBusyError(run_id)
         try:
             yield
         finally:
-            dir_lock.release()
-            lock.release()
+            try:
+                dir_lock.release()
+            except Exception:
+                pass
+            self._release_thread_lock(run_id, lock)
 
     def _resolve_consents(self, api_consents: dict[str, bool] | None) -> dict[str, bool]:
         return merge_consents(
@@ -356,6 +424,8 @@ class JobRunner:
         # When the caller already holds thread_lock (run_guard), lock_held(run_id) is
         # always True — still attempt stale dir-lock recovery before giving up.
         if not thread_lock.locked() and self.lock_held(run_id):
+            if self._recover_orphaned_thread_lock(run_id):
+                return dir_lock.acquire(blocking=False)
             return False
         reconcile_stale_job(run_id)
         if dir_lock.try_recover_stale():
@@ -618,12 +688,21 @@ class JobRunner:
                     },
                 )
             finally:
-                clear_job_progress(run_id)
-                dir_lock.release()
-                lock.release()
-                active_run_context.reset(ctx_token)
+                try:
+                    clear_job_progress(run_id)
+                finally:
+                    try:
+                        dir_lock.release()
+                    except Exception:
+                        pass
+                    self._release_thread_lock(run_id, lock)
+                    active_run_context.reset(ctx_token)
 
-        Thread(target=_run, daemon=True).start()
+        def _run_with_holder() -> None:
+            self._record_lock_holder(run_id)
+            _run()
+
+        Thread(target=_run_with_holder, daemon=True).start()
 
     def decline_reuse_and_run(
         self,
@@ -640,10 +719,10 @@ class JobRunner:
 
         lock = self._lock_for(run_id)
         dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
+        if not self._acquire_thread_lock(run_id):
             return self._busy_job_error(run_id, reason="thread")
         if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            lock.release()
+            self._release_thread_lock(run_id, lock)
             return self._busy_job_error(run_id, reason="directory")
 
         ctx = RunContext(run_id, create=False)
@@ -681,8 +760,7 @@ class JobRunner:
                     "pending_write_paths": write_pending.paths,
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": msg,
@@ -704,8 +782,7 @@ class JobRunner:
                     "message": handoff_err,
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": handoff_err,
@@ -724,8 +801,7 @@ class JobRunner:
                     "message": consent_err,
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": consent_err,
@@ -810,8 +886,7 @@ class JobRunner:
                     "awaiting_write_approval": True,
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": msg,
@@ -836,8 +911,7 @@ class JobRunner:
                     "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": msg,
@@ -859,8 +933,7 @@ class JobRunner:
                     "message": handoff_err,
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": handoff_err,
@@ -892,8 +965,7 @@ class JobRunner:
                     ],
                 },
             )
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": False,
                 "error": consent_err,
@@ -927,10 +999,10 @@ class JobRunner:
 
         lock = self._lock_for(run_id)
         dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
+        if not self._acquire_thread_lock(run_id):
             raise RunBusyError(run_id)
         if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            lock.release()
+            self._release_thread_lock(run_id, lock)
             raise RunBusyError(run_id)
 
         ctx = RunContext(run_id, create=False)
@@ -939,8 +1011,7 @@ class JobRunner:
         try:
             paths = list_pending_paths(ctx, stage_id)
             if not paths:
-                dir_lock.release()
-                lock.release()
+                self._release_run_locks(run_id, dir_lock, lock)
                 raise FileNotFoundError(f"No pending writes for stage: {stage_id}")
 
             self.mark_write_approval_saving(ctx, stage_id, paths)
@@ -949,8 +1020,7 @@ class JobRunner:
             except Exception:
                 if list_pending_paths(ctx, stage_id):
                     self.restore_write_approval_pause(ctx, stage_id, paths)
-                dir_lock.release()
-                lock.release()
+                self._release_run_locks(run_id, dir_lock, lock)
                 raise
 
             self.clear_operator_pause(
@@ -993,8 +1063,7 @@ class JobRunner:
                     "job": job,
                 }
 
-            dir_lock.release()
-            lock.release()
+            self._release_run_locks(run_id, dir_lock, lock)
             return {
                 "ok": True,
                 "flushed": flushed,
@@ -1005,8 +1074,7 @@ class JobRunner:
             raise
         except Exception:
             if lock.locked():
-                dir_lock.release()
-                lock.release()
+                self._release_run_locks(run_id, dir_lock, lock)
             raise
 
     def start(
@@ -1024,10 +1092,10 @@ class JobRunner:
     ) -> dict[str, Any]:
         lock = self._lock_for(run_id)
         dir_lock = RunDirectoryLock(run_id)
-        if not lock.acquire(blocking=False):
+        if not self._acquire_thread_lock(run_id):
             return self._busy_job_error(run_id, reason="thread")
         if not self._try_acquire_dir_lock(run_id, dir_lock, thread_lock=lock):
-            lock.release()
+            self._release_thread_lock(run_id, lock)
             return self._busy_job_error(run_id, reason="directory")
 
         return self._try_start_with_held_locks(

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
+import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
   formatCorrectionSummary,
   TranscriptDockViewer,
@@ -11,7 +12,7 @@ import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 import { formatApiError } from "../../utils/safeApi";
 
 export function TranscriptReviewPanel() {
-  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview, advanceFromCheckpoint } =
+  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview } =
     useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +21,10 @@ export function TranscriptReviewPanel() {
   const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
     emptyCorrectionStats(),
   );
+  const textRef = useRef(text);
+  const indexRef = useRef(0);
+
+  textRef.current = text;
 
   const reportError = (reason: unknown, label: string) => {
     const msg = formatApiError(reason, label);
@@ -52,6 +57,10 @@ export function TranscriptReviewPanel() {
   const chunk = chunks[idx];
 
   useEffect(() => {
+    indexRef.current = idx;
+  }, [idx]);
+
+  useEffect(() => {
     if (chunk) setText(chunk.corrected_text || chunk.text || "");
   }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text]);
 
@@ -65,49 +74,54 @@ export function TranscriptReviewPanel() {
   const saveChunk = async (chunkId: string, reviewed: boolean, useOriginal = false) => {
     if (!run) return;
     const c = chunks.find((x) => x.chunk_id === chunkId);
-    const bodyText = useOriginal ? c?.text || "" : text;
-    try {
-      await api(`/api/runs/${run.run_id}/transcript-review/${chunkId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: bodyText, reviewed }),
-      });
-      showToast("Chunk saved");
-      const data = await loadTranscriptReview();
-      if (data) {
-        const cur = data.chunks.findIndex((x) => x.chunk_id === chunkId);
-        if (cur >= 0 && cur < data.chunks.length - 1) setIndex(cur + 1);
-      }
-      await refreshRun();
-    } catch (reason) {
-      reportError(reason, "Save transcript chunk");
-    }
+    const bodyText = useOriginal ? c?.text || "" : textRef.current;
+    await api(`/api/runs/${run.run_id}/transcript-review/${chunkId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: bodyText, reviewed }),
+    });
+    await loadTranscriptReview();
+    await refreshRun();
   };
 
-  const complete = async (acceptUnreviewed: boolean) => {
-    if (!run) return;
-    try {
-      await api(`/api/runs/${run.run_id}/transcript-review/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
-      });
-      const summary = formatCorrectionSummary(correctionStats);
-      showToast(
-        summary ? `${summary} · Transcript review complete` : "Transcript review complete",
-      );
-      await refreshRun();
-      await advanceFromCheckpoint();
-    } catch (reason) {
-      reportError(reason, "Complete transcript review");
+  useEffect(() => {
+    registerStepPrimaryPrep("transcript_review_flush", async () => {
+      const chunksNow = transcriptReview?.chunks || [];
+      const idxNow = indexRef.current;
+      const chunkNow = chunksNow[idxNow];
+      if (!run || !chunkNow) return;
+      const saved = chunkNow.corrected_text || chunkNow.text || "";
+      if (textRef.current === saved && chunkNow.reviewed) return;
+      try {
+        await saveChunk(chunkNow.chunk_id, true);
+      } catch (reason) {
+        reportError(reason, "Save transcript chunk");
+        throw reason;
+      }
+    });
+    return () => registerStepPrimaryPrep("transcript_review_flush", null);
+  }, [run, transcriptReview?.chunks, loadTranscriptReview, refreshRun]);
+
+  const goToIndex = (next: number) => {
+    const prev = indexRef.current;
+    if (prev !== next && chunks[prev]) {
+      const prevChunk = chunks[prev];
+      const saved = prevChunk.corrected_text || prevChunk.text || "";
+      if (textRef.current !== saved || !prevChunk.reviewed) {
+        void saveChunk(prevChunk.chunk_id, true).catch((reason) =>
+          reportError(reason, "Save transcript chunk"),
+        );
+      }
     }
+    indexRef.current = next;
+    setIndex(next);
   };
 
   if (loading) {
     return (
       <p className="hint">
-        Clips are ranked lowest AWS confidence first. Listen, fix text, save each chunk,
-        then complete review.
+        Clips are ranked lowest AWS confidence first. Listen, fix text, then use{" "}
+        <strong>Complete transcript review</strong> at the bottom of this step.
       </p>
     );
   }
@@ -160,7 +174,7 @@ export function TranscriptReviewPanel() {
           type="button"
           className="btn sm ghost"
           disabled={idx === 0}
-          onClick={() => setIndex(Math.max(0, idx - 1))}
+          onClick={() => goToIndex(Math.max(0, idx - 1))}
         >
           Previous
         </button>
@@ -168,14 +182,14 @@ export function TranscriptReviewPanel() {
           type="button"
           className="btn sm ghost"
           disabled={idx >= chunks.length - 1}
-          onClick={() => setIndex(Math.min(chunks.length - 1, idx + 1))}
+          onClick={() => goToIndex(Math.min(chunks.length - 1, idx + 1))}
         >
           Next
         </button>
         <select
           className="select sm"
           value={idx}
-          onChange={(e) => setIndex(Number(e.target.value))}
+          onChange={(e) => goToIndex(Number(e.target.value))}
         >
           {chunks.map((c, i) => (
             <option key={c.chunk_id} value={i}>
@@ -194,22 +208,6 @@ export function TranscriptReviewPanel() {
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <div className="tr-review-actions">
-          <button
-            type="button"
-            className="btn primary sm"
-            onClick={() => void saveChunk(chunk.chunk_id, true)}
-          >
-            Save chunk
-          </button>
-          <button
-            type="button"
-            className="btn ghost sm"
-            onClick={() => void saveChunk(chunk.chunk_id, true, true)}
-          >
-            Mark reviewed (no change)
-          </button>
-        </div>
       </div>
 
       <section className="tr-review-dock-section">
@@ -222,26 +220,9 @@ export function TranscriptReviewPanel() {
         />
       </section>
 
-      <div className="tr-review-footer">
-        {correctionStats.total > 0 ? (
-          <p className="tr-correction-summary">{formatCorrectionSummary(correctionStats)}</p>
-        ) : null}
-        <button
-          type="button"
-          className="btn primary"
-          data-testid="complete-transcript-review"
-          onClick={() => void complete(false)}
-        >
-          Complete transcript review
-        </button>
-        <button
-          type="button"
-          className="btn ghost sm"
-          onClick={() => void complete(true)}
-        >
-          Accept remaining &amp; complete
-        </button>
-      </div>
+      {correctionStats.total > 0 ? (
+        <p className="tr-correction-summary">{formatCorrectionSummary(correctionStats)}</p>
+      ) : null}
     </>
   );
 }

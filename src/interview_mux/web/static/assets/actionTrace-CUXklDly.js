@@ -1,0 +1,1 @@
+import{a as n}from"./index-Cr6RmrXw.js";async function r(t,a=50){return(await n(`/api/runs/${t}/action-trace?tail=${a}`)).entries??[]}async function o(t){return(await n(`/api/runs/${t}/action-trace/dump-last`,{method:"POST"})).text??""}export{o as dumpLastAction,r as fetchActionTrace};

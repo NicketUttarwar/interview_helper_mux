@@ -47,6 +47,7 @@ import {
   resolvePrecleanOffer,
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
+import { runStepPrimaryPrep } from "../utils/stepPrimaryPrep";
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { guardBusy } from "../utils/guardBusy";
 import { jobCompletionHint } from "../utils/jobCompletionHints";
@@ -54,10 +55,12 @@ import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { scrollToStageStep } from "../utils/activateStageStep";
 import {
   advancePipeline,
+  focusStageWorkbench,
   patchRunAfterWriteApproval,
   reconcileBusyRun,
   type ExecuteJobSource,
 } from "../utils/checkpointContinuation";
+import { substepIdToStepId } from "../utils/resolveActiveStep";
 import {
   clampPipelineSubTab,
   pipelineSubTabAvailability,
@@ -131,7 +134,7 @@ interface AppContextValue {
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
-  selectStage: (stageId: string) => Promise<void>;
+  selectStage: (stageId: string, opts?: { pinned?: boolean; stepId?: string | null }) => Promise<void>;
   executeJob: (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => Promise<void>;
   beginStageExecution: (opts: {
     kind: "execute" | "decline_reuse_and_run";
@@ -143,6 +146,10 @@ interface AppContextValue {
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  discardPendingWrites: (stageId: string) => Promise<void>;
+  completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
+  completeDisfluencyReview: () => Promise<void>;
+  approveSfxPrompts: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
   setCheckpointBusy: (busy: boolean) => void;
@@ -265,6 +272,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userDismissedActionRef = useRef(false);
+  const lastAutoOpenKeyRef = useRef<string | null>(null);
   const lastDismissedFocusKeyRef = useRef<string | null>(null);
   const userPinnedStageIdRef = useRef<string | null>(null);
   const runRefreshTickRef = useRef(0);
@@ -703,15 +711,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const selectStage = useCallback(
-    async (stageId: string, opts?: { pinned?: boolean }) => {
+    async (stageId: string, opts?: { pinned?: boolean; stepId?: string | null }) => {
       if (opts?.pinned !== false) {
         userPinnedStageIdRef.current = stageId;
         setPinnedStageId(stageId);
       }
+      const sameStage = selectedStageIdRef.current === stageId;
       setSelectedStageId(stageId);
       selectedStageIdRef.current = stageId;
-      setActiveStepIdState(null);
-      activeStepIdRef.current = null;
+      if (opts?.stepId !== undefined) {
+        setActiveStepIdState(opts.stepId);
+        activeStepIdRef.current = opts.stepId;
+      } else if (!sameStage) {
+        setActiveStepIdState(null);
+        activeStepIdRef.current = null;
+      }
       persistSessionUi();
     },
     [persistSessionUi],
@@ -765,9 +779,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pipelineFilterNeedsYouRef.current = true;
     }
     if (action.mode !== "needs_you" || !action.stageId) return;
-    void selectStage(action.stageId);
-    expandStage(action.stageId);
-  }, [operatorFocusKey, jobRunning, selectStage, expandStage, run]);
+    void focusStageWorkbench({
+      run,
+      stageId: action.stageId,
+      selectStage,
+      expandStage,
+      setActiveStepId,
+      setPipelineSubTab: setPipelineSubTabWrapped,
+      substepId: action.substepId,
+    });
+  }, [operatorFocusKey, jobRunning, selectStage, expandStage, setActiveStepId, setPipelineSubTabWrapped, run]);
 
   const syncJobRunning = useCallback(async (rid: string) => {
     try {
@@ -1317,12 +1338,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!current) return;
     const write = pendingWriteInfo(current);
     if (write?.paths.length) {
-      const sid = write.stageId;
-      if (sid) {
-        await selectStage(sid);
-        setPipelineSubTabWrapped("files");
-        expandStage(sid);
-      }
+      await focusStageWorkbench({
+        run: current,
+        stageId: write.stageId,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+        blockingReason: "write_approval",
+      });
       return;
     }
     if (
@@ -1331,25 +1355,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ) {
       const sid = current.job.pending_write_stage || current.job.stage;
       if (sid) {
-        await selectStage(sid);
-        setPipelineSubTabWrapped("files");
-        expandStage(sid);
+        await focusStageWorkbench({
+          run: current,
+          stageId: sid,
+          selectStage,
+          expandStage,
+          setActiveStepId,
+          setPipelineSubTab: setPipelineSubTabWrapped,
+          blockingReason: "write_approval",
+        });
       }
       return;
     }
     const blocking = current.journey?.blocking ?? current.blocking;
     if (blocking?.blocked && blocking.stage_id) {
       const sid = blocking.stage_id;
-      await selectStage(sid);
-      expandStage(sid);
-      if (blocking.reason === "stage_reuse") {
-        setPipelineSubTabWrapped("stage");
-        return;
-      }
-      if (blocking.reason === "write_approval") {
-        setPipelineSubTabWrapped("files");
-        return;
-      }
+      const substepId =
+        blocking.reason === "stage_reuse"
+          ? `stage_reuse:${sid}`
+          : blocking.reason === "handoff_review"
+            ? `handoff:${sid}`
+            : blocking.reason === "write_approval"
+              ? `write_approval:${sid}`
+              : null;
+      await focusStageWorkbench({
+        run: current,
+        stageId: sid,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+        substepId,
+        blockingReason: blocking.reason,
+      });
       if (
         blocking.reason === "transcript_review" ||
         blocking.reason === "disfluency_review" ||
@@ -1358,30 +1396,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
         blocking.reason === "analysis_profile" ||
         blocking.reason === "handoff_review"
       ) {
-        setPipelineSubTabWrapped("stage");
         playAttentionPing(alertsMuted);
-        return;
       }
+      return;
     }
     if (current.job?.needs_stage_reuse && current.job.stage) {
-      await selectStage(current.job.stage);
-      expandStage(current.job.stage);
-      setPipelineSubTabWrapped("stage");
+      await focusStageWorkbench({
+        run: current,
+        stageId: current.job.stage,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+        substepId: `stage_reuse:${current.job.stage}`,
+        blockingReason: "stage_reuse",
+      });
       return;
     }
     const handoffStage = findHandoffStage(current);
     if (handoffStage) {
-      await selectStage(handoffStage.id);
-      expandStage(handoffStage.id);
-      setPipelineSubTabWrapped("stage");
+      await focusStageWorkbench({
+        run: current,
+        stageId: handoffStage.id,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+        substepId: `handoff:${handoffStage.id}`,
+        blockingReason: "handoff_review",
+      });
       return;
     }
     if (hasActionRequiredStage(current.stages)) {
       const blocked = current.stages.find((s) => s.status === "action_required");
       if (blocked) {
-        await selectStage(blocked.id);
-        expandStage(blocked.id);
-        setPipelineSubTabWrapped("stage");
+        await focusStageWorkbench({
+          run: current,
+          stageId: blocked.id,
+          selectStage,
+          expandStage,
+          setActiveStepId,
+          setPipelineSubTab: setPipelineSubTabWrapped,
+        });
       }
       playAttentionPing(alertsMuted);
       return;
@@ -1396,15 +1452,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       next.id === "g1_vo_pickup" ||
       next.id === "g2_flow_select"
     ) {
-      await selectStage(next.id);
-      expandStage(next.id);
-      setPipelineSubTabWrapped("stage");
+      await focusStageWorkbench({
+        run: current,
+        stageId: next.id,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+      });
       return;
     }
     userDismissedActionRef.current = false;
-    await selectStage(next.id);
-    expandStage(next.id);
-    setPipelineSubTabWrapped("stage");
+    await focusStageWorkbench({
+      run: current,
+      stageId: next.id,
+      selectStage,
+      expandStage,
+      setActiveStepId,
+      setPipelineSubTab: setPipelineSubTabWrapped,
+      substepId: "run",
+    });
     setActivityLogTabState("live");
     activityLogTabRef.current = "live";
     showToast(`Starting ${next.title}…`);
@@ -1421,6 +1488,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshRun,
     setPipelineSubTabWrapped,
     expandStage,
+    setActiveStepId,
   ]);
 
   const advanceFromCheckpoint = useCallback(async () => {
@@ -1437,6 +1505,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectStage,
       expandStage,
       setActiveSubstepId: setActiveSubstepIdState,
+      setActiveStepId,
       setPipelineSubTab: setPipelineSubTabWrapped,
       showToast,
       refreshRun,
@@ -1465,6 +1534,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     runNextStage,
     setPipelineSubTabWrapped,
     collapseStage,
+    setActiveStepId,
   ]);
 
   const acknowledgeHandoff = useCallback(async () => {
@@ -1558,18 +1628,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       let keepBusyForJob = false;
       try {
+        await runStepPrimaryPrep("write_approval");
         const res = await api<{
           ok?: boolean;
           flushed?: string[];
           stage_id?: string;
           started_stage?: string | null;
-          job?: {
-            ok?: boolean;
-            error?: string;
-            stage?: string;
-            status?: string;
-            message?: string;
-          };
+          job?: JobState;
         }>(`/api/runs/${runId}/continue-after-checkpoint`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1655,6 +1720,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           selectStage,
           expandStage,
           setActiveSubstepId: setActiveSubstepIdState,
+          setActiveStepId,
           setPipelineSubTab: setPipelineSubTabWrapped,
           showToast,
           refreshRun,
@@ -1714,6 +1780,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveSubstepIdState,
       alertsMuted,
     ],
+  );
+
+  const discardPendingWrites = useCallback(
+    async (stageId: string) => {
+      if (!runId) return;
+      try {
+        await api(`/api/runs/${runId}/pending-writes/${stageId}/discard`, {
+          method: "POST",
+        });
+        showToast("Discarded staged outputs — re-run this step when ready.");
+        appendClientLog(`Write approval discarded for ${stageId}`, "info");
+        await refreshRun();
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Discard failed";
+        showToast(msg, "error");
+        appendClientLog(msg, "error", stageId);
+      }
+    },
+    [runId, showToast, appendClientLog, refreshRun],
+  );
+
+  const completeTranscriptReview = useCallback(
+    async (acceptUnreviewed = false) => {
+      if (!runId) return;
+      await runStepPrimaryPrep("transcript_review_flush");
+      await api(`/api/runs/${runId}/transcript-review/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
+      });
+      showToast("Transcript review complete");
+      await refreshRun();
+      await advanceFromCheckpoint();
+    },
+    [runId, showToast, refreshRun, advanceFromCheckpoint],
+  );
+
+  const completeDisfluencyReview = useCallback(
+    async () => {
+      if (!runId) return;
+      await api(`/api/runs/${runId}/disfluency-review/complete`, { method: "POST" });
+      showToast("Disfluency review complete");
+      await refreshRun();
+      await advanceFromCheckpoint();
+    },
+    [runId, showToast, refreshRun, advanceFromCheckpoint],
+  );
+
+  const approveSfxPrompts = useCallback(
+    async () => {
+      if (!runId) return;
+      await runStepPrimaryPrep("sfx_prompt_review");
+      await api(`/api/runs/${runId}/sfx-prompts/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved_by: "operator_gui" }),
+      });
+      showToast("Prompts approved.");
+      await refreshRun();
+      if (selectedStageIdRef.current) {
+        await selectStage(selectedStageIdRef.current);
+      }
+      await advanceFromCheckpoint();
+    },
+    [runId, showToast, refreshRun, selectStage, advanceFromCheckpoint],
   );
 
   const skipOptionalStage = useCallback(
@@ -1801,13 +1932,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       setActiveTabState("pipeline");
-      void selectStage(substep.stageId);
+      const stepId = substepIdToStepId(substep.id);
+      void selectStage(substep.stageId, { stepId });
       expandStage(substep.stageId);
-      const stepId = substep.id.includes(":") ? substep.id.split(":").pop()! : substep.id;
-      setActiveStepId(stepId);
-      scrollToStageStep(stepId);
+      if (stepId) scrollToStageStep(stepId);
     },
-    [selectStage, expandStage, setActiveStepId, showToast],
+    [selectStage, expandStage, showToast],
   );
 
   const redoFromStage = useCallback(async () => {
@@ -2095,6 +2225,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startJobPoll,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    discardPendingWrites,
+    completeTranscriptReview,
+    completeDisfluencyReview,
+    approveSfxPrompts,
     advanceFromCheckpoint,
     onCheckpointContinue,
     setCheckpointBusy,

@@ -101,8 +101,8 @@ function writeApprovalItem(run: RunData, stageId: string, message?: string): Att
     stageId,
     stageTitle: stage?.title || stageId.replace(/_/g, " "),
     title: fileCount
-      ? `Save ${fileCount} file${fileCount === 1 ? "" : "s"} before continuing`
-      : "Save outputs before continuing",
+      ? `Save all ${fileCount} files before continuing`
+      : "Save all files before continuing",
     message:
       message ||
       `${stage?.title || "This step"} produced outputs that need your approval before writing to disk.`,
