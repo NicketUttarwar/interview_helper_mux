@@ -3,8 +3,6 @@
 #
 # Usage:
 #   ./scripts/run.sh              # venv + deps + fresh GUI build + serve (default)
-#   ./scripts/run.sh --no-gui-build   # skip React build (requires existing static bundle)
-#   MUX_SKIP_GUI_BUILD=1 ./scripts/run.sh   # same as --no-gui-build
 #   ./scripts/run.sh --cli …      # headless pipeline mode (legacy)
 #
 # Error output (bootstrap + pipeline) is mirrored to stderr on this terminal when
@@ -44,16 +42,11 @@ export PYTHONUNBUFFERED=1
 export MUX_LAUNCHED_VIA=run.sh
 export MUX_MIRROR_OPERATOR_ERRORS="${MUX_MIRROR_OPERATOR_ERRORS:-1}"
 
-SKIP_GUI_BUILD="${MUX_SKIP_GUI_BUILD:-0}"
 CLI_MODE=0
 SERVE_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-gui-build)
-      SKIP_GUI_BUILD=1
-      shift
-      ;;
     --cli)
       CLI_MODE=1
       shift
@@ -66,12 +59,10 @@ Usage: ./scripts/run.sh [options] [serve args…]
   Default: refresh .venv deps, rebuild React GUI, clear session, serve on web_port.
 
 Options:
-  --no-gui-build    Skip ./scripts/build_gui.sh (requires a complete static bundle)
   --cli             Headless: python -m interview_mux … (no web server)
   -h, --help        Show this help
 
 Environment:
-  MUX_SKIP_GUI_BUILD=1   Same as --no-gui-build
   MUX_PRESERVE_SESSION=1 Keep GUI session pointer across this launch
 EOF
       exit 0
@@ -108,31 +99,12 @@ fi
 pip install -q "$ROOT"
 
 _CURRENT_STEP="gui_build"
-_gui_bundle_ok() {
-  "$VENV/bin/python" - <<'PY'
-from interview_mux.gui_bundle import bundle_contract_ok, needs_gui_build
-raise SystemExit(0 if bundle_contract_ok() and not needs_gui_build() else 1)
-PY
-}
-
-if [[ "$SKIP_GUI_BUILD" == "1" ]]; then
-  if ! _gui_bundle_ok; then
-    _bash_fatal "GUI static bundle is missing, incomplete, or stale API contract — run without --no-gui-build or ./scripts/build_gui.sh"
-    exit 1
-  fi
-  echo "Skipping GUI build (--no-gui-build / MUX_SKIP_GUI_BUILD=1) ..."
-else
-  if ! command -v npm >/dev/null 2>&1; then
-    _bash_fatal "npm is required to build the GUI. Install Node.js 20+ or pass --no-gui-build."
-    exit 1
-  fi
-  echo "Building React GUI (fresh bundle on every launch) ..."
-  "$ROOT/scripts/build_gui.sh"
-  if ! _gui_bundle_ok; then
-    _bash_fatal "GUI build finished but bundle is incomplete or missing checkpoint save API. Run: ./scripts/build_gui.sh"
-    exit 1
-  fi
+if ! command -v npm >/dev/null 2>&1; then
+  _bash_fatal "npm is required to build the GUI. Install Node.js 20+."
+  exit 1
 fi
+echo "Building React GUI (fresh bundle on every launch) ..."
+"$ROOT/scripts/build_gui.sh"
 
 if [[ "$CLI_MODE" == "1" ]]; then
   _CURRENT_STEP="cli"

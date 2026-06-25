@@ -4,11 +4,51 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FRONTEND="$ROOT/frontend"
+STATIC="$ROOT/src/interview_mux/web/static"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is required to build the GUI. Install Node.js 20+." >&2
   exit 1
 fi
+
+_python_for_verify() {
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then
+    echo "$ROOT/.venv/bin/python"
+  elif command -v python3.12 >/dev/null 2>&1; then
+    command -v python3.12
+  else
+    command -v python3
+  fi
+}
+
+_verify_bundle() {
+  local py
+  py="$(_python_for_verify)"
+  if ! PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$py" - <<'PY'
+import sys
+from interview_mux.gui_bundle import bundle_contract_ok, missing_referenced_assets, static_dir
+
+root = static_dir()
+missing = missing_referenced_assets(root)
+if missing:
+    print("GUI bundle incomplete — missing referenced assets:", ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+if not bundle_contract_ok(root):
+    print(
+        "GUI bundle is missing required checkpoint API markers "
+        "(expected continue-after-checkpoint in primary JS).",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+  then
+    echo "ERROR: GUI bundle verification failed." >&2
+    if [[ ! -d "$STATIC/assets" ]] || [[ -z "$(ls -A "$STATIC/assets" 2>/dev/null || true)" ]]; then
+      echo "       static/assets/ is empty or missing — rebuild with: ./scripts/build_gui.sh" >&2
+    fi
+    exit 1
+  fi
+}
 
 cd "$FRONTEND"
 
@@ -56,5 +96,11 @@ if ! _rollup_ok; then
   exit 1
 fi
 
-npm run build
+echo "Building React GUI ..."
+if ! npm run build; then
+  echo "ERROR: vite build failed. If static/assets/ is missing, rerun ./scripts/build_gui.sh." >&2
+  exit 1
+fi
+
+_verify_bundle
 echo "GUI built → src/interview_mux/web/static/"
