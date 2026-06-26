@@ -23,11 +23,12 @@ def _sha256_json(doc: dict[str, Any]) -> str:
 
 
 def build_derived_from(ctx) -> dict[str, Any]:
-    normalized = ctx.path("ingest", "normalized.wav")
+    normalized = ctx.read_path("ingest", "normalized.wav")
     transcript = ctx.read_json("transcript/full.json") if ctx.artifact_exists("transcript/full.json") else {}
-    preclean = ctx.path("preclean", "isolated.wav")
-    sap_path = ctx.path("understanding", "source_acoustic_profile.json")
-    sap = ctx.read_json("understanding/source_acoustic_profile.json") if sap_path.is_file() else {}
+    preclean = ctx.read_path("preclean", "isolated.wav")
+    sap = ctx.read_json("understanding/source_acoustic_profile.json") if ctx.artifact_exists(
+        "understanding/source_acoustic_profile.json"
+    ) else {}
 
     row: dict[str, Any] = {
         "normalized_wav": "ingest/normalized.wav",
@@ -61,7 +62,7 @@ def derived_from_matches(ctx, prior: dict[str, Any]) -> bool:
 
 
 def can_skip_rebuild(ctx) -> bool:
-    spine_path = ctx.path(*SPINE_PATH.split("/"))
+    spine_path = ctx.read_path(*SPINE_PATH.split("/"))
     if not spine_path.is_file():
         return False
     prior = ctx.read_json(SPINE_PATH)

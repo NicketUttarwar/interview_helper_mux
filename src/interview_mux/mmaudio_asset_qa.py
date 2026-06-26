@@ -189,7 +189,7 @@ def analyze_asset_wav(
 
 
 def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
-    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir = ctx.final_path("sound_design", "assets")
     plan_by_id: dict[str, dict[str, Any]] = {}
     sdp_palettes: list[dict[str, Any]] = []
     if ctx.artifact_exists("understanding/sound_design_plan.json"):

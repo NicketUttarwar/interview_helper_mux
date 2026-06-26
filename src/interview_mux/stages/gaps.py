@@ -114,7 +114,7 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
     from interview_mux.config import merged_config
 
     report = ctx.read_json("understanding/gap_report.json")
-    pickup = ctx.path("vo_pickup")
+    pickup = ctx.final_path("vo_pickup")
     missing = []
     normalized = 0
     mix_cfg = merged_config().get("mix") or {}

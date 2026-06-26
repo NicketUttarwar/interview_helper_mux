@@ -99,6 +99,13 @@ class RunContext:
         rel = "/".join(parts)
         return resolve_write_path(self, rel)
 
+    def read_path(self, *parts: str) -> Path:
+        """Resolved path for reading a prior-stage artifact (not the active staging root)."""
+        from interview_mux.write_staging import resolve_read_path
+
+        rel = "/".join(parts)
+        return resolve_read_path(self, rel)
+
     def write_json(
         self,
         rel: str,
@@ -140,18 +147,35 @@ class RunContext:
         if self.artifact_exists(rel):
             return
         from interview_mux.operator_trace import log_step, resolve_stage
+        from interview_mux.write_staging import staging_approval_hint, staging_read_trap_hint
 
         desc = label or rel
         sid = resolve_stage(stage)
         msg = f"Required artifact missing: {desc}"
+        hint = staging_approval_hint(self, rel) or staging_read_trap_hint(self, rel)
+        if hint:
+            msg = f"{msg}. {hint}"
         log_step(
             msg,
             ctx=self,
             stage=sid,
             level="error",
-            detail={"event": "missing_artifact", "path": rel, "journey_kind": "execute"},
+            detail={
+                "event": "missing_artifact",
+                "path": rel,
+                "journey_kind": "execute",
+                "remediation": hint,
+            },
         )
         raise FileNotFoundError(f"{msg} ({rel})")
+
+    def read_artifact_path(self, rel: str, *, stage: str | None = None, label: str | None = None) -> Path:
+        """Verify artifact exists and return the resolved read path (never the active staging root)."""
+        self.artifact_exists_required(rel, stage=stage, label=label)
+        p = self.read_path(*rel.split("/"))
+        if not p.is_file():
+            raise FileNotFoundError(f"Required artifact not readable: {label or rel} ({p})")
+        return p
 
     def read_json_required(
         self,

@@ -124,11 +124,10 @@ def require_disfluency_review_clear(ctx: RunContext) -> None:
 
 def check_g1_vo(ctx: RunContext) -> list[str]:
     """Return list of missing line_ids for delivery=record."""
-    report_path = ctx.path("understanding", "gap_report.json")
-    if not report_path.is_file():
+    if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     report = ctx.read_json("understanding/gap_report.json")
-    pickup = ctx.path("vo_pickup")
+    pickup = ctx.final_path("vo_pickup")
     missing: list[str] = []
     for line in report.get("interviewer_lines") or []:
         if line.get("delivery") != "record":

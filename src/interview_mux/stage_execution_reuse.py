@@ -317,7 +317,7 @@ def _expand_spec_paths_fixed(spec: str, ctx: RunContext) -> list[str]:
         rel_glob = spec[5:]
         if "/" in rel_glob:
             parent_rel, _, pat = rel_glob.partition("/")
-            parent = ctx.path(parent_rel)
+            parent = ctx.final_path(*parent_rel.split("/"))
         else:
             parent = ctx.run_dir
             pat = rel_glob
@@ -329,7 +329,7 @@ def _expand_spec_paths_fixed(spec: str, ctx: RunContext) -> list[str]:
             if p.is_file()
         ]
     if spec.endswith("/"):
-        dir_path = ctx.path(spec.rstrip("/"))
+        dir_path = ctx.final_path(*spec.rstrip("/").split("/"))
         if not dir_path.is_dir():
             return []
         return [
@@ -348,7 +348,7 @@ def prior_run_has_reusable_stage(source_ctx: RunContext, stage_id: str) -> bool:
     optional_globs = _STAGE_REUSE_OPTIONAL_GLOBS.get(stage_id, frozenset())
     if not specs:
         if stage_id == "vo_ingest":
-            pickup = source_ctx.path("vo_pickup")
+            pickup = source_ctx.final_path("vo_pickup")
             return pickup.is_dir() and any(pickup.rglob("*.wav"))
         return True
     for spec in specs:
@@ -451,7 +451,7 @@ def list_copy_paths_for_stage(source_ctx: RunContext, stage_id: str) -> list[str
     for spec in specs:
         paths.extend(_expand_spec_paths_fixed(spec, source_ctx))
     if stage_id == "vo_ingest":
-        pickup = source_ctx.path("vo_pickup")
+        pickup = source_ctx.final_path("vo_pickup")
         if pickup.is_dir():
             for p in sorted(pickup.glob("*.wav")):
                 rel = str(p.relative_to(source_ctx.run_dir)).replace("\\", "/")

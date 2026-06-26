@@ -583,11 +583,10 @@ def _collect_generation_items(
 
 
 def _load_sound_design_plan(ctx: RunContext) -> dict:
-    path = ctx.path("understanding/sound_design_plan.json")
-    if not path.is_file():
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = ctx.read_json("understanding/sound_design_plan.json")
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -595,7 +594,7 @@ def _load_sound_design_plan(ctx: RunContext) -> dict:
 
 def _load_fallback_cues(*, ctx: RunContext, brief_path: str, profile: str) -> list[dict]:
     """Fallback cues for runs without sound design plan asset definitions."""
-    if ctx.path(brief_path).is_file():
+    if ctx.artifact_exists(brief_path):
         brief = ctx.read_json_required(brief_path)
         return _collect_cues(brief, profile)
     return [{"description": "short neutral stinger", "duration_ms": 1500, "role": "chapter_stinger"}]
@@ -615,10 +614,9 @@ def _dedupe_fallback_cues(cues: list[dict]) -> list[dict]:
 
 def _mirror_assets_to_flow_dir(*, ctx: RunContext, asset_ids: list[str], target_dir: Path) -> None:
     """Copy canonical sound_design/assets WAVs into flow-specific sfx/ for v1 paths."""
-    source_dir = ctx.path("sound_design", "assets")
     target_dir.mkdir(parents=True, exist_ok=True)
     for asset_id in asset_ids:
-        src = source_dir / f"{asset_id}.wav"
+        src = ctx.read_path("sound_design", "assets", f"{asset_id}.wav")
         if not src.is_file():
             continue
         dst = target_dir / f"{asset_id}.wav"

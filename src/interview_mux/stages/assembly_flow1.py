@@ -44,7 +44,7 @@ def _wav_duration_ms(path: Path) -> int:
 
 def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
     """Resolve pickup WAV for a gap line (clean/ preferred when present)."""
-    pickup = ctx.path("vo_pickup")
+    pickup = ctx.final_path("vo_pickup")
     clean = pickup / "clean"
     normalized = pickup / "normalized"
     lid = line.get("line_id", "")
@@ -390,7 +390,7 @@ def run_mux(ctx: RunContext) -> Path:
 def run_preview(ctx: RunContext) -> Path:
     """Build Flow 1 assembly preview: speech + recorded VO pickup, no SFX."""
     edl = ctx.read_json("flow_1_master/edl.json")
-    source = ctx.path("ingest", "normalized.wav")
+    source = ctx.read_path("ingest", "normalized.wav")
     work = ctx.path("flow_1_master", "_preview_clips")
     work.mkdir(parents=True, exist_ok=True)
     clip_paths: list[Path] = []
@@ -437,7 +437,7 @@ def run_preview(ctx: RunContext) -> Path:
                     raise RuntimeError(
                         f"assembly_preview: disfluency clip {clip.get('event_id') or i} missing source_path"
                     )
-                fill_src = ctx.path(str(src_rel))
+                fill_src = ctx.read_path(str(src_rel))
                 if not fill_src.is_file():
                     raise FileNotFoundError(
                         f"assembly_preview: disfluency clip missing WAV: {src_rel}"
@@ -469,7 +469,7 @@ def run_preview(ctx: RunContext) -> Path:
                 raise RuntimeError(
                     f"assembly_preview: vo_pickup clip {clip.get('line_id') or i} missing source_path"
                 )
-            vo_src = ctx.path(src_rel)
+            vo_src = ctx.read_path(src_rel)
             if not vo_src.is_file():
                 raise FileNotFoundError(f"assembly_preview: vo_pickup clip missing WAV: {src_rel}")
             run_command(

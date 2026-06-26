@@ -18,6 +18,7 @@ export function AppShell() {
     runId,
     dumpLastStep,
     traceAction,
+    activityLogCollapsed,
   } = useApp();
 
   useEffect(() => {
@@ -35,7 +36,9 @@ export function AppShell() {
   }, [traceAction]);
 
   return (
-    <div className={`operator-app${runId ? " operator-app-with-dock" : ""}`}>
+    <div
+      className={`operator-app${runId ? " operator-app-with-dock" : ""}${activityLogCollapsed ? " operator-dock-collapsed" : ""}`}
+    >
       <LiveStatusBar />
       <AppTabs />
       <div className="operator-main-row">

@@ -139,11 +139,13 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
 
 def run_source_acoustic_profile(ctx: RunContext) -> None:
     transcript = ctx.read_json("transcript/full.json")
-    normalized_wav = ctx.path("ingest", "normalized.wav")
-    if not normalized_wav.is_file():
-        raise FileNotFoundError(normalized_wav)
+    normalized_wav = ctx.read_artifact_path(
+        "ingest/normalized.wav",
+        stage="source_acoustic_profile",
+        label="normalized interview audio",
+    )
 
-    preclean = ctx.path("preclean", "isolated.wav")
+    preclean = ctx.read_path("preclean", "isolated.wav")
     analysis_wav = preclean if preclean.is_file() else normalized_wav
 
     with logged_step("source_acoustic_profile/derive_metrics", ctx=ctx, stage="source_acoustic_profile"):

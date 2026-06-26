@@ -185,6 +185,50 @@ def test_disfluency_extract_reads_prior_stage_artifacts(
     assert ctx.artifact_exists("transcript/disfluencies.json")
 
 
+def test_source_acoustic_profile_reads_prior_stage_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """source_acoustic_profile must read approved ingest audio, not its own staging root."""
+    import math
+    import wave
+
+    from interview_mux.stages.understanding import run_source_acoustic_profile
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    wav = ctx.final_path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        n = 16000
+        amp = 8000
+        frames = bytearray()
+        for i in range(n):
+            sample = int(amp * math.sin(2.0 * math.pi * 220.0 * (i / 16000)))
+            frames += int(sample).to_bytes(2, byteorder="little", signed=True)
+        wf.writeframes(bytes(frames))
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello world",
+            "words": [
+                {"text": "hello", "start_ms": 0, "end_ms": 400, "speaker_id": "spk_0"},
+                {"text": "world", "start_ms": 450, "end_ms": 900, "speaker_id": "spk_0"},
+            ],
+            "segments": [],
+        },
+        skip_handoff=True,
+    )
+    enter_stage_staging("source_acoustic_profile")
+    try:
+        assert not ctx.path("ingest", "normalized.wav").is_file()
+        run_source_acoustic_profile(ctx)
+    finally:
+        exit_stage_staging()
+    assert ctx.artifact_exists("understanding/source_acoustic_profile.json")
+
+
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")

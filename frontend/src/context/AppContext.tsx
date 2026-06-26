@@ -32,6 +32,7 @@ import type {
 import { formatApiError } from "../utils/safeApi";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { countRequiredAttention } from "../utils/attentionQueue";
+import { maybePingForRequiredAttention } from "../utils/attentionPing";
 import { resolveOperatorAction } from "../utils/resolveOperatorAction";
 import {
   actionSummaryText,
@@ -184,27 +185,6 @@ export function useApp(): AppContextValue {
   return ctx;
 }
 
-function playAttentionPing(muted: boolean): void {
-  if (muted) return;
-  try {
-    const ctx = new (window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.value = 0.12;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-    osc.stop(ctx.currentTime + 0.25);
-  } catch {
-    /* Web Audio unavailable */
-  }
-}
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTabState] = useState<AppTab>("start");
   const [pipelineSubTab, setPipelineSubTab] = useState<PipelineSubTab>("stage");
@@ -270,9 +250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pipelineCollapsedRef = useRef<string[]>([]);
   const pipelineExpandedDoneRef = useRef<string[]>([]);
   const pipelineFilterNeedsYouRef = useRef(true);
-  const lastNotifiedTsRef = useRef<string | null>(null);
-  const lastActionRequiredIdRef = useRef<string | null>(null);
-  const jobStatusPrevRef = useRef<string | null>(null);
+  const lastAttentionPingKeyRef = useRef("");
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -498,21 +476,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAlertsMutedState(muted);
   }, []);
 
-  const renderLogWithAlerts = useCallback(
-    (entries: LogEntry[]) => {
-      setLogEntries(entries);
-      const prevCount = logCountRef.current;
-      logCountRef.current = entries.length;
-      if (entries.length > prevCount) {
-        const newest = entries[entries.length - 1];
-        if (newest.level === "action" && newest.ts !== lastNotifiedTsRef.current) {
-          lastNotifiedTsRef.current = newest.ts;
-          playAttentionPing(alertsMuted);
-        }
-      }
-    },
-    [alertsMuted],
-  );
+  const renderLogWithAlerts = useCallback((entries: LogEntry[]) => {
+    setLogEntries(entries);
+    logCountRef.current = entries.length;
+  }, []);
 
   const refreshHome = useCallback(async (opts: { enrichRuns?: boolean } = {}) => {
     const enrichRuns = opts.enrichRuns !== false;
@@ -894,7 +861,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               polled.awaiting_write_approval
             ) {
               showToast("Review staged outputs before continuing.", "info");
-              playAttentionPing(alertsMuted);
               const sid = polled.pending_write_stage || polled.stage;
               if (sid) {
                 void selectStage(sid);
@@ -938,7 +904,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     stopJobPoll,
     pollLog,
     openActionModal,
-    alertsMuted,
     syncJobRunning,
     maybeAutoSelectRunningStage,
     focusPendingStage,
@@ -995,14 +960,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (res.needs_stage_reuse && res.stage) {
           await selectStage(res.stage);
           expandStage(res.stage);
-          playAttentionPing(alertsMuted);
           await refreshRun();
           return false;
         }
         if (res.awaiting_write_approval && res.pending_write_stage) {
           await selectStage(res.pending_write_stage);
           expandStage(res.pending_write_stage);
-          playAttentionPing(alertsMuted);
           await refreshRun();
           return false;
         }
@@ -1010,14 +973,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       appendClientLog("Pipeline job started — streaming logs below.", "info", stageForLog);
-      const stageLabel = stageForLog?.replace(/_/g, " ") ?? "Step";
-      showToast(`${stageLabel} started — watch the activity log for progress.`);
       await pollLog(true);
       startJobPoll();
       return true;
     },
     [
-      alertsMuted,
       showToast,
       refreshRun,
       startJobPoll,
@@ -1403,16 +1363,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         substepId,
         blockingReason: blocking.reason,
       });
-      if (
-        blocking.reason === "transcript_review" ||
-        blocking.reason === "disfluency_review" ||
-        blocking.reason === "g1_vo_pickup" ||
-        blocking.reason === "g2_flow_select" ||
-        blocking.reason === "analysis_profile" ||
-        blocking.reason === "handoff_review"
-      ) {
-        playAttentionPing(alertsMuted);
-      }
       return;
     }
     if (current.job?.needs_stage_reuse && current.job.stage) {
@@ -1454,7 +1404,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setPipelineSubTab: setPipelineSubTabWrapped,
         });
       }
-      playAttentionPing(alertsMuted);
       return;
     }
     const next = findNextRunnableStage(current.stages, current.meta);
@@ -1491,7 +1440,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [
     run,
     runId,
-    alertsMuted,
     showToast,
     selectStage,
     executeJob,
@@ -1717,7 +1665,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 "Files saved — choose reuse from a prior run or run ingest fresh.",
                 "success",
               );
-              playAttentionPing(alertsMuted);
             }
             await refreshRun();
             await pollLog(true);
@@ -1796,7 +1743,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       handleJobStartResponse,
       collapseStage,
       setActiveSubstepIdState,
-      alertsMuted,
     ],
   );
 
@@ -2145,21 +2091,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [runId, jobRunning, pollLog]);
 
   useEffect(() => {
-    if (!run) return;
-    const job = run.job;
-    const actionStage = run.stages.find((s) => s.status === "action_required");
-    if (job?.status === "gate" || job?.status === "needs_operator") {
-      if (jobStatusPrevRef.current !== job.status) playAttentionPing(alertsMuted);
-    } else if (actionStage) {
-      if (lastActionRequiredIdRef.current !== actionStage.id) {
-        lastActionRequiredIdRef.current = actionStage.id;
-        playAttentionPing(alertsMuted);
-      }
-    } else {
-      lastActionRequiredIdRef.current = null;
-    }
-    jobStatusPrevRef.current = job?.status ?? null;
-  }, [run, alertsMuted]);
+    maybePingForRequiredAttention(
+      run,
+      alertsMuted,
+      lastAttentionPingKeyRef,
+      mergedApiGrants(),
+    );
+  }, [run, alertsMuted, mergedApiGrants]);
 
   useEffect(() => {
     if (!run) return;

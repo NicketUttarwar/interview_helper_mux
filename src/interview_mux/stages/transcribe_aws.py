@@ -10,7 +10,6 @@ from interview_mux.config import merged_config, require_secret
 from interview_mux.operator_subprocess import format_command, run_command, touch_job_message
 from interview_mux.operator_trace import log_api_call, logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.write_staging import resolve_read_path
 
 
 def _aws(ctx: RunContext, *args: str) -> Any:
@@ -48,7 +47,7 @@ def run_transcribe(ctx: RunContext) -> None:
         stage="transcribe",
         label="Normalized audio from ingest",
     )
-    normalized = resolve_read_path(ctx, "ingest/normalized.wav")
+    normalized = ctx.read_path("ingest", "normalized.wav")
 
     s3_uri = f"s3://{bucket}/{input_key}"
     ctx.log(

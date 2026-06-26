@@ -56,7 +56,7 @@ def preclean_was_skipped(ctx: RunContext) -> bool:
         return True
     if not ctx.is_done("audio_preclean"):
         return False
-    return not ctx.artifact_exists("preclean/isolated.wav") and not ctx.path(
+    return not ctx.artifact_exists("preclean/isolated.wav") and not ctx.final_path(
         "vo_pickup", "clean"
     ).is_dir()
 
@@ -86,7 +86,7 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         )
         return None
 
-    source = ctx.path("ingest", "normalized.wav") if scope == "normalized_rebuild" else ctx.input_audio()
+    source = ctx.read_path("ingest", "normalized.wav") if scope == "normalized_rebuild" else ctx.input_audio()
     if not source.is_file():
         raise FileNotFoundError(f"Audio pre-clean source not found: {source}")
 
@@ -165,7 +165,7 @@ def invalidate_after_preclean_accept(ctx: RunContext, scope: str) -> None:
 
 
 def _run_vo_pickup_preclean(ctx: RunContext) -> None:
-    pickup = ctx.path("vo_pickup")
+    pickup = ctx.final_path("vo_pickup")
     sources = sorted(p for p in pickup.glob("*.wav") if p.is_file())
     if not sources:
         ensure_preclean_skipped(

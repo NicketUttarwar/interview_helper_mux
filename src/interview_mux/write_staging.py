@@ -73,6 +73,43 @@ def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     return staged_path(ctx, rel, stage_id=sid)
 
 
+def staging_approval_hint(ctx: RunContext, rel: str) -> str | None:
+    """If rel exists only in unapproved staging, return an operator remediation hint."""
+    if is_operational_path(rel):
+        return None
+    if ctx.run_dir.joinpath(*rel.split("/")).is_file():
+        return None
+    pending_root = ctx.run_dir / ".pending_writes"
+    if not pending_root.is_dir():
+        return None
+    for stage_dir in sorted(pending_root.iterdir()):
+        if not stage_dir.is_dir():
+            continue
+        candidate = stage_dir.joinpath(*rel.split("/"))
+        if candidate.is_file():
+            return (
+                f"{rel} is awaiting write approval for stage '{stage_dir.name}' — "
+                "open the review modal and choose Save & continue before running later stages."
+            )
+    return None
+
+
+def staging_read_trap_hint(ctx: RunContext, rel: str) -> str | None:
+    """Hint when an approved artifact exists but the active staging write root would miss it."""
+    if is_operational_path(rel):
+        return None
+    resolved = resolve_read_path(ctx, rel)
+    if not resolved.is_file():
+        return staging_approval_hint(ctx, rel)
+    staged = staged_path(ctx, rel)
+    if staged == resolved or staged.is_file():
+        return None
+    return (
+        f"{rel} exists at {resolved} but not under the active staging directory ({staged}). "
+        "Prior-stage inputs must be read via read_path(), not path()."
+    )
+
+
 def resolve_read_path(ctx: RunContext, rel: str) -> Path:
     """Prefer staged copy when present."""
     if is_operational_path(rel):
@@ -312,6 +349,9 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     ctx_token = active_run_context.set(ctx)
     try:
         log_step(f"Preparing stage: {stage_id}", ctx=ctx, stage=stage_id)
+        from interview_mux.stage_input_checks import require_stage_inputs
+
+        require_stage_inputs(ctx, stage_id)
         if write_approval_enabled():
             enter_stage_staging(stage_id)
         try:

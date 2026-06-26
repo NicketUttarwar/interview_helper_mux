@@ -19,7 +19,7 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
     cfg = merged_config()
     target = target_lufs_for_flow(flow_name, config=cfg)
     true_peak = float(thresholds.max_true_peak_dbtp)
-    assembly = ctx.path(assembly_rel)
+    assembly = ctx.read_path(assembly_rel)
     master = ctx.path(master_rel)
     if not assembly.is_file():
         raise FileNotFoundError(assembly)

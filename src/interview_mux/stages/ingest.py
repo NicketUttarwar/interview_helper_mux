@@ -63,7 +63,7 @@ def _sha256(
 
 def _ingest_source(ctx: RunContext) -> tuple[Path, Path | None]:
     """Return (ffmpeg input path, optional preclean/isolated.wav path)."""
-    isolated = ctx.path("preclean", "isolated.wav")
+    isolated = ctx.read_path("preclean", "isolated.wav")
     if isolated.is_file():
         return isolated, isolated
     raw = ctx.input_audio()

@@ -197,7 +197,10 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
         def path(self, *parts: str) -> Path:
             return self.run_dir.joinpath(*parts)
 
-        def log(self, message: str, *, level: str, stage: str, detail: str | None = None) -> None:
+        def read_path(self, *parts: str) -> Path:
+            return self.path(*parts)
+
+        def log(self, message: str, *, level: str, stage: str, detail: str | None = None, **kwargs) -> None:
             self.logs.append((level, stage, message if detail is None else f"{message}::{detail}"))
 
         def mark_done(self, stage: str) -> None:
@@ -254,6 +257,9 @@ def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
         def path(self, *parts: str) -> Path:
             return self.run_dir.joinpath(*parts)
 
+        def read_path(self, *parts: str) -> Path:
+            return self.path(*parts)
+
         def log(
             self,
             message: str,
@@ -261,6 +267,7 @@ def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
             level: str = "info",
             stage: str | None = None,
             detail: str | dict | None = None,
+            **kwargs,
         ) -> None:
             self.logs.append((message, stage))
 

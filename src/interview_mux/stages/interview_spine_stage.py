@@ -36,10 +36,16 @@ def run_interview_spine_build(ctx: RunContext) -> None:
     sap = ctx.read_json("understanding/source_acoustic_profile.json")
     pace_class = str((sap.get("pacing") or {}).get("pace_class") or "conversational")
 
-    preclean = ctx.path("preclean", "isolated.wav")
-    wav_path = preclean if preclean.is_file() else ctx.path("ingest", "normalized.wav")
-    if not wav_path.is_file():
-        raise FileNotFoundError(wav_path)
+    preclean = ctx.read_path("preclean", "isolated.wav")
+    wav_path = (
+        preclean
+        if preclean.is_file()
+        else ctx.read_artifact_path(
+            "ingest/normalized.wav",
+            stage="interview_spine_build",
+            label="normalized interview audio",
+        )
+    )
 
     window_sec = float(cfg.get("window_sec_default", 10))
     if pace_class == "dense":

@@ -169,7 +169,7 @@ def validate_pre_mix(ctx: RunContext, flow: str) -> list[str]:
         aid = str(asset.get("asset_id", ""))
         if not aid:
             continue
-        wav = ctx.path("sound_design", "assets", f"{aid}.wav")
+        wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
         if not wav.is_file():
             errors.append(f"missing WAV for asset_id {aid}")
     return errors

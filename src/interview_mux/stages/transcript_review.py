@@ -14,7 +14,6 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
-from interview_mux.write_staging import resolve_read_path
 
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
@@ -51,7 +50,7 @@ def run_transcript_review_build(ctx: RunContext) -> None:
     )
 
     full = ctx.read_json("transcript/full.json")
-    normalized = resolve_read_path(ctx, "ingest/normalized.wav")
+    normalized = ctx.read_path("ingest", "normalized.wav")
     with logged_step("transcript_review_build/chunk_queue", ctx=ctx, stage="transcript_review_build"):
         chunks = _build_chunks(full)
         clips_dir = ctx.path("transcript", "review_clips")

@@ -92,7 +92,7 @@ def run_placement_qa(ctx: RunContext) -> dict[str, Any]:
     for cue in flow1_cues:
         if isinstance(cue, dict) and cue.get("asset_id"):
             cue_by_asset[str(cue.get("asset_id"))] = cue
-    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir = ctx.final_path("sound_design", "assets")
     for asset in sdp.get("assets") or []:
         if not isinstance(asset, dict):
             continue
@@ -102,7 +102,7 @@ def run_placement_qa(ctx: RunContext) -> dict[str, Any]:
         if aid in by_asset:
             adjustments.append(by_asset[aid])
             continue
-        wav = assets_dir / f"{aid}.wav"
+        wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
         role = str(asset.get("role", ""))
         row: dict[str, Any] = {"asset_id": aid, "role": role}
         cue = cue_by_asset.get(aid) or {}

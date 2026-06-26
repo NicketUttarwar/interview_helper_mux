@@ -15,10 +15,8 @@ from interview_mux.run_context import RunContext
 
 
 def _resolve_audio(ctx: RunContext) -> Path:
-    from interview_mux.write_staging import resolve_read_path
-
     for rel in ("preclean/isolated.wav", "ingest/normalized.wav"):
-        p = resolve_read_path(ctx, rel)
+        p = ctx.read_path(*rel.split("/"))
         if p.is_file():
             return p
     raise FileNotFoundError("No normalized audio for disfluency extract")

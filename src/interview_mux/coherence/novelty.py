@@ -41,7 +41,7 @@ def compute_novelty_scores(windows: list[dict[str, Any]], ctx) -> dict[str, floa
 
 
 def _load_embeddings(ctx) -> tuple[np.ndarray, list[str]] | None:
-    sidecar = ctx.path(*SPINE_EMBEDDINGS_REL.split("/"))
+    sidecar = ctx.read_path(*SPINE_EMBEDDINGS_REL.split("/"))
     if not sidecar.is_file():
         return None
     data = np.load(sidecar, allow_pickle=True)

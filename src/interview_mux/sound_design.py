@@ -111,7 +111,7 @@ def mix_flow1(ctx: RunContext) -> Path:
         ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
         edl = ctx.read_json("flow_1_master/edl.json")
         excluded_windows = _disfluency_excluded_windows(edl)
-        source = load_audio(ctx.path("ingest", "normalized.wav"))
+        source = load_audio(ctx.read_path("ingest", "normalized.wav"))
 
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     segment_timing: dict[str, tuple[int, int]] = {}
@@ -145,7 +145,7 @@ def mix_flow1(ctx: RunContext) -> Path:
                 src_rel = clip.get("source_path")
                 line_id = str(clip.get("line_id") or "")
                 if src_rel:
-                    vo_path = ctx.path(str(src_rel))
+                    vo_path = ctx.read_path(str(src_rel))
                     if vo_path.is_file():
                         audio = load_audio(vo_path)
                     else:
@@ -159,7 +159,7 @@ def mix_flow1(ctx: RunContext) -> Path:
             elif ctype == "disfluency":
                 src_rel = clip.get("source_path")
                 if src_rel:
-                    fill_path = ctx.path(str(src_rel))
+                    fill_path = ctx.read_path(str(src_rel))
                     if fill_path.is_file():
                         audio = load_audio(fill_path)
                     else:
@@ -279,7 +279,7 @@ def mix_flow2(ctx: RunContext) -> Path:
         selection = ctx.read_json("flow_2_highlights/selection.json")
         manifest = ctx.read_json("segments/manifest.json")
         by_id = {s["segment_id"]: s for s in (manifest.get("segments") or [])}
-        source = load_audio(ctx.path("ingest", "normalized.wav"))
+        source = load_audio(ctx.read_path("ingest", "normalized.wav"))
         highlights = selection.get("highlights") or []
         if not highlights:
             raise RuntimeError("mix_flow2: no highlight clips in selection")
@@ -297,7 +297,7 @@ def mix_flow2(ctx: RunContext) -> Path:
         elif cue_plan.get("before_timeline"):
             ctx.log("mix_flow2: cold_open skipped (underscore_policy=skip)", level="info", stage="mix_flow2")
 
-        sfx_dir = ctx.path("flow_2_highlights", "sfx")
+        sfx_dir = ctx.final_path("flow_2_highlights", "sfx")
         legacy_sfx = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
         legacy_idx = 0
         rendered = 0
@@ -565,7 +565,7 @@ def flow1_overlays_from_sdp(
 def flow1_overlays_legacy(
     ctx: RunContext, *, segment_timing: dict[str, tuple[int, int]], timeline_ms: int
 ) -> list[dict[str, Any]]:
-    sfx_dir = ctx.path("flow_1_master", "sfx")
+    sfx_dir = ctx.final_path("flow_1_master", "sfx")
     sfx_files = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
     if not sfx_files:
         return []
@@ -950,11 +950,10 @@ def resolve_between_clip_transition(
 
 
 def load_sound_design_plan(ctx: RunContext) -> dict:
-    path = ctx.path("understanding", "sound_design_plan.json")
-    if not path.is_file():
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = ctx.read_json("understanding/sound_design_plan.json")
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -964,13 +963,13 @@ def resolve_asset_path(ctx: RunContext, *, asset_id: str, generated: object) -> 
     if isinstance(generated, dict):
         rel = generated.get(asset_id)
         if isinstance(rel, str):
-            candidate = ctx.path(rel)
+            candidate = ctx.read_path(rel)
             if candidate.is_file():
                 return candidate
     for path in (
-        ctx.path("sound_design", "assets", f"{asset_id}.wav"),
-        ctx.path("flow_1_master", "sfx", f"{asset_id}.wav"),
-        ctx.path("flow_2_highlights", "sfx", f"{asset_id}.wav"),
+        ctx.read_path("sound_design", "assets", f"{asset_id}.wav"),
+        ctx.read_path("flow_1_master", "sfx", f"{asset_id}.wav"),
+        ctx.read_path("flow_2_highlights", "sfx", f"{asset_id}.wav"),
     ):
         if path.is_file():
             return path
@@ -1080,7 +1079,7 @@ def render_sfx_under_speech_preview(ctx: RunContext, asset_id: str) -> Path:
         (
             p
             for p in (
-                ctx.path("ingest", "normalized.wav"),
+                ctx.read_path("ingest", "normalized.wav"),
                 ctx.input_audio(),
             )
             if p.is_file()

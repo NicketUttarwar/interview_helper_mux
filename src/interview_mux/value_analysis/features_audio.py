@@ -14,7 +14,7 @@ _SILENCE_DBFS = -45.0
 
 def extract_audio_features(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     require_value_analysis_flag(cfg, "audio_features")
-    wav_path = ctx.path("ingest", "normalized.wav")
+    wav_path = ctx.read_path("ingest", "normalized.wav")
     if not wav_path.is_file():
         raise FileNotFoundError(f"Missing normalized audio: {wav_path}")
 

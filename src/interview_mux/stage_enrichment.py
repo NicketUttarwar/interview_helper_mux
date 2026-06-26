@@ -104,7 +104,7 @@ def pause_ladder_hints(ctx: RunContext) -> PauseLadderHints:
 
 
 def _energy_windows(ctx: RunContext) -> tuple[np.ndarray, np.ndarray, float] | None:
-    return energy_windows_from_path(ctx.path("ingest", "normalized.wav"), window_sec=_WINDOW_SEC)
+    return energy_windows_from_path(ctx.read_path("ingest", "normalized.wav"), window_sec=_WINDOW_SEC)
 
 
 def emphasis_regions_for_segments(ctx: RunContext, *, max_regions: int = 24) -> list[dict[str, Any]]:

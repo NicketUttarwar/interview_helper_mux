@@ -119,7 +119,7 @@ def _compute_sfx_generated(ctx: RunContext, selected: str | None) -> bool:
         return False
     for asset in assets:
         aid = str(asset.get("asset_id"))
-        if not ctx.path("sound_design", "assets", f"{aid}.wav").is_file():
+        if not ctx.artifact_exists(f"sound_design/assets/{aid}.wav"):
             return False
     return True
 

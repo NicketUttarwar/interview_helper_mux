@@ -73,7 +73,7 @@ def extract_and_write_value_features(
             detail=json.dumps(detail, ensure_ascii=False),
         )
     if "audio" in selected:
-        if not ctx.path("ingest", "normalized.wav").is_file():
+        if not ctx.artifact_exists("ingest/normalized.wav"):
             ctx.log(
                 "value_analysis_skip_no_wav",
                 level="warning",
@@ -98,7 +98,7 @@ def maybe_auto_extract_value_features(ctx: RunContext, *, cfg: dict[str, Any] | 
         return None
 
     selected = profiles_for_flags(resolved)
-    if "audio" in selected and not ctx.path("ingest", "normalized.wav").is_file():
+    if "audio" in selected and not ctx.artifact_exists("ingest/normalized.wav"):
         ctx.log(
             "value_analysis_skip_no_wav",
             level="warning",

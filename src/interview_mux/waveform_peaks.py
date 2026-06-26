@@ -16,7 +16,7 @@ _WINDOW_MS = 100
 
 
 def _resolve_audio_path(ctx: RunContext, rel_path: str) -> Path:
-    p = ctx.path(rel_path)
+    p = ctx.read_path(rel_path)
     if not p.is_file():
         raise FileNotFoundError(f"Audio not found: {rel_path}")
     return p
@@ -42,7 +42,7 @@ def generate_peaks(audio_path: Path, *, window_ms: int = _WINDOW_MS) -> list[dic
 
 
 def load_or_generate_peaks(ctx: RunContext, rel_path: str) -> dict[str, Any]:
-    cache_path = ctx.path(PEAKS_REL)
+    cache_path = ctx.read_path(PEAKS_REL)
     if rel_path == "ingest/normalized.wav" and cache_path.is_file():
         cached = read_json(cache_path)
         if cached.get("source_path") == rel_path:
@@ -57,5 +57,5 @@ def load_or_generate_peaks(ctx: RunContext, rel_path: str) -> dict[str, Any]:
         "peaks": peaks,
     }
     if rel_path == "ingest/normalized.wav":
-        write_json(cache_path, payload)
+        write_json(ctx.path(PEAKS_REL), payload)
     return payload
