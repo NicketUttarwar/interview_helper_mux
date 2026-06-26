@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOptionalStageSkipped, precleanDismissedAtCheckpoint } from "./preclean";
+import { findNextRunnableStage, isOptionalStageSkipped, precleanDismissedAtCheckpoint } from "./preclean";
 import type { StageInfo } from "../types";
 
 describe("preclean", () => {
@@ -27,5 +27,32 @@ describe("preclean", () => {
       status: "pending",
     };
     expect(isOptionalStageSkipped(stage, {})).toBe(false);
+  });
+
+  it("prioritizes action_required gates before pending automated stages", () => {
+    const stages: StageInfo[] = [
+      {
+        id: "transcript_review_build",
+        title: "STT review prep",
+        description: "",
+        status: "done",
+        phase: "analysis",
+      },
+      {
+        id: "transcript_review",
+        title: "Transcript review",
+        description: "",
+        status: "action_required",
+        phase: "gate",
+      },
+      {
+        id: "disfluency_extract",
+        title: "Disfluency extract",
+        description: "",
+        status: "pending",
+        phase: "analysis",
+      },
+    ];
+    expect(findNextRunnableStage(stages)?.id).toBe("transcript_review");
   });
 });

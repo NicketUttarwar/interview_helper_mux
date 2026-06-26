@@ -63,6 +63,22 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
 }
 
 
+def test_operator_linear_stage_order() -> None:
+    from interview_mux.web.stages import operator_linear_stage_ids
+
+    ids = operator_linear_stage_ids(None)
+    assert ids.index("transcript_review_build") < ids.index("transcript_review")
+    assert ids.index("transcript_review") < ids.index("disfluency_extract")
+    assert ids.index("disfluency_extract") < ids.index("disfluency_review")
+    assert ids.index("disfluency_review") < ids.index("source_acoustic_profile")
+    assert ids.index("optimal_questions") < ids.index("analysis_profile")
+    assert ids.index("analysis_profile") < ids.index("g1_vo_pickup")
+    assert ids.index("g1_vo_pickup") < ids.index("g2_flow_select")
+
+    flow1 = operator_linear_stage_ids("flow1")
+    assert flow1.index("g2_flow_select") < flow1.index("topic_coverage_audit")
+
+
 def test_executable_order_matches_pipeline() -> None:
     pairs = [
         ("analysis", pipeline.ANALYSIS_ORDER),

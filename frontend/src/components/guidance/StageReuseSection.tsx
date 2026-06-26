@@ -1,7 +1,7 @@
 import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { useStageReuseOffers } from "../../hooks/useStageReuseOffers";
-import { resolveStageReuseCheck } from "../../utils/stageReuseOffers";
+import { isStageReusePending, resolveStageReuseCheck } from "../../utils/stageReuseOffers";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import { StageReuseOfferCard } from "./StageReuseOfferCard";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
@@ -13,7 +13,7 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
   const activeHash = sourceHashShort(run?.meta);
   const reuseCheck = resolveStageReuseCheck(run, stage.id, stage.status, run?.job);
 
-  const { candidates, visible } = useStageReuseOffers(
+  const { candidates, visible, loading } = useStageReuseOffers(
     runId,
     stage.id,
     stage.status,
@@ -26,6 +26,11 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
       onRefresh: () => void refreshRun(),
     },
   );
+
+  const hasCandidates = candidates.length > 0;
+  const reusePending =
+    isStageReusePending(run ?? null, stage.id, stage.status, run?.job) || hasCandidates;
+  if (!reusePending && !reuseDecision?.action) return null;
 
   if (reuseDecision?.action && stage.status !== "done") {
     const title =
@@ -40,10 +45,13 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
   }
 
   if (stage.status === "done") return null;
-  if (!visible) return null;
+  if (!visible && !hasCandidates) return null;
 
   return (
-    <section className="stage-reuse-section panel-inset" aria-label="Previous execution reuse">
+    <section
+      className="stage-reuse-section panel-inset stage-reuse-section--prominent"
+      aria-label="Previous execution reuse"
+    >
       <div className="stage-reuse-section-head">
         <div>
           <h3 className="stage-outputs-title">Previous execution reuse</h3>
@@ -67,6 +75,10 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
           candidates={candidates}
           currentHashShort={activeHash}
         />
+      ) : loading ? (
+        <p className="hint stage-reuse-loading">
+          <span className="spinner-inline" aria-hidden /> Checking prior executions…
+        </p>
       ) : reuseCheck.blocking ? (
         <p className="hint stage-reuse-loading">
           Reuse is pending but no prior outputs were found. Use <strong>Run fresh</strong> below or

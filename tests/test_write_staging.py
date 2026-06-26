@@ -103,6 +103,88 @@ def test_read_path_falls_back_to_final_during_later_stage_staging(
         exit_stage_staging()
 
 
+def test_transcript_review_build_reads_prior_stage_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """transcript_review_build must read approved transcribe outputs, not its own staging root."""
+    import wave
+
+    from interview_mux.stages.transcript_review import run_transcript_review_build
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    wav = ctx.final_path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello",
+            "words": [
+                {
+                    "text": "hello",
+                    "start_ms": 0,
+                    "end_ms": 500,
+                    "speaker_id": "spk_0",
+                    "confidence": 0.5,
+                }
+            ],
+            "segments": [],
+        },
+        skip_handoff=True,
+    )
+    enter_stage_staging("transcript_review_build")
+    try:
+        assert not ctx.path("transcript", "full.json").is_file()
+        run_transcript_review_build(ctx)
+    finally:
+        exit_stage_staging()
+    assert ctx.artifact_exists("transcript/review_queue.json")
+
+
+def test_disfluency_extract_reads_prior_stage_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """disfluency_extract must read approved transcript/audio, not its own staging root."""
+    from interview_mux.stages.disfluency import run_disfluency_extract
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    wav = ctx.final_path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\0" * 64)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello",
+            "words": [
+                {
+                    "text": "hello",
+                    "start_ms": 0,
+                    "end_ms": 500,
+                    "speaker_id": "spk_0",
+                    "confidence": 0.5,
+                }
+            ],
+            "segments": [],
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.disfluency.config.disfluency_enabled",
+        lambda: True,
+    )
+    enter_stage_staging("disfluency_extract")
+    try:
+        assert not ctx.path("transcript", "full.json").is_file()
+        run_disfluency_extract(ctx)
+    finally:
+        exit_stage_staging()
+    assert ctx.artifact_exists("transcript/disfluencies.json")
+
+
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")

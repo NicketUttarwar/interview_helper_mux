@@ -22,6 +22,7 @@ const E2E_CRITICAL_TESTIDS: Array<string | { pattern: RegExp; label: string }> =
   "complete-transcript-review",
   "complete-disfluency-review",
   "disfluency-confirm-all",
+  "transcript-play-clip-dock",
   "mark-profile-verified",
   "mark-profile-verified-modal",
   "vo-continue",

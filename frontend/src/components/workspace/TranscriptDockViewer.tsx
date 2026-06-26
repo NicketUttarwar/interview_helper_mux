@@ -1,7 +1,8 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
-  useLayoutEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -33,6 +34,11 @@ export interface TranscriptFocusRange {
   label?: string;
 }
 
+export interface TranscriptDockHandle {
+  playClipRange: (startMs: number, endMs: number) => void;
+  seekTo: (ms: number) => void;
+}
+
 interface WordUndoSnapshot {
   index: number;
   text: string;
@@ -50,6 +56,8 @@ interface Props {
   /** Seek playback to focus range when it changes. */
   seekOnFocus?: boolean;
   compact?: boolean;
+  /** Use most of the viewport height (transcript review gate). */
+  fillHeight?: boolean;
   /** Called after word edits persist (e.g. refresh chunk textarea). */
   onWordsSaved?: () => void;
   /** Session correction totals for review summary. */
@@ -68,13 +76,18 @@ function findActiveWordIndex(words: TranscriptWord[], timeMs: number): number {
   return -1;
 }
 
-export function TranscriptDockViewer({
-  focusRange = null,
-  seekOnFocus = false,
-  compact = false,
-  onWordsSaved,
-  onCorrectionStatsChange,
-}: Props) {
+export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
+  function TranscriptDockViewer(
+    {
+      focusRange = null,
+      seekOnFocus = false,
+      compact = false,
+      fillHeight = false,
+      onWordsSaved,
+      onCorrectionStatsChange,
+    },
+    ref,
+  ) {
   const { runId, showToast, appendClientLog } = useApp();
   const [transcript, setTranscript] = useState<TranscriptState | null>(null);
   const [words, setWords] = useState<TranscriptWord[]>([]);
@@ -91,7 +104,6 @@ export function TranscriptDockViewer({
   const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
     emptyCorrectionStats,
   );
-  const [editAnchorEl, setEditAnchorEl] = useState<HTMLElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [followPlayback, setFollowPlayback] = useState(true);
   const [undoAvailable, setUndoAvailable] = useState(false);
@@ -107,6 +119,7 @@ export function TranscriptDockViewer({
   const prevFuzzyMatchCount = useRef(0);
   const undoStack = useRef<UndoEntry[]>([]);
   const dockRef = useRef<HTMLDivElement>(null);
+  const clipBoundEndRef = useRef<number | null>(null);
 
   const loadTranscript = useCallback(async () => {
     if (!runId) return;
@@ -211,6 +224,27 @@ export function TranscriptDockViewer({
     setPlayheadMs(ms);
     if (playerRef.current) playerRef.current.currentTime = ms / 1000;
   }, []);
+
+  const playClipRange = useCallback(
+    (startMs: number, endMs: number) => {
+      clipBoundEndRef.current = endMs;
+      seekTo(startMs);
+      const player = playerRef.current;
+      if (!player || !audioUrl) {
+        showToast(
+          "Full interview audio not loaded — check that ingest/normalized.wav exists.",
+          "error",
+        );
+        return;
+      }
+      void player.play().catch(() => {
+        showToast("Could not play audio — open Files or re-run ingest.", "error");
+      });
+    },
+    [seekTo, audioUrl, showToast],
+  );
+
+  useImperativeHandle(ref, () => ({ playClipRange, seekTo }), [playClipRange, seekTo]);
 
   const seekToWord = useCallback(
     (index: number) => {
@@ -398,7 +432,7 @@ export function TranscriptDockViewer({
   const handleEditBlur = (index: number) => {
     queueMicrotask(() => {
       const active = document.activeElement;
-      if (active?.closest(".fuzzy-replace-popover")) return;
+      if (active?.closest(".fuzzy-replace-sidebar, .fuzzy-replace-popover")) return;
       commitEdit(index);
     });
   };
@@ -422,15 +456,7 @@ export function TranscriptDockViewer({
     }
   };
 
-  const showFuzzyPopover = editingIndex !== null && !fuzzyPopoverDismissed;
-
-  useLayoutEffect(() => {
-    if (editingIndex === null) {
-      setEditAnchorEl(null);
-      return;
-    }
-    setEditAnchorEl(editInputRef.current);
-  }, [editingIndex, editDraft]);
+  const showFuzzyPanel = editingIndex !== null && !fuzzyPopoverDismissed;
 
   useEffect(() => {
     if (editingIndex === null) {
@@ -489,7 +515,14 @@ export function TranscriptDockViewer({
   return (
     <div
       ref={dockRef}
-      className={`transcript-dock${compact ? " compact" : ""}`}
+      className={[
+        "transcript-dock",
+        compact ? "compact" : "",
+        fillHeight ? "fill-height" : "",
+        showFuzzyPanel ? "has-fuzzy-sidebar" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       tabIndex={-1}
     >
       <div className="transcript-dock-toolbar">
@@ -559,6 +592,16 @@ export function TranscriptDockViewer({
             {formatMs(focusRange.end_ms)}
           </span>
         ) : null}
+        {editingIndex !== null && fuzzyPopoverDismissed ? (
+          <button
+            type="button"
+            className="fuzzy-reopen-btn fuzzy-reopen-toolbar-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setFuzzyPopoverDismissed(false)}
+          >
+            Find similar
+          </button>
+        ) : null}
       </div>
 
       <audio
@@ -568,15 +611,33 @@ export function TranscriptDockViewer({
         preload="metadata"
         onTimeUpdate={() => {
           const t = playerRef.current?.currentTime ?? 0;
-          setPlayheadMs(Math.round(t * 1000));
+          const ms = Math.round(t * 1000);
+          setPlayheadMs(ms);
+          const bound = clipBoundEndRef.current;
+          if (
+            bound != null &&
+            ms >= bound &&
+            playerRef.current &&
+            !playerRef.current.paused
+          ) {
+            playerRef.current.pause();
+            clipBoundEndRef.current = null;
+          }
         }}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onPause={() => {
+          setPlaying(false);
+          clipBoundEndRef.current = null;
+        }}
+        onEnded={() => {
+          setPlaying(false);
+          clipBoundEndRef.current = null;
+        }}
       />
 
-      <div className="transcript-dock-body" ref={scrollRef}>
-        <div className="transcript-word-flow">
+      <div className="transcript-dock-workspace">
+        <div className="transcript-dock-body" ref={scrollRef}>
+          <div className="transcript-word-flow">
           {words.map((word, i) => {
             const inFocus =
               !focusRange ||
@@ -608,16 +669,6 @@ export function TranscriptDockViewer({
                       onBlur={() => handleEditBlur(i)}
                       onKeyDown={(e) => onWordKeyDown(e, i)}
                     />
-                    {fuzzyPopoverDismissed ? (
-                      <button
-                        type="button"
-                        className="fuzzy-reopen-btn"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => setFuzzyPopoverDismissed(false)}
-                      >
-                        Find similar
-                      </button>
-                    ) : null}
                   </span>
                 ) : (
                   <span
@@ -656,42 +707,44 @@ export function TranscriptDockViewer({
               </span>
             );
           })}
+          </div>
         </div>
+
+        {showFuzzyPanel ? (
+          <FuzzyReplacePopover
+            sourceText={editOriginalText}
+            correctionDraft={editDraft}
+            matches={fuzzyMatches}
+            selectedMatchIndices={selectedFuzzyIndices}
+            minScore={fuzzyMinScore}
+            onMinScoreChange={setFuzzyMinScore}
+            onToggleMatch={(index, included) => {
+              setSelectedFuzzyIndices((prev) => {
+                const next = new Set(prev);
+                if (included) next.add(index);
+                else next.delete(index);
+                return next;
+              });
+            }}
+            onSelectAllMatches={() => {
+              setSelectedFuzzyIndices(new Set(fuzzyMatches.map((m) => m.index)));
+            }}
+            onClearAllMatches={() => setSelectedFuzzyIndices(new Set())}
+            onReplace={applyFuzzyReplace}
+            onClose={() => setFuzzyPopoverDismissed(true)}
+            onSeekToMatch={seekToWord}
+          />
+        ) : null}
       </div>
 
       <div className="transcript-dock-footer">
         <span className="muted">
-          Click to seek · double-click to edit · ⌘Z undo · similar-word fixer while editing
+          Click to seek · double-click to edit · ⌘Z undo
+          {fillHeight ? "" : " · similar-word fixer while editing"}
         </span>
         <span className="muted">{words.length} words</span>
       </div>
-
-      {showFuzzyPopover ? (
-        <FuzzyReplacePopover
-          anchorEl={editAnchorEl}
-          sourceText={editOriginalText}
-          correctionDraft={editDraft}
-          matches={fuzzyMatches}
-          selectedMatchIndices={selectedFuzzyIndices}
-          minScore={fuzzyMinScore}
-          onMinScoreChange={setFuzzyMinScore}
-          onToggleMatch={(index, included) => {
-            setSelectedFuzzyIndices((prev) => {
-              const next = new Set(prev);
-              if (included) next.add(index);
-              else next.delete(index);
-              return next;
-            });
-          }}
-          onSelectAllMatches={() => {
-            setSelectedFuzzyIndices(new Set(fuzzyMatches.map((m) => m.index)));
-          }}
-          onClearAllMatches={() => setSelectedFuzzyIndices(new Set())}
-          onReplace={applyFuzzyReplace}
-          onClose={() => setFuzzyPopoverDismissed(true)}
-          onSeekToMatch={seekToWord}
-        />
-      ) : null}
     </div>
   );
-}
+},
+);

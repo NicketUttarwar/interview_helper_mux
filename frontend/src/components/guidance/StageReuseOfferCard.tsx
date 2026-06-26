@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { ALL_API_CONSENTS } from "../../utils";
 import { formatTs } from "../../utils";
-import { readyForStageMessage } from "../../utils/stageAdvance";
+import { applyReuseResultAndFocus } from "../../utils/stageAdvance";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import type { ReuseCandidate, StageInfo } from "../../types";
 
@@ -18,7 +18,20 @@ export function StageReuseOfferCard({
   candidates: ReuseCandidate[];
   currentHashShort?: string | null;
 }) {
-  const { runId, run, refreshRun, showToast, beginStageExecution, jobRunning, actionBusy, closeActionModal } = useApp();
+  const {
+    runId,
+    run,
+    refreshRun,
+    showToast,
+    beginStageExecution,
+    jobRunning,
+    actionBusy,
+    closeActionModal,
+    selectStage,
+    expandStage,
+    setActiveStepId,
+    setPipelineSubTab,
+  } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -78,8 +91,18 @@ export function StageReuseOfferCard({
             ]?.paths?.length,
         );
       closeActionModal();
-      if (hasStagedWrites) return;
-      showToast(readyForStageMessage(stage.title), "info");
+      await applyReuseResultAndFocus({
+        run: refreshed ?? run!,
+        stageId: stage.id,
+        stageTitle: stage.title,
+        reuse: { status: "reused", copied: [], hasStagedWrites },
+        refreshRun,
+        showToast,
+        selectStage,
+        expandStage,
+        setActiveStepId,
+        setPipelineSubTab,
+      });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Reuse action failed", "error");
     } finally {

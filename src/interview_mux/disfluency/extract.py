@@ -15,8 +15,10 @@ from interview_mux.run_context import RunContext
 
 
 def _resolve_audio(ctx: RunContext) -> Path:
+    from interview_mux.write_staging import resolve_read_path
+
     for rel in ("preclean/isolated.wav", "ingest/normalized.wav"):
-        p = ctx.path(*rel.split("/"))
+        p = resolve_read_path(ctx, rel)
         if p.is_file():
             return p
     raise FileNotFoundError("No normalized audio for disfluency extract")
@@ -43,9 +45,11 @@ def _dedupe_events(events: list[dict[str, Any]], *, min_gap_ms: int = 30) -> lis
 
 def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     settings = extract_settings(cfg)
-    full_path = ctx.path("transcript/full.json")
-    if not full_path.is_file():
-        raise FileNotFoundError(full_path)
+    ctx.artifact_exists_required(
+        "transcript/full.json",
+        stage="disfluency_extract",
+        label="word-level transcript",
+    )
 
     full = ctx.read_json("transcript/full.json")
     words = [w for w in (full.get("words") or []) if isinstance(w, dict)]

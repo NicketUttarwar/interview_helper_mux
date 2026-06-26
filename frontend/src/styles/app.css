@@ -525,6 +525,171 @@ code {
   align-items: stretch;
 }
 
+.gate-actions:has(.tr-review-panel) {
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 0.5rem;
+}
+
+.tr-gate-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.25rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 0 0 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 10px;
+  border: 2px solid color-mix(in srgb, var(--accent-attention, #ffb347) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-attention, #ffb347) 12%, var(--surface-2));
+}
+
+.tr-gate-banner--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+}
+
+.tr-gate-banner-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.tr-gate-banner-lead {
+  margin: 0 0 0.35rem;
+  max-width: 42rem;
+}
+
+.tr-gate-banner-meta {
+  margin: 0;
+}
+
+.tr-gate-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tr-gate-banner-error {
+  width: 100%;
+  margin: 0.35rem 0 0;
+  color: var(--danger, #ef6464);
+  font-size: 0.82rem;
+}
+
+.tr-complete-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tr-review-panel-hint {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-attention, #ffb347) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent-attention, #ffb347) 25%, var(--border));
+}
+
+.tr-review-complete-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning, #e6a23c) 35%, var(--border));
+  background: color-mix(in srgb, var(--warning, #e6a23c) 8%, var(--surface-2));
+}
+
+.tr-review-complete-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.tr-review-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 0;
+}
+
+.tr-review-compact-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.tr-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.tr-review-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-chunk-audio--compact {
+  flex: 1 1 180px;
+  min-width: 160px;
+  max-width: 320px;
+  min-height: 36px;
+  height: auto;
+}
+
+.tr-review-playback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex: 1 1 220px;
+}
+
+.tr-clip-missing {
+  margin: 0;
+  flex: 1 1 180px;
+}
+
+.tr-play-clip-dock {
+  flex-shrink: 0;
+}
+
+.tr-bulk-edit-details {
+  width: 100%;
+}
+
+.tr-bulk-edit-details summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+  user-select: none;
+}
+
+.tr-bulk-edit-details[open] summary {
+  margin-bottom: 0.35rem;
+}
+
+.tr-textarea--compact {
+  min-height: 0;
+}
+
 /* ── Transcript dock (karaoke sync + inline edit) ── */
 
 .transcript-dock {
@@ -535,6 +700,22 @@ code {
   background: linear-gradient(165deg, var(--surface) 0%, var(--surface-2) 100%);
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
+.transcript-dock.fill-height {
+  flex: 1;
+  min-height: clamp(360px, 58vh, 760px);
+}
+
+.transcript-dock-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.transcript-dock.has-fuzzy-sidebar .transcript-dock-body {
+  border-right: none;
 }
 
 .transcript-dock.compact .transcript-dock-body {
@@ -564,10 +745,15 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.65rem 1rem;
-  padding: 0.75rem 1rem;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.85rem;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface-2) 80%, var(--accent) 4%);
+}
+
+.transcript-dock.fill-height .transcript-dock-toolbar {
+  padding: 0.45rem 0.75rem;
+  gap: 0.45rem 0.65rem;
 }
 
 .transcript-play-btn {
@@ -673,8 +859,14 @@ code {
   min-height: 200px;
   max-height: 420px;
   overflow-y: auto;
-  padding: 1.25rem 1.5rem;
+  padding: 1rem 1.15rem;
   scroll-behavior: smooth;
+  min-width: 0;
+}
+
+.transcript-dock.fill-height .transcript-dock-body {
+  max-height: none;
+  padding: 0.85rem 1rem;
 }
 
 .transcript-word-flow {
@@ -807,12 +999,41 @@ code {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
+.fuzzy-reopen-toolbar-btn {
+  margin-left: auto;
+}
+
 .transcript-word.fuzzy-candidate {
   background: color-mix(in srgb, var(--warning) 16%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 30%, transparent);
   border-radius: 4px;
 }
 
+.fuzzy-replace-sidebar {
+  flex: 0 0 min(320px, 38%);
+  min-width: 260px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.75rem 0.85rem;
+  background: color-mix(in srgb, var(--surface-2) 92%, var(--accent) 3%);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+
+.fuzzy-replace-sidebar .fuzzy-replace-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.fuzzy-replace-sidebar .fuzzy-replace-footer {
+  flex-shrink: 0;
+}
+
+/* Legacy popover styles kept for any floating use */
 .fuzzy-replace-backdrop {
   background: transparent;
 }
@@ -1049,6 +1270,11 @@ code {
   text-decoration: underline;
 }
 
+.fuzzy-replace-sidebar .fuzzy-replace-match-list ul {
+  max-height: none;
+  flex: 1;
+}
+
 .fuzzy-replace-match-list ul {
   list-style: none;
   margin: 0;
@@ -1192,15 +1418,16 @@ code {
 }
 
 .tr-review-dock-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   width: 100%;
-  margin-top: 1rem;
+  min-height: 0;
+  margin-top: 0.25rem;
 }
 
-.tr-review-dock-section h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text);
+.tr-review-dock-section .transcript-dock {
+  flex: 1;
 }
 
 .stage-transcript-dock {
@@ -4946,6 +5173,16 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
 }
 
+.stage-reuse-section--prominent {
+  margin: 0 0 1rem;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+
+.stage-step-workbench > .stage-reuse-section--prominent {
+  margin-top: 0.25rem;
+}
+
 .stage-reuse-section-head {
   display: flex;
   align-items: flex-start;
@@ -6445,6 +6682,50 @@ button.pipeline-step-row:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.stage-decision-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 1.25rem 0 0.5rem;
+  min-height: min(36vh, 18rem);
+}
+
+.stage-decision-panel > .stage-reuse-section,
+.stage-decision-panel > .write-approval-panel,
+.stage-decision-panel > .previous-session-reuse {
+  width: 100%;
+  max-width: 38rem;
+}
+
+.stage-step-row--decision .stage-step-body {
+  align-items: center;
+}
+
+.stage-step-row--decision .stage-step-instruction-text {
+  max-width: 38rem;
+  text-align: center;
+}
+
+.stage-step-row--decision .stage-step-footer {
+  justify-content: center;
+  width: 100%;
+  max-width: 38rem;
+  margin: 0 auto;
+  padding-bottom: 0.75rem;
+}
+
+.previous-session-reuse {
+  padding: 1rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
+}
+
+.previous-session-reuse.compact h3 {
+  margin: 0 0 0.35rem;
 }
 
 .stage-step-instruction-text {

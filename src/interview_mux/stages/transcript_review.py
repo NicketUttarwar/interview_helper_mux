@@ -14,6 +14,7 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import communicative_salience_score
 from interview_mux.operator_snapshots import persist_operator_transcript
+from interview_mux.write_staging import resolve_read_path
 
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
@@ -38,15 +39,19 @@ def _rank_review_chunks(chunks: list[dict[str, Any]], *, sort_mode: str) -> list
 
 def run_transcript_review_build(ctx: RunContext) -> None:
     """Build ranked review queue and pre-cut WAV clips after transcription."""
-    full_path = ctx.path("transcript/full.json")
-    if not full_path.is_file():
-        raise FileNotFoundError(full_path)
-
-    normalized = ctx.path("ingest/normalized.wav")
-    if not normalized.is_file():
-        raise FileNotFoundError(normalized)
+    ctx.artifact_exists_required(
+        "transcript/full.json",
+        stage="transcript_review_build",
+        label="Transcript from transcribe",
+    )
+    ctx.artifact_exists_required(
+        "ingest/normalized.wav",
+        stage="transcript_review_build",
+        label="Normalized audio from ingest",
+    )
 
     full = ctx.read_json("transcript/full.json")
+    normalized = resolve_read_path(ctx, "ingest/normalized.wav")
     with logged_step("transcript_review_build/chunk_queue", ctx=ctx, stage="transcript_review_build"):
         chunks = _build_chunks(full)
         clips_dir = ctx.path("transcript", "review_clips")
@@ -201,6 +206,8 @@ def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed
 
 def get_transcript_state(ctx: RunContext) -> dict[str, Any]:
     """Word-level transcript for the dock editor (karaoke sync + inline edits)."""
+    from interview_mux.write_staging import artifact_exists_resolved
+
     if not ctx.artifact_exists("transcript/full.json"):
         return {"ready": False, "words": [], "duration_ms": 0}
     full = ctx.read_json("transcript/full.json")
@@ -209,7 +216,8 @@ def get_transcript_state(ctx: RunContext) -> dict[str, Any]:
     speakers: list[dict[str, Any]] = []
     if ctx.artifact_exists("transcript/speakers.json"):
         speakers = (ctx.read_json("transcript/speakers.json") or {}).get("speakers") or []
-    audio_path = "ingest/normalized.wav" if ctx.artifact_exists("ingest/normalized.wav") else None
+    audio_rel = "ingest/normalized.wav"
+    audio_path = audio_rel if artifact_exists_resolved(ctx, audio_rel) else None
     return {
         "ready": True,
         "text": full.get("text") or "",
@@ -262,10 +270,26 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
 
 
 def get_review_state(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.write_staging import artifact_exists_resolved
+
     if not ctx.artifact_exists("transcript/review_queue.json"):
         return {"ready": False, "chunks": [], "complete": ctx.is_done("transcript_review")}
     queue = ctx.read_json("transcript/review_queue.json")
-    chunks = list(queue.get("chunks") or [])
+    raw_chunks = list(queue.get("chunks") or [])
+    chunks: list[dict[str, Any]] = []
+    for raw in raw_chunks:
+        if not isinstance(raw, dict):
+            continue
+        chunk = dict(raw)
+        chunk_id = chunk.get("chunk_id")
+        clip_rel = chunk.get("clip_path") or (
+            f"transcript/review_clips/{chunk_id}.wav" if chunk_id else ""
+        )
+        clip_ready = bool(clip_rel and artifact_exists_resolved(ctx, clip_rel))
+        chunk["clip_ready"] = clip_ready
+        if not chunk.get("clip_path") and clip_rel:
+            chunk["clip_path"] = clip_rel
+        chunks.append(chunk)
     pending = sum(1 for c in chunks if not c.get("reviewed"))
     return {
         "ready": True,

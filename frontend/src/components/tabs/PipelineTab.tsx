@@ -3,7 +3,6 @@ import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
 import { JourneyShell } from "../journey/JourneyShell";
-import { PreviousSessionReusePanel } from "../guidance/PreviousSessionReusePanel";
 import { useOverscrollRetry } from "../../hooks/useOverscrollRetry";
 import {
   clearPendingCheckpointScroll,
@@ -78,7 +77,6 @@ export function PipelineTab() {
   return (
     <main className="view workspace-shell pipeline-tab pipeline-v2">
       <JourneyShell>
-        <PreviousSessionReusePanel compact />
         <div className="workspace-scroll" ref={scrollRef}>
           {overscrollLoading ? (
             <div className="overscroll-retry-indicator" aria-busy="true">

@@ -97,10 +97,8 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
 
   const qaMap = useMemo(() => qaByAsset(mmaudioQa), [mmaudioQa]);
 
-  if (!assets.length || !run) return null;
-
-  const listenResults = run.meta?.sfx_listen_results || [];
-  const latest = latestSfxListenByAsset(listenResults);
+  const listenResults = run?.meta?.sfx_listen_results || [];
+  const latest = useMemo(() => latestSfxListenByAsset(listenResults), [listenResults]);
   const failedIds = useMemo(() => {
     const ids: string[] = [];
     latest.forEach((v, aid) => {
@@ -110,6 +108,9 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
   }, [latest]);
 
   const qaFailIds = useMemo(() => qaFailedAssets(qaMap), [qaMap]);
+
+  if (!assets.length || !run) return null;
+
   const gateState = run.meta?.post_listen_gate_state;
   const gateModeBlock =
     gateState?.mode === "block_mix" ||

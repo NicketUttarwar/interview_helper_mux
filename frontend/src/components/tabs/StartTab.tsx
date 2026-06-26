@@ -4,7 +4,6 @@ import { useLiveStatus } from "../../hooks/useLiveStatus";
 import { formatBytes } from "../../utils";
 import { InfoTooltip } from "../InfoTooltip";
 import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
-import { PreviousSessionReusePanel } from "../guidance/PreviousSessionReusePanel";
 import { ActionMarker } from "../guidance/ActionMarker";
 
 type FlowIntent = "flow1" | "flow2" | "flow3";
@@ -183,7 +182,6 @@ export function StartTab() {
         </h2>
       </section>
       <StartPhaseGuidance />
-      {runId ? <PreviousSessionReusePanel /> : null}
       {intentEnabled ? (
         <section className="panel panel-compact">
           <h3>

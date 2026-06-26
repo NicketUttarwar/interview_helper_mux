@@ -57,16 +57,6 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     return map;
   }, [data?.mmaudio_qa]);
 
-  if (!data) return null;
-
-  const approved = Boolean(data.review?.approved);
-  const reviewRequired = Boolean(data.review_required);
-  const sonicSummary = summarizeSonicContextScenario(data.sonic_context ?? null);
-
-  const updateRow = (idx: number, patch: Partial<SfxPromptRow>) => {
-    setEdits((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-  };
-
   useEffect(() => {
     registerStepPrimaryPrep("sfx_prompt_review", async () => {
       if (!run || !editsRef.current.length) return;
@@ -87,6 +77,16 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
     });
     return () => registerStepPrimaryPrep("sfx_prompt_review", null);
   }, [run, data?.prompts, refreshRun]);
+
+  if (!data) return null;
+
+  const approved = Boolean(data.review?.approved);
+  const reviewRequired = Boolean(data.review_required);
+  const sonicSummary = summarizeSonicContextScenario(data.sonic_context ?? null);
+
+  const updateRow = (idx: number, patch: Partial<SfxPromptRow>) => {
+    setEdits((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
 
   return (
     <>

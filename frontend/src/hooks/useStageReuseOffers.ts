@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "../api/client";
 import type { ReuseCandidate, RunData } from "../types";
 import { resolveStageReuseCheck } from "../utils/stageReuseOffers";
 
@@ -13,9 +14,14 @@ export interface StageReuseOffersState {
 
 export { stageReuseOffersJobKey } from "../utils/stageReuseOffers";
 
-/** Derives reuse offers from run/job/journey payload — no separate API fetch. */
+interface ReuseOffersPayload {
+  eligible?: boolean;
+  candidates?: ReuseCandidate[];
+}
+
+/** Embedded run/job candidates plus proactive reuse-offers API when browsing a stage. */
 export function useStageReuseOffers(
-  _runId: string | null,
+  runId: string | null,
   stageId: string,
   stageStatus: string,
   job?: {
@@ -46,16 +52,73 @@ export function useStageReuseOffers(
     ],
   );
 
-  const skip = Boolean(opts?.skip);
-  const candidates = skip ? [] : check.embeddedCandidates;
-  const visible = !skip && check.enabled && (check.blocking || candidates.length > 0);
+  const skip = Boolean(opts?.skip) || stageStatus === "done";
+  const hasEmbedded = check.embeddedCandidates.length > 0;
+
+  const [fetchedCandidates, setFetchedCandidates] = useState<ReuseCandidate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [fetchGeneration, setFetchGeneration] = useState(0);
+
+  useEffect(() => {
+    if (skip || !runId) {
+      setFetchedCandidates([]);
+      setLoading(false);
+      setChecked(true);
+      return;
+    }
+    if (hasEmbedded) {
+      setFetchedCandidates([]);
+      setLoading(false);
+      setChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setChecked(false);
+    void api<ReuseOffersPayload>(`/api/runs/${runId}/stages/${stageId}/reuse-offers`)
+      .then((payload) => {
+        if (cancelled) return;
+        const list =
+          payload.eligible && Array.isArray(payload.candidates) ? payload.candidates : [];
+        setFetchedCandidates(list);
+        setChecked(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFetchedCandidates([]);
+          setChecked(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, stageId, skip, hasEmbedded, fetchGeneration]);
+
+  const candidates = skip ? [] : hasEmbedded ? check.embeddedCandidates : fetchedCandidates;
+  const visible =
+    !skip && (candidates.length > 0 || check.enabled || (loading && !checked));
+
+  const refresh = () => {
+    if (hasEmbedded) {
+      opts?.onRefresh?.();
+      return;
+    }
+    setFetchGeneration((g) => g + 1);
+    opts?.onRefresh?.();
+  };
 
   return {
     candidates,
-    loading: false,
+    loading: loading && !checked,
     currentHashShort: opts?.hashShort ?? null,
-    checked: true,
+    checked: hasEmbedded || checked,
     visible,
-    refresh: () => opts?.onRefresh?.(),
+    refresh,
   };
 }

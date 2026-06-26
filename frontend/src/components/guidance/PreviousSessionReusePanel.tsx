@@ -16,8 +16,14 @@ interface LineageResponse {
   stages: LineageStage[];
 }
 
-export function PreviousSessionReusePanel({ compact = false }: { compact?: boolean }) {
-  const { runId, refreshRun, showToast } = useApp();
+interface Props {
+  /** When set, only show reuse for this pipeline stage (never as a global banner). */
+  stageId: string;
+  compact?: boolean;
+}
+
+export function PreviousSessionReusePanel({ stageId, compact = false }: Props) {
+  const { runId, run, refreshRun, showToast } = useApp();
   const [lineage, setLineage] = useState<LineageResponse | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,8 +41,10 @@ export function PreviousSessionReusePanel({ compact = false }: { compact?: boole
   }, [load, runId]);
 
   if (!lineage?.immediate_previous_run_id) return null;
-  const eligible = lineage.stages.filter((s) => s.eligible);
-  if (!eligible.length && compact) return null;
+  if (run?.meta?.stage_reuse?.[stageId]?.action) return null;
+
+  const stageEntry = lineage.stages.find((s) => s.stage_id === stageId);
+  if (!stageEntry?.eligible) return null;
 
   const bulkReuse = async () => {
     if (!runId || busy) return;
@@ -46,9 +54,9 @@ export function PreviousSessionReusePanel({ compact = false }: { compact?: boole
       await api(`/api/runs/${runId}/reuse-from-previous`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accept_all: true }),
+        body: JSON.stringify({ stage_ids: [stageId] }),
       });
-      showToast("Copied eligible stages from previous execution.");
+      showToast(`Copied ${stageEntry?.title ?? stageId} from previous execution.`);
       await refreshRun();
       await load();
     } catch (e) {
@@ -67,21 +75,21 @@ export function PreviousSessionReusePanel({ compact = false }: { compact?: boole
       </p>
       {!lineage.hash_match_with_previous ? (
         <p className="hint sm">Reuse unavailable (hash mismatch).</p>
-      ) : eligible.length ? (
+      ) : (
         <>
-          <p className="hint sm">{eligible.length} stage(s) can copy outputs.</p>
+          <p className="hint sm">
+            {stageEntry.title} outputs are available from the previous execution.
+          </p>
           <button type="button" className="btn primary sm" disabled={busy} onClick={() => void bulkReuse()}>
             {busy ? (
               <>
                 <span className="spinner-inline" aria-hidden /> Copying…
               </>
             ) : (
-              "Copy all eligible outputs"
+              `Reuse ${stageEntry.title} from previous session`
             )}
           </button>
         </>
-      ) : (
-        <p className="hint sm">No reusable stages from immediate previous execution.</p>
       )}
     </div>
   );

@@ -535,10 +535,14 @@ export interface TranscriptReviewChunk {
   confidence?: number;
   start_ms: number;
   end_ms: number;
+  clip_start_ms?: number;
+  clip_end_ms?: number;
   speaker_id?: string;
   text?: string;
   corrected_text?: string;
   clip_path?: string;
+  /** Server: review clip WAV exists on disk. */
+  clip_ready?: boolean;
   reviewed?: boolean;
 }
 

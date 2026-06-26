@@ -1,4 +1,3 @@
-import { useLayoutEffect, useRef, useState } from "react";
 import { formatMs } from "../../utils";
 import {
   correctionDiffersFromSource,
@@ -7,7 +6,6 @@ import {
 } from "../../utils/fuzzyMatch";
 
 interface Props {
-  anchorEl: HTMLElement | null;
   sourceText: string;
   correctionDraft: string;
   matches: FuzzyMatch[];
@@ -22,40 +20,6 @@ interface Props {
   onSeekToMatch: (index: number) => void;
 }
 
-const POPOVER_WIDTH = 300;
-const POPOVER_GAP = 10;
-const VIEWPORT_MARGIN = 12;
-
-function isInteractivePopoverTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(
-    target.closest("input, button, select, textarea, label, a, [role='slider']"),
-  );
-}
-
-function computePosition(
-  anchorEl: HTMLElement | null,
-  popoverHeight: number,
-): { left: number; top: number } | null {
-  if (!anchorEl) return null;
-  const rect = anchorEl.getBoundingClientRect();
-  const maxHeight = Math.max(200, window.innerHeight - VIEWPORT_MARGIN * 2);
-  const height = Math.min(popoverHeight, maxHeight);
-
-  let left = rect.right + POPOVER_GAP;
-  if (left + POPOVER_WIDTH > window.innerWidth - VIEWPORT_MARGIN) {
-    left = Math.max(VIEWPORT_MARGIN, rect.left - POPOVER_WIDTH - POPOVER_GAP);
-  }
-
-  let top = rect.top - 4;
-  if (top + height > window.innerHeight - VIEWPORT_MARGIN) {
-    top = window.innerHeight - VIEWPORT_MARGIN - height;
-  }
-  top = Math.max(VIEWPORT_MARGIN, top);
-
-  return { left, top };
-}
-
 function scoreClass(score: number): string {
   if (score >= 95) return "high";
   if (score >= 88) return "mid";
@@ -63,7 +27,6 @@ function scoreClass(score: number): string {
 }
 
 export function FuzzyReplacePopover({
-  anchorEl,
   sourceText,
   correctionDraft,
   matches,
@@ -77,14 +40,6 @@ export function FuzzyReplacePopover({
   onClose,
   onSeekToMatch,
 }: Props) {
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
-
-  useLayoutEffect(() => {
-    const height = popoverRef.current?.offsetHeight ?? 420;
-    setPosition(computePosition(anchorEl, height));
-  }, [anchorEl, matches.length, minScore, selectedMatchIndices.size, correctionDraft]);
-
   const selectedCount = matches.filter((m) => selectedMatchIndices.has(m.index)).length;
   const replaceTotal = selectedCount + 1;
   const trimmedCorrection = correctionDraft.trim();
@@ -99,7 +54,7 @@ export function FuzzyReplacePopover({
       ? `Replace ${replaceTotal} words`
       : "Replace this word only";
 
-  let hint = "Type your correction above to search the transcript.";
+  let hint = "Type your correction in the transcript to search for similar words.";
   if (!correctionChanged && hasCorrection) {
     hint = "Change the word to something different to enable replace.";
   } else if (correctionChanged && matches.length === 0) {
@@ -111,28 +66,14 @@ export function FuzzyReplacePopover({
         : "Select similar words below, or replace this word only.";
   }
 
-  if (!position) return null;
-
   return (
-    <>
-      <div
-        className="segment-context-backdrop fuzzy-replace-backdrop"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
-      <div
-        ref={popoverRef}
-        className="fuzzy-replace-popover"
-        style={{ left: position.left, top: position.top }}
-        role="dialog"
-        aria-label="Fix similar words"
-        onMouseDown={(e) => {
-          if (!isInteractivePopoverTarget(e.target)) e.preventDefault();
-        }}
-      >
-        <div className="fuzzy-replace-body">
+    <aside
+      className="fuzzy-replace-sidebar"
+      role="complementary"
+      aria-label="Fix similar words"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="fuzzy-replace-body">
         <div className="fuzzy-replace-head">
           <div>
             <span className="fuzzy-replace-title">Fix similar words</span>
@@ -143,7 +84,7 @@ export function FuzzyReplacePopover({
           <button
             type="button"
             className="fuzzy-replace-close"
-            aria-label="Dismiss panel"
+            aria-label="Hide similar matches panel"
             onClick={onClose}
           >
             ×
@@ -261,9 +202,9 @@ export function FuzzyReplacePopover({
             excluded — will not be changed.
           </p>
         ) : null}
-        </div>
+      </div>
 
-        <div className="fuzzy-replace-footer">
+      <div className="fuzzy-replace-footer">
         <div className="fuzzy-replace-actions">
           <button
             type="button"
@@ -279,8 +220,7 @@ export function FuzzyReplacePopover({
         <p className="fuzzy-replace-shortcuts muted">
           Check/uncheck matches · click word to jump · Enter saves this word only
         </p>
-        </div>
       </div>
-    </>
+    </aside>
   );
 }

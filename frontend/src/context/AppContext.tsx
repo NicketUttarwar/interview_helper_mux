@@ -153,7 +153,7 @@ interface AppContextValue {
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
   discardPendingWrites: (stageId: string) => Promise<void>;
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
-  completeDisfluencyReview: () => Promise<void>;
+  completeDisfluencyReview: (acceptUnreviewed?: boolean) => Promise<void>;
   approveSfxPrompts: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
   onCheckpointContinue: () => Promise<void>;
@@ -746,6 +746,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (selectedStageIdRef.current === stageId) return;
       setSelectedStageId(stageId);
       selectedStageIdRef.current = stageId;
+      setActiveStepIdState(null);
+      activeStepIdRef.current = null;
     },
     [],
   );
@@ -784,6 +786,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pipelineFilterNeedsYouRef.current = true;
     }
     if (action.mode !== "needs_you" || !action.stageId) return;
+    // Operator already on the blocking stage with a chosen workbench step — do not
+    // reset to the default gate step on every run poll (log refresh every ~2s).
+    if (
+      selectedStageIdRef.current === action.stageId &&
+      activeStepIdRef.current
+    ) {
+      return;
+    }
     void focusStageWorkbench({
       run,
       stageId: action.stageId,
@@ -1826,9 +1836,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const completeDisfluencyReview = useCallback(
-    async () => {
+    async (acceptUnreviewed = false) => {
       if (!runId) return;
-      await api(`/api/runs/${runId}/disfluency-review/complete`, { method: "POST" });
+      await api(`/api/runs/${runId}/disfluency-review/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
+      });
       showToast("Disfluency review complete");
       await refreshRun();
       await advanceFromCheckpoint();

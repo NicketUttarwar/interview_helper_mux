@@ -15,7 +15,7 @@ class StageInfo:
     audio_outputs: tuple[str, ...] = ()
 
 
-ANALYSIS_STAGES: tuple[StageInfo, ...] = (
+ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
     StageInfo(
         "audio_preclean",
         "Audio pre-clean",
@@ -50,15 +50,22 @@ ANALYSIS_STAGES: tuple[StageInfo, ...] = (
         ("transcript/review_queue.json",),
         (),
     ),
-    StageInfo(
-        "disfluency_extract",
-        "Disfluency extract",
-        "Detect filler words in inter-word gaps (local VAD + Whisper) and export review clips.",
-        "analysis",
-        ("transcript/disfluencies.json",),
-        (),
-        ("glob:transcript/disfluency_clips/*.wav",),
-    ),
+)
+
+DISFLUENCY_EXTRACT_STAGE = StageInfo(
+    "disfluency_extract",
+    "Disfluency extract",
+    "Detect filler words in inter-word gaps (local VAD + Whisper) and export review clips.",
+    "analysis",
+    ("transcript/disfluencies.json",),
+    (),
+    ("glob:transcript/disfluency_clips/*.wav",),
+)
+
+# Back-compat alias: automated analysis stages in pipeline execution order (no gates).
+ANALYSIS_STAGES: tuple[StageInfo, ...] = (
+    *ANALYSIS_STAGES_PRE_G0,
+    DISFLUENCY_EXTRACT_STAGE,
 )
 
 TRANSCRIPT_REVIEW_GATE = StageInfo(
@@ -519,25 +526,33 @@ def stage_status(ctx_done: Any, stage_id: str) -> str:
     return "pending"
 
 
-def all_stages_for_run(selected_flow: str | None) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for s in ANALYSIS_STAGES:
-        out.append(_stage_dict(s))
-    out.append(_stage_dict(TRANSCRIPT_REVIEW_GATE))
-    out.append(_stage_dict(DISFLUENCY_REVIEW_GATE))
-    out.append(_stage_dict(ANALYSIS_PROFILE_STAGE))
-    out.append(_stage_dict(G1_STAGE))
-    out.append(_stage_dict(G2_STAGE))
+def operator_stages_for_run(selected_flow: str | None) -> tuple[StageInfo, ...]:
+    """Operator sidebar / GUI order: gates interleaved where they block downstream work."""
+    stages: list[StageInfo] = [
+        *ANALYSIS_STAGES_PRE_G0,
+        TRANSCRIPT_REVIEW_GATE,
+        DISFLUENCY_EXTRACT_STAGE,
+        DISFLUENCY_REVIEW_GATE,
+        *ANALYSIS_STAGES_CONTINUED,
+        ANALYSIS_PROFILE_STAGE,
+        G1_STAGE,
+        G2_STAGE,
+    ]
     if selected_flow == "flow1":
-        for s in FLOW1_STAGES:
-            out.append(_stage_dict(s))
+        stages.extend(FLOW1_STAGES)
     elif selected_flow == "flow2":
-        for s in FLOW2_STAGES:
-            out.append(_stage_dict(s))
+        stages.extend(FLOW2_STAGES)
     elif selected_flow == "flow3":
-        for s in FLOW3_STAGES:
-            out.append(_stage_dict(s))
-    return out
+        stages.extend(FLOW3_STAGES)
+    return tuple(stages)
+
+
+def operator_linear_stage_ids(selected_flow: str | None = None) -> list[str]:
+    return [s.id for s in operator_stages_for_run(selected_flow)]
+
+
+def all_stages_for_run(selected_flow: str | None) -> list[dict[str, Any]]:
+    return [_stage_dict(s) for s in operator_stages_for_run(selected_flow)]
 
 
 def _stage_dict(s: StageInfo) -> dict[str, Any]:

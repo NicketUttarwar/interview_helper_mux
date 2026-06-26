@@ -16,6 +16,8 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 **GUI substeps:** Each stage’s operator actions appear as **substeps** under that stage in the Pipeline Steps sidebar. Sources: `stages[].guidance` items (`prerequisites` + `actions`, stable `id`) and runtime attention (write approval, handoff, reuse). Gate stages use `kind: checkpoint` with optional `substep_label` for shorter sidebar text. Mapping: [gui-surface-map.md](../workflows/gui-surface-map.md).
 
+**GUI sidebar order (`operator_stages_for_run`):** Linear operator progression — gates are interleaved where they block (e.g. `transcript_review_build` → **G0** → `disfluency_extract` → **G0.5** → `source_acoustic_profile` → … → **profile** → **G1** → **G2** → flow stages). Automated batch order remains `ANALYSIS_ORDER` in `pipeline.py`.
+
 ---
 
 ## Optional — pre-analysis

@@ -17,15 +17,15 @@ from interview_mux.journey_state import OPERATOR_PHASES, stage_operator_phase
 from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
-from interview_mux.web.stages import STAGE_BY_ID
+from interview_mux.web.stages import STAGE_BY_ID, operator_linear_stage_ids
 
 # Stages blocked until G0 transcript review clears (matches pipeline.require_transcript_review_clear).
 _G0_EXCEPTIONS = frozenset(
-    {"audio_preclean", "ingest", "transcribe", "transcript_review_build", "disfluency_extract"}
+    {"audio_preclean", "ingest", "transcribe", "transcript_review_build"}
 )
 G0_LOCKED_ANALYSIS_STAGES = frozenset(s for s in ANALYSIS_ORDER if s not in _G0_EXCEPTIONS)
 
-_DISFLUENCY_EXCEPTIONS = frozenset(_G0_EXCEPTIONS)
+_DISFLUENCY_EXCEPTIONS = frozenset(_G0_EXCEPTIONS | {"disfluency_extract"})
 DISFLUENCY_LOCKED_ANALYSIS_STAGES = frozenset(
     s for s in ANALYSIS_ORDER if s not in _DISFLUENCY_EXCEPTIONS
 )
@@ -123,9 +123,10 @@ STAGE_UNLOCKS: dict[str, str] = {
     "sfx_brief": "(legacy — use SDP path)",
 }
 
-# Prior stage in pipeline order (for prerequisite messaging).
+# Prior stage in operator linear order (includes gates between automated stages).
 _PRIOR_STAGE: dict[str, str | None] = {}
-for _order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
+for _flow in (None, "flow1", "flow2", "flow3"):
+    _order = operator_linear_stage_ids(_flow)
     for _i, _sid in enumerate(_order):
         _PRIOR_STAGE[_sid] = _order[_i - 1] if _i > 0 else None
 

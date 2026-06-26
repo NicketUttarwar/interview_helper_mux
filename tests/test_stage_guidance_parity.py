@@ -58,12 +58,15 @@ def test_g0_locks_source_acoustic_profile(tmp_path) -> None:
     )
     sap = next(s for s in stages if s["id"] == "source_acoustic_profile")
     assert sap["status"] == "locked"
+    de = next(s for s in stages if s["id"] == "disfluency_extract")
+    assert de["status"] == "locked"
     assert sap["guidance"]["prerequisites"][0]["status"] == "todo"
     assert "transcript review" in sap["guidance"]["prerequisites"][0]["label"].lower()
 
 
 def test_g0_locked_analysis_stages_includes_source_acoustic_profile() -> None:
     assert "source_acoustic_profile" in G0_LOCKED_ANALYSIS_STAGES
+    assert "disfluency_extract" in G0_LOCKED_ANALYSIS_STAGES
     assert "speaker_roles" in G0_LOCKED_ANALYSIS_STAGES
     assert "ingest" not in G0_LOCKED_ANALYSIS_STAGES
 

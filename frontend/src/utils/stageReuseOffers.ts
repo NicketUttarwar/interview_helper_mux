@@ -56,6 +56,20 @@ export function resolveStageReuseCheck(
   };
 }
 
+/** True when reuse is blocking or pending for this stage only (not other stages). */
+export function isStageReusePending(
+  run: RunData | null,
+  stageId: string,
+  stageStatus: string,
+  job?: {
+    needs_stage_reuse?: boolean;
+    stage?: string;
+    reuse_candidates?: ReuseCandidate[];
+  },
+): boolean {
+  return resolveStageReuseCheck(run, stageId, stageStatus, job).enabled;
+}
+
 export function stageReuseOffersJobKey(
   job?: {
     needs_stage_reuse?: boolean;

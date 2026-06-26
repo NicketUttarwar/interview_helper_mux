@@ -79,7 +79,26 @@ def update_event_review(
     return {"ok": True, "stats": doc.get("stats")}
 
 
-def mark_disfluency_review_complete(ctx: RunContext) -> None:
+def confirm_all_pending(ctx: RunContext) -> None:
+    doc = load_disfluencies(ctx)
+    changed = False
+    for ev in doc.get("events") or []:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("review_status") != "pending":
+            continue
+        ev["review_status"] = "confirmed"
+        if ev.get("include_in_restore") is None:
+            ev["include_in_restore"] = True
+        changed = True
+    if changed:
+        recompute_stats(doc)
+        ctx.write_json("transcript/disfluencies.json", doc)
+
+
+def mark_disfluency_review_complete(ctx: RunContext, *, accept_unreviewed: bool = False) -> None:
+    if accept_unreviewed:
+        confirm_all_pending(ctx)
     doc = load_disfluencies(ctx)
     events = [e for e in (doc.get("events") or []) if isinstance(e, dict)]
     pending = [e for e in events if e.get("review_status") == "pending"]

@@ -5,6 +5,7 @@ from interview_mux.stages.transcript_review import (
     _replace_words_in_range,
     _text_for_word_range,
     apply_corrections,
+    get_review_state,
     get_transcript_state,
     patch_transcript_words,
 )
@@ -199,3 +200,44 @@ def test_text_for_word_range():
     ]
     assert _text_for_word_range(words, 0, 150) == "a"
     assert _text_for_word_range(words, 0, 350) == "a b"
+
+
+def test_get_review_state_clip_ready(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    clips_dir = ctx.path("transcript", "review_clips")
+    clips_dir.mkdir(parents=True)
+    (clips_dir / "tr_0001.wav").write_bytes(b"RIFF")
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {
+            "version": 1,
+            "low_confidence_threshold": 0.85,
+            "chunk_count": 2,
+            "chunks": [
+                {
+                    "chunk_id": "tr_0001",
+                    "rank": 1,
+                    "start_ms": 0,
+                    "end_ms": 400,
+                    "text": "hello",
+                    "confidence": 0.5,
+                    "clip_path": "transcript/review_clips/tr_0001.wav",
+                    "reviewed": False,
+                },
+                {
+                    "chunk_id": "tr_0002",
+                    "rank": 2,
+                    "start_ms": 500,
+                    "end_ms": 900,
+                    "text": "world",
+                    "confidence": 0.6,
+                    "reviewed": False,
+                },
+            ],
+        },
+    )
+    state = get_review_state(ctx)
+    assert state["chunks"][0]["clip_ready"] is True
+    assert state["chunks"][1]["clip_ready"] is False
+    assert state["chunks"][1]["clip_path"] == "transcript/review_clips/tr_0002.wav"

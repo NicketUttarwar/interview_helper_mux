@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useApp } from "../../context/AppContext";
 import { StepActionHeader } from "./StepActionHeader";
 import { StageStepRow } from "./StageStepRow";
@@ -11,6 +11,9 @@ import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { resolveFocusStepId, shouldAdvanceStaleStep } from "../../utils/resolveActiveStep";
 import { scrollToStageStep } from "../../utils/activateStageStep";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
+import { StageReuseSection } from "../guidance/StageReuseSection";
+import { StageReviewGateBanner } from "../gates/StageReviewGateBanner";
+import { resolveReviewGateSpec } from "../../utils/resolveReviewGate";
 
 export function StageStepWorkbench() {
   const {
@@ -51,6 +54,9 @@ export function StageStepWorkbench() {
 
   const whatsNext = run?.journey?.next_action ?? null;
 
+  const prevStageIdRef = useRef<string | null>(null);
+  const userReviewingCompletedRef = useRef(false);
+
   useEffect(() => {
     if (!run || selectedStageId) return;
     const targetId = nav.currentStage?.id || nav.nextStage?.id;
@@ -58,15 +64,25 @@ export function StageStepWorkbench() {
   }, [run, selectedStageId, nav.currentStage?.id, nav.nextStage?.id, selectStage]);
 
   useEffect(() => {
-    if (!selectedStageId || activeStepId) return;
+    if (!selectedStageId) return;
+    const stageChanged = prevStageIdRef.current !== selectedStageId;
+    prevStageIdRef.current = selectedStageId;
+    if (!stageChanged) return;
+    userReviewingCompletedRef.current = false;
+    if (activeStepId) return;
     const first = resolveFocusStepId(run, selectedStageId);
     if (first) setActiveStepId(first);
   }, [selectedStageId, activeStepId, run, setActiveStepId]);
 
   useEffect(() => {
     if (!run || !selectedStageId || !activeStepId) return;
-    const next = shouldAdvanceStaleStep(run, selectedStageId, activeStepId);
-    if (next) setActiveStepId(next);
+    const next = shouldAdvanceStaleStep(run, selectedStageId, activeStepId, {
+      userReviewingCompletedStep: userReviewingCompletedRef.current,
+    });
+    if (next) {
+      userReviewingCompletedRef.current = false;
+      setActiveStepId(next);
+    }
   }, [run, selectedStageId, activeStepId, setActiveStepId]);
 
   useEffect(() => {
@@ -87,13 +103,24 @@ export function StageStepWorkbench() {
     steps.every((s) => s.status === "done");
 
   const activateStep = (stepId: string) => {
-    setActiveStepId(stepId);
     const step = steps.find((s) => s.id === stepId);
+    userReviewingCompletedRef.current =
+      step?.status === "done" || step?.status === "waiting";
+    setActiveStepId(stepId);
     if (step) {
       appendClientLog(`Step ${step.number}: ${step.label}`, "info", selectedStage.id, stepId);
     }
     scrollToStageStep(stepId);
   };
+
+  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell);
+
+  const reviewDetailStepId =
+    reviewGateSpec?.kind === "transcript_review"
+      ? "listen_clips"
+      : reviewGateSpec?.kind === "disfluency_review"
+        ? "review_fillers"
+        : undefined;
 
   return (
     <div className={`panel stage-step-workbench${showDoneShell ? " stage-step-workbench--done" : ""}`}>
@@ -102,6 +129,20 @@ export function StageStepWorkbench() {
         stepNumber={stepEntry?.number}
         whatsNext={whatsNext}
       />
+
+      {reviewGateSpec ? (
+        <StageReviewGateBanner
+          spec={reviewGateSpec}
+          stage={selectedStage}
+          onReviewDetail={
+            reviewDetailStepId
+              ? () => activateStep(reviewDetailStepId)
+              : undefined
+          }
+        />
+      ) : null}
+
+      {!showDoneShell ? <StageReuseSection stage={selectedStage} /> : null}
 
       {showDoneShell ? (
         <div className="stage-detail-done-shell">

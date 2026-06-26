@@ -21,7 +21,7 @@ export function StageStepRow({ step, stage, isActive, onActivate }: Props) {
   return (
     <section
       id={`stage-step-${step.id}`}
-      className={`stage-step-row${isActive ? " stage-step-row--active" : ""}${step.status === "done" ? " stage-step-row--done" : ""}`}
+      className={`stage-step-row${isActive ? " stage-step-row--active" : ""}${step.status === "done" ? " stage-step-row--done" : ""}${isActive && (step.kind === "reuse" || step.kind === "write_approval") ? " stage-step-row--decision" : ""}`}
       data-testid={`stage-step-${step.id}`}
     >
       <button

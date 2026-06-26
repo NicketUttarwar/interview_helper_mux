@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isStageReusePending,
   resolveStageReuseCheck,
   stageReuseOffersJobKey,
 } from "./stageReuseOffers";
@@ -77,6 +78,21 @@ describe("resolveStageReuseCheck", () => {
       },
     });
     const ctx = resolveStageReuseCheck(run, "ingest", "done", run.job);
+    expect(ctx.enabled).toBe(false);
+    expect(isStageReusePending(run, "ingest", "done", run.job)).toBe(false);
+    expect(isStageReusePending(run, "transcribe", "pending", run.job)).toBe(true);
+  });
+
+  it("does not enable reuse UI after operator decided", () => {
+    const run = minimalRun({
+      meta: { stage_reuse: { audio_preclean: { action: "accept" } } },
+      job: {
+        needs_stage_reuse: true,
+        stage: "audio_preclean",
+        reuse_candidates: [candidate("exec_001")],
+      },
+    });
+    const ctx = resolveStageReuseCheck(run, "audio_preclean", "pending", run.job);
     expect(ctx.enabled).toBe(false);
   });
 });

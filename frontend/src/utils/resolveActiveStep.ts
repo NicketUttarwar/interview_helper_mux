@@ -4,10 +4,10 @@ import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
-  transcript_review: "listen_clips",
-  disfluency_review: "review_fillers",
-  analysis_profile: "review_profile",
-  g1_vo_pickup: "review_lines",
+  transcript_review: "complete_g0",
+  disfluency_review: "complete_g05",
+  analysis_profile: "verify_profile",
+  g1_vo_pickup: "continue_g2",
   g2_flow_select: "choose_flow",
 };
 
@@ -25,6 +25,21 @@ function stageSteps(run: RunData | null, stageId: string | null): StageStep[] {
 
 function hasStep(steps: StageStep[], stepId: string): boolean {
   return steps.some((s) => s.id === stepId);
+}
+
+/**
+ * Journey substeps are often scoped as `kind:stage_id` (e.g. write_approval:transcribe).
+ * Only apply them when the suffix matches the stage being viewed.
+ */
+export function journeySubstepForStage(
+  activeSubstepId: string | null | undefined,
+  stageId: string,
+): string | null {
+  if (!activeSubstepId) return null;
+  const colon = activeSubstepId.indexOf(":");
+  if (colon < 0) return activeSubstepId;
+  const scopedStageId = activeSubstepId.slice(colon + 1);
+  return scopedStageId === stageId ? activeSubstepId : null;
 }
 
 /** Map journey substep ids (write_approval:ingest) to workbench step ids. */
@@ -59,9 +74,7 @@ export function resolveFocusStepId(
   const blockingReason =
     opts.blockingReason ?? (blocking?.stage_id === stageId ? blocking.reason : null);
   const substepHint =
-    opts.substepId ??
-    (blocking?.stage_id === stageId ? run?.journey?.active_substep_id : null) ??
-    run?.journey?.active_substep_id;
+    opts.substepId ?? journeySubstepForStage(run?.journey?.active_substep_id, stageId);
 
   const fromSubstep = substepIdToStepId(substepHint);
   if (fromSubstep && (steps.length === 0 || hasStep(steps, fromSubstep))) return fromSubstep;
@@ -90,6 +103,13 @@ export function resolveFocusStepId(
   if (blockingReason === "handoff_review") {
     if (hasStep(steps, "handoff")) return "handoff";
     return "handoff";
+  }
+
+  if (stage?.status === "done" && run && !run.handoff_ack?.[stageId]) {
+    const paths = stage.handoff_paths?.length ?? 0;
+    if (paths > 0 || blockingReason === "handoff_review") {
+      if (hasStep(steps, "handoff")) return "handoff";
+    }
   }
 
   if (!steps.length) return null;
@@ -139,7 +159,12 @@ export function resolveActiveStep(
     if (focused) return focused;
   }
 
-  return steps[steps.length - 1] ?? null;
+  const fallbackId = firstTodoStepId(run, stageId);
+  if (fallbackId) {
+    const fallback = steps.find((s) => s.id === fallbackId);
+    if (fallback) return fallback;
+  }
+  return steps[0] ?? null;
 }
 
 export function firstTodoStepId(run: RunData | null, stageId: string | null): string | null {
@@ -152,17 +177,24 @@ export function firstTodoStepId(run: RunData | null, stageId: string | null): st
   return actionable?.id ?? steps[0]?.id ?? null;
 }
 
+export interface AdvanceStaleStepOpts {
+  /** Operator explicitly opened a completed/waiting step to review — do not bounce away. */
+  userReviewingCompletedStep?: boolean;
+}
+
 /** True when the operator should advance to a different step within the same stage. */
 export function shouldAdvanceStaleStep(
   run: RunData | null,
   stageId: string | null,
   activeStepId: string | null,
+  opts: AdvanceStaleStepOpts = {},
 ): string | null {
   if (!run || !stageId || !activeStepId) return null;
   const steps = stageSteps(run, stageId);
   const current = steps.find((s) => s.id === activeStepId);
   if (!current) return resolveFocusStepId(run, stageId);
   if (current.status !== "done" && current.status !== "waiting") return null;
+  if (opts.userReviewingCompletedStep) return null;
   const next = resolveFocusStepId(run, stageId);
   if (!next || next === activeStepId) return null;
   return next;

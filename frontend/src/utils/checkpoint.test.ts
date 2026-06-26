@@ -66,4 +66,37 @@ describe("findPendingFocusStage", () => {
     expect(action.stageId).toBe("ingest");
     expect(action.mode).toBe("needs_you");
   });
+
+  it("prefers transcript review gate before later pending automated stages", () => {
+    const run = minimalRun({
+      stages: [
+        { id: "ingest", title: "Ingest", description: "", status: "done", phase: "analysis" },
+        { id: "transcribe", title: "Transcribe", description: "", status: "done", phase: "analysis" },
+        {
+          id: "transcript_review_build",
+          title: "STT review prep",
+          description: "",
+          status: "done",
+          phase: "analysis",
+        },
+        {
+          id: "transcript_review",
+          title: "Transcript review",
+          description: "",
+          status: "action_required",
+          phase: "gate",
+        },
+        {
+          id: "disfluency_extract",
+          title: "Disfluency extract",
+          description: "",
+          status: "locked",
+          phase: "analysis",
+        },
+      ],
+      job: { status: "complete" },
+    });
+    expect(findPendingFocusStage(run)).toBe("transcript_review");
+    expect(resolveOperatorAction(run).stageId).toBe("transcript_review");
+  });
 });

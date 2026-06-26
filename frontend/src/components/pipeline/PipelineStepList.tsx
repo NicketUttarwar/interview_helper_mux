@@ -71,23 +71,6 @@ export function PipelineStepList() {
       ? operatorAction.stageId
       : nav.focusStageId;
 
-  if (!run) return null;
-
-  const numbered = buildNumberedStages(run.stages);
-  const jobStageId = run.job?.current_stage || run.job?.stage;
-
-  const filtered = pipelineFilterNeedsYou
-    ? numbered.filter(
-        (entry) =>
-          stageNeedsSubstepAttention(run, entry.stage.id, apiGrants, jobRunning, jobStageId) ||
-          entry.stage.id === focusStageId,
-      )
-    : numbered;
-
-  const toggleFilter = () => {
-    setPipelineFilterNeedsYou(!pipelineFilterNeedsYou);
-  };
-
   const onStepsKeyDown = useCallback(
     (e: KeyboardEvent<HTMLOListElement>) => {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -105,6 +88,23 @@ export function PipelineStepList() {
     },
     [],
   );
+
+  if (!run) return null;
+
+  const numbered = buildNumberedStages(run.stages);
+  const jobStageId = run.job?.current_stage || run.job?.stage;
+
+  const filtered = pipelineFilterNeedsYou
+    ? numbered.filter(
+        (entry) =>
+          stageNeedsSubstepAttention(run, entry.stage.id, apiGrants, jobRunning, jobStageId) ||
+          entry.stage.id === focusStageId,
+      )
+    : numbered;
+
+  const toggleFilter = () => {
+    setPipelineFilterNeedsYou(!pipelineFilterNeedsYou);
+  };
 
   const isStageExpanded = (
     stageId: string,

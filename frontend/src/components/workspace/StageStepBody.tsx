@@ -2,7 +2,6 @@ import type { StageInfo, StageStep } from "../../types";
 import { GateActions } from "../gates/GateActions";
 import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
 import { HandoffPanel } from "./HandoffPanel";
-import { StageReuseSection } from "../guidance/StageReuseSection";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
 import { StoryBoardPanel } from "./StoryBoardPanel";
@@ -36,6 +35,81 @@ export function StageStepBody({ step, stage }: Props) {
   const { run, timeline } = useApp();
   const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
 
+  if (
+    step.id === "complete_g0" &&
+    stage.id === "transcript_review" &&
+    stage.status === "action_required"
+  ) {
+    return (
+      <div className="tr-complete-step-body">
+        <p className="hint">
+          Use <strong>Accept all &amp; proceed</strong> in the banner above to sign off without
+          reviewing every clip.
+        </p>
+      </div>
+    );
+  }
+
+  if (
+    step.id === "complete_g05" &&
+    stage.id === "disfluency_review" &&
+    stage.status === "action_required"
+  ) {
+    return (
+      <div className="tr-complete-step-body">
+        <p className="hint">
+          Use <strong>Accept all &amp; proceed</strong> in the banner above to confirm all filler
+          clips and continue without reviewing each one.
+        </p>
+      </div>
+    );
+  }
+
+  if (
+    step.id === "verify_profile" &&
+    stage.id === "analysis_profile" &&
+    stage.status === "action_required"
+  ) {
+    return (
+      <div className="tr-complete-step-body">
+        <p className="hint">
+          Use <strong>Approve profile &amp; proceed</strong> in the banner above to verify the AI
+          story profile and unlock later stages.
+        </p>
+      </div>
+    );
+  }
+
+  if (step.kind === "write_approval") {
+    return (
+      <div className="stage-decision-panel" data-testid="stage-write-approval-decision">
+        <p className="hint sm">
+          Use <strong>Save all files &amp; continue</strong> in the banner above to approve staged
+          outputs without opening each file.
+        </p>
+        <WriteApprovalPanel stage={stage} />
+        {step.embed === "transcript_dock" ? (
+          <section className="stage-transcript-dock">
+            <TranscriptDockViewer />
+          </section>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (step.kind === "handoff") {
+    return (
+      <>
+        <p className="hint sm">
+          Use <strong>Acknowledge &amp; continue</strong> in the banner above to sign off on AI
+          outputs without opening each file.
+        </p>
+        <HandoffPanel />
+        <StageOutputsPanel stage={stage} />
+      </>
+    );
+  }
+
   switch (step.kind) {
     case "info":
       return stage.guidance?.prerequisites?.length ? (
@@ -49,7 +123,12 @@ export function StageStepBody({ step, stage }: Props) {
       ) : null;
 
     case "reuse":
-      return <StageReuseSection stage={stage} />;
+      return (
+        <p className="hint sm" data-testid="stage-reuse-step-hint">
+          Prior-run reuse options are shown at the top of this panel. Accept reuse there to skip
+          re-running this step, or choose <strong>Run fresh</strong>.
+        </p>
+      );
 
     case "run":
       return (
@@ -60,25 +139,6 @@ export function StageStepBody({ step, stage }: Props) {
         </p>
       );
 
-    case "write_approval":
-      return (
-        <>
-          <WriteApprovalPanel stage={stage} />
-          {step.embed === "transcript_dock" ? (
-            <section className="stage-transcript-dock">
-              <TranscriptDockViewer />
-            </section>
-          ) : null}
-        </>
-      );
-
-    case "handoff":
-      return (
-        <>
-          <HandoffPanel />
-          <StageOutputsPanel stage={stage} />
-        </>
-      );
 
     case "preclean":
       return precleanOffer ? (
@@ -89,14 +149,7 @@ export function StageStepBody({ step, stage }: Props) {
       return <GateActions stage={stage} />;
 
     case "embed_transcript_dock":
-      return (
-        <>
-          <TranscriptReviewPanel />
-          <section className="stage-transcript-dock">
-            <TranscriptDockViewer />
-          </section>
-        </>
-      );
+      return <TranscriptReviewPanel />;
 
     case "embed_story_board":
       return (

@@ -10,7 +10,7 @@ interface StepActionHandlers {
   approveWriteAndContinue: (stageId: string) => Promise<boolean>;
   discardPendingWrites: (stageId: string) => Promise<void>;
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
-  completeDisfluencyReview: () => Promise<void>;
+  completeDisfluencyReview: (acceptUnreviewed?: boolean) => Promise<void>;
   approveSfxPrompts: () => Promise<void>;
   acknowledgeHandoff?: () => Promise<void>;
   skipOptional: (stageId: string) => Promise<void>;
@@ -55,7 +55,7 @@ export async function invokeStepFooterAction(
     step.id === "complete_g05" ||
     (step.embed === "disfluency_review" && label.includes("complete review"))
   ) {
-    await handlers.completeDisfluencyReview();
+    await handlers.completeDisfluencyReview(true);
     return;
   }
 

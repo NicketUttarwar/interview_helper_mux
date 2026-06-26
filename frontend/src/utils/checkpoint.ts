@@ -3,6 +3,7 @@ import { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention } from "./attentionQueue";
+import { findNextRunnableStage } from "./preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
 
@@ -52,8 +53,6 @@ export function findPendingFocusStage(
   grants: Record<string, boolean> = {},
 ): string | null {
   if (!run) return null;
-  const actionStage = run.stages.find((s) => s.status === "action_required");
-  if (actionStage) return actionStage.id;
   if (run.job?.status === "gate" && run.job.stage) return run.job.stage;
   if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
@@ -68,6 +67,15 @@ export function findPendingFocusStage(
     run.job.stage
   ) {
     return run.job.stage;
+  }
+  const next = findNextRunnableStage(run.stages, run.meta);
+  if (
+    next &&
+    (next.status === "pending" ||
+      next.status === "awaiting_write_approval" ||
+      next.status === "action_required")
+  ) {
+    return next.id;
   }
   const handoff = findHandoffStage(run);
   if (handoff) return handoff.id;

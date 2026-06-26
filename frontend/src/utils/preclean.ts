@@ -87,10 +87,13 @@ export function findNextRunnableStage(
   _meta?: RunMeta | null,
 ): StageInfo | undefined {
   for (const s of stages) {
-    if (s.status === "action_required" || s.status === "awaiting_write_approval") return s;
-    if (s.status === "pending" && s.phase !== "gate") {
-      return s;
-    }
+    if (s.status === "awaiting_write_approval") return s;
+  }
+  for (const s of stages) {
+    if (s.status === "action_required") return s;
+  }
+  for (const s of stages) {
+    if (s.status === "pending" && s.phase !== "gate") return s;
   }
   return undefined;
 }

@@ -24,10 +24,12 @@ export function checkpointPrimaryLabel(
   switch (stageId) {
     case "transcript_review":
       return opts?.clipCount
-        ? `Review ${opts.clipCount} STT clip${opts.clipCount === 1 ? "" : "s"}`
-        : "Review STT clips";
+        ? `Accept all & proceed (${opts.clipCount} clip${opts.clipCount === 1 ? "" : "s"} pending)`
+        : "Accept all & proceed";
     case "disfluency_review":
-      return "Review filler clips";
+      return opts?.clipCount
+        ? `Accept all & proceed (${opts.clipCount} clip${opts.clipCount === 1 ? "" : "s"} pending)`
+        : "Accept all & proceed";
     case "g1_vo_pickup":
       return opts?.pickupCount
         ? `Record ${opts.pickupCount} pickup line${opts.pickupCount === 1 ? "" : "s"}`

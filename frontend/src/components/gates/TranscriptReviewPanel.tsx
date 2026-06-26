@@ -7,22 +7,37 @@ import {
   formatCorrectionSummary,
   TranscriptDockViewer,
   type TranscriptCorrectionStats,
+  type TranscriptDockHandle,
 } from "../workspace/TranscriptDockViewer";
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 import { formatApiError } from "../../utils/safeApi";
+import {
+  chunkClipUrl,
+  chunkFocusRange,
+  chunkPlaybackRange,
+} from "../../utils/transcriptReviewChunk";
 
 export function TranscriptReviewPanel() {
-  const { run, refreshRun, showToast, appendClientLog, loadTranscriptReview, transcriptReview } =
-    useApp();
+  const {
+    run,
+    refreshRun,
+    showToast,
+    appendClientLog,
+    loadTranscriptReview,
+    transcriptReview,
+  } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [text, setText] = useState("");
+  const [clipLoadError, setClipLoadError] = useState(false);
   const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
     emptyCorrectionStats(),
   );
   const textRef = useRef(text);
   const indexRef = useRef(0);
+  const clipAudioRef = useRef<HTMLAudioElement>(null);
+  const dockRef = useRef<TranscriptDockHandle>(null);
 
   textRef.current = text;
 
@@ -32,6 +47,10 @@ export function TranscriptReviewPanel() {
     showToast(msg, "error");
     appendClientLog(msg, "error", "transcript_review");
   };
+
+  const chunks = transcriptReview?.chunks || [];
+  const idx = Math.min(index, Math.max(0, chunks.length - 1));
+  const chunk = chunks[idx];
 
   useEffect(() => {
     setLoading(true);
@@ -43,19 +62,6 @@ export function TranscriptReviewPanel() {
       });
   }, [loadTranscriptReview]);
 
-  const chunks = transcriptReview?.chunks || [];
-
-  if (loading) {
-    return (
-      <div className="gate-loading-skeleton panel-inset" aria-busy>
-        <p className="hint">Loading transcript review queue…</p>
-      </div>
-    );
-  }
-
-  const idx = Math.min(index, Math.max(0, chunks.length - 1));
-  const chunk = chunks[idx];
-
   useEffect(() => {
     indexRef.current = idx;
   }, [idx]);
@@ -64,12 +70,9 @@ export function TranscriptReviewPanel() {
     if (chunk) setText(chunk.corrected_text || chunk.text || "");
   }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text]);
 
-  const syncChunkTextFromDock = async () => {
-    const data = await loadTranscriptReview();
-    if (!data || !chunk) return;
-    const updated = data.chunks.find((c) => c.chunk_id === chunk.chunk_id);
-    if (updated) setText(updated.corrected_text || updated.text || "");
-  };
+  useEffect(() => {
+    setClipLoadError(false);
+  }, [chunk?.chunk_id]);
 
   const saveChunk = async (chunkId: string, reviewed: boolean, useOriginal = false) => {
     if (!run) return;
@@ -102,6 +105,13 @@ export function TranscriptReviewPanel() {
     return () => registerStepPrimaryPrep("transcript_review_flush", null);
   }, [run, transcriptReview?.chunks, loadTranscriptReview, refreshRun]);
 
+  const syncChunkTextFromDock = async () => {
+    const data = await loadTranscriptReview();
+    if (!data || !chunk) return;
+    const updated = data.chunks.find((c) => c.chunk_id === chunk.chunk_id);
+    if (updated) setText(updated.corrected_text || updated.text || "");
+  };
+
   const goToIndex = (next: number) => {
     const prev = indexRef.current;
     if (prev !== next && chunks[prev]) {
@@ -117,12 +127,25 @@ export function TranscriptReviewPanel() {
     setIndex(next);
   };
 
+  const clipUrl = run && chunk ? chunkClipUrl(run.run_id, chunk) : "";
+  const playbackRange = chunk ? chunkPlaybackRange(chunk) : null;
+
+  useEffect(() => {
+    const el = clipAudioRef.current;
+    if (!el || !clipUrl) return;
+    el.load();
+  }, [clipUrl, chunk?.chunk_id]);
+
+  const playClipInDock = () => {
+    if (!playbackRange) return;
+    dockRef.current?.playClipRange(playbackRange.start_ms, playbackRange.end_ms);
+  };
+
   if (loading) {
     return (
-      <p className="hint">
-        Clips are ranked lowest AWS confidence first. Listen, fix text, then use{" "}
-        <strong>Complete transcript review</strong> at the bottom of this step.
-      </p>
+      <div className="gate-loading-skeleton panel-inset" aria-busy>
+        <p className="hint">Loading transcript review queue…</p>
+      </div>
     );
   }
 
@@ -137,84 +160,105 @@ export function TranscriptReviewPanel() {
     (chunk.confidence ?? 0) < (transcriptReview?.low_confidence_threshold || 0.85)
       ? "low"
       : "ok";
-  const clipUrl = chunk.clip_path
-    ? `/api/runs/${run!.run_id}/audio?path=${encodeURIComponent(chunk.clip_path)}`
-    : "";
-
-  const focusRange = {
-    start_ms: chunk.start_ms,
-    end_ms: chunk.end_ms,
-    label: `Clip #${idx + 1}`,
-  };
+  const focusRange = chunkFocusRange(chunk, `Clip #${idx + 1}`);
+  const pendingCount = transcriptReview?.pending_count ?? 0;
+  const showNativeClipPlayer = Boolean(clipUrl) && !clipLoadError;
+  const clipUnavailable =
+    chunk.clip_ready === false || clipLoadError || (!clipUrl && chunk.clip_path);
 
   return (
-    <>
-      <p className="gate-progress-subheader hint sm">
-        {(transcriptReview?.pending_count ?? chunks.length) > 0
-          ? `${transcriptReview?.pending_count ?? chunks.length} clip(s) remaining — lowest confidence first.`
-          : "Review clips below, then complete transcript review."}
+    <div className="tr-review-panel">
+      <p className="hint sm tr-review-panel-hint">
+        Optional clip-by-clip review — use <strong>Accept all &amp; proceed</strong> in the banner
+        above to finish without reviewing each clip.
+        {pendingCount > 0 ? ` (${pendingCount} pending)` : null}
       </p>
-      <p className="hint">
-        Use the synced transcript dock below to edit word-by-word as audio plays. Low-confidence
-        clips are listed first — jump between clips or edit inline at any time.
-      </p>
-      <div className="tr-review-header">
-        <span>
-          Clip <strong>{idx + 1}</strong> of <strong>{chunks.length}</strong>
-        </span>
-        <span className={`tr-conf ${confClass}`}>Confidence {confPct}%</span>
-        <span className="muted">
-          {chunk.chunk_id} · {formatMs(chunk.start_ms)}–{formatMs(chunk.end_ms)} ·{" "}
-          {chunk.speaker_id || "—"}
-        </span>
-        <span className="muted">{transcriptReview?.pending_count ?? 0} pending</span>
+
+      <div className="tr-review-compact-bar">
+        <div className="tr-review-nav">
+          <button
+            type="button"
+            className="btn sm ghost"
+            disabled={idx === 0}
+            onClick={() => goToIndex(Math.max(0, idx - 1))}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            className="btn sm ghost"
+            disabled={idx >= chunks.length - 1}
+            onClick={() => goToIndex(Math.min(chunks.length - 1, idx + 1))}
+          >
+            Next
+          </button>
+          <select
+            className="select sm"
+            value={idx}
+            onChange={(e) => goToIndex(Number(e.target.value))}
+          >
+            {chunks.map((c, i) => (
+              <option key={c.chunk_id} value={i}>
+                #{c.rank} {c.chunk_id}
+                {c.reviewed ? " ✓" : ""} ({Math.round((c.confidence || 0) * 100)}%)
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="tr-review-meta">
+          <span>
+            Clip <strong>{idx + 1}</strong>/<strong>{chunks.length}</strong>
+          </span>
+          <span className={`tr-conf ${confClass}`}>{confPct}%</span>
+          <span className="muted">{transcriptReview?.pending_count ?? 0} pending</span>
+          <span className="muted tr-review-time">
+            {formatMs(playbackRange!.start_ms)}–{formatMs(playbackRange!.end_ms)}
+          </span>
+        </div>
+        <div className="tr-review-playback">
+          {showNativeClipPlayer ? (
+            <audio
+              key={chunk.chunk_id}
+              ref={clipAudioRef}
+              controls
+              className="audio-player tr-chunk-audio tr-chunk-audio--compact"
+              src={clipUrl}
+              preload="metadata"
+              onError={() => setClipLoadError(true)}
+            />
+          ) : clipUnavailable ? (
+            <p className="hint sm tr-clip-missing">
+              Pre-cut clip unavailable — use <strong>Play clip in dock</strong> or re-run{" "}
+              <code>transcript_review_build</code>.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="btn sm ghost tr-play-clip-dock"
+            data-testid="transcript-play-clip-dock"
+            onClick={playClipInDock}
+          >
+            Play clip in dock
+          </button>
+        </div>
       </div>
-      <div className="tr-review-nav">
-        <button
-          type="button"
-          className="btn sm ghost"
-          disabled={idx === 0}
-          onClick={() => goToIndex(Math.max(0, idx - 1))}
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          className="btn sm ghost"
-          disabled={idx >= chunks.length - 1}
-          onClick={() => goToIndex(Math.min(chunks.length - 1, idx + 1))}
-        >
-          Next
-        </button>
-        <select
-          className="select sm"
-          value={idx}
-          onChange={(e) => goToIndex(Number(e.target.value))}
-        >
-          {chunks.map((c, i) => (
-            <option key={c.chunk_id} value={i}>
-              #{c.rank} {c.chunk_id}
-              {c.reviewed ? " ✓" : ""} ({Math.round((c.confidence || 0) * 100)}%)
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="tr-review-body">
-        <audio controls className="audio-player tr-chunk-audio" src={clipUrl} />
-        <label className="tr-label">Chunk text (bulk edit)</label>
+
+      <details className="tr-bulk-edit-details">
+        <summary>Chunk bulk edit</summary>
         <textarea
-          className="tr-textarea"
-          rows={3}
+          className="tr-textarea tr-textarea--compact"
+          rows={2}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-      </div>
+      </details>
 
       <section className="tr-review-dock-section">
-        <h4>Synced transcript editor</h4>
         <TranscriptDockViewer
+          ref={dockRef}
           focusRange={focusRange}
           seekOnFocus
+          fillHeight
           onWordsSaved={() => void syncChunkTextFromDock()}
           onCorrectionStatsChange={setCorrectionStats}
         />
@@ -223,6 +267,6 @@ export function TranscriptReviewPanel() {
       {correctionStats.total > 0 ? (
         <p className="tr-correction-summary">{formatCorrectionSummary(correctionStats)}</p>
       ) : null}
-    </>
+    </div>
   );
 }

@@ -298,6 +298,10 @@ class DisfluencyEventBody(BaseModel):
     include_in_restore: bool | None = None
 
 
+class DisfluencyReviewCompleteBody(BaseModel):
+    accept_unreviewed: bool = False
+
+
 class DisfluencyRestoreBody(BaseModel):
     enabled: bool
 
@@ -2064,16 +2068,22 @@ def create_app() -> FastAPI:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/runs/{run_id}/disfluency-review/complete")
-    def complete_disfluency_review(run_id: str) -> dict[str, Any]:
+    def complete_disfluency_review(
+        run_id: str,
+        body: DisfluencyReviewCompleteBody = DisfluencyReviewCompleteBody(),
+    ) -> dict[str, Any]:
         ctx = _ctx(run_id)
         state = disfluency.get_review_state(ctx)
         if not state.get("ready"):
             raise HTTPException(400, "Disfluency catalog not ready.")
         pending = state.get("pending_count", 0)
-        if pending:
-            raise HTTPException(400, f"{pending} event(s) still pending review.")
+        if pending and not body.accept_unreviewed:
+            raise HTTPException(
+                400,
+                f"{pending} event(s) still pending review. Confirm each or pass accept_unreviewed=true.",
+            )
         try:
-            disfluency.mark_disfluency_review_complete(ctx)
+            disfluency.mark_disfluency_review_complete(ctx, accept_unreviewed=body.accept_unreviewed)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         refresh_journey_meta(ctx)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   firstTodoStepId,
+  journeySubstepForStage,
   resolveFocusStepId,
   shouldAdvanceStaleStep,
   substepIdToStepId,
@@ -21,6 +22,16 @@ describe("substepIdToStepId", () => {
     expect(substepIdToStepId("stage_reuse:ingest")).toBe("reuse");
     expect(substepIdToStepId("handoff:speaker_roles")).toBe("handoff");
     expect(substepIdToStepId("run:transcribe")).toBe("run");
+  });
+});
+
+describe("journeySubstepForStage", () => {
+  it("returns substep only when stage suffix matches", () => {
+    expect(journeySubstepForStage("write_approval:transcribe", "transcribe")).toBe(
+      "write_approval:transcribe",
+    );
+    expect(journeySubstepForStage("write_approval:transcribe", "ingest")).toBeNull();
+    expect(journeySubstepForStage("running", "transcribe")).toBe("running");
   });
 });
 
@@ -66,9 +77,53 @@ describe("resolveFocusStepId", () => {
           { id: "listen_clips", status: "todo", kind: "gate", number: 1, label: "Listen", review: [] },
           { id: "complete_g0", status: "todo", kind: "gate", number: 4, label: "Complete", review: [] },
         ]),
+        stage("disfluency_review", "action_required", [
+          { id: "review_fillers", status: "todo", kind: "gate", number: 1, label: "Review", review: [] },
+          { id: "complete_g05", status: "todo", kind: "gate", number: 3, label: "Complete", review: [] },
+        ]),
       ],
     };
-    expect(resolveFocusStepId(run, "transcript_review")).toBe("listen_clips");
+    expect(resolveFocusStepId(run, "transcript_review")).toBe("complete_g0");
+    expect(resolveFocusStepId(run, "disfluency_review")).toBe("complete_g05");
+  });
+
+  it("does not apply another stage's journey substep when browsing", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [
+        stage("ingest", "done", [
+          { id: "prereqs", status: "done", kind: "info", number: 1, label: "Prereqs", review: [] },
+          { id: "run", status: "done", kind: "run", number: 2, label: "Run", review: [] },
+          {
+            id: "write_approval",
+            status: "done",
+            kind: "write_approval",
+            number: 3,
+            label: "Save",
+            review: [],
+          },
+        ]),
+        stage("transcribe", "awaiting_write_approval", [
+          { id: "run", status: "done", kind: "run", number: 1, label: "Run", review: [] },
+          {
+            id: "write_approval",
+            status: "todo",
+            kind: "write_approval",
+            number: 2,
+            label: "Save",
+            review: [],
+          },
+        ]),
+      ],
+      journey: { active_substep_id: "write_approval:transcribe" },
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "transcribe",
+        pending_write_paths: ["transcript/raw.json"],
+      },
+    };
+    expect(resolveFocusStepId(run, "ingest")).toBe("prereqs");
+    expect(resolveFocusStepId(run, "transcribe")).toBe("write_approval");
   });
 
   it("focuses active run step while job is running", () => {
@@ -103,6 +158,29 @@ describe("shouldAdvanceStaleStep", () => {
       },
     };
     expect(shouldAdvanceStaleStep(run, "audio_preclean", "review_offer")).toBe("write_approval");
+  });
+
+  it("does not advance when operator is reviewing a completed step", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [
+        stage("audio_preclean", "awaiting_write_approval", [
+          { id: "review_offer", status: "done", kind: "preclean", number: 1, label: "Offer", review: [] },
+          { id: "wait_run", status: "done", kind: "run", number: 2, label: "Wait", review: [] },
+          { id: "write_approval", status: "todo", kind: "write_approval", number: 3, label: "Save", review: [] },
+        ]),
+      ],
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "audio_preclean",
+        pending_write_paths: ["preclean/isolated.wav"],
+      },
+    };
+    expect(
+      shouldAdvanceStaleStep(run, "audio_preclean", "review_offer", {
+        userReviewingCompletedStep: true,
+      }),
+    ).toBeNull();
   });
 });
 

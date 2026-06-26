@@ -198,7 +198,6 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             "ingest",
             "transcribe",
             "transcript_review_build",
-            "disfluency_extract",
         ):
             require_transcript_review_clear(ctx)
             require_disfluency_review_clear(ctx)
