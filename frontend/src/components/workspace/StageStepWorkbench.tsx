@@ -14,7 +14,6 @@ import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { StageReviewGateBanner } from "../gates/StageReviewGateBanner";
 import { resolveReviewGateSpec } from "../../utils/resolveReviewGate";
-
 export function StageStepWorkbench() {
   const {
     run,
@@ -26,6 +25,7 @@ export function StageStepWorkbench() {
     jobRunning,
     apiGrants,
     appendClientLog,
+    autoContinuePipeline,
   } = useApp();
 
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -89,6 +89,17 @@ export function StageStepWorkbench() {
     if (activeStepId) scrollToStageStep(activeStepId);
   }, [activeStepId, selectedStageId]);
 
+  const showDoneShell =
+    Boolean(selectedStage) &&
+    fullyComplete &&
+    !stageNeedsPendingAction(run!, selectedStage!.id, apiGrants) &&
+    steps.every((s) => s.status === "done");
+
+  useEffect(() => {
+    if (!showDoneShell || !run || !selectedStageId || jobRunning) return;
+    void autoContinuePipeline(selectedStageId);
+  }, [showDoneShell, run, selectedStageId, jobRunning, autoContinuePipeline]);
+
   if (!selectedStage || !stageAction) {
     return (
       <div className="panel stage-step-workbench">
@@ -97,10 +108,7 @@ export function StageStepWorkbench() {
     );
   }
 
-  const showDoneShell =
-    fullyComplete &&
-    !stageNeedsPendingAction(run!, selectedStage.id, apiGrants) &&
-    steps.every((s) => s.status === "done");
+  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell);
 
   const activateStep = (stepId: string) => {
     const step = steps.find((s) => s.id === stepId);
@@ -112,8 +120,6 @@ export function StageStepWorkbench() {
     }
     scrollToStageStep(stepId);
   };
-
-  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell);
 
   const reviewDetailStepId =
     reviewGateSpec?.kind === "transcript_review"
@@ -150,16 +156,18 @@ export function StageStepWorkbench() {
           <StageOutputsPanel stage={selectedStage} />
         </div>
       ) : steps.length ? (
-        <div className="stage-step-list">
-          {steps.map((step) => (
-            <StageStepRow
-              key={step.id}
-              step={step}
-              stage={selectedStage}
-              isActive={activeStep?.id === step.id}
-              onActivate={() => activateStep(step.id)}
-            />
-          ))}
+        <div className="stage-step-list-wrap">
+          <div className="stage-step-list">
+            {steps.map((step) => (
+              <StageStepRow
+                key={step.id}
+                step={step}
+                stage={selectedStage}
+                isActive={activeStep?.id === step.id}
+                onActivate={() => activateStep(step.id)}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <p className="hint">No steps defined for this stage yet.</p>

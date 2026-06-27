@@ -74,6 +74,8 @@ def run_content_context(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         transcript = c.read_json("transcript/full.json")
         payload: dict = {"transcript": transcript.get("text", "")}
+        if c.artifact_exists("understanding/speakers.json"):
+            payload["speakers"] = c.read_json("understanding/speakers.json")
         quality = transcript_quality_for_ctx(c)
         if quality:
             payload["transcript_quality"] = quality

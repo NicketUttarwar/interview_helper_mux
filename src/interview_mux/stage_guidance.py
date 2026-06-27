@@ -206,8 +206,11 @@ def _latest_stage_attempt(ctx: RunContext, stage_id: str) -> dict[str, Any] | No
 
 def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     """Actionable bullets for budget exhaustion, lint failures, and placement QA."""
+    from interview_mux.analysis_memory import load_analysis_state
     from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count
     from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS
+    from interview_mux.deterministic_lint import lint_remediation_hints
+    from interview_mux.llm_preflight import run_preflight
 
     items: list[dict[str, Any]] = []
     if stage_id in LLM_HANDOFF_STAGES:
@@ -224,15 +227,47 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
         attempt = _latest_stage_attempt(ctx, stage_id)
         if attempt:
             lint = attempt.get("deterministic_lint_errors") or []
-            if lint:
-                summary = str(lint[0])[:100]
+            for err in lint[:4]:
                 items.append(
                     _guidance_item(
                         "llm_lint",
-                        f"Latest attempt failed lint: {summary}",
+                        f"Latest attempt lint: {str(err)[:120]}",
                         "todo",
                     )
                 )
+            for hint in lint_remediation_hints([str(e) for e in lint])[:2]:
+                items.append(
+                    _guidance_item(
+                        "llm_lint_fix",
+                        hint,
+                        "todo",
+                    )
+                )
+        degraded = (load_analysis_state(ctx).get("meta") or {}).get("degraded_stages") or {}
+        deg = degraded.get(stage_id)
+        if isinstance(deg, dict):
+            summary = str(deg.get("summary") or "partial artifact saved")
+            stripped = int(deg.get("stripped_count") or 0)
+            generated = int(deg.get("generated_count") or 0)
+            items.append(
+                _guidance_item(
+                    "llm_degraded",
+                    f"Degraded continue — {summary} ({stripped} stripped, {generated} generated)",
+                    "todo",
+                )
+            )
+    if stage_id == "content_context":
+        pf_errors = run_preflight("content_context", ctx)
+        if any(
+            "speaker" in e.lower() or "interviewer" in e.lower() for e in pf_errors
+        ):
+            items.append(
+                _guidance_item(
+                    "speakers_upstream",
+                    "Re-run Speaker roles — interviewer/moderator required before content brief",
+                    "todo",
+                )
+            )
     if ctx.artifact_exists("understanding/investigation_queue.json"):
         queue = ctx.read_json("understanding/investigation_queue.json")
         inv_items = queue.get("items") or queue.get("investigations") or []

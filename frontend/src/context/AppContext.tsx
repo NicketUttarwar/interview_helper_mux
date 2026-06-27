@@ -59,8 +59,14 @@ import {
   focusStageWorkbench,
   patchRunAfterWriteApproval,
   reconcileBusyRun,
+  tryAutoContinuePipeline,
+  type AdvancePipelineOpts,
   type ExecuteJobSource,
 } from "../utils/checkpointContinuation";
+import {
+  canAutoRunStage,
+  isPipelineAutopilotEnabled,
+} from "../utils/pipelineAutopilot";
 import {
   focusNextRunnableStageWorkbench,
   handleReuseFromAssetsForStage,
@@ -157,6 +163,7 @@ interface AppContextValue {
   completeDisfluencyReview: (acceptUnreviewed?: boolean) => Promise<void>;
   approveSfxPrompts: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
+  autoContinuePipeline: (completedStageId?: string | null) => Promise<boolean>;
   onCheckpointContinue: () => Promise<void>;
   setCheckpointBusy: (busy: boolean) => void;
   setAlertsMuted: (muted: boolean) => void;
@@ -208,6 +215,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const jobRunningRef = useRef(false);
   const actionBusyRef = useRef(false);
   const approveInFlightRef = useRef(false);
+  const autopilotInFlightRef = useRef(false);
+  const acknowledgeHandoffRef = useRef<() => Promise<void>>(async () => {});
+  const autoContinuePipelineRef = useRef<(completedStageId?: string | null) => Promise<boolean>>(
+    async () => false,
+  );
   const [transcriptReview, setTranscriptReview] =
     useState<TranscriptReviewState | null>(null);
   const [actionModalOpen, setActionModalOpen] = useState(false);
@@ -837,6 +849,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   }),
                 }).then(() => pollLog());
               }
+              void autoContinuePipelineRef.current(completedStage ?? null);
             } else if (polled.status === "error") {
               showToast(
                 polled.last_error?.message || polled.message || "Step failed",
@@ -1133,6 +1146,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           appendClientLog(msg, "error");
           showToast(msg, "error");
         }
+        return;
+      }
+      if (fromCheckpoint && findHandoffStage(run)) {
+        await acknowledgeHandoffRef.current();
         return;
       }
       await beginStageExecution({ kind: "execute", stageId: stageForLog, body });
@@ -1470,6 +1487,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast,
       refreshRun,
       navigateToNextBlocker: runNextStage,
+      config,
+      autoRun: true,
+      acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
     });
     const refreshed = runId ? await refreshRun() : null;
     if (
@@ -1495,6 +1515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPipelineSubTabWrapped,
     collapseStage,
     setActiveStepId,
+    config,
   ]);
 
   const acknowledgeHandoff = useCallback(async () => {
@@ -1533,6 +1554,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pollLog,
     advanceFromCheckpoint,
   ]);
+
+  useEffect(() => {
+    acknowledgeHandoffRef.current = acknowledgeHandoff;
+  }, [acknowledgeHandoff]);
+
+  const autoContinuePipeline = useCallback(
+    async (completedStageId?: string | null): Promise<boolean> => {
+      if (
+        autopilotInFlightRef.current ||
+        jobRunningRef.current ||
+        actionBusyRef.current ||
+        approveInFlightRef.current
+      ) {
+        return false;
+      }
+      if (!isPipelineAutopilotEnabled(config)) return false;
+      autopilotInFlightRef.current = true;
+      try {
+        const opts: AdvancePipelineOpts = {
+          run,
+          runId,
+          apiGrants: ALL_API_CONSENTS,
+          selectedStageId: selectedStageIdRef.current,
+          executeJob,
+          selectStage,
+          expandStage,
+          setActiveSubstepId: setActiveSubstepIdState,
+          setActiveStepId,
+          setPipelineSubTab: setPipelineSubTabWrapped,
+          showToast,
+          refreshRun,
+          navigateToNextBlocker: runNextStage,
+          config,
+          autoRun: true,
+          acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
+        };
+        return await tryAutoContinuePipeline({
+          ...opts,
+          completedStageId,
+        });
+      } finally {
+        autopilotInFlightRef.current = false;
+      }
+    },
+    [
+      run,
+      runId,
+      config,
+      executeJob,
+      selectStage,
+      expandStage,
+      showToast,
+      refreshRun,
+      runNextStage,
+      setPipelineSubTabWrapped,
+      setActiveStepId,
+    ],
+  );
+
+  useEffect(() => {
+    autoContinuePipelineRef.current = autoContinuePipeline;
+  }, [autoContinuePipeline]);
 
   const approveWriteAndContinue = useCallback(
     async (stageId?: string): Promise<boolean> => {
@@ -1671,6 +1754,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return true;
           }
 
+          if (
+            isPipelineAutopilotEnabled(config) &&
+            canAutoRunStage(nextStageId)
+          ) {
+            await executeJob(executeBodyForStage(nextStageId), {
+              source: "checkpoint_continue",
+            });
+            await refreshRun();
+            await pollLog(true);
+            return true;
+          }
+
           showToast(readyForStageMessage(nextStageId.replace(/_/g, " ")), "info");
           await refreshRun();
           await pollLog(true);
@@ -1691,6 +1786,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast,
           refreshRun,
           navigateToNextBlocker: runNextStage,
+          config,
+          autoRun: true,
+          acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
         });
         await refreshRun();
         await pollLog(true);
@@ -1743,6 +1841,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       handleJobStartResponse,
       collapseStage,
       setActiveSubstepIdState,
+      config,
     ],
   );
 
@@ -1834,6 +1933,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stage,
         refreshRun,
         showToast,
+        autoContinuePipeline,
         ...workbench,
       });
       if (reuseOutcome === "reused" || reuseOutcome === "failed") return;
@@ -1865,6 +1965,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         showToast("Skipped optional step — not required for this run.");
         const refreshed = await refreshRun();
+        if (await autoContinuePipeline(stageId)) return;
         const next = await focusNextRunnableStageWorkbench(refreshed ?? run, workbench);
         if (next) showToast(readyForStageMessage(next.title), "info");
       } catch (e) {
@@ -1883,6 +1984,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       expandStage,
       setActiveStepId,
       setPipelineSubTabWrapped,
+      autoContinuePipeline,
     ],
   );
 
@@ -2230,6 +2332,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     completeDisfluencyReview,
     approveSfxPrompts,
     advanceFromCheckpoint,
+    autoContinuePipeline,
     onCheckpointContinue,
     setCheckpointBusy,
     setAlertsMuted,

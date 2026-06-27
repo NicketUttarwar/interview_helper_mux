@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from interview_mux.deterministic_lint import deterministic_lint
-from run_fixtures import isolated_run_ctx, minimal_gap_evaluations, minimal_manifest
+from run_fixtures import isolated_run_ctx, minimal_gap_evaluations, minimal_manifest, patch_merged_config
 
 
 def test_lint_rejects_generic_thesis_empty(tmp_path, monkeypatch):
@@ -104,3 +104,85 @@ def test_lint_craft_rejects_short_prompt(tmp_path, monkeypatch):
     }
     errors = deterministic_lint("sfx_prompt_craft", envelope, ctx)
     assert any("40 words" in e or "under" in e for e in errors)
+
+
+def test_lint_content_context_claim_field_uses_claim(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_claim")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "thesis": "Main point",
+            "topics": [{"name": "Product", "summary": "x", "segment_ids": ["seg_001"]}],
+            "key_claims": [{"id": "c1", "claim": "We launched in 2020.", "claim_type": "fact"}],
+        },
+    }
+    errors = deterministic_lint("content_context", envelope, ctx)
+    assert any("key_claim without evidence" in e for e in errors)
+
+
+def test_lint_content_context_claim_passes_with_segment_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_claim_ok")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "thesis": "Main point",
+            "topics": [{"name": "Product", "summary": "x", "segment_ids": ["seg_001"]}],
+            "key_claims": [
+                {
+                    "id": "c1",
+                    "claim": "We launched in 2020.",
+                    "claim_type": "fact",
+                    "segment_ids": ["seg_001"],
+                }
+            ],
+        },
+    }
+    errors = [
+        e
+        for e in deterministic_lint("content_context", envelope, ctx)
+        if "key_claim" in e or "thesis empty" in e
+    ]
+    assert not errors
+
+
+def test_lint_speaker_roles_multi_unknown(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_spk")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "speakers": [
+                {"speaker_id": "a", "role": "unknown"},
+                {"speaker_id": "b", "role": "unknown"},
+            ]
+        },
+    }
+    errors = deterministic_lint("speaker_roles", envelope, ctx)
+    assert any("unknown" in e.lower() for e in errors)
+
+
+def test_producer_artifact_complete_passes_envelope_before_disk(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_prod")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "thesis": "A clear thesis from the interview.",
+            "topics": [{"name": "Product", "summary": "Details", "segment_ids": ["seg_001"]}],
+            "key_claims": [],
+        },
+    }
+    errors = [
+        e for e in deterministic_lint("content_context", envelope, ctx) if "producer_artifact_complete" in e
+    ]
+    assert not errors

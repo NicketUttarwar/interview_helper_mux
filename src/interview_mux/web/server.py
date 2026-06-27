@@ -1319,6 +1319,9 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
 
         def _approve_locked() -> list[str]:
+            from interview_mux.write_staging import assert_write_approval_allowed
+
+            assert_write_approval_allowed(ctx, stage_id)
             return _approve_staged_writes_locked(run_id, ctx, stage_id)
 
         try:
@@ -1326,6 +1329,12 @@ def create_app() -> FastAPI:
         except RunBusyError as exc:
             raise HTTPException(409, str(exc)) from exc
         except HTTPException:
+            raise
+        except Exception as exc:
+            from interview_mux.write_staging import WriteApprovalBlockedError
+
+            if isinstance(exc, WriteApprovalBlockedError):
+                raise HTTPException(409, str(exc)) from exc
             raise
         title = STAGE_BY_ID.get(stage_id)
         stage_label = title.title if title else stage_id.replace("_", " ")
@@ -1372,6 +1381,12 @@ def create_app() -> FastAPI:
             raise HTTPException(409, str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except Exception as exc:
+            from interview_mux.write_staging import WriteApprovalBlockedError
+
+            if isinstance(exc, WriteApprovalBlockedError):
+                raise HTTPException(409, str(exc)) from exc
+            raise
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/discard")
     def discard_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -2398,8 +2413,14 @@ def _build_stage_list(
             s["status"] = "locked"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
+        from interview_mux.write_staging import gate_blocked_stage
+
+        gate_stage = gate_blocked_stage(ctx)
         if sid in pending_write_stages:
-            s["status"] = "awaiting_write_approval"
+            if gate_stage == sid:
+                s["status"] = "action_required"
+            else:
+                s["status"] = "awaiting_write_approval"
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status

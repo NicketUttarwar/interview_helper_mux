@@ -8,6 +8,7 @@ import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
 import { resolvePrecleanOffer } from "./preclean";
+import { isStageGateBlocked } from "./writeApproval";
 export type WorkflowStepStatus = "done" | "active" | "upcoming" | "attention";
 export type WorkflowStepId =
   | "start"
@@ -183,7 +184,9 @@ export function listAttentionItems(
 
   if (ctx.awaitingWriteApproval && !jobRunning) {
     const sid = job?.pending_write_stage || job?.stage || focusStageId || "";
-    if (sid) push(writeApprovalItem(run, sid, job?.message));
+    if (sid && !isStageGateBlocked(run, sid)) {
+      push(writeApprovalItem(run, sid, job?.message));
+    }
   }
 
   if (ctx.needsStageReuse && job?.stage) {
@@ -241,7 +244,8 @@ export function listAttentionItems(
       reason === "g1_vo_pickup" ||
       reason === "g2_flow_select" ||
       reason === "analysis_profile" ||
-      reason === "handoff_review"
+      reason === "handoff_review" ||
+      reason === "llm_gate"
     ) {
       if (stage && stage.status === "action_required") {
         push(gateItem(run, stage, blocking.message));

@@ -89,6 +89,11 @@ def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
             continue
         if not sp.get("role"):
             gaps.append(f"speakers[{i}].role")
+    if speakers and all(
+        isinstance(sp, dict) and str(sp.get("role", "")).strip().lower() == "unknown"
+        for sp in speakers
+    ):
+        gaps.append("speakers.all_unknown_roles")
     return gaps
 
 

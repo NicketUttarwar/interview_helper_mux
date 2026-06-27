@@ -45,6 +45,38 @@ def _artifacts(envelope: dict[str, Any]) -> dict[str, Any]:
     return envelope.get("artifacts") or {}
 
 
+def _artifact_row_confidences(stage_key: str, envelope: dict[str, Any]) -> list[float]:
+    """Per-row confidence scores from stage artifacts (when present)."""
+    artifacts = _artifacts(envelope)
+    if stage_key == "speaker_roles":
+        rows = artifacts.get("speakers") or []
+        out: list[float] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            conf = row.get("confidence")
+            if isinstance(conf, (int, float)):
+                out.append(float(conf))
+        return out
+    return []
+
+
+def reconcile_envelope_confidence(stage_key: str, envelope: dict[str, Any]) -> bool:
+    """
+    Align top-level envelope confidence with artifact row scores when the model
+    reports a lower envelope value than its own per-row confidences.
+    """
+    row_conf = _artifact_row_confidences(stage_key, envelope)
+    if not row_conf:
+        return False
+    derived = min(row_conf)
+    current = float(envelope.get("confidence") or 0)
+    if derived > current:
+        envelope["confidence"] = derived
+        return True
+    return False
+
+
 def _walk_segment_id_values(obj: Any, out: set[str]) -> None:
     if isinstance(obj, dict):
         for key, val in obj.items():
@@ -116,6 +148,33 @@ def _transcript_duration_ms(ctx: RunContext) -> int:
     return 0
 
 
+def _has_topic_evidence(topic: dict[str, Any]) -> bool:
+    if topic.get("approx_time_range"):
+        return True
+    seg_ids = topic.get("segment_ids")
+    return isinstance(seg_ids, list) and bool(seg_ids)
+
+
+def _claim_body(claim: dict[str, Any]) -> str:
+    return str(claim.get("claim") or claim.get("text") or "").strip()
+
+
+def _has_claim_evidence(claim: dict[str, Any]) -> bool:
+    if claim.get("approx_time_range"):
+        return True
+    for key in ("evidence_segment_ids", "segment_ids"):
+        ids = claim.get(key)
+        if isinstance(ids, list) and ids:
+            return True
+    return False
+
+
+def _content_context_long_interview_ms() -> int:
+    cfg = merged_config().get("analysis") or {}
+    thresholds = cfg.get("prompt_thresholds") or {}
+    return int(thresholds.get("content_context_topic_anchor_min_duration_ms", 600_000))
+
+
 def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
     errors: list[str] = []
     speakers = artifacts.get("speakers") or []
@@ -123,24 +182,32 @@ def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str
         errors.append("speakers list empty")
         return errors
     roles = {str(s.get("role", "")).lower() for s in speakers if isinstance(s, dict)}
-    if "interviewer" not in roles and "unknown" in roles and len(roles) == len(speakers):
-        errors.append("all speakers unknown — Q&A may be evident")
+    interviewer_roles = {"interviewer", "moderator"}
+    if not (roles & interviewer_roles):
+        if all(
+            isinstance(s, dict) and str(s.get("role", "")).lower() == "unknown"
+            for s in speakers
+        ):
+            errors.append("all speakers unknown — Q&A may be evident")
     return errors
 
 
-def _lint_content_context(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
+def _lint_content_context(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
     if not str(artifacts.get("thesis", "")).strip():
         errors.append("thesis empty")
+    long_interview = _transcript_duration_ms(ctx) >= _content_context_long_interview_ms()
     for topic in artifacts.get("topics") or []:
         if not isinstance(topic, dict):
             continue
         name = str(topic.get("name", "")).strip().lower()
-        if name in _GENERIC_THEMES and not topic.get("segment_ids") and not topic.get("approx_time_range"):
+        if name in _GENERIC_THEMES and not _has_topic_evidence(topic):
             errors.append(f"generic theme without evidence: {name}")
+        elif long_interview and name and not _has_topic_evidence(topic):
+            errors.append(f"topic without evidence anchor: {name}")
     for claim in artifacts.get("key_claims") or []:
-        if isinstance(claim, dict) and not (claim.get("evidence_segment_ids") or claim.get("approx_time_range")):
-            if str(claim.get("text", "")).strip():
+        if isinstance(claim, dict) and not _has_claim_evidence(claim):
+            if _claim_body(claim):
                 errors.append("key_claim without evidence anchor")
                 break
     return errors
@@ -591,7 +658,6 @@ def _lint_generic(
 ) -> list[str]:
     errors: list[str] = []
     from interview_mux.arbiter_expectations import rubric_for_stage
-    from interview_mux.artifact_completeness import artifact_status
     from interview_mux.llm_flow_hardening import producer_artifact_path
     from interview_mux.llm_preflight import run_preflight
 
@@ -607,15 +673,27 @@ def _lint_generic(
         errors.append(f"schema_errors_empty: {'; '.join(schema_errors[:2])}")
 
     if "confidence_gte_min" in keys:
+        reconcile_envelope_confidence(stage_key, envelope)
         min_conf = float(rubric.get("min_confidence_on_accept", 0.75) or 0.75)
         conf = float(envelope.get("confidence") or 0)
         if conf < min_conf:
             errors.append(f"confidence_gte_min: {conf} < {min_conf}")
 
     if "producer_artifact_complete" in keys:
+        from interview_mux.artifact_completeness import compute_gaps
+
         rel = producer_artifact_path(stage_key)
-        if rel and artifact_status(rel, ctx) != "complete":
-            errors.append(f"producer_artifact_complete: {rel} not complete")
+        if rel:
+            if not artifacts:
+                errors.append(f"producer_artifact_complete: {rel} no envelope artifacts")
+            else:
+                gap_paths = [
+                    g.path for g in compute_gaps(rel, artifacts, stage_key=stage_key)
+                ]
+                if gap_paths:
+                    errors.append(
+                        f"producer_artifact_complete: {rel} gaps: {gap_paths[0]}"
+                    )
 
     if "upstream_artifacts_complete" in keys:
         pf = run_preflight(stage_key, ctx)
@@ -708,6 +786,40 @@ _LINTERS: dict[str, Any] = {
     "podcast_sfx_brief": _lint_podcast_sfx_brief,
     "sfx_brief": _lint_sfx_brief,
 }
+
+
+def lint_remediation_hint(error: str) -> str | None:
+    low = error.lower()
+    if "all speakers unknown" in low or (
+        "interviewer" in low and ("speaker" in low or "speakers.json" in low)
+    ):
+        return "Re-run Speaker roles and verify interviewer or moderator assignment."
+    if "truncation_requires_decompose" in low:
+        return "Next retry will use decompose/shard path — or shorten transcript input."
+    if "confidence_gte_min" in low:
+        return "Next retry will use flagship tier model."
+    if (
+        "generic theme" in low
+        or "key_claim without evidence" in low
+        or "topic without evidence" in low
+    ):
+        return "Anchor topics and claims with segment_ids or approx_time_range from the transcript."
+    if "thesis empty" in low:
+        return "Produce a concrete one-sentence thesis from interviewee statements."
+    if "producer_artifact_complete" in low:
+        return "Envelope artifact incomplete — check required fields in the schema."
+    return None
+
+
+def lint_remediation_hints(lint_errors: list[str]) -> list[str]:
+    hints: list[str] = []
+    seen: set[str] = set()
+    for err in lint_errors:
+        hint = lint_remediation_hint(err)
+        if hint and hint not in seen:
+            seen.add(hint)
+            hints.append(hint)
+    return hints
 
 
 def deterministic_lint(

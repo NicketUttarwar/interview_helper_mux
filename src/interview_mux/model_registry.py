@@ -13,6 +13,9 @@ DEFAULT_TIER_MODELS: dict[str, str] = {
     "flagship": "o3",
 }
 
+# OpenAI reasoning models reject non-default temperature (API error if set).
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
+
 DEFAULT_STAGE_TIERS: dict[str, str] = {
     "speaker_roles": "economy",
     "content_context": "economy",
@@ -72,6 +75,19 @@ class ResolvedModel:
     task_kind: str
     tier: str
     model_id: str
+
+
+def supports_custom_temperature(model_id: str) -> bool:
+    """Whether chat.completions accepts an explicit temperature for this model."""
+    mid = model_id.lower().strip()
+    return not any(mid.startswith(prefix) for prefix in _REASONING_MODEL_PREFIXES)
+
+
+def temperature_for_chat(model_id: str, task_kind: str) -> float | None:
+    """Temperature for chat.completions, or None to omit (reasoning models use API default)."""
+    if not supports_custom_temperature(model_id):
+        return None
+    return 0.0 if task_kind == "arbiter" else 0.2
 
 
 def next_tier(tier: str) -> str:

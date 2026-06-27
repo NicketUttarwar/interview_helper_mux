@@ -3592,6 +3592,35 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   background: var(--surface-2);
 }
 
+.stage-lint-failure-banner {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.stage-lint-failure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.stage-lint-error-list,
+.lint-error-list,
+.schema-error-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+}
+
+.schema-error-chip {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .preclean-offer-card {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -4716,6 +4745,54 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .deliverable-card {
+  margin-top: 0.75rem;
+}
+
+.pipeline-complete-panel {
+  padding: 1.5rem 1.25rem 1rem;
+}
+
+.pipeline-complete-hero {
+  margin-bottom: 1.25rem;
+}
+
+.pipeline-complete-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--success);
+}
+
+.pipeline-complete-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+}
+
+.pipeline-complete-output h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.pipeline-complete-path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pipeline-complete-path {
+  flex: 1 1 16rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  font-family: var(--mono, monospace);
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.pipeline-complete-workdir {
   margin-top: 0.75rem;
 }
 
@@ -6653,6 +6730,10 @@ button.pipeline-step-row:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.stage-step-list-wrap {
+  position: relative;
 }
 
 .stage-step-row {

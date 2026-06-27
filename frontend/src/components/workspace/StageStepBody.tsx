@@ -97,6 +97,81 @@ export function StageStepBody({ step, stage }: Props) {
     );
   }
 
+  if (step.id === "llm_degraded_review") {
+    const degradedItems =
+      stage?.guidance?.prerequisites?.filter((p) => p.id === "llm_degraded") || [];
+    const strippedItems =
+      stage?.guidance?.prerequisites?.filter((p) => p.id === "llm_resilience_stripped") || [];
+    return (
+      <div className="stage-decision-panel" data-testid="stage-llm-degraded-review">
+        <p className="hint sm">
+          The pipeline saved a <strong>partial artifact</strong> and continued in degraded mode.
+          Review what was kept vs stripped before trusting downstream outputs.
+        </p>
+        {degradedItems.length ? (
+          <ul className="stage-step-prereq-list">
+            {degradedItems.map((p) => (
+              <li key={p.id}>{p.label}</li>
+            ))}
+          </ul>
+        ) : null}
+        {strippedItems.length ? (
+          <div className="stage-lint-failure-banner panel-inset">
+            <strong>Stripped fields</strong>
+            <ul className="stage-lint-error-list">
+              {strippedItems.map((p) => (
+                <li key={p.id}>{p.label}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <LlmCallsPanel />
+      </div>
+    );
+  }
+
+  if (step.id === "llm_gate") {
+    const gateMsg = run?.job?.message;
+    const lintFromGuidance =
+      stage?.guidance?.prerequisites
+        ?.filter((p) => p.id === "llm_lint")
+        .map((p) => p.label.replace(/^Latest attempt lint:\s*/i, "")) || [];
+    const lintLines = lintFromGuidance;
+    const copyLint = () => {
+      const text = [gateMsg, ...lintLines].filter(Boolean).join("\n");
+      if (text) void navigator.clipboard.writeText(text);
+    };
+    return (
+      <div className="stage-decision-panel" data-testid="stage-llm-gate-decision">
+        {gateMsg ? (
+          <p className="hint sm stage-llm-gate-message">{gateMsg}</p>
+        ) : (
+          <p className="hint sm">
+            The automated quality gate rejected this stage. Review Engineering debug below, then use{" "}
+            <strong>Re-run</strong> or <strong>Discard staged attempt</strong> in the step footer.
+          </p>
+        )}
+        {lintLines.length ? (
+          <div className="stage-lint-failure-banner panel-inset">
+            <div className="stage-lint-failure-head">
+              <strong>Deterministic lint failures</strong>
+              <button type="button" className="btn ghost sm" onClick={copyLint}>
+                Copy errors
+              </button>
+            </div>
+            <ul className="stage-lint-error-list">
+              {lintLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <LlmCallsPanel />
+        <VolleyMemoryPanel />
+      </div>
+    );
+  }
+
   if (step.kind === "handoff") {
     return (
       <>

@@ -12,6 +12,8 @@ Roles:
 Rules:
 - Typical interview: one interviewer, at least one interviewee.
 - Panel / multi-guest: multiple interviewees allowed; note in `notes` with `format_hint: panel` when two or more distinct interviewees are evident.
+- When STT diarization is ambiguous (overlapping turns, single merged speaker, or sparse samples), weigh question marks, turn-taking, and intro/outro phrasing across **all** windows before assigning `unknown`.
+- Multi-speaker runs where **every** speaker remains `unknown` fail downstream lint — assign interviewer/moderator when Q&A structure is evident.
 - Use question density, turn length, and intro/outro language as signals across all sample windows.
 - Do not guess display names unless explicitly stated in the transcript.
 

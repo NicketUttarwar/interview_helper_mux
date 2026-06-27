@@ -8,7 +8,7 @@ from typing import Any
 from openai import OpenAI
 
 from interview_mux.config import merged_config, repo_root, require_secret
-from interview_mux.model_registry import resolve_model
+from interview_mux.model_registry import resolve_model, temperature_for_chat
 from interview_mux.run_context import RunContext
 
 from interview_mux.prompt_examples import (
@@ -183,8 +183,10 @@ def run_prompt_envelope(
     kwargs: dict[str, Any] = {
         "model": chosen,
         "messages": chat_messages,
-        "temperature": 0.0 if task_kind == "arbiter" else 0.2,
     }
+    temp = temperature_for_chat(chosen, task_kind)
+    if temp is not None:
+        kwargs["temperature"] = temp
     fmt = _default_response_format(task_kind, response_format)
     if fmt:
         kwargs["response_format"] = fmt

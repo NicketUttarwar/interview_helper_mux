@@ -9,9 +9,9 @@ from interview_mux.analysis_memory import (
     enqueue_investigations,
     record_stage_attempt,
     record_uptier_retry,
-    should_persist_artifacts,
     uptier_budget_remaining,
 )
+from interview_mux.llm_output_resilience import apply_resilience_and_persist
 from interview_mux.config import merged_config
 from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.local_llm_config import skip_openai_when_local_satisfied
@@ -22,13 +22,14 @@ from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley
 from interview_mux.arbiter_expectations import build_stage_expectations
 from interview_mux.attempt_budget import (
     budget_extra_for_attempt,
+    build_attempt_signature,
     check_arbiter_budget,
     is_stuck,
     record_arbiter_reject,
     record_primary_attempt,
     stuck_signature_threshold,
 )
-from interview_mux.deterministic_lint import deterministic_lint
+from interview_mux.deterministic_lint import deterministic_lint, reconcile_envelope_confidence
 from interview_mux.llm_arbiter import run_llm_arbiter
 from interview_mux.llm_shard_plans import (
     DECOMPOSE_ELIGIBLE,
@@ -49,6 +50,58 @@ from interview_mux.stages.llm_runner import run_prompt_envelope
 
 PersistFn = Callable[[RunContext, dict[str, Any]], None]
 SyncFn = Callable[[RunContext, dict[str, Any]], None]
+
+_LINT_EVIDENCE_APPENDIX = (
+    "Prior attempt failed evidence anchoring. Every topic MUST include segment_ids or "
+    "approx_time_range; every key_claim MUST include segment_ids, evidence_segment_ids, "
+    "and/or approx_time_range tied to transcript moments."
+)
+_LINT_THESIS_APPENDIX = (
+    "Prior attempt had an empty thesis. Produce a non-empty one-sentence thesis grounded "
+    "in the interviewee's stated goals from the transcript."
+)
+
+
+def _lint_retry_strategy(lint_errors: list[str], stage_key: str) -> dict[str, Any]:
+    """Map lint failures to non-identical retry parameters for the next inner-loop attempt."""
+    _ = stage_key
+    strategy: dict[str, Any] = {}
+    if not lint_errors:
+        return strategy
+    if any("truncation_requires_decompose" in e for e in lint_errors):
+        strategy["force_decompose"] = True
+    if any("confidence_gte_min" in e for e in lint_errors):
+        strategy["bump_tier"] = True
+    if any(
+        "generic theme" in e.lower()
+        or "key_claim without evidence" in e.lower()
+        or "topic without evidence" in e.lower()
+        for e in lint_errors
+    ):
+        strategy["enrich_input"] = True
+    if any("thesis empty" in e.lower() for e in lint_errors):
+        strategy["strict_appendix"] = _LINT_THESIS_APPENDIX
+    elif strategy.get("enrich_input"):
+        strategy["strict_appendix"] = _LINT_EVIDENCE_APPENDIX
+    return strategy
+
+
+def _system_prompt_with_appendix(
+    prompt_rel: str,
+    stage_key: str,
+    appendix: str | None,
+) -> str | None:
+    if not appendix:
+        return None
+    from interview_mux.stages.llm_runner import load_system_prompt_for_stage
+
+    base = load_system_prompt_for_stage(
+        prompt_rel,
+        stage_key,
+        include_preamble=True,
+        cfg=merged_config(),
+    )
+    return f"{base}\n\n## Retry constraints\n{appendix}"
 
 
 def _max_volley_retries(ctx: RunContext) -> int:
@@ -97,6 +150,7 @@ def _run_primary_with_openai_fallback(
     local_framing: LocalFramingResult | None = None,
     bump_tier: bool = False,
     call_attempt: int = 1,
+    system_appendix: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
     """
     Run OpenAI primary (always, unless explicitly configured to skip when local satisfied).
@@ -136,6 +190,7 @@ def _run_primary_with_openai_fallback(
         volley,
         bump_tier=bump_tier,
         call_attempt=call_attempt,
+        system_appendix=system_appendix,
     )
 
 
@@ -147,7 +202,9 @@ def _run_primary_with_volley_retries(
     *,
     bump_tier: bool = False,
     call_attempt: int = 1,
+    system_appendix: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
+    system_override = _system_prompt_with_appendix(prompt_rel, stage_key, system_appendix)
     envelope = run_prompt_envelope(
         stage_key,
         prompt_rel,
@@ -156,6 +213,7 @@ def _run_primary_with_volley_retries(
         task_kind="primary",
         bump_tier=bump_tier,
         call_attempt=call_attempt,
+        system_override=system_override,
     )
     artifacts = envelope.get("artifacts") or {}
     schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -174,6 +232,7 @@ def _run_primary_with_volley_retries(
             task_kind="primary",
             bump_tier=bump_tier,
             call_attempt=call_attempt,
+            system_override=system_override,
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -201,6 +260,7 @@ def _run_primary_with_volley_retries(
         envelope_errors = validate_envelope(envelope)
         all_errors = envelope_errors + schema_errors
 
+    reconcile_envelope_confidence(stage_key, envelope)
     return envelope, volley, all_errors
 
 
@@ -378,7 +438,6 @@ def _post_arbiter_hardening(
     arbiter_result: dict[str, Any],
     schema_errors: list[str],
     *,
-    attempt_signature: tuple[Any, ...] | None = None,
     volley: list[dict[str, str]] | None = None,
     truncation_flags: list[str] | None = None,
     routed_via_collate: bool = False,
@@ -397,8 +456,8 @@ def _post_arbiter_hardening(
         record_arbiter_reject(ctx, stage_key, verdict)
     _apply_lint_accept_hardening(ctx, stage_key, envelope, arbiter_result, lint_errors)
     _apply_schema_accept_hardening(ctx, stage_key, envelope, arbiter_result, schema_errors)
-    if attempt_signature is not None:
-        _apply_stuck_detector(ctx, stage_key, envelope, arbiter_result, attempt_signature)
+    sig = build_attempt_signature(envelope, volley, schema_errors, lint_errors)
+    _apply_stuck_detector(ctx, stage_key, envelope, arbiter_result, sig)
     return lint_errors
 
 
@@ -410,6 +469,8 @@ def run_llm_stage_with_routing(
     *,
     attempt: int = 1,
     bump_tier: bool = False,
+    force_decompose: bool = False,
+    system_appendix: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any], list[str], int, str | None]:
     """
     Run primary → validate → arbiter → optional uptier/decompose.
@@ -469,14 +530,60 @@ def run_llm_stage_with_routing(
                     "shard_plan_source": shard_plan_source,
                     "proactive_decompose": True,
                 }
-                sig = (envelope.get("status"), tuple(schema_errors[:3]), sum(len(m.get("content", "")) for m in volley))
                 lint_errors = _post_arbiter_hardening(
                     ctx,
                     stage_key,
                     envelope,
                     arbiter_result,
                     schema_errors,
-                    attempt_signature=sig,
+                    volley=volley,
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    routed_via_collate=True,
+                )
+                envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
+            return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
+
+    if force_decompose and stage_key in DECOMPOSE_ELIGIBLE:
+        shard_plan, shard_plan_source = build_deterministic_shard_plan(
+            stage_key,
+            stage_input,
+            truncation_flags=["lint_retry_force_decompose"],
+        )
+        if shard_plan:
+            with logged_step(f"{stage_key}/lint_retry_decompose", ctx=ctx, stage=stage_key):
+                volley, _local = prepare_volley_for_llm(
+                    ctx, stage_key, stage_input, profile="full", task_kind="primary"
+                )
+                envelope, shard_count = run_shards_then_collate(
+                    ctx,
+                    stage_key=stage_key,
+                    prompt_rel=prompt_rel,
+                    stage_input=stage_input,
+                    shard_plan=shard_plan,
+                    parent_attempt=attempt,
+                )
+                schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
+                arbiter_result = run_llm_arbiter(
+                    ctx=ctx,
+                    stage_key=stage_key,
+                    attempt_number=attempt,
+                    envelope=envelope,
+                    schema_errors=schema_errors,
+                    context_chars=sum(len(m.get("content", "")) for m in volley),
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=bump_tier),
+                )
+                envelope["_routing_meta"] = {
+                    "routed_via_collate": True,
+                    "shard_plan_source": shard_plan_source,
+                    "lint_retry_decompose": True,
+                }
+                lint_errors = _post_arbiter_hardening(
+                    ctx,
+                    stage_key,
+                    envelope,
+                    arbiter_result,
+                    schema_errors,
                     volley=volley,
                     truncation_flags=truncation_flags_for_volley(volley),
                     routed_via_collate=True,
@@ -532,6 +639,7 @@ def run_llm_stage_with_routing(
             local_framing=local_framing,
             bump_tier=bump_tier,
             call_attempt=attempt,
+            system_appendix=system_appendix,
         )
         truncation_flags = truncation_flags_for_volley(volley)
 
@@ -668,18 +776,12 @@ def run_llm_stage_with_routing(
             envelope["status"] = "blocked"
 
         _maybe_enqueue_truncation(ctx, stage_key, truncation_flags, envelope, arbiter_result)
-        sig = (
-            envelope.get("status"),
-            tuple(schema_errors[:3]),
-            sum(len(m.get("content", "")) for m in volley),
-        )
         lint_errors = _post_arbiter_hardening(
             ctx,
             stage_key,
             envelope,
             arbiter_result,
             schema_errors,
-            attempt_signature=sig,
             volley=volley,
             truncation_flags=truncation_flags,
             routed_via_collate=routed_via_collate,
@@ -710,6 +812,26 @@ def finalize_stage_attempt(
     with logged_step(f"{stage_key}/attempt_{attempt}/persist", ctx=ctx, stage=stage_key):
         routing = envelope.get("_routing_meta") or {}
         routed_via_collate = bool(routing.get("routed_via_collate"))
+        lint_errors = routing.get("deterministic_lint_errors") or []
+        if schema_errors:
+            ctx.log(
+                f"Stage {stage_key}: validation warnings: {schema_errors[:3]}",
+                level="warning",
+                stage=stage_key,
+            )
+        plan = apply_resilience_and_persist(
+            ctx,
+            stage_key,
+            attempt,
+            envelope,
+            arbiter_result,
+            schema_errors,
+            lint_errors,
+            persist_fn=persist_artifacts,
+            sync_fn=sync_fn,
+            routed_via_collate=routed_via_collate,
+        )
+        routing = envelope.get("_routing_meta") or {}
         record_stage_attempt(
             ctx,
             stage_key,
@@ -724,40 +846,27 @@ def finalize_stage_attempt(
                 "shard_plan_source": routing.get("shard_plan_source"),
                 "routed_via_collate": routed_via_collate,
                 "local_llm": routing.get("local_llm"),
-                "deterministic_lint_errors": routing.get("deterministic_lint_errors") or [],
+                "schema_errors": schema_errors[:8],
+                "deterministic_lint_errors": lint_errors,
+                "persist_action": routing.get("persist_action"),
+                "resilience_report": routing.get("resilience_report"),
                 **budget_extra_for_attempt(
                     ctx,
                     stage_key,
-                    attempt_signature=(
-                        envelope.get("status"),
-                        tuple(schema_errors[:3]),
-                        sum(len(m.get("content", "")) for m in volley),
+                    attempt_signature=build_attempt_signature(
+                        envelope, volley, schema_errors, lint_errors
                     ),
                     arbiter_verdict=str((arbiter_result or {}).get("verdict", "")),
-                    lint_errors=routing.get("deterministic_lint_errors") or [],
+                    lint_errors=lint_errors,
                 ),
             },
         )
-        artifacts = envelope.get("artifacts") or {}
-        if schema_errors:
-            ctx.log(
-                f"Stage {stage_key}: validation warnings: {schema_errors[:3]}",
-                level="warning",
-                stage=stage_key,
-            )
-        if persist_artifacts and should_persist_artifacts(
-            arbiter_result,
-            envelope,
-            schema_errors,
-            routed_via_collate=routed_via_collate,
-        ):
-            persist_artifacts(ctx, artifacts)
-            if sync_fn:
-                sync_fn(ctx, artifacts)
+        merge_memory = plan.merge_memory if plan.action in ("partial", "full") else True
         apply_envelope_to_memory(
             ctx,
             stage_key,
             envelope,
             arbiter_result=arbiter_result,
+            merge_memory=merge_memory,
             routed_via_collate=routed_via_collate,
         )

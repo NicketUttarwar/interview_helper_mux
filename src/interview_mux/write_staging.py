@@ -325,6 +325,14 @@ def read_pending_text(ctx: RunContext, stage_id: str, rel: str) -> str:
     return fs_read_text(staged_path(ctx, rel, stage_id=stage_id))
 
 
+class WriteApprovalBlockedError(Exception):
+    """Staged save blocked — stage failed an operator or LLM gate."""
+
+    def __init__(self, stage_id: str, message: str) -> None:
+        self.stage_id = stage_id
+        super().__init__(message)
+
+
 class WriteApprovalPending(Exception):
     """Pipeline paused until operator approves staged writes."""
 
@@ -334,6 +342,56 @@ class WriteApprovalPending(Exception):
         super().__init__(
             f"Stage '{stage_id}' outputs await review before saving ({len(paths)} file(s))."
         )
+
+
+def read_gui_job(ctx: RunContext) -> dict[str, Any] | None:
+    if not ctx.artifact_exists("gui_job.json"):
+        return None
+    try:
+        job = ctx.read_json("gui_job.json")
+    except Exception:
+        return None
+    return job if isinstance(job, dict) else None
+
+
+def gate_blocked_stage(ctx: RunContext) -> str | None:
+    """Stage id when gui_job is paused on a gate for an incomplete stage."""
+    job = read_gui_job(ctx)
+    if not job or str(job.get("status")) != "gate":
+        return None
+    stage_id = str(job.get("stage") or "")
+    if not stage_id or ctx.is_done(stage_id):
+        return None
+    return stage_id
+
+
+def is_stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
+    return gate_blocked_stage(ctx) == stage_id
+
+
+def write_approval_allowed(ctx: RunContext, stage_id: str) -> bool:
+    """True when staged outputs may be saved for this stage."""
+    if is_stage_gate_blocked(ctx, stage_id):
+        return False
+    if not write_approval_enabled():
+        return True
+    return has_pending_writes(ctx, stage_id)
+
+
+def assert_write_approval_allowed(ctx: RunContext, stage_id: str) -> None:
+    """Raise when operator save must not proceed for this stage."""
+    if is_stage_gate_blocked(ctx, stage_id):
+        job = read_gui_job(ctx) or {}
+        msg = str(
+            job.get("message")
+            or (
+                f"Stage {stage_id} failed the LLM quality gate — "
+                "re-run or discard staged outputs instead of saving."
+            )
+        )
+        raise WriteApprovalBlockedError(stage_id, msg)
+    if not has_pending_writes(ctx, stage_id):
+        raise FileNotFoundError(f"No pending writes for stage: {stage_id}")
 
 
 def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:

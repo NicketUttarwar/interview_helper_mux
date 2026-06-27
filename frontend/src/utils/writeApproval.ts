@@ -6,6 +6,15 @@ export interface PendingWriteInfo {
   paths: string[];
 }
 
+/** True when gui_job blocks this stage behind an LLM or operator gate. */
+export function isStageGateBlocked(run: RunData | null, stageId: string): boolean {
+  if (!run?.job || run.job.status !== "gate") return false;
+  const gateStage = run.job.pending_write_stage || run.job.stage;
+  if (!gateStage || gateStage !== stageId) return false;
+  const stage = run.stages.find((s) => s.id === stageId);
+  return stage?.status !== "done";
+}
+
 /** Resolve staged file paths from job state, run meta, or API response. */
 export function resolvePendingWritePaths(
   run: RunData | null,
@@ -13,6 +22,7 @@ export function resolvePendingWritePaths(
   apiPaths?: string[],
 ): string[] {
   if (!run || !stageId) return [];
+  if (isStageGateBlocked(run, stageId)) return [];
 
   const awaiting = stageAwaitingWriteApproval(run, stageId);
   if (!awaiting) return [];
@@ -51,6 +61,7 @@ export function stageAwaitingWriteApproval(
   stageId: string,
 ): boolean {
   if (!run) return false;
+  if (isStageGateBlocked(run, stageId)) return false;
   const stage = run.stages.find((s) => s.id === stageId);
   if (stage?.status === "awaiting_write_approval") return true;
   const ctx = resolveJobStatusContext(run, false);

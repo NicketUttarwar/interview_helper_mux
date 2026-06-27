@@ -441,9 +441,20 @@ export function LlmCallsPanel() {
             {failedRouting.slice(0, 5).map((a, i) => (
               <li key={i}>
                 {a.stage} · {a.task_kind || "primary"} — {a.verdict}
-                {(a.deterministic_lint_errors || []).slice(0, 1).map((e) => (
-                  <span className="muted"> · {e.slice(0, 80)}</span>
-                ))}
+                {(a.deterministic_lint_errors || []).length ? (
+                  <ul className="lint-error-list muted">
+                    {(a.deterministic_lint_errors || []).slice(0, 6).map((e, j) => (
+                      <li key={j}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {(a.schema_errors || []).length ? (
+                  <ul className="schema-error-list muted">
+                    {(a.schema_errors || []).slice(0, 4).map((e, j) => (
+                      <li key={j}>schema: {e}</li>
+                    ))}
+                  </ul>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -513,8 +524,21 @@ export function LlmCallsPanel() {
                   </span>
                 ) : null}
                 {r.deterministic_lint_errors?.length ? (
-                  <span className="lint-error-chip" title={r.deterministic_lint_errors.join("; ")}>
-                    lint fail
+                  <span
+                    className="lint-error-chip"
+                    title={(r.deterministic_lint_errors || []).join("; ")}
+                  >
+                    lint ×{r.deterministic_lint_errors.length}
+                  </span>
+                ) : null}
+                {r.schema_errors?.length ? (
+                  <span className="schema-error-chip" title={(r.schema_errors || []).join("; ")}>
+                    schema ×{r.schema_errors.length}
+                  </span>
+                ) : null}
+                {r.persist_action === "partial" ? (
+                  <span className="resilience-partial-chip" title={r.resilience_report?.summary}>
+                    partial persist
                   </span>
                 ) : null}
                 {(r.stuck_count ?? 0) > 0 ? (
@@ -522,6 +546,9 @@ export function LlmCallsPanel() {
                 ) : null}
                 {r.arbiter_reason ? (
                   <span className="hint sm">{r.arbiter_reason}</span>
+                ) : null}
+                {r.resilience_report?.summary ? (
+                  <span className="hint sm resilience-summary">{r.resilience_report.summary}</span>
                 ) : null}
               </li>
             ))}

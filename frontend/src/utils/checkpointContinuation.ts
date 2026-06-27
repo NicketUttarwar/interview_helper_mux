@@ -1,5 +1,5 @@
-import type { JobState, PipelineSubTab, RunData } from "../types";
-import { findPendingFocusStage } from "./checkpoint";
+import type { JobState, PipelineSubTab, RunData, AppConfig } from "../types";
+import { findHandoffStage, findPendingFocusStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
 import { readyForStageMessage } from "./stageAdvance";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
@@ -7,6 +7,14 @@ import { resolveOperatorAction } from "./resolveOperatorAction";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveFocusStepId } from "./resolveActiveStep";
 import type { ExecuteBody } from "../types";
+import { executeBodyForStage } from "./operatorActionHandlers";
+import {
+  autopilotBlockedByRun,
+  canAutoRunStage,
+  isPipelineAutopilotEnabled,
+  isPipelineComplete,
+  shouldAutoContinueFromStage,
+} from "./pipelineAutopilot";
 
 export interface WriteApprovalAdvanceOpts {
   savedStageId: string;
@@ -117,6 +125,11 @@ export interface AdvancePipelineOpts {
   showToast: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   refreshRun: () => Promise<RunData | null>;
   navigateToNextBlocker: () => Promise<void>;
+  /** When true, automatically start the next automated stage after focusing it. */
+  autoRun?: boolean;
+  config?: AppConfig | null;
+  /** Auto-acknowledge AI handoff checkpoints when autopilot is active. */
+  acknowledgeHandoff?: () => Promise<void>;
 }
 
 export interface FocusStageWorkbenchOpts {
@@ -159,6 +172,27 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   const refreshed = opts.runId ? await opts.refreshRun() : opts.run;
   if (!refreshed) return false;
 
+  const autoRunEnabled =
+    opts.autoRun === true && isPipelineAutopilotEnabled(opts.config);
+
+  const tryStartStage = async (stageId: string): Promise<boolean> => {
+    if (!autoRunEnabled || !canAutoRunStage(stageId)) return false;
+    await opts.executeJob(executeBodyForStage(stageId), { source: "checkpoint_continue" });
+    return true;
+  };
+
+  const tryAckHandoffAndContinue = async (): Promise<boolean> => {
+    if (!autoRunEnabled || !opts.acknowledgeHandoff) return false;
+    const handoff = findHandoffStage(refreshed);
+    if (!handoff) return false;
+    await opts.acknowledgeHandoff();
+    return true;
+  };
+
+  if (isPipelineComplete(refreshed)) {
+    return false;
+  }
+
   const write = pendingWriteInfo(refreshed);
   if (write?.paths.length) {
     await focusStageWorkbench({
@@ -173,8 +207,15 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     return false;
   }
 
+  if (await tryAckHandoffAndContinue()) {
+    return true;
+  }
+
   const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
   if (blocking?.blocked && blocking.stage_id) {
+    if (blocking.reason === "handoff_review" && (await tryAckHandoffAndContinue())) {
+      return true;
+    }
     const substepId =
       blocking.reason === "stage_reuse"
         ? `stage_reuse:${blocking.stage_id}`
@@ -236,7 +277,6 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   ) {
     const nextStage = refreshed.stages.find((s) => s.id === nextAction.stageId);
     if (nextStage) {
-      opts.showToast(readyForStageMessage(nextStage.title), "info");
       await focusStageWorkbench({
         run: refreshed,
         stageId: nextStage.id,
@@ -246,13 +286,14 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
         setPipelineSubTab: opts.setPipelineSubTab,
         substepId: "run",
       });
+      if (await tryStartStage(nextStage.id)) return true;
+      opts.showToast(readyForStageMessage(nextStage.title), "info");
       return false;
     }
   }
 
   const next = findNextRunnableStage(refreshed.stages, refreshed.meta);
   if (next) {
-    opts.showToast(readyForStageMessage(next.title), "info");
     await focusStageWorkbench({
       run: refreshed,
       stageId: next.id,
@@ -262,11 +303,50 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setPipelineSubTab: opts.setPipelineSubTab,
       substepId: "run",
     });
+    if (await tryStartStage(next.id)) return true;
+    opts.showToast(readyForStageMessage(next.title), "info");
     return false;
   }
 
   await opts.navigateToNextBlocker();
   return false;
+}
+
+/** Continue the pipeline automatically after a stage completes or a checkpoint clears. */
+export async function tryAutoContinuePipeline(
+  opts: AdvancePipelineOpts & { completedStageId?: string | null },
+): Promise<boolean> {
+  if (!isPipelineAutopilotEnabled(opts.config)) return false;
+
+  let refreshed = opts.runId ? await opts.refreshRun() : opts.run;
+  if (!refreshed) return false;
+
+  if (isPipelineComplete(refreshed)) return false;
+
+  if (opts.completedStageId) {
+    if (!shouldAutoContinueFromStage(refreshed, opts.completedStageId, opts.config)) {
+      return false;
+    }
+  }
+
+  if (opts.acknowledgeHandoff) {
+    const handoff = findHandoffStage(refreshed);
+    if (handoff) {
+      await opts.acknowledgeHandoff();
+      return true;
+    }
+  }
+
+  if (autopilotBlockedByRun(refreshed)) {
+    const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
+    if (blocking?.blocked && blocking.reason === "handoff_review" && opts.acknowledgeHandoff) {
+      await opts.acknowledgeHandoff();
+      return true;
+    }
+    return false;
+  }
+
+  return advancePipeline({ ...opts, run: refreshed, autoRun: true });
 }
 
 /** HTTP 409 / run busy — reconcile client with server job state. */

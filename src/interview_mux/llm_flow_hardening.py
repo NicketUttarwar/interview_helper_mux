@@ -189,17 +189,41 @@ def llm_stage_progress_ok(
     cfg: dict[str, Any] | None = None,
 ) -> bool:
     """True when stage envelope and on-disk producer artifact are acceptable for progression."""
-    if envelope.get("status") != "complete":
+    from interview_mux.llm_output_resilience import (
+        artifact_mass_score,
+        is_degraded_continue,
+        is_spend_stage_strict,
+        resilience_cfg,
+    )
+
+    cfg = cfg or merged_config()
+    routing = envelope.get("_routing_meta") or {}
+    persist_action = routing.get("persist_action")
+    degraded = is_degraded_continue(cfg) and not is_spend_stage_strict(stage_key, cfg)
+
+    if degraded and persist_action in ("partial", "full"):
+        rel = producer_artifact_path(stage_key)
+        if rel and ctx.artifact_exists(rel):
+            mass_req = (resilience_cfg(cfg).get("min_artifact_mass") or {}).get(stage_key)
+            if mass_req:
+                raw = ctx.read_json(rel)
+                data = raw if isinstance(raw, dict) else {}
+                if artifact_mass_score(stage_key, data, cfg) > 0:
+                    return True
+            elif artifact_status(rel, ctx) in ("partial", "complete"):
+                return True
+
+    if envelope.get("status") != "complete" and not (degraded and persist_action == "partial"):
         return False
     if _blocking_non_operator_needs(envelope):
         return False
 
     fh = flow_hardening_cfg(cfg)
     if flow_hardening_enabled(cfg) and fh.get("halt_on_schema_errors_with_accept", True):
-        if schema_errors:
+        if schema_errors and not degraded:
             return False
 
-    if flow_hardening_enabled(cfg) and arbiter_result is not None:
+    if flow_hardening_enabled(cfg) and arbiter_result is not None and not degraded:
         from interview_mux.analysis_memory import should_merge_envelope
 
         if not should_merge_envelope(
@@ -211,7 +235,10 @@ def llm_stage_progress_ok(
 
     rel = producer_artifact_path(stage_key)
     if rel and stage_key in STAGE_ARTIFACT_SCHEMAS:
-        if artifact_status(rel, ctx) != "complete":
+        status = artifact_status(rel, ctx)
+        if degraded and status in ("partial", "complete"):
+            return True
+        if status != "complete":
             return False
 
     return True
@@ -248,9 +275,44 @@ def complete_llm_stage_or_halt(
         ctx.mark_done(stage_key)
         return True
 
+    from interview_mux.llm_output_resilience import (
+        ResilienceReport,
+        is_degraded_continue,
+        is_spend_stage_strict,
+        log_resilience_event,
+        record_degraded_stage,
+    )
+
+    cfg = cfg or merged_config()
+    degraded = is_degraded_continue(cfg) and not is_spend_stage_strict(stage_key, cfg)
+    routing = envelope.get("_routing_meta") or {}
+    resilience_raw = routing.get("resilience_report") or {}
+    rel = producer_artifact_path(stage_key)
+
+    if degraded and routing.get("persist_action") in ("partial", "full") and rel and ctx.artifact_exists(rel):
+        report = ResilienceReport(
+            stage_key=stage_key,
+            artifact_path=rel,
+            summary=str(resilience_raw.get("summary") or "Partial artifact persisted"),
+            stripped=list(resilience_raw.get("stripped") or []),
+            generated=list(resilience_raw.get("generated") or []),
+            kept_paths=list(resilience_raw.get("kept_paths") or []),
+        )
+        record_degraded_stage(ctx, stage_key, report)
+        log_resilience_event(
+            ctx,
+            stage_key,
+            "degraded_continue",
+            report,
+            arbiter_result=arbiter_result,
+            envelope=envelope,
+        )
+        ctx.mark_done(stage_key)
+        return True
+
     fh = flow_hardening_cfg(cfg)
     critical = stage_key in ALL_CRITICAL_LLM_STAGES
-    if critical and fh.get("strict_critical_stages", True):
+    if critical and fh.get("strict_critical_stages", True) and not degraded:
         rel = producer_artifact_path(stage_key) or "(no artifact)"
         status = envelope.get("status", "?")
         needs = envelope.get("needs") or []
@@ -287,13 +349,18 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
         ctx.log(exit_msg, level="error", stage=upstream_stage)
         raise SystemExit(exit_msg)
     rel = producer_artifact_path(upstream_stage)
-    if rel and artifact_status(rel, ctx) != "complete":
-        exit_msg = (
-            f"Prerequisite artifact {rel} from stage {upstream_stage} is incomplete. "
-            f"Use Fill gaps or re-run --from-stage {upstream_stage}."
-        )
-        ctx.log(exit_msg, level="error", stage=upstream_stage)
-        raise SystemExit(exit_msg)
+    if not rel:
+        return
+    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+
+    if upstream_artifact_acceptable(upstream_stage, rel, ctx):
+        return
+    exit_msg = (
+        f"Prerequisite artifact {rel} from stage {upstream_stage} is incomplete. "
+        f"Use Fill gaps or re-run --from-stage {upstream_stage}."
+    )
+    ctx.log(exit_msg, level="error", stage=upstream_stage)
+    raise SystemExit(exit_msg)
 
 
 def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None:

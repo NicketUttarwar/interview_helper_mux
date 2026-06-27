@@ -364,6 +364,16 @@ export function resolveOperatorAction(
     return buildRunningAction(run, jobRunning);
   }
 
+  if (job?.status === "gate" && job.stage) {
+    const blocking = run.journey?.blocking ?? run.blocking;
+    return buildGateAction(
+      run,
+      job.stage,
+      blocking?.reason,
+      job.message || blocking?.message,
+    );
+  }
+
   if (jobCtx.awaitingWriteApproval) {
     const sid = job?.pending_write_stage || job?.stage || focusStageId;
     if (sid) return buildWriteApprovalAction(run, sid);
@@ -479,6 +489,11 @@ export function resolveOperatorActionForStage(
     runningStageId === stageId
   ) {
     return buildRunningAction(run, jobRunning);
+  }
+
+  if (job?.status === "gate" && job.stage === stageId) {
+    const blocking = run.journey?.blocking ?? run.blocking;
+    return buildGateAction(run, stageId, blocking?.reason, job?.message || blocking?.message);
   }
 
   if (

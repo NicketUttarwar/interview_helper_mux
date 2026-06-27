@@ -215,7 +215,8 @@
     "require_preview_listen": false,
     "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,
-    "require_write_approval_per_stage": true
+    "require_write_approval_per_stage": true,
+    "auto_advance_pipeline": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
   "local_llm": {
@@ -294,7 +295,8 @@
       "interviewer_setup_max_words": 20,
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,
-      "max_highlight_clips": 5
+      "max_highlight_clips": 5,
+      "content_context_topic_anchor_min_duration_ms": 600000
     },
     "flow_hardening": {
       "enabled": true,
@@ -317,6 +319,17 @@
         "mix_flow2"
       ],
       "block_mix_without_sfx_when_enabled": true
+    },
+    "llm_resilience": {
+      "progression_mode": "degraded_continue",
+      "partial_persist_enabled": true,
+      "local_gap_fill_enabled": true,
+      "record_stripped_fields": true,
+      "min_artifact_mass": {
+        "content_context": ["thesis"],
+        "speaker_roles": ["speakers"]
+      },
+      "detail_value_max_chars": 2000
     }
   }
 }

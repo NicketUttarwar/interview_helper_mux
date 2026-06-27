@@ -72,11 +72,13 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     isWriteApprovalSaveInProgress(run, { actionBusy, stageId: stage.id });
   const otherJobRunning = jobRunning && !saveInProgress;
   const busy = saveInProgress || otherJobRunning || (actionBusy && step.kind !== "write_approval");
+  const isActionableCompleteStep =
+    step.kind === "done" && Boolean(step.primary_button);
   const disabled =
     saveInProgress ||
     otherJobRunning ||
     (actionBusy && step.kind !== "write_approval") ||
-    step.status === "done" ||
+    (step.status === "done" && !isActionableCompleteStep) ||
     step.status === "waiting" ||
     step.status === "blocked" ||
     primaryLabel === "Running…";

@@ -20,6 +20,16 @@
     "schema_errors_empty",
     "producer_artifact_complete",
     "truncation_requires_decompose",
-    "confidence_gte_min"
-  ]
+    "confidence_gte_min",
+    "thesis_nonempty",
+    "topic_evidence_anchors",
+    "key_claim_evidence_anchors",
+    "generic_theme_blocked"
+  ],
+  "deterministic_lint_notes": {
+    "thesis_nonempty": "artifacts.thesis must be non-empty",
+    "topic_evidence_anchors": "topics need segment_ids or approx_time_range on long interviews",
+    "key_claim_evidence_anchors": "key_claims need segment_ids, evidence_segment_ids, or approx_time_range",
+    "generic_theme_blocked": "frozen generic theme names without evidence anchors fail lint"
+  }
 }

@@ -1,0 +1,16 @@
+{
+  "stage_key": "speaker_roles",
+  "expected_substring": "unknown",
+  "artifacts": {
+    "speakers": [
+      {
+        "speaker_id": "s1",
+        "role": "unknown"
+      },
+      {
+        "speaker_id": "s2",
+        "role": "unknown"
+      }
+    ]
+  }
+}

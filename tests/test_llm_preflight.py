@@ -28,3 +28,21 @@ def test_preflight_segment_classification_requires_boundaries(tmp_path, monkeypa
     ctx = isolated_run_ctx(tmp_path, "pf_seg")
     errors = run_preflight("segment_classification", ctx)
     assert any("boundaries" in e for e in errors)
+
+
+def test_preflight_content_context_requires_interviewer(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "pf_cc")
+    ctx.write_json(
+        "transcript/full.json",
+        {"text": "x" * 100},
+        skip_handoff=True,
+    )
+    speakers = minimal_speakers()
+    speakers["speakers"] = [
+        {"speaker_id": "spk_0", "role": "unknown", "confidence": 0.9, "evidence": ["x"]},
+        {"speaker_id": "spk_1", "role": "unknown", "confidence": 0.9, "evidence": ["y"]},
+    ]
+    ctx.write_json("understanding/speakers.json", speakers, stage_key="speaker_roles")
+    errors = run_preflight("content_context", ctx)
+    assert any("interviewer" in e for e in errors)

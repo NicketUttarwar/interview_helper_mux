@@ -1134,7 +1134,7 @@ class JobRunner:
         api_consents: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         """Flush staged writes and start the next runnable stage under one lock scope."""
-        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
+        from interview_mux.write_staging import approve_stage_writes, assert_write_approval_allowed, list_pending_paths
 
         acquired = self._acquire_run_locks(run_id, operator_priority=True)
         if acquired is None:
@@ -1145,10 +1145,8 @@ class JobRunner:
         title = STAGE_BY_ID.get(stage_id)
         stage_label = title.title if title else stage_id.replace("_", " ")
         try:
+            assert_write_approval_allowed(ctx, stage_id)
             paths = list_pending_paths(ctx, stage_id)
-            if not paths:
-                self._release_run_locks(run_id, dir_lock, lock)
-                raise FileNotFoundError(f"No pending writes for stage: {stage_id}")
 
             self.mark_write_approval_saving(ctx, stage_id, paths)
             try:

@@ -44,10 +44,18 @@ def run_preflight(stage_key: str, ctx: RunContext) -> list[str]:
 
 
 def _check_upstream_artifacts(ctx: RunContext, paths: tuple[str, ...]) -> list[str]:
+    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+
     errors: list[str] = []
     for rel in paths:
         if not ctx.artifact_exists(rel):
             errors.append(f"Missing upstream artifact: {rel}")
+            continue
+        stage_keys = [
+            k for k, p in STAGE_ARTIFACT_DISK_PATHS.items() if p == rel
+        ]
+        stage_key = stage_keys[0] if stage_keys else ""
+        if stage_key and upstream_artifact_acceptable(stage_key, rel, ctx):
             continue
         if artifact_status(rel, ctx) != "complete":
             errors.append(f"Upstream artifact incomplete: {rel}")
@@ -94,6 +102,25 @@ def _preflight_content_context(ctx: RunContext) -> list[str]:
         errors.append(f"transcript shorter than {_MIN_TRANSCRIPT_CHARS} characters")
     if check_transcript_review_pending(ctx):
         errors.append("Transcript review (G0) incomplete")
+    if not ctx.artifact_exists("understanding/speakers.json"):
+        errors.append("understanding/speakers.json missing — run Speaker roles first")
+        return errors
+    speakers_doc = ctx.read_json("understanding/speakers.json")
+    schema_errors = validate_artifact_write("understanding/speakers.json", speakers_doc)
+    if schema_errors:
+        errors.append(f"speakers.json schema: {schema_errors[0]}")
+    speakers = speakers_doc.get("speakers") or []
+    if not speakers:
+        errors.append("speakers.json has no speakers")
+        return errors
+    roles = {
+        str(sp.get("role", "")).strip().lower() for sp in speakers if isinstance(sp, dict)
+    }
+    if not (roles & {"interviewer", "moderator"}):
+        errors.append(
+            "speakers.json missing interviewer or moderator role — re-run Speaker roles"
+        )
+    errors.extend(_spine_preflight(ctx))
     return errors
 
 
@@ -166,6 +193,8 @@ def _preflight_optimal_questions(ctx: RunContext) -> list[str]:
 
 
 def _preflight_pre_flow1(ctx: RunContext) -> list[str]:
+    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+
     errors: list[str] = []
     for rel in ANALYSIS_READY_ARTIFACT_PATHS:
         if artifact_status(rel, ctx) != "complete":
@@ -180,7 +209,7 @@ def _preflight_pre_flow1(ctx: RunContext) -> list[str]:
             "missing_framing",
             "optimal_questions",
         ):
-            if artifact_status(rel, ctx) != "complete":
+            if not upstream_artifact_acceptable(stage_key, rel, ctx):
                 errors.append(f"Critical analysis artifact {rel} incomplete")
     return errors
 

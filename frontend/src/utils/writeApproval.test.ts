@@ -79,4 +79,26 @@ describe("stageAwaitingWriteApproval", () => {
     expect(stageAwaitingWriteApproval(run, "ingest")).toBe(true);
     expect(resolvePendingWritePaths(run, "ingest", ["ingest/a.json"])).toEqual(["ingest/a.json"]);
   });
+
+  it("blocks write approval when gui_job is gate for the same stage", () => {
+    const run = runStub({
+      stages: [
+        {
+          id: "speaker_roles",
+          title: "Speaker roles",
+          status: "action_required",
+          phase: "understand",
+        },
+      ],
+      job: {
+        status: "gate",
+        stage: "speaker_roles",
+        message: "LLM stage gate (speaker_roles): artifact not complete",
+      },
+    });
+    expect(stageAwaitingWriteApproval(run, "speaker_roles")).toBe(false);
+    expect(resolvePendingWritePaths(run, "speaker_roles", ["understanding/analysis_state.json"])).toEqual(
+      [],
+    );
+  });
 });

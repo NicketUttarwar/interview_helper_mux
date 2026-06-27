@@ -23,8 +23,8 @@ export async function focusNextRunnableStageWorkbench(
   if (!next) return null;
   await focusStageWorkbench({
     run,
-    stageId: next.id,
     ...deps,
+    stageId: next.id,
     substepId: "run",
   });
   return next;
@@ -38,9 +38,11 @@ export interface ApplyReuseResultOpts extends StageWorkbenchDeps {
   refreshRun: () => Promise<RunData | null>;
   showToast: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   announceNext?: boolean;
+  /** When autopilot is on, chain into the next stage after reuse lands. */
+  autoContinuePipeline?: (completedStageId?: string | null) => Promise<boolean>;
 }
 
-/** After reuse copies land, focus write approval or the next runnable step (never auto-run). */
+/** After reuse copies land, focus write approval or continue the pipeline. */
 export async function applyReuseResultAndFocus(opts: ApplyReuseResultOpts): Promise<void> {
   const refreshed = (await opts.refreshRun()) ?? opts.run;
   if (opts.reuse.hasStagedWrites) {
@@ -63,6 +65,10 @@ export async function applyReuseResultAndFocus(opts: ApplyReuseResultOpts): Prom
 
   opts.showToast(`Reused prior ${opts.stageTitle} outputs from ASSETS.`, "success");
   const nextRefreshed = (await opts.refreshRun()) ?? refreshed;
+  if (opts.autoContinuePipeline) {
+    const continued = await opts.autoContinuePipeline(opts.stageId);
+    if (continued) return;
+  }
   const next = await focusNextRunnableStageWorkbench(nextRefreshed, opts);
   if (next && opts.announceNext !== false) {
     opts.showToast(readyForStageMessage(next.title), "info");
@@ -75,6 +81,7 @@ export interface TryReuseFromAssetsOpts extends StageWorkbenchDeps {
   stage: StageInfo;
   refreshRun: () => Promise<RunData | null>;
   showToast: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
+  autoContinuePipeline?: (completedStageId?: string | null) => Promise<boolean>;
 }
 
 /** Try copying validated prior-run outputs from ASSETS for this stage. */
@@ -100,6 +107,7 @@ export async function handleReuseFromAssetsForStage(
       expandStage: opts.expandStage,
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
+      autoContinuePipeline: opts.autoContinuePipeline,
     });
     return "reused";
   }

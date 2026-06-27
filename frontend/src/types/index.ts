@@ -42,6 +42,8 @@ export interface AppConfig {
     require_preview_listen?: boolean;
     enable_stage_reuse_offers?: boolean;
     require_write_approval_per_stage?: boolean;
+    /** When true (default), auto-navigate and run automated stages after each step completes. */
+    auto_advance_pipeline?: boolean;
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -727,6 +729,16 @@ export interface LlmRoutingResponse {
   attempts: LlmRoutingAttempt[];
 }
 
+export interface ResilienceReportSummary {
+  stage_key?: string;
+  artifact_path?: string;
+  kept_paths?: string[];
+  stripped?: Array<{ path?: string; reason?: string; removed_value?: unknown }>;
+  generated?: Array<{ path?: string; source?: string; value?: unknown }>;
+  summary?: string;
+  artifact_mass_score?: number;
+}
+
 export interface InvestigationPatchBody {
   status?: string;
   resolution_note?: string;
@@ -749,6 +761,8 @@ export interface LlmRoutingAttempt {
   context_chars?: number;
   schema_errors?: string[];
   deterministic_lint_errors?: string[];
+  persist_action?: "none" | "partial" | "full";
+  resilience_report?: ResilienceReportSummary;
   primary_attempt_count?: number;
   budget_remaining_primary?: number;
   stuck_count?: number;

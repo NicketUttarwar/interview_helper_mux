@@ -1,4 +1,6 @@
 import { useCallback, useRef } from "react";
+import { PipelineCompletePanel } from "../pipeline/PipelineCompletePanel";
+import { isPipelineComplete } from "../../utils/pipelineAutopilot";
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
 import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
@@ -88,7 +90,11 @@ export function PipelineTab() {
           >
             <PipelineStepList />
             <div className="pipeline-v2-main">
-              <StageStepWorkbench />
+              {isPipelineComplete(run) ? (
+                <PipelineCompletePanel />
+              ) : (
+                <StageStepWorkbench />
+              )}
             </div>
           </div>
         </div>

@@ -238,3 +238,32 @@ def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     exit_stage_staging()
     discard_stage_writes(ctx, "ingest")
     assert not list_pending_paths(ctx, "ingest")
+
+
+def test_gate_blocks_write_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.write_staging import (
+        WriteApprovalBlockedError,
+        assert_write_approval_allowed,
+        is_stage_gate_blocked,
+        write_approval_allowed,
+    )
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    enter_stage_staging("speaker_roles")
+    note = ctx.path("understanding/analysis_state.json")
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "gate",
+            "stage": "speaker_roles",
+            "message": "LLM stage gate (speaker_roles): blocked",
+        },
+        skip_handoff=True,
+    )
+    assert is_stage_gate_blocked(ctx, "speaker_roles")
+    assert not write_approval_allowed(ctx, "speaker_roles")
+    with pytest.raises(WriteApprovalBlockedError, match="LLM stage gate"):
+        assert_write_approval_allowed(ctx, "speaker_roles")

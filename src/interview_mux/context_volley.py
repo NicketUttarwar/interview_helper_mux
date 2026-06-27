@@ -322,6 +322,9 @@ def build_message_volley(
             messages.append({"role": "user", "content": inv_text})
 
     shaped = _shape_stage_input(stage_key, stage_input)
+    upstream_note = _upstream_resilience_summary(ctx, stage_key)
+    if upstream_note:
+        shaped = {**shaped, "upstream_resilience": upstream_note}
     data_block = json.dumps(shaped, indent=2, ensure_ascii=False)
     max_data = _char_limit("max_stage_data_chars", 32000)
     if len(data_block) > max_data:
@@ -695,6 +698,33 @@ def _format_investigations(ctx: RunContext, stage_key: str, plan: StageContextPl
             f"{'[blocking]' if it.get('blocking') else ''}"
         )
     return "\n".join(lines)
+
+
+def _upstream_resilience_summary(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
+    """Note when immediate upstream artifact was saved in degraded partial mode."""
+    from interview_mux.llm_flow_hardening import producer_artifact_path, resolve_llm_upstream_stage
+
+    upstream = resolve_llm_upstream_stage(ctx, stage_key)
+    if not upstream:
+        return None
+    rel = producer_artifact_path(upstream)
+    if not rel or not ctx.artifact_exists(rel):
+        return None
+    raw = ctx.read_json(rel)
+    if not isinstance(raw, dict):
+        return None
+    resilience = (raw.get("_meta") or {}).get("resilience")
+    if not isinstance(resilience, dict) or not resilience.get("partial"):
+        return None
+    report = resilience.get("report") if isinstance(resilience.get("report"), dict) else {}
+    return {
+        "upstream_stage": upstream,
+        "artifact_path": rel,
+        "summary": resilience.get("summary") or report.get("summary"),
+        "stripped_count": resilience.get("stripped_count"),
+        "generated_count": resilience.get("generated_count"),
+        "kept_paths": resilience.get("kept_paths") or report.get("kept_paths"),
+    }
 
 
 def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:

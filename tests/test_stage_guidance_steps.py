@@ -162,6 +162,37 @@ def test_automated_steps_awaiting_write_marks_run_done(tmp_path, monkeypatch) ->
     assert "complete" not in by_id
 
 
+def test_automated_steps_gate_blocks_write_approval(tmp_path, monkeypatch) -> None:
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    monkeypatch.setattr(
+        "interview_mux.write_staging.merged_config",
+        lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "steps_speaker_gate")
+    init_run_meta_for_test(ctx)
+    enter_stage_staging("speaker_roles")
+    state = ctx.path("understanding/analysis_state.json")
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "gate",
+            "stage": "speaker_roles",
+            "message": "LLM stage gate (speaker_roles): artifact not complete (status=blocked).",
+        },
+        skip_handoff=True,
+    )
+    guidance = build_stage_guidance(ctx, "speaker_roles", status="action_required")
+    steps = build_stage_steps(ctx, "speaker_roles", status="action_required", guidance=guidance)
+    by_id = {s["id"]: s for s in steps}
+    assert "write_approval" not in by_id
+    assert by_id["llm_gate"]["status"] == "todo"
+    assert by_id["run"]["status"] == "done"
+
+
 def test_preclean_steps_done(tmp_path) -> None:
     ctx = isolated_run_ctx(tmp_path, "steps_preclean_done")
     init_run_meta_for_test(ctx)

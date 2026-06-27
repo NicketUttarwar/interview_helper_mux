@@ -127,6 +127,22 @@ def is_stuck(ctx: RunContext, stage_key: str) -> bool:
     return stuck_count(ctx, stage_key) >= stuck_signature_threshold()
 
 
+def build_attempt_signature(
+    envelope: dict[str, Any],
+    volley: list[dict[str, str]] | None,
+    schema_errors: list[str],
+    lint_errors: list[str] | None = None,
+) -> tuple[Any, ...]:
+    """Signature for stuck-loop detection — includes lint tuple so retries with new errors are distinct."""
+    chars = sum(len(m.get("content", "")) for m in (volley or []))
+    return (
+        envelope.get("status"),
+        tuple(schema_errors[:3]),
+        tuple((lint_errors or [])[:5]),
+        chars,
+    )
+
+
 def budget_extra_for_attempt(
     ctx: RunContext,
     stage_key: str,

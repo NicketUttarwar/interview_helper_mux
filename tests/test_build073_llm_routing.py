@@ -371,7 +371,32 @@ def test_finalize_stage_attempt_records_lint_and_budget(tmp_path, monkeypatch):
     )
     attempt = ctx.read_json("understanding/stage_runs/content_context/attempt_001.json")
     assert attempt.get("deterministic_lint_errors")
+    assert attempt.get("schema_errors") is not None or "schema_errors" in attempt
     assert "primary_attempt_count" in attempt or "budget_remaining_primary" in attempt
+
+
+def test_lint_accept_hardening_overrides_arbiter(tmp_path, monkeypatch):
+    from interview_mux.llm_stage_routing import _apply_lint_accept_hardening
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_override")
+    envelope = {"status": "complete", "artifacts": {"thesis": ""}}
+    arbiter = {"verdict": "accept", "reasoning_summary": "looks good"}
+    _apply_lint_accept_hardening(ctx, "content_context", envelope, arbiter, ["thesis empty"])
+    assert arbiter["verdict"] == "enqueue_investigation"
+    assert "deterministic lint" in arbiter["reasoning_summary"].lower()
+
+
+def test_lint_retry_strategy_maps_patterns():
+    from interview_mux.llm_stage_routing import _lint_retry_strategy
+
+    strat = _lint_retry_strategy(
+        ["truncation_requires_decompose: flags x", "confidence_gte_min: 0.5 < 0.75"],
+        "content_context",
+    )
+    assert strat.get("force_decompose")
+    assert strat.get("bump_tier")
 
 
 def test_should_persist_artifacts_blocks_on_lint_errors(tmp_path):

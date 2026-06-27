@@ -33,7 +33,7 @@ def test_arbiter_budget_exhaustion(tmp_path, monkeypatch):
 
 
 def test_stuck_signature_tracking(tmp_path, monkeypatch):
-    from interview_mux.attempt_budget import record_stuck_signature
+    from interview_mux.attempt_budget import build_attempt_signature, record_stuck_signature
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
@@ -41,7 +41,23 @@ def test_stuck_signature_tracking(tmp_path, monkeypatch):
         {"analysis": {"flow_hardening": {"enabled": True, "stuck_signature_threshold": 2}}},
     )
     ctx = isolated_run_ctx(tmp_path, "stuck")
-    sig = ("complete", (), 1000)
+    sig = build_attempt_signature({"status": "blocked"}, [], [], ["thesis empty"])
     record_stuck_signature(ctx, "speaker_roles", sig)
     record_stuck_signature(ctx, "speaker_roles", sig)
     assert stuck_count(ctx, "speaker_roles") >= 2
+
+
+def test_stuck_signature_differs_when_lint_changes(tmp_path, monkeypatch):
+    from interview_mux.attempt_budget import build_attempt_signature, record_stuck_signature
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "stuck_signature_threshold": 2}}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "stuck_lint")
+    sig_a = build_attempt_signature({"status": "blocked"}, [], [], ["thesis empty"])
+    sig_b = build_attempt_signature({"status": "blocked"}, [], [], ["confidence_gte_min"])
+    record_stuck_signature(ctx, "content_context", sig_a)
+    record_stuck_signature(ctx, "content_context", sig_b)
+    assert stuck_count(ctx, "content_context") == 1

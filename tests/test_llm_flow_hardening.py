@@ -14,16 +14,42 @@ from interview_mux.llm_flow_hardening import (
 from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready
 
 
-def _cfg(*, enabled: bool = True, strict: bool = True) -> dict:
-    return {
+def _minimal_speakers(**extra: object) -> dict:
+    base = {
+        "speakers": [
+            {
+                "speaker_id": "spk_1",
+                "role": "interviewer",
+                "label": "Host",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    base.update(extra)
+    return base
+
+
+def _cfg(*, enabled: bool = True, strict: bool = True, degraded: bool = False) -> dict:
+    base = {
         "analysis": {
             "flow_hardening": {
                 "enabled": enabled,
                 "strict_critical_stages": strict,
                 "halt_on_schema_errors_with_accept": True,
-            }
+            },
+            "llm_resilience": {
+                "progression_mode": "degraded_continue" if degraded else "strict",
+                "partial_persist_enabled": degraded,
+                "local_gap_fill_enabled": False,
+            },
         }
     }
+    if degraded:
+        base["analysis"]["llm_resilience"]["min_artifact_mass"] = {
+            "content_context": ["thesis"],
+            "speaker_roles": ["speakers"],
+        }
+    return base
 
 
 def test_llm_stage_progress_ok_requires_complete_status(tmp_path, monkeypatch):
@@ -109,11 +135,15 @@ def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
 
 def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    patch_merged_config(monkeypatch, _cfg())
+    patch_merged_config(monkeypatch, _cfg(degraded=True))
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_partial")
     ctx.mark_done("speaker_roles")
-    with pytest.raises(SystemExit, match="Prerequisite artifact"):
-        require_llm_stage_progress(ctx, "speaker_roles")
+    ctx.write_json(
+        "understanding/speakers.json",
+        _minimal_speakers(_meta={"resilience": {"partial": True}}),
+        skip_handoff=True,
+    )
+    require_llm_stage_progress(ctx, "speaker_roles")
 
 
 def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkeypatch):

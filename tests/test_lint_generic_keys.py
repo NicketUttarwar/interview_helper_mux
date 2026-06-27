@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from interview_mux.deterministic_lint import deterministic_lint
+from interview_mux.deterministic_lint import deterministic_lint, reconcile_envelope_confidence
 from run_fixtures import isolated_run_ctx, minimal_manifest, patch_merged_config
 
 
@@ -68,3 +68,18 @@ def test_confidence_gte_min(tmp_path, monkeypatch):
         ctx,
     )
     assert any("confidence_gte_min" in e for e in errors)
+
+
+def test_reconcile_speaker_roles_envelope_confidence() -> None:
+    envelope = {
+        "status": "complete",
+        "confidence": 0.3,
+        "artifacts": {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.83},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.83},
+            ]
+        },
+    }
+    assert reconcile_envelope_confidence("speaker_roles", envelope) is True
+    assert envelope["confidence"] == 0.83

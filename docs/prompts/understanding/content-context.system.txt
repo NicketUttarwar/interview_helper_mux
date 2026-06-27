@@ -7,7 +7,10 @@ Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `
 Rules:
 - Base everything on the transcript; do not invent facts.
 - Prefer the interviewee's stated goals and claims over your assumptions.
-- At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
+- When `speakers` is in the volley, use interviewer/moderator vs interviewee layout for `format_class` and claim `speaker_role`.
+- Every topic MUST include `segment_ids` and/or `approx_time_range` when the transcript is long enough to support anchors; generic names ("Technology", "Inspiration") require the same evidence bar as leadership/innovation themes.
+- Every `key_claim` MUST include `segment_ids`, `evidence_segment_ids`, and/or `approx_time_range` — claims without anchors will fail deterministic lint.
+- At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; provisional `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
 - If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
 - Assign each `key_claim` a stable `id` (e.g. `claim_001`) and `claim_type` when evidence supports it.
 - Do **not** produce `topic_relationships` in pass 1 — deferred to `content_brief_reanchor` after segmentation.

@@ -195,8 +195,12 @@ def _blocking(
             reason = "stage_reuse"
             message = "Choose reuse or run fresh"
         else:
-            reason = str(stage_id or job.get("status"))
-            message = str(job.get("message") or "Operator action required")
+            gate_msg = str(job.get("message") or "Operator action required")
+            if job.get("status") == "gate" and "LLM stage gate" in gate_msg:
+                reason = "llm_gate"
+            else:
+                reason = str(stage_id or job.get("status"))
+            message = gate_msg
 
     if check_transcript_review_pending(ctx):
         blocked = True
@@ -317,6 +321,8 @@ def _gate_primary_label(stage_id: str, reason: str | None) -> str:
         return "Choose reuse or run fresh"
     if reason == "handoff_review":
         return "Review outputs"
+    if reason == "llm_gate":
+        return "Re-run stage"
     if stage_id == "transcript_review":
         return "Review STT clips"
     if stage_id == "disfluency_review":
@@ -818,6 +824,7 @@ def _active_substep(
             "g1_vo_pickup",
             "g2_flow_select",
             "analysis_profile",
+            "llm_gate",
         ) and sid:
             return {
                 "active_substep_id": f"gate:{sid}",

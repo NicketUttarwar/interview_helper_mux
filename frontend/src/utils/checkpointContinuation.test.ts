@@ -128,6 +128,77 @@ describe("advancePipeline", () => {
       "info",
     );
   });
+
+  it("auto-acknowledges handoff before running next stage", async () => {
+    const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
+    const executeJob = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "speaker_roles",
+          title: "Speaker roles",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/speakers.json"],
+        },
+        { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
+      ],
+      job: { status: "complete", stage: "speaker_roles" },
+    });
+    const started = await advancePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "speaker_roles",
+      executeJob,
+      selectStage: vi.fn().mockResolvedValue(undefined),
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      autoRun: true,
+      config: { journey_ui: { auto_advance_pipeline: true } },
+      acknowledgeHandoff,
+    });
+    expect(started).toBe(true);
+    expect(acknowledgeHandoff).toHaveBeenCalled();
+    expect(executeJob).not.toHaveBeenCalled();
+  });
+
+  it("auto-runs next stage when autopilot enabled", async () => {
+    const executeJob = vi.fn().mockResolvedValue(undefined);
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const showToast = vi.fn();
+    const run = runStub({
+      stages: [
+        { id: "audio_preclean", title: "Pre-clean", status: "done", phase: "prepare" },
+        { id: "ingest", title: "Ingest", status: "pending", phase: "prepare" },
+      ],
+      job: { status: "complete" },
+    });
+    const started = await advancePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "audio_preclean",
+      executeJob,
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast,
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      autoRun: true,
+      config: { journey_ui: { auto_advance_pipeline: true } },
+    });
+    expect(started).toBe(true);
+    expect(executeJob).toHaveBeenCalled();
+    expect(selectStage).toHaveBeenCalledWith("ingest", { stepId: "run" });
+    expect(showToast).not.toHaveBeenCalled();
+  });
 });
 
 describe("reconcileBusyRun", () => {

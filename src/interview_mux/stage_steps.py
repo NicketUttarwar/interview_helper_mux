@@ -180,9 +180,71 @@ def _needs_reuse(ctx: RunContext, stage_id: str) -> bool:
 
 
 def _needs_write(ctx: RunContext, stage_id: str) -> bool:
-    from interview_mux.write_staging import has_pending_writes, write_approval_enabled
+    from interview_mux.write_staging import write_approval_allowed
 
-    return write_approval_enabled() and has_pending_writes(ctx, stage_id)
+    return write_approval_allowed(ctx, stage_id)
+
+
+def _stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
+    from interview_mux.write_staging import is_stage_gate_blocked
+
+    return is_stage_gate_blocked(ctx, stage_id)
+
+
+def _gate_job_message(ctx: RunContext, stage_id: str) -> str:
+    from interview_mux.write_staging import read_gui_job
+
+    job = read_gui_job(ctx)
+    if not job or str(job.get("stage") or "") != stage_id:
+        return ""
+    return str(job.get("message") or job.get("error") or "")
+
+
+def _latest_resilience_sidecar(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
+    base = ctx.path("understanding", "stage_runs", stage_id)
+    if not base.is_dir():
+        return None
+    sidecars = sorted(base.glob("attempt_*_resilience.json"))
+    if not sidecars:
+        return None
+    rel = f"understanding/stage_runs/{stage_id}/{sidecars[-1].name}"
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _stage_degraded(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
+    if not ctx.artifact_exists("understanding/analysis_state.json"):
+        return None
+    try:
+        state = ctx.read_json("understanding/analysis_state.json")
+    except Exception:
+        return None
+    degraded = (state.get("meta") or {}).get("degraded_stages") or {}
+    entry = degraded.get(stage_id)
+    return entry if isinstance(entry, dict) else None
+
+
+def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str], list[str]]:
+    from interview_mux.deterministic_lint import lint_remediation_hints
+
+    base = ctx.path("understanding", "stage_runs", stage_id)
+    if not base.is_dir():
+        return [], []
+    attempts = sorted(base.glob("attempt_*.json"))
+    if not attempts:
+        return [], []
+    rel = f"understanding/stage_runs/{stage_id}/{attempts[-1].name}"
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return [], []
+    if not isinstance(doc, dict):
+        return [], []
+    lint = [str(e) for e in (doc.get("deterministic_lint_errors") or [])]
+    return lint, lint_remediation_hints(lint)
 
 
 def _needs_handoff(ctx: RunContext, stage_id: str, status: str) -> bool:
@@ -543,10 +605,14 @@ def _automated_steps(
     steps: list[dict[str, Any]] = []
     num = 1
 
-    needs_write = _needs_write(ctx, stage_id) or status == "awaiting_write_approval"
+    gate_blocked = _stage_gate_blocked(ctx, stage_id)
+    degraded = _stage_degraded(ctx, stage_id)
+    needs_write = (
+        _needs_write(ctx, stage_id) or status == "awaiting_write_approval"
+    ) and not gate_blocked
     running = _job_running_stage(ctx, stage_id)
     stage_done = status == "done" or ctx.is_done(stage_id)
-    past_run = stage_done or needs_write or running
+    past_run = stage_done or needs_write or running or gate_blocked
 
     prereq_items = [p.get("label", "") for p in (guidance.get("prerequisites") or []) if p.get("label")]
     prereq_status = "done" if _prereqs_met(guidance) or past_run else "todo"
@@ -641,7 +707,70 @@ def _automated_steps(
             )
             num += 1
 
-    if _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
+    if gate_blocked:
+        gate_msg = _gate_job_message(ctx, stage_id)
+        lint_errors, remediation_hints = _latest_attempt_lint_hints(ctx, stage_id)
+        remediation = " ".join(remediation_hints[:3])
+        instruction_parts = [
+            gate_msg
+            or "The automated quality gate rejected this stage. "
+            "Review Engineering debug below, fix upstream artifacts if needed, "
+            "then re-run — do not save staged outputs.",
+        ]
+        if remediation:
+            instruction_parts.append(remediation)
+        review = [
+            "Read the activity log for the gate message",
+            "Open arbiter output (03_arbiter.json) in Engineering debug",
+            "Saving staged files is blocked until the stage passes",
+        ]
+        review.extend(lint_errors[:6])
+        steps.append(
+            _step(
+                "llm_gate",
+                num,
+                "LLM gate failed — re-run required",
+                instruction=" ".join(instruction_parts),
+                review=review,
+                primary_button=f"Re-run {title}",
+                secondary_button="Discard staged attempt",
+                kind="run",
+                status="todo",
+            )
+        )
+        num += 1
+    elif degraded and stage_done and not gate_blocked:
+        sidecar = _latest_resilience_sidecar(ctx, stage_id)
+        stripped = sidecar.get("stripped") if sidecar else []
+        review = [
+            degraded.get("summary") or "Partial artifact saved — pipeline continued in degraded mode.",
+            f"{len(stripped or [])} field(s) stripped from LLM output",
+            "Open Engineering debug for full resilience sidecar",
+        ]
+        if isinstance(stripped, list):
+            review.extend(
+                f"Stripped {row.get('path')}: {row.get('reason')}"
+                for row in stripped[:4]
+                if isinstance(row, dict)
+            )
+        steps.append(
+            _step(
+                "llm_degraded_review",
+                num,
+                "Degraded LLM output — review recommended",
+                instruction=(
+                    "The pipeline saved a partial artifact and continued. "
+                    "Review what was kept vs stripped before relying on downstream outputs."
+                ),
+                review=review,
+                primary_button="Acknowledge & continue",
+                secondary_button=f"Re-run {title}",
+                kind="info",
+                status="todo",
+            )
+        )
+        num += 1
+    elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
         steps.append(
             _step(
                 "write_approval",

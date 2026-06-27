@@ -33,6 +33,9 @@ def list_stage_routing_attempts(ctx: RunContext) -> list[dict[str, Any]]:
                 continue
             arb = doc.get("arbiter_result") or {}
             task_kind = doc.get("task_kind") or _task_kind_from_filename(path.name)
+            routing = (doc.get("envelope") or {}).get("_routing_meta") or {}
+            persist_action = doc.get("persist_action") or routing.get("persist_action")
+            resilience_report = doc.get("resilience_report") or routing.get("resilience_report")
             out.append(
                 {
                     "stage": stage_key,
@@ -51,6 +54,8 @@ def list_stage_routing_attempts(ctx: RunContext) -> list[dict[str, Any]]:
                     "context_chars": doc.get("context_chars"),
                     "schema_errors": doc.get("schema_errors") or [],
                     "deterministic_lint_errors": doc.get("deterministic_lint_errors") or [],
+                    "persist_action": persist_action,
+                    "resilience_report": resilience_report,
                     "primary_attempt_count": doc.get("primary_attempt_count"),
                     "budget_remaining_primary": doc.get("budget_remaining_primary"),
                     "stuck_count": doc.get("stuck_count"),

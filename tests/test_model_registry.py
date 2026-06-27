@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from interview_mux.model_registry import DEFAULT_TIER_MODELS, next_tier, resolve_model
+from interview_mux.model_registry import (
+    DEFAULT_TIER_MODELS,
+    next_tier,
+    resolve_model,
+    supports_custom_temperature,
+    temperature_for_chat,
+)
 
 
 def test_resolve_model_primary_uses_stage_tier():
@@ -80,3 +86,19 @@ def test_bump_tier_bypasses_flat_stage_override(monkeypatch):
     bumped = resolve_model("missing_framing", "primary", bump_tier=True)
     assert bumped.tier == "flagship"
     assert bumped.model_id == "o3"
+
+
+def test_reasoning_models_omit_temperature():
+    assert supports_custom_temperature("gpt-4o-mini") is True
+    assert supports_custom_temperature("gpt-4o") is True
+    assert supports_custom_temperature("o3") is False
+    assert supports_custom_temperature("o3-mini") is False
+    assert supports_custom_temperature("o1-preview") is False
+    assert supports_custom_temperature("o4-mini") is False
+
+
+def test_temperature_for_chat_by_model_and_task():
+    assert temperature_for_chat("gpt-4o-mini", "primary") == 0.2
+    assert temperature_for_chat("gpt-4o-mini", "arbiter") == 0.0
+    assert temperature_for_chat("o3", "primary") is None
+    assert temperature_for_chat("o3", "arbiter") is None

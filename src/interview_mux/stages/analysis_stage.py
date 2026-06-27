@@ -12,14 +12,18 @@ from interview_mux.analysis_memory import (
     sync_speakers_to_state,
 )
 from interview_mux.artifact_completeness import attach_gap_fill_to_input
-from interview_mux.context_volley import volley_char_estimate
 from interview_mux.llm_flow_hardening import (
     complete_llm_stage_or_halt,
     flow_hardening_cfg,
     flow_hardening_enabled,
     llm_stage_progress_ok,
 )
-from interview_mux.llm_stage_routing import finalize_stage_attempt, run_llm_stage_with_routing
+from interview_mux.llm_stage_routing import (
+    _lint_retry_strategy,
+    finalize_stage_attempt,
+    run_llm_stage_with_routing,
+)
+from interview_mux.attempt_budget import build_attempt_signature
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
@@ -32,12 +36,9 @@ def _attempt_signature(
     envelope: dict[str, Any],
     volley: list[dict[str, str]],
     schema_errors: list[str],
+    lint_errors: list[str] | None = None,
 ) -> tuple[Any, ...]:
-    return (
-        envelope.get("status"),
-        tuple(schema_errors[:3]),
-        volley_char_estimate(volley),
-    )
+    return build_attempt_signature(envelope, volley, schema_errors, lint_errors)
 
 
 def _maybe_legacy_flow_persist(
@@ -89,6 +90,7 @@ def _run_llm_stage_loop(
     last_schema_errors: list[str] = []
     last_routed_via_collate = False
     prev_signature: tuple[Any, ...] | None = None
+    pending_retry: dict[str, Any] = {}
 
     for attempt in range(1, limit + 1):
         with logged_step(f"{stage_key}/attempt_{attempt}/budget", ctx=ctx, stage=stage_key):
@@ -97,6 +99,13 @@ def _run_llm_stage_loop(
                 ctx.log(budget_msg, level="action", stage=stage_key)
                 raise SystemExit(budget_msg)
             stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
+            if pending_retry.get("enrich_input"):
+                stage_input = dict(stage_input)
+                stage_input["lint_retry_hint"] = (
+                    "Prior attempt failed lint: anchor every topic and key_claim with "
+                    "segment_ids, evidence_segment_ids, or approx_time_range; avoid generic "
+                    "theme names without transcript evidence."
+                )
         with logged_step(f"{stage_key}/attempt_{attempt}/routing", ctx=ctx, stage=stage_key):
             envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
                 ctx,
@@ -104,6 +113,9 @@ def _run_llm_stage_loop(
                 prompt_rel,
                 stage_input,
                 attempt=attempt,
+                bump_tier=bool(pending_retry.get("bump_tier")),
+                force_decompose=bool(pending_retry.get("force_decompose")),
+                system_appendix=pending_retry.get("strict_appendix"),
             )
         with logged_step(f"{stage_key}/attempt_{attempt}/finalize", ctx=ctx, stage=stage_key):
             finalize_stage_attempt(
@@ -132,9 +144,11 @@ def _run_llm_stage_loop(
         last_schema_errors = schema_errors
         routing = envelope.get("_routing_meta") or {}
         last_routed_via_collate = bool(routing.get("routed_via_collate"))
+        lint_errors = routing.get("deterministic_lint_errors") or []
+        pending_retry = _lint_retry_strategy(lint_errors, stage_key) if lint_errors else {}
 
         if flow_hardening_enabled() and flow_hardening_cfg().get("inner_retry_require_delta", True):
-            sig = _attempt_signature(envelope, volley, schema_errors)
+            sig = _attempt_signature(envelope, volley, schema_errors, lint_errors)
             if prev_signature is not None and sig == prev_signature and attempt < limit:
                 ctx.log(
                     f"Stage {stage_key}: inner retry {attempt} unchanged — stopping early.",
@@ -150,7 +164,12 @@ def _run_llm_stage_loop(
             for n in envelope.get("needs") or []
             if n.get("blocking") and n.get("type") != "operator"
         ]
-        if status == "complete" and not blocking_needs:
+        blocking_followups = [
+            f
+            for f in envelope.get("follow_up_investigations") or []
+            if isinstance(f, dict) and f.get("blocking")
+        ]
+        if status == "complete" and not blocking_needs and not blocking_followups:
             if llm_stage_progress_ok(
                 ctx,
                 stage_key,
@@ -162,8 +181,9 @@ def _run_llm_stage_loop(
                 break
         if attempt < limit and (
             status in ("partial", "needs_input")
-            or (status == "blocked" and blocking_needs)
+            or (status == "blocked" and (blocking_needs or blocking_followups))
             or blocking_needs
+            or blocking_followups
         ):
             ctx.log(
                 f"Stage {stage_key} attempt {attempt}/{limit}: {status} — retrying with updated memory",
@@ -173,7 +193,9 @@ def _run_llm_stage_loop(
             continue
         if status == "blocked":
             ctx.log(
-                f"Stage {stage_key} blocked: {envelope.get('needs')}",
+                f"Stage {stage_key} blocked: needs={envelope.get('needs')} "
+                f"follow_up_investigations={blocking_followups} "
+                f"lint={lint_errors[:3]}",
                 level="warning",
                 stage=stage_key,
             )
