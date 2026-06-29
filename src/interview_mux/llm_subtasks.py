@@ -6,7 +6,7 @@ from interview_mux.analysis_memory import record_stage_attempt
 from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.local_volley_framer import prepare_volley_for_llm
-from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE
+from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, normalize_shard_plan
 from interview_mux.prompt_validation import validate_envelope, validate_stage_artifacts
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
@@ -26,9 +26,10 @@ def run_shards_then_collate(
     shard_outputs: list[dict[str, Any]] = []
     ok_shards: list[dict[str, Any]] = []
     failed_count = 0
-    plan_len = max(len(shard_plan[:8]), 1)
+    shard_plan = normalize_shard_plan(stage_key, stage_input, shard_plan[:8])
+    plan_len = max(len(shard_plan), 1)
 
-    for shard_idx, shard in enumerate(shard_plan[:8], start=1):
+    for shard_idx, shard in enumerate(shard_plan, start=1):
         shard_input = _slice_stage_input(stage_key, stage_input, shard)
         volley, _ = prepare_volley_for_llm(
             ctx, stage_key, shard_input, profile="shard", task_kind="shard"

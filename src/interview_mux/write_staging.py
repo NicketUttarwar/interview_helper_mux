@@ -462,6 +462,13 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
     )
     try:
         flushed = flush_stage_writes(ctx, stage_id)
+        if "segments/manifest.json" in flushed and ctx.artifact_exists("segments/manifest.json"):
+            from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+
+            manifest = ctx.read_json("segments/manifest.json")
+            hydrated = hydrate_manifest_from_boundaries(ctx, manifest)
+            if hydrated != manifest:
+                ctx.write_json("segments/manifest.json", hydrated, stage_key=stage_id)
         ctx.mark_done(stage_id, force=True)
         now = datetime.now(timezone.utc).isoformat()
 

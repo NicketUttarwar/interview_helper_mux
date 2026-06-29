@@ -729,8 +729,10 @@ def create_app() -> FastAPI:
                 sid = seg.get("segment_id")
                 if sid and sid in manifest_by_id:
                     m = manifest_by_id[sid]
-                    seg["_manifest_start_ms"] = int(m["start_ms"])
-                    seg["_manifest_end_ms"] = int(m["end_ms"])
+                    if m.get("start_ms") is not None:
+                        seg["_manifest_start_ms"] = int(m["start_ms"])
+                    if m.get("end_ms") is not None:
+                        seg["_manifest_end_ms"] = int(m["end_ms"])
             if segments:
                 duration_ms = max(s.get("end_ms", 0) for s in segments)
         vo_lines: list[dict[str, Any]] = []

@@ -33,6 +33,11 @@ def write_validated_artifact(
                 existing = raw
         out = merge_artifact(rel_path, existing, data, stage_key=stage_key)
 
+    if rel_path == "segments/manifest.json":
+        from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+
+        out = hydrate_manifest_from_boundaries(ctx, out)
+
     errors = validate_artifact_write(rel_path, out)
     if errors:
         ctx.log(
@@ -81,6 +86,11 @@ def write_partial_artifact(
             if isinstance(raw, dict):
                 existing = raw
         out = merge_artifact(rel_path, existing, payload, stage_key=stage_key)
+
+    if rel_path == "segments/manifest.json":
+        from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+
+        out = hydrate_manifest_from_boundaries(ctx, out)
 
     errors = validate_artifact_write(rel_path, out)
     if errors:

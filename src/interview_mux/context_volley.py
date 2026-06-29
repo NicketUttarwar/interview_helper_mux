@@ -386,7 +386,7 @@ def _build_collate_volley(
         artifacts = env.get("artifacts") or {}
         counts = {k: len(v) if isinstance(v, list) else 1 for k, v in artifacts.items()}
         label = shard.get("label") or f"shard_{idx}"
-        seg_ids = shard.get("segment_ids") or []
+        seg_ids = [str(x) for x in (shard.get("segment_ids") or [])]
         summary = env.get("reasoning_summary") or "(no summary)"
         messages.append(
             {

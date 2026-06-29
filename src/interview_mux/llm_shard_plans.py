@@ -157,10 +157,76 @@ def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
 def _all_segments(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = stage_input.get("segments")
     if isinstance(segs, dict):
-        return [s for s in (segs.get("segments") or []) if isinstance(s, dict)]
-    if isinstance(segs, list):
-        return [s for s in segs if isinstance(s, dict)]
+        found = [s for s in (segs.get("segments") or []) if isinstance(s, dict)]
+        if found:
+            return found
+    elif isinstance(segs, list):
+        found = [s for s in segs if isinstance(s, dict)]
+        if found:
+            return found
+    boundaries = stage_input.get("boundaries")
+    if isinstance(boundaries, dict):
+        return [b for b in (boundaries.get("boundaries") or []) if isinstance(b, dict)]
     return []
+
+
+def _canonical_segment_ids(stage_key: str, stage_input: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for row in _all_segments(stage_input):
+        sid = row.get("segment_id")
+        if sid is not None and str(sid).strip():
+            ids.append(str(sid))
+    return ids
+
+
+def _resolve_shard_segment_id(raw: Any, id_universe: list[str]) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        if text in id_universe:
+            return text
+        if text.isdigit():
+            return _resolve_shard_segment_id(int(text), id_universe)
+        return text
+    if isinstance(raw, int):
+        if 1 <= raw <= len(id_universe):
+            return id_universe[raw - 1]
+        if 0 <= raw < len(id_universe):
+            return id_universe[raw]
+    return str(raw)
+
+
+def normalize_shard_plan(
+    stage_key: str,
+    stage_input: dict[str, Any],
+    shard_plan: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Coerce arbiter shard segment_ids to canonical string ids from stage input."""
+    if not shard_plan:
+        return []
+    id_universe = _canonical_segment_ids(stage_key, stage_input)
+    normalized: list[dict[str, Any]] = []
+    for shard in shard_plan:
+        if not isinstance(shard, dict):
+            continue
+        raw_ids = shard.get("segment_ids") or []
+        if not isinstance(raw_ids, list):
+            raw_ids = [raw_ids]
+        resolved = [
+            sid
+            for sid in (_resolve_shard_segment_id(raw, id_universe) for raw in raw_ids)
+            if sid
+        ]
+        entry = dict(shard)
+        if resolved:
+            entry["segment_ids"] = resolved
+        elif raw_ids and id_universe:
+            entry["segment_ids"] = [str(x) for x in raw_ids]
+        normalized.append(entry)
+    return normalized
 
 
 def transcript_length_for_stage_input(stage_input: dict[str, Any]) -> int:

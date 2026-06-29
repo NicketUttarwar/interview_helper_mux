@@ -332,6 +332,71 @@ def merge_artifact(
     return _deep_merge(existing, patch)
 
 
+def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Fill timeline fields on manifest segments from segments/boundaries.json."""
+    if not isinstance(manifest, dict):
+        return manifest
+    segs = manifest.get("segments")
+    if not isinstance(segs, list) or not segs:
+        return manifest
+
+    boundary_by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/boundaries.json"):
+        doc = ctx.read_json("segments/boundaries.json")
+        if isinstance(doc, dict):
+            for row in doc.get("boundaries") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    boundary_by_id[str(row["segment_id"])] = row
+
+    if not boundary_by_id:
+        return manifest
+
+    words: list[dict[str, Any]] = []
+    if ctx.artifact_exists("transcript/full.json"):
+        tr = ctx.read_json("transcript/full.json")
+        if isinstance(tr, dict):
+            words = [w for w in (tr.get("words") or []) if isinstance(w, dict)]
+
+    speakers_by_id: dict[str, str] = {}
+    if ctx.artifact_exists("understanding/speakers.json"):
+        sp_doc = ctx.read_json("understanding/speakers.json")
+        if isinstance(sp_doc, dict):
+            for sp in sp_doc.get("speakers") or []:
+                if isinstance(sp, dict) and sp.get("speaker_id"):
+                    speakers_by_id[str(sp["speaker_id"])] = str(sp.get("role") or "unknown")
+
+    hydrated: list[dict[str, Any]] = []
+    for seg in segs:
+        if not isinstance(seg, dict):
+            continue
+        sid = str(seg.get("segment_id") or "")
+        out = dict(seg)
+        boundary = boundary_by_id.get(sid) if sid else None
+        if boundary:
+            if out.get("start_ms") is None and boundary.get("start_ms") is not None:
+                out["start_ms"] = int(boundary["start_ms"])
+            if out.get("end_ms") is None and boundary.get("end_ms") is not None:
+                out["end_ms"] = int(boundary["end_ms"])
+            if not out.get("speaker_id") and boundary.get("speaker_id"):
+                out["speaker_id"] = str(boundary["speaker_id"])
+            if not out.get("speaker_role") and out.get("speaker_id"):
+                out["speaker_role"] = speakers_by_id.get(str(out["speaker_id"]), "unknown")
+            if not out.get("text") and words and out.get("start_ms") is not None and out.get("end_ms") is not None:
+                start_ms = int(out["start_ms"])
+                end_ms = int(out["end_ms"])
+                span = [
+                    w
+                    for w in words
+                    if int(w.get("start_ms", 0)) < end_ms and int(w.get("end_ms", 0)) > start_ms
+                ]
+                text = " ".join(str(w.get("text", "")) for w in span if w.get("text"))
+                if text:
+                    out["text"] = text
+        hydrated.append(out)
+
+    return {**manifest, "segments": hydrated}
+
+
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
     from interview_mux.null_field_policy import null_acknowledged_paths
 
