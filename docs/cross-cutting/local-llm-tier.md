@@ -158,8 +158,9 @@ Recommended follow-up when editing the local prompt/code:
 | Emit stage envelope (`artifacts`, `memory_updates`) | No (except future low-risk pilots) | Yes |
 | Gap / narrative / ranking editorial judgment | No | Yes |
 | Schema validation + arbiter | No | Yes |
+| Post-persist artifact gap-fill | **Removed** — use OpenAI `gap_fill_context` + JSON `null` semantics instead | N/A |
 
----
+**Note:** Local MLX no longer runs post-persist gap-fill (`local_gap_filler` removed). Volley framing (Role A) remains.
 
 ## Config keys
 

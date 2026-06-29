@@ -126,12 +126,30 @@ def validate_stage_artifacts(stage_key: str, artifacts: dict[str, Any]) -> list[
     return errors[:12]
 
 
-def format_validation_feedback(errors: list[str]) -> str:
-    return (
-        "## Schema validation failed\n"
-        "Fix `artifacts` to satisfy the stage schema. Errors:\n"
-        + "\n".join(f"- {e}" for e in errors)
-    )
+def format_validation_feedback(
+    errors: list[str],
+    *,
+    stage_key: str | None = None,
+    envelope_errors: list[str] | None = None,
+) -> str:
+    from interview_mux.required_response_format import build_envelope_skeleton, build_required_response_block
+
+    lines = ["## Schema validation failed", "Fix the response to satisfy validation. Errors:"]
+    env_errs = envelope_errors or [e for e in errors if e.startswith("envelope.")]
+    art_errs = [e for e in errors if not e.startswith("envelope.")]
+    if env_errs:
+        lines.append("\n### Envelope")
+        lines.extend(f"- {e}" for e in env_errs)
+        skel = json.dumps(build_envelope_skeleton(), indent=2)
+        lines.append(f"\nEnvelope skeleton:\n```json\n{skel}\n```")
+    if art_errs:
+        lines.append("\n### Artifacts")
+        lines.extend(f"- {e}" for e in art_errs)
+    if stage_key:
+        lines.append(
+            f"\n{build_required_response_block(stage_key, variant='compact')}"
+        )
+    return "\n".join(lines)
 
 
 def _validate_dict(data: dict[str, Any], schema: dict[str, Any] | None) -> list[str]:

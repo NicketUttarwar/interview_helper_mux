@@ -26,7 +26,7 @@ export const understanding_content_brief_jsonSchema = z.object({
   "evidence_segment_ids": z.array(z.string()).optional(),
   "depends_on_claim_ids": z.array(z.string()).optional(),
 })).optional(),
-  "emotional_beats": z.array(z.unknown()).optional(),
-  "audience": z.string().optional(),
-  "jargon_glossary": z.array(z.unknown()).optional(),
+  "audience": z.unknown().optional(),
+  "jargon_glossary": z.unknown().optional(),
+  "emotional_beats": z.unknown().optional(),
 });

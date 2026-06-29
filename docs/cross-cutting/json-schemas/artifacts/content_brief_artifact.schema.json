@@ -53,8 +53,8 @@
         }
       }
     },
-    "emotional_beats": { "type": "array" },
-    "audience": { "type": "string" },
-    "jargon_glossary": { "type": "array" }
+    "audience": { "type": ["string", "null"] },
+    "jargon_glossary": { "type": ["array", "null"] },
+    "emotional_beats": { "type": ["array", "null"] }
   }
 }

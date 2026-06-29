@@ -37,6 +37,8 @@
 | Attempt budget | `attempt_budget.py` | Loop circuit-breaker |
 | Flow hardening | `llm_flow_hardening.py` | Critical vs soft stages |
 | Local volley framer | `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) |
+| Required response format | `required_response_format.py` | Dual-inject envelope/artifact skeleton + null rules (system + final volley turn) |
+| Null field policy | `null_field_policy.py` | JSON `null` acknowledgment, volley exclusion, critical-field hard stops |
 | Stage guidance | `stage_guidance.py` | GUI journey phase copy and gate CTAs (`stages[].guidance`) |
 | Placement QA | `placement_qa.py` | Post-SFX hints; `apply_placement_adjustments` at mix |
 

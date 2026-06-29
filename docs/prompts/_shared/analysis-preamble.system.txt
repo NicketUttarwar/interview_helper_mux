@@ -33,6 +33,14 @@ When `gap_fill_context` is present in the stage input:
 - If `gaps` is empty, return minimal `artifacts` (or empty) unless correcting a validation error.
 - Merged results are validated against the stage artifact schema before write.
 
+## Unavailable fields (JSON null)
+
+- Use JSON **null** for **nullable** fields when evidence does not support a value.
+- Do not use empty strings, `"N/A"`, or invented placeholders instead of null.
+- **Critical** fields (listed per stage in the required response format block) must never be null — return `status: partial` or `needs_input` with a concrete `needs` entry instead.
+- Optional: add `"_unavailable_reason"` on the parent object when nulling a nested field.
+- Null-acknowledged fields are persisted on disk and excluded from future volley gap-fill requests.
+
 ## Disfluency catalog (optional)
 
 When `disfluency_catalog` is present in the stage input:

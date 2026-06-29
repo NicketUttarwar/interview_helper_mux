@@ -72,23 +72,56 @@ def load_system_prompt_for_stage(
     *,
     include_preamble: bool = True,
     cfg: dict[str, Any] | None = None,
+    task_kind: str = "primary",
 ) -> str:
+    from interview_mux.required_response_format import build_required_response_block
+
     system = load_system_prompt(rel_path, include_preamble=include_preamble)
     if prompt_examples_enabled(stage_key, cfg):
         examples = load_compact_examples(stage_key, cfg)
         if examples:
             system = f"{system}\n\n---\n\n{examples}"
+    if include_preamble or task_kind == "arbiter":
+        system = (
+            f"{system}\n\n---\n\n"
+            f"{build_required_response_block(stage_key, variant='full', task_kind=task_kind)}"
+        )
     return system
 
 
+def _strip_json_fences(text: str) -> str:
+    stripped = text.strip()
+    fence = re.match(r"^```(?:json)?\s*([\s\S]*?)```\s*$", stripped, re.IGNORECASE)
+    if fence:
+        return fence.group(1).strip()
+    return stripped
+
+
 def _extract_json(text: str) -> dict[str, Any]:
-    text = text.strip()
+    text = _strip_json_fences(text)
     if text.startswith("{"):
-        return json.loads(text)
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        raise ValueError(f"No JSON object in model response: {text[:200]}")
-    return json.loads(match.group())
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for match in re.finditer(r"\{[\s\S]*?\}(?=\s*$|\s*```|\s*\{)", text):
+        try:
+            parsed = json.loads(match.group())
+            if isinstance(parsed, dict):
+                score = len(match.group())
+                if "status" in parsed or "artifacts" in parsed:
+                    score += 10_000
+                candidates.append((score, parsed))
+        except json.JSONDecodeError:
+            continue
+    if not candidates:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            raise ValueError(f"No JSON object in model response: {text[:200]}")
+        return json.loads(match.group())
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
 
 
 def _default_response_format(task_kind: str, explicit: dict[str, str] | None) -> dict[str, str] | None:
@@ -140,6 +173,7 @@ def run_prompt_envelope(
     call_attempt: int | None = None,
     record_stage_key: str | None = None,
     system_override: str | None = None,
+    volley_retry_index: int = 0,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -156,6 +190,7 @@ def run_prompt_envelope(
             stage_key,
             include_preamble=include_preamble,
             cfg=cfg,
+            task_kind=task_kind,
         )
     resolved = (
         None
@@ -185,6 +220,9 @@ def run_prompt_envelope(
         "messages": chat_messages,
     }
     temp = temperature_for_chat(chosen, task_kind)
+    if (call_attempt or 0) > 1 or volley_retry_index > 0:
+        if temp is not None:
+            temp = 0.0
     if temp is not None:
         kwargs["temperature"] = temp
     fmt = _default_response_format(task_kind, response_format)
@@ -193,12 +231,24 @@ def run_prompt_envelope(
     if ctx:
         from interview_mux.operator_trace import log_api_call
 
+        from interview_mux.context_volley import truncation_flags_for_volley
+
+        volley_for_flags = messages or []
         log_api_call(
             "OpenAI",
             f"chat.completions ({chosen}, {task_kind})",
             ctx=ctx,
             stage=stage_key,
-            detail={"model": chosen, "task_kind": task_kind, "turns": len(chat_messages)},
+            detail={
+                "model_id": chosen,
+                "model": chosen,
+                "task_kind": task_kind,
+                "stage_key": stage_key,
+                "turns": len(chat_messages),
+                "context_chars": sum(len(m.get("content", "")) for m in chat_messages),
+                "truncation_flags": truncation_flags_for_volley(volley_for_flags),
+                "volley_retry_index": volley_retry_index,
+            },
         )
     try:
         resp = client.chat.completions.create(**kwargs)
@@ -215,7 +265,24 @@ def run_prompt_envelope(
             )
         raise
     content = resp.choices[0].message.content or ""
-    envelope = normalize_envelope(_extract_json(content))
+    try:
+        envelope = normalize_envelope(_extract_json(content))
+    except (ValueError, json.JSONDecodeError) as exc:
+        if ctx:
+            ctx.log(
+                f"LLM parse failed ({stage_key}, {task_kind}): {exc}",
+                level="error",
+                stage=stage_key,
+                action_id="llm.parse_failed",
+                detail={
+                    "raw_response_prefix": content[:2000],
+                    "model_id": chosen,
+                    "task_kind": task_kind,
+                    "turns": len(chat_messages),
+                },
+                origin="pipeline",
+            )
+        raise
     tier = resolved.tier if resolved else ("explicit" if model else "economy")
     envelope["_llm_meta"] = {
         "model_id": chosen,
@@ -228,7 +295,7 @@ def run_prompt_envelope(
 
         if llm_call_records_enabled():
             volley_for_flags = messages or []
-            record_llm_call(
+            call_record = record_llm_call(
                 ctx,
                 stage_key=stage_key,
                 record_stage_key=record_stage_key,
@@ -245,6 +312,9 @@ def run_prompt_envelope(
                 response_format=fmt,
                 truncation_flags=truncation_flags_for_volley(volley_for_flags),
             )
+            llm_path = (call_record.get("links") or {}).get("relative_path")
+            if llm_path:
+                envelope["_llm_meta"]["llm_call_path"] = llm_path
     if ctx:
         turns = len(messages) if messages else 1
         chars = sum(len(m.get("content", "")) for m in (messages or []))

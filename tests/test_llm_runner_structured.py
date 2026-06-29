@@ -100,3 +100,17 @@ def test_load_compact_examples_for_missing_framing():
     text = llm_runner.load_compact_examples("missing_framing")
     assert text is not None
     assert "missing_question" in text or "Compact examples" in text
+
+
+def test_extract_json_strips_markdown_fences():
+    raw = '```json\n{"status":"complete","artifacts":{"thesis":"x"}}\n```'
+    parsed = llm_runner._extract_json(raw)
+    assert parsed["status"] == "complete"
+    assert parsed["artifacts"]["thesis"] == "x"
+
+
+def test_normalize_envelope_preserves_null():
+    env = llm_runner.normalize_envelope(
+        {"status": "complete", "artifacts": {"thesis": "x", "audience": None}}
+    )
+    assert env["artifacts"]["audience"] is None

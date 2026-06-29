@@ -7,7 +7,7 @@ from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE
-from interview_mux.prompt_validation import validate_stage_artifacts
+from interview_mux.prompt_validation import validate_envelope, validate_stage_artifacts
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
 
@@ -132,18 +132,32 @@ def run_shards_then_collate(
         task_kind="collate",
         call_attempt=parent_attempt,
     )
-    record_stage_attempt(
-        ctx,
-        stage_key,
-        parent_attempt,
-        collate_env,
-        context_volley=collate_volley,
-        task_kind="collate",
-        shard_count=len(collate_shards),
-        truncation_flags=truncation_flags_for_volley(collate_volley),
-    )
     artifacts = collate_env.get("artifacts") or {}
     errors = validate_stage_artifacts(stage_key, artifacts)
+    env_errors = validate_envelope(collate_env)
+    all_errors = errors + env_errors
+    if all_errors:
+        from interview_mux.prompt_validation import format_validation_feedback
+
+        collate_volley = [
+            *collate_volley,
+            {"role": "assistant", "content": f"Prior collate status: {collate_env.get('status')}"},
+            {
+                "role": "user",
+                "content": format_validation_feedback(all_errors, stage_key=stage_key),
+            },
+        ]
+        collate_env = run_prompt_envelope(
+            stage_key,
+            prompt_rel,
+            messages=collate_volley,
+            ctx=ctx,
+            task_kind="collate",
+            call_attempt=parent_attempt,
+            volley_retry_index=1,
+        )
+        artifacts = collate_env.get("artifacts") or {}
+        errors = validate_stage_artifacts(stage_key, artifacts)
     if errors:
         collate_env.setdefault("needs", [])
         collate_env["needs"].append(
@@ -154,6 +168,16 @@ def run_shards_then_collate(
                 "blocking": True,
             }
         )
+    record_stage_attempt(
+        ctx,
+        stage_key,
+        parent_attempt,
+        collate_env,
+        context_volley=collate_volley,
+        task_kind="collate",
+        shard_count=len(collate_shards),
+        truncation_flags=truncation_flags_for_volley(collate_volley),
+    )
     return collate_env, len(shard_outputs)
 
 

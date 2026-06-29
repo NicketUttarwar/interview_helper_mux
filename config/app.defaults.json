@@ -323,13 +323,18 @@
     "llm_resilience": {
       "progression_mode": "degraded_continue",
       "partial_persist_enabled": true,
-      "local_gap_fill_enabled": true,
       "record_stripped_fields": true,
       "min_artifact_mass": {
         "content_context": ["thesis"],
         "speaker_roles": ["speakers"]
       },
       "detail_value_max_chars": 2000
+    },
+    "llm_null_policy": {
+      "enabled": true,
+      "allow_unavailable_reason": true,
+      "hard_stop_on_critical_null": true,
+      "exclude_from_volleys": true
     }
   }
 }

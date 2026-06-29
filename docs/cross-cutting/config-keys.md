@@ -301,6 +301,32 @@ When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before
 
 ---
 
+## `analysis.llm_resilience`
+
+Partial persist and sanitize when primary output fails lint/schema — `llm_output_resilience.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `progression_mode` | `degraded_continue` | Allow pipeline to continue with partial artifacts |
+| `partial_persist_enabled` | `true` | Write sanitized partial artifacts |
+| `record_stripped_fields` | `true` | Write `attempt_NNN_resilience.json` sidecars |
+| `min_artifact_mass` | per-stage | Minimum keys required for partial persist to count as progress |
+
+---
+
+## `analysis.llm_null_policy`
+
+Explicit JSON `null` for unavailable optional fields — `null_field_policy.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch for null acknowledgment and volley exclusion |
+| `allow_unavailable_reason` | `true` | Prompt allows optional `_unavailable_reason` on null fields |
+| `hard_stop_on_critical_null` | `true` | Block persist when critical fields are null |
+| `exclude_from_volleys` | `true` | Omit null-acknowledged paths from shaped volley input |
+
+---
+
 ## `analysis.specialists.enabled`
 
 When `true` (shipped default), runs economy-tier specialist passes after `missing_framing` (pre), `segment_classification`, `topic_coverage_audit`, and `full_master_ranking` (post); enqueues investigations when thresholds are met. Omit `pilot_stages` to run all mapped stages globally.

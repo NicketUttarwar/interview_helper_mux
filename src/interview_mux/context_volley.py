@@ -292,7 +292,9 @@ def build_message_volley(
                 f"## Current task\n{plan.task_line}\n\n"
                 f"Volley profile: {profile}\n\n"
                 "Below is established context from earlier steps (read only). "
-                "Your reply must be the JSON envelope described in the system prompt."
+                "Your reply must be one JSON **envelope** object with keys: "
+                "status, artifacts, memory_updates, needs, follow_up_investigations, "
+                "confidence, reasoning_summary."
             ),
         }
     )
@@ -325,11 +327,24 @@ def build_message_volley(
     upstream_note = _upstream_resilience_summary(ctx, stage_key)
     if upstream_note:
         shaped = {**shaped, "upstream_resilience": upstream_note}
+    from interview_mux.null_field_policy import null_policy_enabled, strip_null_leaves_for_volley
+
+    if null_policy_enabled():
+        shaped = strip_null_leaves_for_volley(shaped)
+    gap_fc = shaped.get("gap_fill_context") if isinstance(shaped.get("gap_fill_context"), dict) else None
     data_block = json.dumps(shaped, indent=2, ensure_ascii=False)
     max_data = _char_limit("max_stage_data_chars", 32000)
     if len(data_block) > max_data:
         data_block = data_block[:max_data] + "\n…[stage data truncated]"
 
+    from interview_mux.required_response_format import volley_format_footer
+
+    format_footer = volley_format_footer(
+        stage_key,
+        profile=profile,
+        task_kind="primary",
+        gap_fill_context=gap_fc,
+    )
     messages.append(
         {
             "role": "user",
@@ -337,7 +352,8 @@ def build_message_volley(
                 f"## Input data for this stage only\n"
                 f"Use this as the primary evidence for `{stage_key}`. "
                 f"Do not assume facts not present here or in established context above.\n\n"
-                f"```json\n{data_block}\n```"
+                f"```json\n{data_block}\n```\n\n"
+                f"{format_footer}"
             ),
         }
     )
@@ -405,12 +421,16 @@ def _build_collate_volley(
     max_data = _char_limit("max_stage_data_chars", 32000)
     if len(data_block) > max_data:
         data_block = data_block[:max_data] + "\n…[stage data truncated]"
+    from interview_mux.required_response_format import volley_format_footer
+
+    format_footer = volley_format_footer(stage_key, profile="collate", task_kind="collate")
     messages.append(
         {
             "role": "user",
             "content": (
                 f"## Shard payloads to merge\n"
-                f"```json\n{data_block}\n```"
+                f"```json\n{data_block}\n```\n\n"
+                f"{format_footer}"
             ),
         }
     )

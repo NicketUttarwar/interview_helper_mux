@@ -41,19 +41,22 @@ def _minimal_speakers(**extra: object) -> dict:
     return base
 
 
-def _resilience_cfg(*, local_gap_fill: bool = False) -> dict:
+def _resilience_cfg() -> dict:
     return {
         "analysis": {
             "flow_hardening": {"enabled": True, "strict_critical_stages": True},
             "llm_resilience": {
                 "progression_mode": "degraded_continue",
                 "partial_persist_enabled": True,
-                "local_gap_fill_enabled": local_gap_fill,
                 "record_stripped_fields": True,
                 "min_artifact_mass": {
                     "content_context": ["thesis"],
                     "speaker_roles": ["speakers"],
                 },
+            },
+            "llm_null_policy": {
+                "enabled": True,
+                "hard_stop_on_critical_null": True,
             },
         }
     }
@@ -147,6 +150,34 @@ def test_upstream_artifact_acceptable_partial_with_mass(tmp_path, monkeypatch):
         {"thesis": "Partial thesis"},
         _resilience_cfg(),
     ) > 0
+
+
+def test_apply_resilience_critical_null_blocks(tmp_path, monkeypatch):
+    from interview_mux.llm_output_resilience import apply_resilience_and_persist
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _resilience_cfg())
+    ctx = isolated_run_ctx(tmp_path, "res_critical_null")
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "thesis": None,
+            "topics": [{"name": "Tech", "summary": "Topic summary"}],
+        },
+        "_llm_meta": {"model_id": "gpt-test", "task_kind": "primary"},
+    }
+    plan = apply_resilience_and_persist(
+        ctx,
+        "content_context",
+        1,
+        envelope,
+        {"verdict": "accept"},
+        [],
+        [],
+        persist_fn=lambda _c, _a: None,
+    )
+    assert plan.action == "none"
+    assert envelope.get("status") == "blocked"
 
 
 def test_finalize_stage_attempt_partial_persist(tmp_path, monkeypatch):

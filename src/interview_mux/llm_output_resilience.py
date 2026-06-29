@@ -16,7 +16,6 @@ PersistAction = Literal["none", "partial", "full"]
 ResilienceEvent = Literal[
     "sanitize",
     "partial_persist",
-    "local_gap_fill",
     "degraded_continue",
     "parse_failed",
 ]
@@ -29,7 +28,6 @@ def resilience_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     defaults = {
         "progression_mode": "degraded_continue",
         "partial_persist_enabled": True,
-        "local_gap_fill_enabled": True,
         "record_stripped_fields": True,
         "min_artifact_mass": {},
         "detail_value_max_chars": _DETAIL_CAP,
@@ -44,10 +42,6 @@ def progression_mode(cfg: dict[str, Any] | None = None) -> str:
 
 def partial_persist_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(resilience_cfg(cfg).get("partial_persist_enabled", True))
-
-
-def local_gap_fill_enabled(cfg: dict[str, Any] | None = None) -> bool:
-    return bool(resilience_cfg(cfg).get("local_gap_fill_enabled", True))
 
 
 def is_degraded_continue(cfg: dict[str, Any] | None = None) -> bool:
@@ -359,14 +353,12 @@ def log_resilience_event(
     action_ids = {
         "sanitize": "llm.resilience.sanitize",
         "partial_persist": "llm.resilience.partial_persist",
-        "local_gap_fill": "llm.resilience.gap_fill",
         "degraded_continue": "llm.resilience.degraded_continue",
         "parse_failed": "llm.resilience.parse_failed",
     }
     levels = {
         "sanitize": "warning",
         "partial_persist": "action",
-        "local_gap_fill": "action",
         "degraded_continue": "action",
         "parse_failed": "warning",
     }
@@ -378,7 +370,6 @@ def log_resilience_event(
             f"LLM resilience: saved partial artifact ({report.artifact_path or stage_key}) "
             f"— {len(report.kept_paths)} field(s) kept"
         ),
-        "local_gap_fill": f"LLM resilience: local gap-fill generated {n_gen} field(s) ({stage_key})",
         "degraded_continue": f"LLM resilience: stage continued in degraded mode ({stage_key})",
         "parse_failed": f"LLM resilience: envelope parse failed — raw preserved ({stage_key})",
     }
@@ -434,8 +425,52 @@ def apply_resilience_and_persist(
     persist_fn: Any | None,
     sync_fn: Any | None = None,
     routed_via_collate: bool = False,
+    volley: list[dict[str, str]] | None = None,
 ) -> PersistPlan:
-    """Sanitize, optional gap-fill, persist partial/full, log events."""
+    """Sanitize, persist partial/full, log events."""
+    from interview_mux.null_field_policy import (
+        acknowledge_null_fields,
+        log_critical_null_blocked,
+        null_policy_cfg,
+    )
+
+    artifacts = envelope.get("artifacts") or {}
+    if artifacts:
+        updated, critical_nulls, _ack = acknowledge_null_fields(
+            ctx,
+            stage_key,
+            artifacts,
+            envelope_meta=envelope.get("_llm_meta"),
+        )
+        envelope["artifacts"] = updated
+        if critical_nulls and null_policy_cfg().get("hard_stop_on_critical_null", True):
+            log_critical_null_blocked(
+                ctx,
+                stage_key,
+                critical_nulls,
+                artifacts=updated,
+                envelope=envelope,
+                arbiter_result=arbiter_result,
+                volley=volley,
+                llm_call_path=(envelope.get("_llm_meta") or {}).get("llm_call_path"),
+            )
+            envelope["status"] = "blocked"
+            envelope.setdefault("needs", [])
+            envelope["needs"].append(
+                {
+                    "type": "rerun_stage",
+                    "stage": stage_key,
+                    "reason": f"Critical null field(s): {', '.join(critical_nulls[:4])}",
+                    "blocking": True,
+                }
+            )
+            empty = ResilienceReport(stage_key=stage_key, artifact_path=producer_artifact_path(stage_key))
+            empty.summary = "Blocked — critical null fields"
+            routing = envelope.setdefault("_routing_meta", {})
+            routing["persist_action"] = "none"
+            routing["critical_null_paths"] = critical_nulls
+            return PersistPlan("none", {}, empty)
+
     plan = resolve_persist_plan(
         stage_key,
         envelope,
@@ -460,26 +495,6 @@ def apply_resilience_and_persist(
         )
 
     artifacts = plan.artifacts
-    if plan.action == "partial" and local_gap_fill_enabled():
-        from interview_mux.local_gap_filler import fill_artifact_gaps
-
-        rel = producer_artifact_path(stage_key)
-        if rel:
-            filled, fill_report = fill_artifact_gaps(ctx, stage_key, rel, artifacts, plan.report)
-            if fill_report.generated:
-                artifacts = filled
-                plan.report.generated.extend(fill_report.generated)
-                plan.report.summary = fill_report.summary or plan.report.summary
-                log_resilience_event(
-                    ctx,
-                    stage_key,
-                    "local_gap_fill",
-                    plan.report,
-                    attempt=attempt,
-                    arbiter_result=arbiter_result,
-                    envelope=envelope,
-                )
-            plan.artifacts = artifacts
 
     if persist_fn and artifacts:
         from interview_mux.artifact_writes import write_partial_artifact

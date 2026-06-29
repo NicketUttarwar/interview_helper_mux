@@ -40,8 +40,8 @@ def _cfg(*, enabled: bool = True, strict: bool = True, degraded: bool = False) -
             "llm_resilience": {
                 "progression_mode": "degraded_continue" if degraded else "strict",
                 "partial_persist_enabled": degraded,
-                "local_gap_fill_enabled": False,
             },
+            "llm_null_policy": {"enabled": True, "hard_stop_on_critical_null": True},
         }
     }
     if degraded:

@@ -127,17 +127,49 @@ def _extend_volley_for_retry(
     volley: list[dict[str, str]],
     envelope: dict[str, Any],
     *,
+    stage_key: str,
     schema_errors: list[str] | None = None,
     blocking_needs: list[dict[str, Any]] | None = None,
+    retry_index: int = 0,
+    ctx: RunContext | None = None,
 ) -> list[dict[str, str]]:
     extended = [*volley, {"role": "assistant", "content": _assistant_summary_from_envelope(envelope)}]
     if schema_errors:
-        extended.append({"role": "user", "content": format_validation_feedback(schema_errors)})
+        env_errs = [e for e in schema_errors if e.startswith("envelope.")]
+        art_errs = [e for e in schema_errors if not e.startswith("envelope.")]
+        extended.append(
+            {
+                "role": "user",
+                "content": format_validation_feedback(
+                    schema_errors,
+                    stage_key=stage_key,
+                    envelope_errors=env_errs,
+                ),
+            }
+        )
+        error_class = "envelope" if env_errs and not art_errs else "schema"
     elif blocking_needs:
         lines = ["## Blocking needs from prior attempt", ""]
         for need in blocking_needs:
             lines.append(f"- [{need.get('type')}] {need.get('reason', need.get('question', ''))}")
         extended.append({"role": "user", "content": "\n".join(lines)})
+        error_class = "blocking_needs"
+    else:
+        error_class = "unknown"
+    if ctx is not None:
+        ctx.log(
+            f"LLM volley retry {retry_index} for {stage_key} ({error_class})",
+            level="warning",
+            stage=stage_key,
+            action_id="llm.volley_retry",
+            detail={
+                "retry_index": retry_index,
+                "error_class": error_class,
+                "schema_errors": (schema_errors or [])[:8],
+                "format_block_injected": True,
+            },
+            origin="pipeline",
+        )
     return extended
 
 
@@ -223,7 +255,15 @@ def _run_primary_with_volley_retries(
     retries = 0
     max_retries = _max_volley_retries(ctx)
     while retries < max_retries and all_errors:
-        volley = _extend_volley_for_retry(volley, envelope, schema_errors=all_errors)
+        retries += 1
+        volley = _extend_volley_for_retry(
+            volley,
+            envelope,
+            stage_key=stage_key,
+            schema_errors=all_errors,
+            retry_index=retries,
+            ctx=ctx,
+        )
         envelope = run_prompt_envelope(
             stage_key,
             prompt_rel,
@@ -233,19 +273,27 @@ def _run_primary_with_volley_retries(
             bump_tier=bump_tier,
             call_attempt=call_attempt,
             system_override=system_override,
+            volley_retry_index=retries,
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
         envelope_errors = validate_envelope(envelope)
         all_errors = envelope_errors + schema_errors
-        retries += 1
 
     status = envelope.get("status", "complete")
     blocking_needs = [
         n for n in envelope.get("needs") or [] if n.get("blocking") and n.get("type") != "operator"
     ]
     if retries < max_retries and status in ("partial", "needs_input") and (blocking_needs or not artifacts):
-        volley = _extend_volley_for_retry(volley, envelope, blocking_needs=blocking_needs)
+        retries += 1
+        volley = _extend_volley_for_retry(
+            volley,
+            envelope,
+            stage_key=stage_key,
+            blocking_needs=blocking_needs,
+            retry_index=retries,
+            ctx=ctx,
+        )
         envelope = run_prompt_envelope(
             stage_key,
             prompt_rel,
@@ -254,6 +302,7 @@ def _run_primary_with_volley_retries(
             task_kind="primary",
             bump_tier=bump_tier,
             call_attempt=call_attempt,
+            volley_retry_index=retries,
         )
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
@@ -830,6 +879,7 @@ def finalize_stage_attempt(
             persist_fn=persist_artifacts,
             sync_fn=sync_fn,
             routed_via_collate=routed_via_collate,
+            volley=volley,
         )
         routing = envelope.get("_routing_meta") or {}
         record_stage_attempt(

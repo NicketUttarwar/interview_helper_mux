@@ -237,8 +237,21 @@ def llm_stage_progress_ok(
     if rel and stage_key in STAGE_ARTIFACT_SCHEMAS:
         status = artifact_status(rel, ctx)
         if degraded and status in ("partial", "complete"):
-            return True
-        if status != "complete":
+            pass
+        elif status != "complete":
+            return False
+
+    from interview_mux.null_field_policy import find_null_fields, null_policy_enabled, partition_nulls
+
+    if null_policy_enabled(cfg):
+        if rel and ctx.artifact_exists(rel):
+            raw = ctx.read_json(rel)
+            if isinstance(raw, dict):
+                paths = find_null_fields(stage_key, raw)
+                critical, _ = partition_nulls(stage_key, paths)
+                if critical:
+                    return False
+        if routing.get("critical_null_paths"):
             return False
 
     return True

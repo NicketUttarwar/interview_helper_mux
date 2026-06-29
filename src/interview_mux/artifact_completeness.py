@@ -333,6 +333,8 @@ def merge_artifact(
 
 
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
+    from interview_mux.null_field_policy import null_acknowledged_paths
+
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
     if not rel:
         return None
@@ -350,12 +352,16 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
     all_gaps = list({g.path for g in gaps})
     for e in schema_errors + stage_errors:
         all_gaps.append(e.split(":")[0] if ":" in e else e)
+    if existing:
+        ack = set(null_acknowledged_paths(existing))
+        all_gaps = [g for g in all_gaps if g not in ack and not any(g.startswith(a) for a in ack)]
 
     if not existing and not all_gaps:
         all_gaps = ["(root)"]
 
     skip_fields: list[str] = []
     if existing:
+        skip_fields.extend(null_acknowledged_paths(existing))
         rule = _gap_rule_for(rel, stage_key)
         if rule:
             complete_paths = set()
