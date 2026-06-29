@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
+from interview_mux.operator_recovery import log_operator_halt
 from interview_mux.run_context import RunContext
 
 ORCHESTRATION_PATH = "understanding/analysis_orchestration.json"
@@ -103,10 +104,22 @@ def check_primary_budget(ctx: RunContext, stage_key: str) -> str | None:
     n = primary_attempt_count(ctx, stage_key)
     cap = max_primary_attempts()
     if n >= cap:
-        return (
+        msg = (
             f"Stage {stage_key}: primary attempt budget exhausted ({n}/{cap}). "
             f"Inspect understanding/stage_runs/{stage_key}/, fix artifacts, re-run --from-stage {stage_key}."
         )
+        log_operator_halt(
+            ctx,
+            stage_key=stage_key,
+            halt_kind="primary_budget_exhausted",
+            message=msg,
+            recovery_from_stage=stage_key,
+            action_id="llm.budget.primary_exhausted",
+            cap_name="max_primary_attempts_per_stage",
+            cap_value=cap,
+            current_value=n,
+        )
+        return msg
     return None
 
 
@@ -116,10 +129,22 @@ def check_arbiter_budget(ctx: RunContext, stage_key: str) -> str | None:
     n = arbiter_reject_count(ctx, stage_key)
     cap = max_arbiter_rejects()
     if n >= cap:
-        return (
+        msg = (
             f"Stage {stage_key}: arbiter reject budget exhausted ({n}/{cap}). "
             f"Use Fill gaps or operator review; re-run --from-stage {stage_key}."
         )
+        log_operator_halt(
+            ctx,
+            stage_key=stage_key,
+            halt_kind="arbiter_budget_exhausted",
+            message=msg,
+            recovery_from_stage=stage_key,
+            action_id="llm.budget.arbiter_exhausted",
+            cap_name="max_arbiter_rejects_per_stage",
+            cap_value=cap,
+            current_value=n,
+        )
+        return msg
     return None
 
 

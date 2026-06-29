@@ -817,17 +817,25 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
             out["value_features_summary"] = vf
         return out
     if stage_key == "segment_classification":
-        return {
+        from interview_mux.classification_obligation import classification_context_cfg
+
+        out: dict[str, Any] = {
             "boundaries": raw.get("boundaries"),
             "speakers": raw.get("speakers"),
             "content_brief": _compact_brief(raw.get("content_brief")),
-            "transcript": _clip_transcript_for_segments(raw.get("transcript")),
-            **(
-                {"interview_spine": _compact_interview_spine(raw["interview_spine"], stage_key)}
-                if raw.get("interview_spine")
-                else {}
-            ),
         }
+        if classification_context_cfg().get("classification_obligation_enabled", True):
+            if raw.get("classification_obligation"):
+                out["classification_obligation"] = raw.get("classification_obligation")
+            if raw.get("classification_obligation_retry"):
+                out["classification_obligation_retry"] = raw.get("classification_obligation_retry")
+        else:
+            out["transcript"] = _clip_transcript_for_segments(raw.get("transcript"))
+        if raw.get("interview_spine"):
+            out["interview_spine"] = _compact_interview_spine(raw["interview_spine"], stage_key)
+        if raw.get("lint_retry_hint"):
+            out["lint_retry_hint"] = raw.get("lint_retry_hint")
+        return out
     if stage_key == "sound_design_palettes":
         out_sdp: dict[str, Any] = {
             "content_brief": _compact_brief(raw.get("content_brief")),

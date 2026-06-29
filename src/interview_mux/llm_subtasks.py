@@ -169,6 +169,8 @@ def run_shards_then_collate(
                 "blocking": True,
             }
         )
+    if stage_key == "segment_classification":
+        collate_env = _apply_deterministic_segment_collate(collate_env, collate_shards)
     record_stage_attempt(
         ctx,
         stage_key,
@@ -180,6 +182,32 @@ def run_shards_then_collate(
         truncation_flags=truncation_flags_for_volley(collate_volley),
     )
     return collate_env, len(shard_outputs)
+
+
+def _apply_deterministic_segment_collate(
+    collate_env: dict[str, Any],
+    shard_outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Union shard segment rows by segment_id (deterministic fallback)."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for shard in shard_outputs:
+        env = shard.get("envelope") or {}
+        artifacts = env.get("artifacts") or {}
+        segments = artifacts.get("segments") or []
+        if not isinstance(segments, list):
+            continue
+        for seg in segments:
+            if isinstance(seg, dict) and seg.get("segment_id"):
+                by_id[str(seg["segment_id"])] = seg
+    if not by_id:
+        return collate_env
+    merged = dict(collate_env)
+    artifacts = dict(merged.get("artifacts") or {})
+    artifacts["segments"] = [by_id[k] for k in sorted(by_id.keys())]
+    merged["artifacts"] = artifacts
+    if merged.get("status") != "complete" and len(by_id) >= 1:
+        merged["status"] = "complete"
+    return merged
 
 
 def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[str, Any]) -> dict[str, Any]:
@@ -224,6 +252,18 @@ def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[
             **copied["boundaries"],
             "boundaries": [b for b in boundaries if isinstance(b, dict) and b.get("segment_id") in segment_ids],
         }
+        obligation = copied.get("classification_obligation")
+        if isinstance(obligation, dict) and obligation.get("segments"):
+            copied["classification_obligation"] = {
+                **obligation,
+                "segments": [
+                    s
+                    for s in obligation["segments"]
+                    if isinstance(s, dict) and str(s.get("segment_id")) in segment_ids
+                ],
+                "required_segment_ids": sorted(segment_ids),
+                "required_count": len(segment_ids),
+            }
     if stage_key in ("missing_framing", "topic_coverage_audit", "highlight_selection", "full_master_ranking"):
         segs = copied.get("segments")
         if isinstance(segs, dict):

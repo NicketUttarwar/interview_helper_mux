@@ -64,6 +64,22 @@ def run_classification(ctx: RunContext) -> None:
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
         attach_spine_to_payload(c, payload, "segment_classification")
+        from interview_mux.classification_obligation import (
+            build_obligation,
+            classification_context_cfg,
+        )
+
+        if classification_context_cfg().get("classification_obligation_enabled", True):
+            boundaries = payload.get("boundaries")
+            if isinstance(boundaries, dict):
+                payload["classification_obligation"] = build_obligation(
+                    c,
+                    boundaries,
+                    payload.get("speakers") if isinstance(payload.get("speakers"), dict) else None,
+                )
+        retry_ob = payload.get("classification_obligation_retry")
+        if isinstance(retry_ob, dict):
+            payload["classification_obligation_retry"] = retry_ob
         return attach_disfluency_context(payload, c)
 
     def _manifest_transform(artifacts: dict) -> dict:

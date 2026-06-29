@@ -4,6 +4,8 @@ import { escapeHtml, formatTs, parseLogDetail } from "../../utils";
 import {
   formatLogDetailBlock,
   logJourneyKind,
+  logRecoveryCommand,
+  shouldAutoExpandLogDetail,
   stageTitleById,
 } from "../../utils/logDisplay";
 import type { RunData } from "../../types";
@@ -19,7 +21,7 @@ interface Props {
 function errorIndices(entries: LogEntry[]): Set<number> {
   const set = new Set<number>();
   entries.forEach((e, i) => {
-    if (e.level === "error") set.add(i);
+    if (shouldAutoExpandLogDetail(e.detail, e.level)) set.add(i);
   });
   return set;
 }
@@ -57,6 +59,7 @@ export function LogEntryList({
       {entries.map((e, i) => {
         const journeyKind = logJourneyKind(e.detail);
         const detailBlock = formatLogDetailBlock(e.detail);
+        const recoveryCommand = logRecoveryCommand(e.detail);
         const parsed = parseLogDetail(e.detail as string | Record<string, unknown> | null | undefined);
         const stream = parsed?.stream;
         const isStream = stream === "stdout" || stream === "stderr";
@@ -100,6 +103,11 @@ export function LogEntryList({
               <span className={`log-msg${isStream ? " log-msg-mono" : ""}`}>
                 {escapeHtml(e.message)}
               </span>
+              {recoveryCommand ? (
+                <code className="log-recovery-preview" title="Recovery command (full in Show detail)">
+                  {escapeHtml(recoveryCommand)}
+                </code>
+              ) : null}
               {isError ? (
                 <button
                   type="button"

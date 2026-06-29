@@ -150,6 +150,12 @@ def _preflight_segment_classification(ctx: RunContext) -> list[str]:
     boundaries = doc.get("boundaries") if isinstance(doc, dict) else None
     if not boundaries:
         return ["segments/boundaries.json has no boundaries"]
+    from interview_mux.stage_coupling import contract_timeline_valid, read_segment_contract
+
+    if not contract_timeline_valid(doc if isinstance(doc, dict) else None):
+        contract = read_segment_contract(doc if isinstance(doc, dict) else None)
+        errs = (contract or {}).get("timeline_errors") or ["boundary timeline invalid"]
+        return [f"boundary timeline invalid: {errs[0]}"]
     return []
 
 

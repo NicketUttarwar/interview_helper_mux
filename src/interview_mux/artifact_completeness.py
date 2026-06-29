@@ -324,7 +324,10 @@ def merge_artifact(
                     ex_segs[sid] = {**ex_segs[sid], **seg}
                 else:
                     ex_segs[sid] = seg
-        return {**existing, "segments": list(ex_segs.values())}
+        from interview_mux.segment_timeline import sort_segments_by_start_ms
+
+        merged_segments = sort_segments_by_start_ms(list(ex_segs.values()))
+        return {**existing, "segments": merged_segments}
 
     if rel_path == "understanding/sound_design_plan.json":
         return _deep_merge(existing, patch)
@@ -373,9 +376,9 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
         out = dict(seg)
         boundary = boundary_by_id.get(sid) if sid else None
         if boundary:
-            if out.get("start_ms") is None and boundary.get("start_ms") is not None:
+            if boundary.get("start_ms") is not None:
                 out["start_ms"] = int(boundary["start_ms"])
-            if out.get("end_ms") is None and boundary.get("end_ms") is not None:
+            if boundary.get("end_ms") is not None:
                 out["end_ms"] = int(boundary["end_ms"])
             if not out.get("speaker_id") and boundary.get("speaker_id"):
                 out["speaker_id"] = str(boundary["speaker_id"])
@@ -394,7 +397,9 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
                     out["text"] = text
         hydrated.append(out)
 
-    return {**manifest, "segments": hydrated}
+    from interview_mux.segment_timeline import sort_segments_by_start_ms
+
+    return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}
 
 
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:

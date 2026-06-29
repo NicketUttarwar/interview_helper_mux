@@ -21,6 +21,23 @@ export function logJourneyKind(detail: LogEntry["detail"]): string | null {
   return null;
 }
 
+export function logRecoveryCommand(detail: LogEntry["detail"]): string | null {
+  const obj = typeof detail === "object" && detail ? detail : parseLogDetail(detail);
+  if (obj && typeof obj.recovery_command === "string" && obj.recovery_command.trim()) {
+    return obj.recovery_command.trim();
+  }
+  return null;
+}
+
+export function shouldAutoExpandLogDetail(
+  detail: LogEntry["detail"],
+  level?: string,
+): boolean {
+  if (level === "error") return true;
+  if (logRecoveryCommand(detail)) return true;
+  return false;
+}
+
 export function stageTitleById(
   stages: { id: string; title: string }[] | undefined,
   stageId: string | undefined | null,

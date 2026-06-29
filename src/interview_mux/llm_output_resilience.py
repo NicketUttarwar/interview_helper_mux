@@ -261,6 +261,22 @@ def extract_schema_valid_artifact(
     return out, errors
 
 
+def _block_partial_segment_classification(lint_errors: list[str], cfg: dict[str, Any] | None = None) -> bool:
+    fh = flow_hardening_cfg(cfg)
+    if not fh.get("block_partial_segment_classification", True):
+        return False
+    joined = " ".join(lint_errors).lower()
+    return any(
+        x in joined
+        for x in (
+            "segment_coverage_ratio",
+            "all segments typed interviewee_answer",
+            "manifest times not monotonic",
+            "envelope_status_complete",
+        )
+    )
+
+
 def resolve_persist_plan(
     stage_key: str,
     envelope: dict[str, Any],
@@ -296,6 +312,11 @@ def resolve_persist_plan(
 
     if not partial_persist_enabled(cfg):
         empty_report.summary = "Partial persist disabled"
+        return PersistPlan("none", {}, empty_report)
+
+    if stage_key == "segment_classification" and _block_partial_segment_classification(lint_errors, cfg):
+        empty_report.summary = "Partial persist blocked — segment classification obligation lint failed"
+        empty_report.lint_errors_before = lint_errors[:8]
         return PersistPlan("none", {}, empty_report)
 
     sanitized, report = sanitize_artifacts(

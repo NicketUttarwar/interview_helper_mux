@@ -11,6 +11,7 @@ Segment types:
 - coda — closing/wrap-up
 
 Rules:
+- When `classification_obligation` is present, return exactly one classification per `required_segment_id` in that matrix. Do not omit ids.
 - Use `content_brief.topics[].name` as `topic_tags` when they fit; otherwise infer 1–3 short snake_case tags.
 - Mark `starts_mid_thought`, `references_prior_missing`, `heavy_crosstalk` in `flags` when applicable.
 - `references_prior_missing` often becomes `missing_callback` in gap pass — flag honestly.

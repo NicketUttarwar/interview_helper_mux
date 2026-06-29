@@ -280,7 +280,23 @@
       "max_segments_in_gap_pass": 50,
       "max_gap_evaluations": 50,
       "max_stage_data_chars": 64000,
-      "interviewer_sample_lines": 8
+      "interviewer_sample_lines": 8,
+      "classification_obligation_enabled": true,
+      "classification_excerpt_max_chars": 600,
+      "per_segment_shard_max": 20,
+      "proactive_decompose_segments": 0
+    },
+    "segment_timeline": {
+      "allow_overlap_ms": 0,
+      "require_speaker_id": true,
+      "sort_on_write": true
+    },
+    "adaptation_loop": {
+      "max_decompose_per_stage_cycle": 1,
+      "max_per_segment_shard_calls": 24,
+      "max_micro_gap_fill_calls": 2,
+      "max_same_adaptation_signature": 1,
+      "halt_on_upstream_timeline_lint": true
     },
     "context_index": {
       "enabled": true,
@@ -311,6 +327,7 @@
       "max_arbiter_rejects_per_stage": 3,
       "max_investigation_reruns_per_kind": 2,
       "stuck_signature_threshold": 2,
+      "block_partial_segment_classification": true,
       "spend_block_stages": [
         "sfx_prompt_craft",
         "mmaudio_sfx_flow1",

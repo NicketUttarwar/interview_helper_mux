@@ -61,6 +61,12 @@ def build_deterministic_shard_plan(
         "topic_coverage_audit",
         "highlight_selection",
     ):
+        if "lint_retry_force_decompose" in (truncation_flags or []) or "proactive_per_segment" in (
+            truncation_flags or []
+        ):
+            per_seg = _per_segment_shards(stage_input)
+            if per_seg:
+                return per_seg, "deterministic"
         return _segment_batches(stage_input), "deterministic"
     if stage_key == "missing_framing":
         return _gap_segment_batches(stage_input), "deterministic"
@@ -86,6 +92,29 @@ def _transcript_chunks(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         end = min(start + chunk_size, len(text))
         chunks.append({"label": f"transcript_{i + 1}", "text_start": start, "text_end": end})
     return chunks[:max_shards]
+
+
+def _per_segment_shards(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
+    segs = _all_segments(stage_input)
+    if not segs:
+        return []
+    plans: list[dict[str, Any]] = []
+    for row in segs:
+        if not isinstance(row, dict) or not row.get("segment_id"):
+            continue
+        sid = str(row["segment_id"])
+        plans.append({"label": sid, "segment_ids": [sid]})
+    max_shards = _max_transcript_shards()
+    return plans[:max_shards]
+
+
+def should_proactive_decompose_segment_classification(stage_input: dict[str, Any]) -> bool:
+    from interview_mux.classification_obligation import classification_context_cfg
+
+    threshold = int(classification_context_cfg().get("proactive_decompose_segments", 0))
+    if threshold <= 0:
+        return False
+    return len(_all_segments(stage_input)) <= threshold
 
 
 def _segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:

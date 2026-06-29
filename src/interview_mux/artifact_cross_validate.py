@@ -10,6 +10,7 @@ from interview_mux.run_context import RunContext
 
 HARD_CHECKPOINTS = frozenset(
     {
+        "post_boundary_detection",
         "post_segmentation",
         "post_reanchor",
         "post_gaps",
@@ -29,6 +30,7 @@ HARD_CHECKPOINTS = frozenset(
 )
 
 STAGE_CHECKPOINTS: dict[str, str] = {
+    "boundary_detection": "post_boundary_detection",
     "segment_classification": "post_segmentation",
     "content_brief_reanchor": "post_reanchor",
     "missing_framing": "post_gaps",
@@ -51,6 +53,8 @@ STAGE_CHECKPOINTS: dict[str, str] = {
 
 def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
     """Return human-readable cross-validation errors (empty = pass)."""
+    if checkpoint == "post_boundary_detection":
+        return _validate_post_boundary(ctx)
     if checkpoint == "post_segmentation":
         return _validate_post_segmentation(ctx)
     if checkpoint == "post_reanchor":
@@ -160,11 +164,31 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
         hard = checkpoint in HARD_CHECKPOINTS or (
             checkpoint == "post_edl_audit" and _edl_audit_verdict(ctx) == "fail"
         )
+        if checkpoint == "post_segmentation":
+            status = artifact_status("segments/manifest.json", ctx)
+            if status != "complete":
+                ctx.log(
+                    f"Cross-artifact validation skipped ({checkpoint}): manifest status={status}",
+                    level="info",
+                    stage=stage_key,
+                    action_id="segment.cross_validate.skip",
+                    detail={"manifest_status": status, "checkpoint": checkpoint},
+                )
+                return
         if hard:
-            ctx.log(
-                f"Cross-artifact validation failed ({checkpoint}): {summary}",
-                level="action",
-                stage=stage_key,
+            from interview_mux.operator_recovery import log_operator_halt
+
+            log_operator_halt(
+                ctx,
+                stage_key=stage_key,
+                halt_kind="cross_artifact",
+                message=(
+                    f"Cross-artifact validation failed ({checkpoint}): {summary}. "
+                    f"Fix artifacts and re-run from --from-stage {stage_key}."
+                ),
+                recovery_from_stage=stage_key,
+                action_id="segment.cross_validate.fail",
+                extra_detail={"checkpoint": checkpoint, "errors": errors[:6]},
             )
             raise SystemExit(
                 f"Cross-artifact gate ({checkpoint}): {summary}. "
@@ -194,6 +218,28 @@ def _manifest_segment_ids(ctx: RunContext) -> set[str]:
     return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
 
 
+def _validate_post_boundary(ctx: RunContext) -> list[str]:
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return ["segments/boundaries.json missing"]
+    doc = ctx.read_json("segments/boundaries.json")
+    if not isinstance(doc, dict):
+        return ["segments/boundaries.json invalid"]
+    from interview_mux.stage_coupling import read_segment_contract
+
+    contract = read_segment_contract(doc)
+    if contract and not contract.get("timeline_valid"):
+        return list(contract.get("timeline_errors") or ["boundary timeline invalid"])
+    from interview_mux.segment_timeline import validate_boundary_rows, segment_timeline_cfg
+
+    boundaries = doc.get("boundaries") or []
+    st_cfg = segment_timeline_cfg()
+    return validate_boundary_rows(
+        [b for b in boundaries if isinstance(b, dict)],
+        require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
+        allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
+    )
+
+
 def _validate_post_segmentation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     manifest_ids = _manifest_segment_ids(ctx)
@@ -212,15 +258,14 @@ def _validate_post_segmentation(ctx: RunContext) -> list[str]:
     if ctx.artifact_exists("segments/manifest.json"):
         manifest = ctx.read_json("segments/manifest.json")
         segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
-        prev_end = -1
-        for seg in segs:
-            if not isinstance(seg, dict):
-                continue
-            start = int(seg.get("start_ms", 0))
-            end = int(seg.get("end_ms", 0))
-            if prev_end >= 0 and start < prev_end:
-                errors.append(f"manifest times not monotonic at {seg.get('segment_id')}")
-            prev_end = max(prev_end, end)
+        from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
+
+        errors.extend(
+            validate_timeline_monotonic(
+                [s for s in segs if isinstance(s, dict)],
+                allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
+            )
+        )
 
     if ctx.artifact_exists("understanding/content_brief.json"):
         brief = ctx.read_json("understanding/content_brief.json")

@@ -9,6 +9,49 @@ from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.run_context import RunContext
 
 
+def _prepare_segment_artifact(
+    ctx: RunContext,
+    rel_path: str,
+    out: dict[str, Any],
+    *,
+    stage_key: str | None = None,
+) -> dict[str, Any]:
+    if rel_path == "segments/boundaries.json":
+        from interview_mux.segment_timeline import normalize_boundary_document, validate_boundary_rows, segment_timeline_cfg
+        from interview_mux.stage_coupling import publish_boundary_contract
+
+        normalized = normalize_boundary_document(out)
+        boundaries = normalized.get("boundaries") or []
+        st_cfg = segment_timeline_cfg()
+        errors = validate_boundary_rows(
+            [b for b in boundaries if isinstance(b, dict)],
+            require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
+            allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
+        )
+        return publish_boundary_contract(
+            normalized,
+            timeline_errors=errors,
+            publisher_stage=stage_key or "boundary_detection",
+        )
+
+    if rel_path == "segments/manifest.json":
+        from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+
+        boundary_doc = None
+        if ctx.artifact_exists("segments/boundaries.json"):
+            boundary_doc = ctx.read_json("segments/boundaries.json")
+        out = hydrate_manifest_from_boundaries(ctx, out)
+        from interview_mux.segment_timeline import normalize_manifest_document
+
+        return normalize_manifest_document(
+            out,
+            boundary_doc if isinstance(boundary_doc, dict) else None,
+            overwrite_times=True,
+        )
+
+    return out
+
+
 def write_validated_artifact(
     ctx: RunContext,
     rel_path: str,
@@ -33,10 +76,10 @@ def write_validated_artifact(
                 existing = raw
         out = merge_artifact(rel_path, existing, data, stage_key=stage_key)
 
-    if rel_path == "segments/manifest.json":
-        from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+    out = _prepare_segment_artifact(ctx, rel_path, out, stage_key=stage_key)
 
-        out = hydrate_manifest_from_boundaries(ctx, out)
+    if rel_path == "segments/manifest.json":
+        pass  # already hydrated in _prepare_segment_artifact
 
     errors = validate_artifact_write(rel_path, out)
     if errors:
@@ -87,10 +130,7 @@ def write_partial_artifact(
                 existing = raw
         out = merge_artifact(rel_path, existing, payload, stage_key=stage_key)
 
-    if rel_path == "segments/manifest.json":
-        from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
-
-        out = hydrate_manifest_from_boundaries(ctx, out)
+    out = _prepare_segment_artifact(ctx, rel_path, out, stage_key=stage_key)
 
     errors = validate_artifact_write(rel_path, out)
     if errors:

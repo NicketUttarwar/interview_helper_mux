@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from interview_mux.artifact_cross_validate import validate_cross_artifacts
@@ -248,7 +250,7 @@ def test_maybe_cross_validate_ranking_raises_system_exit(tmp_path, monkeypatch):
 
 def test_maybe_cross_validate_raises_on_failure(tmp_path, monkeypatch):
     from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
-    from run_fixtures import patch_merged_config
+    from run_fixtures import minimal_manifest, minimal_manifest_segment, patch_merged_config
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
@@ -256,8 +258,37 @@ def test_maybe_cross_validate_raises_on_failure(tmp_path, monkeypatch):
         {"analysis": {"flow_hardening": {"enabled": True, "cross_validate_enabled": True}}},
     )
     ctx = isolated_run_ctx(tmp_path, "cv_raise")
-    manifest_path = ctx.path("segments", "manifest.json")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text('{"segments": []}', encoding="utf-8")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001", start_ms=0, end_ms=5000),
+            minimal_manifest_segment("seg_002", start_ms=4000, end_ms=8000),
+        ),
+        stage_key="segment_classification",
+    )
+    boundaries_path = ctx.path("segments", "boundaries.json")
+    boundaries_path.write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {
+                        "segment_id": "seg_001",
+                        "start_ms": 0,
+                        "end_ms": 5000,
+                        "speaker_id": "spk_1",
+                        "proposed_split_reason": "topic_shift",
+                    },
+                    {
+                        "segment_id": "seg_002",
+                        "start_ms": 4000,
+                        "end_ms": 8000,
+                        "speaker_id": "spk_1",
+                        "proposed_split_reason": "topic_shift",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(SystemExit, match="Cross-artifact gate"):
         maybe_cross_validate_after_stage(ctx, "segment_classification")

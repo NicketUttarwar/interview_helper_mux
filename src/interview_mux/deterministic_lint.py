@@ -34,6 +34,15 @@ _DIEGETIC_HINTS = re.compile(r"\b(diegetic|street|traffic|crowd|cafe|restaurant|
 
 
 def _manifest_ids(ctx: RunContext) -> set[str]:
+    """Segment ids for coverage denominator — prefer boundary contract."""
+    if ctx.artifact_exists("segments/boundaries.json"):
+        from interview_mux.stage_coupling import contract_segment_ids
+
+        doc = ctx.read_json("segments/boundaries.json")
+        if isinstance(doc, dict):
+            ids = contract_segment_ids(doc)
+            if ids:
+                return set(ids)
     if not ctx.artifact_exists("segments/manifest.json"):
         return set()
     manifest = ctx.read_json("segments/manifest.json")
@@ -238,6 +247,14 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
 
     if spine_enabled() and not ctx.artifact_exists("understanding/interview_spine.json"):
         errors.append("interview spine missing while interview_spine.enabled")
+    from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
+
+    errors.extend(
+        validate_timeline_monotonic(
+            [b for b in boundaries if isinstance(b, dict)],
+            allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
+        )
+    )
     return errors
 
 
@@ -808,6 +825,12 @@ def lint_remediation_hint(error: str) -> str | None:
         return "Produce a concrete one-sentence thesis from interviewee statements."
     if "producer_artifact_complete" in low:
         return "Envelope artifact incomplete — check required fields in the schema."
+    if "segment_coverage_ratio" in low:
+        return "Include every required_segment_id from classification_obligation; retry may use per-segment decompose."
+    if "all segments typed interviewee_answer" in low:
+        return "Vary types (interviewer_question, setup, reaction) per segment-classification taxonomy."
+    if "manifest times not monotonic" in low:
+        return "Fix segments/boundaries.json timeline — re-run from boundary_detection."
     return None
 
 

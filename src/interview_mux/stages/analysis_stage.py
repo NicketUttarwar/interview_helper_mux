@@ -19,10 +19,13 @@ from interview_mux.llm_flow_hardening import (
     llm_stage_progress_ok,
 )
 from interview_mux.llm_stage_routing import (
-    _lint_retry_strategy,
     finalize_stage_attempt,
     run_llm_stage_with_routing,
 )
+from interview_mux.lint_adaptation import format_lint_feedback, lint_retry_strategy
+from interview_mux.adaptation_loop_guard import AdaptationLoopGuard
+from interview_mux.adaptive_context import plan_context
+from interview_mux.operator_recovery import log_adaptation_step, log_operator_halt
 from interview_mux.attempt_budget import build_attempt_signature
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
@@ -91,6 +94,8 @@ def _run_llm_stage_loop(
     last_routed_via_collate = False
     prev_signature: tuple[Any, ...] | None = None
     pending_retry: dict[str, Any] = {}
+    lint_history: list[str] = []
+    guard = AdaptationLoopGuard.load(ctx, stage_key)
 
     for attempt in range(1, limit + 1):
         with logged_step(f"{stage_key}/attempt_{attempt}/budget", ctx=ctx, stage=stage_key):
@@ -106,6 +111,61 @@ def _run_llm_stage_loop(
                     "segment_ids, evidence_segment_ids, or approx_time_range; avoid generic "
                     "theme names without transcript evidence."
                 )
+            if pending_retry.get("inject_missing_segment_ids") and stage_input.get(
+                "classification_obligation"
+            ):
+                from interview_mux.classification_obligation import missing_segment_ids
+
+                obligation = stage_input["classification_obligation"]
+                prior_segments = (last_envelope.get("artifacts") or {}).get("segments") or []
+                missing = missing_segment_ids(obligation, prior_segments)
+                if missing:
+                    stage_input = dict(stage_input)
+                    stage_input["classification_obligation_retry"] = {
+                        "missing_segment_ids": missing,
+                        "instruction": (
+                            "Prior attempt omitted these segment ids — classify each one."
+                        ),
+                    }
+            context_plan = plan_context(
+                stage_key,
+                attempt,
+                stage_input,
+                lint_history,
+                guard,
+                pending_retry=pending_retry,
+            )
+            if context_plan.exhausted:
+                recovery_stage = context_plan.upstream_rerun or stage_key
+                log_operator_halt(
+                    ctx,
+                    stage_key=stage_key,
+                    halt_kind="adaptation_exhausted",
+                    message=(
+                        f"Stage {stage_key}: adaptation budget exhausted — "
+                        f"{context_plan.reason}"
+                    ),
+                    recovery_from_stage=recovery_stage,
+                    action_id="llm.adaptation.exhausted",
+                    extra_detail={"context_plan": context_plan.to_dict()},
+                )
+                raise SystemExit(
+                    f"Stage {stage_key}: adaptation exhausted ({context_plan.reason}). "
+                    f"Re-run --from-stage {recovery_stage}."
+                )
+            force_decompose = bool(
+                pending_retry.get("force_decompose") or context_plan.force_decompose
+            )
+            bump_tier = bool(pending_retry.get("bump_tier") or context_plan.bump_tier)
+            system_appendix = pending_retry.get("strict_appendix") or context_plan.system_appendix
+            if context_plan.strategy_key not in ("obligation_full", "default"):
+                log_adaptation_step(
+                    ctx,
+                    stage_key=stage_key,
+                    message=f"Adaptation: {context_plan.reason}",
+                    action_id="llm.adaptation.step",
+                    extra_detail=context_plan.to_dict(),
+                )
         with logged_step(f"{stage_key}/attempt_{attempt}/routing", ctx=ctx, stage=stage_key):
             envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
                 ctx,
@@ -113,9 +173,10 @@ def _run_llm_stage_loop(
                 prompt_rel,
                 stage_input,
                 attempt=attempt,
-                bump_tier=bool(pending_retry.get("bump_tier")),
-                force_decompose=bool(pending_retry.get("force_decompose")),
-                system_appendix=pending_retry.get("strict_appendix"),
+                bump_tier=bump_tier,
+                force_decompose=force_decompose,
+                system_appendix=system_appendix,
+                stage_input_obligation=stage_input.get("classification_obligation"),
             )
         with logged_step(f"{stage_key}/attempt_{attempt}/finalize", ctx=ctx, stage=stage_key):
             finalize_stage_attempt(
@@ -145,7 +206,49 @@ def _run_llm_stage_loop(
         routing = envelope.get("_routing_meta") or {}
         last_routed_via_collate = bool(routing.get("routed_via_collate"))
         lint_errors = routing.get("deterministic_lint_errors") or []
-        pending_retry = _lint_retry_strategy(lint_errors, stage_key) if lint_errors else {}
+        lint_history.extend(lint_errors)
+        pending_retry = {}
+        if lint_errors:
+            strategy = lint_retry_strategy(lint_errors, stage_key)
+            strategy_key = str(strategy.get("strategy_key") or "lint_retry")
+            if not guard.record_strategy(
+                strategy_key,
+                lint_errors=lint_errors,
+                missing_segment_ids=(
+                    (stage_input.get("classification_obligation_retry") or {}).get(
+                        "missing_segment_ids"
+                    )
+                    if isinstance(stage_input.get("classification_obligation_retry"), dict)
+                    else None
+                ),
+            ):
+                log_operator_halt(
+                    ctx,
+                    stage_key=stage_key,
+                    halt_kind="adaptation_signature_repeat",
+                    message=(
+                        f"Stage {stage_key}: repeated adaptation signature for "
+                        f"{strategy_key} — halting."
+                    ),
+                    recovery_from_stage=stage_key,
+                    action_id="llm.adaptation.signature_repeat",
+                    extra_detail={"strategy_key": strategy_key, "lint_errors": lint_errors[:4]},
+                )
+                raise SystemExit(
+                    f"Stage {stage_key}: adaptation loop detected (strategy={strategy_key})."
+                )
+            if strategy.get("force_decompose") and shard_count:
+                guard.mark_decompose(shard_count)
+            guard.save(ctx)
+            if stage_key == "segment_classification":
+                strategy = dict(strategy)
+                strategy["lint_feedback"] = format_lint_feedback(
+                    lint_errors,
+                    stage_key,
+                    ctx=ctx,
+                    obligation=stage_input.get("classification_obligation"),
+                )
+            pending_retry = strategy
 
         if flow_hardening_enabled() and flow_hardening_cfg().get("inner_retry_require_delta", True):
             sig = _attempt_signature(envelope, volley, schema_errors, lint_errors)

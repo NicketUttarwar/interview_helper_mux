@@ -27,6 +27,7 @@ from interview_mux.attempt_budget import (
     is_stuck,
     record_arbiter_reject,
     record_primary_attempt,
+    stuck_count,
     stuck_signature_threshold,
 )
 from interview_mux.deterministic_lint import deterministic_lint, reconcile_envelope_confidence
@@ -35,7 +36,11 @@ from interview_mux.llm_shard_plans import (
     DECOMPOSE_ELIGIBLE,
     build_deterministic_shard_plan,
     should_proactive_decompose_content_context,
+    should_proactive_decompose_segment_classification,
 )
+from interview_mux.lint_adaptation import format_lint_feedback
+from interview_mux.classification_obligation import obligation_lint_errors
+from interview_mux.operator_recovery import log_adaptation_step, log_operator_halt
 from interview_mux.llm_subtasks import run_shards_then_collate
 from interview_mux.model_registry import resolve_model
 from interview_mux.prompt_validation import (
@@ -64,26 +69,9 @@ _LINT_THESIS_APPENDIX = (
 
 def _lint_retry_strategy(lint_errors: list[str], stage_key: str) -> dict[str, Any]:
     """Map lint failures to non-identical retry parameters for the next inner-loop attempt."""
-    _ = stage_key
-    strategy: dict[str, Any] = {}
-    if not lint_errors:
-        return strategy
-    if any("truncation_requires_decompose" in e for e in lint_errors):
-        strategy["force_decompose"] = True
-    if any("confidence_gte_min" in e for e in lint_errors):
-        strategy["bump_tier"] = True
-    if any(
-        "generic theme" in e.lower()
-        or "key_claim without evidence" in e.lower()
-        or "topic without evidence" in e.lower()
-        for e in lint_errors
-    ):
-        strategy["enrich_input"] = True
-    if any("thesis empty" in e.lower() for e in lint_errors):
-        strategy["strict_appendix"] = _LINT_THESIS_APPENDIX
-    elif strategy.get("enrich_input"):
-        strategy["strict_appendix"] = _LINT_EVIDENCE_APPENDIX
-    return strategy
+    from interview_mux.lint_adaptation import lint_retry_strategy
+
+    return lint_retry_strategy(lint_errors, stage_key)
 
 
 def _system_prompt_with_appendix(
@@ -129,6 +117,8 @@ def _extend_volley_for_retry(
     *,
     stage_key: str,
     schema_errors: list[str] | None = None,
+    lint_errors: list[str] | None = None,
+    lint_feedback: str | None = None,
     blocking_needs: list[dict[str, Any]] | None = None,
     retry_index: int = 0,
     ctx: RunContext | None = None,
@@ -148,6 +138,10 @@ def _extend_volley_for_retry(
             }
         )
         error_class = "envelope" if env_errs and not art_errs else "schema"
+    elif lint_errors or lint_feedback:
+        content = lint_feedback or format_lint_feedback(lint_errors or [], stage_key, ctx=ctx)
+        extended.append({"role": "user", "content": content})
+        error_class = "lint"
     elif blocking_needs:
         lines = ["## Blocking needs from prior attempt", ""]
         for need in blocking_needs:
@@ -370,6 +364,20 @@ def _apply_stuck_detector(
             "suggested_action": {"type": "operator", "stage": stage_key},
         }
     )
+    log_operator_halt(
+        ctx,
+        stage_key=stage_key,
+        halt_kind="stuck_signature",
+        message=(
+            f"Stage {stage_key}: stuck retry loop detected "
+            f"({stuck_count(ctx, stage_key)}/{threshold} identical signatures)."
+        ),
+        recovery_from_stage=stage_key,
+        action_id="llm.budget.stuck_signature",
+        cap_name="stuck_signature_threshold",
+        cap_value=threshold,
+        current_value=stuck_count(ctx, stage_key),
+    )
     arbiter_result["verdict"] = "enqueue_investigation"
     arbiter_result["reasoning_summary"] = (
         f"Stuck loop detected ({threshold} identical signatures)."
@@ -490,7 +498,14 @@ def _post_arbiter_hardening(
     volley: list[dict[str, str]] | None = None,
     truncation_flags: list[str] | None = None,
     routed_via_collate: bool = False,
+    stage_input_obligation: dict[str, Any] | None = None,
 ) -> list[str]:
+    obligation_errors: list[str] = []
+    if stage_key == "segment_classification" and stage_input_obligation:
+        artifacts = envelope.get("artifacts") or {}
+        segments = artifacts.get("segments") or []
+        if isinstance(segments, list):
+            obligation_errors = obligation_lint_errors(stage_input_obligation, segments)
     lint_errors = deterministic_lint(
         stage_key,
         envelope,
@@ -500,6 +515,8 @@ def _post_arbiter_hardening(
         volley=volley,
         routed_via_collate=routed_via_collate,
     )
+    if obligation_errors:
+        lint_errors = [*obligation_errors, *lint_errors]
     verdict = str(arbiter_result.get("verdict", "")).strip()
     if verdict != "accept":
         record_arbiter_reject(ctx, stage_key, verdict)
@@ -520,16 +537,26 @@ def run_llm_stage_with_routing(
     bump_tier: bool = False,
     force_decompose: bool = False,
     system_appendix: str | None = None,
+    stage_input_obligation: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any], list[str], int, str | None]:
     """
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
+    obligation = stage_input_obligation or stage_input.get("classification_obligation")
     record_primary_attempt(ctx, stage_key)
     with logged_step(f"{stage_key}/preflight", ctx=ctx, stage=stage_key):
         arb_budget_msg = check_arbiter_budget(ctx, stage_key)
         if arb_budget_msg:
-            ctx.log(arb_budget_msg, level="action", stage=stage_key)
+            log_operator_halt(
+                ctx,
+                stage_key=stage_key,
+                halt_kind="arbiter_budget_exhausted",
+                message=arb_budget_msg,
+                recovery_from_stage=stage_key,
+                action_id="llm.budget.arbiter_exhausted",
+                cap_name="max_arbiter_rejects_per_stage",
+            )
             env, volley, arb, errs = _preflight_blocked_envelope(stage_key, [arb_budget_msg])
             return env, volley, arb, errs, 0, None
 
@@ -588,6 +615,67 @@ def run_llm_stage_with_routing(
                     volley=volley,
                     truncation_flags=truncation_flags_for_volley(volley),
                     routed_via_collate=True,
+                    stage_input_obligation=obligation,
+                )
+                envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
+            return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
+
+    if (
+        stage_key == "segment_classification"
+        and should_proactive_decompose_segment_classification(stage_input)
+        and not force_decompose
+    ):
+        shard_plan, shard_plan_source = build_deterministic_shard_plan(
+            stage_key,
+            stage_input,
+            truncation_flags=["proactive_per_segment"],
+        )
+        if shard_plan:
+            log_adaptation_step(
+                ctx,
+                stage_key=stage_key,
+                message=f"Proactive per-segment decompose ({len(shard_plan)} shards)",
+                action_id="llm.adaptation.decompose_start",
+                extra_detail={"shard_count": len(shard_plan), "trigger": "proactive_per_segment"},
+            )
+            with logged_step(f"{stage_key}/proactive_decompose", ctx=ctx, stage=stage_key):
+                volley, _local = prepare_volley_for_llm(
+                    ctx, stage_key, stage_input, profile="full", task_kind="primary"
+                )
+                envelope, shard_count = run_shards_then_collate(
+                    ctx,
+                    stage_key=stage_key,
+                    prompt_rel=prompt_rel,
+                    stage_input=stage_input,
+                    shard_plan=shard_plan,
+                    parent_attempt=attempt,
+                )
+                schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
+                arbiter_result = run_llm_arbiter(
+                    ctx=ctx,
+                    stage_key=stage_key,
+                    attempt_number=attempt,
+                    envelope=envelope,
+                    schema_errors=schema_errors,
+                    context_chars=sum(len(m.get("content", "")) for m in volley),
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=bump_tier),
+                )
+                envelope["_routing_meta"] = {
+                    "routed_via_collate": True,
+                    "shard_plan_source": shard_plan_source,
+                    "proactive_decompose": True,
+                }
+                lint_errors = _post_arbiter_hardening(
+                    ctx,
+                    stage_key,
+                    envelope,
+                    arbiter_result,
+                    schema_errors,
+                    volley=volley,
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    routed_via_collate=True,
+                    stage_input_obligation=obligation,
                 )
                 envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
             return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
@@ -636,6 +724,7 @@ def run_llm_stage_with_routing(
                     volley=volley,
                     truncation_flags=truncation_flags_for_volley(volley),
                     routed_via_collate=True,
+                    stage_input_obligation=obligation,
                 )
                 envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
             return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
@@ -834,6 +923,7 @@ def run_llm_stage_with_routing(
             volley=volley,
             truncation_flags=truncation_flags,
             routed_via_collate=routed_via_collate,
+            stage_input_obligation=obligation,
         )
 
         envelope["_routing_meta"] = {

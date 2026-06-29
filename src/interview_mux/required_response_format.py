@@ -75,7 +75,9 @@ STAGE_LINT_HINTS: dict[str, str] = {
     "content_brief_reanchor": "Every topic needs segment_ids (critical).",
     "speaker_roles": "Every speaker needs role interviewer|interviewee|unknown (critical).",
     "boundary_detection": "Every boundary needs start_ms/end_ms tied to transcript.",
-    "segment_classification": "Every segment needs segment_id and type.",
+    "segment_classification": (
+        "Return one row per required_segment_id in classification_obligation; vary types beyond interviewee_answer."
+    ),
 }
 
 PROFILE_NOTES: dict[str, str] = {
