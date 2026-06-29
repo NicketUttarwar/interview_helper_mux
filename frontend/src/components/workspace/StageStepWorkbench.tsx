@@ -103,7 +103,10 @@ export function StageStepWorkbench() {
     steps.every((s) => s.status === "done");
 
   useEffect(() => {
-    if (!stageReadyToAdvance || !run || !selectedStageId) return;
+    if (!stageReadyToAdvance || !run || !selectedStageId || jobRunning) return;
+    // Execute completion is chained from job poll; avoid a second auto-continue burst.
+    const jobStatus = run.job?.status;
+    if (jobStatus === "complete" || jobStatus === "error") return;
     void (async () => {
       await syncPipelineStageFocus();
       await autoContinuePipeline(selectedStageId);

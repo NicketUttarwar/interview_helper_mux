@@ -3,6 +3,11 @@ import { api } from "../api/client";
 import { useApp } from "../context/AppContext";
 import { formatApiError } from "../utils/safeApi";
 
+function isExpectedDisfluencyGateError(reason: unknown): boolean {
+  const msg = formatApiError(reason).toLowerCase();
+  return msg.includes("catalog not ready") || msg.includes("not built");
+}
+
 interface DisfluencyReviewState {
   ready?: boolean;
   pending_count?: number;
@@ -62,8 +67,10 @@ export function useDisfluencyReviewGate(enabled: boolean) {
         } catch (reason) {
           const msg = formatApiError(reason, "Complete disfluency review");
           setError(msg);
-          showToast(msg, "error");
-          appendClientLog(msg, "error", "disfluency_review");
+          if (!isExpectedDisfluencyGateError(reason)) {
+            showToast(msg, "error");
+            appendClientLog(msg, "error", "disfluency_review");
+          }
         } finally {
           setCompleting(false);
         }
@@ -92,8 +99,10 @@ export function useDisfluencyReviewGate(enabled: boolean) {
     } catch (reason) {
       const msg = formatApiError(reason, "Complete disfluency review");
       setError(msg);
-      showToast(msg, "error");
-      appendClientLog(msg, "error", "disfluency_review");
+      if (!isExpectedDisfluencyGateError(reason)) {
+        showToast(msg, "error");
+        appendClientLog(msg, "error", "disfluency_review");
+      }
     } finally {
       setCompleting(false);
     }
@@ -108,8 +117,10 @@ export function useDisfluencyReviewGate(enabled: boolean) {
     } catch (reason) {
       const msg = formatApiError(reason, "Complete disfluency review");
       setError(msg);
-      showToast(msg, "error");
-      appendClientLog(msg, "error", "disfluency_review");
+      if (!isExpectedDisfluencyGateError(reason)) {
+        showToast(msg, "error");
+        appendClientLog(msg, "error", "disfluency_review");
+      }
     } finally {
       setCompleting(false);
     }

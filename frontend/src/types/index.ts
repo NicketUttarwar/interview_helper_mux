@@ -320,6 +320,7 @@ export interface JobState {
   awaiting_write_approval?: boolean;
   pending_write_stage?: string;
   pending_write_paths?: string[];
+  itr_blocking_count?: number;
 }
 
 export interface RunData {

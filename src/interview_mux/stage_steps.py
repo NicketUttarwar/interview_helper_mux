@@ -775,6 +775,31 @@ def _automated_steps(
             )
         )
         num += 1
+    from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+
+    itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
+    if itr_open > 0 and not gate_blocked:
+        steps.append(
+            _step(
+                "artifact_clarification",
+                num,
+                f"Resolve {itr_open} artifact issue(s)",
+                instruction=(
+                    "Minor issues were auto-fixed where possible. "
+                    "Choose options for remaining issues, then re-check before saving."
+                ),
+                review=[
+                    f"{itr_open} blocking clarification(s) open",
+                    "Use dropdowns for segment type, overlap, or coverage fixes",
+                    "Re-check validation after applying choices",
+                ],
+                primary_button="Apply fixes & re-check",
+                secondary_button="Open write approval",
+                kind="artifact_clarification",
+                status="todo",
+            )
+        )
+        num += 1
     elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
         steps.append(
             _step(

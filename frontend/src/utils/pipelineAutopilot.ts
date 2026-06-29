@@ -16,6 +16,8 @@ export const MANUAL_CHECKPOINT_STAGES = new Set([
 const MANUAL_BLOCKING_REASONS = new Set([
   "stage_reuse",
   "write_approval",
+  "artifact_clarification",
+  "downstream_propagation",
   "llm_gate",
   "transcript_review",
   "disfluency_review",

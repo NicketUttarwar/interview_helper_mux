@@ -1371,6 +1371,33 @@ def create_app() -> FastAPI:
         """Approve staged writes and release the run lock without auto-starting the next stage."""
         kind = str(body.get("kind") or "write_approval")
         stage_id = str(body.get("stage_id") or "")
+        if kind == "artifact_clarification":
+            if not stage_id:
+                raise HTTPException(400, "stage_id required")
+            ctx = _ctx(run_id)
+
+            def _itr_continue() -> dict[str, Any]:
+                from interview_mux.artifact_issue_triage import (
+                    blocking_issues_remaining,
+                    clear_clarification_gate,
+                    revalidate_after_repair,
+                    run_triage_pipeline,
+                )
+
+                run_triage_pipeline(ctx, stage_id, staged=True)
+                ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
+                open_blocking = blocking_issues_remaining(ctx, stage_id)
+                if ok and open_blocking == 0:
+                    clear_clarification_gate(ctx, stage_id)
+                refresh_journey_meta(ctx)
+                return {"ok": ok, "errors": errors, "open_blocking": open_blocking}
+
+            try:
+                with runner.operator_guard(run_id):
+                    return _itr_continue()
+            except RunBusyError as exc:
+                raise HTTPException(409, str(exc)) from exc
+
         if kind != "write_approval" or not stage_id:
             raise HTTPException(400, "kind=write_approval and stage_id required")
 
@@ -1411,6 +1438,198 @@ def create_app() -> FastAPI:
         )
         refresh_journey_meta(ctx)
         return {"ok": True, "stage_id": stage_id}
+
+    @app.get("/api/runs/{run_id}/stages/{stage_id}/issues")
+    def get_stage_issues(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_issue_triage import (
+            blocking_issues_remaining,
+            list_stage_issues,
+            triage_enabled,
+        )
+
+        items = list_stage_issues(ctx, stage_id) if triage_enabled() else []
+        return {
+            "stage_id": stage_id,
+            "items": items,
+            "open_blocking": blocking_issues_remaining(ctx, stage_id),
+        }
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-repair")
+    def post_stage_issues_auto_repair(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_issue_triage import run_triage_pipeline, triage_enabled
+
+        if not triage_enabled():
+            return {"ok": True, "summary": {}, "open_blocking": 0}
+        try:
+            with runner.operator_guard(run_id):
+                result = run_triage_pipeline(ctx, stage_id, staged=True)
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return {"ok": True, "summary": result.summary(), "open_blocking": result.open_blocking}
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/{issue_id}/resolve")
+    async def post_stage_issue_resolve(
+        run_id: str,
+        stage_id: str,
+        issue_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_issue_triage import blocking_issues_remaining, resolve_issue
+
+        choice = body.get("choice")
+        if choice is None:
+            raise HTTPException(400, "choice required")
+
+        def _resolve() -> dict[str, Any]:
+            ok, errors = resolve_issue(ctx, stage_id, issue_id, choice)
+            return {
+                "ok": ok,
+                "errors": errors,
+                "open_blocking": blocking_issues_remaining(ctx, stage_id),
+            }
+
+        try:
+            with runner.operator_guard(run_id):
+                out = _resolve()
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return out
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/revalidate")
+    def post_stage_issues_revalidate(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_issue_triage import (
+            blocking_issues_remaining,
+            clear_clarification_gate,
+            get_propagation_plan,
+            revalidate_after_repair,
+            revalidate_downstream_on_segment_fix,
+            triage_enabled,
+        )
+
+        if not triage_enabled():
+            return {"ok": True, "errors": [], "open_blocking": 0}
+        ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
+        downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_id)
+        propagation_plan = get_propagation_plan(ctx, stage_id)
+        open_blocking = blocking_issues_remaining(ctx, stage_id)
+        all_ok = ok and not downstream_errors and not propagation_plan.get("has_blocking")
+        if all_ok and open_blocking == 0:
+            clear_clarification_gate(ctx, stage_id)
+        refresh_journey_meta(ctx)
+        return {
+            "ok": all_ok,
+            "errors": errors,
+            "downstream_errors": downstream_errors,
+            "propagation_plan": propagation_plan,
+            "open_blocking": open_blocking,
+        }
+
+    @app.get("/api/runs/{run_id}/stages/{stage_id}/propagation-plan")
+    def get_stage_propagation_plan(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_issue_triage import get_propagation_plan, triage_enabled
+
+        if not triage_enabled():
+            return {"stage_id": stage_id, "propagation_plan": {}}
+        return {"stage_id": stage_id, "propagation_plan": get_propagation_plan(ctx, stage_id)}
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/propagation/execute")
+    async def post_stage_propagation_execute(
+        run_id: str,
+        stage_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        invalidate_from = str(body.get("invalidate_from") or "")
+        if not invalidate_from:
+            raise HTTPException(400, "invalidate_from required")
+        rerun_stages = body.get("rerun_stages")
+        from interview_mux.artifact_issue_triage import execute_propagation
+
+        def _run() -> dict[str, Any]:
+            result = execute_propagation(
+                ctx,
+                stage_id,
+                invalidate_from=invalidate_from,
+                rerun_stages=rerun_stages if isinstance(rerun_stages, list) else None,
+                runner=runner,
+                run_id=run_id,
+            )
+            return {
+                "ok": result.ok,
+                "errors": result.errors,
+                "job": result.job,
+                "invalidated_from": result.invalidated_from,
+                "upstream_stage": result.upstream_stage,
+            }
+
+        try:
+            with runner.operator_guard(run_id):
+                out = _run()
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return out
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/{issue_id}/execute-action")
+    async def post_stage_issue_execute_action(
+        run_id: str,
+        stage_id: str,
+        issue_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        action = str(body.get("action") or "")
+        if not action:
+            raise HTTPException(400, "action required")
+        from interview_mux.artifact_issue_triage import blocking_issues_remaining, execute_recovery_action
+
+        def _run() -> dict[str, Any]:
+            result = execute_recovery_action(
+                ctx,
+                stage_id,
+                issue_id,
+                action,
+                upstream_stage=body.get("upstream_stage"),
+                runner=runner,
+                run_id=run_id,
+            )
+            return {
+                "ok": result.ok,
+                "errors": result.errors,
+                "job": result.job,
+                "upstream_stage": result.upstream_stage,
+                "invalidated_from": result.invalidated_from,
+                "open_blocking": blocking_issues_remaining(ctx, stage_id),
+            }
+
+        try:
+            with runner.operator_guard(run_id):
+                out = _run()
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return out
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:

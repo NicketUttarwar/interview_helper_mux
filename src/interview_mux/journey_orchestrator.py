@@ -98,6 +98,23 @@ def _review_queue_low_confidence_count(ctx: RunContext) -> int:
     return sum(1 for c in chunks if isinstance(c, dict) and (c.get("confidence") or 1) < 0.85)
 
 
+def _blocking_manifest_propagation_count(ctx: RunContext) -> int:
+    if not ctx.artifact_exists("understanding/investigation_queue.json"):
+        return 0
+    queue = ctx.read_json("understanding/investigation_queue.json")
+    items = queue.get("items") or queue.get("investigations") or []
+    if not isinstance(items, list):
+        return 0
+    return sum(
+        1
+        for it in items
+        if isinstance(it, dict)
+        and it.get("blocking")
+        and str(it.get("kind") or "") == "manifest_propagation"
+        and (it.get("status") or "open") in ("open", "pending", "needs")
+    )
+
+
 def _open_investigation_count(ctx: RunContext) -> int:
     if not ctx.artifact_exists("understanding/investigation_queue.json"):
         return 0
@@ -185,12 +202,20 @@ def _blocking(
     stage_id: str | None = None
     reuse_candidates_payload: list[dict[str, Any]] | None = None
 
-    if job and job.get("status") in ("gate", "needs_operator", "awaiting_write_approval"):
+    if job and job.get("status") in (
+        "gate",
+        "needs_operator",
+        "awaiting_write_approval",
+        "needs_clarification",
+    ):
         blocked = True
         stage_id = job.get("pending_write_stage") or job.get("stage")
         if job.get("status") == "awaiting_write_approval":
             reason = "write_approval"
             message = "Awaiting your review"
+        elif job.get("status") == "needs_clarification":
+            reason = "artifact_clarification"
+            message = str(job.get("message") or "Resolve artifact issues before saving")
         elif job.get("needs_stage_reuse"):
             reason = "stage_reuse"
             message = "Choose reuse or run fresh"
@@ -235,6 +260,12 @@ def _blocking(
         reason = "analysis_profile"
         stage_id = "analysis_profile"
         message = NEXT_ACTION_UNDERSTAND_PROFILE
+
+    if not blocked and _blocking_manifest_propagation_count(ctx) > 0:
+        blocked = True
+        reason = "downstream_propagation"
+        stage_id = stage_id or "segment_classification"
+        message = "Downstream stages stale after artifact fix — open propagation wizard"
 
     if not blocked:
         from interview_mux.stage_execution_reuse import (
@@ -317,6 +348,8 @@ def _gate_headline(stage_id: str, reason: str | None) -> str:
 def _gate_primary_label(stage_id: str, reason: str | None) -> str:
     if reason == "write_approval":
         return "Save all files & continue"
+    if reason == "artifact_clarification":
+        return "Apply fixes & re-check"
     if reason == "stage_reuse":
         return "Choose reuse or run fresh"
     if reason == "handoff_review":
@@ -807,6 +840,16 @@ def _active_substep(
             return {
                 "active_substep_id": f"write_approval:{sid}" if sid else "write_approval",
                 "active_substep_label": msg or "Save staged outputs",
+            }
+        if reason == "artifact_clarification":
+            return {
+                "active_substep_id": f"artifact_clarification:{sid}" if sid else "artifact_clarification",
+                "active_substep_label": msg or "Resolve artifact issues",
+            }
+        if reason == "downstream_propagation":
+            return {
+                "active_substep_id": f"artifact_clarification:{sid}" if sid else "artifact_clarification",
+                "active_substep_label": msg or "Resolve downstream propagation",
             }
         if reason == "stage_reuse" and sid:
             return {

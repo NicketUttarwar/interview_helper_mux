@@ -328,6 +328,7 @@
       "max_investigation_reruns_per_kind": 2,
       "stuck_signature_threshold": 2,
       "block_partial_segment_classification": true,
+      "clarification_before_halt": true,
       "spend_block_stages": [
         "sfx_prompt_craft",
         "mmaudio_sfx_flow1",
@@ -352,6 +353,25 @@
       "allow_unavailable_reason": true,
       "hard_stop_on_critical_null": true,
       "exclude_from_volleys": true
+    },
+    "artifact_issue_triage": {
+      "enabled": true,
+      "auto_repair_minor": true,
+      "auto_repair_noise": true,
+      "local_llm_for_important": true,
+      "pre_cross_validate_repair": true,
+      "max_resolution_rounds": 3,
+      "max_operator_prompts_per_stage": 8,
+      "allow_promote_with_open_investigations": true,
+      "allow_partial_then_repair": true,
+      "revalidate_downstream_on_segment_fix": true,
+      "segment_overlap_policy": "drop_duplicate_then_llm_pick",
+      "record_repairs_in_artifact_meta": true,
+      "max_upstream_reruns_per_run": 2,
+      "max_downstream_auto_continue": 1,
+      "boundary_merge_threshold_ms": 500,
+      "require_propagation_before_segment_approve": true,
+      "upstream_rerun_invalidate_downstream": true
     }
   }
 }

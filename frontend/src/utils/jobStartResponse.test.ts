@@ -35,6 +35,16 @@ describe("isOperatorGateStartResponse", () => {
     ).toBe(true);
   });
 
+  it("treats generic needs_operator pause as operator gate", () => {
+    expect(
+      isOperatorGateStartResponse({
+        ok: false,
+        error: "Enable OpenAI in API consents before running this stage.",
+        needs_operator: true,
+      }),
+    ).toBe(true);
+  });
+
   it("does not treat real failures as operator gate", () => {
     expect(
       isOperatorGateStartResponse({

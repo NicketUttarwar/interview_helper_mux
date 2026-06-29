@@ -18,6 +18,28 @@ _LINT_CLASSIFICATION_TYPE_APPENDIX = (
 )
 
 
+def itr_repair_hints(
+    schema_errors: list[str] | None,
+    lint_errors: list[str] | None,
+) -> str | None:
+    """Volley retry hints for known ITR auto-repairable patterns."""
+    joined = " ".join((schema_errors or []) + (lint_errors or [])).lower()
+    hints: list[str] = []
+    if "topic_tags" in joined and "null" in joined:
+        hints.append("Use topic_tags: [] instead of null (deterministic repair applies).")
+    if "flags" in joined and "null" in joined:
+        hints.append("Use flags: [] instead of null.")
+    if "warnings" in joined and "null" in joined:
+        hints.append("Use warnings: [] instead of null on boundaries.")
+    if "segment_coverage_ratio" in joined:
+        hints.append("Include every required_segment_id from classification_obligation.")
+    if "all segments typed interviewee_answer" in joined:
+        hints.append("Vary segment types per transcript evidence (question, setup, reaction).")
+    if not hints:
+        return None
+    return "## Auto-repairable issues (ITR)\n\n" + "\n".join(f"- {h}" for h in hints)
+
+
 def lint_retry_strategy(lint_errors: list[str], stage_key: str) -> dict[str, Any]:
     """Map lint failures to retry parameters."""
     strategy: dict[str, Any] = {}

@@ -3,6 +3,7 @@ import { GateActions } from "../gates/GateActions";
 import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
 import { HandoffPanel } from "./HandoffPanel";
 import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
+import { ArtifactClarificationPanel } from "../guidance/ArtifactClarificationPanel";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
 import { StoryBoardPanel } from "./StoryBoardPanel";
 import { NlePanel } from "./NlePanel";
@@ -79,6 +80,10 @@ export function StageStepBody({ step, stage }: Props) {
         </p>
       </div>
     );
+  }
+
+  if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
+    return <ArtifactClarificationPanel stage={stage} />;
   }
 
   if (step.kind === "write_approval") {

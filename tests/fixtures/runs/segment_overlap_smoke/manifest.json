@@ -1,0 +1,24 @@
+{
+  "segments": [
+    {
+      "segment_id": "seg_008",
+      "start_ms": 690000,
+      "end_ms": 810000,
+      "speaker_id": "spk_001",
+      "speaker_role": "interviewee",
+      "type": "interviewee_answer",
+      "text": "So we started the company in 2019 and grew quickly from there.",
+      "topic_tags": ["origin_story"]
+    },
+    {
+      "segment_id": "seg_009",
+      "start_ms": 690000,
+      "end_ms": 810000,
+      "speaker_id": "spk_001",
+      "speaker_role": "interviewee",
+      "type": "interviewee_answer",
+      "text": "So we started the company in 2019 and grew quickly from there.",
+      "topic_tags": ["origin_story"]
+    }
+  ]
+}

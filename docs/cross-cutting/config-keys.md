@@ -286,6 +286,7 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per investigation kind (`attempt_budget.py`) |
 | `spend_block_stages` | see defaults | Stages that require complete upstream SDP/craft before API spend |
 | `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix_flow*` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
+| `clarification_before_halt` | `true` | Run ITR and set `needs_clarification` instead of hard halt when artifacts are repairable |
 
 When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
 
@@ -311,6 +312,32 @@ Partial persist and sanitize when primary output fails lint/schema — `llm_outp
 | `partial_persist_enabled` | `true` | Write sanitized partial artifacts |
 | `record_stripped_fields` | `true` | Write `attempt_NNN_resilience.json` sidecars |
 | `min_artifact_mass` | per-stage | Minimum keys required for partial persist to count as progress |
+
+---
+
+## `analysis.artifact_issue_triage`
+
+Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artifact-issue-triage.md). Implemented in `artifact_issue_triage.py`, `artifact_repairs.py`, `issue_severity_rules.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch for triage pipeline |
+| `auto_repair_minor` | `true` | Deterministic repairs for minor/null issues |
+| `auto_repair_noise` | `true` | Enqueue noise issues as non-blocking investigations |
+| `local_llm_for_important` | `true` | Local MLX option generation for important ambiguities |
+| `pre_cross_validate_repair` | `true` | Triage before cross-artifact gates |
+| `max_resolution_rounds` | `3` | Resolution loop iterations per stage |
+| `max_operator_prompts_per_stage` | `8` | Cap LLM-generated option sets |
+| `allow_promote_with_open_investigations` | `true` | Allow save when only non-blocking investigations remain |
+| `allow_partial_then_repair` | `true` | Allow partial segment persist when post-repair reaches coverage |
+| `revalidate_downstream_on_segment_fix` | `true` | Invalidate downstream summaries after manifest repair |
+| `segment_overlap_policy` | `drop_duplicate_then_llm_pick` | Overlap handling strategy |
+| `record_repairs_in_artifact_meta` | `true` | Append `_meta.repairs[]` audit entries |
+| `max_upstream_reruns_per_run` | `2` | Cap operator-initiated upstream reruns per run |
+| `max_downstream_auto_continue` | `1` | After upstream rerun completes, auto-continue downstream stages (max count) |
+| `boundary_merge_threshold_ms` | `500` | Merge adjacent micro-boundaries below this span in `repair_boundaries` |
+| `require_propagation_before_segment_approve` | `true` | Block write approval when downstream cross-validate fails after segment/boundary fix |
+| `upstream_rerun_invalidate_downstream` | `true` | Invalidate downstream summaries when upstream rerun is executed |
 
 ---
 

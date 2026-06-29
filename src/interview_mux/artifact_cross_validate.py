@@ -178,6 +178,28 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
         if hard:
             from interview_mux.operator_recovery import log_operator_halt
 
+            fh = flow_hardening_cfg()
+            if fh.get("clarification_before_halt", True):
+                from interview_mux.artifact_issue_triage import (
+                    run_triage_pipeline,
+                    triage_enabled,
+                    set_clarification_gate,
+                )
+
+                if triage_enabled():
+                    result = run_triage_pipeline(ctx, stage_key, staged=True)
+                    if result.revalidation_ok and result.open_blocking == 0:
+                        return
+                    set_clarification_gate(
+                        ctx,
+                        stage_key,
+                        message=(
+                            f"Cross-artifact validation failed ({checkpoint}): {summary}. "
+                            "Resolve issues in the clarification panel."
+                        ),
+                    )
+                    return
+
             log_operator_halt(
                 ctx,
                 stage_key=stage_key,

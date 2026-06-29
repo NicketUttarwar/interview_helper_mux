@@ -46,6 +46,7 @@ export function journeySubstepForStage(
 export function substepIdToStepId(substepId: string | null | undefined): string | null {
   if (!substepId) return null;
   if (substepId.startsWith("write_approval")) return "write_approval";
+  if (substepId.startsWith("artifact_clarification")) return "artifact_clarification";
   if (substepId.startsWith("stage_reuse")) return "reuse";
   if (substepId.startsWith("handoff")) return "handoff";
   if (substepId.startsWith("run:")) return "run";
@@ -90,6 +91,14 @@ export function resolveFocusStepId(
     if (write?.paths.length || stage?.status === "awaiting_write_approval") {
       return "write_approval";
     }
+  }
+
+  if (
+    blockingReason === "artifact_clarification" ||
+    (job?.status === "needs_clarification" && job.stage === stageId)
+  ) {
+    if (hasStep(steps, "artifact_clarification")) return "artifact_clarification";
+    return "artifact_clarification";
   }
 
   if (

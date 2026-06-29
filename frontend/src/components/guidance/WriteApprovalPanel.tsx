@@ -40,6 +40,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     showToast,
     appendClientLog,
     actionBusy,
+    activateSubstep,
   } = useApp();
   const [apiPaths, setApiPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -193,6 +194,11 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const stageComplete =
     stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id);
 
+  const itrBlocking = run?.job?.itr_blocking_count ?? 0;
+  const itrGateActive =
+    run?.job?.status === "needs_clarification" &&
+    (run?.job?.stage === stage.id || run?.journey?.blocking?.reason === "artifact_clarification");
+
   const syncEditorToStaging = useCallback(
     async (path: string, value: string, json: boolean) => {
       if (!runId || !path) return;
@@ -326,6 +332,27 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           ) : paths.some((p) => p.endsWith(".wav")) ? (
             <p className="hint sm write-approval-large-wav">
               Large audio files may take a minute to save — the button will show progress when saving starts.
+            </p>
+          ) : null}
+          {(itrBlocking > 0 || itrGateActive) ? (
+            <p className="hint write-approval-itr-banner" role="alert">
+              {itrBlocking || "Open"} artifact issue(s) block saving.{" "}
+              <button
+                type="button"
+                className="btn link sm"
+                onClick={() =>
+                  activateSubstep({
+                    id: `artifact_clarification:${stage.id}`,
+                    stageId: stage.id,
+                    status: "todo",
+                    label: "Resolve artifact issues",
+                    kind: "guidance",
+                    source: "runtime",
+                  })
+                }
+              >
+                Resolve artifact issues
+              </button>
             </p>
           ) : null}
         </div>

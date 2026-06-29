@@ -74,6 +74,8 @@ import {
   handleReuseFromAssetsForStage,
   readyForStageMessage,
 } from "../utils/stageAdvance";
+import { recordAutoContinue, shouldSkipDuplicateAutoContinue } from "../utils/autoContinueDedupe";
+import { shouldSuppressJobPollTerminalToast } from "../utils/jobPollToasts";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
 import {
   clampPipelineSubTab,
@@ -160,6 +162,7 @@ interface AppContextValue {
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  revalidateArtifactIssues: (stageId: string) => Promise<void>;
   discardPendingWrites: (stageId: string) => Promise<void>;
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
   completeDisfluencyReview: (acceptUnreviewed?: boolean) => Promise<void>;
@@ -667,6 +670,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearInterval(jobPollRef.current);
       jobPollRef.current = null;
     }
+    jobPollSawRunningRef.current = false;
     setJobRunning(false);
   }, []);
 
@@ -804,6 +808,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [maybeAutoSelectRunningStage, showToast]);
 
   const jobPollStatusRef = useRef<string | null>(null);
+  const jobPollSawRunningRef = useRef(false);
+  const autoContinueDedupeRef = useRef<{ stageId: string; at: number } | null>(null);
 
   const startJobPoll = useCallback(() => {
     stopJobPoll();
@@ -811,6 +817,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const job = await syncJobRunning(runId);
       if (!isJobActivelyRunning(job)) return;
+      jobPollSawRunningRef.current = true;
       setJobRunning(true);
       runRefreshTickRef.current = 0;
       jobPollRef.current = setInterval(async () => {
@@ -818,10 +825,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const polled = await api<JobState>(`/api/runs/${runId}/job`);
           const prevStatus = jobPollStatusRef.current;
           jobPollStatusRef.current = polled.status ?? null;
+          if (isJobActivelyRunning(polled)) {
+            jobPollSawRunningRef.current = true;
+          }
           setRun((prev) => (prev ? { ...prev, job: polled } : prev));
           maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
             const refreshed = await refreshRun();
+            const suppressTerminalToast = shouldSuppressJobPollTerminalToast(
+              jobPollSawRunningRef.current,
+              polled,
+            );
             stopJobPoll();
             setActionBusy(false);
             actionBusyRef.current = false;
@@ -829,77 +843,83 @@ export function AppProvider({ children }: { children: ReactNode }) {
             void focusPendingStage(refreshed);
             setActivityLogTabState("live");
             activityLogTabRef.current = "live";
-            if (polled.status === "complete") {
-              setJobCompleteAt(Date.now());
-              const next = refreshed?.journey?.next_action;
+            if (!suppressTerminalToast) {
+              if (polled.status === "complete") {
+                setJobCompleteAt(Date.now());
+                const next = refreshed?.journey?.next_action;
+                const completedStage =
+                  polled.current_stage || polled.stage || undefined;
+                const stageHint = jobCompletionHint(completedStage, refreshed);
+                showToast(
+                  stageHint
+                    ? `Step finished — ${stageHint}`
+                    : next
+                      ? `Step finished — ${next}`
+                      : "Step finished.",
+                  "success",
+                );
+                if (next && runId) {
+                  void api(`/api/runs/${runId}/log`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      message: `Step finished — next: ${next}`,
+                      level: "info",
+                    }),
+                  }).then(() => pollLog());
+                }
+                void autoContinuePipelineRef.current(completedStage ?? null);
+              } else if (polled.status === "error") {
+                showToast(
+                  polled.last_error?.message || polled.message || "Step failed",
+                  "error",
+                );
+              } else if (
+                polled.status === "gate" ||
+                polled.status === "needs_operator"
+              ) {
+                showToast(
+                  "Paused for your review — complete the checkpoint to continue.",
+                  "info",
+                );
+                userDismissedActionRef.current = false;
+                lastAutoOpenKeyRef.current = null;
+                if (activeTabRef.current === "pipeline") {
+                  setActionModalOpen(true);
+                }
+              }
+              if (
+                polled.status === "awaiting_write_approval" ||
+                polled.awaiting_write_approval
+              ) {
+                showToast("Review staged outputs before continuing.", "info");
+                const sid = polled.pending_write_stage || polled.stage;
+                if (sid) {
+                  void selectStage(sid);
+                  expandStage(sid);
+                }
+                userDismissedActionRef.current = false;
+                lastAutoOpenKeyRef.current = null;
+                if (activeTabRef.current === "pipeline") {
+                  setActionModalOpen(true);
+                }
+              } else if (
+                polled.status !== "gate" &&
+                polled.status !== "needs_operator"
+              ) {
+                const focusId = refreshed
+                  ? resolveOperatorAction(refreshed, {
+                      selectedStageId: selectedStageIdRef.current,
+                      jobRunning: false,
+                      apiGrants: ALL_API_CONSENTS,
+                    }).stageId
+                  : null;
+                if (focusId) expandStage(focusId);
+              }
+            } else if (polled.status === "complete") {
               const completedStage =
                 polled.current_stage || polled.stage || undefined;
-              const stageHint = jobCompletionHint(completedStage, refreshed);
-              showToast(
-                stageHint
-                  ? `Step finished — ${stageHint}`
-                  : next
-                    ? `Step finished — ${next}`
-                    : "Step finished.",
-                "success",
-              );
-              if (next && runId) {
-                void api(`/api/runs/${runId}/log`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    message: `Step finished — next: ${next}`,
-                    level: "info",
-                  }),
-                }).then(() => pollLog());
-              }
               void autoContinuePipelineRef.current(completedStage ?? null);
-            } else if (polled.status === "error") {
-              showToast(
-                polled.last_error?.message || polled.message || "Step failed",
-                "error",
-              );
-            } else if (
-              polled.status === "gate" ||
-              polled.status === "needs_operator"
-            ) {
-              showToast(
-                "Paused for your review — complete the checkpoint to continue.",
-                "info",
-              );
-              userDismissedActionRef.current = false;
-              lastAutoOpenKeyRef.current = null;
-              if (activeTabRef.current === "pipeline") {
-                setActionModalOpen(true);
-              }
-            }
-            if (
-              polled.status === "awaiting_write_approval" ||
-              polled.awaiting_write_approval
-            ) {
-              showToast("Review staged outputs before continuing.", "info");
-              const sid = polled.pending_write_stage || polled.stage;
-              if (sid) {
-                void selectStage(sid);
-                expandStage(sid);
-              }
-              userDismissedActionRef.current = false;
-              lastAutoOpenKeyRef.current = null;
-              if (activeTabRef.current === "pipeline") {
-                setActionModalOpen(true);
-              }
-            } else if (
-              polled.status !== "gate" &&
-              polled.status !== "needs_operator"
-            ) {
-              const focusId = refreshed
-                ? resolveOperatorAction(refreshed, {
-                    selectedStageId: selectedStageIdRef.current,
-                    jobRunning: false,
-                    apiGrants: ALL_API_CONSENTS,
-                  }).stageId
-                : null;
-              if (focusId) expandStage(focusId);
             }
           } else {
             runRefreshTickRef.current += 1;
@@ -1618,7 +1638,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) {
         return false;
       }
+      if (
+        shouldSkipDuplicateAutoContinue(
+          completedStageId,
+          autoContinueDedupeRef.current,
+        )
+      ) {
+        return false;
+      }
       if (config?.journey_ui?.enabled === false) return false;
+      autoContinueDedupeRef.current = recordAutoContinue(completedStageId);
       autopilotInFlightRef.current = true;
       try {
         const opts: AdvancePipelineOpts = {
@@ -1904,6 +1933,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveSubstepIdState,
       config,
     ],
+  );
+
+  const revalidateArtifactIssues = useCallback(
+    async (stageId: string) => {
+      if (!runId) return;
+      try {
+        await api(`/api/runs/${runId}/continue-after-checkpoint`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "artifact_clarification", stage_id: stageId }),
+        });
+        await refreshRun();
+        showToast("Artifact issues re-checked", "success");
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Re-check failed";
+        showToast(msg, "error");
+      }
+    },
+    [runId, refreshRun, showToast],
   );
 
   const discardPendingWrites = useCallback(
@@ -2388,6 +2436,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startJobPoll,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    revalidateArtifactIssues,
     discardPendingWrites,
     completeTranscriptReview,
     completeDisfluencyReview,

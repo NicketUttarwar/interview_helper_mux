@@ -332,9 +332,18 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         _run_single_stage_impl(ctx, stage)
         if stage in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, llm_stage_runners(ctx))
-            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+            from interview_mux.artifact_issue_triage import (
+                maybe_repair_before_cross_validate,
+                run_triage_pipeline,
+                triage_enabled,
+            )
 
-            maybe_cross_validate_after_stage(ctx, stage)
+            if triage_enabled():
+                run_triage_pipeline(ctx, stage, staged=True)
+            if maybe_repair_before_cross_validate(ctx, stage):
+                from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+
+                maybe_cross_validate_after_stage(ctx, stage)
 
     run_wrapped_stage(ctx, stage, _impl)
 

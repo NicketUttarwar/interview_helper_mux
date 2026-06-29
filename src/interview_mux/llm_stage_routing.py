@@ -1002,6 +1002,18 @@ def finalize_stage_attempt(
             },
         )
         merge_memory = plan.merge_memory if plan.action in ("partial", "full") else True
+        from interview_mux.artifact_issue_triage import run_triage_pipeline, triage_enabled
+
+        if triage_enabled() and plan.action in ("partial", "full"):
+            triage_result = run_triage_pipeline(
+                ctx,
+                stage_key,
+                lint_errors=lint_errors,
+                schema_errors=schema_errors,
+                staged=True,
+            )
+            routing = envelope.setdefault("_routing_meta", {})
+            routing["triage"] = triage_result.summary()
         apply_envelope_to_memory(
             ctx,
             stage_key,

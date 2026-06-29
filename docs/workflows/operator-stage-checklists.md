@@ -89,6 +89,8 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 | Check | Pass | If fail |
 |-------|------|--------|
+| Artifact clarification | No open blocking issues in **Resolve artifact issues** step (`needs_clarification` cleared) | Open clarification panel; pick options or run auto-repair + re-check |
+| Downstream propagation | After segment/boundary fix: propagation wizard clear or upstream rerun complete | Use **Downstream propagation required** panel; **Invalidate & re-run from …** before **Save & continue** |
 | Staging folder | `.pending_writes/<stage_id>/` contains expected outputs after stage run | Stage may have failed before persist; check `gui_log.jsonl` |
 | Preview | JSON/text editable; WAV plays via pending audio URL | Path typo — refresh panel; re-run stage if staging empty |
 | Approve | Files at final artifact paths; `.stage_done/<stage>` written | Approve failed — validation error in toast; fix JSON in staging editor |
@@ -235,6 +237,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Types | Not all `interviewee_answer`; asides / setup exist where audible | Re-classify or hand-edit manifest |
 | Flags | Only known `flags` tokens — [segment-schema.md](../cross-cutting/segment-schema.md) | Fix JSON; invalid flags fail schema validation |
 | `segment_id` alignment | Every manifest `segment_id` exists in `boundaries.json` | Re-run classification or fix merge bug |
+| Downstream propagation | After manifest/boundary edit: revalidate shows no stale stages (`content_brief_reanchor` … `optimal_questions`) | Propagation wizard → invalidate & re-run from earliest stale stage |
 | Empty `boundaries` / one giant segment | Pipeline still “valid” but useless | Re-run boundary_detection with pause ladder hints (400/700/1200 ms); check `pause_ladder_oversplit_risk` in log for fireside |
 | Too many segments / fireside over-split | `pause_ladder_oversplit_risk` warning; hundreds of boundaries | Prefer 700/1200 ms tiers; SAP `pace_class: calm`; `--from-stage boundary_detection` |
 | Crosstalk flagged | `heavy_crosstalk` segments correlated with STT garbage | Fix G0 in those ranges first |

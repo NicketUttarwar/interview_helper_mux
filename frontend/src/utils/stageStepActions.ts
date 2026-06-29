@@ -17,6 +17,7 @@ interface StepActionHandlers {
   declineReuseAndRun: (stageId: string) => Promise<void>;
   redoFromStage: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
+  revalidateArtifactIssues?: (stageId: string) => Promise<void>;
   stageAction: OperatorAction | null;
 }
 
@@ -34,6 +35,13 @@ export async function invokeStepFooterAction(
 
   if (step.kind === "locked" && step.blocking_reason) {
     await handlers.selectStage(step.blocking_reason);
+    return;
+  }
+
+  if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
+    if (handlers.revalidateArtifactIssues) {
+      await handlers.revalidateArtifactIssues(stage.id);
+    }
     return;
   }
 

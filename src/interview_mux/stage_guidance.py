@@ -256,6 +256,27 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     "todo",
                 )
             )
+    from interview_mux.artifact_issue_triage import blocking_issues_remaining, list_stage_issues, triage_enabled
+
+    if triage_enabled():
+        open_count = blocking_issues_remaining(ctx, stage_id)
+        if open_count:
+            items.append(
+                _guidance_item(
+                    "artifact_clarification",
+                    f"{open_count} artifact issue(s) need clarification before save",
+                    "todo",
+                )
+            )
+        for it in list_stage_issues(ctx, stage_id):
+            if it.get("status") == "auto_fixed":
+                items.append(
+                    _guidance_item(
+                        "itr_auto_fixed",
+                        f"Auto-fixed: {str(it.get('message', ''))[:100]}",
+                        "done",
+                    )
+                )
     if stage_id == "content_context":
         pf_errors = run_preflight("content_context", ctx)
         if any(

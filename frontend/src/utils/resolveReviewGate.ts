@@ -8,6 +8,7 @@ export type ReviewGateKind =
   | "disfluency_review"
   | "analysis_profile"
   | "write_approval"
+  | "artifact_clarification"
   | "handoff"
   | "sfx_prompt"
   | "flow_select"
@@ -48,6 +49,21 @@ export function resolveReviewGateSpec(
   if (stageAwaitingWriteApproval(run, stage.id)) {
     const paths = resolvePendingWritePaths(run, stage.id);
     return { kind: "write_approval", pathCount: paths.length };
+  }
+
+  if (
+    run.journey?.blocking?.reason === "artifact_clarification" &&
+    run.journey?.blocking?.stage_id === stage.id
+  ) {
+    const open = run.job?.itr_blocking_count ?? 0;
+    return { kind: "artifact_clarification", pathCount: open };
+  }
+
+  if (run.job?.status === "needs_clarification" && run.job?.stage === stage.id) {
+    return {
+      kind: "artifact_clarification",
+      pathCount: Number(run.job?.itr_blocking_count ?? 0),
+    };
   }
 
   if (handoffPending(run, stage)) {

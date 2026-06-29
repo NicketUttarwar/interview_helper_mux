@@ -22,7 +22,7 @@ from interview_mux.llm_stage_routing import (
     finalize_stage_attempt,
     run_llm_stage_with_routing,
 )
-from interview_mux.lint_adaptation import format_lint_feedback, lint_retry_strategy
+from interview_mux.lint_adaptation import format_lint_feedback, itr_repair_hints, lint_retry_strategy
 from interview_mux.adaptation_loop_guard import AdaptationLoopGuard
 from interview_mux.adaptive_context import plan_context
 from interview_mux.operator_recovery import log_adaptation_step, log_operator_halt
@@ -104,6 +104,8 @@ def _run_llm_stage_loop(
                 ctx.log(budget_msg, level="action", stage=stage_key)
                 raise SystemExit(budget_msg)
             stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
+            if pending_retry.get("itr_repair_hint"):
+                stage_input["itr_repair_hint"] = pending_retry["itr_repair_hint"]
             if pending_retry.get("enrich_input"):
                 stage_input = dict(stage_input)
                 stage_input["lint_retry_hint"] = (
@@ -137,6 +139,37 @@ def _run_llm_stage_loop(
             )
             if context_plan.exhausted:
                 recovery_stage = context_plan.upstream_rerun or stage_key
+                from interview_mux.artifact_issue_triage import (
+                    run_triage_pipeline,
+                    set_clarification_gate,
+                    triage_enabled,
+                )
+                from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+                if (
+                    triage_enabled()
+                    and rel
+                    and ctx.artifact_exists(rel)
+                    and context_plan.upstream_rerun
+                ):
+                    result = run_triage_pipeline(ctx, stage_key, staged=False)
+                    if result.open_blocking > 0 or not result.revalidation_ok:
+                        set_clarification_gate(
+                            ctx,
+                            stage_key,
+                            message=(
+                                f"{stage_key}: adaptation exhausted — "
+                                f"re-run {recovery_stage} or resolve in clarification panel."
+                            ),
+                        )
+                        ctx.log(
+                            f"Stage {stage_key}: adaptation exhausted — ITR clarification gate set "
+                            f"(upstream={recovery_stage}).",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                        break
                 log_operator_halt(
                     ctx,
                     stage_key=stage_key,
@@ -208,8 +241,12 @@ def _run_llm_stage_loop(
         lint_errors = routing.get("deterministic_lint_errors") or []
         lint_history.extend(lint_errors)
         pending_retry = {}
+        itr_hint = itr_repair_hints(schema_errors, lint_errors)
         if lint_errors:
             strategy = lint_retry_strategy(lint_errors, stage_key)
+            if itr_hint:
+                strategy = dict(strategy)
+                strategy["itr_repair_hint"] = itr_hint
             strategy_key = str(strategy.get("strategy_key") or "lint_retry")
             if not guard.record_strategy(
                 strategy_key,
@@ -249,6 +286,8 @@ def _run_llm_stage_loop(
                     obligation=stage_input.get("classification_obligation"),
                 )
             pending_retry = strategy
+        elif itr_hint:
+            pending_retry = {"itr_repair_hint": itr_hint, "strategy_key": "itr_schema_hint"}
 
         if flow_hardening_enabled() and flow_hardening_cfg().get("inner_retry_require_delta", True):
             sig = _attempt_signature(envelope, volley, schema_errors, lint_errors)

@@ -445,6 +445,41 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
   );
 }
 
+function ArtifactClarificationGateContent({
+  stage,
+  pathCount,
+}: {
+  stage: StageInfo;
+  pathCount: number;
+}) {
+  const { revalidateArtifactIssues } = useApp();
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <ReviewGateBannerShell
+      title="Resolve artifact issues"
+      lead={
+        pathCount
+          ? `${pathCount} issue(s) need clarification before you can save staged files.`
+          : "Review auto-fixes and re-check validation."
+      }
+      ariaLabel="Artifact clarification"
+      testId="artifact-clarification-gate-banner"
+      actions={
+        <BusyButton
+          busy={busy}
+          label="Apply fixes & re-check"
+          testId="artifact-clarification-revalidate-banner"
+          onClick={() => {
+            setBusy(true);
+            void revalidateArtifactIssues(stage.id).finally(() => setBusy(false));
+          }}
+        />
+      }
+    />
+  );
+}
+
 export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
   switch (spec.kind) {
     case "transcript_review":
@@ -455,6 +490,10 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
       return <AnalysisProfileGateContent />;
     case "write_approval":
       return <WriteApprovalGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
+    case "artifact_clarification":
+      return (
+        <ArtifactClarificationGateContent stage={stage} pathCount={spec.pathCount ?? 0} />
+      );
     case "handoff":
       return <HandoffGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
     case "sfx_prompt":

@@ -186,33 +186,12 @@ def sanitize_artifacts(
     )
 
     if stage_key == "content_context":
-        claims = out.get("key_claims")
-        if isinstance(claims, list) and any("key_claim" in e for e in lint_errors):
-            kept: list[Any] = []
-            for i, claim in enumerate(claims):
-                if not isinstance(claim, dict):
-                    report.stripped.append(
-                        {"path": f"key_claims[{i}]", "reason": "invalid claim row", "removed_value": claim}
-                    )
-                    continue
-                if _claim_body(claim) and not _claim_has_evidence(claim):
-                    report.stripped.append(
-                        {
-                            "path": f"key_claims[{i}]",
-                            "reason": "key_claim without evidence anchor",
-                            "removed_value": copy.deepcopy(claim),
-                        }
-                    )
-                    continue
-                kept.append(claim)
-            out["key_claims"] = kept
+        from interview_mux.artifact_repairs import apply_repairs_for_stage
 
-        if any("thesis empty" in e.lower() for e in lint_errors):
-            if not str(out.get("thesis", "")).strip():
-                report.stripped.append(
-                    {"path": "thesis", "reason": "thesis empty", "removed_value": out.get("thesis")}
-                )
-                out.pop("thesis", None)
+        repaired, applied = apply_repairs_for_stage(ctx, stage_key, out)
+        for entry in applied:
+            report.stripped.append(entry)
+        out = repaired
 
     report.sanitized_artifacts = out
     report.kept_paths = sorted(k for k in out if not k.startswith("_"))
@@ -262,6 +241,11 @@ def extract_schema_valid_artifact(
 
 
 def _block_partial_segment_classification(lint_errors: list[str], cfg: dict[str, Any] | None = None) -> bool:
+    cfg = cfg or merged_config()
+    from interview_mux.artifact_issue_triage import triage_cfg
+
+    if triage_cfg(cfg).get("allow_partial_then_repair", True):
+        return False
     fh = flow_hardening_cfg(cfg)
     if not fh.get("block_partial_segment_classification", True):
         return False

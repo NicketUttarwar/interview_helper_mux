@@ -16,6 +16,7 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | **Preflight** | `shipped` \| `partial` \| `missing` \| `shipped (G0 gate)` \| `—` |
 | **Examples** | `full` \| `compact` \| `doc_only` \| `missing` |
 | **Loop budget** | `shipped` \| `partial` \| `—` (via `attempt_budget.py`; LLM stages only) |
+| **ITR** | `shipped` \| `partial` \| `—` (artifact issue triage auto-repair + clarification; [artifact-issue-triage.md](./artifact-issue-triage.md)) |
 | **Status** | `shipped` (target) \| `in_progress` \| `blocked` |
 
 **Lint column note:** `placement_apply` marks non-LLM mix stages where `apply_placement_adjustments` in `placement_qa.py` applies post-SFX hints — not arbiter lint.
@@ -26,13 +27,13 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 
 ## P0 — Foundation (errors poison downstream)
 
-| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
-|-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
-| `speaker_roles` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
-| `content_context` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
-| `boundary_detection` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
-| `segment_classification` | P0 | shipped | shipped | shipped | `post_segmentation` | shipped | full | shipped | shipped |
-| `content_brief_reanchor` | P0 | shipped | shipped | shipped | `post_reanchor` | shipped | full | shipped | shipped |
+| Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | ITR | Status |
+|-------|------|--------|---------|------|----------|-----------|----------|-------------|-----|--------|
+| `speaker_roles` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped | shipped |
+| `content_context` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped | shipped |
+| `boundary_detection` | P0 | shipped | shipped | shipped | — | shipped | full | shipped | shipped | shipped |
+| `segment_classification` | P0 | shipped | shipped | shipped | `post_segmentation` | shipped | full | shipped | shipped | shipped |
+| `content_brief_reanchor` | P0 | shipped | shipped | shipped | `post_reanchor` | shipped | full | shipped | shipped | shipped |
 
 ---
 

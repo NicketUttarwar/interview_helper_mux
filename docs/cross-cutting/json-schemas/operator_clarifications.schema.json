@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OperatorClarifications",
+  "type": "object",
+  "required": ["items"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "stage_key", "kind", "severity", "message", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "stage_key": { "type": "string" },
+          "artifact_path": { "type": "string" },
+          "json_path": { "type": "string" },
+          "segment_id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "overlap",
+              "schema",
+              "lint",
+              "cross_validate",
+              "null",
+              "enum",
+              "coverage",
+              "other"
+            ]
+          },
+          "severity": {
+            "enum": ["critical", "important", "minor", "noise"]
+          },
+          "blocking": { "type": "boolean" },
+          "message": { "type": "string" },
+          "status": {
+            "enum": ["open", "auto_fixed", "resolved", "dismissed"]
+          },
+          "repair_strategy": { "type": "string" },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["value", "label"],
+              "properties": {
+                "value": {},
+                "label": { "type": "string" },
+                "confidence": { "type": "number" },
+                "reason": { "type": "string" }
+              }
+            }
+          },
+          "chosen": {},
+          "auto_applied": {},
+          "created_at": { "type": "string" },
+          "resolved_at": { "type": "string" }
+        }
+      }
+    }
+  }
+}

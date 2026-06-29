@@ -201,6 +201,18 @@ def llm_stage_progress_ok(
     persist_action = routing.get("persist_action")
     degraded = is_degraded_continue(cfg) and not is_spend_stage_strict(stage_key, cfg)
 
+    fh = flow_hardening_cfg(cfg)
+    if (
+        flow_hardening_enabled(cfg)
+        and fh.get("clarification_before_halt", True)
+        and persist_action in ("partial", "full")
+    ):
+        from interview_mux.artifact_issue_triage import triage_enabled
+
+        rel_early = producer_artifact_path(stage_key)
+        if triage_enabled(cfg) and rel_early and ctx.artifact_exists(rel_early):
+            return True
+
     if degraded and persist_action in ("partial", "full"):
         rel = producer_artifact_path(stage_key)
         if rel and ctx.artifact_exists(rel):
@@ -327,6 +339,24 @@ def complete_llm_stage_or_halt(
     critical = stage_key in ALL_CRITICAL_LLM_STAGES
     if critical and fh.get("strict_critical_stages", True) and not degraded:
         rel = producer_artifact_path(stage_key) or "(no artifact)"
+        if (
+            fh.get("clarification_before_halt", True)
+            and rel != "(no artifact)"
+            and ctx.artifact_exists(rel)
+        ):
+            from interview_mux.artifact_issue_triage import triage_enabled
+
+            if triage_enabled(cfg):
+                triage_meta = routing.get("triage") or {}
+                ctx.log(
+                    f"Stage {stage_key}: deferring hard halt — artifact persisted "
+                    f"(open_blocking={triage_meta.get('open_blocking', '?')}).",
+                    level="warning",
+                    stage=stage_key,
+                    detail={"triage": triage_meta},
+                )
+                ctx.mark_done(stage_key)
+                return True
         status = envelope.get("status", "?")
         needs = envelope.get("needs") or []
         schema_bit = f"; schema_errors={schema_errors[:2]}" if schema_errors else ""

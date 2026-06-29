@@ -33,11 +33,13 @@ export function DisfluencyReviewPanel() {
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
   const [index, setIndex] = useState(0);
 
-  const reportError = (reason: unknown, label: string) => {
+  const reportError = (reason: unknown, label: string, opts?: { toast?: boolean }) => {
     const msg = formatApiError(reason, label);
     setError(msg);
-    showToast(msg, "error");
-    appendClientLog(msg, "error", "disfluency_review");
+    if (opts?.toast !== false) {
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "disfluency_review");
+    }
   };
 
   const load = async () => {
@@ -53,7 +55,7 @@ export function DisfluencyReviewPanel() {
     void load()
       .then(() => setLoading(false))
       .catch((reason) => {
-        reportError(reason, "Disfluency review");
+        reportError(reason, "Disfluency review", { toast: false });
         setLoading(false);
       });
   }, [run?.run_id]);

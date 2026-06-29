@@ -16,5 +16,6 @@ export function isOperatorGateStartResponse(res: JobStartResponse): boolean {
   if (res.needs_stage_reuse && res.stage) return true;
   if (res.awaiting_write_approval && res.pending_write_stage) return true;
   if (res.needs_handoff_review) return true;
+  if (res.needs_operator) return true;
   return false;
 }

@@ -366,7 +366,15 @@ def gate_blocked_stage(ctx: RunContext) -> str | None:
 
 
 def is_stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
-    return gate_blocked_stage(ctx) == stage_id
+    if gate_blocked_stage(ctx) == stage_id:
+        return True
+    job = read_gui_job(ctx) or {}
+    if str(job.get("status")) == "needs_clarification" and str(job.get("stage") or "") == stage_id:
+        from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+
+        if triage_enabled() and blocking_issues_remaining(ctx, stage_id) > 0:
+            return True
+    return False
 
 
 def write_approval_allowed(ctx: RunContext, stage_id: str) -> bool:
@@ -382,6 +390,10 @@ def assert_write_approval_allowed(ctx: RunContext, stage_id: str) -> None:
     """Raise when operator save must not proceed for this stage."""
     if is_stage_gate_blocked(ctx, stage_id):
         job = read_gui_job(ctx) or {}
+        if str(job.get("status")) == "needs_clarification":
+            from interview_mux.artifact_issue_triage import assert_write_approval_itr_ok
+
+            assert_write_approval_itr_ok(ctx, stage_id)
         msg = str(
             job.get("message")
             or (
@@ -390,6 +402,9 @@ def assert_write_approval_allowed(ctx: RunContext, stage_id: str) -> None:
             )
         )
         raise WriteApprovalBlockedError(stage_id, msg)
+    from interview_mux.artifact_issue_triage import assert_write_approval_itr_ok
+
+    assert_write_approval_itr_ok(ctx, stage_id)
     if not has_pending_writes(ctx, stage_id):
         raise FileNotFoundError(f"No pending writes for stage: {stage_id}")
 
