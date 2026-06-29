@@ -99,6 +99,7 @@ def test_disfluency_review_confirm_then_complete(tmp_path: Path, monkeypatch) ->
     )
     assert r.status_code == 200
     assert r.json()["stats"]["confirmed"] == 1
+    assert r.json().get("review_complete") is True
 
     r = client.post(f"/api/runs/{rid}/disfluency-review/complete")
     assert r.status_code == 200

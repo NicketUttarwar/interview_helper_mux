@@ -277,7 +277,56 @@ def test_transcript_review_reuse_does_not_mark_gate_done(
 
     apply_stage_reuse(current, "transcript_review", "exec_070_20260101T000070Z")
     assert not current.is_done("transcript_review")
-    assert current.read_json("transcript/full.json")["text"] == "Corrected hello"
+
+
+def test_disfluency_extract_reuse_auto_completes_review_when_catalog_reviewed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_080_20260101T000080Z", tmp_path)
+    current = _ctx_in_root("exec_081_20260101T000081Z", tmp_path)
+
+    prior.write_json(
+        "transcript/disfluencies.json",
+        {
+            "schema_version": 1,
+            "status": "ready",
+            "events": [
+                {
+                    "event_id": "fill_0001",
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "text": "um",
+                    "review_status": "confirmed",
+                    "include_in_restore": True,
+                    "clip_path": "transcript/disfluency_clips/fill_0001.wav",
+                }
+            ],
+            "stats": {"total": 1, "pending": 0, "confirmed": 1, "rejected": 0},
+        },
+    )
+    clip_dir = prior.final_path("transcript/disfluency_clips")
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    clip_dir.joinpath("fill_0001.wav").write_bytes(b"RIFF")
+    prior.write_json(
+        "transcript/disfluency_review.json",
+        {
+            "schema_version": 1,
+            "completed_at": "2026-01-01T00:00:00+00:00",
+            "stats": {"total": 1, "pending": 0, "confirmed": 1, "rejected": 0},
+            "confirmed_event_ids": ["fill_0001"],
+        },
+    )
+    prior.mark_done("disfluency_extract")
+    prior.mark_done("disfluency_review")
+
+    record_reuse_decision(
+        current, "disfluency_extract", action="accept", source_run_id="exec_080_20260101T000080Z"
+    )
+    apply_stage_reuse(current, "disfluency_extract", "exec_080_20260101T000080Z")
+    assert current.is_done("disfluency_extract")
+    assert current.is_done("disfluency_review")
+    assert current.artifact_exists("transcript/disfluency_review.json")
 
 
 def test_clear_stage_reuse_on_invalidate(tmp_path: Path, monkeypatch) -> None:

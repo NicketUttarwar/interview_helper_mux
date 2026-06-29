@@ -14,6 +14,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly_flow1 import build_flow1_edl
 from interview_mux.stages.disfluency import (
     mark_disfluency_review_complete,
+    maybe_auto_complete_review,
     run_disfluency_extract,
     update_event_review,
 )
@@ -121,10 +122,37 @@ def test_disfluency_review_gate_pending(tmp_path: Path, monkeypatch) -> None:
     )
     ctx.mark_done("disfluency_extract")
     assert check_disfluency_review_pending(ctx) is True
-    update_event_review(ctx, "fill_0001", review_status="confirmed")
-    assert check_disfluency_review_pending(ctx) is True
-    mark_disfluency_review_complete(ctx)
+    result = update_event_review(ctx, "fill_0001", review_status="confirmed")
+    assert result.get("review_complete") is True
     assert check_disfluency_review_pending(ctx) is False
+    assert ctx.is_done("disfluency_review")
+
+
+def test_maybe_auto_complete_review_with_fully_reviewed_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = {"disfluency_extract": {"enabled": True}}
+    patch_merged_config(monkeypatch, cfg)
+    ctx = isolated_run_ctx(tmp_path, "run_df_auto")
+    ctx.write_json(
+        "transcript/disfluencies.json",
+        {
+            "schema_version": 1,
+            "status": "ready",
+            "events": [
+                {
+                    "event_id": "fill_0001",
+                    "start_ms": 1,
+                    "end_ms": 2,
+                    "review_status": "confirmed",
+                }
+            ],
+            "stats": {"total": 1, "pending": 0, "confirmed": 1, "rejected": 0},
+        },
+    )
+    ctx.mark_done("disfluency_extract")
+    assert maybe_auto_complete_review(ctx) is True
+    assert ctx.is_done("disfluency_review")
 
 
 def test_require_disfluency_review_clear_raises(tmp_path: Path, monkeypatch) -> None:

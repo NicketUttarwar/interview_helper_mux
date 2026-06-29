@@ -335,12 +335,12 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
             _step(
                 "complete_g05",
                 3,
-                "Complete disfluency review",
-                instruction="Required before source acoustic profile when disfluency is enabled.",
-                primary_button="Complete review",
+                "Sign-off",
+                instruction="The pipeline continues automatically once every clip is confirmed or rejected.",
                 kind="gate",
                 status="todo" if status == "action_required" else "done",
                 embed="disfluency_review",
+                next_hint="Next: Source acoustic profile",
             ),
         ]
     if stage_id == "analysis_profile":

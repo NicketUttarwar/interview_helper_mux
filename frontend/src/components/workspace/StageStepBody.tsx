@@ -58,8 +58,9 @@ export function StageStepBody({ step, stage }: Props) {
     return (
       <div className="tr-complete-step-body">
         <p className="hint">
-          Use <strong>Accept all &amp; proceed</strong> in the banner above to confirm all filler
-          clips and continue without reviewing each one.
+          Review finishes automatically once every clip is confirmed or rejected. Use{" "}
+          <strong>Confirm all &amp; continue</strong> in the banner above to accept all pending
+          clips at once.
         </p>
       </div>
     );

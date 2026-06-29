@@ -48,6 +48,15 @@ from interview_mux.web.job_progress import clear_job_progress, register_job_prog
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 
+def _invalidate_disfluency_review_gate(ctx: RunContext) -> None:
+    marker = ctx.final_path(".stage_done", "disfluency_review")
+    if marker.is_file():
+        marker.unlink()
+    review_summary = ctx.final_path("transcript", "disfluency_review.json")
+    if review_summary.is_file():
+        review_summary.unlink()
+
+
 class RunBusyError(RuntimeError):
     def __init__(self, run_id: str, *, detail: str | None = None) -> None:
         msg = detail or (
@@ -969,6 +978,11 @@ class JobRunner:
         return {"ok": True, "run_id": run_id, "mode": "stage", "stage": stage_id}
 
     def _next_analysis_stage(self, ctx: RunContext, after_stage_id: str) -> str | None:
+        if after_stage_id == "disfluency_extract":
+            from interview_mux.gates import check_disfluency_review_pending
+
+            if check_disfluency_review_pending(ctx):
+                return "disfluency_review"
         if after_stage_id not in ANALYSIS_ORDER:
             return None
         idx = ANALYSIS_ORDER.index(after_stage_id)
@@ -1293,6 +1307,8 @@ class JobRunner:
         if stage_id in ANALYSIS_ORDER:
             ctx.clear_from(stage_id, ANALYSIS_ORDER)
             orders.append(ANALYSIS_ORDER)
+        if stage_id in {"disfluency_extract", "disfluency_review"}:
+            _invalidate_disfluency_review_gate(ctx)
         flow = get_selected_flow(ctx)
         if flow == "flow1" and stage_id in FLOW1_ORDER:
             ctx.clear_from(stage_id, FLOW1_ORDER)

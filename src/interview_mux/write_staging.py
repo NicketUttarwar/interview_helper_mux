@@ -471,6 +471,10 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             meta["handoff_ack"] = ack
 
         ctx.mutate_run_meta(_ack)
+        if stage_id == "disfluency_extract":
+            from interview_mux.stages.disfluency import maybe_auto_complete_review
+
+            maybe_auto_complete_review(ctx)
         end_action(
             trace_id,
             run_dir=ctx.run_dir,

@@ -5,7 +5,7 @@ import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
   transcript_review: "complete_g0",
-  disfluency_review: "complete_g05",
+  disfluency_review: "review_fillers",
   analysis_profile: "verify_profile",
   g1_vo_pickup: "continue_g2",
   g2_flow_select: "choose_flow",

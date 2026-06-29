@@ -11,7 +11,10 @@ export function jobCompletionHint(
     return "Transcript review needed — correct speech-to-text before continuing.";
   }
   if (completedStageId === "disfluency_extract") {
-    return "Disfluency review needed — confirm or reject filler clips.";
+    const dfPending = refreshed.disfluency_review_pending ?? refreshed.journey?.blocking?.reason === "disfluency_review";
+    return dfPending
+      ? "Filler catalog saved — confirm or reject clips in Disfluency review."
+      : "Filler catalog saved — review already complete.";
   }
   if (completedStageId === "content_context" && refreshed.story_board_ready) {
     return "Story Board unlocked — review themes in the Story tab.";

@@ -23,10 +23,11 @@ interface DisfluencyReviewState {
   events?: DisfluencyEvent[];
   stats?: { total?: number; pending?: number; confirmed?: number; rejected?: number };
   pending_count?: number;
+  review_complete?: boolean;
 }
 
 export function DisfluencyReviewPanel() {
-  const { run, refreshRun, showToast, appendClientLog, config } = useApp();
+  const { run, refreshRun, advanceFromCheckpoint, showToast, appendClientLog, config } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
@@ -100,7 +101,7 @@ export function DisfluencyReviewPanel() {
         <p className="hint">
           {state?.status === "disabled"
             ? "Disfluency extract is disabled for this run."
-            : "No filler clip assets were extracted — nothing to review. Use Complete review at the bottom of this step when ready."}
+            : "No filler clip assets were extracted — the pipeline will continue automatically."}
         </p>
       </div>
     );
@@ -112,10 +113,22 @@ export function DisfluencyReviewPanel() {
     ? `/api/runs/${run!.run_id}/audio?path=${encodeURIComponent(ev.clip_path)}`
     : "";
 
+  async function finishIfReviewComplete(reviewComplete?: boolean) {
+    if (!reviewComplete) {
+      await refreshRun();
+      return;
+    }
+    showToast("Disfluency review complete");
+    await refreshRun();
+    await advanceFromCheckpoint();
+  }
+
   async function saveEvent(reviewStatus: "confirmed" | "rejected") {
     if (!run) return;
     try {
-      await api(`/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`, {
+      const res = await api<{ review_complete?: boolean }>(
+        `/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`,
+        {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -127,7 +140,7 @@ export function DisfluencyReviewPanel() {
       const data = await load();
       const pending = data?.events?.filter((e) => e.review_status === "pending") || [];
       if (pending.length && idx < events.length - 1) setIndex(idx + 1);
-      await refreshRun();
+      await finishIfReviewComplete(res.review_complete);
     } catch (reason) {
       reportError(reason, "Save disfluency event");
     }
@@ -153,8 +166,11 @@ export function DisfluencyReviewPanel() {
     if (!run) return;
     try {
       const pending = events.filter((e) => e.review_status === "pending");
+      let reviewComplete = false;
       for (const event of pending) {
-        await api(`/api/runs/${run.run_id}/disfluency-review/${event.event_id}`, {
+        const res = await api<{ review_complete?: boolean }>(
+          `/api/runs/${run.run_id}/disfluency-review/${event.event_id}`,
+          {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -162,6 +178,7 @@ export function DisfluencyReviewPanel() {
             include_in_restore: true,
           }),
         });
+        reviewComplete = Boolean(res.review_complete);
       }
       showToast(
         pending.length
@@ -169,7 +186,7 @@ export function DisfluencyReviewPanel() {
           : "No pending clips",
       );
       await load();
-      await refreshRun();
+      await finishIfReviewComplete(reviewComplete);
     } catch (reason) {
       reportError(reason, "Confirm all pending");
     }

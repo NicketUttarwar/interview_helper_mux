@@ -6,6 +6,7 @@ import { formatApiError } from "../utils/safeApi";
 interface DisfluencyReviewState {
   ready?: boolean;
   pending_count?: number;
+  review_complete?: boolean;
   stats?: { total?: number; pending?: number; confirmed?: number; rejected?: number };
   events?: { review_status: string }[];
 }
@@ -47,6 +48,40 @@ export function useDisfluencyReviewGate(enabled: boolean) {
   const totalCount = state?.stats?.total ?? state?.events?.length ?? 0;
   const reviewedCount = Math.max(0, totalCount - pendingCount);
   const busy = completing || actionBusy || jobRunning;
+
+  useEffect(() => {
+    if (!enabled || loading || completing || busy || !state?.ready || state.review_complete) {
+      return;
+    }
+    if (totalCount > 0 && pendingCount === 0) {
+      void (async () => {
+        setCompleting(true);
+        setError(null);
+        try {
+          await completeDisfluencyReview(false);
+        } catch (reason) {
+          const msg = formatApiError(reason, "Complete disfluency review");
+          setError(msg);
+          showToast(msg, "error");
+          appendClientLog(msg, "error", "disfluency_review");
+        } finally {
+          setCompleting(false);
+        }
+      })();
+    }
+  }, [
+    enabled,
+    loading,
+    completing,
+    busy,
+    state?.ready,
+    state?.review_complete,
+    totalCount,
+    pendingCount,
+    completeDisfluencyReview,
+    showToast,
+    appendClientLog,
+  ]);
 
   const acceptAllAndProceed = useCallback(async () => {
     if (busy || !run) return;

@@ -84,7 +84,7 @@ describe("resolveFocusStepId", () => {
       ],
     };
     expect(resolveFocusStepId(run, "transcript_review")).toBe("complete_g0");
-    expect(resolveFocusStepId(run, "disfluency_review")).toBe("complete_g05");
+    expect(resolveFocusStepId(run, "disfluency_review")).toBe("review_fillers");
   });
 
   it("does not apply another stage's journey substep when browsing", () => {

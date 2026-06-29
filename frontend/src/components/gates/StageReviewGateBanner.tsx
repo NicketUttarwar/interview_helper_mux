@@ -150,7 +150,7 @@ function DisfluencyReviewGateContent({ onReviewDetail }: { onReviewDetail?: () =
   const gate = useDisfluencyReviewGate(true);
   const pending = gate.pendingCount;
   const primaryLabel =
-    pending > 0 ? "Accept all & proceed" : "Complete disfluency review";
+    pending > 0 ? "Confirm all & continue" : gate.busy ? "Continuing…" : "Continue pipeline";
 
   if (gate.loading && !gate.totalCount && gate.ready) {
     return <ReviewGateBannerShell title="" lead="" ariaLabel="Disfluency review" loading />;
@@ -163,10 +163,12 @@ function DisfluencyReviewGateContent({ onReviewDetail }: { onReviewDetail?: () =
       title="Finish disfluency review (G0.5)"
       lead={
         noEvents
-          ? "No filler clips were extracted — complete review to continue the pipeline."
+          ? "No filler clips were extracted — continuing automatically."
           : pending > 0
-            ? `${pending} of ${gate.totalCount} filler clip${gate.totalCount === 1 ? "" : "s"} not individually reviewed. Accept all as confirmed to continue.`
-            : `All ${gate.totalCount} clip${gate.totalCount === 1 ? "" : "s"} reviewed — complete to unlock later stages.`
+            ? `${pending} of ${gate.totalCount} filler clip${gate.totalCount === 1 ? "" : "s"} still pending. Confirm each below or confirm all to continue.`
+            : gate.busy
+              ? "All clips reviewed — continuing pipeline."
+              : `All ${gate.totalCount} clip${gate.totalCount === 1 ? "" : "s"} reviewed — continuing pipeline.`
       }
       meta={
         gate.totalCount > 0

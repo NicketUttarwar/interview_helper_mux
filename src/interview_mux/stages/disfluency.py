@@ -50,6 +50,34 @@ def get_review_state(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def _pending_event_count(doc: dict[str, Any]) -> int:
+    events = doc.get("events") or []
+    return sum(
+        1
+        for e in events
+        if isinstance(e, dict) and e.get("review_status") == "pending"
+    )
+
+
+def maybe_auto_complete_review(ctx: RunContext) -> bool:
+    """Sign off disfluency review when the catalog has no pending events."""
+    if ctx.is_done("disfluency_review"):
+        return False
+    if not ctx.artifact_exists("transcript/disfluencies.json"):
+        return False
+    doc = load_disfluencies(ctx)
+    if str(doc.get("status")) in {"skipped", "no_assets", "disabled"}:
+        return False
+    events = [e for e in (doc.get("events") or []) if isinstance(e, dict)]
+    if not events:
+        auto_complete_empty_review(ctx)
+        return ctx.is_done("disfluency_review")
+    if _pending_event_count(doc):
+        return False
+    mark_disfluency_review_complete(ctx)
+    return True
+
+
 def update_event_review(
     ctx: RunContext,
     event_id: str,
@@ -76,7 +104,10 @@ def update_event_review(
         raise KeyError(event_id)
     recompute_stats(doc)
     ctx.write_json("transcript/disfluencies.json", doc)
-    return {"ok": True, "stats": doc.get("stats")}
+    result: dict[str, Any] = {"ok": True, "stats": doc.get("stats")}
+    if maybe_auto_complete_review(ctx):
+        result["review_complete"] = True
+    return result
 
 
 def confirm_all_pending(ctx: RunContext) -> None:

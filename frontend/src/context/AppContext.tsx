@@ -1768,7 +1768,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         collapseStage(sid);
         setPipelineSubTabWrapped("stage");
 
-        showToast("Outputs saved.");
+        showToast(
+          sid === "disfluency_extract"
+            ? nextStageId === "disfluency_review"
+              ? "Filler catalog saved — review clips to continue."
+              : "Filler catalog saved — review complete, continuing pipeline."
+            : "Outputs saved.",
+        );
         traceAction(
           "gui.write_approval.saved",
           nextStageId
@@ -1777,9 +1783,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           { level: "success", stage: sid },
         );
         appendClientLog(
-          nextStageId
-            ? `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — ready for ${nextStageId.replace(/_/g, " ")}.`
-            : `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — step complete.`,
+          sid === "disfluency_extract"
+            ? nextStageId === "disfluency_review"
+              ? `Saved ${paths.length} file(s) for disfluency extract — open Disfluency review next.`
+              : `Saved ${paths.length} file(s) for disfluency extract — review already complete.`
+            : nextStageId
+              ? `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — ready for ${nextStageId.replace(/_/g, " ")}.`
+              : `Saved ${paths.length} file(s) for ${sid.replace(/_/g, " ")} — step complete.`,
           "success",
           sid,
           "gui.write_approval.saved",
@@ -1787,7 +1797,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (nextStageId) {
           expandStage(nextStageId);
-          await selectStage(nextStageId, { stepId: "run" });
+          const focusStepId =
+            nextStageId === "disfluency_review" ? "review_fillers" : "run";
+          await selectStage(nextStageId, { stepId: focusStepId });
           setActiveSubstepIdState(`run:${nextStageId}`);
 
           if (res.job?.ok === false) {
