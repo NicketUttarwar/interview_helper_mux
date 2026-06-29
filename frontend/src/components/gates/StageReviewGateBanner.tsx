@@ -59,15 +59,25 @@ function BusyButton({
   );
 }
 
+function transcriptReuseAccepted(
+  stageReuse: Record<string, { action?: string }> | undefined,
+): boolean {
+  if (!stageReuse) return false;
+  return ["transcribe", "transcript_review_build", "transcript_review"].some(
+    (sid) => stageReuse[sid]?.action === "accept",
+  );
+}
+
 function TranscriptReviewGateContent({
   onReviewDetail,
 }: {
   onReviewDetail?: () => void;
 }) {
+  const { run } = useApp();
   const gate = useTranscriptReviewGate(true);
   const pending = gate.pendingCount;
-  const primaryLabel =
-    pending > 0 ? "Accept all & proceed" : "Complete transcript review";
+  const primaryLabel = "Save and complete review";
+  const reused = transcriptReuseAccepted(run?.meta?.stage_reuse);
 
   if (gate.loading && !gate.totalCount) {
     return <ReviewGateBannerShell title="" lead="" ariaLabel="Transcript review" loading />;
@@ -99,9 +109,11 @@ function TranscriptReviewGateContent({
     <ReviewGateBannerShell
       title="Finish transcript review (G0)"
       lead={
-        pending > 0
-          ? `${pending} of ${gate.totalCount} ranked clip${gate.totalCount === 1 ? "" : "s"} not individually reviewed. Accept the current transcript as-is to continue the pipeline.`
-          : `All ${gate.totalCount} clip${gate.totalCount === 1 ? "" : "s"} reviewed — complete to unlock analysis stages.`
+        reused
+          ? "Corrected transcript copied from the previous execution — edit any clips or words below, then save and complete."
+          : pending > 0
+            ? `${pending} of ${gate.totalCount} ranked clip${gate.totalCount === 1 ? "" : "s"} not individually reviewed. Save and complete to commit your transcript and continue the pipeline.`
+            : "Review the transcript below, then save and complete to unlock analysis stages."
       }
       meta={`${gate.reviewedCount}/${gate.totalCount} clips marked reviewed`}
       error={gate.error}

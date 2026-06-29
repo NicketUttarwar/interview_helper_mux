@@ -248,10 +248,15 @@ def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str
 
 
 def _needs_handoff(ctx: RunContext, stage_id: str, status: str) -> bool:
-    if status != "done" or stage_id not in LLM_HANDOFF_STAGES:
+    if status != "done":
         return False
-    from interview_mux.custom_run_handoff import handoff_acknowledged
+    from interview_mux.custom_run_handoff import (
+        STAGES_REQUIRING_HANDOFF_REVIEW,
+        handoff_acknowledged,
+    )
 
+    if stage_id not in STAGES_REQUIRING_HANDOFF_REVIEW:
+        return False
     if handoff_acknowledged(ctx, stage_id):
         return False
     info = STAGE_BY_ID.get(stage_id)

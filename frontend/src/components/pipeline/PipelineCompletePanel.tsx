@@ -2,17 +2,26 @@ import { useApp } from "../../context/AppContext";
 import {
   isPipelineComplete,
   resolveFinalOutputAbsolutePath,
+  resolveFinalOutputRelativePath,
 } from "../../utils/pipelineAutopilot";
 
+function isAudioOutputPath(path: string): boolean {
+  return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(path);
+}
+
 export function PipelineCompletePanel() {
-  const { run, showToast } = useApp();
+  const { run, runId, showToast } = useApp();
 
   if (!run || !isPipelineComplete(run)) {
     return null;
   }
 
+  const relPath = resolveFinalOutputRelativePath(run);
   const outputPath = resolveFinalOutputAbsolutePath(run);
   const workingDir = run.working_dir?.replace(/\/$/, "") || null;
+  const showAudio = Boolean(relPath && isAudioOutputPath(relPath) && runId);
+  const playUrl = (rel: string) =>
+    runId ? `/api/runs/${runId}/audio?path=${encodeURIComponent(rel)}` : "";
 
   const copyPath = async (path: string) => {
     try {
@@ -46,6 +55,17 @@ export function PipelineCompletePanel() {
               Copy path
             </button>
           </div>
+          {showAudio && relPath ? (
+            <div className="pipeline-complete-audio-row">
+              <span className="pipeline-complete-audio-label">Listen</span>
+              <audio
+                controls
+                src={playUrl(relPath)}
+                className="pipeline-complete-audio"
+                data-testid="pipeline-complete-audio"
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
 

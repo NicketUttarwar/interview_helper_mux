@@ -68,6 +68,13 @@ export function findPendingFocusStage(
   ) {
     return run.job.stage;
   }
+
+  const handoff = findHandoffStage(run);
+  if (handoff) return handoff.id;
+
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id) return blocking.stage_id;
+
   const next = findNextRunnableStage(run.stages, run.meta);
   if (
     next &&
@@ -77,10 +84,7 @@ export function findPendingFocusStage(
   ) {
     return next.id;
   }
-  const handoff = findHandoffStage(run);
-  if (handoff) return handoff.id;
-  const blocking = run.journey?.blocking ?? run.blocking;
-  if (blocking?.blocked && blocking.stage_id) return blocking.stage_id;
+
   return null;
 }
 

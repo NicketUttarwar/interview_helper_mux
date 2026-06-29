@@ -171,7 +171,7 @@ def persist_operator_transcript(
     source: str,
     include_corrections: bool = False,
 ) -> None:
-    """Save operator-corrected transcript as independent files in this execution."""
+    """Save operator-corrected transcript after materialize_transcript (merged full.json)."""
     if not ctx.artifact_exists("transcript/full.json"):
         return
     full = ctx.read_json("transcript/full.json")

@@ -3,6 +3,8 @@ import {
   advancePipeline,
   patchRunAfterWriteApproval,
   reconcileBusyRun,
+  syncPipelineStageFocus,
+  tryAutoContinuePipeline,
 } from "./checkpointContinuation";
 import type { RunData } from "../types";
 
@@ -198,6 +200,156 @@ describe("advancePipeline", () => {
     expect(executeJob).toHaveBeenCalled();
     expect(selectStage).toHaveBeenCalledWith("ingest", { stepId: "run" });
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("syncPipelineStageFocus", () => {
+  it("focuses reuse stage when SAP is done and spine has reuse blocking", async () => {
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          status: "done",
+          phase: "understand",
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      handoff_ack: { source_acoustic_profile: "2026-01-01T00:00:00Z" },
+      job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    const navigated = await syncPipelineStageFocus({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "source_acoustic_profile",
+      executeJob: vi.fn(),
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { enabled: true } },
+    });
+    expect(navigated).toBe(true);
+    expect(selectStage).toHaveBeenCalledWith("interview_spine_build", {
+      stepId: "reuse",
+      pinned: false,
+    });
+  });
+});
+
+describe("tryAutoContinuePipeline", () => {
+  it("selects next stage without auto-run when stage_reuse blocks", async () => {
+    const executeJob = vi.fn().mockResolvedValue(undefined);
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          status: "done",
+          phase: "understand",
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    await tryAutoContinuePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "source_acoustic_profile",
+      completedStageId: "source_acoustic_profile",
+      executeJob,
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { auto_advance_pipeline: true } },
+    });
+    expect(selectStage).toHaveBeenCalledWith("interview_spine_build", {
+      stepId: "reuse",
+      pinned: false,
+    });
+    expect(executeJob).not.toHaveBeenCalled();
+  });
+
+  it("auto-acks handoff before navigation guard", async () => {
+    const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
+    const executeJob = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/source_acoustic_profile.json"],
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      job: { status: "complete", stage: "source_acoustic_profile" },
+    });
+    const started = await tryAutoContinuePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "source_acoustic_profile",
+      completedStageId: "source_acoustic_profile",
+      executeJob,
+      selectStage: vi.fn().mockResolvedValue(undefined),
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      acknowledgeHandoff,
+      config: { journey_ui: { auto_advance_pipeline: true } },
+    });
+    expect(started).toBe(true);
+    expect(acknowledgeHandoff).toHaveBeenCalled();
+    expect(executeJob).not.toHaveBeenCalled();
   });
 });
 

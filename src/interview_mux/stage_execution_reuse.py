@@ -78,17 +78,23 @@ class StageReuseOfferPending(Exception):
         )
 
 
+# Transcript artifact paths copied on explicit reuse accept (final paths, not staging).
+_TRANSCRIPT_STAGES = frozenset({"transcribe", "transcript_review_build", "transcript_review"})
+
+_TRANSCRIPT_REUSE_CORE: tuple[str, ...] = (
+    "transcript/full.json",
+    "transcript/speakers.json",
+    "transcript/corrections.json",
+    "operator/transcript_corrected.json",
+    "operator/transcript_corrected.txt",
+    "operator/transcript_corrections.json",
+)
+
 # Relative paths to copy/check. Trailing "/" = non-empty directory. "glob:" prefix = expand.
 _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "audio_preclean": ("preclean/lineage.json", "preclean/provider.json", "preclean/isolated.wav"),
     "ingest": ("ingest/normalized.wav", "ingest/checksums.json"),
-    "transcribe": (
-        "transcript/full.json",
-        "transcript/speakers.json",
-        "operator/transcript_corrected.json",
-        "operator/transcript_corrected.txt",
-        "operator/transcript_corrections.json",
-    ),
+    "transcribe": _TRANSCRIPT_REUSE_CORE,
     "transcript_review_build": (
         "transcript/review_queue.json",
         "glob:transcript/review_clips/*.wav",
@@ -144,6 +150,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "transcript/full.json",
         "operator/transcript_corrected.json",
         "operator/transcript_corrected.txt",
+        "operator/transcript_corrections.json",
     ),
     "analysis_profile": (
         "understanding/analysis_state.json",
@@ -167,8 +174,14 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
 _STAGE_REUSE_OPTIONAL: dict[str, frozenset[str]] = {
     "transcribe": frozenset(
         {
+            "transcript/corrections.json",
             "operator/transcript_corrected.json",
             "operator/transcript_corrected.txt",
+            "operator/transcript_corrections.json",
+        }
+    ),
+    "transcript_review": frozenset(
+        {
             "operator/transcript_corrections.json",
         }
     ),
@@ -460,7 +473,7 @@ def list_copy_paths_for_stage(source_ctx: RunContext, stage_id: str) -> list[str
 
 
 def _reuse_dest(ctx: RunContext, rel: str, *, use_staging: bool, stage_id: str) -> Path:
-    if use_staging:
+    if use_staging and stage_id not in _TRANSCRIPT_STAGES:
         from interview_mux.write_staging import staged_path
 
         dest = staged_path(ctx, rel, stage_id=stage_id)
@@ -503,7 +516,7 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
         write_approval_enabled,
     )
 
-    use_staging = write_approval_enabled()
+    use_staging = write_approval_enabled() and stage_id not in _TRANSCRIPT_STAGES
     if use_staging:
         enter_stage_staging(stage_id)
 
@@ -553,7 +566,16 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
 
             _apply_gate_meta_reuse(ctx, source, stage_id)
             _validate_copied_artifacts(ctx, stage_id)
-            ctx.mark_done(stage_id)
+            if stage_id in _TRANSCRIPT_STAGES:
+                if stage_id == "transcript_review_build" and ctx.artifact_exists(
+                    "transcript/review_queue.json"
+                ):
+                    ctx.mark_done("transcript_review_build", force=True)
+                elif stage_id == "transcribe":
+                    ctx.mark_done("transcribe", force=True)
+                # transcript_review gate stays open until operator Save and complete
+            else:
+                ctx.mark_done(stage_id)
         finally:
             if staging_lock is not None:
                 staging_lock.release()

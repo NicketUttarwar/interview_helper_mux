@@ -26,6 +26,7 @@ export function StageStepWorkbench() {
     apiGrants,
     appendClientLog,
     autoContinuePipeline,
+    syncPipelineStageFocus,
   } = useApp();
 
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -89,16 +90,25 @@ export function StageStepWorkbench() {
     if (activeStepId) scrollToStageStep(activeStepId);
   }, [activeStepId, selectedStageId]);
 
+  const stageReadyToAdvance =
+    Boolean(selectedStage) &&
+    selectedStage!.status === "done" &&
+    !stageNeedsPendingAction(run!, selectedStage!.id, apiGrants) &&
+    !jobRunning;
+
   const showDoneShell =
     Boolean(selectedStage) &&
     fullyComplete &&
-    !stageNeedsPendingAction(run!, selectedStage!.id, apiGrants) &&
+    stageReadyToAdvance &&
     steps.every((s) => s.status === "done");
 
   useEffect(() => {
-    if (!showDoneShell || !run || !selectedStageId || jobRunning) return;
-    void autoContinuePipeline(selectedStageId);
-  }, [showDoneShell, run, selectedStageId, jobRunning, autoContinuePipeline]);
+    if (!stageReadyToAdvance || !run || !selectedStageId) return;
+    void (async () => {
+      await syncPipelineStageFocus();
+      await autoContinuePipeline(selectedStageId);
+    })();
+  }, [stageReadyToAdvance, run, selectedStageId, jobRunning, syncPipelineStageFocus, autoContinuePipeline]);
 
   if (!selectedStage || !stageAction) {
     return (

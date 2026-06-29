@@ -32,8 +32,8 @@ The **Executions** tab and status header also surface hash chips; runs with matc
 
 1. Run or resume an execution with the same input WAV as a prior run (hash computed at `POST /api/runs` from the canonical pipeline WAV).
 2. On each pending stage, review **Previous execution reuse** (if candidates exist) or click **Run step N**.
-3. **Reuse outputs** — copies artifacts (through write staging when approval is enabled), then opens write review if configured.
-4. **Run fresh instead** — records decline and runs the stage normally.
+3. **Reuse outputs** — copies artifacts to the working directory. **Transcript stages** (`transcribe`, `transcript_review_build`, `transcript_review`) copy directly to final paths (no write-approval staging). Reusing a corrected transcript does **not** auto-complete G0 — open **Transcript review** and click **Save and complete review** after optional edits.
+4. **Run fresh instead** — records decline and runs the stage normally (e.g. fresh AWS transcribe).
 
 When `enable_stage_reuse_offers` is `false`, the UI still lists candidates but execute is not blocked (CLI: `--no-reuse-offers`).
 

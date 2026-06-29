@@ -31,7 +31,8 @@ import type {
 } from "../types";
 import { formatApiError } from "../utils/safeApi";
 import { isJobActivelyRunning } from "../utils/jobStatus";
-import { countRequiredAttention } from "../utils/attentionQueue";
+import { isOperatorGateStartResponse } from "../utils/jobStartResponse";
+import { countRequiredAttention, stageNeedsAttention } from "../utils/attentionQueue";
 import { maybePingForRequiredAttention } from "../utils/attentionPing";
 import { resolveOperatorAction } from "../utils/resolveOperatorAction";
 import {
@@ -48,7 +49,7 @@ import {
   resolvePrecleanOffer,
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
-import { runStepPrimaryPrep } from "../utils/stepPrimaryPrep";
+import { runStepPrimaryPrep, runStepPrimaryPreps } from "../utils/stepPrimaryPrep";
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { guardBusy } from "../utils/guardBusy";
 import { jobCompletionHint } from "../utils/jobCompletionHints";
@@ -59,6 +60,7 @@ import {
   focusStageWorkbench,
   patchRunAfterWriteApproval,
   reconcileBusyRun,
+  syncPipelineStageFocus,
   tryAutoContinuePipeline,
   type AdvancePipelineOpts,
   type ExecuteJobSource,
@@ -164,6 +166,7 @@ interface AppContextValue {
   approveSfxPrompts: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
   autoContinuePipeline: (completedStageId?: string | null) => Promise<boolean>;
+  syncPipelineStageFocus: (runOverride?: RunData | null) => Promise<boolean>;
   onCheckpointContinue: () => Promise<void>;
   setCheckpointBusy: (busy: boolean) => void;
   setAlertsMuted: (muted: boolean) => void;
@@ -218,6 +221,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const autopilotInFlightRef = useRef(false);
   const acknowledgeHandoffRef = useRef<() => Promise<void>>(async () => {});
   const autoContinuePipelineRef = useRef<(completedStageId?: string | null) => Promise<boolean>>(
+    async () => false,
+  );
+  const syncPipelineStageFocusRef = useRef<(runOverride?: RunData | null) => Promise<boolean>>(
     async () => false,
   );
   const [transcriptReview, setTranscriptReview] =
@@ -731,11 +737,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const focusPendingStage = useCallback(async () => {
-    if (!run) return;
-    const stageId = findPendingFocusStage(run, mergedApiGrants());
-    if (stageId) await selectStage(stageId);
-  }, [run, mergedApiGrants, selectStage]);
+  const focusPendingStage = useCallback(
+    async (runOverride?: RunData | null) => {
+      await syncPipelineStageFocusRef.current(runOverride);
+    },
+    [],
+  );
 
   const openActionModal = useCallback(() => {
     void focusPendingStage();
@@ -743,17 +750,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPipelineSubTabWrapped("stage");
   }, [focusPendingStage, setPipelineSubTabWrapped]);
 
-  const operatorFocusKey = run
-    ? `${run.job?.status ?? ""}:${run.job?.stage ?? ""}:${run.job?.needs_stage_reuse ?? ""}:${run.journey?.blocking?.reason ?? ""}:${run.journey?.blocking?.stage_id ?? ""}:${run.journey?.active_operator_action?.substep_id ?? ""}`
+  const pipelineFocusKey = run
+    ? [
+        run.job?.status ?? "",
+        run.job?.stage ?? "",
+        run.journey?.blocking?.reason ?? "",
+        run.journey?.blocking?.stage_id ?? "",
+        findPendingFocusStage(run, ALL_API_CONSENTS) ?? "",
+        run.stages.map((s) => `${s.id}:${s.status}`).join("|"),
+        run.handoff_ack ? Object.keys(run.handoff_ack).sort().join(",") : "",
+      ].join(":")
     : "";
 
   useEffect(() => {
     if (!run || activeTabRef.current !== "pipeline") return;
-    const action = resolveOperatorAction(run, {
-      selectedStageId: selectedStageIdRef.current,
-      jobRunning,
-      apiGrants: ALL_API_CONSENTS,
-    });
     const needsFilter =
       run.stages.some(
         (s) => s.status === "action_required" || s.status === "awaiting_write_approval",
@@ -764,25 +774,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPipelineFilterNeedsYouState(true);
       pipelineFilterNeedsYouRef.current = true;
     }
-    if (action.mode !== "needs_you" || !action.stageId) return;
-    // Operator already on the blocking stage with a chosen workbench step — do not
-    // reset to the default gate step on every run poll (log refresh every ~2s).
-    if (
-      selectedStageIdRef.current === action.stageId &&
-      activeStepIdRef.current
-    ) {
+  }, [pipelineFocusKey, run]);
+
+  useEffect(() => {
+    if (!run || activeTabRef.current !== "pipeline" || jobRunning) return;
+    if (autopilotInFlightRef.current || actionBusyRef.current || approveInFlightRef.current) {
       return;
     }
-    void focusStageWorkbench({
-      run,
-      stageId: action.stageId,
-      selectStage,
-      expandStage,
-      setActiveStepId,
-      setPipelineSubTab: setPipelineSubTabWrapped,
-      substepId: action.substepId,
-    });
-  }, [operatorFocusKey, jobRunning, selectStage, expandStage, setActiveStepId, setPipelineSubTabWrapped, run]);
+    const focusId = findPendingFocusStage(run, ALL_API_CONSENTS);
+    const currentId = selectedStageIdRef.current;
+    if (!focusId || focusId === currentId) return;
+    if (currentId && stageNeedsAttention(run, currentId, ALL_API_CONSENTS)) return;
+    void syncPipelineStageFocusRef.current();
+  }, [pipelineFocusKey, jobRunning, run]);
 
   const syncJobRunning = useCallback(async (rid: string) => {
     try {
@@ -822,7 +826,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setActionBusy(false);
             actionBusyRef.current = false;
             approveInFlightRef.current = false;
-            void focusPendingStage();
+            void focusPendingStage(refreshed);
             setActivityLogTabState("live");
             activityLogTabRef.current = "live";
             if (polled.status === "complete") {
@@ -958,8 +962,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ): Promise<boolean> => {
       if (res.ok === false) {
         setJobRunning(false);
-        appendClientLog(res.error || "Failed to start job", "error", stageForLog);
-        showToast(res.error || "Failed to start", "error");
+        const operatorGate = isOperatorGateStartResponse(res);
+        if (operatorGate) {
+          appendClientLog(res.error || "Paused for your review", "info", stageForLog);
+        } else {
+          appendClientLog(res.error || "Failed to start job", "error", stageForLog);
+          showToast(res.error || "Failed to start", "error");
+        }
         const busyJob = res.job;
         if (busyJob && isJobActivelyRunning(busyJob)) {
           setRun((prev) => (prev ? { ...prev, job: busyJob } : prev));
@@ -1492,6 +1501,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
     });
     const refreshed = runId ? await refreshRun() : null;
+    await syncPipelineStageFocusRef.current(refreshed);
     if (
       completedStageId &&
       refreshed?.stages.find((s) => s.id === completedStageId)?.status === "done"
@@ -1559,6 +1569,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     acknowledgeHandoffRef.current = acknowledgeHandoff;
   }, [acknowledgeHandoff]);
 
+  const syncPipelineStageFocusCb = useCallback(
+    async (runOverride?: RunData | null): Promise<boolean> => {
+      if (jobRunningRef.current) return false;
+      return syncPipelineStageFocus({
+        run: runOverride ?? run,
+        runId,
+        apiGrants: ALL_API_CONSENTS,
+        selectedStageId: selectedStageIdRef.current,
+        executeJob,
+        selectStage,
+        expandStage,
+        setActiveSubstepId: setActiveSubstepIdState,
+        setActiveStepId,
+        setPipelineSubTab: setPipelineSubTabWrapped,
+        showToast,
+        refreshRun,
+        navigateToNextBlocker: runNextStage,
+        config,
+      });
+    },
+    [
+      run,
+      runId,
+      config,
+      executeJob,
+      selectStage,
+      expandStage,
+      showToast,
+      refreshRun,
+      runNextStage,
+      setPipelineSubTabWrapped,
+      setActiveStepId,
+    ],
+  );
+
+  useEffect(() => {
+    syncPipelineStageFocusRef.current = syncPipelineStageFocusCb;
+  }, [syncPipelineStageFocusCb]);
+
   const autoContinuePipeline = useCallback(
     async (completedStageId?: string | null): Promise<boolean> => {
       if (
@@ -1569,7 +1618,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) {
         return false;
       }
-      if (!isPipelineAutopilotEnabled(config)) return false;
+      if (config?.journey_ui?.enabled === false) return false;
       autopilotInFlightRef.current = true;
       try {
         const opts: AdvancePipelineOpts = {
@@ -1867,7 +1916,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const completeTranscriptReview = useCallback(
     async (acceptUnreviewed = false) => {
       if (!runId) return;
-      await runStepPrimaryPrep("transcript_review_flush");
+      await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush"]);
       await api(`/api/runs/${runId}/transcript-review/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2333,6 +2382,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     approveSfxPrompts,
     advanceFromCheckpoint,
     autoContinuePipeline,
+    syncPipelineStageFocus: syncPipelineStageFocusCb,
     onCheckpointContinue,
     setCheckpointBusy,
     setAlertsMuted,

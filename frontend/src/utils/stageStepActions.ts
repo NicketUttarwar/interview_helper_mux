@@ -46,7 +46,7 @@ export async function invokeStepFooterAction(
     step.id === "complete_g0" ||
     (step.embed === "transcript_review" && label.includes("complete transcript"))
   ) {
-    await runStepPrimaryPreps(["transcript_review_flush", step.id]);
+    await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush", step.id]);
     await handlers.completeTranscriptReview(false);
     return;
   }

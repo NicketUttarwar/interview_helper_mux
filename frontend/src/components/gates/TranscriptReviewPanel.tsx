@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
@@ -16,6 +16,18 @@ import {
   chunkFocusRange,
   chunkPlaybackRange,
 } from "../../utils/transcriptReviewChunk";
+import type { TranscriptWord } from "../../types";
+
+function chunkTextFromWords(
+  words: TranscriptWord[],
+  startMs: number,
+  endMs: number,
+): string {
+  return words
+    .filter((w) => w.start_ms < endMs && w.end_ms > startMs)
+    .map((w) => w.text)
+    .join(" ");
+}
 
 export function TranscriptReviewPanel() {
   const {
@@ -34,10 +46,13 @@ export function TranscriptReviewPanel() {
   const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
     emptyCorrectionStats(),
   );
+  const [draftRevision, setDraftRevision] = useState(0);
   const textRef = useRef(text);
   const indexRef = useRef(0);
   const clipAudioRef = useRef<HTMLAudioElement>(null);
   const dockRef = useRef<TranscriptDockHandle>(null);
+  const chunkDraftsRef = useRef<Map<string, string>>(new Map());
+  const chunkDirtyRef = useRef<Set<string>>(new Set());
 
   textRef.current = text;
 
@@ -51,6 +66,25 @@ export function TranscriptReviewPanel() {
   const chunks = transcriptReview?.chunks || [];
   const idx = Math.min(index, Math.max(0, chunks.length - 1));
   const chunk = chunks[idx];
+
+  const baselineForChunk = useCallback(
+    (c: (typeof chunks)[number]) => c.corrected_text || c.text || "",
+    [],
+  );
+
+  const stashCurrentChunkDraft = useCallback(() => {
+    const chunksNow = transcriptReview?.chunks || [];
+    const idxNow = indexRef.current;
+    const chunkNow = chunksNow[idxNow];
+    if (!chunkNow) return;
+    const baseline = baselineForChunk(chunkNow);
+    const current = textRef.current;
+    if (current !== baseline) {
+      chunkDraftsRef.current.set(chunkNow.chunk_id, current);
+      chunkDirtyRef.current.add(chunkNow.chunk_id);
+      setDraftRevision((n) => n + 1);
+    }
+  }, [transcriptReview?.chunks, baselineForChunk]);
 
   useEffect(() => {
     setLoading(true);
@@ -67,62 +101,79 @@ export function TranscriptReviewPanel() {
   }, [idx]);
 
   useEffect(() => {
-    if (chunk) setText(chunk.corrected_text || chunk.text || "");
-  }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text]);
+    if (!chunk) return;
+    const draft = chunkDraftsRef.current.get(chunk.chunk_id);
+    if (draft !== undefined) {
+      setText(draft);
+      return;
+    }
+    setText(baselineForChunk(chunk));
+  }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text, baselineForChunk]);
 
   useEffect(() => {
     setClipLoadError(false);
   }, [chunk?.chunk_id]);
 
-  const saveChunk = async (chunkId: string, reviewed: boolean, useOriginal = false) => {
+  const saveChunkToServer = async (chunkId: string, bodyText: string) => {
     if (!run) return;
-    const c = chunks.find((x) => x.chunk_id === chunkId);
-    const bodyText = useOriginal ? c?.text || "" : textRef.current;
     await api(`/api/runs/${run.run_id}/transcript-review/${chunkId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: bodyText, reviewed }),
+      body: JSON.stringify({ text: bodyText, reviewed: true }),
     });
-    await loadTranscriptReview();
-    await refreshRun();
   };
 
   useEffect(() => {
+    registerStepPrimaryPrep("transcript_dock_flush", async () => {
+      await dockRef.current?.flushPendingSaves();
+    });
+    return () => registerStepPrimaryPrep("transcript_dock_flush", null);
+  }, []);
+
+  useEffect(() => {
     registerStepPrimaryPrep("transcript_review_flush", async () => {
+      if (!run) return;
+      stashCurrentChunkDraft();
       const chunksNow = transcriptReview?.chunks || [];
+      const dirtyIds = new Set(chunkDirtyRef.current);
       const idxNow = indexRef.current;
       const chunkNow = chunksNow[idxNow];
-      if (!run || !chunkNow) return;
-      const saved = chunkNow.corrected_text || chunkNow.text || "";
-      if (textRef.current === saved && chunkNow.reviewed) return;
+      if (chunkNow) dirtyIds.add(chunkNow.chunk_id);
+
       try {
-        await saveChunk(chunkNow.chunk_id, true);
+        for (const chunkId of dirtyIds) {
+          const draft = chunkDraftsRef.current.get(chunkId);
+          if (draft === undefined) continue;
+          await saveChunkToServer(chunkId, draft);
+        }
+        chunkDraftsRef.current.clear();
+        chunkDirtyRef.current.clear();
+        setDraftRevision((n) => n + 1);
+        await loadTranscriptReview();
+        await refreshRun();
       } catch (reason) {
-        reportError(reason, "Save transcript chunk");
+        reportError(reason, "Save transcript chunks");
         throw reason;
       }
     });
     return () => registerStepPrimaryPrep("transcript_review_flush", null);
-  }, [run, transcriptReview?.chunks, loadTranscriptReview, refreshRun]);
+  }, [run, transcriptReview?.chunks, loadTranscriptReview, refreshRun, stashCurrentChunkDraft]);
 
-  const syncChunkTextFromDock = async () => {
-    const data = await loadTranscriptReview();
-    if (!data || !chunk) return;
-    const updated = data.chunks.find((c) => c.chunk_id === chunk.chunk_id);
-    if (updated) setText(updated.corrected_text || updated.text || "");
-  };
+  const handleLocalWordsChange = useCallback(
+    (words: TranscriptWord[]) => {
+      const c = chunks[indexRef.current];
+      if (!c) return;
+      const synced = chunkTextFromWords(words, c.start_ms, c.end_ms);
+      chunkDraftsRef.current.set(c.chunk_id, synced);
+      chunkDirtyRef.current.add(c.chunk_id);
+      setText(synced);
+      setDraftRevision((n) => n + 1);
+    },
+    [chunks],
+  );
 
   const goToIndex = (next: number) => {
-    const prev = indexRef.current;
-    if (prev !== next && chunks[prev]) {
-      const prevChunk = chunks[prev];
-      const saved = prevChunk.corrected_text || prevChunk.text || "";
-      if (textRef.current !== saved || !prevChunk.reviewed) {
-        void saveChunk(prevChunk.chunk_id, true).catch((reason) =>
-          reportError(reason, "Save transcript chunk"),
-        );
-      }
-    }
+    if (indexRef.current !== next) stashCurrentChunkDraft();
     indexRef.current = next;
     setIndex(next);
   };
@@ -140,6 +191,9 @@ export function TranscriptReviewPanel() {
     if (!playbackRange) return;
     dockRef.current?.playClipRange(playbackRange.start_ms, playbackRange.end_ms);
   };
+
+  const isChunkDraftDirty = (chunkId: string) => chunkDirtyRef.current.has(chunkId);
+  void draftRevision;
 
   if (loading) {
     return (
@@ -165,13 +219,16 @@ export function TranscriptReviewPanel() {
   const showNativeClipPlayer = Boolean(clipUrl) && !clipLoadError;
   const clipUnavailable =
     chunk.clip_ready === false || clipLoadError || (!clipUrl && chunk.clip_path);
+  const hasLocalDrafts =
+    chunkDirtyRef.current.size > 0 || Boolean(dockRef.current?.hasPendingSaves?.());
 
   return (
     <div className="tr-review-panel">
       <p className="hint sm tr-review-panel-hint">
-        Optional clip-by-clip review — use <strong>Accept all &amp; proceed</strong> in the banner
-        above to finish without reviewing each clip.
-        {pendingCount > 0 ? ` (${pendingCount} pending)` : null}
+        Edits are kept while you move between clips — use{" "}
+        <strong>Save and complete review</strong> in the banner above when finished.
+        {pendingCount > 0 ? ` (${pendingCount} clip${pendingCount === 1 ? "" : "s"} not yet marked reviewed)` : null}
+        {hasLocalDrafts ? " Unsaved local edits pending." : null}
       </p>
 
       <div className="tr-review-compact-bar">
@@ -200,7 +257,9 @@ export function TranscriptReviewPanel() {
             {chunks.map((c, i) => (
               <option key={c.chunk_id} value={i}>
                 #{c.rank} {c.chunk_id}
-                {c.reviewed ? " ✓" : ""} ({Math.round((c.confidence || 0) * 100)}%)
+                {c.reviewed ? " ✓" : ""}
+                {isChunkDraftDirty(c.chunk_id) ? " *" : ""} (
+                {Math.round((c.confidence || 0) * 100)}%)
               </option>
             ))}
           </select>
@@ -249,7 +308,17 @@ export function TranscriptReviewPanel() {
           className="tr-textarea tr-textarea--compact"
           rows={2}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setText(next);
+            if (chunk) {
+              chunkDraftsRef.current.set(chunk.chunk_id, next);
+              const baseline = baselineForChunk(chunk);
+              if (next !== baseline) chunkDirtyRef.current.add(chunk.chunk_id);
+              else chunkDirtyRef.current.delete(chunk.chunk_id);
+              setDraftRevision((n) => n + 1);
+            }
+          }}
         />
       </details>
 
@@ -259,7 +328,7 @@ export function TranscriptReviewPanel() {
           focusRange={focusRange}
           seekOnFocus
           fillHeight
-          onWordsSaved={() => void syncChunkTextFromDock()}
+          onLocalWordsChange={handleLocalWordsChange}
           onCorrectionStatsChange={setCorrectionStats}
         />
       </section>

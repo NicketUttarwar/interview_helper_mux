@@ -8,12 +8,13 @@ import { isJobActivelyRunning } from "./jobStatus";
 import { resolveFocusStepId } from "./resolveActiveStep";
 import type { ExecuteBody } from "../types";
 import { executeBodyForStage } from "./operatorActionHandlers";
+import { stageNeedsAttention } from "./attentionQueue";
 import {
-  autopilotBlockedByRun,
+  autopilotBlocksAutoRun,
   canAutoRunStage,
   isPipelineAutopilotEnabled,
   isPipelineComplete,
-  shouldAutoContinueFromStage,
+  shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
 
 export interface WriteApprovalAdvanceOpts {
@@ -117,7 +118,7 @@ export interface AdvancePipelineOpts {
   apiGrants: Record<string, boolean>;
   selectedStageId: string | null;
   executeJob: (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => Promise<void>;
-  selectStage: (id: string, opts?: { stepId?: string | null }) => Promise<void>;
+  selectStage: (id: string, opts?: { stepId?: string | null; pinned?: boolean }) => Promise<void>;
   expandStage: (id: string) => void;
   setActiveSubstepId: (id: string | null) => void;
   setActiveStepId?: (id: string | null) => void;
@@ -135,7 +136,7 @@ export interface AdvancePipelineOpts {
 export interface FocusStageWorkbenchOpts {
   run: RunData | null;
   stageId: string;
-  selectStage: (id: string, opts?: { stepId?: string | null }) => Promise<void>;
+  selectStage: (id: string, opts?: { stepId?: string | null; pinned?: boolean }) => Promise<void>;
   expandStage: (id: string) => void;
   setActiveStepId?: (id: string | null) => void;
   setPipelineSubTab: (tab: PipelineSubTab) => void;
@@ -155,6 +156,62 @@ export async function focusStageWorkbench(opts: FocusStageWorkbenchOpts): Promis
   opts.setPipelineSubTab(opts.subTab ?? "stage");
   if (stepId) opts.setActiveStepId?.(stepId);
   return stepId;
+}
+
+function resolveFocusSubstepId(run: RunData, stageId: string): string | null {
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.stage_id === stageId) {
+    if (blocking.reason === "stage_reuse") return `stage_reuse:${stageId}`;
+    if (blocking.reason === "handoff_review") return `handoff:${stageId}`;
+    if (blocking.reason === "write_approval") return `write_approval:${stageId}`;
+  }
+  if (run.job?.needs_stage_reuse && run.job.stage === stageId) {
+    return `stage_reuse:${stageId}`;
+  }
+  return null;
+}
+
+/** Keep sidebar + workbench aligned with the run's next operator focus (navigation only). */
+export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise<boolean> {
+  if (opts.config?.journey_ui?.enabled === false) return false;
+
+  const refreshed = opts.runId ? await opts.refreshRun() : opts.run;
+  if (!refreshed) return false;
+  if (isPipelineComplete(refreshed)) return false;
+
+  const focusId = findPendingFocusStage(refreshed, opts.apiGrants);
+  if (!focusId) return false;
+
+  const currentId = opts.selectedStageId;
+  if (
+    currentId &&
+    currentId !== focusId &&
+    stageNeedsAttention(refreshed, currentId, opts.apiGrants)
+  ) {
+    return false;
+  }
+
+  const substepId = resolveFocusSubstepId(refreshed, focusId);
+  const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
+  const blockingReason =
+    blocking?.stage_id === focusId ? blocking.reason ?? null : null;
+
+  if (substepId) opts.setActiveSubstepId(substepId);
+
+  const navigated = focusId !== currentId;
+  await focusStageWorkbench({
+    run: refreshed,
+    stageId: focusId,
+    selectStage: (id, selOpts) =>
+      opts.selectStage(id, { ...selOpts, pinned: false }),
+    expandStage: opts.expandStage,
+    setActiveStepId: opts.setActiveStepId,
+    setPipelineSubTab: opts.setPipelineSubTab,
+    substepId,
+    blockingReason,
+  });
+
+  return navigated;
 }
 
 export interface ReconcileBusyOpts {
@@ -312,21 +369,21 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   return false;
 }
 
-/** Continue the pipeline automatically after a stage completes or a checkpoint clears. */
+/** Continue the pipeline after a stage completes: sync UI focus, then auto-run when enabled. */
 export async function tryAutoContinuePipeline(
   opts: AdvancePipelineOpts & { completedStageId?: string | null },
 ): Promise<boolean> {
-  if (!isPipelineAutopilotEnabled(opts.config)) return false;
+  if (opts.config?.journey_ui?.enabled === false) return false;
 
   let refreshed = opts.runId ? await opts.refreshRun() : opts.run;
   if (!refreshed) return false;
-
   if (isPipelineComplete(refreshed)) return false;
 
-  if (opts.completedStageId) {
-    if (!shouldAutoContinueFromStage(refreshed, opts.completedStageId, opts.config)) {
-      return false;
-    }
+  const navigated = await syncPipelineStageFocus({ ...opts, run: refreshed });
+  refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
+
+  if (!isPipelineAutopilotEnabled(opts.config)) {
+    return navigated;
   }
 
   if (opts.acknowledgeHandoff) {
@@ -337,16 +394,19 @@ export async function tryAutoContinuePipeline(
     }
   }
 
-  if (autopilotBlockedByRun(refreshed)) {
-    const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
-    if (blocking?.blocked && blocking.reason === "handoff_review" && opts.acknowledgeHandoff) {
-      await opts.acknowledgeHandoff();
-      return true;
+  if (opts.completedStageId) {
+    if (!shouldAutoNavigateFromStage(refreshed, opts.completedStageId, opts.config)) {
+      return navigated;
     }
-    return false;
   }
 
-  return advancePipeline({ ...opts, run: refreshed, autoRun: true });
+  if (autopilotBlocksAutoRun(refreshed)) {
+    return navigated;
+  }
+
+  const autoRun = true;
+  const started = await advancePipeline({ ...opts, run: refreshed, autoRun });
+  return started || navigated;
 }
 
 /** HTTP 409 / run busy — reconcile client with server job state. */

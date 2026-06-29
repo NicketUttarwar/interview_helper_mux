@@ -228,7 +228,10 @@ def test_auto_reuse_from_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         reset_stage_reuse_cli()
 
 
-def test_accept_reuse_not_reapplied_when_staged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_accept_reuse_marks_transcribe_done_when_bypassing_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Transcript reuse copies to final paths and marks transcribe done even with write approval on."""
     _patch_executions_root(monkeypatch, tmp_path)
     monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: True)
     prior = _ctx_in_root("exec_060_20260101T000060Z", tmp_path)
@@ -242,9 +245,39 @@ def test_accept_reuse_not_reapplied_when_staged(tmp_path: Path, monkeypatch: pyt
         current, "transcribe", action="accept", source_run_id="exec_060_20260101T000060Z"
     )
     apply_stage_reuse(current, "transcribe", "exec_060_20260101T000060Z")
-    assert not current.is_done("transcribe")
+    assert current.is_done("transcribe")
     assert reuse_already_applied(current, "transcribe")
     assert resolve_before_stage_run(current, "transcribe") == "skipped"
+    assert current.final_path("transcript/full.json").is_file()
+    staging = current.run_dir / ".pending_writes" / "transcribe" / "transcript/full.json"
+    assert not staging.is_file()
+
+
+def test_transcript_review_reuse_does_not_mark_gate_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_070_20260101T000070Z", tmp_path)
+    current = _ctx_in_root("exec_071_20260101T000071Z", tmp_path)
+
+    prior.write_json("transcript/full.json", {"text": "Corrected hello", "words": []})
+    prior.write_json("transcript/corrections.json", {"corrections": {}})
+    prior.write_json(
+        "transcript/review_queue.json",
+        {
+            "version": 1,
+            "chunk_count": 0,
+            "chunks": [],
+        },
+    )
+    prior.write_json("operator/transcript_corrected.json", {"text": "Corrected hello"})
+    prior.write_json("operator/transcript_corrections.json", {"corrections": {}})
+    prior.path("operator/transcript_corrected.txt").write_text("Corrected hello", encoding="utf-8")
+    prior.mark_done("transcript_review")
+
+    apply_stage_reuse(current, "transcript_review", "exec_070_20260101T000070Z")
+    assert not current.is_done("transcript_review")
+    assert current.read_json("transcript/full.json")["text"] == "Corrected hello"
 
 
 def test_clear_stage_reuse_on_invalidate(tmp_path: Path, monkeypatch) -> None:

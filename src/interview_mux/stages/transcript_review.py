@@ -137,7 +137,7 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
     """Apply saved corrections to full.json and close the review gate."""
     if not ctx.artifact_exists("transcript/review_queue.json"):
         raise FileNotFoundError("transcript/review_queue.json — run transcript_review_build first.")
-    apply_corrections(ctx)
+    materialize_transcript(ctx, source="review_complete")
     if ctx.is_done("speaker_roles"):
         from interview_mux.pipeline import ANALYSIS_ORDER
 
@@ -148,6 +148,12 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
     ctx.write_json("transcript/review_queue.json", queue)
     ctx.mark_done("transcript_review")
     ctx.log("Transcript review complete — corrections applied to full.json.", level="success", stage="transcript_review")
+
+
+def materialize_transcript(ctx: RunContext, *, source: str = "review_complete") -> None:
+    """Merge corrections into full.json and refresh operator transcript snapshots."""
+    apply_corrections(ctx)
+    persist_operator_transcript(ctx, source=source, include_corrections=True)
 
 
 def apply_corrections(ctx: RunContext) -> None:
@@ -181,7 +187,6 @@ def apply_corrections(ctx: RunContext) -> None:
     full["text"] = " ".join(w["text"] for w in words if w.get("text"))
     full["review_applied_at"] = datetime.now(timezone.utc).isoformat()
     ctx.write_json("transcript/full.json", full)
-    persist_operator_transcript(ctx, source="review_complete", include_corrections=True)
 
 
 def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed: bool = True) -> dict[str, Any]:
@@ -199,7 +204,6 @@ def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed
 
     ctx.write_json("transcript/corrections.json", data)
     ctx.write_json("transcript/review_queue.json", queue)
-    persist_operator_transcript(ctx, source="chunk_save", include_corrections=True)
     return {"ok": True, "chunk_id": chunk_id}
 
 
@@ -252,7 +256,6 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
         full["text"] = " ".join(w["text"] for w in words if w.get("text"))
         ctx.write_json("transcript/full.json", full)
         synced_chunks = _sync_review_queue_from_word_edits(ctx, words, edited_indices)
-        persist_operator_transcript(ctx, source="dock_edit")
         ctx.log(
             f"Transcript dock: saved {applied} word edit(s).",
             level="info",

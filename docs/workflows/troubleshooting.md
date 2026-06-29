@@ -166,7 +166,8 @@ Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_
 | Batch replace did not apply | **Also replace similar matches** unchecked | Popover checkbox; button label “Replace this word” | Check box and click **Replace N words** |
 | Edit closes when clicking panel | Blur before fix (older builds) | — | Current GUI defers blur when focus stays in `.fuzzy-replace-popover` |
 | Dock save failed | Network or invalid index | Browser network tab, `gui_log.jsonl` | Retry edit; reload transcript (`GET …/transcript`) |
-| Chunk save OK but `full.json` unchanged | Expected until G0 complete | `transcript/corrections.json` vs `full.json` | **Complete transcript review** to merge chunk text |
+| Edits lost when switching clips | Fixed — session drafts in GUI | `transcript/review_queue.json` chunk `corrected_text` | Edits persist locally until **Save and complete review** |
+| Prior transcript missing on new run | Reuse not accepted for transcribe | `run_meta.stage_reuse.transcribe` | Accept **Reuse outputs** on Transcribe stage, or run fresh STT |
 | Chunk textarea stale after dock edit | Fixed in current GUI — reload on save | `corrected_text` in `review_queue.json` | Dock save syncs queue; textarea auto-refreshes |
 | Batch replace mistake | Undo available | Dock toolbar **Undo** or ⌘Z | Reverts last edit batch via `PATCH …/transcript/words` |
 | Review order unexpected | Salience sort (not confidence-only) | `transcript/review_queue.json` `sort_mode`, `chunks[].rank` | Default `salience`; set `transcript_review.sort_mode: confidence` for legacy order; re-run `--from-stage transcript_review_build` |

@@ -37,6 +37,8 @@ export interface TranscriptFocusRange {
 export interface TranscriptDockHandle {
   playClipRange: (startMs: number, endMs: number) => void;
   seekTo: (ms: number) => void;
+  flushPendingSaves: () => Promise<void>;
+  hasPendingSaves: () => boolean;
 }
 
 interface WordUndoSnapshot {
@@ -58,8 +60,10 @@ interface Props {
   compact?: boolean;
   /** Use most of the viewport height (transcript review gate). */
   fillHeight?: boolean;
-  /** Called after word edits persist (e.g. refresh chunk textarea). */
+  /** Called after word edits persist to the server (e.g. refresh chunk textarea). */
   onWordsSaved?: () => void;
+  /** Called when word text changes locally (session draft, before server flush). */
+  onLocalWordsChange?: (words: TranscriptWord[]) => void;
   /** Session correction totals for review summary. */
   onCorrectionStatsChange?: (stats: TranscriptCorrectionStats) => void;
 }
@@ -84,6 +88,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
       compact = false,
       fillHeight = false,
       onWordsSaved,
+      onLocalWordsChange,
       onCorrectionStatsChange,
     },
     ref,
@@ -113,8 +118,8 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
   const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
   const editInputRef = useRef<HTMLInputElement>(null);
   const pendingSaves = useRef<Map<number, string>>(new Map());
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveFlushChain = useRef<Promise<void>>(Promise.resolve());
+  const wordsDirtyRef = useRef(false);
   const lastFocusKey = useRef<string>("");
   const prevFuzzyMatchCount = useRef(0);
   const undoStack = useRef<UndoEntry[]>([]);
@@ -123,6 +128,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
 
   const loadTranscript = useCallback(async () => {
     if (!runId) return;
+    if (wordsDirtyRef.current) return;
     setLoading(true);
     setError(null);
     try {
@@ -136,11 +142,13 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     } finally {
       setLoading(false);
     }
-  }, [runId]);
+  }, [runId, appendClientLog]);
 
   useEffect(() => {
+    wordsDirtyRef.current = false;
+    pendingSaves.current.clear();
     void loadTranscript();
-  }, [loadTranscript]);
+  }, [runId, loadTranscript]);
 
   const audioUrl = useMemo(() => {
     if (!runId || !transcript?.audio_path) return "";
@@ -188,6 +196,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
           }
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 1800);
+          wordsDirtyRef.current = false;
           onWordsSaved?.();
         } catch (reason) {
           setSaveStatus("idle");
@@ -204,21 +213,24 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     await saveFlushChain.current;
   }, [runId, showToast, appendClientLog, onWordsSaved]);
 
-  const queueSave = useCallback(
-    (index: number, text: string) => {
-      pendingSaves.current.set(index, text.trim());
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => void flushSaves(), 450);
+  const applyWordUpdates = useCallback(
+    (indices: number[], text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setWords((prev) => {
+        const next = [...prev];
+        for (const idx of indices) {
+          if (next[idx]) next[idx] = { ...next[idx], text: trimmed, corrected: true };
+        }
+        wordsDirtyRef.current = true;
+        onLocalWordsChange?.(next);
+        return next;
+      });
+      for (const idx of indices) pendingSaves.current.set(idx, trimmed);
+      if (pendingSaves.current.size > 0) setSaveStatus("idle");
     },
-    [flushSaves],
+    [onLocalWordsChange],
   );
-
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (pendingSaves.current.size) void flushSaves();
-    };
-  }, [flushSaves]);
 
   const seekTo = useCallback((ms: number) => {
     setPlayheadMs(ms);
@@ -244,7 +256,16 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     [seekTo, audioUrl, showToast],
   );
 
-  useImperativeHandle(ref, () => ({ playClipRange, seekTo }), [playClipRange, seekTo]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      playClipRange,
+      seekTo,
+      flushPendingSaves: flushSaves,
+      hasPendingSaves: () => pendingSaves.current.size > 0,
+    }),
+    [playClipRange, seekTo, flushSaves],
+  );
 
   const seekToWord = useCallback(
     (index: number) => {
@@ -340,22 +361,6 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     setSelectedFuzzyIndices(new Set());
   };
 
-  const applyWordUpdates = useCallback(
-    (indices: number[], text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      setWords((prev) => {
-        const next = [...prev];
-        for (const idx of indices) {
-          if (next[idx]) next[idx] = { ...next[idx], text: trimmed, corrected: true };
-        }
-        return next;
-      });
-      for (const idx of indices) queueSave(idx, trimmed);
-    },
-    [queueSave],
-  );
-
   const commitEdit = (index: number) => {
     const trimmed = editDraft.trim();
     if (!trimmed) {
@@ -396,7 +401,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     endEdit();
   };
 
-  const undoLastEdit = useCallback(async () => {
+  const undoLastEdit = useCallback(() => {
     const entry = undoStack.current.pop();
     if (!entry?.snapshots.length) {
       setUndoAvailable(undoStack.current.length > 0);
@@ -412,7 +417,10 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
           text: s.text,
           corrected: s.corrected,
         };
+        pendingSaves.current.set(s.index, s.text);
       }
+      wordsDirtyRef.current = pendingSaves.current.size > 0;
+      onLocalWordsChange?.(next);
       return next;
     });
     setCorrectionStats((prev) => {
@@ -423,11 +431,8 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
       onCorrectionStatsChange?.(next);
       return next;
     });
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    for (const s of entry.snapshots) pendingSaves.current.set(s.index, s.text);
-    await flushSaves();
     showToast("Undid last edit");
-  }, [flushSaves, showToast, onCorrectionStatsChange]);
+  }, [showToast, onCorrectionStatsChange, onLocalWordsChange]);
 
   const handleEditBlur = (index: number) => {
     queueMicrotask(() => {

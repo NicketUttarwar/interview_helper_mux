@@ -99,4 +99,37 @@ describe("findPendingFocusStage", () => {
     expect(findPendingFocusStage(run)).toBe("transcript_review");
     expect(resolveOperatorAction(run).stageId).toBe("transcript_review");
   });
+
+  it("prefers unacked handoff on done stage before next pending stage", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          description: "",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/source_acoustic_profile.json"],
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          description: "",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    expect(findPendingFocusStage(run)).toBe("source_acoustic_profile");
+  });
 });

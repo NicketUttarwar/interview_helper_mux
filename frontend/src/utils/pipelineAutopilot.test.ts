@@ -6,6 +6,7 @@ import {
   isPipelineComplete,
   resolveFinalOutputAbsolutePath,
   shouldAutoContinueFromStage,
+  shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
 
 function runStub(overrides: Partial<RunData> = {}): RunData {
@@ -54,8 +55,25 @@ describe("pipelineAutopilot", () => {
 
   it("auto-continues from a done stage when next is runnable", () => {
     const run = runStub();
+    expect(shouldAutoNavigateFromStage(run, "source_acoustic_profile", null)).toBe(true);
     expect(shouldAutoContinueFromStage(run, "source_acoustic_profile", null)).toBe(true);
     expect(canAutoRunStage("interview_spine_build")).toBe(true);
     expect(canAutoRunStage("transcript_review")).toBe(false);
+  });
+
+  it("auto-navigates but does not auto-run when next stage has stage_reuse blocking", () => {
+    const run = runStub({
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    expect(shouldAutoNavigateFromStage(run, "source_acoustic_profile", null)).toBe(true);
+    expect(shouldAutoContinueFromStage(run, "source_acoustic_profile", null)).toBe(false);
   });
 });

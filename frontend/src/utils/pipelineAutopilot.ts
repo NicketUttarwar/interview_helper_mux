@@ -65,7 +65,8 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
   return `${base}/${rel}`;
 }
 
-export function autopilotBlockedByRun(run: RunData): boolean {
+/** True when autopilot must not start the next stage job (reuse, gates, write approval, etc.). */
+export function autopilotBlocksAutoRun(run: RunData): boolean {
   const write = pendingWriteInfo(run);
   if (write?.paths.length) return true;
 
@@ -84,17 +85,67 @@ export function autopilotBlockedByRun(run: RunData): boolean {
   return MANUAL_BLOCKING_REASONS.has(reason);
 }
 
+/** @deprecated Use autopilotBlocksAutoRun — kept for existing imports. */
+export function autopilotBlockedByRun(run: RunData): boolean {
+  return autopilotBlocksAutoRun(run);
+}
+
+function autopilotBlocksNavigationFromStage(run: RunData, completedStageId: string): boolean {
+  const write = pendingWriteInfo(run);
+  if (write?.paths.length && write.stageId === completedStageId) return true;
+
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (!blocking?.blocked) {
+    if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
+      const sid = run.job?.pending_write_stage || run.job?.stage;
+      if (sid === completedStageId) return true;
+    }
+    return false;
+  }
+
+  if (blocking.stage_id === completedStageId && blocking.reason === "write_approval") {
+    return true;
+  }
+
+  return false;
+}
+
+/** True when autopilot should select the next sidebar stage after a stage completes. */
+export function shouldAutoNavigateFromStage(
+  run: RunData,
+  stageId: string | null,
+  config?: AppConfig | null,
+): boolean {
+  if (config?.journey_ui?.enabled === false) return false;
+  if (!stageId) return false;
+  if (isPipelineComplete(run)) return false;
+
+  const stage = run.stages.find((s) => s.id === stageId);
+  if (!stage || stage.status !== "done") return false;
+
+  if (autopilotBlocksNavigationFromStage(run, stageId)) return false;
+
+  const next = findNextRunnableStage(run.stages, run.meta);
+  if (next) return true;
+
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id && blocking.stage_id !== stageId) {
+    return true;
+  }
+
+  const handoff = findHandoffStage(run);
+  if (handoff?.id === stageId) return true;
+
+  return false;
+}
+
 export function shouldAutoContinueFromStage(
   run: RunData,
   stageId: string | null,
   config?: AppConfig | null,
 ): boolean {
-  if (!stageId || !isPipelineAutopilotEnabled(config)) return false;
-  if (isPipelineComplete(run)) return false;
-  if (autopilotBlockedByRun(run)) return false;
-
-  const stage = run.stages.find((s) => s.id === stageId);
-  if (!stage || stage.status !== "done") return false;
+  if (!shouldAutoNavigateFromStage(run, stageId, config)) return false;
+  if (autopilotBlocksAutoRun(run)) return false;
 
   const handoff = findHandoffStage(run);
   if (handoff?.id === stageId) return true;
