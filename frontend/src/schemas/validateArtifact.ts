@@ -1,10 +1,10 @@
-import { artifactWriteSchemas } from "./generated";
+import { loadArtifactWriteSchema } from "./generated";
 
-export function validateArtifactWrite(
+export async function validateArtifactWrite(
   path: string,
   data: unknown,
-): { ok: true } | { ok: false; errors: string[] } {
-  const schema = artifactWriteSchemas[path];
+): Promise<{ ok: true } | { ok: false; errors: string[] }> {
+  const schema = await loadArtifactWriteSchema(path);
   if (!schema) {
     return { ok: true };
   }

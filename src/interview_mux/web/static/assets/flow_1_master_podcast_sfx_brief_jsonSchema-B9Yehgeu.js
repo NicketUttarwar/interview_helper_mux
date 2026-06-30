@@ -1,0 +1,1 @@
+import{o as e,a,u as o}from"./zod-vendor-CcGq3kAE.js";const p=e({profile:o(),chapter_stingers:a(o()).optional(),beds:a(o()).optional(),bridges:a(o()).optional()});export{p as flow_1_master_podcast_sfx_brief_jsonSchema};

@@ -1,0 +1,1 @@
+import{o as s,s as e,a,u as n,e as r}from"./zod-vendor-CcGq3kAE.js";const i=s({verdict:r(["pass","warn","fail"]),blocking_issues:a(s({issue:e(),evidence:a(e()),recommended_action:e()})),warnings:a(n()),recommended_actions:a(e()),reasoning_summary:e()});export{i as flow_1_master_edl_narrative_audit_jsonSchema};

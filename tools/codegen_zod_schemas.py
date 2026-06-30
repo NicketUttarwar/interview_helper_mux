@@ -100,13 +100,7 @@ def schema_to_zod(schema: dict[str, Any], export_name: str) -> str:
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    index_lines = [
-        "// Auto-generated registry — do not edit.",
-        "import { z } from \"zod\";",
-        "",
-    ]
-    imports: list[str] = []
-    registry: list[str] = []
+    loader_entries: list[str] = []
 
     for rel, filename in sorted(ARTIFACT_SCHEMA_FILES.items()):
         path = SCHEMAS_ROOT / filename
@@ -117,16 +111,42 @@ def main() -> None:
         export = _safe_name(rel)
         out_file = OUT_DIR / f"{export}.ts"
         out_file.write_text(schema_to_zod(schema, export), encoding="utf-8")
-        imports.append(f'import {{ {export} }} from "./{export}";')
-        registry.append(f'  {json.dumps(rel)}: {export},')
+        loader_entries.append(
+            f'  {json.dumps(rel)}: async () =>\n'
+            f'    (await import("./{export}")).{export},'
+        )
         print(f"wrote {out_file.relative_to(REPO)}")
 
-    index_lines.extend(imports)
-    index_lines.append("")
-    index_lines.append("export const artifactWriteSchemas: Record<string, z.ZodTypeAny> = {")
-    index_lines.extend(registry)
-    index_lines.append("};")
-    index_lines.append("")
+    index_lines = [
+        "// Auto-generated registry — do not edit.",
+        "import type { z } from \"zod\";",
+        "",
+        "const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {",
+        *loader_entries,
+        "};",
+        "",
+        "const schemaCache = new Map<string, z.ZodTypeAny>();",
+        "",
+        "export const artifactWriteSchemaPaths = Object.keys(schemaLoaders);",
+        "",
+        "export async function loadArtifactWriteSchema(",
+        "  path: string,",
+        "): Promise<z.ZodTypeAny | null> {",
+        "  const loader = schemaLoaders[path];",
+        "  if (!loader) return null;",
+        "  const cached = schemaCache.get(path);",
+        "  if (cached) return cached;",
+        "  const schema = await loader();",
+        "  schemaCache.set(path, schema);",
+        "  return schema;",
+        "}",
+        "",
+        "/** Fire-and-forget warm-up for editor UX */",
+        "export function prefetchArtifactWriteSchema(path: string): void {",
+        "  void loadArtifactWriteSchema(path);",
+        "}",
+        "",
+    ]
 
     (OUT_DIR / "index.ts").write_text("\n".join(index_lines), encoding="utf-8")
     print(f"wrote {OUT_DIR / 'index.ts'}")

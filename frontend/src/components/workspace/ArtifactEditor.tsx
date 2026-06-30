@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
+import { prefetchArtifactWriteSchema } from "../../schemas/generated";
 import { isJsonArtifactPath } from "../../utils";
 import { stageAwaitingWriteApproval } from "../../utils/writeApproval";
 import { formatApiError, safeApi } from "../../utils/safeApi";
@@ -118,6 +119,12 @@ export function ArtifactEditor() {
   }, [selectedPath, loadArtifact]);
 
   useEffect(() => {
+    if (selectedPath && isJsonArtifactPath(selectedPath)) {
+      prefetchArtifactWriteSchema(selectedPath);
+    }
+  }, [selectedPath]);
+
+  useEffect(() => {
     const handler = (e: Event) => {
       const path = (e as CustomEvent<{ path: string }>).detail?.path;
       if (!path) return;
@@ -157,7 +164,7 @@ export function ArtifactEditor() {
           showToast("Invalid JSON");
           return;
         }
-        const v = validateArtifactWrite(selectedPath, data);
+        const v = await validateArtifactWrite(selectedPath, data);
         if (!v.ok) {
           setStatus(`Schema errors:\n${v.errors.join("\n")}`);
           showToast("Fix schema errors before saving");

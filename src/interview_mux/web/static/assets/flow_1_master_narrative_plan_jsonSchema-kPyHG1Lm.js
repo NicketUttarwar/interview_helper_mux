@@ -1,0 +1,1 @@
+import{o as e,s as a,a as t,u as n}from"./zod-vendor-CcGq3kAE.js";const s=e({arc_summary:a().min(1),chapters:t(e({chapter_id:a(),title:a(),topic_tags:t(n()).optional(),suggested_open_segment_id:a()})),ordering_constraints:t(n()),pacing_notes:a().optional()});export{s as flow_1_master_narrative_plan_jsonSchema};

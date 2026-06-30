@@ -8,6 +8,18 @@ export default defineConfig({
     outDir: fileURLToPath(new URL("../src/interview_mux/web/static", import.meta.url)),
     emptyOutDir: true,
     assetsDir: "assets",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
+            return "react-vendor";
+          }
+          if (id.includes("node_modules/zod")) {
+            return "zod-vendor";
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {

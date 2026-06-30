@@ -231,7 +231,7 @@ cd frontend && npm run codegen:schemas
 Outputs:
 
 - `frontend/src/schemas/generated/<path>Schema.ts` — one per registered artifact path
-- `frontend/src/schemas/generated/index.ts` — `artifactWriteSchemas` registry
+- `frontend/src/schemas/generated/index.ts` — `loadArtifactWriteSchema` lazy registry
 
 After changing any `*.schema.json`, regenerate and rebuild the GUI:
 

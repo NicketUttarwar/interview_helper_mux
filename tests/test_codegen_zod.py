@@ -26,3 +26,8 @@ def test_codegen_zod_schemas_writes_registry():
     assert "understanding/sonic_context.json" in text
     assert "sound_design/mmaudio_qa.json" in text
     assert "run_meta.json" in text
+    assert "loadArtifactWriteSchema" in text
+    assert "prefetchArtifactWriteSchema" in text
+    assert 'import("./run_meta_jsonSchema")' in text
+    assert "import { understanding_analysis_state_jsonSchema }" not in text
+    assert "artifactWriteSchemas" not in text

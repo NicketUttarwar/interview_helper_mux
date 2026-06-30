@@ -1,0 +1,1 @@
+import{o as r,a as o,r as a,s as e,u as s,n}from"./zod-vendor-CcGq3kAE.js";const t=r({playhead_ms:n().optional(),zoom:n().optional(),sequence_order:o(e()).optional(),segment_overrides:a(e(),s()).optional(),markers:o(a(e(),s())).optional()});export{t as segments_nle_edits_jsonSchema};

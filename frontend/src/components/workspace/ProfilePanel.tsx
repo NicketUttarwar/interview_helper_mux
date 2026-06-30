@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { validateArtifactWrite } from "../../schemas/validateArtifact";
+import { prefetchArtifactWriteSchema } from "../../schemas/generated";
 import { useApp } from "../../context/AppContext";
 import {
   collectAnalysisProfileFromForm,
@@ -74,6 +75,10 @@ export function ProfilePanel() {
     if (show && run?.profile_ready_for_review) void loadProfile();
   }, [show, run?.profile_ready_for_review, loadProfile]);
 
+  useEffect(() => {
+    if (show) prefetchArtifactWriteSchema("understanding/analysis_state.json");
+  }, [show]);
+
   if (!show) {
     return (
       <div className="panel profile-panel">
@@ -114,7 +119,7 @@ export function ProfilePanel() {
   const saveProfile = async () => {
     if (!run || saving || verifying) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
-    const v = validateArtifactWrite("understanding/analysis_state.json", data);
+    const v = await validateArtifactWrite("understanding/analysis_state.json", data);
     if (!v.ok) {
       showToast(`Profile schema errors: ${v.errors[0]}`, "error");
       return;
@@ -146,7 +151,7 @@ export function ProfilePanel() {
   const verifyProfile = async () => {
     if (!run || saving || verifying) return;
     const data = collectAnalysisProfileFromForm(form, baseState);
-    const v = validateArtifactWrite("understanding/analysis_state.json", data);
+    const v = await validateArtifactWrite("understanding/analysis_state.json", data);
     if (!v.ok) {
       showToast(`Profile schema errors: ${v.errors[0]}`, "error");
       return;

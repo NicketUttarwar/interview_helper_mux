@@ -87,6 +87,7 @@ import { JobProvider } from "./providers/JobProvider";
 import { RunProvider } from "./providers/RunProvider";
 import { SessionProvider } from "./providers/SessionProvider";
 import type { StageSubstep } from "../types";
+import { prefetchTab } from "../components/tabs/lazyTabs";
 
 interface AppContextValue {
   activeTab: AppTab;
@@ -435,6 +436,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setActiveTab = useCallback(
     (tab: AppTab) => {
+      prefetchTab(tab);
       setActiveTabState(tab);
       activeTabRef.current = tab;
       persistSessionUi();
@@ -1212,6 +1214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const stageId = opts.selectedStageId ?? selectedStageIdRef.current;
       const tab = opts.activeTab ?? "pipeline";
       const subTab = opts.pipelineSubTab ?? "stage";
+      prefetchTab(tab);
       setOpenRunLoading(true);
       setSessionLoadError(null);
       setRunId(id);
@@ -2295,10 +2298,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             activeStepIdRef.current = active.active_step_id;
             setActiveStepIdState(active.active_step_id);
           }
+          const restoreTab = active?.active_tab ?? "pipeline";
+          prefetchTab(restoreTab);
           await openRun(restoreRunId, {
             quiet: true,
             selectedStageId: stageId,
-            activeTab: active?.active_tab ?? "pipeline",
+            activeTab: restoreTab,
             pipelineSubTab: active?.pipeline_sub_tab ?? "stage",
             force: Boolean(runQuery),
           });

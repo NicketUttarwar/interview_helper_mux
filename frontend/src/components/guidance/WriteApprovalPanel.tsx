@@ -204,7 +204,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       if (!runId || !path) return;
       if (json) {
         const parsed = JSON.parse(value) as Record<string, unknown>;
-        const v = validateArtifactWrite(path, parsed);
+        const v = await validateArtifactWrite(path, parsed);
         if (!v.ok) throw new Error(`Validation: ${v.errors[0]}`);
         await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
           method: "PUT",
