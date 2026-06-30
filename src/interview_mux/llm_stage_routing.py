@@ -35,6 +35,7 @@ from interview_mux.llm_arbiter import run_llm_arbiter
 from interview_mux.llm_shard_plans import (
     DECOMPOSE_ELIGIBLE,
     build_deterministic_shard_plan,
+    should_proactive_decompose_boundary_detection,
     should_proactive_decompose_content_context,
     should_proactive_decompose_segment_classification,
 )
@@ -578,6 +579,64 @@ def run_llm_stage_with_routing(
             truncation_flags=["proactive_decompose_chars"],
         )
         if shard_plan:
+            with logged_step(f"{stage_key}/proactive_decompose", ctx=ctx, stage=stage_key):
+                volley, _local = prepare_volley_for_llm(
+                    ctx, stage_key, stage_input, profile="full", task_kind="primary"
+                )
+                envelope, shard_count = run_shards_then_collate(
+                    ctx,
+                    stage_key=stage_key,
+                    prompt_rel=prompt_rel,
+                    stage_input=stage_input,
+                    shard_plan=shard_plan,
+                    parent_attempt=attempt,
+                )
+                schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
+                arbiter_result = run_llm_arbiter(
+                    ctx=ctx,
+                    stage_key=stage_key,
+                    attempt_number=attempt,
+                    envelope=envelope,
+                    schema_errors=schema_errors,
+                    context_chars=sum(len(m.get("content", "")) for m in volley),
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    stage_expectations=_arbiter_stage_expectations(stage_key),
+                )
+                envelope["_routing_meta"] = {
+                    "routed_via_collate": True,
+                    "shard_plan_source": shard_plan_source,
+                    "proactive_decompose": True,
+                }
+                lint_errors = _post_arbiter_hardening(
+                    ctx,
+                    stage_key,
+                    envelope,
+                    arbiter_result,
+                    schema_errors,
+                    volley=volley,
+                    truncation_flags=truncation_flags_for_volley(volley),
+                    routed_via_collate=True,
+                    stage_input_obligation=obligation,
+                )
+                envelope.setdefault("_routing_meta", {})["deterministic_lint_errors"] = lint_errors
+            return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
+
+    if stage_key == "boundary_detection" and should_proactive_decompose_boundary_detection(
+        stage_input, ctx
+    ) and not force_decompose:
+        shard_plan, shard_plan_source = build_deterministic_shard_plan(
+            stage_key,
+            stage_input,
+            truncation_flags=["proactive_boundary_oversplit"],
+        )
+        if shard_plan:
+            log_adaptation_step(
+                ctx,
+                stage_key=stage_key,
+                message=f"Proactive boundary decompose ({len(shard_plan)} shards)",
+                action_id="boundary.proactive_decompose",
+                extra_detail={"shard_count": len(shard_plan)},
+            )
             with logged_step(f"{stage_key}/proactive_decompose", ctx=ctx, stage=stage_key):
                 volley, _local = prepare_volley_for_llm(
                     ctx, stage_key, stage_input, profile="full", task_kind="primary"

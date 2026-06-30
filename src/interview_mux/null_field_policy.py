@@ -43,6 +43,7 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "key_claims[].approx_time_range",
             "key_claims[].segment_ids",
             "key_claims[].evidence_segment_ids",
+            "jargon_glossary[].first_segment_id",
         }
     ),
     "content_brief_reanchor": frozenset(
@@ -53,6 +54,7 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "key_claims",
             "topic_relationships",
             "key_claims[].approx_time_range",
+            "jargon_glossary[].first_segment_id",
         }
     ),
     "boundary_detection": frozenset({"warnings", "notes"}),

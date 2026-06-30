@@ -135,7 +135,7 @@ def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
 
 def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    patch_merged_config(monkeypatch, _cfg(degraded=True))
+    patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_partial")
     ctx.mark_done("speaker_roles")
     ctx.write_json(
@@ -143,7 +143,8 @@ def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypa
         _minimal_speakers(_meta={"resilience": {"partial": True}}),
         skip_handoff=True,
     )
-    require_llm_stage_progress(ctx, "speaker_roles")
+    with pytest.raises(SystemExit, match="incomplete"):
+        require_llm_stage_progress(ctx, "speaker_roles")
 
 
 def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkeypatch):

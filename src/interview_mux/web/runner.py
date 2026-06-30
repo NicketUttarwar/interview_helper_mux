@@ -760,6 +760,19 @@ class JobRunner:
                 )
             except SystemExit as exc:
                 gate_msg = str(exc) or "Operator gate — action required."
+                from interview_mux.write_staging import read_gui_job
+
+                existing = read_gui_job(ctx) or {}
+                if str(existing.get("status")) == "needs_clarification":
+                    ctx.log(
+                        gate_msg,
+                        level="action",
+                        stage=label,
+                        detail="ITR clarification gate — resolve issues in the GUI.",
+                    )
+                    refresh_journey_meta(ctx)
+                    self._release_run_locks(run_id, dir_lock, lock)
+                    return
                 ctx.log(gate_msg, level="action", stage=label, detail="Complete the gate in the GUI to continue.")
                 refresh_journey_meta(ctx)
                 self._release_run_locks(run_id, dir_lock, lock)
@@ -1337,5 +1350,8 @@ class JobRunner:
             from interview_mux.analysis_memory import invalidate_sonic_context
 
             invalidate_sonic_context(ctx, reason=f"invalidate_from:{stage_id}", stage=stage_id)
+        from interview_mux.attempt_budget import reset_stage_attempt_budget
+
+        reset_stage_attempt_budget(ctx, stage_id)
 
 runner = JobRunner()

@@ -76,6 +76,7 @@ export function autopilotBlocksAutoRun(run: RunData): boolean {
   if (!blocking?.blocked) {
     if (run.job?.needs_stage_reuse) return true;
     if (run.job?.status === "gate" || run.job?.status === "needs_operator") return true;
+    if (run.job?.status === "needs_clarification") return true;
     if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
       return true;
     }

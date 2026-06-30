@@ -13,6 +13,8 @@ from interview_mux.journey_orchestrator import (
     NEXT_ACTION_UNDERSTAND_PROFILE,
     _active_operator_action,
     _active_substep,
+    _blocking,
+    _is_llm_gate_message,
     build_journey_snapshot,
 )
 from interview_mux.run_context import RunContext
@@ -293,6 +295,31 @@ def test_active_operator_action_running_job():
     assert action["stage_id"] == "transcribe"
     assert "uploading" in action["headline"].lower()
     assert action["modal_auto_open"] is False
+
+
+def test_is_llm_gate_message_recognizes_budget_exhaustion() -> None:
+    assert _is_llm_gate_message(
+        "Stage content_context: primary attempt budget exhausted (4/4)."
+    )
+    assert _is_llm_gate_message("LLM stage gate (content_context): blocked")
+    assert not _is_llm_gate_message("Awaiting your review")
+
+
+def test_blocking_budget_exhaustion_uses_llm_gate_reason(tmp_path, monkeypatch):
+    from run_fixtures import init_run_meta_for_test, isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
+    init_run_meta_for_test(ctx)
+    job = {
+        "status": "gate",
+        "stage": "content_context",
+        "message": "Stage content_context: primary attempt budget exhausted (4/4).",
+    }
+    blocking = _blocking(ctx, job=job, milestones={})
+    assert blocking["blocked"] is True
+    assert blocking["reason"] == "llm_gate"
+    assert blocking["stage_id"] == "content_context"
 
 
 def test_build_journey_snapshot_includes_active_operator_action(smoke_ctx):

@@ -54,18 +54,27 @@ def _artifacts(envelope: dict[str, Any]) -> dict[str, Any]:
     return envelope.get("artifacts") or {}
 
 
+def _row_confidence_values(rows: Any) -> list[float]:
+    out: list[float] = []
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        conf = row.get("confidence")
+        if isinstance(conf, (int, float)):
+            out.append(float(conf))
+    return out
+
+
 def _artifact_row_confidences(stage_key: str, envelope: dict[str, Any]) -> list[float]:
     """Per-row confidence scores from stage artifacts (when present)."""
     artifacts = _artifacts(envelope)
     if stage_key == "speaker_roles":
-        rows = artifacts.get("speakers") or []
-        out: list[float] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            conf = row.get("confidence")
-            if isinstance(conf, (int, float)):
-                out.append(float(conf))
+        return _row_confidence_values(artifacts.get("speakers"))
+    if stage_key in ("content_context", "content_brief_reanchor"):
+        out = _row_confidence_values(artifacts.get("topics"))
+        out.extend(_row_confidence_values(artifacts.get("key_claims")))
         return out
     return []
 
@@ -149,12 +158,9 @@ def _coverage_numerator(stage_key: str, artifacts: dict[str, Any]) -> set[str]:
 
 
 def _transcript_duration_ms(ctx: RunContext) -> int:
-    if not ctx.artifact_exists("transcript/full.json"):
-        return 0
-    doc = ctx.read_json("transcript/full.json")
-    if isinstance(doc, dict) and doc.get("duration_ms"):
-        return int(doc["duration_ms"])
-    return 0
+    from interview_mux.interview_duration_policy import transcript_duration_ms
+
+    return transcript_duration_ms(ctx)
 
 
 def _has_topic_evidence(topic: dict[str, Any]) -> bool:
@@ -179,9 +185,9 @@ def _has_claim_evidence(claim: dict[str, Any]) -> bool:
 
 
 def _content_context_long_interview_ms() -> int:
-    cfg = merged_config().get("analysis") or {}
-    thresholds = cfg.get("prompt_thresholds") or {}
-    return int(thresholds.get("content_context_topic_anchor_min_duration_ms", 600_000))
+    from interview_mux.interview_duration_policy import content_context_long_interview_ms
+
+    return content_context_long_interview_ms()
 
 
 def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
@@ -228,12 +234,10 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
     if not boundaries:
         errors.append("no boundaries")
         return errors
-    duration_ms = 0
-    if ctx.artifact_exists("transcript/full.json"):
-        doc = ctx.read_json("transcript/full.json")
-        if isinstance(doc, dict) and doc.get("duration_ms"):
-            duration_ms = int(doc["duration_ms"])
-    if duration_ms > 600_000 and len(boundaries) > 200:
+    duration_ms = _transcript_duration_ms(ctx)
+    from interview_mux.interview_duration_policy import boundary_micro_segment_min_ms
+
+    if duration_ms > boundary_micro_segment_min_ms() and len(boundaries) > 200:
         errors.append("micro-segment explosion (>200 boundaries on long interview)")
     for b in boundaries:
         if not isinstance(b, dict):

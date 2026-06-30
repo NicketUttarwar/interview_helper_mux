@@ -26,7 +26,7 @@ def _patch_flow_hardening(monkeypatch) -> None:
     )
 
 
-def test_flow_stage_budget_exhaustion_raises(tmp_path, monkeypatch):
+def test_flow_stage_budget_exhaustion_sets_gate(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "flow_budget")
     ensure_analysis_workspace(ctx)
@@ -35,15 +35,18 @@ def test_flow_stage_budget_exhaustion_raises(tmp_path, monkeypatch):
         record_primary_attempt(ctx, "full_master_ranking")
     monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
 
-    with pytest.raises(SystemExit, match="budget exhausted"):
-        analysis_stage.run_flow_llm_stage(
-            ctx,
-            "full_master_ranking",
-            "selection/full-master-ranking.system.txt",
-            lambda _c: {"segments": {"segments": []}},
-            lambda _c, _a: None,
-            max_iterations=1,
-        )
+    analysis_stage.run_flow_llm_stage(
+        ctx,
+        "full_master_ranking",
+        "selection/full-master-ranking.system.txt",
+        lambda _c: {"segments": {"segments": []}},
+        lambda _c, _a: None,
+        max_iterations=1,
+        auto_complete=False,
+    )
+    job = ctx.read_json("gui_job.json")
+    assert job["status"] == "gate"
+    assert "primary attempt budget exhausted" in str(job.get("message", "")).lower()
 
 
 def test_flow_stage_retries_on_partial(tmp_path, monkeypatch):
@@ -54,7 +57,7 @@ def test_flow_stage_retries_on_partial(tmp_path, monkeypatch):
     monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
     calls: list[int] = []
 
-    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1):
+    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1, **kwargs):
         calls.append(attempt)
         status = "partial" if attempt == 1 else "complete"
         envelope = {
@@ -91,7 +94,7 @@ def test_flow_stage_stops_on_unchanged_signature(tmp_path, monkeypatch):
     monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])
     calls: list[int] = []
 
-    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1):
+    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1, **kwargs):
         calls.append(attempt)
         return (
             {"status": "partial", "artifacts": {}, "needs": [], "_routing_meta": {}},
@@ -133,7 +136,7 @@ def test_flow_stage_retries_on_lint_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr("interview_mux.llm_stage_routing.deterministic_lint", fake_lint)
 
-    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1):
+    def fake_routing(ctx_, stage_key, prompt_rel, stage_input, *, attempt=1, **kwargs):
         calls.append(attempt)
         envelope = {
             "status": "complete",

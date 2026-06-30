@@ -271,6 +271,9 @@ def discard_stage_writes(ctx: RunContext, stage_id: str) -> None:
         if root.is_dir():
             shutil.rmtree(root, ignore_errors=True)
     clear_pending_approval(ctx, stage_id)
+    from interview_mux.attempt_budget import reset_stage_attempt_budget
+
+    reset_stage_attempt_budget(ctx, stage_id)
 
 
 def read_pending_content(ctx: RunContext, stage_id: str, rel: str) -> bytes:
@@ -354,6 +357,17 @@ def read_gui_job(ctx: RunContext) -> dict[str, Any] | None:
     return job if isinstance(job, dict) else None
 
 
+def set_llm_gate(ctx: RunContext, stage_id: str, *, message: str) -> None:
+    """Record an unrecoverable LLM gate on gui_job (GUI runner / write-approval flows)."""
+    job = read_gui_job(ctx) or {}
+    if not isinstance(job, dict):
+        job = {}
+    job["status"] = "gate"
+    job["stage"] = stage_id
+    job["message"] = message
+    ctx.write_json("gui_job.json", job, skip_handoff=True)
+
+
 def gate_blocked_stage(ctx: RunContext) -> str | None:
     """Stage id when gui_job is paused on a gate for an incomplete stage."""
     job = read_gui_job(ctx)
@@ -365,16 +379,23 @@ def gate_blocked_stage(ctx: RunContext) -> str | None:
     return stage_id
 
 
-def is_stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
-    if gate_blocked_stage(ctx) == stage_id:
-        return True
-    job = read_gui_job(ctx) or {}
-    if str(job.get("status")) == "needs_clarification" and str(job.get("stage") or "") == stage_id:
-        from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+def is_llm_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
+    return gate_blocked_stage(ctx) == stage_id
 
-        if triage_enabled() and blocking_issues_remaining(ctx, stage_id) > 0:
-            return True
-    return False
+
+def is_itr_clarification_blocked(ctx: RunContext, stage_id: str) -> bool:
+    job = read_gui_job(ctx) or {}
+    if str(job.get("status")) != "needs_clarification":
+        return False
+    if str(job.get("stage") or "") != stage_id:
+        return False
+    from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+
+    return triage_enabled() and blocking_issues_remaining(ctx, stage_id) > 0
+
+
+def is_stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
+    return is_llm_gate_blocked(ctx, stage_id) or is_itr_clarification_blocked(ctx, stage_id)
 
 
 def write_approval_allowed(ctx: RunContext, stage_id: str) -> bool:

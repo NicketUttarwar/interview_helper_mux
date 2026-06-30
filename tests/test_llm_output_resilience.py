@@ -62,16 +62,23 @@ def _resilience_cfg() -> dict:
     }
 
 
-def test_sanitize_strips_unanchored_claims():
+def test_sanitize_strips_unanchored_claims(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "sanitize_claims")
     artifacts = {
         "thesis": "Main point",
         "topics": [{"name": "Tech", "approx_time_range": "0:00-2:00"}],
         "key_claims": [
-            {"id": "c1", "claim": "Grounded", "approx_time_range": "0:00-1:00"},
+            {
+                "id": "c1",
+                "claim": "Grounded",
+                "approx_time_range": "0:00-1:00",
+                "segment_ids": ["seg_001"],
+            },
             {"id": "c2", "claim": "No anchor"},
         ],
     }
     sanitized, report = sanitize_artifacts(
+        ctx,
         "content_context",
         artifacts,
         lint_errors=["key_claim without evidence anchor"],
@@ -82,7 +89,8 @@ def test_sanitize_strips_unanchored_claims():
     assert report.stripped[0]["path"] == "key_claims[1]"
 
 
-def test_resolve_persist_plan_partial_on_lint():
+def test_resolve_persist_plan_partial_on_lint(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "persist_partial")
     envelope = {
         "status": "complete",
         "artifacts": {
@@ -98,6 +106,7 @@ def test_resolve_persist_plan_partial_on_lint():
         },
     }
     plan = resolve_persist_plan(
+        ctx,
         "content_context",
         envelope,
         {"verdict": "accept"},
@@ -106,12 +115,13 @@ def test_resolve_persist_plan_partial_on_lint():
         cfg=_resilience_cfg(),
     )
     assert plan.action == "partial"
-    assert plan.merge_memory is True
+    assert plan.merge_memory is False
     assert "thesis" in plan.artifacts
     assert len(plan.artifacts.get("key_claims") or []) == 0
 
 
-def test_resolve_persist_plan_full_when_clean():
+def test_resolve_persist_plan_full_when_clean(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "persist_full")
     envelope = {
         "status": "complete",
         "artifacts": {
@@ -120,6 +130,7 @@ def test_resolve_persist_plan_full_when_clean():
         },
     }
     plan = resolve_persist_plan(
+        ctx,
         "content_context",
         envelope,
         {"verdict": "accept"},
@@ -131,7 +142,7 @@ def test_resolve_persist_plan_full_when_clean():
     assert plan.merge_memory is True
 
 
-def test_upstream_artifact_acceptable_partial_with_mass(tmp_path, monkeypatch):
+def test_upstream_artifact_acceptable_requires_complete(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())
     ctx = isolated_run_ctx(tmp_path, "res_upstream")
@@ -140,16 +151,11 @@ def test_upstream_artifact_acceptable_partial_with_mass(tmp_path, monkeypatch):
         _minimal_content_brief(_meta={"resilience": {"partial": True}}),
         skip_handoff=True,
     )
-    assert upstream_artifact_acceptable(
+    assert not upstream_artifact_acceptable(
         "content_context",
         "understanding/content_brief.json",
         ctx,
     )
-    assert artifact_mass_score(
-        "content_context",
-        {"thesis": "Partial thesis"},
-        _resilience_cfg(),
-    ) > 0
 
 
 def test_apply_resilience_critical_null_blocks(tmp_path, monkeypatch):
@@ -223,10 +229,10 @@ def test_finalize_stage_attempt_partial_persist(tmp_path, monkeypatch):
     assert (brief.get("_meta") or {}).get("resilience", {}).get("partial") is True
 
 
-def test_complete_llm_stage_or_halt_degraded_continue(tmp_path, monkeypatch):
+def test_complete_llm_stage_or_halt_strict_blocks_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())
-    ctx = isolated_run_ctx(tmp_path, "res_degraded")
+    ctx = isolated_run_ctx(tmp_path, "res_strict")
     ctx.write_json(
         "understanding/content_brief.json",
         _minimal_content_brief(
@@ -243,18 +249,18 @@ def test_complete_llm_stage_or_halt_degraded_continue(tmp_path, monkeypatch):
             "resilience_report": {"summary": "stripped claims", "stripped": [], "generated": []},
         },
     }
-    ok = complete_llm_stage_or_halt(
-        ctx,
-        "content_context",
-        envelope,
-        schema_errors=["minor"],
-        cfg=_resilience_cfg(),
-    )
-    assert ok is True
-    assert ctx.is_done("content_context")
+    with pytest.raises(SystemExit, match="LLM stage gate"):
+        complete_llm_stage_or_halt(
+            ctx,
+            "content_context",
+            envelope,
+            schema_errors=["minor"],
+            cfg=_resilience_cfg(),
+        )
+    assert not ctx.is_done("content_context")
 
 
-def test_require_llm_stage_progress_accepts_partial_upstream(tmp_path, monkeypatch):
+def test_require_llm_stage_progress_rejects_partial_upstream(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())
     ctx = isolated_run_ctx(tmp_path, "res_upstream_prog")
@@ -264,7 +270,8 @@ def test_require_llm_stage_progress_accepts_partial_upstream(tmp_path, monkeypat
         _minimal_speakers(_meta={"resilience": {"partial": True}}),
         skip_handoff=True,
     )
-    require_llm_stage_progress(ctx, "speaker_roles")
+    with pytest.raises(SystemExit, match="Prerequisite artifact"):
+        require_llm_stage_progress(ctx, "speaker_roles")
 
 
 def test_require_llm_stage_progress_rejects_empty_partial(tmp_path, monkeypatch):
@@ -284,7 +291,7 @@ def test_require_llm_stage_progress_rejects_empty_partial(tmp_path, monkeypatch)
         require_llm_stage_progress(ctx, "speaker_roles")
 
 
-def test_llm_stage_progress_ok_degraded_partial(tmp_path, monkeypatch):
+def test_llm_stage_progress_ok_strict_blocks_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())
     ctx = isolated_run_ctx(tmp_path, "res_progress")
@@ -298,7 +305,7 @@ def test_llm_stage_progress_ok_degraded_partial(tmp_path, monkeypatch):
         "needs": [],
         "_routing_meta": {"persist_action": "partial"},
     }
-    assert llm_stage_progress_ok(
+    assert not llm_stage_progress_ok(
         ctx,
         "content_context",
         envelope,

@@ -3,8 +3,10 @@ from __future__ import annotations
 from interview_mux.attempt_budget import (
     check_arbiter_budget,
     max_arbiter_rejects,
+    primary_attempt_count,
     record_arbiter_reject,
     record_primary_attempt,
+    reset_stage_attempt_budget,
     stuck_count,
 )
 from run_fixtures import isolated_run_ctx, patch_merged_config
@@ -16,6 +18,17 @@ def test_primary_attempt_count_increments(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "budget")
     assert record_primary_attempt(ctx, "content_context") == 1
     assert record_primary_attempt(ctx, "content_context") == 2
+
+
+def test_reset_stage_attempt_budget_clears_counters(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx = isolated_run_ctx(tmp_path, "budget_reset")
+    record_primary_attempt(ctx, "content_context")
+    record_primary_attempt(ctx, "content_context")
+    assert primary_attempt_count(ctx, "content_context") == 2
+    reset_stage_attempt_budget(ctx, "content_context")
+    assert primary_attempt_count(ctx, "content_context") == 0
 
 
 def test_arbiter_budget_exhaustion(tmp_path, monkeypatch):

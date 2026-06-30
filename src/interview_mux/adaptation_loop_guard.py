@@ -7,12 +7,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from interview_mux.config import merged_config
+import interview_mux.config as config
 from interview_mux.run_context import RunContext
 
 
-def adaptation_loop_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    analysis = (cfg or merged_config()).get("analysis") or {}
+def adaptation_loop_cfg(cfg: dict[str, Any] | None = None, *, ctx: RunContext | None = None) -> dict[str, Any]:
+    analysis = (cfg or config.merged_config()).get("analysis") or {}
     defaults = {
         "max_decompose_per_stage_cycle": 1,
         "max_per_segment_shard_calls": 24,
@@ -21,7 +21,11 @@ def adaptation_loop_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "halt_on_upstream_timeline_lint": True,
     }
     raw = analysis.get("adaptation_loop") or {}
-    return {**defaults, **raw}
+    merged = {**defaults, **raw}
+    from interview_mux.interview_duration_policy import max_per_segment_shard_calls
+
+    merged["max_per_segment_shard_calls"] = max_per_segment_shard_calls(ctx, cfg)
+    return merged
 
 
 def _orch(ctx: RunContext) -> dict[str, Any]:
@@ -59,7 +63,7 @@ class AdaptationLoopGuard:
         raw = orch.get(key) or {}
         if not isinstance(raw, dict):
             raw = {}
-        guard = cls(stage_key=stage_key)
+        guard = cls(stage_key=stage_key, cfg=adaptation_loop_cfg(ctx=ctx))
         guard.decompose_used = bool(raw.get("decompose_used"))
         guard.per_segment_shards_fired = int(raw.get("per_segment_shards_fired") or 0)
         guard.micro_gap_calls = int(raw.get("micro_gap_calls") or 0)

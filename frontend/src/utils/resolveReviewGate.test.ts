@@ -21,7 +21,7 @@ describe("resolveReviewGateSpec", () => {
     });
   });
 
-  it("returns write_approval when stage awaits save", () => {
+  it("hides write_approval banner when autopilot will auto-save", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [stage("ingest", "awaiting_write_approval")],
@@ -31,7 +31,22 @@ describe("resolveReviewGateSpec", () => {
         pending_write_paths: ["ingest/a.json", "ingest/b.wav"],
       },
     };
-    expect(resolveReviewGateSpec(run, run.stages[0], false)).toEqual({
+    expect(resolveReviewGateSpec(run, run.stages[0], false, null)).toBeNull();
+  });
+
+  it("returns write_approval when autopilot disabled", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [stage("ingest", "awaiting_write_approval")],
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+        pending_write_paths: ["ingest/a.json", "ingest/b.wav"],
+      },
+    };
+    expect(resolveReviewGateSpec(run, run.stages[0], false, {
+      journey_ui: { auto_advance_pipeline: false },
+    })).toEqual({
       kind: "write_approval",
       pathCount: 2,
     });

@@ -26,7 +26,7 @@ _DETAIL_CAP = 2000
 def resilience_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     base = (cfg or merged_config()).get("analysis") or {}
     defaults = {
-        "progression_mode": "degraded_continue",
+        "progression_mode": "strict",
         "partial_persist_enabled": True,
         "record_stripped_fields": True,
         "min_artifact_mass": {},
@@ -37,7 +37,7 @@ def resilience_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def progression_mode(cfg: dict[str, Any] | None = None) -> str:
-    return str(resilience_cfg(cfg).get("progression_mode") or "degraded_continue")
+    return str(resilience_cfg(cfg).get("progression_mode") or "strict")
 
 
 def partial_persist_enabled(cfg: dict[str, Any] | None = None) -> bool:
@@ -45,7 +45,10 @@ def partial_persist_enabled(cfg: dict[str, Any] | None = None) -> bool:
 
 
 def is_degraded_continue(cfg: dict[str, Any] | None = None) -> bool:
-    return progression_mode(cfg) == "degraded_continue"
+    """Deprecated — strict progression is always enforced."""
+    if progression_mode(cfg) == "degraded_continue":
+        return False
+    return False
 
 
 def spend_stages_strict(cfg: dict[str, Any] | None = None) -> frozenset[str]:
@@ -63,20 +66,20 @@ def upstream_artifact_acceptable(
     ctx: Any,
     cfg: dict[str, Any] | None = None,
 ) -> bool:
-    """True when upstream producer artifact is complete or degraded-partial with mass."""
+    """True when upstream producer artifact is complete (strict progression)."""
     from interview_mux.artifact_completeness import artifact_status
 
-    cfg = cfg or merged_config()
-    status = artifact_status(rel_path, ctx)
-    if status == "complete":
-        return True
-    if not is_degraded_continue(cfg) or status != "partial":
+    if artifact_status(rel_path, ctx) != "complete":
         return False
-    mass_req = (resilience_cfg(cfg).get("min_artifact_mass") or {}).get(stage_key)
-    if mass_req:
-        raw = ctx.read_json(rel_path)
-        data = raw if isinstance(raw, dict) else {}
-        return artifact_mass_score(stage_key, data, cfg) > 0
+    try:
+        doc = ctx.read_json(rel_path)
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    resilience = (doc.get("_meta") or {}).get("resilience") or {}
+    if isinstance(resilience, dict) and resilience.get("partial"):
+        return False
     return True
 
 
@@ -165,6 +168,7 @@ def artifact_mass_score(stage_key: str, artifacts: dict[str, Any], cfg: dict[str
 
 
 def sanitize_artifacts(
+    ctx: Any,
     stage_key: str,
     artifacts: dict[str, Any],
     *,
@@ -262,6 +266,7 @@ def _block_partial_segment_classification(lint_errors: list[str], cfg: dict[str,
 
 
 def resolve_persist_plan(
+    ctx: Any,
     stage_key: str,
     envelope: dict[str, Any],
     arbiter_result: dict[str, Any] | None,
@@ -304,6 +309,7 @@ def resolve_persist_plan(
         return PersistPlan("none", {}, empty_report)
 
     sanitized, report = sanitize_artifacts(
+        ctx,
         stage_key,
         artifacts,
         lint_errors=lint_errors,
@@ -324,8 +330,7 @@ def resolve_persist_plan(
         report.summary = "Insufficient artifact mass after sanitize"
         return PersistPlan("none", {}, report)
 
-    merge = is_degraded_continue(cfg) and report.artifact_mass_score > 0
-    return PersistPlan("partial", sanitized, report, merge_memory=merge)
+    return PersistPlan("partial", sanitized, report, merge_memory=False)
 
 
 def write_resilience_sidecar(
@@ -477,6 +482,7 @@ def apply_resilience_and_persist(
             return PersistPlan("none", {}, empty)
 
     plan = resolve_persist_plan(
+        ctx,
         stage_key,
         envelope,
         arbiter_result,

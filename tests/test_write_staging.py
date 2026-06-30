@@ -16,6 +16,7 @@ from interview_mux.write_staging import (
     run_wrapped_stage,
     write_approval_enabled,
 )
+from run_fixtures import patch_merged_config
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -238,6 +239,20 @@ def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     exit_stage_staging()
     discard_stage_writes(ctx, "ingest")
     assert not list_pending_paths(ctx, "ingest")
+
+
+def test_discard_resets_attempt_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.attempt_budget import primary_attempt_count, record_primary_attempt
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    enter_stage_staging("content_context")
+    record_primary_attempt(ctx, "content_context")
+    record_primary_attempt(ctx, "content_context")
+    exit_stage_staging()
+    assert primary_attempt_count(ctx, "content_context") == 2
+    discard_stage_writes(ctx, "content_context")
+    assert primary_attempt_count(ctx, "content_context") == 0
 
 
 def test_gate_blocks_write_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

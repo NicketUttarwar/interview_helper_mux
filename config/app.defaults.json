@@ -298,6 +298,17 @@
       "max_same_adaptation_signature": 1,
       "halt_on_upstream_timeline_lint": true
     },
+    "duration_policy": {
+      "short_max_ms": 900000,
+      "medium_max_ms": 3600000,
+      "very_long_min_ms": 7200000,
+      "primary_attempts_base": 6,
+      "primary_attempts_per_30min_above_short": 1,
+      "primary_attempts_cap": 16,
+      "shard_calls_base": 24,
+      "shard_calls_very_long": 48,
+      "boundary_micro_segment_min_ms": 900000
+    },
     "context_index": {
       "enabled": true,
       "sync_plans_on_ensure": true,
@@ -312,7 +323,7 @@
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,
       "max_highlight_clips": 5,
-      "content_context_topic_anchor_min_duration_ms": 600000
+      "content_context_topic_anchor_min_duration_ms": 900000
     },
     "flow_hardening": {
       "enabled": true,
@@ -323,7 +334,7 @@
       "investigation_dedupe": true,
       "shard_min_success_ratio": 0.75,
       "inner_retry_require_delta": true,
-      "max_primary_attempts_per_stage": 4,
+      "max_primary_attempts_per_stage": 8,
       "max_arbiter_rejects_per_stage": 3,
       "max_investigation_reruns_per_kind": 2,
       "stuck_signature_threshold": 2,
@@ -339,7 +350,7 @@
       "block_mix_without_sfx_when_enabled": true
     },
     "llm_resilience": {
-      "progression_mode": "degraded_continue",
+      "progression_mode": "strict",
       "partial_persist_enabled": true,
       "record_stripped_fields": true,
       "min_artifact_mass": {

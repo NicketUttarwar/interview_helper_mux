@@ -228,19 +228,42 @@ def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[
 
     if stage_key == "boundary_detection" and shard.get("start_ms") is not None:
         tr = copied.get("transcript")
-        if isinstance(tr, dict) and tr.get("items"):
-            start_ms = shard.get("start_ms", 0)
-            end_ms = shard.get("end_ms", 0)
-            copied["transcript"] = {
-                **tr,
-                "items": [
+        start_ms = int(shard.get("start_ms", 0))
+        end_ms = int(shard.get("end_ms", 0))
+        if isinstance(tr, dict):
+            sliced = dict(tr)
+            if tr.get("items"):
+                sliced["items"] = [
                     it
                     for it in tr["items"]
                     if isinstance(it, dict)
-                    and it.get("end_ms", 0) >= start_ms
-                    and it.get("start_ms", 0) <= end_ms
-                ],
-            }
+                    and int(it.get("end_ms", 0)) >= start_ms
+                    and int(it.get("start_ms", 0)) <= end_ms
+                ]
+            if tr.get("words"):
+                sliced["words"] = [
+                    w
+                    for w in tr["words"]
+                    if isinstance(w, dict)
+                    and int(w.get("end_ms", 0)) >= start_ms
+                    and int(w.get("start_ms", 0)) <= end_ms
+                ]
+            if isinstance(tr.get("text"), str) and sliced.get("words"):
+                sliced["text"] = " ".join(
+                    str(w.get("text") or "") for w in sliced["words"] if isinstance(w, dict)
+                )
+            spine = copied.get("interview_spine")
+            if isinstance(spine, dict) and spine.get("boundary_events"):
+                sliced_spine = dict(spine)
+                sliced_spine["boundary_events"] = [
+                    ev
+                    for ev in spine["boundary_events"]
+                    if isinstance(ev, dict)
+                    and int(ev.get("start_ms") or ev.get("time_ms") or 0) <= end_ms
+                    and int(ev.get("end_ms") or ev.get("start_ms") or ev.get("time_ms") or 0) >= start_ms
+                ]
+                copied["interview_spine"] = sliced_spine
+            copied["transcript"] = sliced
         return copied
 
     if not segment_ids:

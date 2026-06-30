@@ -495,6 +495,15 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
       return (
         <ArtifactClarificationGateContent stage={stage} pathCount={spec.pathCount ?? 0} />
       );
+    case "llm_gate":
+      return (
+        <ReviewGateBannerShell
+          title="LLM quality gate"
+          lead="The automated quality gate rejected this stage. Re-run or discard the staged attempt."
+          ariaLabel="LLM gate"
+          testId="llm-gate-banner"
+        />
+      );
     case "handoff":
       return <HandoffGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
     case "sfx_prompt":

@@ -815,6 +815,9 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         vf = raw.get("value_features_summary") or compact_value_features_summary_from_raw(raw)
         if vf:
             out["value_features_summary"] = vf
+        for key in ("itr_repair_hint", "lint_retry_hint", "lint_feedback"):
+            if raw.get(key):
+                out[key] = raw.get(key)
         return out
     if stage_key == "segment_classification":
         from interview_mux.classification_obligation import classification_context_cfg

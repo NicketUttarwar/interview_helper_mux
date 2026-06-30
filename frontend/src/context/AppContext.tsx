@@ -69,6 +69,7 @@ import {
   canAutoRunStage,
   isPipelineAutopilotEnabled,
 } from "../utils/pipelineAutopilot";
+import { resolveAutopilotCheckpoint } from "../utils/autopilotResolution";
 import {
   focusNextRunnableStageWorkbench,
   handleReuseFromAssetsForStage,
@@ -225,6 +226,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const approveInFlightRef = useRef(false);
   const autopilotInFlightRef = useRef(false);
   const acknowledgeHandoffRef = useRef<() => Promise<void>>(async () => {});
+  const fixAllAndContinueStageRef = useRef<(stageId: string) => Promise<boolean>>(async () => false);
+  const approveWriteAndContinueRef = useRef<(stageId?: string) => Promise<boolean>>(async () => false);
   const autoContinuePipelineRef = useRef<(completedStageId?: string | null) => Promise<boolean>>(
     async () => false,
   );
@@ -795,6 +798,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void syncPipelineStageFocusRef.current();
   }, [pipelineFocusKey, jobRunning, run]);
 
+  useEffect(() => {
+    if (!run || activeTabRef.current !== "pipeline" || jobRunning) return;
+    if (autopilotInFlightRef.current || actionBusyRef.current || approveInFlightRef.current) {
+      return;
+    }
+    if (!isPipelineAutopilotEnabled(config)) return;
+    const checkpoint = resolveAutopilotCheckpoint(run, config);
+    if (!checkpoint) return;
+    void autoContinuePipelineRef.current(checkpoint.stageId);
+  }, [pipelineFocusKey, jobRunning, run, config]);
+
   const syncJobRunning = useCallback(async (rid: string) => {
     try {
       const job = await api<JobState>(`/api/runs/${rid}/job`);
@@ -881,30 +895,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 polled.status === "gate" ||
                 polled.status === "needs_operator"
               ) {
-                showToast(
-                  "Paused for your review — complete the checkpoint to continue.",
-                  "info",
-                );
-                userDismissedActionRef.current = false;
-                lastAutoOpenKeyRef.current = null;
-                if (activeTabRef.current === "pipeline") {
-                  setActionModalOpen(true);
+                if (
+                  isPipelineAutopilotEnabled(config) &&
+                  (polled.can_fix_all || polled.bridge_eligible)
+                ) {
+                  void autoContinuePipelineRef.current(polled.stage ?? null);
+                } else {
+                  showToast(
+                    "Paused for your review — complete the checkpoint to continue.",
+                    "info",
+                  );
+                  userDismissedActionRef.current = false;
+                  lastAutoOpenKeyRef.current = null;
+                  if (activeTabRef.current === "pipeline") {
+                    setActionModalOpen(true);
+                  }
                 }
+              } else if (polled.status === "needs_clarification") {
+                void autoContinuePipelineRef.current(polled.stage ?? null);
               }
               if (
                 polled.status === "awaiting_write_approval" ||
                 polled.awaiting_write_approval
               ) {
-                showToast("Review staged outputs before continuing.", "info");
-                const sid = polled.pending_write_stage || polled.stage;
-                if (sid) {
-                  void selectStage(sid);
-                  expandStage(sid);
-                }
-                userDismissedActionRef.current = false;
-                lastAutoOpenKeyRef.current = null;
-                if (activeTabRef.current === "pipeline") {
-                  setActionModalOpen(true);
+                if (isPipelineAutopilotEnabled(config)) {
+                  void autoContinuePipelineRef.current(
+                    polled.pending_write_stage || polled.stage || null,
+                  );
+                } else {
+                  showToast("Review staged outputs before continuing.", "info");
+                  const sid = polled.pending_write_stage || polled.stage;
+                  if (sid) {
+                    void selectStage(sid);
+                    expandStage(sid);
+                  }
+                  userDismissedActionRef.current = false;
+                  lastAutoOpenKeyRef.current = null;
+                  if (activeTabRef.current === "pipeline") {
+                    setActionModalOpen(true);
+                  }
                 }
               } else if (
                 polled.status !== "gate" &&
@@ -949,6 +978,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     focusPendingStage,
     showToast,
     pollLog,
+    config,
+    selectStage,
+    expandStage,
   ]);
 
   const markJobStarting = useCallback(
@@ -1523,6 +1555,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       config,
       autoRun: true,
       acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
+      fixAllAndContinueStage: (stageId: string) => fixAllAndContinueStageRef.current(stageId),
+      approveWriteAndContinue: (stageId?: string) => approveWriteAndContinueRef.current(stageId),
     });
     const refreshed = runId ? await refreshRun() : null;
     await syncPipelineStageFocusRef.current(refreshed);
@@ -1671,6 +1705,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           config,
           autoRun: true,
           acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
+          fixAllAndContinueStage: (stageId: string) => fixAllAndContinueStageRef.current(stageId),
+          approveWriteAndContinue: (stageId?: string) => approveWriteAndContinueRef.current(stageId),
         };
         return await tryAutoContinuePipeline({
           ...opts,
@@ -1883,6 +1919,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           config,
           autoRun: true,
           acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
+          fixAllAndContinueStage: (stageId: string) => fixAllAndContinueStageRef.current(stageId),
+          approveWriteAndContinue: (stageId?: string) => approveWriteAndContinueRef.current(stageId),
         });
         await refreshRun();
         await pollLog(true);
@@ -2013,6 +2051,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [runId, refreshRun, showToast, approveWriteAndContinue, startJobPoll],
   );
+
+  useEffect(() => {
+    fixAllAndContinueStageRef.current = fixAllAndContinueStage;
+  }, [fixAllAndContinueStage]);
+
+  useEffect(() => {
+    approveWriteAndContinueRef.current = approveWriteAndContinue;
+  }, [approveWriteAndContinue]);
 
   const discardPendingWrites = useCallback(
     async (stageId: string) => {

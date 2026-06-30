@@ -23,6 +23,9 @@ from interview_mux.llm_stage_routing import (
     run_llm_stage_with_routing,
 )
 from interview_mux.lint_adaptation import format_lint_feedback, itr_repair_hints, lint_retry_strategy
+from interview_mux.lint_repair_bridge import RepairOutcome, try_staged_structural_repair
+from interview_mux.adaptation_itr_bridge import BridgeOutcome, bridge_adaptation_to_itr
+from interview_mux.boundary_observability import oversplit_risk_from_hints
 from interview_mux.adaptation_loop_guard import AdaptationLoopGuard
 from interview_mux.adaptive_context import plan_context
 from interview_mux.operator_recovery import log_adaptation_step, log_operator_halt
@@ -95,6 +98,8 @@ def _run_llm_stage_loop(
     prev_signature: tuple[Any, ...] | None = None
     pending_retry: dict[str, Any] = {}
     lint_history: list[str] = []
+    strategy_keys: list[str] = []
+    itr_bridge_break = False
     guard = AdaptationLoopGuard.load(ctx, stage_key)
 
     for attempt in range(1, limit + 1):
@@ -102,10 +107,45 @@ def _run_llm_stage_loop(
             budget_msg = check_primary_budget(ctx, stage_key)
             if budget_msg:
                 ctx.log(budget_msg, level="action", stage=stage_key)
-                raise SystemExit(budget_msg)
+                bridge = bridge_adaptation_to_itr(
+                    ctx,
+                    stage_key,
+                    strategy_key="primary_budget_exhausted",
+                    lint_errors=lint_history[-4:] if lint_history else None,
+                    halt_kind="primary_budget_exhausted",
+                )
+                if bridge.outcome == BridgeOutcome.CLEARED:
+                    last_envelope = last_envelope or {"status": "complete", "_routing_meta": {}}
+                    last_envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
+                if bridge.outcome == BridgeOutcome.PARTIAL:
+                    itr_bridge_break = True
+                    break
+                log_operator_halt(
+                    ctx,
+                    stage_key=stage_key,
+                    halt_kind="primary_budget_exhausted",
+                    message=budget_msg,
+                    recovery_from_stage=stage_key,
+                    action_id="llm.budget.primary_exhausted",
+                )
+                from interview_mux.write_staging import set_llm_gate
+
+                set_llm_gate(
+                    ctx,
+                    stage_key,
+                    message=f"LLM stage gate ({stage_key}): {budget_msg}",
+                )
+                itr_bridge_break = True
+                break
             stage_input = attach_gap_fill_to_input(ctx, stage_key, build_stage_input(ctx))
             if pending_retry.get("itr_repair_hint"):
+                stage_input = dict(stage_input)
                 stage_input["itr_repair_hint"] = pending_retry["itr_repair_hint"]
+            if pending_retry.get("lint_feedback"):
+                stage_input = dict(stage_input)
+                stage_input["lint_feedback"] = pending_retry["lint_feedback"]
             if pending_retry.get("enrich_input"):
                 stage_input = dict(stage_input)
                 stage_input["lint_retry_hint"] = (
@@ -139,53 +179,39 @@ def _run_llm_stage_loop(
             )
             if context_plan.exhausted:
                 recovery_stage = context_plan.upstream_rerun or stage_key
-                from interview_mux.artifact_issue_triage import (
-                    run_triage_pipeline,
-                    set_clarification_gate,
-                    triage_enabled,
+                bridge = bridge_adaptation_to_itr(
+                    ctx,
+                    stage_key,
+                    strategy_key=str(context_plan.strategy_key or "exhausted"),
+                    lint_errors=lint_history[-4:] if lint_history else None,
+                    halt_kind="adaptation_exhausted",
                 )
-                from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
-
-                rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
-                if (
-                    triage_enabled()
-                    and rel
-                    and ctx.artifact_exists(rel)
-                    and context_plan.upstream_rerun
-                ):
-                    result = run_triage_pipeline(ctx, stage_key, staged=False)
-                    if result.open_blocking > 0 or not result.revalidation_ok:
-                        set_clarification_gate(
-                            ctx,
-                            stage_key,
-                            message=(
-                                f"{stage_key}: adaptation exhausted — "
-                                f"re-run {recovery_stage} or resolve in clarification panel."
-                            ),
-                        )
-                        ctx.log(
-                            f"Stage {stage_key}: adaptation exhausted — ITR clarification gate set "
-                            f"(upstream={recovery_stage}).",
-                            level="warning",
-                            stage=stage_key,
-                        )
-                        break
+                if bridge.outcome == BridgeOutcome.CLEARED:
+                    last_envelope = last_envelope or {"status": "complete", "_routing_meta": {}}
+                    last_envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
+                if bridge.outcome == BridgeOutcome.PARTIAL:
+                    itr_bridge_break = True
+                    break
+                halt_msg = (
+                    f"Stage {stage_key}: adaptation exhausted ({context_plan.reason}). "
+                    f"Re-run --from-stage {recovery_stage}."
+                )
                 log_operator_halt(
                     ctx,
                     stage_key=stage_key,
                     halt_kind="adaptation_exhausted",
-                    message=(
-                        f"Stage {stage_key}: adaptation budget exhausted — "
-                        f"{context_plan.reason}"
-                    ),
+                    message=halt_msg,
                     recovery_from_stage=recovery_stage,
                     action_id="llm.adaptation.exhausted",
                     extra_detail={"context_plan": context_plan.to_dict()},
                 )
-                raise SystemExit(
-                    f"Stage {stage_key}: adaptation exhausted ({context_plan.reason}). "
-                    f"Re-run --from-stage {recovery_stage}."
-                )
+                from interview_mux.write_staging import set_llm_gate
+
+                set_llm_gate(ctx, stage_key, message=f"LLM stage gate ({stage_key}): {bridge.message or halt_msg}")
+                itr_bridge_break = True
+                break
             force_decompose = bool(
                 pending_retry.get("force_decompose") or context_plan.force_decompose
             )
@@ -241,9 +267,30 @@ def _run_llm_stage_loop(
         lint_errors = routing.get("deterministic_lint_errors") or []
         lint_history.extend(lint_errors)
         pending_retry = {}
-        itr_hint = itr_repair_hints(schema_errors, lint_errors)
+        structural_partial = False
         if lint_errors:
-            strategy = lint_retry_strategy(lint_errors, stage_key)
+            repair = try_staged_structural_repair(ctx, stage_key, lint_errors)
+            if repair.outcome == RepairOutcome.REPAIRED_OK:
+                envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                lint_errors = []
+                routing["deterministic_lint_errors"] = []
+                routing["structural_repair_cleared"] = True
+            elif repair.outcome == RepairOutcome.REPAIRED_PARTIAL:
+                lint_errors = list(repair.remaining_lint)
+                routing["deterministic_lint_errors"] = lint_errors
+                structural_partial = True
+
+        itr_hint = itr_repair_hints(schema_errors, lint_errors)
+        oversplit = oversplit_risk_from_hints(stage_input.get("pause_ladder_hints"))
+        if lint_errors:
+            strategy = lint_retry_strategy(
+                lint_errors,
+                stage_key,
+                attempt=attempt,
+                prior_strategy_keys=strategy_keys,
+                structural_repair_partial=structural_partial,
+                oversplit=oversplit,
+            )
             if itr_hint:
                 strategy = dict(strategy)
                 strategy["itr_repair_hint"] = itr_hint
@@ -259,25 +306,42 @@ def _run_llm_stage_loop(
                     else None
                 ),
             ):
+                bridge = bridge_adaptation_to_itr(
+                    ctx,
+                    stage_key,
+                    strategy_key=strategy_key,
+                    lint_errors=lint_errors,
+                    halt_kind="adaptation_signature_repeat",
+                )
+                if bridge.outcome == BridgeOutcome.CLEARED:
+                    envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
+                if bridge.outcome == BridgeOutcome.PARTIAL:
+                    itr_bridge_break = True
+                    break
+                halt_msg = (
+                    f"Stage {stage_key}: adaptation loop detected (strategy={strategy_key})."
+                )
                 log_operator_halt(
                     ctx,
                     stage_key=stage_key,
                     halt_kind="adaptation_signature_repeat",
-                    message=(
-                        f"Stage {stage_key}: repeated adaptation signature for "
-                        f"{strategy_key} — halting."
-                    ),
+                    message=halt_msg,
                     recovery_from_stage=stage_key,
                     action_id="llm.adaptation.signature_repeat",
                     extra_detail={"strategy_key": strategy_key, "lint_errors": lint_errors[:4]},
                 )
-                raise SystemExit(
-                    f"Stage {stage_key}: adaptation loop detected (strategy={strategy_key})."
-                )
+                from interview_mux.write_staging import set_llm_gate
+
+                set_llm_gate(ctx, stage_key, message=f"LLM stage gate ({stage_key}): {bridge.message or halt_msg}")
+                itr_bridge_break = True
+                break
+            strategy_keys.append(strategy_key)
             if strategy.get("force_decompose") and shard_count:
                 guard.mark_decompose(shard_count)
             guard.save(ctx)
-            if stage_key == "segment_classification":
+            if stage_key in ("segment_classification", "boundary_detection"):
                 strategy = dict(strategy)
                 strategy["lint_feedback"] = format_lint_feedback(
                     lint_errors,
@@ -312,6 +376,9 @@ def _run_llm_stage_loop(
             if isinstance(f, dict) and f.get("blocking")
         ]
         if status == "complete" and not blocking_needs and not blocking_followups:
+            if routing.get("structural_repair_cleared") or itr_bridge_break:
+                if routing.get("structural_repair_cleared"):
+                    break
             if llm_stage_progress_ok(
                 ctx,
                 stage_key,
@@ -321,6 +388,8 @@ def _run_llm_stage_loop(
                 routed_via_collate=last_routed_via_collate,
             ):
                 break
+        if itr_bridge_break:
+            break
         if attempt < limit and (
             status in ("partial", "needs_input")
             or (status == "blocked" and (blocking_needs or blocking_followups))
@@ -391,7 +460,7 @@ def run_analysis_llm_stage(
 
         apply_needs_reruns(ctx, stage_key, last_envelope, llm_stage_runners(ctx))
 
-    if auto_complete:
+    if auto_complete and not _skip_auto_complete_after_bridge(ctx, stage_key):
         complete_llm_stage_or_halt(
             ctx,
             stage_key,
@@ -402,6 +471,18 @@ def run_analysis_llm_stage(
         )
 
     return last_envelope
+
+
+def _skip_auto_complete_after_bridge(ctx: RunContext, stage_key: str) -> bool:
+    from interview_mux.write_staging import read_gui_job
+
+    job = read_gui_job(ctx) or {}
+    status = str(job.get("status") or "")
+    if status == "needs_clarification" and str(job.get("stage") or "") == stage_key:
+        return True
+    if status == "gate" and str(job.get("stage") or "") == stage_key:
+        return True
+    return False
 
 
 def run_flow_llm_stage(
@@ -440,7 +521,7 @@ def run_flow_llm_stage(
 
         apply_needs_reruns(ctx, stage_key, last_envelope, llm_stage_runners(ctx))
 
-    if auto_complete:
+    if auto_complete and not _skip_auto_complete_after_bridge(ctx, stage_key):
         complete_llm_stage_or_halt(
             ctx,
             stage_key,

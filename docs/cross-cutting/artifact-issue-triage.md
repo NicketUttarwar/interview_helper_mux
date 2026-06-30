@@ -46,7 +46,7 @@ Phases: `local_fix`, `downstream_job`, `awaiting_save`, `complete`, `failed`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/runs/{run_id}/stages/{stage_id}/issues` | Items + `summary` (preview, `can_fix_all`, tier) |
+| `GET` | `/api/runs/{run_id}/stages/{stage_id}/issues` | Items + `summary` (preview, `can_fix_all`, `bridge_eligible`, tier) |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/auto-resolve` | Bulk auto-resolve (`AutoResolveResult` JSON) |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/revalidate` | Gate re-check (preferred over deprecated continue-after-checkpoint ITR branch) |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/auto-repair` | Deterministic repair only |

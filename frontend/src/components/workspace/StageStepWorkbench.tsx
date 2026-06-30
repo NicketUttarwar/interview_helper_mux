@@ -27,6 +27,7 @@ export function StageStepWorkbench() {
     appendClientLog,
     autoContinuePipeline,
     syncPipelineStageFocus,
+    config,
   } = useApp();
 
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -121,7 +122,7 @@ export function StageStepWorkbench() {
     );
   }
 
-  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell);
+  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell, config);
 
   const activateStep = (stepId: string) => {
     const step = steps.find((s) => s.id === stepId);

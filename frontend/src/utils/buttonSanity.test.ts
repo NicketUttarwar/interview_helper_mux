@@ -162,7 +162,29 @@ describe("buttonSanity — operator primary actions are actionable", () => {
       expectKind: "run_stage",
     },
     {
-      name: "transcript review gate",
+      name: "artifact clarification ITR",
+      run: baseRun({
+        stages: [stage("boundary_detection", "action_required", "Segment boundaries")],
+        job: {
+          status: "needs_clarification",
+          stage: "boundary_detection",
+          itr_blocking_count: 2,
+        },
+        journey: {
+          phase: "prepare",
+          milestones: {},
+          next_action: "Continue",
+          blocking: {
+            blocked: true,
+            reason: "artifact_clarification",
+            stage_id: "boundary_detection",
+          },
+        },
+      }),
+      stageId: "boundary_detection",
+      expectKind: "open_modal",
+    },
+    {
       run: baseRun({
         stages: [stage("transcript_review", "action_required", "Transcript review")],
         job: { status: "gate", stage: "transcript_review" },

@@ -238,6 +238,20 @@ export function listAttentionItems(
       });
     } else if (reason === "write_approval" && !jobRunning) {
       push(writeApprovalItem(run, sid, blocking.message));
+    } else if (reason === "artifact_clarification") {
+      push({
+        kind: "artifact_clarification",
+        priority: 2,
+        stageId: sid,
+        stageTitle: stage?.title || sid,
+        title: stage ? `${stage.title} — fix artifact issues` : "Fix artifact issues",
+        message:
+          blocking.message ||
+          "Resolve staged artifact issues with Fix all & continue before saving.",
+        primaryLabel: "Fix all & continue",
+        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
+        subTab: "stage",
+      });
     } else if (
       reason === "transcript_review" ||
       reason === "disfluency_review" ||

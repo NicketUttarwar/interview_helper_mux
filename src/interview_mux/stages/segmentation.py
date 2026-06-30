@@ -25,6 +25,11 @@ def run_boundaries(ctx: RunContext) -> None:
             payload["transcript_quality"] = quality
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
         pace = pace_class_from_sap(c)
+        raw_hints = payload["pause_ladder_hints"]
+        from interview_mux.stage_enrichment import thin_pause_ladder_hints
+
+        payload["pause_ladder_hints"] = thin_pause_ladder_hints(raw_hints, pace)
+        pre_thin = {"candidates": list(raw_hints.get("candidates") or [])}
         if c.artifact_exists("understanding/source_acoustic_profile.json"):
             payload["source_acoustic_profile"] = {
                 "pacing": {"pace_class": pace},
@@ -32,7 +37,7 @@ def run_boundaries(ctx: RunContext) -> None:
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
         attach_spine_to_payload(c, payload, "boundary_detection")
-        observe_boundary_detection_input(c, payload)
+        observe_boundary_detection_input(c, payload, pre_thin_counts=pre_thin)
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("segments/boundaries.json", "boundary_detection")

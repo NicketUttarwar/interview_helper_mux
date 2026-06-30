@@ -11,6 +11,7 @@ Rules:
 - Every topic MUST include `segment_ids` and/or `approx_time_range` when the transcript is long enough to support anchors; generic names ("Technology", "Inspiration") require the same evidence bar as leadership/innovation themes.
 - Every `key_claim` MUST include `segment_ids`, `evidence_segment_ids`, and/or `approx_time_range` — claims without anchors will fail deterministic lint.
 - At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; provisional `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
+- `jargon_glossary` entries need `term` and `plain_definition` only; `first_segment_id` is optional before segmentation — omit or use JSON null when `seg_*` ids are not yet available (grounded in `content_brief_reanchor`).
 - If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
 - Assign each `key_claim` a stable `id` (e.g. `claim_001`) and `claim_type` when evidence supports it.
 - Do **not** produce `topic_relationships` in pass 1 — deferred to `content_brief_reanchor` after segmentation.
@@ -73,7 +74,7 @@ Place this stage artifact inside the required envelope as `artifacts`:
   ],
   "audience": "who should care and why",
   "jargon_glossary": [
-    { "term": "string", "plain_definition": "string", "first_segment_id": "seg_..." }
+    { "term": "string", "plain_definition": "string", "first_segment_id": "optional seg_... or null before segmentation" }
   ]
 }
 

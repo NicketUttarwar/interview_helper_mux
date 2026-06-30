@@ -93,7 +93,7 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
         issue.repair_strategy = "merge_overlap"
         return issue
 
-    if "manifest times not monotonic" in low or "zero-length segment" in low:
+    if "manifest times not monotonic" in low or "zero-length segment" in low or "zero-length boundary" in low:
         issue.kind = "overlap"
         issue.severity = "critical"
         issue.repair_strategy = "merge_overlap"
@@ -121,6 +121,12 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
     if "generic theme" in low or "topic without evidence" in low:
         issue.severity = "minor"
         issue.repair_strategy = "drop_row"
+        return issue
+
+    if "confidence_gte_min" in low:
+        issue.severity = "minor"
+        issue.blocking = False
+        issue.repair_strategy = "accept_auto_repair"
         return issue
 
     if "envelope_status_complete" in low:

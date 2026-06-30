@@ -16,6 +16,43 @@ import {
   isPipelineComplete,
   shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
+import {
+  canAttemptAutopilotFixAll,
+  clearAutopilotFixAllAttempts,
+  recordAutopilotFixAllAttempt,
+  resolveAutopilotCheckpoint,
+} from "./autopilotResolution";
+
+/** Auto fix-all / auto-save when autopilot is enabled. Returns true if an action ran. */
+export async function tryAutopilotCheckpointResolution(
+  opts: AdvancePipelineOpts,
+): Promise<boolean> {
+  if (!isPipelineAutopilotEnabled(opts.config) || !opts.runId) return false;
+
+  const run = opts.runId ? await opts.refreshRun() : opts.run;
+  if (!run) return false;
+
+  const checkpoint = resolveAutopilotCheckpoint(run, opts.config);
+  if (!checkpoint) return false;
+
+  if (checkpoint.kind === "write_approval") {
+    if (!opts.approveWriteAndContinue) return false;
+    opts.showToast("Autopilot: saving staged outputs…", "info");
+    return opts.approveWriteAndContinue(checkpoint.stageId);
+  }
+
+  if (!opts.fixAllAndContinueStage) return false;
+  if (!canAttemptAutopilotFixAll(opts.runId, checkpoint.stageId)) return false;
+
+  recordAutopilotFixAllAttempt(opts.runId, checkpoint.stageId);
+  opts.showToast("Autopilot: fixing artifact issues…", "info");
+  const ok = await opts.fixAllAndContinueStage(checkpoint.stageId);
+  if (ok) {
+    clearAutopilotFixAllAttempts(opts.runId, checkpoint.stageId);
+    return true;
+  }
+  return false;
+}
 
 export interface WriteApprovalAdvanceOpts {
   savedStageId: string;
@@ -131,6 +168,10 @@ export interface AdvancePipelineOpts {
   config?: AppConfig | null;
   /** Auto-acknowledge AI handoff checkpoints when autopilot is active. */
   acknowledgeHandoff?: () => Promise<void>;
+  /** Autopilot: auto-resolve ITR issues (Fix all & continue). */
+  fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
+  /** Autopilot: auto-save staged outputs. */
+  approveWriteAndContinue?: (stageId?: string) => Promise<boolean>;
 }
 
 export interface FocusStageWorkbenchOpts {
@@ -248,6 +289,17 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
 
   if (isPipelineComplete(refreshed)) {
     return false;
+  }
+
+  if (autoRunEnabled) {
+    const resolved = await tryAutopilotCheckpointResolution(opts);
+    if (resolved) {
+      const after = opts.runId ? await opts.refreshRun() : refreshed;
+      if (after && !autopilotBlocksAutoRun(after)) {
+        return advancePipeline({ ...opts, run: after, autoRun: true });
+      }
+      return true;
+    }
   }
 
   const write = pendingWriteInfo(refreshed);
@@ -390,6 +442,18 @@ export async function tryAutoContinuePipeline(
     const handoff = findHandoffStage(refreshed);
     if (handoff) {
       await opts.acknowledgeHandoff();
+      return true;
+    }
+  }
+
+  if (isPipelineAutopilotEnabled(opts.config)) {
+    const resolved = await tryAutopilotCheckpointResolution(opts);
+    if (resolved) {
+      refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
+      if (!autopilotBlocksAutoRun(refreshed)) {
+        const started = await advancePipeline({ ...opts, run: refreshed, autoRun: true });
+        return started || true;
+      }
       return true;
     }
   }

@@ -550,6 +550,15 @@ def set_clarification_gate(ctx: Any, stage_key: str, *, message: str | None = No
         f"{stage_key}: {count} artifact issue(s) need clarification before saving."
     )
     job["itr_blocking_count"] = count
+    try:
+        from interview_mux.artifact_auto_resolve import get_stage_issues_summary
+
+        summary = get_stage_issues_summary(ctx, stage_key)
+        job["can_fix_all"] = bool(summary.get("can_fix_all"))
+        job["bridge_eligible"] = bool(summary.get("bridge_eligible"))
+        job["itr_open_blocking"] = int(summary.get("open_blocking") or count)
+    except Exception:
+        job["can_fix_all"] = True
     ctx.write_json("gui_job.json", job)
 
 

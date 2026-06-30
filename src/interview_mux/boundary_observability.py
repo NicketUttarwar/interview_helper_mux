@@ -33,11 +33,39 @@ def ladder_guidance_for_pace(pace_class: str) -> str:
     return "pace_class conversational: standard 400/700/1200 ms ladder preference."
 
 
-def observe_boundary_detection_input(ctx: RunContext, payload: dict[str, Any]) -> None:
+def oversplit_risk_from_hints(hints: dict[str, Any] | None) -> bool:
+    if not isinstance(hints, dict):
+        return False
+    candidates = hints.get("candidates") or hints.get("pre_thin_candidates") or []
+    tier400 = next(
+        (c for c in candidates if c.get("threshold_ms") == PAUSE_LADDER_MS[0]),
+        None,
+    )
+    if isinstance(tier400, dict):
+        count = int(tier400.get("count") or 0)
+        return count > PAUSE_LADDER_OVERSPLIT_400MS_COUNT
+    return False
+
+
+def spine_truncation_risk(ctx: RunContext, full_count: int | None = None) -> bool:
+    if full_count is None:
+        if not ctx.artifact_exists(SPINE_PATH):
+            return False
+        full = ctx.read_json(SPINE_PATH)
+        full_count = len(full.get("boundary_events") or []) if isinstance(full, dict) else 0
+    return int(full_count) > BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
+
+
+def observe_boundary_detection_input(
+    ctx: RunContext,
+    payload: dict[str, Any],
+    *,
+    pre_thin_counts: dict[str, Any] | None = None,
+) -> None:
     """Emit gui_log warnings for oversplit risk and spine volley truncation."""
     hints = payload.get("pause_ladder_hints")
     if isinstance(hints, dict):
-        candidates = hints.get("candidates") or []
+        candidates = (pre_thin_counts or {}).get("candidates") or hints.get("candidates") or []
         if not candidates:
             ctx.log(
                 "pause_ladder_hints empty — boundary stage falls back to pause_split_ms.",

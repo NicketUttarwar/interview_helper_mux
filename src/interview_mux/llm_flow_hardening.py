@@ -188,54 +188,20 @@ def llm_stage_progress_ok(
     routed_via_collate: bool = False,
     cfg: dict[str, Any] | None = None,
 ) -> bool:
-    """True when stage envelope and on-disk producer artifact are acceptable for progression."""
-    from interview_mux.llm_output_resilience import (
-        artifact_mass_score,
-        is_degraded_continue,
-        is_spend_stage_strict,
-        resilience_cfg,
-    )
-
+    """True when stage envelope and producer artifact pass strict acceptance."""
     cfg = cfg or merged_config()
-    routing = envelope.get("_routing_meta") or {}
-    persist_action = routing.get("persist_action")
-    degraded = is_degraded_continue(cfg) and not is_spend_stage_strict(stage_key, cfg)
 
-    fh = flow_hardening_cfg(cfg)
-    if (
-        flow_hardening_enabled(cfg)
-        and fh.get("clarification_before_halt", True)
-        and persist_action in ("partial", "full")
-    ):
-        from interview_mux.artifact_issue_triage import triage_enabled
-
-        rel_early = producer_artifact_path(stage_key)
-        if triage_enabled(cfg) and rel_early and ctx.artifact_exists(rel_early):
-            return True
-
-    if degraded and persist_action in ("partial", "full"):
-        rel = producer_artifact_path(stage_key)
-        if rel and ctx.artifact_exists(rel):
-            mass_req = (resilience_cfg(cfg).get("min_artifact_mass") or {}).get(stage_key)
-            if mass_req:
-                raw = ctx.read_json(rel)
-                data = raw if isinstance(raw, dict) else {}
-                if artifact_mass_score(stage_key, data, cfg) > 0:
-                    return True
-            elif artifact_status(rel, ctx) in ("partial", "complete"):
-                return True
-
-    if envelope.get("status") != "complete" and not (degraded and persist_action == "partial"):
+    if envelope.get("status") != "complete":
         return False
     if _blocking_non_operator_needs(envelope):
         return False
 
     fh = flow_hardening_cfg(cfg)
     if flow_hardening_enabled(cfg) and fh.get("halt_on_schema_errors_with_accept", True):
-        if schema_errors and not degraded:
+        if schema_errors:
             return False
 
-    if flow_hardening_enabled(cfg) and arbiter_result is not None and not degraded:
+    if flow_hardening_enabled(cfg) and arbiter_result is not None:
         from interview_mux.analysis_memory import should_merge_envelope
 
         if not should_merge_envelope(
@@ -245,25 +211,37 @@ def llm_stage_progress_ok(
         ):
             return False
 
+    routing = envelope.get("_routing_meta") or {}
+    if routing.get("structural_repair_cleared"):
+        from interview_mux.stage_acceptance import stage_acceptance_ok
+        from interview_mux.write_staging import staged_path, write_approval_enabled
+
+        rel = producer_artifact_path(stage_key)
+        if rel:
+            use_staged = write_approval_enabled() and staged_path(ctx, rel, stage_id=stage_key).is_file()
+            return stage_acceptance_ok(
+                ctx,
+                stage_key,
+                staged=use_staged,
+                include_cross_validate=False,
+            ).ok
+
     rel = producer_artifact_path(stage_key)
     if rel and stage_key in STAGE_ARTIFACT_SCHEMAS:
-        status = artifact_status(rel, ctx)
-        if degraded and status in ("partial", "complete"):
-            pass
-        elif status != "complete":
-            return False
+        from interview_mux.stage_acceptance import stage_acceptance_ok
+        from interview_mux.write_staging import staged_path, write_approval_enabled
 
-    from interview_mux.null_field_policy import find_null_fields, null_policy_enabled, partition_nulls
-
-    if null_policy_enabled(cfg):
-        if rel and ctx.artifact_exists(rel):
-            raw = ctx.read_json(rel)
-            if isinstance(raw, dict):
-                paths = find_null_fields(stage_key, raw)
-                critical, _ = partition_nulls(stage_key, paths)
-                if critical:
-                    return False
-        if routing.get("critical_null_paths"):
+        use_staged = write_approval_enabled() and staged_path(ctx, rel, stage_id=stage_key).is_file()
+        if use_staged or ctx.artifact_exists(rel):
+            acceptance = stage_acceptance_ok(
+                ctx,
+                stage_key,
+                staged=use_staged,
+                include_cross_validate=False,
+            )
+            if not acceptance.ok:
+                return False
+        elif artifact_status(rel, ctx) != "complete":
             return False
 
     return True
@@ -300,63 +278,54 @@ def complete_llm_stage_or_halt(
         ctx.mark_done(stage_key)
         return True
 
-    from interview_mux.llm_output_resilience import (
-        ResilienceReport,
-        is_degraded_continue,
-        is_spend_stage_strict,
-        log_resilience_event,
-        record_degraded_stage,
-    )
+    job = None
+    try:
+        from interview_mux.write_staging import read_gui_job
 
-    cfg = cfg or merged_config()
-    degraded = is_degraded_continue(cfg) and not is_spend_stage_strict(stage_key, cfg)
-    routing = envelope.get("_routing_meta") or {}
-    resilience_raw = routing.get("resilience_report") or {}
+        job = read_gui_job(ctx) or {}
+    except Exception:
+        job = {}
+    if str(job.get("status")) == "needs_clarification" and str(job.get("stage") or "") == stage_key:
+        return False
+
+    from interview_mux.artifact_issue_triage import set_clarification_gate, triage_enabled
+    from interview_mux.stage_acceptance import stage_acceptance_ok
+    from interview_mux.write_staging import staged_path, write_approval_enabled
+
     rel = producer_artifact_path(stage_key)
-
-    if degraded and routing.get("persist_action") in ("partial", "full") and rel and ctx.artifact_exists(rel):
-        report = ResilienceReport(
-            stage_key=stage_key,
-            artifact_path=rel,
-            summary=str(resilience_raw.get("summary") or "Partial artifact persisted"),
-            stripped=list(resilience_raw.get("stripped") or []),
-            generated=list(resilience_raw.get("generated") or []),
-            kept_paths=list(resilience_raw.get("kept_paths") or []),
-        )
-        record_degraded_stage(ctx, stage_key, report)
-        log_resilience_event(
-            ctx,
-            stage_key,
-            "degraded_continue",
-            report,
-            arbiter_result=arbiter_result,
-            envelope=envelope,
-        )
-        ctx.mark_done(stage_key)
-        return True
+    use_staged = bool(
+        rel
+        and write_approval_enabled()
+        and staged_path(ctx, rel, stage_id=stage_key).is_file()
+    )
+    if (
+        triage_enabled(cfg)
+        and rel
+        and (use_staged or ctx.artifact_exists(rel))
+        and flow_hardening_cfg(cfg).get("clarification_before_halt", True)
+    ):
+        acceptance = stage_acceptance_ok(ctx, stage_key, staged=use_staged, include_cross_validate=False)
+        if not acceptance.ok:
+            set_clarification_gate(
+                ctx,
+                stage_key,
+                message=(
+                    f"{stage_key}: artifact issues remain — use Fix all & continue "
+                    "before saving."
+                ),
+            )
+            ctx.log(
+                f"Stage {stage_key}: clarification gate set (strict acceptance failed).",
+                level="warning",
+                stage=stage_key,
+                detail={"errors": acceptance.all_errors[:6]},
+            )
+            return False
 
     fh = flow_hardening_cfg(cfg)
     critical = stage_key in ALL_CRITICAL_LLM_STAGES
-    if critical and fh.get("strict_critical_stages", True) and not degraded:
-        rel = producer_artifact_path(stage_key) or "(no artifact)"
-        if (
-            fh.get("clarification_before_halt", True)
-            and rel != "(no artifact)"
-            and ctx.artifact_exists(rel)
-        ):
-            from interview_mux.artifact_issue_triage import triage_enabled
-
-            if triage_enabled(cfg):
-                triage_meta = routing.get("triage") or {}
-                ctx.log(
-                    f"Stage {stage_key}: deferring hard halt — artifact persisted "
-                    f"(open_blocking={triage_meta.get('open_blocking', '?')}).",
-                    level="warning",
-                    stage=stage_key,
-                    detail={"triage": triage_meta},
-                )
-                ctx.mark_done(stage_key)
-                return True
+    if critical and fh.get("strict_critical_stages", True):
+        rel_disp = rel or "(no artifact)"
         status = envelope.get("status", "?")
         needs = envelope.get("needs") or []
         schema_bit = f"; schema_errors={schema_errors[:2]}" if schema_errors else ""
@@ -364,7 +333,7 @@ def complete_llm_stage_or_halt(
             f"Stage {stage_key} failed hardening (status={status}) — pipeline halted.",
             level="action",
             stage=stage_key,
-            detail={"artifact": rel, "needs": needs[:3], "schema_errors": (schema_errors or [])[:4]},
+            detail={"artifact": rel_disp, "needs": needs[:3], "schema_errors": (schema_errors or [])[:4]},
         )
         raise SystemExit(
             f"LLM stage gate ({stage_key}): artifact not complete or envelope not acceptable "

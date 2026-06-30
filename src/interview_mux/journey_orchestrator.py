@@ -221,7 +221,7 @@ def _blocking(
             message = "Choose reuse or run fresh"
         else:
             gate_msg = str(job.get("message") or "Operator action required")
-            if job.get("status") == "gate" and "LLM stage gate" in gate_msg:
+            if job.get("status") == "gate" and _is_llm_gate_message(gate_msg):
                 reason = "llm_gate"
             else:
                 reason = str(stage_id or job.get("status"))
@@ -327,6 +327,18 @@ def _stage_display_title(stage_id: str) -> str:
 
     info = STAGE_BY_ID.get(stage_id)
     return info.title if info else stage_id.replace("_", " ")
+
+
+def _is_llm_gate_message(message: str) -> bool:
+    low = message.lower()
+    markers = (
+        "llm stage gate",
+        "primary attempt budget exhausted",
+        "arbiter reject budget exhausted",
+        "adaptation exhausted",
+        "adaptation loop detected",
+    )
+    return any(m in low for m in markers)
 
 
 def _gate_headline(stage_id: str, reason: str | None) -> str:

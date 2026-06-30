@@ -5,6 +5,7 @@ import {
   reconcileBusyRun,
   syncPipelineStageFocus,
   tryAutoContinuePipeline,
+  tryAutopilotCheckpointResolution,
 } from "./checkpointContinuation";
 import type { RunData } from "../types";
 
@@ -387,5 +388,45 @@ describe("reconcileBusyRun", () => {
     });
     expect(result.jobRunning).toBe(true);
     expect(startJobPoll).toHaveBeenCalled();
+  });
+});
+
+describe("tryAutopilotCheckpointResolution", () => {
+  it("calls fixAllAndContinueStage when needs_clarification", async () => {
+    const fixAllAndContinueStage = vi.fn().mockResolvedValue(true);
+    const run = runStub({
+      stages: [
+        {
+          id: "boundary_detection",
+          title: "Boundaries",
+          status: "action_required",
+          phase: "understand",
+        },
+      ],
+      job: {
+        status: "needs_clarification",
+        stage: "boundary_detection",
+        can_fix_all: true,
+        itr_blocking_count: 2,
+      },
+    });
+    const ok = await tryAutopilotCheckpointResolution({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "boundary_detection",
+      executeJob: vi.fn(),
+      selectStage: vi.fn(),
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { auto_advance_pipeline: true } },
+      fixAllAndContinueStage,
+    });
+    expect(ok).toBe(true);
+    expect(fixAllAndContinueStage).toHaveBeenCalledWith("boundary_detection");
   });
 });

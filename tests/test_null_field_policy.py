@@ -35,6 +35,19 @@ def test_critical_null_thesis():
     assert not ack
 
 
+def test_jargon_glossary_first_segment_id_nullable():
+    artifacts = {
+        "thesis": "Main point",
+        "topics": [{"name": "A", "summary": "s"}],
+        "jargon_glossary": [
+            {"term": "ESOP", "plain_definition": "Employee stock ownership plan", "first_segment_id": None},
+        ],
+    }
+    _out, critical, ack = acknowledge_null_fields(None, "content_context", artifacts)
+    assert not critical
+    assert "jargon_glossary[].first_segment_id" in ack
+
+
 def test_strip_null_leaves_for_volley():
     shaped = strip_null_leaves_for_volley({"audience": None, "thesis": "x"})
     assert shaped["audience"] == {"_unavailable": True}

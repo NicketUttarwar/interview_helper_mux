@@ -280,7 +280,7 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `investigation_dedupe` | `true` | Dedupe open investigations by kind+stage+target |
 | `shard_min_success_ratio` | `0.75` | Min fraction of successful shards before collate |
 | `inner_retry_require_delta` | `true` | Stop inner retries when volley/errors unchanged |
-| `max_primary_attempts_per_stage` | `4` | Cap primary OpenAI calls per stage (`attempt_budget.py`) |
+| `max_primary_attempts_per_stage` | `8` | Floor when transcript duration unknown; with duration, `analysis.duration_policy` scales the cap (base 6 + 1 per 30m above 15m, max 16) — `attempt_budget.py` |
 | `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
 | `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → stage treated as stuck |
 | `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per investigation kind (`attempt_budget.py`) |
@@ -293,6 +293,22 @@ When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before
 **Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx_flow1`, `mmaudio_sfx_flow2`, `mix_flow1`, `mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
 
 **Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
+
+## `analysis.duration_policy`
+
+Duration tiers and scaled loop budgets — `interview_duration_policy.py`. Tiers: **short** &lt;15m, **medium** 15m–1h, **long** &gt;1h.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `short_max_ms` | `900000` (15m) | Upper bound for short tier; topic-anchor strictness aligns via `prompt_thresholds.content_context_topic_anchor_min_duration_ms` |
+| `medium_max_ms` | `3600000` (1h) | Upper bound for medium tier |
+| `very_long_min_ms` | `7200000` (2h) | Interviews at or above this use `shard_calls_very_long` |
+| `primary_attempts_base` | `6` | Primary routing cap for short interviews |
+| `primary_attempts_per_30min_above_short` | `1` | Added to base for each 30m of audio above `short_max_ms` |
+| `primary_attempts_cap` | `16` | Hard cap (e.g. ~4h interview → 13 attempts before cap) |
+| `shard_calls_base` | `24` | Max per-segment shard calls per stage cycle (&lt;2h) |
+| `shard_calls_very_long` | `48` | Shard cap for interviews ≥ `very_long_min_ms` |
+| `boundary_micro_segment_min_ms` | `900000` | Minimum duration before boundary micro-segment explosion lint applies |
 
 **Arbiter rubric optional fields** (per-stage JSON under `docs/prompts/_shared/arbiter-rubrics/`):
 
@@ -308,8 +324,8 @@ Partial persist and sanitize when primary output fails lint/schema — `llm_outp
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `progression_mode` | `degraded_continue` | Allow pipeline to continue with partial artifacts |
-| `partial_persist_enabled` | `true` | Write sanitized partial artifacts |
+| `progression_mode` | `strict` | Stage progression requires acceptance-clean artifacts (`degraded_continue` is deprecated) |
+| `partial_persist_enabled` | `true` | Write sanitized partial artifacts to staging for repair input (does not mark stages done) |
 | `record_stripped_fields` | `true` | Write `attempt_NNN_resilience.json` sidecars |
 | `min_artifact_mass` | per-stage | Minimum keys required for partial persist to count as progress |
 
@@ -414,6 +430,7 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 | `highlight_setup_max_sec` | Flow 2 clip + VO timing invalid vs schema |
 | `max_chapters` | Narrative plan violates cap → validation / model confusion |
 | `max_highlight_clips` | Selection over cap (should match product ≤5) |
+| `content_context_topic_anchor_min_duration_ms` | `900000` (15m) | Medium+ interviews require topic evidence anchors in `content_context` lint |
 | `show_description_min_words` / `show_description_max_words` | Flow 3 JSON schema band (150–250) | Blurb too short/long for hosts |
 | `show_description_target_words` | Editorial target (~200) in `app.defaults.json` | Copy drifts from product spec |
 | `models.podcast_show_description` | OpenAI model for Flow 3 blurb (flagship tier) | Weak or generic show copy |

@@ -593,6 +593,7 @@ def create_app() -> FastAPI:
         )
         handoff_ack = meta.get("handoff_ack") or {}
         job = runner.get_job(run_id)
+        job = _enrich_job_autopilot(ctx, job if isinstance(job, dict) else {})
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
             existing = job.get("last_error") if isinstance(job.get("last_error"), dict) else {}
@@ -2510,6 +2511,34 @@ def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
 
     invalidate_sonic_context(ctx, reason="pace_class_changed", stage="source_acoustic_profile")
     return cleared
+
+
+def _enrich_job_autopilot(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Attach ITR autopilot hints so the GUI can auto fix-all without an extra round trip."""
+    if not isinstance(job, dict):
+        return job
+    stage = job.get("pending_write_stage") or job.get("stage")
+    status = str(job.get("status") or "")
+    if not stage or status not in ("needs_clarification", "gate", "awaiting_write_approval"):
+        return job
+    try:
+        from interview_mux.artifact_auto_resolve import get_stage_issues_summary
+        from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+
+        if not triage_enabled():
+            return job
+        stage_key = str(stage)
+        summary = get_stage_issues_summary(ctx, stage_key)
+        open_blocking = int(summary.get("open_blocking") or blocking_issues_remaining(ctx, stage_key))
+        return {
+            **job,
+            "can_fix_all": bool(summary.get("can_fix_all")),
+            "bridge_eligible": bool(summary.get("bridge_eligible")),
+            "itr_open_blocking": open_blocking,
+            "itr_blocking_count": job.get("itr_blocking_count") or open_blocking,
+        }
+    except Exception:
+        return job
 
 
 def _ctx(run_id: str) -> RunContext:

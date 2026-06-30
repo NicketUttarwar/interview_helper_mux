@@ -1,7 +1,9 @@
-import type { RunData, StageInfo } from "../types";
+import type { AppConfig, RunData, StageInfo } from "../types";
 import { findLatestHandoffAudit } from "./handoff";
 import { getHandoffPathsLocal } from "./checkpoint";
 import { resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
+import { autopilotHidesReviewGate } from "./autopilotResolution";
+import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 
 export type ReviewGateKind =
   | "transcript_review"
@@ -9,6 +11,7 @@ export type ReviewGateKind =
   | "analysis_profile"
   | "write_approval"
   | "artifact_clarification"
+  | "llm_gate"
   | "handoff"
   | "sfx_prompt"
   | "flow_select"
@@ -43,8 +46,13 @@ export function resolveReviewGateSpec(
   run: RunData | null,
   stage: StageInfo | null,
   showDoneShell: boolean,
+  config?: AppConfig | null,
 ): ReviewGateSpec | null {
   if (!run || !stage || showDoneShell) return null;
+
+  if (isPipelineAutopilotEnabled(config) && autopilotHidesReviewGate(run, stage.id, config)) {
+    return null;
+  }
 
   if (stageAwaitingWriteApproval(run, stage.id)) {
     const paths = resolvePendingWritePaths(run, stage.id);
@@ -64,6 +72,14 @@ export function resolveReviewGateSpec(
       kind: "artifact_clarification",
       pathCount: Number(run.job?.itr_blocking_count ?? 0),
     };
+  }
+
+  if (
+    (run.journey?.blocking?.reason === "llm_gate" &&
+      run.journey?.blocking?.stage_id === stage.id) ||
+    (run.job?.status === "gate" && run.job?.stage === stage.id)
+  ) {
+    return { kind: "llm_gate" };
   }
 
   if (handoffPending(run, stage)) {

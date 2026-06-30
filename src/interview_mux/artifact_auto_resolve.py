@@ -36,6 +36,12 @@ ITR_STAGE_CAPABILITIES: dict[str, dict[str, Any]] = {
         "propagation_chain": (),
         "auto_chain_downstream": False,
     },
+    "content_context": {
+        "tier": "full",
+        "step_label": "Fix all & continue",
+        "propagation_chain": (),
+        "auto_chain_downstream": False,
+    },
     "content_brief_reanchor": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
     "sonic_context_build": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
     "sound_design_palettes": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
@@ -324,13 +330,27 @@ def revalidate_for_itr_gate(
 
 
 def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
+    from interview_mux.lint_repair_bridge import lint_errors_structurally_repairable
+
     caps = stage_capabilities(stage_key)
     open_blocking = blocking_issues_remaining(ctx, stage_key)
     preview = build_resolution_preview(ctx, stage_key) if triage_enabled() else []
+    bridge_eligible = False
+    if triage_enabled() and stage_key in ("boundary_detection", "segment_classification"):
+        from interview_mux.artifact_issue_triage import _read_stage_artifact
+
+        _rel, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
+        if artifact:
+            from interview_mux.deterministic_lint import _LINTERS
+
+            lint_fn = _LINTERS.get(stage_key)
+            lint_errors = list(lint_fn(artifact, ctx) or []) if lint_fn else []
+            bridge_eligible = bool(lint_errors) and lint_errors_structurally_repairable(lint_errors)
     return {
         "tier": caps.get("tier", "manual"),
         "step_label": caps.get("step_label", "Review issues"),
         "can_fix_all": can_auto_resolve_all(ctx, stage_key) if open_blocking else True,
+        "bridge_eligible": bridge_eligible,
         "preview": preview,
         "open_blocking": open_blocking,
     }

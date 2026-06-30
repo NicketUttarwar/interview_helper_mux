@@ -214,7 +214,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
 
     items: list[dict[str, Any]] = []
     if stage_id in LLM_HANDOFF_STAGES:
-        cap = max_primary_attempts()
+        cap = max_primary_attempts(ctx=ctx)
         count = primary_attempt_count(ctx, stage_id)
         if count >= cap:
             items.append(
@@ -247,13 +247,11 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
         deg = degraded.get(stage_id)
         if isinstance(deg, dict):
             summary = str(deg.get("summary") or "partial artifact saved")
-            stripped = int(deg.get("stripped_count") or 0)
-            generated = int(deg.get("generated_count") or 0)
             items.append(
                 _guidance_item(
-                    "llm_degraded",
-                    f"Degraded continue — {summary} ({stripped} stripped, {generated} generated)",
-                    "todo",
+                    "llm_resilience_legacy",
+                    f"Legacy degraded run — {summary} (engineering debug only)",
+                    "done",
                 )
             )
     from interview_mux.artifact_issue_triage import blocking_issues_remaining, list_stage_issues, triage_enabled

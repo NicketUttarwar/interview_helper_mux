@@ -215,18 +215,6 @@ def _latest_resilience_sidecar(ctx: RunContext, stage_id: str) -> dict[str, Any]
     return doc if isinstance(doc, dict) else None
 
 
-def _stage_degraded(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
-    if not ctx.artifact_exists("understanding/analysis_state.json"):
-        return None
-    try:
-        state = ctx.read_json("understanding/analysis_state.json")
-    except Exception:
-        return None
-    degraded = (state.get("meta") or {}).get("degraded_stages") or {}
-    entry = degraded.get(stage_id)
-    return entry if isinstance(entry, dict) else None
-
-
 def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str], list[str]]:
     from interview_mux.deterministic_lint import lint_remediation_hints
 
@@ -611,7 +599,10 @@ def _automated_steps(
     num = 1
 
     gate_blocked = _stage_gate_blocked(ctx, stage_id)
-    degraded = _stage_degraded(ctx, stage_id)
+    from interview_mux.write_staging import is_itr_clarification_blocked, is_llm_gate_blocked
+
+    llm_gate = is_llm_gate_blocked(ctx, stage_id)
+    itr_blocked = is_itr_clarification_blocked(ctx, stage_id)
     needs_write = (
         _needs_write(ctx, stage_id) or status == "awaiting_write_approval"
     ) and not gate_blocked
@@ -712,15 +703,14 @@ def _automated_steps(
             )
             num += 1
 
-    if gate_blocked:
+    if llm_gate:
         gate_msg = _gate_job_message(ctx, stage_id)
         lint_errors, remediation_hints = _latest_attempt_lint_hints(ctx, stage_id)
         remediation = " ".join(remediation_hints[:3])
         instruction_parts = [
             gate_msg
             or "The automated quality gate rejected this stage. "
-            "Review Engineering debug below, fix upstream artifacts if needed, "
-            "then re-run — do not save staged outputs.",
+            "Try auto-fix if available, or re-run after reviewing Engineering debug.",
         ]
         if remediation:
             instruction_parts.append(remediation)
@@ -744,42 +734,11 @@ def _automated_steps(
             )
         )
         num += 1
-    elif degraded and stage_done and not gate_blocked:
-        sidecar = _latest_resilience_sidecar(ctx, stage_id)
-        stripped = sidecar.get("stripped") if sidecar else []
-        review = [
-            degraded.get("summary") or "Partial artifact saved — pipeline continued in degraded mode.",
-            f"{len(stripped or [])} field(s) stripped from LLM output",
-            "Open Engineering debug for full resilience sidecar",
-        ]
-        if isinstance(stripped, list):
-            review.extend(
-                f"Stripped {row.get('path')}: {row.get('reason')}"
-                for row in stripped[:4]
-                if isinstance(row, dict)
-            )
-        steps.append(
-            _step(
-                "llm_degraded_review",
-                num,
-                "Degraded LLM output — review recommended",
-                instruction=(
-                    "The pipeline saved a partial artifact and continued. "
-                    "Review what was kept vs stripped before relying on downstream outputs."
-                ),
-                review=review,
-                primary_button="Acknowledge & continue",
-                secondary_button=f"Re-run {title}",
-                kind="info",
-                status="todo",
-            )
-        )
-        num += 1
     from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
     from interview_mux.artifact_auto_resolve import stage_capabilities
 
     itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
-    if itr_open > 0 and not gate_blocked:
+    if itr_blocked or itr_open > 0:
         caps = stage_capabilities(stage_id)
         step_label = str(caps.get("step_label") or "Fix all & continue")
         tier = str(caps.get("tier") or "manual")

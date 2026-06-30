@@ -17,8 +17,10 @@ def _budget_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return flow_hardening_cfg(cfg)
 
 
-def max_primary_attempts(cfg: dict[str, Any] | None = None) -> int:
-    return int(_budget_cfg(cfg).get("max_primary_attempts_per_stage", 4))
+def max_primary_attempts(cfg: dict[str, Any] | None = None, *, ctx: RunContext | None = None) -> int:
+    from interview_mux.interview_duration_policy import primary_attempt_cap
+
+    return primary_attempt_cap(ctx, cfg)
 
 
 def max_arbiter_rejects(cfg: dict[str, Any] | None = None) -> int:
@@ -65,6 +67,28 @@ def primary_attempt_count(ctx: RunContext, stage_key: str) -> int:
     return int(_orch(ctx).get("primary_attempt_counts", {}).get(stage_key, 0))
 
 
+def reset_stage_attempt_budget(ctx: RunContext, stage_key: str) -> None:
+    """Clear per-stage loop counters after discard/invalidate so re-runs get a fresh budget."""
+    orch = _orch(ctx)
+    changed = False
+    for bucket_key in (
+        "primary_attempt_counts",
+        "arbiter_reject_counts",
+        "stuck_signatures",
+        "stuck_counts",
+    ):
+        bucket = orch.get(bucket_key)
+        if isinstance(bucket, dict) and stage_key in bucket:
+            del bucket[stage_key]
+            changed = True
+    guard_key = f"adaptation_guard_{stage_key}"
+    if guard_key in orch:
+        del orch[guard_key]
+        changed = True
+    if changed:
+        _save_orch(ctx, orch)
+
+
 def arbiter_reject_count(ctx: RunContext, stage_key: str) -> int:
     return int(_orch(ctx).get("arbiter_reject_counts", {}).get(stage_key, 0))
 
@@ -102,7 +126,7 @@ def check_primary_budget(ctx: RunContext, stage_key: str) -> str | None:
     if not flow_hardening_enabled():
         return None
     n = primary_attempt_count(ctx, stage_key)
-    cap = max_primary_attempts()
+    cap = max_primary_attempts(ctx=ctx)
     if n >= cap:
         msg = (
             f"Stage {stage_key}: primary attempt budget exhausted ({n}/{cap}). "
@@ -180,7 +204,7 @@ def budget_extra_for_attempt(
     out: dict[str, Any] = {
         "primary_attempt_count": primary_attempt_count(ctx, stage_key),
         "arbiter_reject_count": arbiter_reject_count(ctx, stage_key),
-        "budget_remaining_primary": max(0, max_primary_attempts() - primary_attempt_count(ctx, stage_key)),
+        "budget_remaining_primary": max(0, max_primary_attempts(ctx=ctx) - primary_attempt_count(ctx, stage_key)),
     }
     if attempt_signature is not None:
         out["attempt_signature"] = list(attempt_signature)

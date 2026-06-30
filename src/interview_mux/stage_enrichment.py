@@ -97,6 +97,31 @@ def pause_ladder_hints_from_words(
     }
 
 
+def thin_pause_ladder_hints(hints: PauseLadderHints, pace_class: str) -> PauseLadderHints:
+    """Cap split_times_ms for LLM input while preserving full counts for observability."""
+    out: PauseLadderHints = dict(hints)
+    candidates = list(hints.get("candidates") or [])
+    out["pre_thin_candidates"] = candidates
+    oversplit = any(
+        int(c.get("threshold_ms") or 0) == PAUSE_LADDER_MS[0]
+        and int(c.get("count") or 0) > 50
+        for c in candidates
+        if isinstance(c, dict)
+    )
+    if oversplit or pace_class == "calm":
+        out["preferred_tiers"] = [700, 1200]
+    thinned: list[PauseLadderCandidate] = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        row = dict(c)
+        splits = list(row.get("split_times_ms") or [])
+        row["split_times_ms"] = splits[:40]
+        thinned.append(row)  # type: ignore[arg-type]
+    out["candidates"] = thinned
+    return out
+
+
 def pause_ladder_hints(ctx: RunContext) -> PauseLadderHints:
     """H-SEG-02: candidate boundary times at multiple pause thresholds."""
     pace_class = pace_class_from_sap(ctx)

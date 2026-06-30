@@ -70,6 +70,31 @@ def test_confidence_gte_min(tmp_path, monkeypatch):
     assert any("confidence_gte_min" in e for e in errors)
 
 
+def test_confidence_gte_min_reconciled_from_topic_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "lint_conf_ok")
+    errors = deterministic_lint(
+        "content_context",
+        {
+            "status": "complete",
+            "confidence": 0.23,
+            "artifacts": {
+                "thesis": "ok",
+                "topics": [
+                    {
+                        "name": "Topic",
+                        "summary": "s",
+                        "confidence": 0.86,
+                        "approx_time_range": "00:00-01:00",
+                    }
+                ],
+            },
+        },
+        ctx,
+    )
+    assert not any("confidence_gte_min" in e for e in errors)
+
+
 def test_reconcile_speaker_roles_envelope_confidence() -> None:
     envelope = {
         "status": "complete",
@@ -83,3 +108,33 @@ def test_reconcile_speaker_roles_envelope_confidence() -> None:
     }
     assert reconcile_envelope_confidence("speaker_roles", envelope) is True
     assert envelope["confidence"] == 0.83
+
+
+def test_reconcile_content_context_envelope_confidence() -> None:
+    envelope = {
+        "status": "complete",
+        "confidence": 0.23,
+        "artifacts": {
+            "thesis": "Example thesis",
+            "topics": [
+                {"name": "Topic A", "summary": "s", "confidence": 0.86},
+                {"name": "Topic B", "summary": "s", "confidence": 0.82},
+            ],
+            "key_claims": [{"claim": "c", "confidence": 0.9, "approx_time_range": "00:00-01:00"}],
+        },
+    }
+    assert reconcile_envelope_confidence("content_context", envelope) is True
+    assert envelope["confidence"] == 0.82
+
+
+def test_reconcile_content_context_skips_when_rows_low() -> None:
+    envelope = {
+        "status": "complete",
+        "confidence": 0.23,
+        "artifacts": {
+            "thesis": "Example thesis",
+            "topics": [{"name": "Topic A", "summary": "s", "confidence": 0.2}],
+        },
+    }
+    assert reconcile_envelope_confidence("content_context", envelope) is False
+    assert envelope["confidence"] == 0.23

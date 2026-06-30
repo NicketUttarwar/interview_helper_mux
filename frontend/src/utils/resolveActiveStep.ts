@@ -102,6 +102,14 @@ export function resolveFocusStepId(
   }
 
   if (
+    blockingReason === "llm_gate" ||
+    (job?.status === "gate" && job.stage === stageId)
+  ) {
+    if (hasStep(steps, "llm_gate")) return "llm_gate";
+    return "llm_gate";
+  }
+
+  if (
     blockingReason === "stage_reuse" ||
     (job?.needs_stage_reuse && (job.stage === stageId || job.current_stage === stageId))
   ) {

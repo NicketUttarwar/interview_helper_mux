@@ -321,6 +321,9 @@ export interface JobState {
   pending_write_stage?: string;
   pending_write_paths?: string[];
   itr_blocking_count?: number;
+  can_fix_all?: boolean;
+  bridge_eligible?: boolean;
+  itr_open_blocking?: number;
 }
 
 export interface RunData {

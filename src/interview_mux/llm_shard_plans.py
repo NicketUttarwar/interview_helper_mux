@@ -147,6 +147,19 @@ def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     tr = stage_input.get("transcript")
+    words = tr.get("words") if isinstance(tr, dict) else None
+    if isinstance(words, list) and len(words) >= 400:
+        batch = max(1, len(words) // 4)
+        plans: list[dict[str, Any]] = []
+        for i in range(0, len(words), batch):
+            chunk = words[i : i + batch]
+            if not chunk:
+                continue
+            start_ms = chunk[0].get("start_ms", 0)
+            end_ms = chunk[-1].get("end_ms", start_ms)
+            plans.append({"label": f"time_{i // batch + 1}", "start_ms": start_ms, "end_ms": end_ms})
+        if plans:
+            return plans[:_max_transcript_shards()]
     items = tr.get("items") if isinstance(tr, dict) else None
     if not items or len(items) < 400:
         return _segment_batches(stage_input)
@@ -272,3 +285,22 @@ def should_proactive_decompose_content_context(stage_input: dict[str, Any]) -> b
     cfg = _context_cfg()
     threshold = int(cfg.get("proactive_decompose_chars", cfg.get("transcript_full_chars", 72000)))
     return transcript_length_for_stage_input(stage_input) > threshold
+
+
+def should_proactive_decompose_boundary_detection(
+    stage_input: dict[str, Any],
+    ctx: Any | None = None,
+) -> bool:
+    from interview_mux.boundary_observability import oversplit_risk_from_hints, spine_truncation_risk
+
+    hints = stage_input.get("pause_ladder_hints")
+    if oversplit_risk_from_hints(hints if isinstance(hints, dict) else None):
+        return True
+    if ctx is not None and spine_truncation_risk(ctx):
+        return True
+    cfg = _context_cfg()
+    max_chars = int(cfg.get("max_stage_data_chars", 64000))
+    import json
+
+    est = len(json.dumps(stage_input, default=str))
+    return est > int(max_chars * 0.9)
