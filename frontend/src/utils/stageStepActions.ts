@@ -18,6 +18,7 @@ interface StepActionHandlers {
   redoFromStage: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
   revalidateArtifactIssues?: (stageId: string) => Promise<void>;
+  fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
   stageAction: OperatorAction | null;
 }
 
@@ -39,6 +40,10 @@ export async function invokeStepFooterAction(
   }
 
   if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
+    if (handlers.fixAllAndContinueStage) {
+      await handlers.fixAllAndContinueStage(stage.id);
+      return;
+    }
     if (handlers.revalidateArtifactIssues) {
       await handlers.revalidateArtifactIssues(stage.id);
     }

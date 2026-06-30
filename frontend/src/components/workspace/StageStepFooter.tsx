@@ -48,6 +48,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     approveSfxPrompts,
     acknowledgeHandoff,
     revalidateArtifactIssues,
+    fixAllAndContinueStage,
   } = useApp();
 
   const stageAction = useStageOperatorAction(run, stage.id, {
@@ -90,6 +91,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     advanceFromCheckpoint: () => advanceFromCheckpoint(),
     approveWriteAndContinue: (sid: string) => approveWriteAndContinue(sid),
     revalidateArtifactIssues: (sid: string) => revalidateArtifactIssues(sid),
+    fixAllAndContinueStage: (sid: string) => fixAllAndContinueStage(sid),
     discardPendingWrites: (sid: string) => discardPendingWrites(sid),
     completeTranscriptReview: (acceptUnreviewed?: boolean) =>
       completeTranscriptReview(acceptUnreviewed),

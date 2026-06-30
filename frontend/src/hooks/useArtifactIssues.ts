@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { formatApiError } from "../utils/safeApi";
 import type {
   ArtifactIssue,
+  AutoResolveResult,
   PropagationPlan,
   StageIssuesResponse,
 } from "./useArtifactIssues.types";
@@ -11,9 +12,11 @@ import type {
 export type {
   ArtifactIssue,
   ArtifactIssueOption,
+  AutoResolveResult,
   PropagationPlan,
   RecoveryAction,
   StageIssuesResponse,
+  StageIssuesSummary,
 } from "./useArtifactIssues.types";
 
 export function useArtifactIssues(stageId: string) {
@@ -55,6 +58,72 @@ export function useArtifactIssues(stageId: string) {
     void load();
     void loadPropagationPlan();
   }, [load, loadPropagationPlan]);
+
+  const autoResolve = useCallback(async (): Promise<AutoResolveResult | null> => {
+    if (!runId || !stageId) return null;
+    setBusy(true);
+    try {
+      const res = await api<AutoResolveResult>(
+        `/api/runs/${runId}/stages/${stageId}/issues/auto-resolve`,
+        { method: "POST" },
+      );
+      if (res.propagation_plan) {
+        setPropagationPlan(res.propagation_plan);
+      } else {
+        await loadPropagationPlan();
+      }
+      await load();
+      await refreshRun();
+      return res;
+    } catch (e) {
+      showToast(formatApiError(e, "Fix all"), "error");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, [runId, stageId, load, loadPropagationPlan, refreshRun, showToast]);
+
+  const toastForAutoResolve = useCallback(
+    (res: AutoResolveResult) => {
+      const outcome = res.outcome || "unknown";
+      if (outcome === "success") {
+        if (res.phase === "downstream_job") {
+          showToast("Fixes applied — downstream re-run started", "success");
+          return;
+        }
+        if (res.can_advance_pipeline) {
+          showToast("All issues resolved — ready to save", "success");
+          return;
+        }
+        showToast("All issues resolved", "success");
+        return;
+      }
+      if (outcome === "manual_required") {
+        showToast("Some issues need manual choices", "warning");
+        return;
+      }
+      if (outcome === "partial") {
+        showToast(res.errors?.[0] || "Partial fix — review remaining issues", "warning");
+        return;
+      }
+      if (outcome === "cap_exhausted") {
+        showToast("Auto-resolve limit reached — use manual cards", "warning");
+        return;
+      }
+      if (outcome === "destructive_budget_exceeded") {
+        showToast("Fix blocked — would delete too many segments", "error");
+        return;
+      }
+      showToast(res.errors?.[0] || `Auto-resolve: ${outcome}`, "error");
+    },
+    [showToast],
+  );
+
+  const fixAllAndContinue = useCallback(async (): Promise<AutoResolveResult | null> => {
+    const res = await autoResolve();
+    if (res) toastForAutoResolve(res);
+    return res;
+  }, [autoResolve, toastForAutoResolve]);
 
   const autoRepair = useCallback(async () => {
     if (!runId || !stageId) return;
@@ -205,9 +274,14 @@ export function useArtifactIssues(stageId: string) {
     openItems,
     autoFixed,
     openBlocking: data?.open_blocking ?? 0,
+    canFixAll: data?.summary?.can_fix_all ?? false,
+    preview: data?.summary?.preview ?? [],
+    stepLabel: data?.summary?.step_label ?? data?.capabilities?.step_label ?? "Fix all & continue",
     load,
     loadPropagationPlan,
     autoRepair,
+    autoResolve,
+    fixAllAndContinue,
     resolveIssue,
     executeAction,
     executePropagation,

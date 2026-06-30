@@ -1377,20 +1377,11 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
 
             def _itr_continue() -> dict[str, Any]:
-                from interview_mux.artifact_issue_triage import (
-                    blocking_issues_remaining,
-                    clear_clarification_gate,
-                    revalidate_after_repair,
-                    run_triage_pipeline,
-                )
+                from interview_mux.artifact_auto_resolve import auto_resolve_stage
 
-                run_triage_pipeline(ctx, stage_id, staged=True)
-                ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
-                open_blocking = blocking_issues_remaining(ctx, stage_id)
-                if ok and open_blocking == 0:
-                    clear_clarification_gate(ctx, stage_id)
+                result = auto_resolve_stage(ctx, stage_id, runner=runner, run_id=run_id)
                 refresh_journey_meta(ctx)
-                return {"ok": ok, "errors": errors, "open_blocking": open_blocking}
+                return result.to_dict()
 
             try:
                 with runner.operator_guard(run_id):
@@ -1444,6 +1435,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         if stage_id not in STAGE_BY_ID:
             raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_auto_resolve import auto_resolve_stage, get_stage_issues_summary, stage_capabilities
         from interview_mux.artifact_issue_triage import (
             blocking_issues_remaining,
             list_stage_issues,
@@ -1451,11 +1443,38 @@ def create_app() -> FastAPI:
         )
 
         items = list_stage_issues(ctx, stage_id) if triage_enabled() else []
+        summary = get_stage_issues_summary(ctx, stage_id) if triage_enabled() else {}
+        caps = stage_capabilities(stage_id)
         return {
             "stage_id": stage_id,
             "items": items,
             "open_blocking": blocking_issues_remaining(ctx, stage_id),
+            "summary": summary,
+            "capabilities": caps,
         }
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-resolve")
+    async def post_stage_issues_auto_resolve(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.artifact_auto_resolve import auto_resolve_stage
+        from interview_mux.artifact_issue_triage import triage_enabled
+
+        if not triage_enabled():
+            return {"outcome": "success", "stage_key": stage_id, "open_blocking": 0, "can_advance_pipeline": True}
+
+        def _resolve() -> dict[str, Any]:
+            result = auto_resolve_stage(ctx, stage_id, runner=runner, run_id=run_id)
+            return result.to_dict()
+
+        try:
+            with runner.operator_guard(run_id):
+                out = _resolve()
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return out
 
     @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-repair")
     def post_stage_issues_auto_repair(run_id: str, stage_id: str) -> dict[str, Any]:

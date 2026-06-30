@@ -293,6 +293,20 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         kept.append(row)
 
     sorted_rows = sort_segments_by_start_ms(kept)
+    overlap_policy = str(itr_cfg.get("segment_overlap_policy") or "drop_duplicate_then_llm_pick")
+    if overlap_policy == "drop_duplicate_then_llm_pick":
+        deduped: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for row in sorted_rows:
+            seg_id = str(row.get("segment_id") or "")
+            if seg_id and seg_id in seen_ids:
+                applied.append({"action": "drop_row", "segment_id": seg_id, "reason": "duplicate_segment_id"})
+                continue
+            if seg_id:
+                seen_ids.add(seg_id)
+            deduped.append(row)
+        sorted_rows = deduped
+
     cfg = segment_timeline_cfg()
     allow_overlap = int(cfg.get("allow_overlap_ms", 0))
     prev_end: int | None = None
@@ -650,6 +664,36 @@ def apply_repairs_for_stage(
     if rel.endswith("edl_narrative_audit.json") or stage_key == "edl_narrative_audit":
         return repair_edl_audit(ctx, artifacts)
     return artifacts, []
+
+
+def apply_choice_to_boundaries(doc: dict[str, Any], issue: dict[str, Any], choice: Any) -> dict[str, Any]:
+    out = copy.deepcopy(doc)
+    rows = out.get("boundaries")
+    if not isinstance(rows, list):
+        return out
+    seg_id = str(issue.get("segment_id") or "")
+    strategy = str(issue.get("repair_strategy") or "")
+
+    if choice == "delete_segment" or (isinstance(choice, dict) and choice.get("action") == "delete"):
+        if seg_id:
+            out["boundaries"] = [r for r in rows if str(r.get("segment_id")) != seg_id]
+            _append_repair_meta(out, {"action": "operator_delete", "segment_id": seg_id})
+        return out
+
+    if choice == "fabricate_all":
+        return out
+
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("segment_id")) != seg_id:
+            continue
+        if strategy in ("infer_segment_types", "llm_pick", "merge_overlap") and isinstance(choice, str):
+            if choice in VALID_SEGMENT_TYPES:
+                row["type"] = choice
+        elif isinstance(choice, dict):
+            row.update({k: v for k, v in choice.items() if k in row or k in VALID_SEGMENT_TYPES})
+        break
+    _append_repair_meta(out, {"action": "operator_choice", "segment_id": seg_id, "choice": choice})
+    return out
 
 
 def apply_choice_to_manifest(manifest: dict[str, Any], issue: dict[str, Any], choice: Any) -> dict[str, Any]:

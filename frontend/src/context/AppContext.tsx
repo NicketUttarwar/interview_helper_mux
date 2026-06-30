@@ -162,6 +162,7 @@ interface AppContextValue {
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  fixAllAndContinueStage: (stageId: string) => Promise<boolean>;
   revalidateArtifactIssues: (stageId: string) => Promise<void>;
   discardPendingWrites: (stageId: string) => Promise<void>;
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
@@ -1939,19 +1940,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (stageId: string) => {
       if (!runId) return;
       try {
-        await api(`/api/runs/${runId}/continue-after-checkpoint`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "artifact_clarification", stage_id: stageId }),
-        });
+        const res = await api<{
+          ok?: boolean;
+          open_blocking?: number;
+          errors?: string[];
+          downstream_errors?: string[];
+        }>(`/api/runs/${runId}/stages/${stageId}/issues/revalidate`, { method: "POST" });
         await refreshRun();
-        showToast("Artifact issues re-checked", "success");
+        const hasDownstream = (res.downstream_errors?.length ?? 0) > 0;
+        if (res.ok && !res.open_blocking && !hasDownstream) {
+          showToast("Validation passed — you can save staged files", "success");
+          return;
+        }
+        showToast(
+          res.downstream_errors?.[0] ||
+            res.errors?.[0] ||
+            `${res.open_blocking ?? 0} issue(s) remain`,
+          "warning",
+        );
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Re-check failed";
         showToast(msg, "error");
       }
     },
     [runId, refreshRun, showToast],
+  );
+
+  const fixAllAndContinueStage = useCallback(
+    async (stageId: string): Promise<boolean> => {
+      if (!runId) return false;
+      setActionBusy(true);
+      try {
+        const res = await api<{
+          outcome?: string;
+          phase?: string;
+          can_advance_pipeline?: boolean;
+          downstream_job?: unknown;
+          errors?: string[];
+          open_blocking?: number;
+        }>(`/api/runs/${runId}/stages/${stageId}/issues/auto-resolve`, { method: "POST" });
+        await refreshRun();
+        const outcome = res.outcome || "unknown";
+        if (outcome === "success") {
+          if (res.downstream_job) {
+            showToast("Fixes applied — downstream re-run started", "success");
+            startJobPoll();
+            return true;
+          }
+          if (res.can_advance_pipeline && res.phase === "awaiting_save") {
+            showToast("All issues resolved — saving staged files", "success");
+            return await approveWriteAndContinue(stageId);
+          }
+          showToast("All issues resolved", "success");
+          return true;
+        }
+        if (outcome === "manual_required" || outcome === "partial") {
+          showToast(res.errors?.[0] || "Some issues need manual review", "warning");
+          return false;
+        }
+        showToast(res.errors?.[0] || `Auto-resolve: ${outcome}`, "error");
+        return false;
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Fix all failed";
+        showToast(msg, "error");
+        return false;
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [runId, refreshRun, showToast, approveWriteAndContinue, startJobPoll],
   );
 
   const discardPendingWrites = useCallback(
@@ -2436,6 +2493,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startJobPoll,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    fixAllAndContinueStage,
     revalidateArtifactIssues,
     discardPendingWrites,
     completeTranscriptReview,

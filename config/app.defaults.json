@@ -371,7 +371,15 @@
       "max_downstream_auto_continue": 1,
       "boundary_merge_threshold_ms": 500,
       "require_propagation_before_segment_approve": true,
-      "upstream_rerun_invalidate_downstream": true
+      "upstream_rerun_invalidate_downstream": true,
+      "auto_resolve_min_confidence": 0.70,
+      "auto_resolve_confidence_gap": 0.15,
+      "auto_resolve_chain_downstream": true,
+      "max_auto_resolve_attempts_per_stage": 2,
+      "auto_advance_after_itr_clear": true,
+      "min_segments_after_auto_resolve": 1,
+      "max_segments_deleted_per_fix_all": 0.10,
+      "auto_resolve_max_issues_per_pass": 50
     }
   }
 }

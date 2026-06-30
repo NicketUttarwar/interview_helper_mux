@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts
-from interview_mux.artifact_repairs import apply_choice_to_manifest, apply_repairs_for_stage
+from interview_mux.artifact_repairs import (
+    apply_choice_to_boundaries,
+    apply_choice_to_manifest,
+    apply_repairs_for_stage,
+)
 from interview_mux.artifact_clarification_llm import infer_options_local_llm
 from interview_mux.config import merged_config
 from interview_mux.issue_severity_rules import (
@@ -51,6 +55,14 @@ def triage_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "boundary_merge_threshold_ms": 500,
         "require_propagation_before_segment_approve": True,
         "upstream_rerun_invalidate_downstream": True,
+        "auto_resolve_min_confidence": 0.70,
+        "auto_resolve_confidence_gap": 0.15,
+        "auto_resolve_chain_downstream": True,
+        "max_auto_resolve_attempts_per_stage": 2,
+        "auto_advance_after_itr_clear": True,
+        "min_segments_after_auto_resolve": 1,
+        "max_segments_deleted_per_fix_all": 0.10,
+        "auto_resolve_max_issues_per_pass": 50,
     }
     raw = base.get("artifact_issue_triage") or {}
     return {**defaults, **raw}
@@ -280,6 +292,14 @@ def _issues_to_clarification_items(
 
         if issue.severity in ("minor", "noise"):
             item["blocking"] = False
+
+        from interview_mux.artifact_auto_resolve import can_auto_resolve_issue, pick_recommended_choice
+
+        rec = pick_recommended_choice(item)
+        if rec is not None:
+            item["recommended_choice"] = rec
+        item["auto_resolvable"] = can_auto_resolve_issue(item)
+
         items.append(item)
     return items
 
@@ -397,6 +417,8 @@ def resolve_issue(ctx: Any, stage_key: str, issue_id: str, choice: Any) -> tuple
 
     if choice in ("fabricate_all", "accept_auto_repair"):
         patched, _ = apply_repairs_for_stage(ctx, stage_key, artifact)
+    elif rel.endswith("boundaries.json"):
+        patched = apply_choice_to_boundaries(artifact, issue, choice)
     elif rel.endswith("manifest.json"):
         patched = apply_choice_to_manifest(artifact, issue, choice)
     else:
@@ -487,6 +509,9 @@ def execute_propagation(
 ) -> RecoveryResult:
     """Invalidate downstream stages and optionally start upstream rerun."""
     if runner and run_id:
+        from interview_mux.artifact_root_cause import invalidate_stale_downstream
+
+        invalidate_stale_downstream(ctx, invalidate_from)
         runner.invalidate_from(run_id, invalidate_from)
         target = (rerun_stages or [invalidate_from])[0]
         job = runner.start(run_id, mode="stage", from_stage=target, stage=target)

@@ -776,25 +776,32 @@ def _automated_steps(
         )
         num += 1
     from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+    from interview_mux.artifact_auto_resolve import stage_capabilities
 
     itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
     if itr_open > 0 and not gate_blocked:
+        caps = stage_capabilities(stage_id)
+        step_label = str(caps.get("step_label") or "Fix all & continue")
+        tier = str(caps.get("tier") or "manual")
+        instruction = (
+            "One-click fix resolves auto-repairable issues. "
+            "Manual cards appear only when confidence is too low."
+            if tier == "full"
+            else "Review artifact issues before saving."
+        )
         steps.append(
             _step(
                 "artifact_clarification",
                 num,
                 f"Resolve {itr_open} artifact issue(s)",
-                instruction=(
-                    "Minor issues were auto-fixed where possible. "
-                    "Choose options for remaining issues, then re-check before saving."
-                ),
+                instruction=instruction,
                 review=[
                     f"{itr_open} blocking clarification(s) open",
-                    "Use dropdowns for segment type, overlap, or coverage fixes",
-                    "Re-check validation after applying choices",
+                    "Fix all applies recommended choices when safe",
+                    "Re-check validation after fixes",
                 ],
-                primary_button="Apply fixes & re-check",
-                secondary_button="Open write approval",
+                primary_button=step_label,
+                secondary_button="Advanced details",
                 kind="artifact_clarification",
                 status="todo",
             )

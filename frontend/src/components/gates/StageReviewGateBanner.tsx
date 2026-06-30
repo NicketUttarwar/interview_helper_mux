@@ -452,8 +452,9 @@ function ArtifactClarificationGateContent({
   stage: StageInfo;
   pathCount: number;
 }) {
-  const { revalidateArtifactIssues } = useApp();
+  const { fixAllAndContinueStage, jobRunning, actionBusy } = useApp();
   const [busy, setBusy] = useState(false);
+  const disabled = busy || jobRunning || actionBusy;
 
   return (
     <ReviewGateBannerShell
@@ -467,12 +468,12 @@ function ArtifactClarificationGateContent({
       testId="artifact-clarification-gate-banner"
       actions={
         <BusyButton
-          busy={busy}
-          label="Apply fixes & re-check"
-          testId="artifact-clarification-revalidate-banner"
+          busy={disabled}
+          label="Fix all & continue"
+          testId="artifact-clarification-fix-all-banner"
           onClick={() => {
             setBusy(true);
-            void revalidateArtifactIssues(stage.id).finally(() => setBusy(false));
+            void fixAllAndContinueStage(stage.id).finally(() => setBusy(false));
           }}
         />
       }

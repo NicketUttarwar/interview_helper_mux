@@ -87,6 +87,12 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
         source="lint",
     )
 
+    if "duplicate segment_id" in low:
+        issue.kind = "overlap"
+        issue.severity = "critical"
+        issue.repair_strategy = "merge_overlap"
+        return issue
+
     if "manifest times not monotonic" in low or "zero-length segment" in low:
         issue.kind = "overlap"
         issue.severity = "critical"
@@ -168,7 +174,10 @@ def classify_cross_validate_message(
         source="cross_validate",
     )
 
-    if "not monotonic" in low or "overlap" in low:
+    if "duplicate segment_id" in low:
+        issue.kind = "overlap"
+        issue.repair_strategy = "merge_overlap"
+    elif "not monotonic" in low or "overlap" in low:
         issue.kind = "overlap"
         issue.repair_strategy = "merge_overlap"
         if stage_key == "segment_classification":

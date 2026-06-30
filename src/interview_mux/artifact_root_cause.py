@@ -136,8 +136,8 @@ def resolve_recovery_plan(
     }
 
 
-def compute_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
-    """Identify downstream stages stale after an upstream artifact fix."""
+def plan_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
+    """Read-only: stale stages and cross-validation errors without mutating summaries."""
     plan = StalePropagationPlan(from_stage=from_stage)
     if from_stage not in _PROPAGATION_FROM:
         return plan
@@ -146,10 +146,6 @@ def compute_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
     plan.stale_stages = [sid for sid in candidates if ctx.is_done(sid)]
     if plan.stale_stages:
         plan.invalidate_from = plan.stale_stages[0]
-
-    from interview_mux.artifact_cross_validate import invalidate_stage_summaries
-
-    invalidate_stage_summaries(ctx, tuple(candidates))
 
     for checkpoint in _CHECKPOINTS_BY_FROM.get(from_stage, ()):
         errs = validate_cross_artifacts(ctx, checkpoint)
@@ -165,8 +161,27 @@ def compute_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
 
     if from_stage == "segment_classification" and plan.cross_errors:
         plan.suggested_upstream_stage = "boundary_detection"
+    elif from_stage == "boundary_detection" and plan.cross_errors:
+        for err in plan.cross_errors:
+            if "manifest" in err.lower() or "segment" in err.lower():
+                plan.suggested_upstream_stage = "segment_classification"
+                break
 
     return plan
+
+
+def invalidate_stale_downstream(ctx: Any, from_stage: str) -> None:
+    """Mutate analysis summaries for downstream stages after confirmed propagation."""
+    if from_stage not in _PROPAGATION_FROM:
+        return
+    from interview_mux.artifact_cross_validate import invalidate_stage_summaries
+
+    invalidate_stage_summaries(ctx, tuple(_PROPAGATION_FROM[from_stage]))
+
+
+def compute_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
+    """Identify downstream stages stale after an upstream artifact fix (read-only plan)."""
+    return plan_stale_downstream(ctx, from_stage)
 
 
 def revalidate_downstream_for_stage(ctx: Any, stage_key: str) -> list[str]:
@@ -175,7 +190,33 @@ def revalidate_downstream_for_stage(ctx: Any, stage_key: str) -> list[str]:
         return []
     if stage_key not in _CHECKPOINTS_BY_FROM:
         return []
-    return compute_stale_downstream(ctx, stage_key).cross_errors
+    return plan_stale_downstream(ctx, stage_key).cross_errors
+
+
+def downstream_auto_continue_count(ctx: Any) -> int:
+    path = "understanding/analysis_orchestration.json"
+    if not ctx.artifact_exists(path):
+        return 0
+    doc = ctx.read_json(path)
+    if not isinstance(doc, dict):
+        return 0
+    return int(doc.get("itr_downstream_auto_continue_count") or 0)
+
+
+def record_downstream_auto_continue(ctx: Any) -> int:
+    path = "understanding/analysis_orchestration.json"
+    doc = ctx.read_json(path) if ctx.artifact_exists(path) else {}
+    if not isinstance(doc, dict):
+        doc = {}
+    n = int(doc.get("itr_downstream_auto_continue_count") or 0) + 1
+    doc["itr_downstream_auto_continue_count"] = n
+    ctx.write_json(path, doc, skip_handoff=True)
+    return n
+
+
+def can_downstream_auto_continue(ctx: Any) -> bool:
+    cap = int(_triage_cfg().get("max_downstream_auto_continue") or 1)
+    return downstream_auto_continue_count(ctx) < cap
 
 
 def upstream_rerun_count(ctx: Any) -> int:

@@ -317,7 +317,7 @@ Partial persist and sanitize when primary output fails lint/schema — `llm_outp
 
 ## `analysis.artifact_issue_triage`
 
-Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artifact-issue-triage.md). Implemented in `artifact_issue_triage.py`, `artifact_repairs.py`, `issue_severity_rules.py`.
+Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artifact-issue-triage.md). Implemented in `artifact_issue_triage.py`, `artifact_auto_resolve.py`, `artifact_repairs.py`, `issue_severity_rules.py`.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -338,6 +338,14 @@ Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artif
 | `boundary_merge_threshold_ms` | `500` | Merge adjacent micro-boundaries below this span in `repair_boundaries` |
 | `require_propagation_before_segment_approve` | `true` | Block write approval when downstream cross-validate fails after segment/boundary fix |
 | `upstream_rerun_invalidate_downstream` | `true` | Invalidate downstream summaries when upstream rerun is executed |
+| `auto_resolve_min_confidence` | `0.70` | Minimum option confidence for Fix all auto-pick |
+| `auto_resolve_confidence_gap` | `0.15` | Required gap between top two options for auto-pick |
+| `auto_resolve_chain_downstream` | `true` | After boundary fix, chain `segment_classification` when safe |
+| `max_auto_resolve_attempts_per_stage` | `2` | Cap Fix all attempts per stage (oscillation guard) |
+| `auto_advance_after_itr_clear` | `true` | Set `can_advance_pipeline` on successful auto-resolve |
+| `min_segments_after_auto_resolve` | `1` | Block destructive fix-all that empties manifest |
+| `max_segments_deleted_per_fix_all` | `0.10` | Max fraction of segments deletable in one Fix all pass |
+| `auto_resolve_max_issues_per_pass` | `50` | Cap issues processed per Fix all invocation |
 
 ---
 

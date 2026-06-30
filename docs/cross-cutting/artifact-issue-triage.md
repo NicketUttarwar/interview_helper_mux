@@ -2,64 +2,85 @@
 
 Unified pipeline for classifying, auto-repairing, and operator-resolving artifact validation issues before write approval.
 
+## North star
+
+**Fix all & continue** is the primary operator action on segment stages (`boundary_detection`, `segment_classification`). One click applies recommended repairs, clears the clarification gate when safe, and chains to write approval / next stage when configured.
+
+Manual per-card dropdowns appear only when confidence or safety gates fail.
+
 ## Flow
 
-1. **Post-persist** — `run_triage_pipeline()` in `llm_stage_routing.finalize_stage_attempt` after staged artifacts are written.
-2. **Pre-cross-validate** — `pipeline.py` and `artifact_cross_validate.py` run triage before hard `SystemExit` when `clarification_before_halt` is true.
-3. **Pre-write-approval** — `assert_write_approval_itr_ok()` blocks save when open blocking clarifications remain or downstream propagation is required.
-4. **Operator UI** — middle-panel `artifact_clarification` step with recovery action buttons and propagation wizard.
+1. **Post-persist** — `run_triage_pipeline()` after staged artifacts are written.
+2. **Pre-cross-validate** — triage before hard halt when `clarification_before_halt` is true.
+3. **Pre-write-approval** — `assert_write_approval_itr_ok()` blocks save when blocking issues remain or propagation is required.
+4. **Auto-resolve** — `POST …/issues/auto-resolve` runs `auto_resolve_stage()` in `artifact_auto_resolve.py`.
+5. **Operator UI** — `artifact_clarification` step with **Fix all & continue** primary button; Advanced details for manual cards.
 
-## Smart recovery (upstream + downstream)
+## Auto-resolve algorithm
 
-After deterministic repairs and downstream revalidation:
+1. Idempotent exit when `open_blocking === 0`.
+2. Run deterministic repairs via `run_triage_pipeline`.
+3. For each open blocking item (cap: `auto_resolve_max_issues_per_pass`):
+   - Pick `recommended_choice` when confidence ≥ `auto_resolve_min_confidence` and gap ≥ `auto_resolve_confidence_gap`.
+   - Apply via `resolve_issue()`; log `itr.auto_resolve.apply`.
+4. Enforce destructive rails (`min_segments_after_auto_resolve`, `max_segments_deleted_per_fix_all`).
+5. Revalidate staged artifacts (`revalidate_for_itr_gate(..., artifact_source=staged)`).
+6. Clear `needs_clarification` gate; clear `manifest_propagation` investigations on success.
+7. Optionally chain `segment_classification` when boundary fix succeeds (`auto_resolve_chain_downstream`, `max_downstream_auto_continue` cap).
 
-1. **Local repair first** — overlap trim, orphan ref drop, enum coercion, etc.
-2. **Downstream revalidate** — cross-artifact checks after `segment_classification` or `boundary_detection` fixes.
-3. **Propagation wizard** — when downstream stages are stale or cross-validate fails, the UI shows affected stages and **Invalidate & re-run from …** (no silent upstream reruns).
-4. **Upstream rerun** — operator confirms; `invalidate_from` earliest stale stage, one upstream stage job, re-triage on return (capped by `max_upstream_reruns_per_run`).
+## AutoResolveResult outcomes
 
-### Recovery action types (clarification items)
+| Outcome | Meaning |
+|---------|---------|
+| `success` | All blocking issues cleared (may still be `awaiting_save` or `downstream_job` phase) |
+| `partial` | Some fixes applied; validation or downstream still blocked |
+| `manual_required` | One or more issues need operator choice |
+| `cap_exhausted` | `max_auto_resolve_attempts_per_stage` reached |
+| `destructive_budget_exceeded` | Would delete too many segments |
+| `no_staged_artifact` | No staged file to repair |
+| `busy` | Run lock held (409) |
 
-| Action | API | Effect |
-|--------|-----|--------|
-| `apply_repair` | `POST …/issues/{id}/execute-action` | Run deterministic repair for the issue |
-| `rerun_upstream` | same | Invalidate from upstream stage; start single stage job |
-| `dismiss` | same | Mark non-blocking / dismiss |
+Phases: `local_fix`, `downstream_job`, `awaiting_save`, `complete`, `failed`.
 
-Clarification items may include `suggested_upstream_stage` and `recovery_actions[]` (see `artifact_root_cause.py`).
-
-### Propagation endpoints
+## API
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/runs/{run_id}/stages/{stage_id}/propagation-plan` | Stale stages, cross errors, suggested `invalidate_from` |
-| `POST` | `/api/runs/{run_id}/stages/{stage_id}/propagation/execute` | Operator-confirmed invalidate + rerun |
-| `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/revalidate` | Returns `downstream_errors` + `propagation_plan` |
+| `GET` | `/api/runs/{run_id}/stages/{stage_id}/issues` | Items + `summary` (preview, `can_fix_all`, tier) |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/auto-resolve` | Bulk auto-resolve (`AutoResolveResult` JSON) |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/revalidate` | Gate re-check (preferred over deprecated continue-after-checkpoint ITR branch) |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/auto-repair` | Deterministic repair only |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/issues/{id}/resolve` | Single-issue apply |
+| `GET` | `/api/runs/{run_id}/stages/{stage_id}/propagation-plan` | Read-only stale downstream plan |
+| `POST` | `/api/runs/{run_id}/stages/{stage_id}/propagation/execute` | Confirmed invalidate + rerun |
 
-Root-cause routing maps lint/crossval signals to upstream stages (e.g. timeline overlap → `boundary_detection`, orphan segment ref → `segment_classification`).
+`POST …/continue-after-checkpoint` with `kind=artifact_clarification` delegates to auto-resolve (legacy path).
 
-## Severity matrix
+## Downstream propagation
 
-| Severity | Auto action | Operator |
-|----------|-------------|----------|
-| `noise` | Enqueue non-blocking investigation | Hidden |
-| `minor` | Deterministic repair (null arrays, enum coercion) | None unless repair fails |
-| `important` | Local LLM generates 2–4 options | Required pick |
-| `critical` | Deterministic repair once; then LLM options | Required pick or delete/merge |
+- **Read-only plan:** `plan_stale_downstream()` — no summary mutation on GET.
+- **Mutate on execute:** `invalidate_stale_downstream()` when propagation job starts.
+- Revalidation uses read-only plan via `revalidate_downstream_for_stage()`.
 
-## Artifacts
+## Segment repair foundation
 
-- **Clarifications store:** `understanding/operator_clarifications.json` (schema: `docs/cross-cutting/json-schemas/operator_clarifications.schema.json`)
-- **Audit trail:** `_meta.repairs[]` on patched artifacts when `record_repairs_in_artifact_meta` is true
+- `repair_boundaries()` dedupes duplicate `segment_id` when `segment_overlap_policy=drop_duplicate_then_llm_pick`.
+- `apply_choice_to_boundaries()` honors `delete_segment` and type picks on `boundaries.json`.
+- `resolve_issue()` routes boundaries vs manifest correctly.
+
+## ITR stage registry
+
+`ITR_STAGE_CAPABILITIES` in `artifact_auto_resolve.py` drives step labels and tiers (`full` / `scaffold` / `manual`). `stage_steps.py` reads registry copy for the clarification step.
 
 ## Key modules
 
 | Module | Role |
 |--------|------|
+| `artifact_auto_resolve.py` | Bulk auto-resolve, outcome contract, stage registry |
 | `artifact_issue_triage.py` | Orchestrator: collect, classify, repair, revalidate, gates |
-| `artifact_root_cause.py` | Upstream routing, stale downstream plan, propagation helpers |
+| `artifact_root_cause.py` | Upstream routing, stale downstream plan vs invalidate |
 | `issue_severity_rules.py` | Severity + repair strategy classification |
-| `artifact_repairs.py` | Deterministic repair catalog (P0–P2 stages) |
+| `artifact_repairs.py` | Deterministic repair catalog + boundary operator choices |
 | `artifact_clarification_llm.py` | Local LLM option generation (MLX fail-open) |
 | `operator_clarifications_store.py` | Load/save clarifications file |
 
@@ -67,10 +88,18 @@ Root-cause routing maps lint/crossval signals to upstream stages (e.g. timeline 
 
 | Status | Meaning |
 |--------|---------|
-| `needs_clarification` | Blocking ITR items with operator options |
+| `needs_clarification` | Blocking ITR items — use Fix all & continue |
 | `awaiting_write_approval` | Clean staged outputs — save allowed |
 | `gate` | Unrecoverable LLM failure (not ITR) |
 
 ## Config
 
-See `analysis.artifact_issue_triage` and `analysis.flow_hardening.clarification_before_halt` in [config-keys.md](./config-keys.md).
+See `analysis.artifact_issue_triage` in [config-keys.md](./config-keys.md):
+
+- `auto_resolve_min_confidence`, `auto_resolve_confidence_gap`
+- `max_auto_resolve_attempts_per_stage`, `auto_resolve_max_issues_per_pass`
+- `min_segments_after_auto_resolve`, `max_segments_deleted_per_fix_all`
+- `auto_resolve_chain_downstream`, `max_downstream_auto_continue`
+- `auto_advance_after_itr_clear`, `segment_overlap_policy`
+
+Also `analysis.flow_hardening.clarification_before_halt`.
