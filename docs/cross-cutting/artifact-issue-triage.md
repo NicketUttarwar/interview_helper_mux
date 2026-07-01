@@ -4,9 +4,11 @@ Unified pipeline for classifying, auto-repairing, and operator-resolving artifac
 
 ## North star
 
-**Fix all & continue** is the primary operator action on segment stages (`boundary_detection`, `segment_classification`). One click applies recommended repairs, clears the clarification gate when safe, and chains to write approval / next stage when configured.
+**Full autopilot (default):** After each LLM stage, `finalize_stage_outputs()` in `stage_finalize.py` runs triage + auto-resolve + risk-based force advance **in the worker** — operators never click Fix all. Unresolved choices surface in the **Stage Decision Wizard** (`operator_decisions` substep). See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md).
 
-Manual per-card dropdowns appear only when confidence or safety gates fail.
+**Legacy mode (`journey_ui.full_autopilot: false`):** **Fix all & continue** remains the primary operator action on segment stages. One click applies recommended repairs, clears the `needs_clarification` gate when safe, and chains to write approval when configured.
+
+Manual per-card dropdowns appear only when confidence or safety gates fail (legacy) or in the decision wizard (full autopilot).
 
 ## Flow
 
@@ -19,7 +21,7 @@ Manual per-card dropdowns appear only when confidence or safety gates fail.
 ## Auto-resolve algorithm
 
 1. Idempotent exit when `open_blocking === 0`.
-2. Run deterministic repairs via `run_triage_pipeline`.
+2. Run deterministic repairs via `run_triage_pipeline` (logs `itr.triage.start` / `itr.triage.complete`).
 3. For each open blocking item (cap: `auto_resolve_max_issues_per_pass`):
    - Pick `recommended_choice` when confidence ≥ `auto_resolve_min_confidence` and gap ≥ `auto_resolve_confidence_gap`.
    - Apply via `resolve_issue()`; log `itr.auto_resolve.apply`.

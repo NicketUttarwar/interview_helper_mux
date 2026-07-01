@@ -735,69 +735,151 @@ def _automated_steps(
         )
         num += 1
     from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
-    from interview_mux.artifact_auto_resolve import stage_capabilities
+    from interview_mux.full_autopilot import full_autopilot_enabled
+    from interview_mux.operator_decisions import pending_decision_count
 
-    itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
-    if itr_blocked or itr_open > 0:
-        caps = stage_capabilities(stage_id)
-        step_label = str(caps.get("step_label") or "Fix all & continue")
-        tier = str(caps.get("tier") or "manual")
-        instruction = (
-            "One-click fix resolves auto-repairable issues. "
-            "Manual cards appear only when confidence is too low."
-            if tier == "full"
-            else "Review artifact issues before saving."
-        )
-        steps.append(
-            _step(
-                "artifact_clarification",
-                num,
-                f"Resolve {itr_open} artifact issue(s)",
-                instruction=instruction,
-                review=[
-                    f"{itr_open} blocking clarification(s) open",
-                    "Fix all applies recommended choices when safe",
-                    "Re-check validation after fixes",
-                ],
-                primary_button=step_label,
-                secondary_button="Advanced details",
-                kind="artifact_clarification",
-                status="todo",
+    if full_autopilot_enabled():
+        from interview_mux.write_staging import read_gui_job
+
+        job = read_gui_job(ctx)
+        auto_resolving = (
+            running
+            or (
+                isinstance(job, dict)
+                and str(job.get("phase") or "") == "auto_resolving"
+                and str(job.get("stage") or "") == stage_id
             )
         )
-        num += 1
-    elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
-        steps.append(
-            _step(
-                "write_approval",
-                num,
-                "Review outputs before saving",
-                instruction="Preview staged files before they are written to disk.",
-                review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                primary_button="Save all files & continue",
-                secondary_button="Discard & re-run",
-                kind="write_approval",
-                status="todo",
-                embed=embed,
+        if auto_resolving:
+            steps.append(
+                _step(
+                    "auto_resolving",
+                    num,
+                    "Resolving outputs…",
+                    instruction="Automatic repairs and validation are running.",
+                    review=["Watch the activity log for progress"],
+                    kind="progress",
+                    status="active",
+                )
             )
-        )
-        num += 1
-    elif review_bullets or embed:
-        listen_kind = "listen" if embed == "listen" else "info"
-        steps.append(
-            _step(
-                "review_outputs",
-                num,
-                "Review outputs",
-                instruction="Spot-check the generated artifacts below.",
-                review=review_bullets,
-                primary_button="I've reviewed — continue" if embed == "listen" else None,
-                kind=listen_kind,
-                status=embed_status,
-                embed=embed,
+            num += 1
+
+        decision_count = pending_decision_count(ctx, stage_id)
+        if decision_count > 0:
+            label = (
+                f"Your input needed ({decision_count})"
+                if decision_count != 1
+                else "Your input needed (1 decision)"
             )
-        )
-        num += 1
+            steps.append(
+                _step(
+                    "operator_decisions",
+                    num,
+                    label,
+                    instruction="Autopilot finished but needs one choice at a time before you can review outputs.",
+                    review=["Read the question", "Pick an option", "Apply choice"],
+                    primary_button="Apply choice",
+                    kind="operator_decisions",
+                    status="todo",
+                )
+            )
+            num += 1
+        elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
+            steps.append(
+                _step(
+                    "write_approval",
+                    num,
+                    "Review and save",
+                    instruction="Preview staged files. Edit if needed, then save to continue.",
+                    review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
+                    primary_button="Save all files & continue",
+                    secondary_button="Discard & re-run",
+                    kind="write_approval",
+                    status="todo",
+                    embed=embed,
+                )
+            )
+            num += 1
+        elif review_bullets or embed:
+            listen_kind = "listen" if embed == "listen" else "info"
+            steps.append(
+                _step(
+                    "review_outputs",
+                    num,
+                    "Review outputs",
+                    instruction="Spot-check the generated artifacts below.",
+                    review=review_bullets,
+                    primary_button="I've reviewed — continue" if embed == "listen" else None,
+                    kind=listen_kind,
+                    status=embed_status,
+                    embed=embed,
+                )
+            )
+            num += 1
+    else:
+        itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
+        if itr_blocked or itr_open > 0:
+            from interview_mux.artifact_auto_resolve import stage_capabilities
+
+            caps = stage_capabilities(stage_id)
+            step_label = str(caps.get("step_label") or "Fix all & continue")
+            tier = str(caps.get("tier") or "manual")
+            instruction = (
+                "One-click fix resolves auto-repairable issues. "
+                "Manual cards appear only when confidence is too low."
+                if tier == "full"
+                else "Review artifact issues before saving."
+            )
+            steps.append(
+                _step(
+                    "artifact_clarification",
+                    num,
+                    f"Resolve {itr_open} artifact issue(s)",
+                    instruction=instruction,
+                    review=[
+                        f"{itr_open} blocking clarification(s) open",
+                        "Fix all applies recommended choices when safe",
+                        "Re-check validation after fixes",
+                    ],
+                    primary_button=step_label,
+                    secondary_button="Advanced details",
+                    kind="artifact_clarification",
+                    status="todo",
+                )
+            )
+            num += 1
+        elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
+            steps.append(
+                _step(
+                    "write_approval",
+                    num,
+                    "Review outputs before saving",
+                    instruction="Preview staged files before they are written to disk.",
+                    review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
+                    primary_button="Save all files & continue",
+                    secondary_button="Discard & re-run",
+                    kind="write_approval",
+                    status="todo",
+                    embed=embed,
+                )
+            )
+            num += 1
+        elif review_bullets or embed:
+            listen_kind = "listen" if embed == "listen" else "info"
+            steps.append(
+                _step(
+                    "review_outputs",
+                    num,
+                    "Review outputs",
+                    instruction="Spot-check the generated artifacts below.",
+                    review=review_bullets,
+                    primary_button="I've reviewed — continue" if embed == "listen" else None,
+                    kind=listen_kind,
+                    status=embed_status,
+                    embed=embed,
+                )
+            )
+            num += 1
 
     if stage_id in POST_LISTEN_STAGES and status == "done":
         steps.append(

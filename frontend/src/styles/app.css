@@ -5897,12 +5897,13 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .activity-log-panel .activity-log-body.prompt-log {
   height: auto;
-  min-height: 16rem;
+  min-height: 8rem;
+  flex: 1 1 0;
 }
 
 .global-activity-dock .activity-log-panel .activity-log-body.prompt-log {
-  min-height: 16rem;
-  flex: 1 1 16rem;
+  min-height: 8rem;
+  flex: 1 1 0;
 }
 
 .global-activity-dock .activity-log-panel:not(.activity-log-collapsed) {
@@ -5913,6 +5914,69 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin-bottom: 0.5rem;
   border-left: 3px solid var(--status-error);
   padding-left: 0.5rem;
+  flex-shrink: 0;
+  max-height: min(var(--activity-pinned-max-height, 4.5rem), 35vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-log-pinned.is-expanded {
+  max-height: min(var(--activity-pinned-max-height-expanded, 9rem), 40vh);
+}
+
+.activity-log-pinned-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  margin-bottom: 0.25rem;
+}
+
+.activity-log-pinned-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--status-error);
+}
+
+.activity-log-pinned-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.activity-log-pinned-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.activity-log-pinned-badge.level-error {
+  color: var(--status-error);
+}
+
+.activity-log-pinned-badge.level-warning {
+  color: var(--status-warning, #c9a227);
+}
+
+.activity-log-pinned-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.activity-log-pinned-row .log-msg {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.activity-log-pinned.is-expanded .activity-log-pinned-row .log-msg {
+  -webkit-line-clamp: 3;
 }
 
 .activity-log-autoscroll {

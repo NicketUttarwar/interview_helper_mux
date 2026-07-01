@@ -1,0 +1,218 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "coherence",
+        "palettes",
+        "follow_up_investigations"
+      ],
+      "properties": {
+        "coherence": {
+          "type": "object",
+          "required": [
+            "sonic_identity",
+            "primary_mood",
+            "density"
+          ],
+          "properties": {
+            "sonic_identity": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "primary_mood": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "density": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "sparse",
+                "moderate",
+                "dense"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "palettes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": [
+              "palette_id",
+              "theme_label",
+              "keywords",
+              "segment_ids",
+              "ambient_description",
+              "accent_description",
+              "avoid"
+            ],
+            "properties": {
+              "palette_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]+$"
+              },
+              "theme_label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "keywords": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "segment_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "ambient_description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "accent_description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "avoid": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 6,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "follow_up_investigations": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

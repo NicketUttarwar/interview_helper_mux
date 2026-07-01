@@ -1,6 +1,7 @@
 import type { AppConfig, JobState, RunData } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 import { pendingWriteInfo } from "./writeApproval";
+import { isFullAutopilotEnabled } from "./fullAutopilot";
 
 export type AutopilotCheckpointKind = "fix_all" | "write_approval";
 
@@ -76,7 +77,7 @@ export function resetAutopilotAttemptsForRun(runId: string): void {
   }
 }
 
-function hasItrBlockingIssues(run: RunData, stageId: string): boolean {
+function hasLegacyItrBlockingIssues(run: RunData, stageId: string): boolean {
   const job = run.job;
   if (job?.stage && job.stage !== stageId) return false;
   const open = Number(job?.itr_open_blocking ?? job?.itr_blocking_count ?? 0);
@@ -117,16 +118,18 @@ export function resolveAutopilotCheckpoint(
     null;
   if (!stageId) return null;
 
-  const itrBlocked = hasItrBlockingIssues(run, stageId);
-  const needsClarification =
-    job?.status === "needs_clarification" || blocking?.reason === "artifact_clarification";
-  const llmGate = job?.status === "gate" || blocking?.reason === "llm_gate";
+  if (!isFullAutopilotEnabled(config)) {
+    const itrBlocked = hasLegacyItrBlockingIssues(run, stageId);
+    const needsClarification =
+      job?.status === "needs_clarification" || blocking?.reason === "artifact_clarification";
+    const llmGate = job?.status === "gate" || blocking?.reason === "llm_gate";
 
-  if (itrBlocked || needsClarification || llmGate) {
-    if (jobCanAutopilotFix(run, stageId) || itrBlocked || needsClarification) {
-      const fixCheckpoint: AutopilotCheckpoint = { kind: "fix_all", stageId };
-      if (canAttemptAutopilotCheckpoint(run.run_id, fixCheckpoint)) {
-        return fixCheckpoint;
+    if (itrBlocked || needsClarification || llmGate) {
+      if (jobCanAutopilotFix(run, stageId) || itrBlocked || needsClarification) {
+        const fixCheckpoint: AutopilotCheckpoint = { kind: "fix_all", stageId };
+        if (canAttemptAutopilotCheckpoint(run.run_id, fixCheckpoint)) {
+          return fixCheckpoint;
+        }
       }
     }
   }
@@ -158,6 +161,18 @@ export function autopilotHidesReviewGate(
   stageId: string,
   config?: AppConfig | null,
 ): boolean {
+  if (isFullAutopilotEnabled(config)) {
+    const blocking = run?.journey?.blocking ?? run?.blocking;
+    if (
+      blocking?.stage_id === stageId &&
+      blocking.reason === "operator_decisions"
+    ) {
+      return false;
+    }
+    if (Number(run?.job?.pending_decision_count ?? 0) > 0 && run?.job?.stage === stageId) {
+      return false;
+    }
+  }
   const checkpoint = resolveAutopilotCheckpoint(run, config);
   return Boolean(checkpoint && checkpoint.stageId === stageId);
 }

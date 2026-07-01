@@ -152,6 +152,8 @@ cd ..
 
 **Static bundle:** Vite writes hashed files to `src/interview_mux/web/static/assets/`. `./scripts/run.sh` rebuilds when `index.html` references missing assets (`interview_mux.gui_bundle`). The bundle is **committed** in git (operator-media ignore uses `/ASSETS/` at repo root only — not `web/static/assets/`). After frontend edits: `./scripts/build_gui.sh` and commit `static/` changes.
 
+**Operator flow (full autopilot, default):** Click **Run** on an automated stage — the server resolves artifact issues in-process. If a choice is still needed, the **Stage Decision Wizard** appears one question at a time. Then **Review and save** staged outputs. Manual gates (G0, G0.5, profile, G1, G2) are unchanged. See [docs/workflows/full-autopilot-operator-model.md](docs/workflows/full-autopilot-operator-model.md).
+
 `./tools/check_prerequisites.sh` warns when the bundle is incomplete; set `CHECK_GUI_BUNDLE=1` to fail instead of warn.
 
 After changing JSON Schemas under `docs/cross-cutting/json-schemas/`, regenerate GUI validators and rebuild:

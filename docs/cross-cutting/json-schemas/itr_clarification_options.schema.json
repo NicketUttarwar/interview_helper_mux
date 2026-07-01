@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ItrClarificationOptions",
+  "type": "object",
+  "required": ["recommended", "options"],
+  "properties": {
+    "recommended": { "type": "string" },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["value", "label", "confidence", "reason"],
+        "properties": {
+          "value": { "type": "string" },
+          "label": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

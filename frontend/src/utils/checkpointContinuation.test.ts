@@ -423,7 +423,7 @@ describe("tryAutopilotCheckpointResolution", () => {
       showToast: vi.fn(),
       refreshRun: vi.fn().mockResolvedValue(run),
       navigateToNextBlocker: vi.fn(),
-      config: { journey_ui: { auto_advance_pipeline: true } },
+      config: { journey_ui: { auto_advance_pipeline: true, full_autopilot: false } },
       fixAllAndContinueStage,
     });
     expect(ok).toBe(true);

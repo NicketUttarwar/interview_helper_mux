@@ -262,10 +262,29 @@ def _blocking(
         message = NEXT_ACTION_UNDERSTAND_PROFILE
 
     if not blocked and _blocking_manifest_propagation_count(ctx) > 0:
-        blocked = True
-        reason = "downstream_propagation"
-        stage_id = stage_id or "segment_classification"
-        message = "Downstream stages stale after artifact fix — open propagation wizard"
+        from interview_mux.full_autopilot import full_autopilot_enabled
+
+        if not full_autopilot_enabled():
+            blocked = True
+            reason = "downstream_propagation"
+            stage_id = stage_id or "segment_classification"
+            message = "Downstream stages stale after artifact fix — open propagation wizard"
+
+    if not blocked:
+        from interview_mux.full_autopilot import full_autopilot_enabled
+
+        if full_autopilot_enabled():
+            from interview_mux.operator_decisions import pending_decision_count
+
+            pending = _next_pending_stage_ids(ctx)
+            for sid in pending[:3]:
+                count = pending_decision_count(ctx, sid)
+                if count > 0:
+                    blocked = True
+                    reason = "operator_decisions"
+                    stage_id = sid
+                    message = f"Your input needed ({count} decision{'s' if count != 1 else ''})"
+                    break
 
     if not blocked:
         from interview_mux.stage_execution_reuse import (
@@ -857,6 +876,11 @@ def _active_substep(
             return {
                 "active_substep_id": f"artifact_clarification:{sid}" if sid else "artifact_clarification",
                 "active_substep_label": msg or "Resolve artifact issues",
+            }
+        if reason == "operator_decisions":
+            return {
+                "active_substep_id": f"operator_decisions:{sid}" if sid else "operator_decisions",
+                "active_substep_label": msg or "Your input needed",
             }
         if reason == "downstream_propagation":
             return {

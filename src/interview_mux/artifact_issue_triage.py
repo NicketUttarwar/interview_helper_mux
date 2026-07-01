@@ -319,8 +319,23 @@ def run_triage_pipeline(
     if not triage_enabled():
         return result
 
+    ctx.log(
+        f"itr.triage.start stage={stage_key} staged={staged}",
+        level="info",
+        stage=stage_key,
+        action_id="itr.triage.start",
+        detail={"staged": staged},
+    )
+
     rel, artifact = _read_stage_artifact(ctx, stage_key, staged=staged)
     if not rel or not artifact:
+        ctx.log(
+            f"itr.triage.complete stage={stage_key} skipped=no_artifact",
+            level="info",
+            stage=stage_key,
+            action_id="itr.triage.complete",
+            detail={"open_blocking": 0, "auto_fixed": 0},
+        )
         return result
 
     max_rounds = int(triage_cfg().get("max_resolution_rounds") or 3)
@@ -356,6 +371,17 @@ def run_triage_pipeline(
         result.errors = val_errors + downstream_errors
         if ok and not remaining:
             result.open_blocking = 0
+            ctx.log(
+                f"itr.triage.complete stage={stage_key} open=0 auto_fixed={result.auto_fixed}",
+                level="info",
+                stage=stage_key,
+                action_id="itr.triage.complete",
+                detail={
+                    "open_blocking": 0,
+                    "auto_fixed": result.auto_fixed,
+                    "collected": result.collected,
+                },
+            )
             return result
 
         if not ok:
@@ -374,6 +400,18 @@ def run_triage_pipeline(
             break
 
     result.open_blocking = open_blocking_count(ctx, stage_key)
+    ctx.log(
+        f"itr.triage.complete stage={stage_key} open={result.open_blocking} auto_fixed={result.auto_fixed}",
+        level="info",
+        stage=stage_key,
+        action_id="itr.triage.complete",
+        detail={
+            "open_blocking": result.open_blocking,
+            "auto_fixed": result.auto_fixed,
+            "collected": result.collected,
+            "errors": (result.errors or [])[:2],
+        },
+    )
     return result
 
 
@@ -560,6 +598,16 @@ def _clarification_gate_payload(ctx: Any, stage_key: str, *, message: str | None
 
 
 def set_clarification_gate(ctx: Any, stage_key: str, *, message: str | None = None) -> None:
+    from interview_mux.full_autopilot import full_autopilot_enabled
+
+    if full_autopilot_enabled():
+        ctx.log(
+            f"{stage_key}: clarification gate suppressed (full_autopilot) — use decision wizard",
+            level="info",
+            stage=stage_key,
+            action_id="itr.gate.suppressed",
+        )
+        return
     if not ctx.artifact_exists("gui_job.json"):
         return
     job = ctx.read_json("gui_job.json")
@@ -613,6 +661,16 @@ def maybe_repair_before_cross_validate(ctx: Any, stage_key: str) -> bool:
 def assert_write_approval_itr_ok(ctx: Any, stage_key: str) -> None:
     if not triage_enabled():
         return
+    from interview_mux.full_autopilot import full_autopilot_enabled
+    from interview_mux.operator_decisions import pending_decision_count
+
+    if full_autopilot_enabled() and pending_decision_count(ctx, stage_key) > 0:
+        from interview_mux.write_staging import WriteApprovalBlockedError
+
+        raise WriteApprovalBlockedError(
+            stage_key,
+            f"Stage {stage_key}: resolve pending decisions in the wizard before saving.",
+        )
     ok, errors = revalidate_after_repair(ctx, stage_key, staged=True)
     blocking = open_blocking_count(ctx, stage_key)
     downstream_errors: list[str] = []

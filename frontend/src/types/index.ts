@@ -44,6 +44,8 @@ export interface AppConfig {
     require_write_approval_per_stage?: boolean;
     /** When true (default), auto-navigate and run automated stages after each step completes. */
     auto_advance_pipeline?: boolean;
+    /** When true (default), in-run finalize + decision wizard replace Fix all / clarification UI. */
+    full_autopilot?: boolean;
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -326,6 +328,11 @@ export interface JobState {
   itr_open_blocking?: number;
   /** Server defers visible needs_clarification while the pipeline lock is held. */
   clarification_pending?: boolean;
+  /** In-run finalize phase (full autopilot). */
+  phase?: string;
+  substep?: string;
+  pending_decision_count?: number;
+  failure_kind?: string;
 }
 
 export interface RunData {
@@ -358,6 +365,13 @@ export interface RunData {
   job?: JobState;
   stages: StageInfo[];
   log_tail?: LogEntry[];
+  llm_verification_alerts?: Array<{
+    stage_key?: string;
+    interaction_id?: string;
+    errors?: string[];
+    path?: string;
+    task_kind?: string;
+  }>;
 }
 
 export interface RunMeta {
@@ -984,6 +998,8 @@ export interface LlmCallSummary {
   turn_count?: number;
   has_system?: boolean;
   load_error?: boolean;
+  verification_ok?: boolean;
+  interaction_id?: string;
 }
 
 export interface LlmCallVolleyTurn {
@@ -1015,6 +1031,13 @@ export interface LlmCallRecord {
   truncation_flags?: string[];
   context_chars?: number;
   links?: Record<string, string>;
+  interaction_id?: string;
+  verification?: {
+    ok?: boolean;
+    errors?: string[];
+    schema_name?: string;
+    interaction_id?: string;
+  };
   _gui?: {
     path?: string;
     openai_messages?: LlmCallVolleyTurn[];
@@ -1027,6 +1050,13 @@ export interface LlmCallsIndex {
   calls: LlmCallSummary[];
   tree: Record<string, Record<string, LlmCallSummary[]>>;
   stages: string[];
+  verification_alerts?: Array<{
+    stage_key?: string;
+    interaction_id?: string;
+    errors?: string[];
+    path?: string;
+    task_kind?: string;
+  }>;
 }
 
 /** @deprecated use AppTab */

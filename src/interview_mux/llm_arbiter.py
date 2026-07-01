@@ -37,7 +37,6 @@ def run_llm_arbiter(
             ctx=ctx,
             include_preamble=False,
             task_kind="arbiter",
-            response_format={"type": "json_object"},
             call_attempt=attempt_number,
             record_stage_key=stage_key,
         )

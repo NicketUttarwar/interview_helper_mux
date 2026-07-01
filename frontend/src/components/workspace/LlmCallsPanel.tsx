@@ -82,12 +82,19 @@ function CallEditor({
   saving: boolean;
 }) {
   const env = record.response?.parsed_envelope;
+  const ver = record.verification;
   return (
     <div className="llm-call-editor">
       <p className="llm-call-meta">
         <code>{record.label}</code>
         {" · "}
         {record.model_id} ({record.model_tier}) · {record.context_chars?.toLocaleString()} chars
+        {record.interaction_id ? <> · <code>{record.interaction_id}</code></> : null}
+        {ver && ver.ok === false ? (
+          <span className="llm-verify-badge fail"> verify failed</span>
+        ) : ver ? (
+          <span className="llm-verify-badge ok"> verified</span>
+        ) : null}
         {record.truncation_flags?.length ? (
           <> · truncated: {record.truncation_flags.join(", ")}</>
         ) : null}
@@ -628,6 +635,12 @@ export function LlmCallsPanel() {
                                         {String(c.sequence).padStart(2, "0")}
                                       </span>
                                       <span className="llm-call-task">{c.task_kind}</span>
+                                      {c.verification_ok === false ? (
+                                        <span className="llm-verify-badge fail">verify</span>
+                                      ) : null}
+                                      {c.interaction_id ? (
+                                        <code className="llm-call-interaction">{c.interaction_id}</code>
+                                      ) : null}
                                       <span
                                         className={`llm-importance ${importanceClass(c.importance)}`}
                                       >

@@ -6,6 +6,7 @@ import json
 from typing import Any, Literal
 
 from interview_mux.null_field_policy import critical_fields_for_stage, nullable_fields_for_stage
+from interview_mux.openai_structured_output import min_example_for_arbiter, min_example_for_stage
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
 
 Variant = Literal["full", "compact"]
@@ -20,53 +21,7 @@ ENVELOPE_SKELETON: dict[str, Any] = {
     "reasoning_summary": "2-5 sentences for the next stage",
 }
 
-ARBITER_SKELETON: dict[str, Any] = {
-    "verdict": "accept",
-    "confidence": 0.0,
-    "gaps": [],
-    "shard_plan": [],
-    "suggested_investigation": None,
-    "reasoning_summary": "",
-}
-
-# Compact artifact top-level shapes per stage (inside envelope.artifacts).
-ARTIFACT_SKELETONS: dict[str, dict[str, Any]] = {
-    "speaker_roles": {
-        "speakers": [
-            {
-                "speaker_id": "spk_0",
-                "role": "interviewer",
-                "label": "Host",
-                "confidence": 0.9,
-            }
-        ]
-    },
-    "content_context": {
-        "thesis": "one sentence (critical)",
-        "topics": [{"name": "string", "summary": "string", "approx_time_range": "optional|null"}],
-        "key_claims": [],
-        "audience": None,
-        "emotional_beats": None,
-        "jargon_glossary": None,
-    },
-    "content_brief_reanchor": {
-        "thesis": "string",
-        "topics": [{"name": "string", "segment_ids": ["seg_001"]}],
-        "topic_relationships": None,
-    },
-    "boundary_detection": {"boundaries": [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 1000}]},
-    "segment_classification": {
-        "segments": [{"segment_id": "seg_001", "type": "answer", "topic_tags": None}]
-    },
-    "missing_framing": {"evaluations": [{"segment_id": "seg_001", "gap_type": "missing_definition"}]},
-    "optimal_questions": {"gaps": [{"segment_id": "seg_001", "vo_line": "short question"}]},
-    "topic_coverage_audit": {"coverage_score": 0.85, "gaps": None},
-    "narrative_arc_plan": {"chapters": [{"title": "string", "segment_ids": []}]},
-    "full_master_ranking": {"ordered_segment_ids": ["seg_001"]},
-    "highlight_selection": {"highlights": [{"segment_id": "seg_001", "reason": "string"}]},
-    "transitions": {"transitions": [{"after_segment_id": "seg_001", "text": "short bridge"}]},
-    "podcast_show_description": {"description": "string", "subtitle": None},
-}
+ARBITER_SKELETON: dict[str, Any] = min_example_for_arbiter()
 
 STAGE_LINT_HINTS: dict[str, str] = {
     "content_context": (
@@ -92,8 +47,13 @@ def build_envelope_skeleton() -> dict[str, Any]:
 
 
 def build_artifact_skeleton(stage_key: str) -> dict[str, Any]:
-    if stage_key in ARTIFACT_SKELETONS:
-        return json.loads(json.dumps(ARTIFACT_SKELETONS[stage_key]))
+    parent = stage_key.split("__", 1)[0] if "__" in stage_key else stage_key
+    if parent in STAGE_ARTIFACT_SCHEMAS or stage_key in STAGE_ARTIFACT_SCHEMAS:
+        sk = parent if parent in STAGE_ARTIFACT_SCHEMAS else stage_key
+        env = min_example_for_stage(sk)
+        art = env.get("artifacts")
+        if isinstance(art, dict):
+            return art
     return {"stage_output": "per stage prompt schema"}
 
 
@@ -123,7 +83,7 @@ def build_required_response_block(
 ) -> str:
     """Markdown section for system prompt or final volley turn."""
     if task_kind == "arbiter":
-        skel = json.dumps(ARBITER_SKELETON, indent=2 if variant == "full" else None)
+        skel = json.dumps(min_example_for_arbiter(), indent=2 if variant == "full" else None)
         return (
             "## Required response format\n"
             "Reply with one JSON object only (arbiter verdict).\n"
@@ -149,18 +109,18 @@ def build_required_response_block(
     env["artifacts"] = art
 
     if variant == "compact":
-        compact_env = {
-            "status": "complete",
-            "artifacts": art,
-            "memory_updates": {},
-            "needs": [],
-            "reasoning_summary": "...",
-        }
+        compact_env = min_example_for_stage(stage_key)
+        compact_env["artifacts"] = art
         skel_text = json.dumps(compact_env, separators=(",", ":"))
         if len(skel_text) > 600:
-            skel_text = json.dumps({"status": "complete", "artifacts": {k: art[k] for k in list(art)[:4]}}, separators=(",", ":"))
+            skel_text = json.dumps(
+                {"status": "complete", "artifacts": {k: art[k] for k in list(art)[:4]}},
+                separators=(",", ":"),
+            )
     else:
-        skel_text = json.dumps(env, indent=2)
+        full_env = min_example_for_stage(stage_key)
+        full_env["artifacts"] = art
+        skel_text = json.dumps(full_env, indent=2)
 
     lines.append(f"```json\n{skel_text}\n```")
 

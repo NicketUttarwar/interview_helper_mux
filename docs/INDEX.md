@@ -5,6 +5,7 @@ Flat hub for **interview_helper_mux**.
 ## Operator (start here)
 
 - [workflows/operator-journey.md](./workflows/operator-journey.md) — **primary** happy path (Prepare → Ship)
+- [workflows/full-autopilot-operator-model.md](./workflows/full-autopilot-operator-model.md) — **full autopilot** stage UX (Run → decisions wizard → Review → Save)
 - [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) — full GUI flows, modals, resolved UX audit
 - [workflows/gui-flow-hardening.md](./workflows/gui-flow-hardening.md) — **operator feedback contract** (toasts, spinners, checkpoints)
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — G0, G1, G2, quality offers
@@ -50,6 +51,7 @@ Flat hub for **interview_helper_mux**.
 - [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) — per-stage tier and severity
 - [cross-cutting/llm-orchestration-implementation-handoff.md](./cross-cutting/llm-orchestration-implementation-handoff.md) — future code mapping
 - [cross-cutting/llm-call-record-framework.md](./cross-cutting/llm-call-record-framework.md) — labeled storage for every OpenAI call + volley reconstruction
+- [cross-cutting/llm-interaction-catalog.md](./cross-cutting/llm-interaction-catalog.md) — per-call LLM catalog (OpenAI + local MLX) with schema IDs
 - [cross-cutting/local-llm-tier.md](./cross-cutting/local-llm-tier.md) — on-device MLX volley framing (structured artifacts still use OpenAI flagship)
 - [cross-cutting/local-llm-implementation-handoff.md](./cross-cutting/local-llm-implementation-handoff.md) — local LLM wiring checklist
 - [prompts/_shared/llm-arbiter-contract.md](./prompts/_shared/llm-arbiter-contract.md) — arbiter JSON contract

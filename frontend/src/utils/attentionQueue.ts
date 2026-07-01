@@ -26,7 +26,8 @@ export type AttentionKind =
   | "handoff"
   | "blocked"
   | "milestone"
-  | "optional";
+  | "optional"
+  | "llm_verification_failed";
 
 export interface AttentionItem {
   kind: AttentionKind;
@@ -238,6 +239,21 @@ export function listAttentionItems(
       });
     } else if (reason === "write_approval" && !jobRunning) {
       push(writeApprovalItem(run, sid, blocking.message));
+    } else if (reason === "operator_decisions") {
+      const count = Number(run.job?.pending_decision_count ?? 1);
+      push({
+        kind: "blocked",
+        priority: 2,
+        stageId: sid,
+        stageTitle: stage?.title || sid,
+        title: stage ? `${stage.title} — your input needed` : "Your input needed",
+        message:
+          blocking.message ||
+          `Autopilot needs ${count} decision${count === 1 ? "" : "s"} before you can review outputs.`,
+        primaryLabel: "Apply choice",
+        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
+        subTab: "stage",
+      });
     } else if (reason === "artifact_clarification") {
       push({
         kind: "artifact_clarification",
@@ -371,6 +387,28 @@ export function listAttentionItems(
         optional: true,
       });
     }
+  }
+
+  const llmAlerts = run.llm_verification_alerts ?? [];
+  const activeStage = job?.stage || focusStageId || "";
+  for (const alert of llmAlerts) {
+    const sid = String(alert.stage_key || activeStage || "unknown");
+    if (activeStage && sid !== activeStage) continue;
+    const stage = run.stages.find((s) => s.id === sid);
+    const errPreview = Array.isArray(alert.errors) ? alert.errors[0] : "";
+    push({
+      kind: "llm_verification_failed",
+      priority: 4,
+      stageId: sid,
+      stageTitle: stage?.title || sid.replace(/_/g, " "),
+      title: "LLM response failed schema verification",
+      message:
+        errPreview ||
+        `Call ${alert.interaction_id || ""} did not match the required JSON schema.`,
+      primaryLabel: "Review LLM calls",
+      phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "understand"),
+      subTab: "llm_calls",
+    });
   }
 
   return items.sort((a, b) => a.priority - b.priority);

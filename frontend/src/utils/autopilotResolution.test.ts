@@ -18,6 +18,8 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
   };
 }
 
+const legacyConfig = { journey_ui: { full_autopilot: false } } as const;
+
 describe("autopilotResolution", () => {
   beforeEach(() => {
     clearAutopilotCheckpointAttempts("exec_test", "boundary_detection");
@@ -33,7 +35,7 @@ describe("autopilotResolution", () => {
         itr_blocking_count: 1,
       },
     });
-    expect(resolveAutopilotCheckpoint(run, null)).toBeNull();
+    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toBeNull();
   });
 
   it("resolves fix_all when needs_clarification and can_fix_all", () => {
@@ -53,7 +55,7 @@ describe("autopilotResolution", () => {
         },
       },
     });
-    expect(resolveAutopilotCheckpoint(run, null)).toEqual({
+    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
       kind: "fix_all",
       stageId: "boundary_detection",
     });
@@ -69,7 +71,7 @@ describe("autopilotResolution", () => {
         pending_write_paths: ["segments/boundaries.json"],
       },
     });
-    expect(resolveAutopilotCheckpoint(run, null)).toEqual({
+    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
       kind: "write_approval",
       stageId: "boundary_detection",
     });
@@ -84,7 +86,7 @@ describe("autopilotResolution", () => {
         itr_blocking_count: 1,
       },
     });
-    expect(autopilotHidesReviewGate(run, "boundary_detection", null)).toBe(true);
+    expect(autopilotHidesReviewGate(run, "boundary_detection", legacyConfig)).toBe(true);
   });
 
   it("prefers fix_all when ITR issues block save", () => {
@@ -107,10 +109,30 @@ describe("autopilotResolution", () => {
         },
       },
     });
-    expect(resolveAutopilotCheckpoint(run, null)).toEqual({
+    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
       kind: "fix_all",
       stageId: "boundary_detection",
     });
+  });
+
+  it("does not auto fix_all when full_autopilot is enabled", () => {
+    const run = runStub({
+      job: {
+        status: "needs_clarification",
+        stage: "boundary_detection",
+        can_fix_all: true,
+        itr_blocking_count: 2,
+      },
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "artifact_clarification",
+          stage_id: "boundary_detection",
+        },
+      },
+    });
+    expect(resolveAutopilotCheckpoint(run, { journey_ui: { full_autopilot: true } })).toBeNull();
   });
 
   it("limits write-approval attempts per stage", () => {

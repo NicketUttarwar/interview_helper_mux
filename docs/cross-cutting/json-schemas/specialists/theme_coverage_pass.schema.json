@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ThemeCoveragePassArtifact",
+  "type": "object",
+  "required": ["segment_topic_patches"],
+  "properties": {
+    "segment_topic_patches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "topic_tags"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "topic_tags": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

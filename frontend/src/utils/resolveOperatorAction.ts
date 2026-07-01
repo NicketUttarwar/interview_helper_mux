@@ -52,6 +52,8 @@ function gateHeadline(run: RunData, stageId: string, blockingReason?: string | n
       return "Choose output flow";
     case "analysis_profile":
       return "Verify interview profile";
+    case "operator_decisions":
+      return "Your input needed";
     default:
       if (blockingReason === "handoff_review") return "Review AI outputs";
       return `${stageTitle(run, stageId)} needs your input`;
@@ -141,6 +143,22 @@ function buildRunningAction(run: RunData, jobRunning: boolean): OperatorAction {
     secondaryKind: "view_logs",
     progress,
     modalAutoOpen: false,
+  };
+}
+
+function buildOperatorDecisionsAction(run: RunData, stageId: string, count: number): OperatorAction {
+  const headline = count === 1 ? "Your input needed" : `Your input needed (${count} decisions)`;
+  return {
+    mode: "needs_you",
+    stageId,
+    substepId: `operator_decisions:${stageId}`,
+    headline,
+    subline: "Autopilot needs one choice before you can review outputs.",
+    primaryLabel: "Apply choice",
+    primaryKind: "open_modal",
+    primaryDisabled: false,
+    modalAutoOpen: false,
+    blockingReason: "operator_decisions",
   };
 }
 
@@ -411,6 +429,10 @@ export function resolveOperatorAction(
   if (blocking?.blocked && blocking.stage_id) {
     if (blocking.reason === "write_approval") {
       return buildWriteApprovalAction(run, blocking.stage_id);
+    }
+    if (blocking.reason === "operator_decisions") {
+      const count = Number(run.job?.pending_decision_count ?? 1);
+      return buildOperatorDecisionsAction(run, blocking.stage_id, count);
     }
     if (blocking.reason === "handoff_review") {
       const st = stageById(run, blocking.stage_id);

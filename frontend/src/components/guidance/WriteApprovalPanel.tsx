@@ -11,6 +11,7 @@ import {
   stageAwaitingWriteApproval,
 } from "../../utils/writeApproval";
 import { formatApiError } from "../../utils/safeApi";
+import { isFullAutopilotEnabled } from "../../utils/fullAutopilot";
 import { ReviewPanelControls } from "./ReviewPanelControls";
 import type { StageInfo } from "../../types";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
@@ -37,6 +38,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const {
     run,
     runId,
+    config,
     showToast,
     appendClientLog,
     actionBusy,
@@ -196,8 +198,13 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const itrBlocking = run?.job?.itr_blocking_count ?? 0;
   const itrGateActive =
+    !isFullAutopilotEnabled(config) &&
     run?.job?.status === "needs_clarification" &&
     (run?.job?.stage === stage.id || run?.journey?.blocking?.reason === "artifact_clarification");
+  const decisionsPending =
+    isFullAutopilotEnabled(config) &&
+    (Number(run?.job?.pending_decision_count ?? 0) > 0 ||
+      run?.journey?.blocking?.reason === "operator_decisions");
 
   const syncEditorToStaging = useCallback(
     async (path: string, value: string, json: boolean) => {
@@ -334,24 +341,28 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
               Large audio files may take a minute to save — the button will show progress when saving starts.
             </p>
           ) : null}
-          {(itrBlocking > 0 || itrGateActive) ? (
+          {(decisionsPending || itrBlocking > 0 || itrGateActive) ? (
             <p className="hint write-approval-itr-banner" role="alert">
-              {itrBlocking || "Open"} artifact issue(s) block saving.{" "}
+              {decisionsPending
+                ? "Complete the decision wizard before saving."
+                : `${itrBlocking || "Open"} artifact issue(s) block saving.`}{" "}
               <button
                 type="button"
                 className="btn link sm"
                 onClick={() =>
                   activateSubstep({
-                    id: `artifact_clarification:${stage.id}`,
+                    id: decisionsPending
+                      ? `operator_decisions:${stage.id}`
+                      : `artifact_clarification:${stage.id}`,
                     stageId: stage.id,
                     status: "todo",
-                    label: "Resolve artifact issues",
+                    label: decisionsPending ? "Your input needed" : "Resolve artifact issues",
                     kind: "guidance",
                     source: "runtime",
                   })
                 }
               >
-                Resolve artifact issues
+                {decisionsPending ? "Open decisions" : "Resolve artifact issues"}
               </button>
             </p>
           ) : null}

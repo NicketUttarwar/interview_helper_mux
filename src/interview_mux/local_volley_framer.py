@@ -160,9 +160,13 @@ def frame_volley_with_local(
             user=user_blob,
             ctx=ctx,
             stage_key=stage_key,
+            task_kind=f"local_{task_kind}",
+            cfg=resolved_cfg,
         )
         parsed = parse_framer_response(raw, max_turns=max_volley_turns(resolved_cfg))
-        _record_local_call(ctx, stage_key, system, user_blob, raw, parsed, task_kind=task_kind)
+        _record_local_call(
+            ctx, stage_key, system, user_blob, raw, parsed, task_kind=task_kind, run_meta=run_meta
+        )
 
         code_force, code_reason = must_escalate_to_openai(
             stage_key,
@@ -335,6 +339,7 @@ def _record_local_call(
     parsed: dict[str, Any],
     *,
     task_kind: str,
+    run_meta: dict[str, Any] | None = None,
 ) -> None:
     from interview_mux.llm_call_record import llm_call_records_enabled, record_llm_call
     from interview_mux.local_llm_config import resolve_model_id
@@ -342,6 +347,7 @@ def _record_local_call(
     if not llm_call_records_enabled():
         return
     model_id = resolve_model_id()
+    meta = run_meta or {}
     record_llm_call(
         ctx,
         stage_key=stage_key,
@@ -357,4 +363,6 @@ def _record_local_call(
         model_tier="local",
         provider="local_mlx",
         truncation_flags=parsed.get("truncation_flags"),
+        verification=meta.get("verification") if isinstance(meta.get("verification"), dict) else None,
+        interaction_id=meta.get("interaction_id"),
     )

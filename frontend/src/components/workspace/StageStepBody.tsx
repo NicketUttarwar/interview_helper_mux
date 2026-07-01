@@ -26,6 +26,8 @@ import { FlowSelectPanel } from "../gates/FlowSelectPanel";
 import { SfxPromptReviewPanel } from "../gates/SfxPromptReviewPanel";
 import { useApp } from "../../context/AppContext";
 import { resolvePrecleanOffer } from "../../utils/preclean";
+import { isFullAutopilotEnabled } from "../../utils/fullAutopilot";
+import { StageDecisionWizard } from "../guidance/StageDecisionWizard";
 
 interface Props {
   step: StageStep;
@@ -33,7 +35,7 @@ interface Props {
 }
 
 export function StageStepBody({ step, stage }: Props) {
-  const { run, timeline } = useApp();
+  const { run, timeline, config } = useApp();
   const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
 
   if (
@@ -82,8 +84,23 @@ export function StageStepBody({ step, stage }: Props) {
     );
   }
 
-  if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
+  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
+    return <StageDecisionWizard stage={stage} />;
+  }
+
+  if (
+    (step.kind === "artifact_clarification" || step.id === "artifact_clarification") &&
+    !isFullAutopilotEnabled(config)
+  ) {
     return <ArtifactClarificationPanel stage={stage} />;
+  }
+
+  if (step.kind === "progress" || step.id === "auto_resolving") {
+    return (
+      <p className="hint sm" data-testid="stage-auto-resolving">
+        Automatic repairs and validation are running — watch the activity log.
+      </p>
+    );
   }
 
   if (step.kind === "write_approval") {

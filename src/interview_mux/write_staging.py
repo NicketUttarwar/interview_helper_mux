@@ -441,8 +441,14 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     from interview_mux.operator_trace import active_run_context, log_step
 
     ctx_token = active_run_context.set(ctx)
+    stage_action_id = f"pipeline.stage.{stage_id}"
     try:
-        log_step(f"Preparing stage: {stage_id}", ctx=ctx, stage=stage_id)
+        log_step(
+            f"Preparing stage: {stage_id}",
+            ctx=ctx,
+            stage=stage_id,
+            detail={"action_id": stage_action_id, "event": "stage_start"},
+        )
         from interview_mux.stage_input_checks import require_stage_inputs
 
         require_stage_inputs(ctx, stage_id)
@@ -454,6 +460,7 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
                 f"Stage finished: {stage_id}",
                 level="success",
                 stage=stage_id,
+                action_id=stage_action_id,
                 detail={"journey_kind": "execute", "event": "stage_finish"},
             )
         except WriteApprovalPending:

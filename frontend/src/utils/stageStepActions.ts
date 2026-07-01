@@ -39,6 +39,10 @@ export async function invokeStepFooterAction(
     return;
   }
 
+  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
+    return;
+  }
+
   if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
     if (handlers.fixAllAndContinueStage) {
       await handlers.fixAllAndContinueStage(stage.id);

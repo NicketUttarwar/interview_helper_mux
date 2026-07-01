@@ -204,6 +204,8 @@ def record_llm_call(
     response_format: dict[str, str] | None = None,
     truncation_flags: list[str] | None = None,
     extra_links: dict[str, str] | None = None,
+    verification: dict[str, Any] | None = None,
+    interaction_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Persist one API call. Returns the written record document.
@@ -282,6 +284,10 @@ def record_llm_call(
             **(extra_links or {}),
         },
     }
+    if verification is not None:
+        record["verification"] = verification
+    if interaction_id:
+        record["interaction_id"] = interaction_id
 
     out_path = ctx.path(*rel_path.parts)
     write_json(out_path, record)

@@ -1,0 +1,195 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "$id": "https://interview-helper-mux.local/schemas/artifacts/show_description_artifact.schema.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title_suggestion",
+        "description_markdown",
+        "word_count",
+        "hook_sentence",
+        "themes_highlighted",
+        "audience_pitch",
+        "evidence_segment_ids",
+        "tone",
+        "confidence"
+      ],
+      "properties": {
+        "title_suggestion": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "description_markdown": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 400,
+          "maxLength": 4000,
+          "description": "Third-person show blurb; target 180-220 words (150-250 enforced at validation time in code)"
+        },
+        "word_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 150,
+          "maximum": 250
+        },
+        "hook_sentence": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 10,
+          "maxLength": 300
+        },
+        "themes_highlighted": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 2
+          },
+          "minItems": 1,
+          "maxItems": 6
+        },
+        "audience_pitch": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 10,
+          "maxLength": 400
+        },
+        "evidence_segment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^seg_"
+          },
+          "minItems": 1,
+          "maxItems": 24
+        },
+        "tone": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "journalistic",
+            "conversational",
+            "investor",
+            "technical",
+            "human_interest"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

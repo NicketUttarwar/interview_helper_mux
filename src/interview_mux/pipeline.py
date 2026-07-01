@@ -332,18 +332,9 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         _run_single_stage_impl(ctx, stage)
         if stage in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, llm_stage_runners(ctx))
-            from interview_mux.artifact_issue_triage import (
-                maybe_repair_before_cross_validate,
-                run_triage_pipeline,
-                triage_enabled,
-            )
+            from interview_mux.stage_finalize import post_llm_stage_hooks
 
-            if triage_enabled():
-                run_triage_pipeline(ctx, stage, staged=True)
-            if maybe_repair_before_cross_validate(ctx, stage):
-                from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
-
-                maybe_cross_validate_after_stage(ctx, stage)
+            post_llm_stage_hooks(ctx, stage)
 
     run_wrapped_stage(ctx, stage, _impl)
 
@@ -423,9 +414,9 @@ def run_analysis(
         pause_after_stage_if_needed(ctx, name)
         if name in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, llm_runners)
-            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+            from interview_mux.stage_finalize import post_llm_stage_hooks
 
-            maybe_cross_validate_after_stage(ctx, name)
+            post_llm_stage_hooks(ctx, name)
         if until_stage and name == until_stage:
             break
         if name == "transcript_review_build" and check_transcript_review_pending(ctx):
@@ -647,8 +638,8 @@ def _run_steps(
         pause_after_stage_if_needed(ctx, name)
         if name in ALL_LLM_STAGES:
             drain_investigation_queue(ctx, flow_llm_runners)
-            from interview_mux.artifact_cross_validate import maybe_cross_validate_after_stage
+            from interview_mux.stage_finalize import post_llm_stage_hooks
 
-            maybe_cross_validate_after_stage(ctx, name)
+            post_llm_stage_hooks(ctx, name)
         if until_stage and name == until_stage:
             break

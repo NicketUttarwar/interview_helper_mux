@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComprehensionRiskBlindArtifact",
+  "type": "object",
+  "required": ["comprehension_risks"],
+  "properties": {
+    "comprehension_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "risk_score", "rationale"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "risk_score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "rationale": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -72,6 +72,10 @@ def handoff_between_stages_enabled() -> bool:
     cfg = merged_config().get("journey_ui") or {}
     if not isinstance(cfg, dict):
         return True
+    from interview_mux.full_autopilot import full_autopilot_enabled
+
+    if full_autopilot_enabled():
+        return False
     return bool(cfg.get("require_handoff_between_stages", True))
 
 

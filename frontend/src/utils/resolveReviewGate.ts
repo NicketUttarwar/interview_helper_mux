@@ -4,6 +4,7 @@ import { getHandoffPathsLocal } from "./checkpoint";
 import { resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 import { autopilotHidesReviewGate } from "./autopilotResolution";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
+import { isFullAutopilotEnabled } from "./fullAutopilot";
 
 export type ReviewGateKind =
   | "transcript_review"
@@ -11,6 +12,7 @@ export type ReviewGateKind =
   | "analysis_profile"
   | "write_approval"
   | "artifact_clarification"
+  | "operator_decisions"
   | "llm_gate"
   | "handoff"
   | "sfx_prompt"
@@ -60,14 +62,29 @@ export function resolveReviewGateSpec(
   }
 
   if (
+    isFullAutopilotEnabled(config) &&
+    ((run.journey?.blocking?.reason === "operator_decisions" &&
+      run.journey?.blocking?.stage_id === stage.id) ||
+      (Number(run.job?.pending_decision_count ?? 0) > 0 && run.job?.stage === stage.id))
+  ) {
+    const count = Number(run.job?.pending_decision_count ?? 1);
+    return { kind: "operator_decisions", pathCount: count };
+  }
+
+  if (
     run.journey?.blocking?.reason === "artifact_clarification" &&
-    run.journey?.blocking?.stage_id === stage.id
+    run.journey?.blocking?.stage_id === stage.id &&
+    !isFullAutopilotEnabled(config)
   ) {
     const open = run.job?.itr_blocking_count ?? 0;
     return { kind: "artifact_clarification", pathCount: open };
   }
 
-  if (run.job?.status === "needs_clarification" && run.job?.stage === stage.id) {
+  if (
+    run.job?.status === "needs_clarification" &&
+    run.job?.stage === stage.id &&
+    !isFullAutopilotEnabled(config)
+  ) {
     return {
       kind: "artifact_clarification",
       pathCount: Number(run.job?.itr_blocking_count ?? 0),

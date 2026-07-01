@@ -1,0 +1,209 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "prompts"
+      ],
+      "properties": {
+        "prompts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "asset_id",
+              "sfx_prompt",
+              "duration_seconds",
+              "negative_prompt",
+              "prompt_influence",
+              "role",
+              "mmaudio_variant",
+              "cfg_strength",
+              "num_steps",
+              "seed",
+              "regression_notes",
+              "musical_intent"
+            ],
+            "properties": {
+              "asset_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sfx_prompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "duration_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "negative_prompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt_influence": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mmaudio_variant": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "small_16k",
+                  "small_44k",
+                  "medium_44k",
+                  "large_44k",
+                  "large_44k_v2"
+                ]
+              },
+              "cfg_strength": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 2.0,
+                "maximum": 8.0
+              },
+              "num_steps": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 10,
+                "maximum": 50
+              },
+              "seed": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "regression_notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "musical_intent": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

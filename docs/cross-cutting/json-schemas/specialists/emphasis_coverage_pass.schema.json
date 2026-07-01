@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EmphasisCoveragePassArtifact",
+  "type": "object",
+  "required": ["emphasis_coverage"],
+  "properties": {
+    "emphasis_coverage": {
+      "type": "object",
+      "required": ["gaps", "matched_beats"],
+      "properties": {
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["segment_id", "reason"],
+            "properties": {
+              "segment_id": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "matched_beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["segment_id", "beat"],
+            "properties": {
+              "segment_id": { "type": "string" },
+              "beat": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

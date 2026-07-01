@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ArbiterVerdict",
+  "type": "object",
+  "required": ["verdict", "confidence", "gaps", "shard_plan", "reasoning_summary"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["accept", "retry_uptier", "decompose", "enqueue_investigation"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "gaps": { "type": "array", "items": { "type": "string" } },
+    "shard_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "properties": {
+          "label": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" }
+        }
+      }
+    },
+    "suggested_investigation": {
+      "type": ["object", "null"],
+      "properties": {
+        "kind": { "type": "string" },
+        "question": { "type": "string" },
+        "blocking": { "type": "boolean" },
+        "suggested_action": { "type": "object" }
+      }
+    },
+    "reasoning_summary": { "type": "string" }
+  }
+}

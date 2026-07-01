@@ -5,13 +5,34 @@ from unittest.mock import MagicMock, patch
 from interview_mux.stages import llm_runner
 
 
-def test_primary_call_uses_json_object_response_format():
+def _patch_cfg(monkeypatch):
+    monkeypatch.setattr(
+        llm_runner,
+        "merged_config",
+        lambda: {
+            "analysis": {
+                "structured_outputs": {
+                    "enabled": True,
+                    "strict": True,
+                    "fail_on_verify_error": False,
+                },
+            },
+        },
+    )
+
+
+def test_primary_call_uses_json_schema_response_format(monkeypatch):
     captured: dict = {}
 
     def fake_create(**kwargs):
         captured.update(kwargs)
         msg = MagicMock()
-        msg.content = '{"status":"complete","artifacts":{}}'
+        msg.content = (
+            '{"status":"complete","artifacts":{"speakers":[{"speaker_id":"spk_0",'
+            '"role":"interviewer","confidence":0.9}]},"memory_updates":{},'
+            '"needs":[],"follow_up_investigations":[],"confidence":0.9,'
+            '"reasoning_summary":"ok"}'
+        )
         choice = MagicMock()
         choice.message = msg
         resp = MagicMock()
@@ -20,27 +41,35 @@ def test_primary_call_uses_json_object_response_format():
 
     client = MagicMock()
     client.chat.completions.create = fake_create
+    _patch_cfg(monkeypatch)
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):
             with patch.object(llm_runner, "load_system_prompt_for_stage", return_value="system"):
                 llm_runner.run_prompt_envelope(
-                    "missing_framing",
-                    "interviewer-gap/missing-framing.system.txt",
+                    "speaker_roles",
+                    "understanding/speaker-roles.system.txt",
                     user_content='{"task":"test"}',
                     task_kind="primary",
                 )
 
-    assert captured.get("response_format") == {"type": "json_object"}
+    rf = captured.get("response_format") or {}
+    assert rf.get("type") == "json_schema"
+    assert rf.get("json_schema", {}).get("strict") is True
 
 
-def test_primary_call_omits_temperature_for_o3():
+def test_primary_call_omits_temperature_for_o3(monkeypatch):
     captured: dict = {}
 
     def fake_create(**kwargs):
         captured.update(kwargs)
         msg = MagicMock()
-        msg.content = '{"status":"complete","artifacts":{}}'
+        msg.content = (
+            '{"status":"complete","artifacts":{"speakers":[{"speaker_id":"spk_0",'
+            '"role":"interviewer","confidence":0.9}]},"memory_updates":{},'
+            '"needs":[],"follow_up_investigations":[],"confidence":0.9,'
+            '"reasoning_summary":"ok"}'
+        )
         choice = MagicMock()
         choice.message = msg
         resp = MagicMock()
@@ -49,6 +78,7 @@ def test_primary_call_omits_temperature_for_o3():
 
     client = MagicMock()
     client.chat.completions.create = fake_create
+    _patch_cfg(monkeypatch)
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):
@@ -65,13 +95,18 @@ def test_primary_call_omits_temperature_for_o3():
     assert "temperature" not in captured
 
 
-def test_primary_call_sets_temperature_for_gpt4o_mini():
+def test_primary_call_sets_temperature_for_gpt4o_mini(monkeypatch):
     captured: dict = {}
 
     def fake_create(**kwargs):
         captured.update(kwargs)
         msg = MagicMock()
-        msg.content = '{"status":"complete","artifacts":{}}'
+        msg.content = (
+            '{"status":"complete","artifacts":{"speakers":[{"speaker_id":"spk_0",'
+            '"role":"interviewer","confidence":0.9}]},"memory_updates":{},'
+            '"needs":[],"follow_up_investigations":[],"confidence":0.9,'
+            '"reasoning_summary":"ok"}'
+        )
         choice = MagicMock()
         choice.message = msg
         resp = MagicMock()
@@ -80,6 +115,7 @@ def test_primary_call_sets_temperature_for_gpt4o_mini():
 
     client = MagicMock()
     client.chat.completions.create = fake_create
+    _patch_cfg(monkeypatch)
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):

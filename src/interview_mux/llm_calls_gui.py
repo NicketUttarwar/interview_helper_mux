@@ -58,7 +58,38 @@ def _summarize_record(doc: dict[str, Any], rel_path: str) -> dict[str, Any]:
         "truncation_flags": doc.get("truncation_flags") or [],
         "turn_count": len(turns),
         "has_system": bool((volley.get("system_prompt") or "").strip()),
+        "verification_ok": (doc.get("verification") or {}).get("ok", True),
+        "interaction_id": doc.get("interaction_id"),
     }
+
+
+def list_verification_alerts(ctx: RunContext) -> list[dict[str, Any]]:
+    """Recent LLM calls with failed schema verification (for GUI attention)."""
+    rows = list_calls_for_run(ctx.run_dir)
+    alerts: list[dict[str, Any]] = []
+    for row in reversed(rows[-40:]):
+        rel = str(row.get("path", "")).replace("\\", "/")
+        if not rel:
+            continue
+        full = ctx.path(rel)
+        if not full.is_file():
+            continue
+        try:
+            doc = load_call_record(full)
+        except (json.JSONDecodeError, OSError):
+            continue
+        ver = doc.get("verification") or {}
+        if ver.get("ok") is False:
+            alerts.append(
+                {
+                    "stage_key": doc.get("stage_key"),
+                    "interaction_id": doc.get("interaction_id") or ver.get("interaction_id"),
+                    "errors": ver.get("errors") or [],
+                    "path": rel,
+                    "task_kind": doc.get("task_kind"),
+                }
+            )
+    return alerts[:10]
 
 
 def list_llm_calls_summary(ctx: RunContext) -> dict[str, Any]:
@@ -99,6 +130,7 @@ def list_llm_calls_summary(ctx: RunContext) -> dict[str, Any]:
         "calls": calls,
         "tree": tree,
         "stages": stages,
+        "verification_alerts": list_verification_alerts(ctx),
     }
 
 

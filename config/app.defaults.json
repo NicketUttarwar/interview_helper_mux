@@ -216,7 +216,8 @@
     "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,
     "require_write_approval_per_stage": true,
-    "auto_advance_pipeline": true
+    "auto_advance_pipeline": true,
+    "full_autopilot": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
   "local_llm": {
@@ -230,7 +231,12 @@
     "skip_openai_primary_when_local_satisfied": false,
     "apply_to_specialists": true,
     "apply_to_shards": true,
-    "apply_to_collate": true
+    "apply_to_collate": true,
+    "structured_outputs": {
+      "enabled": true,
+      "strict": true,
+      "fail_open_on_verify": true
+    }
   },
   "_comment_disfluency": "Local VAD + Whisper filler detection after G0; optional EDL restore in Flow 1",
   "disfluency_extract": {
@@ -260,6 +266,14 @@
     "llm_call_records": {
       "enabled": true,
       "write_markdown_sidecar": true
+    },
+    "structured_outputs": {
+      "enabled": true,
+      "strict": true,
+      "fail_on_verify_error": true,
+      "allow_json_object_fallback": false,
+      "api_schema_tier": "full",
+      "log_verification_to_gui": true
     },
     "specialists": {
       "enabled": true,
@@ -390,7 +404,10 @@
       "auto_advance_after_itr_clear": true,
       "min_segments_after_auto_resolve": 1,
       "max_segments_deleted_per_fix_all": 0.10,
-      "auto_resolve_max_issues_per_pass": 50
+      "auto_resolve_max_issues_per_pass": 50,
+      "in_run_auto_resolve": true,
+      "risk_based_force_advance": true,
+      "auto_resolve_in_run_mode": "autopilot"
     }
   }
 }

@@ -25,6 +25,8 @@ from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.write_staging import staged_path, write_pending_content
 
 ITR_STAGE_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "speaker_roles": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "content_context": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
     "boundary_detection": {
         "tier": "full",
         "step_label": "Fix all & continue",
@@ -37,17 +39,20 @@ ITR_STAGE_CAPABILITIES: dict[str, dict[str, Any]] = {
         "propagation_chain": (),
         "auto_chain_downstream": False,
     },
-    "content_context": {
-        "tier": "full",
-        "step_label": "Fix all & continue",
-        "propagation_chain": (),
-        "auto_chain_downstream": False,
-    },
-    "content_brief_reanchor": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
-    "sonic_context_build": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
-    "sound_design_palettes": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
-    "missing_framing": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
-    "optimal_questions": {"tier": "scaffold", "step_label": "Review issues", "propagation_chain": ()},
+    "content_brief_reanchor": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "sound_design_palettes": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "missing_framing": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "optimal_questions": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "topic_coverage_audit": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "narrative_arc_plan": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "full_master_ranking": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "transitions": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "sound_design_plan_flow1": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "sound_design_plan_flow2": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "sfx_prompt_craft": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "edl_narrative_audit": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "highlight_selection": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "podcast_show_description": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
 }
 
 
@@ -430,8 +435,100 @@ def _finalize_auto_resolve_success(
         f"itr.auto_resolve.complete stage={stage_key} resolved={resolved}",
         level="info",
         stage=stage_key,
+        action_id="itr.auto_resolve.complete",
+        detail={"resolved_count": resolved},
     )
     return result
+
+
+def risk_based_force_advance(
+    ctx: Any,
+    stage_key: str,
+    *,
+    runner: Any | None = None,
+    run_id: str | None = None,
+) -> list[str]:
+    """Apply risk-assessed remediation for issues auto-resolve could not clear."""
+    from interview_mux.issue_risk_assessment import IssueRisk, assess_issue_risk
+
+    cfg = triage_cfg()
+    warnings: list[str] = []
+    min_segments = int(cfg.get("min_segments_after_auto_resolve") or 1)
+    seg_count = _segment_count(ctx, stage_key)
+    risk_counts = {"guaranteed_breakage": 0, "repairable": 0, "passable": 0}
+    apply_logs = 0
+    max_apply_logs = int(cfg.get("auto_resolve_max_issues_per_pass") or 50)
+    max_apply_logs = min(max_apply_logs, 8)
+
+    for _ in range(int(cfg.get("autopilot_force_max_passes") or 4)):
+        open_items = [
+            it
+            for it in items_for_stage(ctx, stage_key)
+            if it.get("status") == "open" and it.get("blocking") is not False
+        ]
+        if not open_items:
+            break
+        progressed = False
+        for item in open_items:
+            risk = assess_issue_risk(item)
+            issue_id = str(item.get("id") or "")
+            if not issue_id:
+                continue
+            if risk == IssueRisk.GUARANTEED_BREAKAGE:
+                if seg_count <= min_segments and stage_key in ("boundary_detection", "segment_classification"):
+                    choice = "accept_auto_repair"
+                else:
+                    choice = "delete_segment" if item.get("segment_id") else "accept_auto_repair"
+            elif risk == IssueRisk.REPAIRABLE:
+                choice = _autopilot_aggressive_choice(item, cfg=cfg) or "accept_auto_repair"
+            else:
+                choice = "dismiss"
+            try:
+                ok, errors = resolve_issue(ctx, stage_key, issue_id, choice)
+            except Exception as exc:
+                warnings.append(str(exc))
+                continue
+            if ok:
+                progressed = True
+                risk_counts[risk.value] = risk_counts.get(risk.value, 0) + 1
+                if apply_logs < max_apply_logs:
+                    ctx.log(
+                        f"itr.risk.apply issue={issue_id} risk={risk.value} choice={choice!r}",
+                        level="info",
+                        stage=stage_key,
+                        action_id="itr.risk.apply",
+                        detail={
+                            "issue_id": issue_id,
+                            "risk": risk.value,
+                            "choice": choice,
+                            "segment_id": item.get("segment_id"),
+                            "message": str(item.get("message") or "")[:120],
+                        },
+                    )
+                    apply_logs += 1
+                if choice == "delete_segment":
+                    seg_count = max(0, seg_count - 1)
+                    warnings.append(f"Removed segment for guaranteed-breakage issue: {item.get('message', '')[:80]}")
+                elif choice == "dismiss":
+                    warnings.append(f"Passed through issue: {item.get('message', '')[:80]}")
+                break
+            if errors:
+                warnings.extend(errors[:2])
+        if not progressed:
+            break
+
+    if blocking_issues_remaining(ctx, stage_key) > 0:
+        _prepare_autopilot_propagation(ctx, stage_key, runner=runner, run_id=run_id)
+    ctx.log(
+        f"itr.risk.advance.complete stage={stage_key} "
+        f"guaranteed={risk_counts.get('guaranteed_breakage', 0)} "
+        f"repairable={risk_counts.get('repairable', 0)} passable={risk_counts.get('passable', 0)}",
+        level="info",
+        stage=stage_key,
+        action_id="itr.risk.advance.complete",
+        detail={"risk_counts": risk_counts, "warnings": warnings[:4]},
+    )
+    return warnings
 
 
 def _apply_loop_escape_hatch(
@@ -901,6 +998,8 @@ def auto_resolve_stage(
         f"itr.auto_resolve.start stage={stage_key} open={open_before}",
         level="info",
         stage=stage_key,
+        action_id="itr.auto_resolve.start",
+        detail={"open_blocking": open_before, "autopilot": autopilot},
     )
 
     triage_result = run_triage_pipeline(ctx, stage_key, staged=True)
@@ -989,6 +1088,8 @@ def auto_resolve_stage(
                 f"itr.auto_resolve.apply issue={issue_id} choice={choice!r}",
                 level="info",
                 stage=stage_key,
+                action_id="itr.auto_resolve.apply",
+                detail={"issue_id": issue_id, "choice": choice},
             )
             progressed = True
             break

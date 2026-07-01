@@ -32,6 +32,9 @@ cd frontend && npm test -- --run src/utils/operatorActionTrace.test.ts src/utils
 | M14 | dismiss modal mid-checkpoint | Close modal | StepActionHeader reopens checkpoint |
 | M15 | LiveStatusBar save CTA | From Logs tab | same as panel save |
 | M16 | Dump last step | After M1 | `write_approval.approve` → `pipeline.execute` → `ingest.hash` |
+| M17 | Full autopilot finalize | Run boundary_detection | Activity Live shows `stage_finalize.start` → `itr.triage.*` → `itr.auto_resolve.*` → `stage_finalize.complete` or `stage_finalize.decisions` |
+| M18 | Decision wizard | Apply wizard choice | `gui.decision.resolve.start` → `itr.decision.resolve` → review |
+| M19 | Activity alerts UX | Trigger 3+ errors on Live tab | Pinned strip shows latest error + `+N` badge; scroll body remains usable; expand shows bounded list |
 
 ## Dump last step
 

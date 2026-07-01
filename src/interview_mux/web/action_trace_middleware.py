@@ -10,6 +10,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 _ROUTE_ACTIONS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^/api/runs/[^/]+/stages/[^/]+/decisions/[^/]+/resolve$"), "api.decision.resolve"),
+    (re.compile(r"^/api/runs/[^/]+/stages/[^/]+/issues/auto-resolve$"), "api.itr.auto_resolve"),
+    (re.compile(r"^/api/runs/[^/]+/stages/[^/]+/issues/revalidate$"), "api.itr.revalidate"),
+    (re.compile(r"^/api/runs/[^/]+/stages/[^/]+/propagation/execute$"), "api.itr.propagation"),
+    (re.compile(r"^/api/runs/[^/]+/stages/[^/]+/issues/[^/]+/resolve$"), "api.itr.issue_resolve"),
     (re.compile(r"^/api/runs/[^/]+/execute$"), "api.pipeline.execute"),
     (re.compile(r"^/api/runs/[^/]+/continue-after-checkpoint$"), "api.write_approval.continue"),
     (re.compile(r"^/api/runs/[^/]+/pending-writes/[^/]+/approve$"), "api.write_approval.approve"),

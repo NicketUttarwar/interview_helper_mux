@@ -13,6 +13,7 @@
 6. [docs/build-out/ticket-specs.md](docs/build-out/ticket-specs.md) — acceptance criteria for your BUILD ticket(s)
 7. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
 8. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) — **operator** happy path (Prepare → Ship; journey kernel)
+8a. [docs/workflows/full-autopilot-operator-model.md](docs/workflows/full-autopilot-operator-model.md) — **full autopilot** default UX (Run → decisions wizard → Review → Save; Fix all is legacy only)
 8b. [docs/workflows/operator-flow-audit.md](docs/workflows/operator-flow-audit.md) — full GUI tab/modal flow map + resolved UX issues
 9. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end system + CLI journey
 10. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs

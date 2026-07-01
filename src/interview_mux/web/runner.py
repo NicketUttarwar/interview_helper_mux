@@ -735,8 +735,24 @@ class JobRunner:
                     blocking_issues_remaining,
                     triage_enabled,
                 )
+                from interview_mux.full_autopilot import full_autopilot_enabled
+                from interview_mux.operator_decisions import pending_decision_count
 
-                if triage_enabled() and blocking_issues_remaining(ctx, exc.stage_id) > 0:
+                if full_autopilot_enabled() and pending_decision_count(ctx, exc.stage_id) > 0:
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "awaiting_write_approval",
+                            "mode": mode,
+                            "stage": exc.stage_id,
+                            "message": "Your input needed before review",
+                            "pending_write_stage": exc.stage_id,
+                            "pending_write_paths": exc.paths,
+                            "awaiting_write_approval": True,
+                            "pending_decision_count": pending_decision_count(ctx, exc.stage_id),
+                        },
+                    )
+                elif triage_enabled() and blocking_issues_remaining(ctx, exc.stage_id) > 0:
                     apply_clarification_gate_after_pause(ctx, exc.stage_id)
                 else:
                     self._write_job(

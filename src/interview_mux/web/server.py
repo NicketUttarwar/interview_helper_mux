@@ -617,6 +617,14 @@ def create_app() -> FastAPI:
         display_flow = flow or intent
         from interview_mux.legacy_stage_warnings import legacy_sfx_warnings
 
+        llm_verification_alerts: list[dict[str, Any]] = []
+        try:
+            from interview_mux.llm_calls_gui import list_verification_alerts
+
+            llm_verification_alerts = list_verification_alerts(ctx)
+        except Exception:
+            pass
+
         return {
             "run_id": run_id,
             "meta": meta,
@@ -647,6 +655,7 @@ def create_app() -> FastAPI:
             "stages": stages,
             "log_tail": read_log(ctx.run_dir, tail=100),
             "display_flow": display_flow,
+            "llm_verification_alerts": llm_verification_alerts,
         }
 
     @app.get("/api/runs/{run_id}/log")
@@ -1472,6 +1481,12 @@ def create_app() -> FastAPI:
         autopilot = bool((body or {}).get("autopilot"))
 
         def _resolve() -> dict[str, Any]:
+            ctx.log(
+                f"api.itr.auto_resolve stage={stage_id} autopilot={autopilot}",
+                level="action",
+                stage=stage_id,
+                action_id="api.itr.auto_resolve",
+            )
             result = auto_resolve_stage(
                 ctx,
                 stage_id,
@@ -1523,6 +1538,12 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "choice required")
 
         def _resolve() -> dict[str, Any]:
+            ctx.log(
+                f"api.itr.issue_resolve stage={stage_id} issue={issue_id}",
+                level="action",
+                stage=stage_id,
+                action_id="api.itr.issue_resolve",
+            )
             ok, errors = resolve_issue(ctx, stage_id, issue_id, choice)
             return {
                 "ok": ok,
@@ -1554,6 +1575,12 @@ def create_app() -> FastAPI:
 
         if not triage_enabled():
             return {"ok": True, "errors": [], "open_blocking": 0}
+        ctx.log(
+            f"api.itr.revalidate stage={stage_id}",
+            level="action",
+            stage=stage_id,
+            action_id="api.itr.revalidate",
+        )
         ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
         downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_id)
         propagation_plan = get_propagation_plan(ctx, stage_id)
@@ -1581,6 +1608,54 @@ def create_app() -> FastAPI:
             return {"stage_id": stage_id, "propagation_plan": {}}
         return {"stage_id": stage_id, "propagation_plan": get_propagation_plan(ctx, stage_id)}
 
+    @app.get("/api/runs/{run_id}/stages/{stage_id}/decisions")
+    def get_stage_decisions(run_id: str, stage_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        from interview_mux.operator_decisions import stage_decisions_summary
+
+        return stage_decisions_summary(ctx, stage_id)
+
+    @app.post("/api/runs/{run_id}/stages/{stage_id}/decisions/{decision_id}/resolve")
+    async def post_stage_decision_resolve(
+        run_id: str,
+        stage_id: str,
+        decision_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if stage_id not in STAGE_BY_ID:
+            raise HTTPException(404, f"Unknown stage: {stage_id}")
+        choice = body.get("choice")
+        if choice is None:
+            raise HTTPException(400, "choice required")
+        from interview_mux.stage_finalize import resolve_operator_decision
+
+        def _run() -> dict[str, Any]:
+            ctx.log(
+                f"api.decision.resolve stage={stage_id} decision={decision_id}",
+                level="action",
+                stage=stage_id,
+                action_id="api.decision.resolve",
+            )
+            return resolve_operator_decision(
+                ctx,
+                stage_id,
+                decision_id,
+                choice,
+                runner=runner,
+                run_id=run_id,
+            )
+
+        try:
+            with runner.operator_guard(run_id):
+                out = _run()
+        except RunBusyError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        refresh_journey_meta(ctx)
+        return out
+
     @app.post("/api/runs/{run_id}/stages/{stage_id}/propagation/execute")
     async def post_stage_propagation_execute(
         run_id: str,
@@ -1597,6 +1672,12 @@ def create_app() -> FastAPI:
         from interview_mux.artifact_issue_triage import execute_propagation
 
         def _run() -> dict[str, Any]:
+            ctx.log(
+                f"api.itr.propagation stage={stage_id} from={invalidate_from}",
+                level="action",
+                stage=stage_id,
+                action_id="api.itr.propagation",
+            )
             result = execute_propagation(
                 ctx,
                 stage_id,

@@ -138,3 +138,92 @@ export function dedupeConsecutiveLogEntries(entries: LogEntry[]): LogEntry[] {
 export function jobRunningStage(job: JobState | undefined): string | null {
   return job?.current_stage || job?.stage || null;
 }
+
+export interface PinnedAlertsOpts {
+  expanded?: boolean;
+  stageId?: string | null;
+  maxErrors?: number;
+  maxWarnings?: number;
+  maxErrorsCollapsed?: number;
+  maxWarningsCollapsed?: number;
+}
+
+export interface PinnedAlertsSelection {
+  primaryError: LogEntry | null;
+  displayedErrors: LogEntry[];
+  displayedWarnings: LogEntry[];
+  errorOverflow: number;
+  warningOverflow: number;
+  allPinned: LogEntry[];
+}
+
+const DEFAULT_MAX_ERRORS_EXPANDED = 2;
+const DEFAULT_MAX_WARNINGS_EXPANDED = 1;
+
+/** Select pinned errors/warnings for the activity log alert strip. */
+export function selectPinnedAlerts(
+  entries: LogEntry[],
+  opts: PinnedAlertsOpts = {},
+): PinnedAlertsSelection {
+  const expanded = opts.expanded ?? false;
+  const stageId = opts.stageId;
+  let errors = filterErrors(entries);
+  let warnings = filterWarnings(entries);
+  if (stageId) {
+    errors = filterByStage(errors, stageId);
+    warnings = filterByStage(warnings, stageId);
+  }
+  errors = errors.slice(-5);
+  warnings = warnings.slice(-3);
+  const allPinned = [...errors, ...warnings];
+
+  if (!expanded) {
+    const primaryError = errors.length ? errors[errors.length - 1] : null;
+    return {
+      primaryError,
+      displayedErrors: primaryError ? [primaryError] : [],
+      displayedWarnings: [],
+      errorOverflow: Math.max(0, errors.length - 1),
+      warningOverflow: warnings.length,
+      allPinned,
+    };
+  }
+
+  const maxErr = opts.maxErrors ?? DEFAULT_MAX_ERRORS_EXPANDED;
+  const maxWarn = opts.maxWarnings ?? DEFAULT_MAX_WARNINGS_EXPANDED;
+  const displayedErrors = errors.slice(-maxErr);
+  const displayedWarnings = warnings.slice(-maxWarn);
+  return {
+    primaryError: errors.length ? errors[errors.length - 1] : null,
+    displayedErrors,
+    displayedWarnings,
+    errorOverflow: Math.max(0, errors.length - displayedErrors.length),
+    warningOverflow: Math.max(0, warnings.length - displayedWarnings.length),
+    allPinned,
+  };
+}
+
+/** Legacy helper — pinned errors for Live/Step tabs (pre-selection caps). */
+export function collectPinnedErrorsAndWarnings(
+  entries: LogEntry[],
+  activityLogTab: "live" | "step" | "all",
+  opts: {
+    selectedStageId?: string | null;
+    run?: RunData | null;
+    jobRunning?: boolean;
+  },
+): { errors: LogEntry[]; warnings: LogEntry[] } {
+  if (activityLogTab === "all") return { errors: [], warnings: [] };
+  let errors = filterErrors(entries).slice(-5);
+  let warnings = filterWarnings(entries).slice(-3);
+  if (activityLogTab === "step") {
+    errors = filterByStage(errors, opts.selectedStageId).slice(-3);
+    warnings = filterByStage(warnings, opts.selectedStageId).slice(-2);
+  } else if (activityLogTab === "live") {
+    const stageId = resolveLiveStageId(opts.run ?? null, Boolean(opts.jobRunning), entries);
+    errors = filterByStage(errors, stageId).slice(-3);
+    warnings = filterByStage(warnings, stageId).slice(-2);
+  }
+  return { errors, warnings };
+}
+

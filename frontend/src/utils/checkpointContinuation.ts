@@ -22,6 +22,7 @@ import {
   recordAutopilotCheckpointAttempt,
   resolveAutopilotCheckpoint,
 } from "./autopilotResolution";
+import { traceAction } from "../operator/traceAction";
 
 /** Auto fix-all / auto-save when autopilot is enabled. Returns true if an action ran. */
 export async function tryAutopilotCheckpointResolution(
@@ -40,6 +41,10 @@ export async function tryAutopilotCheckpointResolution(
 
   if (checkpoint.kind === "write_approval") {
     if (!opts.approveWriteAndContinue) return false;
+    traceAction("gui.autopilot.save", `Autopilot saving staged outputs for ${checkpoint.stageId}`, {
+      stage: checkpoint.stageId,
+      level: "action",
+    });
     opts.showToast("Autopilot: saving staged outputs…", "info");
     const ok = await opts.approveWriteAndContinue(checkpoint.stageId);
     if (ok) {
@@ -209,6 +214,7 @@ function resolveFocusSubstepId(run: RunData, stageId: string): string | null {
     if (blocking.reason === "stage_reuse") return `stage_reuse:${stageId}`;
     if (blocking.reason === "handoff_review") return `handoff:${stageId}`;
     if (blocking.reason === "write_approval") return `write_approval:${stageId}`;
+    if (blocking.reason === "operator_decisions") return `operator_decisions:${stageId}`;
   }
   if (run.job?.needs_stage_reuse && run.job.stage === stageId) {
     return `stage_reuse:${stageId}`;
@@ -299,7 +305,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     const resolved = await tryAutopilotCheckpointResolution(opts);
     if (resolved) {
       const after = opts.runId ? await opts.refreshRun() : refreshed;
-      if (after && !autopilotBlocksAutoRun(after)) {
+      if (after && !autopilotBlocksAutoRun(after, opts.config)) {
         return advancePipeline({ ...opts, run: after, autoRun: true });
       }
       return true;
@@ -336,7 +342,9 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
           ? `handoff:${blocking.stage_id}`
           : blocking.reason === "write_approval"
             ? `write_approval:${blocking.stage_id}`
-            : null;
+            : blocking.reason === "operator_decisions"
+              ? `operator_decisions:${blocking.stage_id}`
+              : null;
     if (substepId) opts.setActiveSubstepId(substepId);
     await focusStageWorkbench({
       run: refreshed,
@@ -454,7 +462,7 @@ export async function tryAutoContinuePipeline(
     const resolved = await tryAutopilotCheckpointResolution(opts);
     if (resolved) {
       refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
-      if (!autopilotBlocksAutoRun(refreshed)) {
+      if (!autopilotBlocksAutoRun(refreshed, opts.config)) {
         const started = await advancePipeline({ ...opts, run: refreshed, autoRun: true });
         return started || true;
       }
@@ -468,7 +476,7 @@ export async function tryAutoContinuePipeline(
     }
   }
 
-  if (autopilotBlocksAutoRun(refreshed)) {
+  if (autopilotBlocksAutoRun(refreshed, opts.config)) {
     return navigated;
   }
 

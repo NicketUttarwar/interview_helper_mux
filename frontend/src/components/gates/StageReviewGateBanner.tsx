@@ -481,6 +481,47 @@ function ArtifactClarificationGateContent({
   );
 }
 
+function OperatorDecisionsGateContent({
+  stage,
+  pathCount,
+}: {
+  stage: StageInfo;
+  pathCount: number;
+}) {
+  const { activateSubstep } = useApp();
+  return (
+    <ReviewGateBannerShell
+      title="Your input needed"
+      lead={
+        pathCount > 1
+          ? `Autopilot needs ${pathCount} decisions before you can review outputs.`
+          : "Autopilot needs one decision before you can review outputs."
+      }
+      ariaLabel="Operator decisions"
+      testId="operator-decisions-gate-banner"
+      actions={
+        <button
+          type="button"
+          className="btn primary sm"
+          data-testid="operator-decisions-focus-banner"
+          onClick={() =>
+            activateSubstep({
+              id: `operator_decisions:${stage.id}`,
+              stageId: stage.id,
+              status: "todo",
+              label: "Your input needed",
+              kind: "guidance",
+              source: "runtime",
+            })
+          }
+        >
+          Apply choice
+        </button>
+      }
+    />
+  );
+}
+
 export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
   switch (spec.kind) {
     case "transcript_review":
@@ -491,6 +532,10 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
       return <AnalysisProfileGateContent />;
     case "write_approval":
       return <WriteApprovalGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
+    case "operator_decisions":
+      return (
+        <OperatorDecisionsGateContent stage={stage} pathCount={spec.pathCount ?? 1} />
+      );
     case "artifact_clarification":
       return (
         <ArtifactClarificationGateContent stage={stage} pathCount={spec.pathCount ?? 0} />

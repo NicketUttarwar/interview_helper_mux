@@ -21,7 +21,6 @@ from interview_mux.prompt_examples import (
 )
 
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
-JSON_OBJECT_FORMAT: dict[str, str] = {"type": "json_object"}
 ENVELOPE_KEYS = frozenset(
     {
         "status",
@@ -124,11 +123,20 @@ def _extract_json(text: str) -> dict[str, Any]:
     return candidates[0][1]
 
 
-def _default_response_format(task_kind: str, explicit: dict[str, str] | None) -> dict[str, str] | None:
+def _default_response_format(
+    stage_key: str,
+    task_kind: str,
+    explicit: dict[str, Any] | None,
+    *,
+    cfg: dict[str, Any] | None = None,
+    volley_retry_index: int = 0,
+) -> dict[str, Any] | None:
     if explicit is not None:
         return explicit
     if task_kind in ("primary", "shard", "collate", "specialist", "arbiter"):
-        return JSON_OBJECT_FORMAT
+        from interview_mux.openai_structured_output import resolve_response_format
+
+        return resolve_response_format(stage_key, task_kind, cfg=cfg)
     return None
 
 
@@ -169,7 +177,7 @@ def run_prompt_envelope(
     task_kind: str = "primary",
     bump_tier: bool = False,
     explicit_tier: str | None = None,
-    response_format: dict[str, str] | None = None,
+    response_format: dict[str, Any] | None = None,
     call_attempt: int | None = None,
     record_stage_key: str | None = None,
     system_override: str | None = None,
@@ -225,7 +233,13 @@ def run_prompt_envelope(
             temp = 0.0
     if temp is not None:
         kwargs["temperature"] = temp
-    fmt = _default_response_format(task_kind, response_format)
+    fmt = _default_response_format(
+        stage_key,
+        task_kind,
+        response_format,
+        cfg=cfg,
+        volley_retry_index=volley_retry_index,
+    )
     if fmt:
         kwargs["response_format"] = fmt
     if ctx:
@@ -283,11 +297,57 @@ def run_prompt_envelope(
                 origin="pipeline",
             )
         raise
+
+    from interview_mux.llm_interaction_registry import resolve_interaction_id
+    from interview_mux.llm_response_verify import verification_to_record_dict, verify_llm_response
+    from interview_mux.openai_structured_output import structured_outputs_cfg
+
+    interaction_id = resolve_interaction_id(
+        stage_key=stage_key,
+        task_kind=task_kind,
+        record_stage_key=record_stage_key,
+        volley_retry_index=volley_retry_index,
+        provider="openai",
+    )
+    verify_target = envelope if task_kind == "arbiter" else envelope
+    if task_kind == "arbiter":
+        verify_target = envelope.get("artifacts") or envelope
+    verification = verify_llm_response(
+        interaction_id,
+        verify_target,
+        stage_key=record_stage_key or stage_key,
+        task_kind=task_kind,
+    )
+    so_cfg = structured_outputs_cfg(cfg)
+    if not verification.ok:
+        envelope.setdefault("_llm_meta", {})
+        envelope["_llm_meta"]["verification_errors"] = verification.errors[:10]
+        if so_cfg.get("log_verification_to_gui", True) and ctx:
+            ctx.log(
+                f"LLM verification failed ({stage_key}, {interaction_id}): "
+                f"{verification.errors[:2]}",
+                level="warning",
+                stage=stage_key,
+                action_id="llm.verification_failed",
+                detail={
+                    "interaction_id": interaction_id,
+                    "schema_name": verification.schema_name,
+                    "errors": verification.errors[:5],
+                },
+            )
+        if so_cfg.get("fail_on_verify_error", True):
+            raise ValueError(
+                f"LLM response failed schema verification ({interaction_id}): "
+                f"{verification.errors[:3]}"
+            )
     tier = resolved.tier if resolved else ("explicit" if model else "economy")
     envelope["_llm_meta"] = {
+        **(envelope.get("_llm_meta") or {}),
         "model_id": chosen,
         "model_tier": tier,
         "task_kind": task_kind,
+        "interaction_id": interaction_id,
+        "verification": verification_to_record_dict(verification),
     }
     if ctx:
         from interview_mux.context_volley import truncation_flags_for_volley
@@ -311,6 +371,8 @@ def run_prompt_envelope(
                 temperature=kwargs.get("temperature"),
                 response_format=fmt,
                 truncation_flags=truncation_flags_for_volley(volley_for_flags),
+                verification=verification_to_record_dict(verification),
+                interaction_id=interaction_id,
             )
             llm_path = (call_record.get("links") or {}).get("relative_path")
             if llm_path:
@@ -318,13 +380,20 @@ def run_prompt_envelope(
     if ctx:
         turns = len(messages) if messages else 1
         chars = sum(len(m.get("content", "")) for m in (messages or []))
+        llm_path = (envelope.get("_llm_meta") or {}).get("llm_call_path")
         ctx.log(
             f"LLM {stage_key}: status={envelope.get('status')} "
             f"needs={len(envelope.get('needs') or [])} "
             f"context_turns={turns} context_chars≈{chars}",
             level="success",
             stage=stage_key,
-            detail={"journey_kind": "execute", "model": chosen},
+            action_id="llm.success",
+            detail={
+                "journey_kind": "execute",
+                "model": chosen,
+                "task_kind": task_kind,
+                **({"llm_call_path": llm_path} if llm_path else {}),
+            },
         )
     return envelope
 

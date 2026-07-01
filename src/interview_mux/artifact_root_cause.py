@@ -26,6 +26,22 @@ _PROPAGATION_FROM: dict[str, tuple[str, ...]] = {
         "missing_framing",
         "optimal_questions",
     ),
+    "speaker_roles": ("content_context", "boundary_detection", "segment_classification"),
+    "content_context": ("boundary_detection", "segment_classification", "content_brief_reanchor"),
+    "content_brief_reanchor": (
+        "sonic_context_build",
+        "sound_design_palettes",
+        "missing_framing",
+        "optimal_questions",
+    ),
+    "sound_design_palettes": ("missing_framing", "optimal_questions"),
+    "topic_coverage_audit": ("narrative_arc_plan", "full_master_ranking", "transitions"),
+    "narrative_arc_plan": ("full_master_ranking", "transitions"),
+    "full_master_ranking": ("transitions", "sound_design_plan_flow1", "edl_flow1"),
+    "transitions": ("sound_design_plan_flow1", "edl_flow1"),
+    "sound_design_plan_flow1": ("sfx_prompt_craft", "edl_flow1"),
+    "sound_design_plan_flow2": ("sfx_prompt_craft",),
+    "highlight_selection": ("sound_design_plan_flow2",),
 }
 
 _CHECKPOINTS_BY_FROM: dict[str, tuple[str, ...]] = {

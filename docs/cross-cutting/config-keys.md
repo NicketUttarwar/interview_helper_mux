@@ -58,6 +58,8 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
+| `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `true` (default), after save/checkpoint the GUI auto-focuses and runs the next automated stage. |
+| `journey_ui.full_autopilot` | `stage_finalize`, GUI stage steps, ITR gates | When `true` (default), in-run `finalize_stage_outputs()` replaces operator Fix all; **Stage Decision Wizard** for unresolved choices; `needs_clarification` not surfaced. Set `false` for legacy Fix all + artifact clarification UI. See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md). |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly_flow1`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
@@ -208,6 +210,29 @@ Every OpenAI call via `run_prompt_envelope` (when `ctx` is set). Spec: [llm-call
 |-----|---------|----------|
 | `enabled` | `true` | No per-call files; only `stage_runs` attempt summaries |
 | `write_markdown_sidecar` | `true` | No `.md` copy-paste files next to JSON records |
+
+## `analysis.structured_outputs`
+
+Strict OpenAI `json_schema` + post-call verification for every `run_prompt_envelope` call. Catalog: [llm-interaction-catalog.md](./llm-interaction-catalog.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `enabled` | `true` | Falls back to `json_object` only |
+| `strict` | `true` | OpenAI `json_schema.strict` flag |
+| `fail_on_verify_error` | `true` | Invalid responses raise after parse |
+| `allow_json_object_fallback` | `false` | On schema compose failure, use loose JSON mode |
+| `api_schema_tier` | `full` | Reserved for partial schema tiers |
+| `log_verification_to_gui` | `true` | Operator log `llm.verification_failed` events |
+
+## `local_llm.structured_outputs`
+
+Schema appendix in MLX prompts + `verify_llm_response` after `generate_local_chat`.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `enabled` | `true` | No schema block in local system prompt |
+| `strict` | `true` | Prompt cites strict min-example shape |
+| `fail_open_on_verify` | `true` | ITR/framer keep fail-open on verify errors (set `false` to hard-fail) |
 
 Export: `python tools/export_llm_calls.py --run-id <exec_*>`.
 
@@ -362,6 +387,11 @@ Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artif
 | `min_segments_after_auto_resolve` | `1` | Block destructive fix-all that empties manifest |
 | `max_segments_deleted_per_fix_all` | `0.10` | Max fraction of segments deletable in one Fix all pass |
 | `auto_resolve_max_issues_per_pass` | `50` | Cap issues processed per Fix all invocation |
+| `in_run_auto_resolve` | `true` | When `journey_ui.full_autopilot`, run auto-resolve inside `finalize_stage_outputs()` after each LLM stage |
+| `risk_based_force_advance` | `true` | Classify open issues via `issue_risk_assessment.py` (delete vs repair vs pass) |
+| `auto_resolve_in_run_mode` | `autopilot` | Mode passed to in-run auto-resolve (`autopilot` or `manual`) |
+
+When `journey_ui.full_autopilot` is **true** (default), Fix all keys apply to legacy mode and debug endpoints only — see [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md).
 
 ---
 
