@@ -25,17 +25,10 @@
             "pass",
             "warn",
             "fail"
-          ],
-          "type": "object",
-          "properties": {},
-          "required": [],
-          "additionalProperties": false
+          ]
         },
         "blocking_issues": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "object",
             "required": [
@@ -61,16 +54,33 @@
           }
         },
         "warnings": {
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "issue",
+              "evidence",
+              "recommended_action"
+            ],
+            "properties": {
+              "issue": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "recommended_action": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "recommended_actions": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "string"
           }

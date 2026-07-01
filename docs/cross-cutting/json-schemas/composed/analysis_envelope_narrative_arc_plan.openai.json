@@ -20,17 +20,11 @@
       ],
       "properties": {
         "arc_summary": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 1
         },
         "chapters": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "maxItems": 12,
           "items": {
             "type": "object",
@@ -51,7 +45,10 @@
                 "type": [
                   "array",
                   "null"
-                ]
+                ],
+                "items": {
+                  "type": "string"
+                }
               },
               "suggested_open_segment_id": {
                 "type": "string"
@@ -61,10 +58,27 @@
           }
         },
         "ordering_constraints": {
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "before_segment_id",
+              "after_segment_id",
+              "reason"
+            ],
+            "properties": {
+              "before_segment_id": {
+                "type": "string"
+              },
+              "after_segment_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "pacing_notes": {
           "type": [

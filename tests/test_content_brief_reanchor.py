@@ -55,6 +55,7 @@ def test_enriched_content_brief_schema_valid():
 def test_reanchor_gap_rules_require_segment_ids_and_relationships():
     brief = minimal_content_brief(
         topics=[{"name": "Topic A", "summary": "Summary.", "segment_ids": []}],
+        topic_relationships=[],
     )
     gaps = compute_gaps(
         "understanding/content_brief.json",

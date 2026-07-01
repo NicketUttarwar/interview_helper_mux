@@ -39,7 +39,7 @@ Engineering or product interview with dense jargon, acronyms, and precision clai
 **Good — glossary-aware brief**
 
 - `topics[].name`: "Event-sourced ledger migration" with `segment_ids` covering the explanation block
-- `key_claims[]` include `claim_type: technical` with evidence where the guest defines terms
+- `key_claims[]` include `claim_type: definition` with evidence where the guest defines terms
 - `memory_updates.style_patch.tone`: "Precise, acronym-heavy — guest assumes listener knows infra basics"
 - `jargon_glossary` or entity notes capture at least one term the guest defines in-passing
 

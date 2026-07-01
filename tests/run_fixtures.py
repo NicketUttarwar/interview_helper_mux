@@ -292,22 +292,6 @@ def minimal_gap_evaluations(*evaluations: dict[str, Any]) -> dict[str, Any]:
     return {"evaluations": list(evaluations)}
 
 
-def minimal_content_brief(**patch: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {
-        "thesis": "A clear thesis for testing.",
-        "topics": [
-            {
-                "name": "Topic A",
-                "summary": "Summary of topic A.",
-                "segment_ids": ["seg_001"],
-            }
-        ],
-        "topic_relationships": [{"from": "Topic A", "to": "Topic A", "relation": "supports"}],
-    }
-    base.update(patch)
-    return base
-
-
 def minimal_speakers() -> dict[str, Any]:
     return {
         "speakers": [
@@ -516,6 +500,27 @@ def minimal_content_brief(**patch: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "thesis": "Test thesis for pytest.",
         "topics": [{"name": "Topic A", "summary": "Summary here."}],
+        "topic_relationships": [
+            {
+                "from_topic": "Topic A",
+                "to_topic": "Topic B",
+                "relation": "supports",
+            }
+        ],
+        "jargon_glossary": [
+            {
+                "term": "ICP",
+                "plain_definition": "Ideal customer profile",
+                "first_segment_id": None,
+            }
+        ],
+        "emotional_beats": [
+            {
+                "label": "tension",
+                "description": "Early uncertainty",
+                "segment_ids": [],
+            }
+        ],
     }
     base.update(patch)
     return base

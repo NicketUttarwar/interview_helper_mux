@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const understanding_coherence_report_jsonSchema = z.object({
-  "schema_version": z.number(),
+  "schema_version": z.literal(1),
   "derived_from": z.object({
   "interview_spine_sha256": z.string().optional(),
   "content_brief_sha256": z.string().optional(),
@@ -22,16 +22,16 @@ export const understanding_coherence_report_jsonSchema = z.object({
   "end_ms": z.number(),
   "novelty_score": z.number().optional(),
   "theme_alignment": z.number().optional(),
-  "best_theme_id": z.unknown().optional(),
+  "best_theme_id": z.string().nullable().optional(),
   "drift_score": z.number().optional(),
 })),
   "risks": z.array(z.object({
   "risk_id": z.string(),
   "kind": z.enum(["topic_drift", "claim_contradiction", "missing_callback"]),
   "time_ms": z.number(),
-  "window_id": z.unknown().optional(),
-  "theme_id": z.unknown().optional(),
-  "claim_id": z.unknown().optional(),
+  "window_id": z.string().nullable().optional(),
+  "theme_id": z.string().nullable().optional(),
+  "claim_id": z.string().nullable().optional(),
   "confidence": z.number(),
   "blocking": z.boolean().optional(),
   "evidence": z.record(z.string(), z.unknown()),

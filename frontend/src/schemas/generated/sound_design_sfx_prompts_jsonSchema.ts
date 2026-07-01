@@ -15,5 +15,5 @@ export const sound_design_sfx_prompts_jsonSchema = z.object({
   "seed": z.number().optional(),
   "regression_notes": z.string().optional(),
   "musical_intent": z.record(z.string(), z.unknown()).optional(),
-})),
+})).min(1),
 });

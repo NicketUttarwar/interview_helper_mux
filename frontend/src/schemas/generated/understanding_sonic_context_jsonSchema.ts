@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const understanding_sonic_context_jsonSchema = z.object({
-  "version": z.number(),
+  "version": z.literal(1),
   "sonic_context_hash": z.string().optional(),
   "built_from": z.array(z.string()).optional(),
   "sparse_mode": z.boolean().optional(),
@@ -23,11 +23,11 @@ export const understanding_sonic_context_jsonSchema = z.object({
   "tag_registry": z.array(z.object({
   "tag_id": z.string().min(1),
   "kind": z.enum(["topic", "entity", "emotional", "theme", "acoustic"]),
-  "keywords": z.array(z.string()),
+  "keywords": z.array(z.string()).min(1),
   "segment_ids": z.array(z.string()).optional(),
   "emotional_valence": z.string().optional(),
   "confidence": z.number().optional(),
-  "provenance": z.array(z.string()),
+  "provenance": z.array(z.string()).min(1),
 })),
   "cue_opportunities": z.array(z.object({
   "kind": z.enum(["chapter_boundary", "emotional_beat", "vo_bridge", "montage_transition", "laughter_window", "tension_peak", "cold_open", "outro"]),
@@ -38,7 +38,7 @@ export const understanding_sonic_context_jsonSchema = z.object({
   "start_ms": z.number().optional(),
   "end_ms": z.number().optional(),
   "confidence": z.number(),
-  "provenance": z.array(z.string()),
+  "provenance": z.array(z.string()).min(1),
 })),
   "mix_policy": z.object({
   "underscore_policy": z.enum(["normal", "sparse", "sparse_or_skip", "skip"]),

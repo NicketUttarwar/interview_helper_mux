@@ -9,8 +9,28 @@
       "minItems": 1,
       "items": { "type": "string" }
     },
-    "chapters": { "type": "array" },
-    "excluded_segment_ids": { "type": "array" },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "segment_ids"],
+        "properties": {
+          "title": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "excluded_segment_ids": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "reason"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "notes": { "type": "string" }
   }
 }

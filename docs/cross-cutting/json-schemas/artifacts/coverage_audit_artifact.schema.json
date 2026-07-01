@@ -4,9 +4,41 @@
   "type": "object",
   "required": ["topic_mappings", "coverage_score"],
   "properties": {
-    "topic_mappings": { "type": "array" },
-    "claim_mappings": { "type": "array" },
-    "missing_coverage": { "type": "array" },
+    "topic_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["topic", "segment_ids", "covered"],
+        "properties": {
+          "topic": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "covered": { "type": "boolean" }
+        }
+      }
+    },
+    "claim_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "segment_ids", "covered"],
+        "properties": {
+          "claim": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } },
+          "covered": { "type": "boolean" }
+        }
+      }
+    },
+    "missing_coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "suggestion"],
+        "properties": {
+          "item": { "type": "string" },
+          "suggestion": { "type": "string" }
+        }
+      }
+    },
     "orphan_segment_ids": { "type": "array", "items": { "type": "string" } },
     "coverage_score": { "type": "number", "minimum": 0, "maximum": 1 }
   }

@@ -15,6 +15,20 @@
         "name": "Founding constraints",
         "summary": "The guest explains early product and hiring constraints."
       }
+    ],
+    "jargon_glossary": [
+      {
+        "term": "ICP",
+        "plain_definition": "Ideal customer profile",
+        "first_segment_id": null
+      }
+    ],
+    "emotional_beats": [
+      {
+        "label": "tension",
+        "description": "Uncertainty about early market fit",
+        "segment_ids": []
+      }
     ]
   },
   "content_brief_reanchor": {
@@ -41,6 +55,20 @@
         "claim_type": "fact",
         "segment_ids": ["seg_001"],
         "evidence_segment_ids": ["seg_001"]
+      }
+    ],
+    "jargon_glossary": [
+      {
+        "term": "ICP",
+        "plain_definition": "Ideal customer profile",
+        "first_segment_id": "seg_001"
+      }
+    ],
+    "emotional_beats": [
+      {
+        "label": "triumph",
+        "description": "Clear strategic focus emerges",
+        "segment_ids": ["seg_001"]
       }
     ]
   },
@@ -118,7 +146,21 @@
     ]
   },
   "topic_coverage_audit": {
-    "topic_mappings": [],
+    "topic_mappings": [
+      {
+        "topic": "Founding constraints",
+        "segment_ids": ["seg_001"],
+        "covered": true
+      }
+    ],
+    "claim_mappings": [
+      {
+        "claim": "Early hiring shaped product velocity.",
+        "segment_ids": ["seg_001"],
+        "covered": true
+      }
+    ],
+    "missing_coverage": [],
     "coverage_score": 0.75
   },
   "narrative_arc_plan": {
@@ -159,6 +201,12 @@
           "quotability": 7,
           "diversity_bonus": 1
         }
+      }
+    ],
+    "rejected_candidates": [
+      {
+        "segment_id": "seg_002",
+        "reason": "redundant topic"
       }
     ],
     "reel_thesis": "A founder explains the early path to product-market fit."

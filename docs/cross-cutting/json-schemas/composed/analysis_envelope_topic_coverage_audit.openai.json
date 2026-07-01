@@ -21,22 +21,81 @@
       ],
       "properties": {
         "topic_mappings": {
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "topic",
+              "segment_ids",
+              "covered"
+            ],
+            "properties": {
+              "topic": {
+                "type": "string"
+              },
+              "segment_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "covered": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "claim_mappings": {
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "claim",
+              "segment_ids",
+              "covered"
+            ],
+            "properties": {
+              "claim": {
+                "type": "string"
+              },
+              "segment_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "covered": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "missing_coverage": {
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "item",
+              "suggestion"
+            ],
+            "properties": {
+              "item": {
+                "type": "string"
+              },
+              "suggestion": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "orphan_segment_ids": {
           "type": [
@@ -48,10 +107,7 @@
           }
         },
         "coverage_score": {
-          "type": [
-            "number",
-            "null"
-          ],
+          "type": "number",
           "minimum": 0,
           "maximum": 1
         }

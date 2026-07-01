@@ -2,13 +2,13 @@
 import { z } from "zod";
 
 export const transcript_disfluencies_jsonSchema = z.object({
-  "schema_version": z.number(),
+  "schema_version": z.literal(1),
   "status": z.enum(["ready", "skipped", "no_assets", "disabled"]),
   "skip_reason": z.string().optional(),
   "computed_at": z.string().optional(),
   "model": z.object({
-  "vad": z.unknown().optional(),
-  "whisper": z.unknown().optional(),
+  "vad": z.string().nullable().optional(),
+  "whisper": z.string().nullable().optional(),
 }).optional(),
   "events": z.array(z.object({
   "event_id": z.string(),

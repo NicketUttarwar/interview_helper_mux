@@ -99,8 +99,31 @@
       "properties": {
         "thesis": { "type": "string" },
         "audience": { "type": "string" },
-        "emotional_beats": { "type": "array" },
-        "key_claims": { "type": "array" },
+        "emotional_beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "description": { "type": "string" },
+              "segment_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "key_claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "claim": { "type": "string" },
+              "claim_type": {
+                "enum": ["fact", "opinion", "prediction", "anecdote", "definition"]
+              },
+              "segment_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
         "topic_relationships": {
           "type": "array",
           "items": {

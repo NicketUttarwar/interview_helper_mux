@@ -54,7 +54,29 @@
       }
     },
     "audience": { "type": ["string", "null"] },
-    "jargon_glossary": { "type": ["array", "null"] },
-    "emotional_beats": { "type": ["array", "null"] }
+    "jargon_glossary": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["term", "plain_definition"],
+        "properties": {
+          "term": { "type": "string" },
+          "plain_definition": { "type": "string" },
+          "first_segment_id": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "emotional_beats": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "properties": {
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
   }
 }

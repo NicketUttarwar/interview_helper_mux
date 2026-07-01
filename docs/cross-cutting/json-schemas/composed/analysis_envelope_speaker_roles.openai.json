@@ -18,10 +18,7 @@
       ],
       "properties": {
         "speakers": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",

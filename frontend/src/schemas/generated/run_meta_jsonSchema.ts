@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const run_meta_jsonSchema = z.object({
   "execution_id": z.string().optional(),
-  "execution_number": z.unknown().optional(),
+  "execution_number": z.number().nullable().optional(),
   "input_audio_path": z.string().optional(),
   "source_audio_hash": z.string().optional(),
   "source_audio_hash_short": z.string().optional(),

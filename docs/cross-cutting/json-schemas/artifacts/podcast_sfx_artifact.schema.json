@@ -5,8 +5,42 @@
   "required": ["profile"],
   "properties": {
     "profile": { "const": "podcast" },
-    "chapter_stingers": { "type": "array" },
-    "beds": { "type": "array" },
-    "bridges": { "type": "array" }
+    "chapter_stingers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["after_chapter_id", "mood", "duration_ms", "description"],
+        "properties": {
+          "after_chapter_id": { "type": "string" },
+          "mood": { "type": "string" },
+          "duration_ms": { "type": "integer" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "beds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start_segment_id", "end_segment_id", "mood", "level_db"],
+        "properties": {
+          "start_segment_id": { "type": "string" },
+          "end_segment_id": { "type": "string" },
+          "mood": { "type": "string" },
+          "level_db": { "type": "number" }
+        }
+      }
+    },
+    "bridges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["between_segment_ids", "description"],
+        "properties": {
+          "between_segment_ids": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" }
+        }
+      }
+    }
   }
 }

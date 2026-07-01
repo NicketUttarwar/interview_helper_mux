@@ -5,8 +5,8 @@ export const understanding_gap_evaluations_jsonSchema = z.object({
   "evaluations": z.array(z.object({
   "segment_id": z.string(),
   "self_explanatory": z.boolean(),
-  "gap_type": z.unknown().optional(),
-  "secondary_gap_type": z.unknown().optional(),
+  "gap_type": z.string().nullable().optional(),
+  "secondary_gap_type": z.string().nullable().optional(),
   "listener_confusion": z.string().optional(),
   "severity": z.enum(["low", "medium", "high"]).optional(),
 })),

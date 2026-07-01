@@ -20,21 +20,98 @@
       "properties": {
         "cold_open": {
           "type": "object",
-          "properties": {},
-          "required": [],
+          "properties": {
+            "duration_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mood": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "duration_ms",
+            "description",
+            "mood"
+          ],
           "additionalProperties": false
         },
         "transitions": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "minItems": 0
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "type": "object",
+            "required": [
+              "from_clip_rank",
+              "to_clip_rank",
+              "duration_ms",
+              "sfx_types",
+              "description",
+              "duck_under_speech_db"
+            ],
+            "properties": {
+              "from_clip_rank": {
+                "type": "integer"
+              },
+              "to_clip_rank": {
+                "type": "integer"
+              },
+              "duration_ms": {
+                "type": "integer"
+              },
+              "sfx_types": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "type": "string"
+              },
+              "duck_under_speech_db": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "outro": {
           "type": "object",
-          "properties": {},
-          "required": [],
+          "properties": {
+            "duration_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "duration_ms",
+            "description"
+          ],
           "additionalProperties": false
         }
       },

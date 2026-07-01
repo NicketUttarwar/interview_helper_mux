@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const flow_1_master_edl_jsonSchema = z.object({
-  "version": z.number(),
+  "version": z.literal(1),
   "ordered_segment_ids": z.array(z.string()),
   "clips": z.array(z.unknown()),
   "gap_placements": z.array(z.unknown()).optional(),

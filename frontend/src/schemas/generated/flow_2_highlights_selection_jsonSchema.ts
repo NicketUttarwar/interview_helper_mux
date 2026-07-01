@@ -16,8 +16,11 @@ export const flow_2_highlights_selection_jsonSchema = z.object({
   "diversity_bonus": z.number(),
 }),
   "needs_interviewer_tag": z.boolean().optional(),
-  "suggested_tag": z.unknown().optional(),
-})),
-  "rejected_candidates": z.array(z.unknown()).optional(),
+  "suggested_tag": z.string().nullable().optional(),
+})).max(5),
+  "rejected_candidates": z.array(z.object({
+  "segment_id": z.string(),
+  "reason": z.string(),
+})).optional(),
   "reel_thesis": z.string(),
 });

@@ -19,10 +19,7 @@
       ],
       "properties": {
         "highlights": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "maxItems": 5,
           "items": {
             "type": "object",
@@ -65,34 +62,19 @@
                 ],
                 "properties": {
                   "salience": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "clarity": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "emotion": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "quotability": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "diversity_bonus": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   }
                 },
                 "additionalProperties": false
@@ -117,13 +99,26 @@
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "segment_id",
+              "reason"
+            ],
+            "properties": {
+              "segment_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "reel_thesis": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         }
       },
       "additionalProperties": false

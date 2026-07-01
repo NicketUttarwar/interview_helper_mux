@@ -8,7 +8,11 @@ export const flow_1_master_edl_narrative_audit_jsonSchema = z.object({
   "evidence": z.array(z.string()),
   "recommended_action": z.string(),
 })),
-  "warnings": z.array(z.unknown()),
+  "warnings": z.array(z.object({
+  "issue": z.string(),
+  "evidence": z.array(z.string()),
+  "recommended_action": z.string(),
+})),
   "recommended_actions": z.array(z.string()),
   "reasoning_summary": z.string(),
 });

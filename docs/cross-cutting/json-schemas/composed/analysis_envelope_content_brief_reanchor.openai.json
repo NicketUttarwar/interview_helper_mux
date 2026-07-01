@@ -23,17 +23,11 @@
       ],
       "properties": {
         "thesis": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 1
         },
         "topics": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "object",
             "required": [
@@ -214,13 +208,65 @@
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "term",
+              "plain_definition",
+              "first_segment_id"
+            ],
+            "properties": {
+              "term": {
+                "type": "string"
+              },
+              "plain_definition": {
+                "type": "string"
+              },
+              "first_segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "emotional_beats": {
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "description",
+              "segment_ids"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "segment_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

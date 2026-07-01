@@ -7,6 +7,6 @@ export const understanding_speakers_jsonSchema = z.object({
   "role": z.enum(["interviewer", "interviewee", "unknown"]),
   "confidence": z.number(),
   "evidence": z.array(z.string()).optional(),
-})),
-  "notes": z.unknown().optional(),
+})).min(1),
+  "notes": z.string().nullable().optional(),
 });

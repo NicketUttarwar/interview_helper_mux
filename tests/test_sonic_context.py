@@ -28,7 +28,7 @@ def _seed_base(ctx: RunContext) -> None:
         {
             "thesis": "Interview on execution quality.",
             "topics": [{"name": "Product strategy", "summary": "Roadmap and delivery.", "segment_ids": ["seg_001"]}],
-            "emotional_beats": [{"beat": "measured confidence", "segment_ids": ["seg_001"]}],
+            "emotional_beats": [{"label": "measured confidence", "segment_ids": ["seg_001"]}],
         },
         skip_handoff=True,
     )
@@ -115,7 +115,7 @@ def test_build_sonic_context_trauma_adjacent_bucket(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "sonic_trauma")
     _seed_base(ctx)
     brief = ctx.read_json("understanding/content_brief.json")
-    brief["emotional_beats"] = [{"beat": "grief and loss", "segment_ids": ["seg_002"]}]
+    brief["emotional_beats"] = [{"label": "grief and loss", "segment_ids": ["seg_002"]}]
     brief["topics"].append({"name": "trauma response", "summary": "coping and support", "segment_ids": ["seg_002"]})
     ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
 

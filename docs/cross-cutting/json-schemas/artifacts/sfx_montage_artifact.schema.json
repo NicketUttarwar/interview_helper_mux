@@ -4,8 +4,36 @@
   "type": "object",
   "required": ["transitions"],
   "properties": {
-    "cold_open": { "type": "object" },
-    "transitions": { "type": "array", "minItems": 0 },
-    "outro": { "type": "object" }
+    "cold_open": {
+      "type": "object",
+      "properties": {
+        "duration_ms": { "type": "integer" },
+        "description": { "type": "string" },
+        "mood": { "type": "string" }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["from_clip_rank", "to_clip_rank", "duration_ms", "description"],
+        "properties": {
+          "from_clip_rank": { "type": "integer" },
+          "to_clip_rank": { "type": "integer" },
+          "duration_ms": { "type": "integer" },
+          "sfx_types": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "duck_under_speech_db": { "type": "number" }
+        }
+      }
+    },
+    "outro": {
+      "type": "object",
+      "properties": {
+        "duration_ms": { "type": "integer" },
+        "description": { "type": "string" }
+      }
+    }
   }
 }

@@ -32,7 +32,17 @@
         }
       }
     },
-    "rejected_candidates": { "type": "array" },
+    "rejected_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "reason"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "reel_thesis": { "type": "string" }
   }
 }

@@ -2,20 +2,20 @@
 import { z } from "zod";
 
 export const understanding_source_acoustic_profile_jsonSchema = z.object({
-  "schema_version": z.number(),
+  "schema_version": z.literal(1),
   "derived_from": z.object({
   "normalized_wav": z.string(),
   "normalized_wav_sha256": z.string().optional(),
   "transcript": z.string(),
   "transcript_sha256": z.string().optional(),
-  "preclean_isolated": z.unknown().optional(),
-  "preclean_isolated_sha256": z.unknown().optional(),
+  "preclean_isolated": z.string().nullable().optional(),
+  "preclean_isolated_sha256": z.string().nullable().optional(),
   "computed_at": z.string(),
-  "stage": z.string(),
+  "stage": z.literal("source_acoustic_profile"),
 }),
   "pacing": z.object({
   "global_wpm": z.number(),
-  "wpm_by_quartile": z.array(z.number()),
+  "wpm_by_quartile": z.array(z.number()).min(4).max(4),
   "pause_p50_ms": z.number().optional(),
   "pause_p90_ms": z.number().optional(),
   "phrase_boundary_density_per_min": z.number().optional(),
@@ -34,12 +34,12 @@ export const understanding_source_acoustic_profile_jsonSchema = z.object({
   "prosody_summary": z.record(z.string(), z.unknown()).optional(),
   "source_music_risk": z.enum(["low", "medium", "high"]).optional(),
   "mix_contract": z.object({
-  "bed_level_db_range": z.array(z.number()).optional(),
+  "bed_level_db_range": z.array(z.number()).min(2).max(2).optional(),
   "duck_under_speech_db": z.number().optional(),
   "stinger_max_per_minute": z.number().optional(),
   "midrange_policy": z.string().optional(),
   "rhythmic_presence_default": z.string().optional(),
-  "tempo_feel_bpm": z.unknown().optional(),
+  "tempo_feel_bpm": z.number().nullable().optional(),
   "underscore_policy": z.enum(["normal", "sparse", "skip"]),
 }),
   "prompt_tokens": z.object({

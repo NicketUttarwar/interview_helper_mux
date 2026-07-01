@@ -15,15 +15,17 @@ Pair with: `sound_design/theme-palettes.system.txt` · [sound-design.examples.md
     "coherence": {
       "sonic_identity": "Warm documentary intimacy — close-mic room tone, organic textures, speech-first spectrum below 6 kHz",
       "primary_mood": "hopeful",
-      "density_class": "sparse"
+      "density": "sparse"
     },
     "palettes": [
       {
         "palette_id": "farm_morning_exterior",
-        "topic_tags": ["family_farm", "pasture"],
+        "theme_label": "Family farm morning",
+        "keywords": ["farm", "pasture", "dawn", "grass"],
         "segment_ids": ["seg_018", "seg_019", "seg_022"],
         "ambient_description": "Dawn pasture twenty meters out: dry grass wind, distant bird every 10s, no close animals, loopable 8s bed, energy below 8 kHz, documentary realism.",
-        "stinger_color": "soft mid-register rise-fall, 1.5s, no percussion"
+        "accent_description": "Soft mid-register rise-fall, 1.5s, no percussion",
+        "avoid": ["comedy hits", "big trailer booms", "crowd chants"]
       }
     ]
   },
@@ -58,7 +60,7 @@ Pair with: `sound_design/theme-palettes.system.txt` · [sound-design.examples.md
 
 Use one palette cluster per scenario; map `segment_ids` from manifest tags. `scenario_bucket` should match `understanding/sonic_context.json` → `scenario.atlas_bucket`.
 
-| Scenario | `palette_id` hint | `ambient_description` posture | `stinger_color` |
+| Scenario | `palette_id` hint | `ambient_description` posture | `accent_description` |
 |----------|-------------------|------------------------------|-----------------|
 | `one_on_one` | `intimate_room` | Dry close-mic room tone; loopable; no melody | Soft mid rise ≤1.5s |
 | `panel` | `forum_neutral` | Minimal bed; avoid overlap segments | Single soft punctuation only |
@@ -78,7 +80,7 @@ Use one palette cluster per scenario; map `segment_ids` from manifest tags. `sce
   "segment_ids": ["seg_016"],
   "topic_tags": ["care", "safety"],
   "ambient_description": "Near-silent neutral room air only where explicitly safe; no rhythmic content.",
-  "stinger_color": "none on trauma-flagged segments"
+  "accent_description": "none on trauma-flagged segments"
 }
 ```
 
@@ -113,7 +115,7 @@ Use one palette cluster per scenario; map `segment_ids` from manifest tags. `sce
 
 ## Bad — trailer energy on trauma-adjacent brief
 
-- `primary_mood: "triumphant"` + `stinger_color: "epic cymbal swell"` when `content_brief.emotional_beats` includes grief segments.
+- `primary_mood: "triumphant"` + `accent_description: "epic cymbal swell"` when `content_brief.emotional_beats` includes grief segments.
 
 **Why:** Violates [interview-scenario-atlas.md](../interview-scenario-atlas.md) `trauma_adjacent` sound posture.
 

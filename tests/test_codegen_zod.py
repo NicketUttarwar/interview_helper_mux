@@ -31,3 +31,11 @@ def test_codegen_zod_schemas_writes_registry():
     assert 'import("./run_meta_jsonSchema")' in text
     assert "import { understanding_analysis_state_jsonSchema }" not in text
     assert "artifactWriteSchemas" not in text
+    content_brief = (
+        REPO / "frontend" / "src" / "schemas" / "generated" / "understanding_content_brief_jsonSchema.ts"
+    ).read_text(encoding="utf-8")
+    assert "jargon_glossary" in content_brief
+    assert "plain_definition" in content_brief
+    assert "emotional_beats" in content_brief
+    assert "label" in content_brief
+    assert '"jargon_glossary": z.array' in content_brief

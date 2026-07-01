@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 SCHEMAS_ROOT = REPO / "docs" / "cross-cutting" / "json-schemas"
@@ -53,26 +54,64 @@ def _safe_name(rel: str) -> str:
     return f"{base}Schema"
 
 
-def _emit_type(prop: dict[str, Any], *, name: str = "value") -> str:
+def _type_branches(prop: dict[str, Any]) -> tuple[list[str], bool]:
     t = prop.get("type")
+    if isinstance(t, list):
+        non_null = [x for x in t if x != "null"]
+        return non_null, "null" in t
+    if t:
+        return [t], False
+    return [], False
+
+
+def _with_constraints(inner: str, prop: dict[str, Any], *, is_array: bool = False) -> str:
+    if is_array:
+        if prop.get("minItems") is not None:
+            inner += f".min({prop['minItems']})"
+        if prop.get("maxItems") is not None:
+            inner += f".max({prop['maxItems']})"
+        return inner
+    if prop.get("type") == "string" or (
+        isinstance(prop.get("type"), list) and "string" in prop.get("type", [])
+    ):
+        if prop.get("minLength") is not None:
+            inner += f".min({prop['minLength']})"
+        if prop.get("maxLength") is not None:
+            inner += f".max({prop['maxLength']})"
+    return inner
+
+
+def _emit_type(prop: dict[str, Any], *, name: str = "value") -> str:
     if isinstance(prop.get("enum"), list):
         vals = ", ".join(json.dumps(v) for v in prop["enum"])
-        return f"z.enum([{vals}])"
-    if t == "string":
-        inner = "z.string()"
-        if prop.get("minLength"):
-            inner += f".min({prop['minLength']})"
-        return inner
-    if t == "number" or t == "integer":
-        return "z.number()"
-    if t == "boolean":
-        return "z.boolean()"
-    if t == "array":
-        items = prop.get("items") or {}
-        return f"z.array({_emit_type(items, name=name + 'Item')})"
-    if t == "object":
-        return _emit_object(prop, name=name)
-    return "z.unknown()"
+        inner = f"z.enum([{vals}])"
+    elif "const" in prop:
+        inner = f"z.literal({json.dumps(prop['const'])})"
+    else:
+        types, nullable = _type_branches(prop)
+        if len(types) != 1:
+            inner = "z.unknown()"
+        else:
+            t = types[0]
+            if t == "string":
+                inner = _with_constraints("z.string()", prop)
+            elif t == "number" or t == "integer":
+                inner = "z.number()"
+            elif t == "boolean":
+                inner = "z.boolean()"
+            elif t == "array":
+                items = prop.get("items") or {}
+                item_zod = _emit_type(items, name=name + "Item")
+                inner = _with_constraints(f"z.array({item_zod})", prop, is_array=True)
+            elif t == "object":
+                inner = _emit_object(prop, name=name)
+            else:
+                inner = "z.unknown()"
+        _, nullable = _type_branches(prop)
+        if nullable:
+            inner += ".nullable()"
+
+    return inner
 
 
 def _emit_object(schema: dict[str, Any], *, name: str) -> str:

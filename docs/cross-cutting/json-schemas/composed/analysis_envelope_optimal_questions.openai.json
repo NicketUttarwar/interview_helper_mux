@@ -17,10 +17,7 @@
       ],
       "properties": {
         "interviewer_lines": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "object",
             "required": [

@@ -17,7 +17,18 @@
         }
       }
     },
-    "warnings": { "type": "array" },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "evidence", "recommended_action"],
+        "properties": {
+          "issue": { "type": "string" },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "recommended_action": { "type": "string" }
+        }
+      }
+    },
     "recommended_actions": { "type": "array", "items": { "type": "string" } },
     "reasoning_summary": { "type": "string" }
   }

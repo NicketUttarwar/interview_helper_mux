@@ -46,8 +46,17 @@ export const understanding_analysis_state_jsonSchema = z.object({
   "narrative": z.object({
   "thesis": z.string().optional(),
   "audience": z.string().optional(),
-  "emotional_beats": z.array(z.unknown()).optional(),
-  "key_claims": z.array(z.unknown()).optional(),
+  "emotional_beats": z.array(z.object({
+  "label": z.string().optional(),
+  "description": z.string().optional(),
+  "segment_ids": z.array(z.string()).optional(),
+})).optional(),
+  "key_claims": z.array(z.object({
+  "id": z.string().optional(),
+  "claim": z.string().optional(),
+  "claim_type": z.enum(["fact", "opinion", "prediction", "anecdote", "definition"]).optional(),
+  "segment_ids": z.array(z.string()).optional(),
+})).optional(),
   "topic_relationships": z.array(z.object({
   "from_topic": z.string().optional(),
   "to_topic": z.string().optional(),
@@ -65,9 +74,9 @@ export const understanding_analysis_state_jsonSchema = z.object({
   "risk_id": z.string().optional(),
   "kind": z.enum(["topic_drift", "claim_contradiction", "missing_callback"]).optional(),
   "time_ms": z.number().optional(),
-  "window_id": z.unknown().optional(),
-  "theme_id": z.unknown().optional(),
-  "claim_id": z.unknown().optional(),
+  "window_id": z.string().nullable().optional(),
+  "theme_id": z.string().nullable().optional(),
+  "claim_id": z.string().nullable().optional(),
   "confidence": z.number().optional(),
   "blocking": z.boolean().optional(),
   "evidence": z.record(z.string(), z.unknown()).optional(),

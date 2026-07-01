@@ -8,6 +8,6 @@ export const segments_boundaries_jsonSchema = z.object({
   "end_ms": z.number(),
   "speaker_id": z.string().optional(),
   "proposed_split_reason": z.string(),
-})),
+})).min(1),
   "warnings": z.array(z.string()).optional(),
 });

@@ -35,35 +35,23 @@
           "maxLength": 120
         },
         "description_markdown": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 400,
           "maxLength": 4000,
           "description": "Third-person show blurb; target 180-220 words (150-250 enforced at validation time in code)"
         },
         "word_count": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "minimum": 150,
           "maximum": 250
         },
         "hook_sentence": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 10,
           "maxLength": 300
         },
         "themes_highlighted": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "string",
             "minLength": 2
@@ -72,18 +60,12 @@
           "maxItems": 6
         },
         "audience_pitch": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 10,
           "maxLength": 400
         },
         "evidence_segment_ids": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "string",
             "pattern": "^seg_"
@@ -92,10 +74,7 @@
           "maxItems": 24
         },
         "tone": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "enum": [
             "journalistic",
             "conversational",

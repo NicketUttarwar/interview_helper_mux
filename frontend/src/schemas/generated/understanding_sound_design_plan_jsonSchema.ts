@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const understanding_sound_design_plan_jsonSchema = z.object({
-  "version": z.number(),
+  "version": z.literal(1),
   "coherence": z.object({
   "sonic_identity": z.string(),
   "primary_mood": z.string(),

@@ -140,6 +140,30 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `segments/nle_edits.json` | `nle_edits.schema.json` | Yes (`save_nle` + `write_json`) |
 | `transcript/review_queue.json` | `transcript_review.schema.json` | Yes (`write_json`) |
 
+## OpenAI strict schema lint (LLM stages)
+
+Every LLM stage that uses `analysis.structured_outputs` sends a composed strict `json_schema` to OpenAI. Invalid schemas (e.g. arrays without `items`) fail with HTTP 400 **before** inference.
+
+**Guards (CI + runtime):**
+
+1. **Artifact schemas** under `json-schemas/artifacts/` must define `items` for every `array` field used in LLM output.
+2. **`tools/codegen_openai_schemas.py`** regenerates `json-schemas/composed/*.openai.json` — run after schema edits; `tests/test_codegen_openai_schemas_fresh.py` fails if the cache is stale.
+3. **`interview_mux.openai_schema_lint`** lints composed schemas (`lint_openai_strict_schema` / `assert_openai_strict_schema`).
+4. **`compose_envelope_schema`** and **`resolve_response_format`** call the linter when `strict: true`; `strictify_schema` raises if any array lacks `items`.
+5. **`tests/test_openai_structured_output.py`** parametrizes all `STAGE_ARTIFACT_SCHEMAS` keys for compose + lint.
+
+**Workflow after editing a stage artifact schema:**
+
+```bash
+python tools/codegen_openai_schemas.py
+python tools/codegen_zod_schemas.py
+cd frontend && npm run build   # if GUI bundle should ship updated Zod
+pytest tests/test_openai_schema_lint.py tests/test_codegen_openai_schemas_fresh.py tests/test_codegen_zod.py tests/test_openai_structured_output.py -q
+pip install -e .               # restart web runner so site-packages picks up code + schemas
+```
+
+**Wave 3 follow-ups (non-blocking):** `deterministic_lint` vs `narrative_plan` chapter shape; `null_field_policy` `speakers[].label` vs speakers schema; Zod null unions for optional fields.
+
 ## Related
 
 - [artifact-layout.md](./artifact-layout.md) — paths

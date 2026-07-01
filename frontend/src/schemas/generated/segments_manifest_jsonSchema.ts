@@ -9,5 +9,5 @@ export const segments_manifest_jsonSchema = z.object({
   "speaker_role": z.enum(["interviewer", "interviewee", "unknown"]),
   "topic_tags": z.array(z.string()),
   "flags": z.array(z.enum(["starts_mid_thought", "references_prior_missing", "heavy_crosstalk"])).optional(),
-})),
+})).min(1),
 });

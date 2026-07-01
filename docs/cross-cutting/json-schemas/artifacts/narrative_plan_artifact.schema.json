@@ -14,12 +14,23 @@
         "properties": {
           "chapter_id": { "type": "string" },
           "title": { "type": "string" },
-          "topic_tags": { "type": "array" },
+          "topic_tags": { "type": "array", "items": { "type": "string" } },
           "suggested_open_segment_id": { "type": "string" }
         }
       }
     },
-    "ordering_constraints": { "type": "array" },
+    "ordering_constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["before_segment_id", "after_segment_id", "reason"],
+        "properties": {
+          "before_segment_id": { "type": "string" },
+          "after_segment_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "pacing_notes": { "type": "string" }
   }
 }

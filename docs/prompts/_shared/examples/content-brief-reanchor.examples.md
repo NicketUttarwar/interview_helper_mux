@@ -27,7 +27,7 @@ Pair with: `understanding/content-brief-reanchor.system.txt` · [content-context
       }
     ],
     "topic_relationships": [
-      { "from": "Bootstrapped growth", "to": "Hiring first engineers", "relation": "enables" }
+      { "from_topic": "Bootstrapped growth", "to_topic": "Hiring first engineers", "relation": "prerequisite" }
     ]
   },
   "memory_updates": {

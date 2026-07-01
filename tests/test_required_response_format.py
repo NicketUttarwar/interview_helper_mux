@@ -19,6 +19,10 @@ def test_content_context_artifact_skeleton():
     art = build_artifact_skeleton("content_context")
     assert "thesis" in art
     assert "topics" in art
+    assert "jargon_glossary" in art
+    assert "emotional_beats" in art
+    assert art["jargon_glossary"][0]["term"]
+    assert art["emotional_beats"][0]["label"]
 
 
 def test_required_response_block_full_includes_null_rules():

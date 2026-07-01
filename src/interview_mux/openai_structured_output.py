@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, repo_root
+from interview_mux.openai_schema_lint import assert_openai_strict_schema
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
 
 SPECIALIST_SCHEMA_FILES: dict[str, str] = {
@@ -75,7 +76,12 @@ def _make_nullable(prop: dict[str, Any]) -> dict[str, Any]:
     return prop
 
 
-def strictify_schema(schema: dict[str, Any], *, source_required: set[str] | None = None) -> dict[str, Any]:
+def strictify_schema(
+    schema: dict[str, Any],
+    *,
+    source_required: set[str] | None = None,
+    path: str = "",
+) -> dict[str, Any]:
     """Make a JSON Schema OpenAI strict-mode compatible."""
     schema = copy.deepcopy(schema)
     schema.pop("$schema", None)
@@ -86,7 +92,9 @@ def strictify_schema(schema: dict[str, Any], *, source_required: set[str] | None
 
     if "anyOf" in schema or "oneOf" in schema:
         key = "anyOf" if "anyOf" in schema else "oneOf"
-        schema[key] = [strictify_schema(s) for s in schema[key]]
+        schema[key] = [
+            strictify_schema(s, path=f"{path}.{key}[{idx}]") for idx, s in enumerate(schema[key])
+        ]
         return schema
 
     t = schema.get("type")
@@ -100,10 +108,13 @@ def strictify_schema(schema: dict[str, Any], *, source_required: set[str] | None
         strict_props: dict[str, Any] = {}
         strict_required: list[str] = []
         for key, prop in props.items():
-            child_req = req if key in req else set()
             if key not in req:
                 prop = _make_nullable(prop)
-            strict_props[key] = strictify_schema(prop, source_required=child_req or None)
+            strict_props[key] = strictify_schema(
+                prop,
+                source_required=None,
+                path=f"{path}.properties.{key}" if path else f"properties.{key}",
+            )
             strict_required.append(key)
         schema["properties"] = strict_props
         schema["required"] = strict_required
@@ -111,8 +122,14 @@ def strictify_schema(schema: dict[str, Any], *, source_required: set[str] | None
         schema["additionalProperties"] = False
         return schema
 
-    if "array" in types and "items" in schema:
-        schema["items"] = strictify_schema(schema["items"])
+    if "array" in types:
+        if "items" not in schema:
+            loc = path or "schema"
+            raise ValueError(f"{loc}: array schema missing items")
+        schema["items"] = strictify_schema(
+            schema["items"],
+            path=f"{path}.items" if path else "items",
+        )
         return schema
 
     return schema
@@ -175,6 +192,7 @@ def compose_envelope_schema(stage_key: str, *, strict: bool = True) -> dict[str,
     }
     if strict:
         envelope = strictify_schema(envelope)
+        assert_openai_strict_schema(envelope)
     return envelope
 
 
@@ -217,6 +235,7 @@ def compose_envelope_schema_from_artifact(artifact: dict[str, Any], *, strict: b
     }
     if strict:
         envelope = strictify_schema(envelope)
+        assert_openai_strict_schema(envelope)
     return envelope
 
 
@@ -224,7 +243,10 @@ def compose_arbiter_schema(*, strict: bool = True) -> dict[str, Any]:
     schema = load_schema_file("arbiter_verdict.schema.json")
     if not schema:
         raise FileNotFoundError("arbiter_verdict.schema.json")
-    return strictify_schema(schema) if strict else copy.deepcopy(schema)
+    schema = strictify_schema(schema) if strict else copy.deepcopy(schema)
+    if strict:
+        assert_openai_strict_schema(schema)
+    return schema
 
 
 def _schema_name(stage_key: str, task_kind: str) -> str:
@@ -289,6 +311,9 @@ def resolve_response_format(
             schema = compose_envelope_schema(parent, strict=strict)
             name = _schema_name(parent, task_kind)
 
+        if strict:
+            assert_openai_strict_schema(schema)
+
         return {
             "type": "json_schema",
             "json_schema": {
@@ -297,10 +322,10 @@ def resolve_response_format(
                 "schema": schema,
             },
         }
-    except (KeyError, FileNotFoundError, OSError):
+    except (KeyError, FileNotFoundError, OSError, ValueError):
         if so_cfg.get("allow_json_object_fallback"):
             return {"type": "json_object"}
-        return {"type": "json_object"}
+        raise
 
 
 def schema_to_min_example(schema: dict[str, Any] | None) -> Any:
@@ -328,9 +353,24 @@ def schema_to_min_example(schema: dict[str, Any] | None) -> Any:
 
     if t == "object":
         props = schema.get("properties") or {}
-        required = schema.get("required") or list(props.keys())[:4]
+        required = set(schema.get("required") or [])
+        example_keys = list(required)
+        for key, prop in props.items():
+            if key in required:
+                continue
+            raw_type = prop.get("type")
+            if not raw_type:
+                continue
+            if isinstance(raw_type, list):
+                ptypes = [x for x in raw_type if x != "null"]
+            else:
+                ptypes = [raw_type]
+            if "array" in ptypes and prop.get("items"):
+                example_keys.append(key)
+            elif "object" in ptypes and prop.get("properties"):
+                example_keys.append(key)
         out: dict[str, Any] = {}
-        for key in required:
+        for key in example_keys:
             if key in props:
                 out[key] = schema_to_min_example(props[key])
         return out
