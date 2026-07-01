@@ -1,4 +1,4 @@
-import type { AppConfig, RunData } from "../types";
+import type { AppConfig, JobState, RunData } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 import { pendingWriteInfo } from "./writeApproval";
 
@@ -14,6 +14,10 @@ const MAX_FIX_ALL_ATTEMPTS = 3;
 
 function attemptKey(runId: string, stageId: string): string {
   return `${runId}:${stageId}`;
+}
+
+export function isClarificationDeferred(job?: JobState | null): boolean {
+  return Boolean(job?.clarification_pending);
 }
 
 export function canAttemptAutopilotFixAll(runId: string, stageId: string): boolean {
@@ -53,6 +57,8 @@ export function resolveAutopilotCheckpoint(
   config?: AppConfig | null,
 ): AutopilotCheckpoint | null {
   if (!run || !isPipelineAutopilotEnabled(config)) return null;
+
+  if (isClarificationDeferred(run.job)) return null;
 
   const write = pendingWriteInfo(run);
   if (write?.paths.length) {

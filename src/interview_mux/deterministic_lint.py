@@ -239,26 +239,19 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
 
     if duration_ms > boundary_micro_segment_min_ms() and len(boundaries) > 200:
         errors.append("micro-segment explosion (>200 boundaries on long interview)")
-    for b in boundaries:
-        if not isinstance(b, dict):
-            continue
-        start = int(b.get("start_ms", 0))
-        end = int(b.get("end_ms", 0))
-        if end <= start:
-            errors.append(f"zero-length boundary {b.get('segment_id')}")
-            break
     from interview_mux.interview_spine.config import spine_enabled
+    from interview_mux.segment_timeline import validate_boundary_rows, segment_timeline_cfg
 
-    if spine_enabled() and not ctx.artifact_exists("understanding/interview_spine.json"):
-        errors.append("interview spine missing while interview_spine.enabled")
-    from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
-
+    st_cfg = segment_timeline_cfg()
     errors.extend(
-        validate_timeline_monotonic(
+        validate_boundary_rows(
             [b for b in boundaries if isinstance(b, dict)],
-            allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
+            require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
+            allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
         )
     )
+    if spine_enabled() and not ctx.artifact_exists("understanding/interview_spine.json"):
+        errors.append("interview spine missing while interview_spine.enabled")
     return errors
 
 

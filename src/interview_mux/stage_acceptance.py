@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts
+from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts_for_stage
 from interview_mux.config import merged_config
 from interview_mux.llm_output_resilience import progression_mode
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
@@ -97,7 +97,9 @@ def stage_acceptance_ok(
     if include_cross_validate:
         checkpoint = STAGE_CHECKPOINTS.get(stage_key)
         if checkpoint:
-            result.cross_validate_errors = list(validate_cross_artifacts(ctx, checkpoint) or [])
+            result.cross_validate_errors = list(
+                validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged) or []
+            )
             if result.cross_validate_errors:
                 return result
 

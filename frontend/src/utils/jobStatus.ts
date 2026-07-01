@@ -1,8 +1,13 @@
 import type { JobState, RunData } from "../types";
+import { isClarificationDeferred } from "./autopilotResolution";
 import { stageAwaitingWriteApproval } from "./writeApproval";
 
 export function isJobActivelyRunning(job?: JobState | null): boolean {
-  return job?.status === "running" || job?.status === "running_with_warnings";
+  return (
+    job?.status === "running" ||
+    job?.status === "running_with_warnings" ||
+    isClarificationDeferred(job)
+  );
 }
 
 export function isWriteApprovalSaving(job?: JobState | null): boolean {

@@ -730,18 +730,27 @@ class JobRunner:
                 ctx.log(str(exc), level="action", stage=exc.stage_id)
                 refresh_journey_meta(ctx)
                 self._release_run_locks(run_id, dir_lock, lock)
-                self._write_job(
-                    ctx,
-                    {
-                        "status": "awaiting_write_approval",
-                        "mode": mode,
-                        "stage": exc.stage_id,
-                        "message": "Awaiting your review",
-                        "pending_write_stage": exc.stage_id,
-                        "pending_write_paths": exc.paths,
-                        "awaiting_write_approval": True,
-                    },
+                from interview_mux.artifact_issue_triage import (
+                    apply_clarification_gate_after_pause,
+                    blocking_issues_remaining,
+                    triage_enabled,
                 )
+
+                if triage_enabled() and blocking_issues_remaining(ctx, exc.stage_id) > 0:
+                    apply_clarification_gate_after_pause(ctx, exc.stage_id)
+                else:
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "awaiting_write_approval",
+                            "mode": mode,
+                            "stage": exc.stage_id,
+                            "message": "Awaiting your review",
+                            "pending_write_stage": exc.stage_id,
+                            "pending_write_paths": exc.paths,
+                            "awaiting_write_approval": True,
+                        },
+                    )
             except StageReuseOfferPending as exc:
                 gate_msg = str(exc)
                 ctx.log(gate_msg, level="action", stage=exc.stage_id)

@@ -34,6 +34,8 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.gates",
     "interview_mux.stages.sound_design_stages",
     "interview_mux.artifact_cross_validate",
+    "interview_mux.artifact_issue_triage",
+    "interview_mux.artifact_auto_resolve",
 )
 
 

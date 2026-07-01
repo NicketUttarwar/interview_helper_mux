@@ -106,7 +106,8 @@ def test_clarification_gate_sets_can_fix_all(tmp_path, monkeypatch: pytest.Monke
     ctx.write_json("gui_job.json", {"status": "running", "stage": "boundary_detection"}, skip_handoff=True)
     set_clarification_gate(ctx, "boundary_detection")
     job = ctx.read_json("gui_job.json")
-    assert job["status"] == "needs_clarification"
+    assert job["status"] == "running"
+    assert job.get("clarification_pending") is True
     assert "can_fix_all" in job
 
 

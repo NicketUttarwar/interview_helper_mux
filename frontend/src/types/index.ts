@@ -324,6 +324,8 @@ export interface JobState {
   can_fix_all?: boolean;
   bridge_eligible?: boolean;
   itr_open_blocking?: number;
+  /** Server defers visible needs_clarification while the pipeline lock is held. */
+  clarification_pending?: boolean;
 }
 
 export interface RunData {

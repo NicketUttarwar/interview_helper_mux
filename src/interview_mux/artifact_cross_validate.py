@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from interview_mux.analysis_memory import enqueue_investigations, load_analysis_state, save_analysis_state
 from interview_mux.artifact_completeness import artifact_status, compute_gaps
 from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
+
+
+def _committed_json(ctx: RunContext, rel: str) -> Any | None:
+    """Read committed artifact JSON (never staged pending writes)."""
+    from interview_mux.file_store import read_json as fs_read_json
+
+    p = ctx.final_path(*rel.split("/"))
+    if not p.is_file():
+        return None
+    return fs_read_json(p)
+
+
+def _committed_exists(ctx: RunContext, rel: str) -> bool:
+    return ctx.final_path(*rel.split("/")).is_file()
 
 HARD_CHECKPOINTS = frozenset(
     {
@@ -49,6 +65,50 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "master_flow1": "pre_master_flow1",
     "master_flow2": "pre_master_flow2",
 }
+
+
+def _validate_boundary_document(doc: dict[str, Any]) -> list[str]:
+    """Validate a boundaries.json document (staged or committed)."""
+    if not isinstance(doc, dict):
+        return ["segments/boundaries.json invalid"]
+    from interview_mux.stage_coupling import read_segment_contract
+
+    contract = read_segment_contract(doc)
+    if contract and not contract.get("timeline_valid"):
+        return list(contract.get("timeline_errors") or ["boundary timeline invalid"])
+    from interview_mux.segment_timeline import validate_boundary_rows, segment_timeline_cfg
+
+    boundaries = doc.get("boundaries") or []
+    st_cfg = segment_timeline_cfg()
+    return validate_boundary_rows(
+        [b for b in boundaries if isinstance(b, dict)],
+        require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
+        allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
+    )
+
+
+def validate_cross_artifacts_for_stage(
+    ctx: RunContext,
+    stage_key: str,
+    *,
+    staged: bool = False,
+) -> list[str]:
+    """Cross-validate using staged producer artifacts when ``staged=True``."""
+    checkpoint = STAGE_CHECKPOINTS.get(stage_key)
+    if not checkpoint:
+        return []
+    if not staged:
+        return validate_cross_artifacts(ctx, checkpoint)
+    if checkpoint == "post_boundary_detection":
+        from interview_mux.artifact_issue_triage import _read_stage_artifact
+
+        _rel, doc = _read_stage_artifact(ctx, stage_key, staged=True)
+        if not doc:
+            return ["no staged boundaries artifact"]
+        return _validate_boundary_document(doc)
+    if checkpoint == "post_segmentation":
+        return _validate_post_segmentation_staged(ctx)
+    return validate_cross_artifacts(ctx, checkpoint)
 
 
 def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
@@ -233,65 +293,110 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
 
 
 def _manifest_segment_ids(ctx: RunContext) -> set[str]:
-    if not ctx.artifact_exists("segments/manifest.json"):
+    manifest = _committed_json(ctx, "segments/manifest.json")
+    if not isinstance(manifest, dict):
         return set()
-    manifest = ctx.read_json("segments/manifest.json")
-    segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
+    segs = manifest.get("segments") or []
     return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
 
 
 def _validate_post_boundary(ctx: RunContext) -> list[str]:
-    if not ctx.artifact_exists("segments/boundaries.json"):
+    if not _committed_exists(ctx, "segments/boundaries.json"):
         return ["segments/boundaries.json missing"]
-    doc = ctx.read_json("segments/boundaries.json")
-    if not isinstance(doc, dict):
-        return ["segments/boundaries.json invalid"]
-    from interview_mux.stage_coupling import read_segment_contract
+    doc = _committed_json(ctx, "segments/boundaries.json")
+    return _validate_boundary_document(doc)
 
-    contract = read_segment_contract(doc)
-    if contract and not contract.get("timeline_valid"):
-        return list(contract.get("timeline_errors") or ["boundary timeline invalid"])
-    from interview_mux.segment_timeline import validate_boundary_rows, segment_timeline_cfg
 
-    boundaries = doc.get("boundaries") or []
-    st_cfg = segment_timeline_cfg()
-    return validate_boundary_rows(
-        [b for b in boundaries if isinstance(b, dict)],
-        require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
-        allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
-    )
+def _read_boundaries_for_cross_validate(ctx: RunContext) -> dict[str, Any] | None:
+    from interview_mux.artifact_issue_triage import _read_stage_artifact
+
+    _rel, staged = _read_stage_artifact(ctx, "boundary_detection", staged=True)
+    if isinstance(staged, dict):
+        return staged
+    doc = _committed_json(ctx, "segments/boundaries.json")
+    return doc if isinstance(doc, dict) else None
 
 
 def _validate_post_segmentation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
-    manifest_ids = _manifest_segment_ids(ctx)
+    manifest = _committed_json(ctx, "segments/manifest.json")
+    if not isinstance(manifest, dict):
+        return []
+    segs = manifest.get("segments") or []
+    manifest_ids = {
+        str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")
+    }
     if not manifest_ids:
         return ["segments/manifest.json has no segment_ids"]
 
-    if ctx.artifact_exists("segments/boundaries.json"):
-        boundaries = ctx.read_json("segments/boundaries.json")
-        for b in (boundaries.get("boundaries") or []) if isinstance(boundaries, dict) else []:
+    boundaries = _committed_json(ctx, "segments/boundaries.json")
+    if isinstance(boundaries, dict):
+        errors.extend(_validate_boundary_document(boundaries))
+        for b in boundaries.get("boundaries") or []:
             if not isinstance(b, dict):
                 continue
             seg_id = str(b.get("segment_id") or "")
             if seg_id and seg_id not in manifest_ids:
                 errors.append(f"boundary segment_id {seg_id} not in manifest")
 
-    if ctx.artifact_exists("segments/manifest.json"):
-        manifest = ctx.read_json("segments/manifest.json")
-        segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
-        from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
+    from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
 
-        errors.extend(
-            validate_timeline_monotonic(
-                [s for s in segs if isinstance(s, dict)],
-                allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
-            )
+    errors.extend(
+        validate_timeline_monotonic(
+            [s for s in segs if isinstance(s, dict)],
+            allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
         )
+    )
 
-    if ctx.artifact_exists("understanding/content_brief.json"):
-        brief = ctx.read_json("understanding/content_brief.json")
-        for i, topic in enumerate((brief.get("topics") or []) if isinstance(brief, dict) else []):
+    brief = _committed_json(ctx, "understanding/content_brief.json")
+    if isinstance(brief, dict):
+        for i, topic in enumerate(brief.get("topics") or []):
+            if not isinstance(topic, dict):
+                continue
+            for seg_id in topic.get("segment_ids") or []:
+                if str(seg_id) not in manifest_ids:
+                    errors.append(f"content_brief topics[{i}] segment_id {seg_id} not in manifest")
+
+    return errors
+
+
+def _validate_post_segmentation_staged(ctx: RunContext) -> list[str]:
+    """post_segmentation cross-check using staged manifest when present."""
+    from interview_mux.artifact_issue_triage import _read_stage_artifact
+
+    errors: list[str] = []
+    _rel, manifest = _read_stage_artifact(ctx, "segment_classification", staged=True)
+    if not manifest:
+        return _validate_post_segmentation(ctx)
+    segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
+    manifest_ids = {
+        str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")
+    }
+    if not manifest_ids:
+        return ["segments/manifest.json has no segment_ids"]
+
+    boundaries = _read_boundaries_for_cross_validate(ctx)
+    if boundaries:
+        errors.extend(_validate_boundary_document(boundaries))
+        for b in boundaries.get("boundaries") or []:
+            if not isinstance(b, dict):
+                continue
+            seg_id = str(b.get("segment_id") or "")
+            if seg_id and seg_id not in manifest_ids:
+                errors.append(f"boundary segment_id {seg_id} not in manifest")
+
+    from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
+
+    errors.extend(
+        validate_timeline_monotonic(
+            [s for s in segs if isinstance(s, dict)],
+            allow_overlap_ms=int(segment_timeline_cfg().get("allow_overlap_ms", 0)),
+        )
+    )
+
+    brief = _committed_json(ctx, "understanding/content_brief.json")
+    if isinstance(brief, dict):
+        for i, topic in enumerate(brief.get("topics") or []):
             if not isinstance(topic, dict):
                 continue
             for seg_id in topic.get("segment_ids") or []:
@@ -340,12 +445,12 @@ def _edl_audit_verdict(ctx: RunContext) -> str:
 def _validate_post_ranking(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     manifest_ids = _manifest_segment_ids(ctx)
-    if not ctx.artifact_exists("flow_1_master/selection.json"):
+    sel = _committed_json(ctx, "flow_1_master/selection.json")
+    if not isinstance(sel, dict):
         return ["flow_1_master/selection.json missing"]
-    sel = ctx.read_json("flow_1_master/selection.json")
     ordered = sel.get("ordered_segment_ids") or []
     for sid in ordered:
-        if manifest_ids and str(sid) not in manifest_ids:
+        if str(sid) not in manifest_ids:
             errors.append(f"selection segment {sid} not in manifest")
     return errors
 

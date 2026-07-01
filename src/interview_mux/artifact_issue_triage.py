@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts
+from interview_mux.artifact_cross_validate import (
+    STAGE_CHECKPOINTS,
+    validate_cross_artifacts,
+    validate_cross_artifacts_for_stage,
+)
 from interview_mux.artifact_repairs import (
     apply_choice_to_boundaries,
     apply_choice_to_manifest,
@@ -61,7 +65,7 @@ def triage_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "max_auto_resolve_attempts_per_stage": 2,
         "auto_advance_after_itr_clear": True,
         "min_segments_after_auto_resolve": 1,
-        "max_segments_deleted_per_fix_all": 0.10,
+        "max_segments_deleted_per_fix_all": 0.50,
         "auto_resolve_max_issues_per_pass": 50,
     }
     raw = base.get("artifact_issue_triage") or {}
@@ -198,9 +202,8 @@ def collect_issues(
         issues.append(classify_schema_error(stage_key, str(err), artifact_path=rel))
 
     if triage_cfg().get("pre_cross_validate_repair", True):
-        checkpoint = STAGE_CHECKPOINTS.get(stage_key)
-        if checkpoint:
-            for err in validate_cross_artifacts(ctx, checkpoint):
+        if STAGE_CHECKPOINTS.get(stage_key):
+            for err in validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged):
                 issues.append(classify_cross_validate_message(stage_key, str(err), artifact_path=rel))
 
     if not schema_errors and rel and artifact:
@@ -248,7 +251,7 @@ def revalidate_after_repair(ctx: Any, stage_key: str, *, staged: bool = True) ->
 
     checkpoint = STAGE_CHECKPOINTS.get(stage_key)
     if checkpoint and triage_cfg().get("pre_cross_validate_repair", True):
-        errors.extend(validate_cross_artifacts(ctx, checkpoint))
+        errors.extend(validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged))
 
     return len(errors) == 0, errors
 
@@ -531,8 +534,29 @@ def clear_clarification_gate(ctx: Any, stage_key: str) -> None:
         return
     job["status"] = "awaiting_write_approval"
     job.pop("itr_blocking_count", None)
+    job.pop("clarification_pending", None)
     job["message"] = f"{stage_key}: artifact issues resolved — review staged outputs."
     ctx.write_json("gui_job.json", job)
+
+
+def _clarification_gate_payload(ctx: Any, stage_key: str, *, message: str | None = None) -> dict[str, Any]:
+    count = open_blocking_count(ctx, stage_key)
+    payload: dict[str, Any] = {
+        "stage": stage_key,
+        "message": message
+        or f"{stage_key}: {count} artifact issue(s) need clarification before saving.",
+        "itr_blocking_count": count,
+    }
+    try:
+        from interview_mux.artifact_auto_resolve import get_stage_issues_summary
+
+        summary = get_stage_issues_summary(ctx, stage_key)
+        payload["can_fix_all"] = bool(summary.get("can_fix_all"))
+        payload["bridge_eligible"] = bool(summary.get("bridge_eligible"))
+        payload["itr_open_blocking"] = int(summary.get("open_blocking") or count)
+    except Exception:
+        payload["can_fix_all"] = True
+    return payload
 
 
 def set_clarification_gate(ctx: Any, stage_key: str, *, message: str | None = None) -> None:
@@ -544,22 +568,36 @@ def set_clarification_gate(ctx: Any, stage_key: str, *, message: str | None = No
     count = open_blocking_count(ctx, stage_key)
     if count <= 0:
         return
+    payload = _clarification_gate_payload(ctx, stage_key, message=message)
+    # Defer visible gate while the pipeline worker still holds the run lock.
+    if str(job.get("status")) in ("running", "running_with_warnings"):
+        job["clarification_pending"] = True
+        job.update(payload)
+        ctx.write_json("gui_job.json", job)
+        return
     job["status"] = "needs_clarification"
-    job["stage"] = stage_key
-    job["message"] = message or (
-        f"{stage_key}: {count} artifact issue(s) need clarification before saving."
-    )
-    job["itr_blocking_count"] = count
-    try:
-        from interview_mux.artifact_auto_resolve import get_stage_issues_summary
-
-        summary = get_stage_issues_summary(ctx, stage_key)
-        job["can_fix_all"] = bool(summary.get("can_fix_all"))
-        job["bridge_eligible"] = bool(summary.get("bridge_eligible"))
-        job["itr_open_blocking"] = int(summary.get("open_blocking") or count)
-    except Exception:
-        job["can_fix_all"] = True
+    job.update(payload)
+    job.pop("clarification_pending", None)
     ctx.write_json("gui_job.json", job)
+
+
+def apply_clarification_gate_after_pause(ctx: Any, stage_key: str) -> bool:
+    """Promote deferred ITR gate after the pipeline releases the run lock."""
+    if not triage_enabled():
+        return False
+    if open_blocking_count(ctx, stage_key) <= 0:
+        return False
+    job = ctx.read_json("gui_job.json") if ctx.artifact_exists("gui_job.json") else {}
+    if not isinstance(job, dict):
+        job = {}
+    if not job.get("clarification_pending") and str(job.get("status")) == "needs_clarification":
+        return True
+    payload = _clarification_gate_payload(ctx, stage_key)
+    job["status"] = "needs_clarification"
+    job.update(payload)
+    job.pop("clarification_pending", None)
+    ctx.write_json("gui_job.json", job)
+    return True
 
 
 def maybe_repair_before_cross_validate(ctx: Any, stage_key: str) -> bool:

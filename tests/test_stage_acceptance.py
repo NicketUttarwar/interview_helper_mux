@@ -13,6 +13,7 @@ def _boundaries_doc(*, duplicate: bool = False) -> dict:
             "segment_id": "seg_001",
             "start_ms": 0,
             "end_ms": 1000,
+            "speaker_id": "spk_1",
             "type": "interview",
             "proposed_split_reason": "topic_shift",
         },
@@ -20,6 +21,7 @@ def _boundaries_doc(*, duplicate: bool = False) -> dict:
             "segment_id": "seg_002",
             "start_ms": 1000,
             "end_ms": 2000,
+            "speaker_id": "spk_1",
             "type": "interview",
             "proposed_split_reason": "topic_shift",
         },
@@ -30,6 +32,7 @@ def _boundaries_doc(*, duplicate: bool = False) -> dict:
                 "segment_id": "seg_001",
                 "start_ms": 900,
                 "end_ms": 1100,
+                "speaker_id": "spk_1",
                 "type": "interview",
                 "proposed_split_reason": "topic_shift",
             }

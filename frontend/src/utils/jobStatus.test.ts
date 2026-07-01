@@ -10,6 +10,20 @@ function run(partial: Partial<RunData>): RunData {
   return partial as RunData;
 }
 
+import { isJobActivelyRunning } from "./jobStatus";
+
+describe("isJobActivelyRunning", () => {
+  it("treats clarification_pending as in-flight", () => {
+    expect(
+      isJobActivelyRunning({
+        status: "running",
+        stage: "boundary_detection",
+        clarification_pending: true,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("isWriteApprovalSaveInProgress", () => {
   it("detects server write_approval job for matching stage", () => {
     const r = run({

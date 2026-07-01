@@ -19,7 +19,8 @@ from interview_mux.artifact_issue_triage import (
     triage_cfg,
     triage_enabled,
 )
-from interview_mux.operator_clarifications_store import items_for_stage
+from interview_mux.artifact_repairs import apply_choice_to_boundaries, apply_choice_to_manifest
+from interview_mux.operator_clarifications_store import items_for_stage, mark_resolved
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.write_staging import staged_path, write_pending_content
 
@@ -324,9 +325,193 @@ def revalidate_for_itr_gate(
     staged = artifact_source != "committed"
     ok, errors = revalidate_after_repair(ctx, stage_key, staged=staged)
     downstream: list[str] = []
-    if stage_key in ("segment_classification", "boundary_detection"):
+    if not staged and stage_key in ("segment_classification", "boundary_detection"):
         downstream = revalidate_downstream_on_segment_fix(ctx, stage_key)
     return ok and not downstream, errors, downstream
+
+
+def _segment_ids_in_artifact(artifact: dict[str, Any], rel: str | None) -> set[str]:
+    if not rel or not isinstance(artifact, dict):
+        return set()
+    if rel.endswith("boundaries.json"):
+        rows = artifact.get("boundaries") or []
+        return {
+            str(r.get("segment_id"))
+            for r in rows
+            if isinstance(r, dict) and r.get("segment_id")
+        }
+    if rel.endswith("manifest.json"):
+        rows = artifact.get("segments") or []
+        return {
+            str(r.get("segment_id"))
+            for r in rows
+            if isinstance(r, dict) and r.get("segment_id")
+        }
+    return set()
+
+
+def _close_stale_segment_issues(ctx: Any, stage_key: str) -> int:
+    """Resolve open blocking issues whose segment_id is no longer in the staged artifact."""
+    rel, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
+    if not artifact:
+        return 0
+    present = _segment_ids_in_artifact(artifact, rel)
+    from interview_mux.issue_severity_rules import _extract_segment_id
+
+    closed = 0
+    for item in items_for_stage(ctx, stage_key):
+        if item.get("status") != "open" or item.get("blocking") is False:
+            continue
+        seg_id = str(item.get("segment_id") or "") or (
+            _extract_segment_id(str(item.get("message") or "")) or ""
+        )
+        if seg_id and seg_id not in present:
+            iid = str(item.get("id") or "")
+            if iid:
+                mark_resolved(ctx, iid, chosen="delete_segment", auto_applied=True)
+                closed += 1
+    return closed
+
+
+def _segment_ids_from_issues(items: list[dict[str, Any]]) -> list[str]:
+    from interview_mux.issue_severity_rules import _extract_segment_id
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        seg_id = str(item.get("segment_id") or "") or (_extract_segment_id(str(item.get("message") or "")) or "")
+        if seg_id and seg_id not in seen:
+            seen.add(seg_id)
+            ordered.append(seg_id)
+    return ordered
+
+
+def _finalize_auto_resolve_success(
+    ctx: Any,
+    stage_key: str,
+    result: AutoResolveResult,
+    *,
+    cfg: dict[str, Any],
+    resolved: int,
+    runner: Any | None = None,
+    run_id: str | None = None,
+) -> AutoResolveResult:
+    clear_clarification_gate(ctx, stage_key)
+    _clear_propagation_investigations(ctx, stage_key)
+    _reset_attempt_on_success(ctx, stage_key)
+    cfg_caps = stage_capabilities(stage_key)
+    chain = cfg.get("auto_resolve_chain_downstream", True) and cfg_caps.get("auto_chain_downstream")
+    if chain and stage_key == "boundary_detection" and runner and run_id:
+        from interview_mux.artifact_root_cause import can_downstream_auto_continue, record_downstream_auto_continue
+
+        if can_downstream_auto_continue(ctx):
+            try:
+                job = runner.start(
+                    run_id,
+                    mode="stage",
+                    from_stage="segment_classification",
+                    stage="segment_classification",
+                )
+                record_downstream_auto_continue(ctx)
+                result.downstream_job = job
+                result.phase = "downstream_job"
+                result.outcome = AutoResolveOutcome.SUCCESS
+                result.can_advance_pipeline = False
+                result.resolved_count = resolved
+                result.warnings.append("Chained segment_classification re-run")
+                return result
+            except Exception as exc:
+                result.warnings.append(f"Downstream chain skipped: {exc}")
+    result.outcome = AutoResolveOutcome.SUCCESS
+    result.phase = "awaiting_save"
+    result.can_advance_pipeline = bool(cfg.get("auto_advance_after_itr_clear", True))
+    result.resolved_count = resolved
+    ctx.log(
+        f"itr.auto_resolve.complete stage={stage_key} resolved={resolved}",
+        level="info",
+        stage=stage_key,
+    )
+    return result
+
+
+def _apply_loop_escape_hatch(
+    ctx: Any,
+    stage_key: str,
+    *,
+    cfg: dict[str, Any],
+    snapshot: dict[str, Any],
+    seg_before: int,
+    min_segments: int,
+) -> tuple[int, list[str]]:
+    """
+    Last-resort: delete segments tied to open blocking issues so the pipeline can advance.
+    Used when auto-resolve retries are exhausted or oscillating.
+    """
+    if stage_key not in ("boundary_detection", "segment_classification"):
+        return 0, []
+
+    open_items = [
+        it
+        for it in items_for_stage(ctx, stage_key)
+        if it.get("status") == "open" and it.get("blocking") is not False
+    ]
+    seg_ids = _segment_ids_from_issues(open_items)
+    if not seg_ids:
+        return 0, ["No segment ids found for escape hatch"]
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return 0, ["No artifact path for escape hatch"]
+
+    _, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
+    if not artifact:
+        return 0, ["No staged artifact for escape hatch"]
+
+    deleted = 0
+    warnings: list[str] = []
+    for seg_id in seg_ids:
+        if seg_before - deleted <= min_segments:
+            warnings.append(f"Escape hatch stopped — would drop below {min_segments} segment(s)")
+            break
+        issue_stub = {"segment_id": seg_id, "message": f"escape hatch delete {seg_id}"}
+        if rel.endswith("boundaries.json"):
+            artifact = apply_choice_to_boundaries(artifact, issue_stub, "delete_segment")
+        elif rel.endswith("manifest.json"):
+            artifact = apply_choice_to_manifest(artifact, issue_stub, "delete_segment")
+        else:
+            break
+        deleted += 1
+        warnings.append(f"Escape hatch deleted {seg_id}")
+
+    if deleted <= 0:
+        return 0, warnings
+
+    write_pending_content(ctx, stage_key, rel, data=artifact)
+    deleted_ids = set(seg_ids[:deleted])
+    from interview_mux.issue_severity_rules import _extract_segment_id
+
+    for item in open_items:
+        iid = str(item.get("id") or "")
+        if not iid:
+            continue
+        seg_id = str(item.get("segment_id") or "") or (_extract_segment_id(str(item.get("message") or "")) or "")
+        if seg_id in deleted_ids:
+            mark_resolved(ctx, iid, chosen="delete_segment", auto_applied=True)
+
+    ctx.log(
+        f"itr.escape_hatch stage={stage_key} deleted={deleted}",
+        level="warning",
+        stage=stage_key,
+        action_id="itr.escape_hatch",
+        detail={"segment_ids": seg_ids[:deleted]},
+    )
+    return deleted, warnings
+
+
+def _read_stage_artifact(ctx: Any, stage_key: str, *, staged: bool = True) -> tuple[str | None, dict[str, Any] | None]:
+    from interview_mux.artifact_issue_triage import _read_stage_artifact as _read
+
+    return _read(ctx, stage_key, staged=staged)
 
 
 def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
@@ -337,8 +522,6 @@ def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
     preview = build_resolution_preview(ctx, stage_key) if triage_enabled() else []
     bridge_eligible = False
     if triage_enabled() and stage_key in ("boundary_detection", "segment_classification"):
-        from interview_mux.artifact_issue_triage import _read_stage_artifact
-
         _rel, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
         if artifact:
             from interview_mux.deterministic_lint import _LINTERS
@@ -372,10 +555,29 @@ def auto_resolve_stage(
         return result
 
     open_before = blocking_issues_remaining(ctx, stage_key)
+    cfg = triage_cfg()
     if open_before == 0:
+        from interview_mux.write_staging import read_gui_job
+
+        job = read_gui_job(ctx) or {}
+        gate_active = (
+            str(job.get("status")) == "needs_clarification"
+            and str(job.get("stage") or "") == stage_key
+        )
+        if gate_active:
+            ok, errors = revalidate_after_repair(ctx, stage_key, staged=True)
+            if not ok:
+                result.outcome = AutoResolveOutcome.PARTIAL
+                result.phase = "failed"
+                result.errors.extend(errors)
+                return result
+            clear_clarification_gate(ctx, stage_key)
+            _reset_attempt_on_success(ctx, stage_key)
+            result.phase = "awaiting_save"
+            result.can_advance_pipeline = bool(cfg.get("auto_advance_after_itr_clear", True))
+            return result
         result.phase = "complete"
         result.can_advance_pipeline = True
-        clear_clarification_gate(ctx, stage_key)
         return result
 
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
@@ -400,17 +602,46 @@ def auto_resolve_stage(
     signature = _issue_signature(items)
     attempt, cap_hit = _record_attempt(ctx, stage_key, signature)
     result.attempt = attempt
-    if cap_hit:
-        result.outcome = AutoResolveOutcome.CAP_EXHAUSTED
-        result.phase = "failed"
-        result.open_blocking = open_before
-        result.errors.append("Auto-resolve attempt cap reached for this stage")
-        return result
 
     cfg = triage_cfg()
     seg_before = _segment_count(ctx, stage_key)
-    max_delete_ratio = float(cfg.get("max_segments_deleted_per_fix_all") or 0.10)
     min_segments = int(cfg.get("min_segments_after_auto_resolve") or 1)
+
+    if cap_hit:
+        deleted, esc_warnings = _apply_loop_escape_hatch(
+            ctx,
+            stage_key,
+            cfg=cfg,
+            snapshot=snapshot,
+            seg_before=seg_before,
+            min_segments=min_segments,
+        )
+        result.warnings.extend(esc_warnings)
+        closed = _close_stale_segment_issues(ctx, stage_key)
+        if closed > 0:
+            result.warnings.append(f"Closed {closed} stale issue(s) for removed segment(s)")
+        if deleted > 0 or closed > 0:
+            ok, errors, downstream = revalidate_for_itr_gate(ctx, stage_key, artifact_source="staged")
+            result.errors.extend(errors)
+            result.open_blocking = blocking_issues_remaining(ctx, stage_key)
+            if ok and not downstream and result.open_blocking == 0:
+                result.warnings.append("Loop escape hatch applied — removed blocking segment(s)")
+                return _finalize_auto_resolve_success(
+                    ctx,
+                    stage_key,
+                    result,
+                    cfg=cfg,
+                    resolved=deleted + closed,
+                    runner=runner,
+                    run_id=run_id,
+                )
+        result.outcome = AutoResolveOutcome.CAP_EXHAUSTED
+        result.phase = "failed"
+        result.open_blocking = blocking_issues_remaining(ctx, stage_key)
+        result.errors.append("Auto-resolve attempt cap reached for this stage")
+        return result
+
+    max_delete_ratio = float(cfg.get("max_segments_deleted_per_fix_all") or 0.10)
     max_issues = int(cfg.get("auto_resolve_max_issues_per_pass") or 50)
 
     ctx.log(
@@ -422,6 +653,9 @@ def auto_resolve_stage(
     triage_result = run_triage_pipeline(ctx, stage_key, staged=True)
     if triage_result.errors:
         result.warnings.extend(triage_result.errors[:3])
+    stale_closed = _close_stale_segment_issues(ctx, stage_key)
+    if stale_closed > 0:
+        result.warnings.append(f"Closed {stale_closed} stale issue(s) for removed segment(s)")
 
     open_after_triage = blocking_issues_remaining(ctx, stage_key)
     if open_after_triage == 0:
@@ -437,7 +671,6 @@ def auto_resolve_stage(
 
     deleted = 0
     resolved = 0
-    cfg_caps = stage_capabilities(stage_key)
 
     for _ in range(max_issues):
         open_items = [
@@ -455,7 +688,16 @@ def auto_resolve_stage(
                 continue
             if _destructive_choice(choice):
                 deleted += 1
-                if seg_before and (deleted / seg_before) > max_delete_ratio:
+                budget_exempt = (
+                    attempt >= int(cfg.get("max_auto_resolve_attempts_per_stage") or 2)
+                    or str(item.get("kind") or "") == "cross_validate"
+                    or "missing speaker_id" in str(item.get("message") or "").lower()
+                )
+                if (
+                    not budget_exempt
+                    and seg_before
+                    and (deleted / seg_before) > max_delete_ratio
+                ):
                     _restore_staging(ctx, stage_key, snapshot)
                     result.outcome = AutoResolveOutcome.DESTRUCTIVE_BUDGET_EXCEEDED
                     result.phase = "failed"
@@ -514,6 +756,37 @@ def auto_resolve_stage(
     result.propagation_plan = get_propagation_plan(ctx, stage_key)
     result.open_blocking = blocking_issues_remaining(ctx, stage_key)
 
+    if not ok or downstream:
+        deleted_esc, esc_warnings = _apply_loop_escape_hatch(
+            ctx,
+            stage_key,
+            cfg=cfg,
+            snapshot=snapshot,
+            seg_before=seg_before,
+            min_segments=min_segments,
+        )
+        closed_esc = _close_stale_segment_issues(ctx, stage_key)
+        if deleted_esc > 0 or closed_esc > 0:
+            result.warnings.extend(esc_warnings)
+            if closed_esc > 0:
+                result.warnings.append(f"Closed {closed_esc} stale issue(s) for removed segment(s)")
+            ok, errors, downstream = revalidate_for_itr_gate(ctx, stage_key, artifact_source="staged")
+            result.errors = errors
+            result.open_blocking = blocking_issues_remaining(ctx, stage_key)
+            if ok and not downstream and result.open_blocking == 0:
+                result.warnings.append("Loop escape hatch applied — removed blocking segment(s)")
+                return _finalize_auto_resolve_success(
+                    ctx,
+                    stage_key,
+                    result,
+                    cfg=cfg,
+                    resolved=resolved + deleted_esc + closed_esc,
+                    runner=runner,
+                    run_id=run_id,
+                )
+    elif result.open_blocking == 0:
+        _close_stale_segment_issues(ctx, stage_key)
+
     manual_left = [
         it
         for it in items_for_stage(ctx, stage_key)
@@ -526,48 +799,17 @@ def auto_resolve_stage(
         result.preview = build_resolution_preview(ctx, stage_key)
         return result
 
-    if not ok or downstream or result.propagation_plan.get("has_blocking"):
+    if not ok or downstream:
         result.outcome = AutoResolveOutcome.PARTIAL
         result.phase = "awaiting_save"
         return result
 
-    clear_clarification_gate(ctx, stage_key)
-    _clear_propagation_investigations(ctx, stage_key)
-    _reset_attempt_on_success(ctx, stage_key)
-
-    chain = cfg.get("auto_resolve_chain_downstream", True) and cfg_caps.get("auto_chain_downstream")
-    if (
-        chain
-        and stage_key == "boundary_detection"
-        and runner
-        and run_id
-    ):
-        from interview_mux.artifact_root_cause import can_downstream_auto_continue, record_downstream_auto_continue
-
-        if can_downstream_auto_continue(ctx):
-            try:
-                job = runner.start(
-                    run_id,
-                    mode="stage",
-                    from_stage="segment_classification",
-                    stage="segment_classification",
-                )
-                record_downstream_auto_continue(ctx)
-                result.downstream_job = job
-                result.phase = "downstream_job"
-                result.outcome = AutoResolveOutcome.SUCCESS
-                result.can_advance_pipeline = False
-                result.warnings.append("Chained segment_classification re-run")
-                return result
-            except Exception as exc:
-                result.warnings.append(f"Downstream chain skipped: {exc}")
-
-    result.outcome = AutoResolveOutcome.SUCCESS
-    result.phase = "awaiting_save"
-    result.can_advance_pipeline = bool(cfg.get("auto_advance_after_itr_clear", True))
-    ctx.log(
-        f"itr.auto_resolve.complete stage={stage_key} resolved={resolved}",
-        level="info",
-        stage=stage_key,
+    return _finalize_auto_resolve_success(
+        ctx,
+        stage_key,
+        result,
+        cfg=cfg,
+        resolved=resolved,
+        runner=runner,
+        run_id=run_id,
     )
-    return result

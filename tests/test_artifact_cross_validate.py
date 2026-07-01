@@ -51,6 +51,13 @@ def test_validate_cross_artifacts_pre_master_checkpoint(tmp_path, monkeypatch):
     assert errors == []
 
 
+def test_post_segmentation_skips_when_manifest_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "cv_seg_missing")
+    errors = validate_cross_artifacts(ctx, "post_segmentation")
+    assert errors == []
+
+
 def test_post_segmentation_boundary_not_in_manifest(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_seg")
@@ -235,10 +242,15 @@ def test_maybe_cross_validate_ranking_raises_system_exit(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
         monkeypatch,
-        {"analysis": {"flow_hardening": {"enabled": True, "cross_validate_enabled": True}}},
+        {"analysis": {"flow_hardening": {"enabled": True, "cross_validate_enabled": True}, "artifact_issue_triage": {"enabled": False}}},
     )
     ctx = isolated_run_ctx(tmp_path, "cv_rank_exit")
-    ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"), stage_key="segment_classification")
+    ctx.final_path("segments", "manifest.json").parent.mkdir(parents=True, exist_ok=True)
+    import json as json_mod
+    ctx.final_path("segments", "manifest.json").write_text(
+        json_mod.dumps(minimal_manifest("seg_001")),
+        encoding="utf-8",
+    )
     ctx.write_json(
         "flow_1_master/selection.json",
         {"ordered_segment_ids": ["seg_999"]},
@@ -255,18 +267,20 @@ def test_maybe_cross_validate_raises_on_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
         monkeypatch,
-        {"analysis": {"flow_hardening": {"enabled": True, "cross_validate_enabled": True}}},
+        {"analysis": {"flow_hardening": {"enabled": True, "cross_validate_enabled": True}, "artifact_issue_triage": {"enabled": False}}},
     )
     ctx = isolated_run_ctx(tmp_path, "cv_raise")
-    ctx.write_json(
-        "segments/manifest.json",
-        minimal_manifest(
-            minimal_manifest_segment("seg_001", start_ms=0, end_ms=5000),
-            minimal_manifest_segment("seg_002", start_ms=4000, end_ms=8000),
+    ctx.final_path("segments", "manifest.json").parent.mkdir(parents=True, exist_ok=True)
+    ctx.final_path("segments", "manifest.json").write_text(
+        json.dumps(
+            minimal_manifest(
+                minimal_manifest_segment("seg_001", start_ms=0, end_ms=5000),
+                minimal_manifest_segment("seg_002", start_ms=5000, end_ms=8000),
+            )
         ),
-        stage_key="segment_classification",
+        encoding="utf-8",
     )
-    boundaries_path = ctx.path("segments", "boundaries.json")
+    boundaries_path = ctx.final_path("segments", "boundaries.json")
     boundaries_path.write_text(
         json.dumps(
             {

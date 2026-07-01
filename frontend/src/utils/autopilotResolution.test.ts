@@ -21,6 +21,19 @@ describe("autopilotResolution", () => {
     clearAutopilotFixAllAttempts("exec_test", "boundary_detection");
   });
 
+  it("does not resolve fix_all while clarification is deferred", () => {
+    const run = runStub({
+      job: {
+        status: "running",
+        stage: "boundary_detection",
+        clarification_pending: true,
+        can_fix_all: true,
+        itr_blocking_count: 1,
+      },
+    });
+    expect(resolveAutopilotCheckpoint(run, null)).toBeNull();
+  });
+
   it("resolves fix_all when needs_clarification and can_fix_all", () => {
     const run = runStub({
       job: {
