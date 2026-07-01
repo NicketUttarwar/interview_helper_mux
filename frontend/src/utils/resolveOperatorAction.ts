@@ -17,6 +17,7 @@ import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
 import { buildNumberedStages, resolvePipelineNav } from "./pipelineNavigation";
 import { firstTodoItem } from "./stageGuidance";
 import { resolvePendingWritePaths } from "./writeApproval";
+import { stageHasCommittedOutputs, stageIncompleteReason } from "./stageOutputs";
 
 const MODE_LABELS: Record<StepMode, string> = {
   locked: "Waiting",
@@ -556,6 +557,24 @@ export function resolveOperatorActionForStage(
     if (stage.id === "g1_vo_pickup" && stage.status === "done") {
       return buildPrecleanAction(stage);
     }
+  }
+
+  if (
+    stage.status === "incomplete" ||
+    (stage.status === "done" && !stageHasCommittedOutputs(stage))
+  ) {
+    const reason = stageIncompleteReason(stage);
+    return {
+      mode: "error",
+      stageId: stage.id,
+      substepId: "incomplete",
+      headline: `${stage.title} incomplete`,
+      subline: reason || "Required output files are missing. Rerun this step.",
+      primaryLabel: `Rerun ${stage.title}`,
+      primaryKind: "run_stage",
+      primaryDisabled: false,
+      modalAutoOpen: false,
+    };
   }
 
   if (stage.status === "done") {

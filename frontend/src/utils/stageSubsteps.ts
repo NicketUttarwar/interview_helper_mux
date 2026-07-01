@@ -14,6 +14,7 @@ import { flattenGuidanceItems } from "./stageGuidance";
 import { isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 import { isWriteApprovalSaving } from "./jobStatus";
 import { stageAwaitingWriteApproval } from "./writeApproval";
+import { stageHasCommittedOutputs } from "./stageOutputs";
 
 const USER_ACTION_KINDS = new Set<SubstepKind>([
   "blocked",
@@ -350,6 +351,7 @@ export function buildStageProgress(
   const totalCount = substeps.length;
   const fullyComplete =
     stage.status === "done" &&
+    stageHasCommittedOutputs(stage) &&
     !hasTodo &&
     !hasRunning &&
     !hasError &&

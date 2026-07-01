@@ -31,7 +31,7 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
 
 # Optional paths where JSON null means "unavailable" — acknowledged and excluded from volleys.
 NULLABLE_FIELDS: dict[str, frozenset[str]] = {
-    "speaker_roles": frozenset({"speakers[].label", "speakers[].confidence"}),
+    "speaker_roles": frozenset({"speakers[].label", "speakers[].confidence", "notes"}),
     "content_context": frozenset(
         {
             "audience",

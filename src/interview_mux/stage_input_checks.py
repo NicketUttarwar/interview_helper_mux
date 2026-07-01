@@ -45,7 +45,7 @@ def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInpu
         issues.extend(checker(ctx))
     elif stage_id in _LLM_STAGES:
         for err in run_preflight(stage_id, ctx):
-            issues.append(StageInputIssue(err, _llm_remediation(err)))
+            issues.append(StageInputIssue(err, _llm_remediation(err, ctx)))
     return issues
 
 
@@ -332,8 +332,66 @@ def _check_topic_coverage_audit(ctx: RunContext) -> list[StageInputIssue]:
     return _check_flow1_profile_gate(ctx)
 
 
-def _llm_remediation(error: str) -> str | None:
+_UPSTREAM_ARTIFACT_PRODUCER: dict[str, str] = {
+    "understanding/speakers.json": "speaker_roles",
+    "understanding/content_brief.json": "content_context",
+    "segments/boundaries.json": "boundary_detection",
+    "segments/manifest.json": "segment_classification",
+}
+
+
+def _latest_stage_attempt_excerpt(ctx: RunContext, stage_id: str) -> str | None:
+    audit_dir = ctx.path("understanding", "stage_runs", stage_id)
+    if not audit_dir.is_dir():
+        return None
+    attempts = sorted(audit_dir.glob("attempt_*.json"))
+    if not attempts:
+        return None
+    try:
+        doc = ctx.read_json(str(attempts[-1].relative_to(ctx.run_dir)).replace("\\", "/"))
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    extra = doc.get("extra") or {}
+    if isinstance(extra, dict):
+        for key in ("schema_errors", "verification_errors", "blocked_paths"):
+            val = extra.get(key)
+            if val:
+                return str(val)[:240]
+    llm_meta = doc.get("_llm_meta") or {}
+    if isinstance(llm_meta, dict):
+        ver = llm_meta.get("verification_errors")
+        if ver:
+            return str(ver)[:240]
+    env = doc.get("envelope") or doc
+    if isinstance(env, dict):
+        needs = env.get("needs") or []
+        for need in needs:
+            if isinstance(need, dict) and need.get("reason"):
+                return str(need["reason"])[:240]
+    return None
+
+
+def _remediation_for_missing_artifact(ctx: RunContext, rel: str) -> str | None:
+    producer = _UPSTREAM_ARTIFACT_PRODUCER.get(rel)
+    if not producer:
+        return None
+    excerpt = _latest_stage_attempt_excerpt(ctx, producer)
+    base = f"Re-run upstream stage '{producer}'"
+    if excerpt:
+        return f"{base} — last error: {excerpt}"
+    return f"{base} or use Rerun from this step on {producer}."
+
+
+def _llm_remediation(error: str, ctx: RunContext | None = None) -> str | None:
     low = error.lower()
+    if ctx is not None:
+        for rel, producer in _UPSTREAM_ARTIFACT_PRODUCER.items():
+            if rel.replace("/", " ") in low or rel.split("/")[-1] in low:
+                hint = _remediation_for_missing_artifact(ctx, rel)
+                if hint:
+                    return hint
     if "g0" in low or "transcript review" in low:
         return "Complete G0 transcript review in the GUI."
     if "interview_spine" in low:

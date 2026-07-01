@@ -22,7 +22,7 @@ from interview_mux.local_llm_config import (
     should_frame_task_kind,
 )
 from interview_mux.local_llm_runner import generate_local_chat, mlx_available
-from interview_mux.model_registry import stage_severity
+from interview_mux.truncation_policy import should_skip_framer_injection, validate_framer_turns
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import _extract_json, load_system_prompt
 
@@ -39,6 +39,7 @@ class LocalFramingResult:
     latency_ms: int | None = None
     tokens_approx: int | None = None
     volley_turn_count: int = 0
+    digest_truncated: bool = False
 
     def to_attempt_meta(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class LocalFramingResult:
             "volley_turn_count": self.volley_turn_count,
             "latency_ms": self.latency_ms,
             "tokens_approx": self.tokens_approx,
+            "digest_truncated": self.digest_truncated,
         }
 
 
@@ -140,6 +142,7 @@ def frame_volley_with_local(
     )
 
     plan = plan_for_stage(stage_key)
+    digest, digest_truncated = _build_framer_digest(stage_input, stage_key, cfg=resolved_cfg)
     user_blob = _build_framer_user_blob(
         ctx,
         stage_key,
@@ -151,6 +154,8 @@ def frame_volley_with_local(
         base_volley=base_volley,
         truncation_flags=trunc_flags,
         cfg=resolved_cfg,
+        stage_input_digest=digest,
+        digest_truncated=digest_truncated,
     )
 
     try:
@@ -164,6 +169,16 @@ def frame_volley_with_local(
             cfg=resolved_cfg,
         )
         parsed = parse_framer_response(raw, max_turns=max_volley_turns(resolved_cfg))
+        turns, rejected = validate_framer_turns(
+            list(parsed.get("volley_turns") or []),
+            stage_input,
+            stage_key=stage_key,
+        )
+        if rejected:
+            parsed["volley_turns"] = turns
+            if not turns:
+                parsed["escalate"] = True
+                parsed["reason"] = "framer_turns_rejected"
         _record_local_call(
             ctx, stage_key, system, user_blob, raw, parsed, task_kind=task_kind, run_meta=run_meta
         )
@@ -188,6 +203,7 @@ def frame_volley_with_local(
             latency_ms=run_meta.get("latency_ms"),
             tokens_approx=run_meta.get("tokens_approx"),
             volley_turn_count=len(parsed.get("volley_turns") or []),
+            digest_truncated=digest_truncated,
         )
     except Exception as exc:
         ctx.log(
@@ -239,39 +255,59 @@ def prepare_volley_for_llm(
         )
 
     if framing.used_local and framing.volley_turns:
-        volley = apply_local_framing_to_volley(volley, framing.volley_turns)
-        try:
-            from interview_mux.context_resolver import (
-                append_local_framing_entry,
-                context_index_enabled,
-                write_on_accept,
-            )
-
-            if context_index_enabled() and write_on_accept():
-                attempt = 1
-                orch_path = ctx.path("understanding", "analysis_orchestration.json")
-                if orch_path.is_file():
-                    attempt = int(
-                        (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
-                            stage_key, 1
-                        )
-                    )
-                append_local_framing_entry(
-                    ctx,
-                    stage_key=stage_key,
-                    attempt=attempt,
-                    turns=framing.volley_turns,
-                    model_id=framing.model_id,
-                )
-        except Exception:
-            pass
-        if framing.escalate and framing.reason:
+        plan = plan_for_stage(stage_key)
+        prior_lines = []
+        state = load_analysis_state(ctx)
+        summaries = (state.get("meta") or {}).get("stage_summaries") or {}
+        for ps in plan.prior_stages[:4]:
+            if ps in summaries and summaries[ps]:
+                prior_lines.append({ps: summaries[ps][:400]})
+        skip, skip_reason = should_skip_framer_injection(
+            framing,
+            stage_key=stage_key,
+            prior_one_liners=prior_lines,
+            cfg=resolved_cfg,
+        )
+        if skip:
             ctx.log(
-                f"Local LLM framed {stage_key} volley ({framing.volley_turn_count} turns); "
-                f"escalating to OpenAI: {framing.reason}",
+                f"Local LLM framing skipped injection for {stage_key} ({skip_reason})",
                 level="info",
                 stage=stage_key,
             )
+        else:
+            volley = apply_local_framing_to_volley(volley, framing.volley_turns)
+            try:
+                from interview_mux.context_resolver import (
+                    append_local_framing_entry,
+                    context_index_enabled,
+                    write_on_accept,
+                )
+
+                if context_index_enabled() and write_on_accept():
+                    attempt = 1
+                    orch_path = ctx.path("understanding", "analysis_orchestration.json")
+                    if orch_path.is_file():
+                        attempt = int(
+                            (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
+                                stage_key, 1
+                            )
+                        )
+                    append_local_framing_entry(
+                        ctx,
+                        stage_key=stage_key,
+                        attempt=attempt,
+                        turns=framing.volley_turns,
+                        model_id=framing.model_id,
+                    )
+            except Exception:
+                pass
+            if framing.escalate and framing.reason:
+                ctx.log(
+                    f"Local LLM framed {stage_key} volley ({framing.volley_turn_count} turns); "
+                    f"escalating to OpenAI: {framing.reason}",
+                    level="info",
+                    stage=stage_key,
+                )
     elif framing.fallback:
         ctx.log(
             f"Local LLM skipped for {stage_key} ({framing.fallback}); OpenAI volley unchanged.",
@@ -279,6 +315,12 @@ def prepare_volley_for_llm(
             stage=stage_key,
         )
     return volley, framing
+
+
+def _build_framer_digest(stage_input: dict[str, Any], stage_key: str, *, cfg: dict[str, Any]) -> tuple[str, bool]:
+    from interview_mux.truncation_policy import build_framer_digest
+
+    return build_framer_digest(stage_input, stage_key, cfg=cfg)
 
 
 def _build_framer_user_blob(
@@ -293,6 +335,8 @@ def _build_framer_user_blob(
     base_volley: list[dict[str, str]],
     truncation_flags: list[str],
     cfg: dict[str, Any],
+    stage_input_digest: str,
+    digest_truncated: bool = False,
 ) -> str:
     state = load_analysis_state(ctx)
     summaries = (state.get("meta") or {}).get("stage_summaries") or {}
@@ -300,9 +344,9 @@ def _build_framer_user_blob(
     for ps in plan.prior_stages[:4]:
         if ps in summaries and summaries[ps]:
             prior_lines.append({ps: summaries[ps][:400]})
-    digest = json.dumps(stage_input, ensure_ascii=False)[:4000]
-    if len(json.dumps(stage_input, ensure_ascii=False)) > 4000:
-        digest += "\n…[digest truncated]"
+    digest = stage_input_digest
+    if digest_truncated and "framer_digest_truncated" not in truncation_flags:
+        truncation_flags = [*truncation_flags, "framer_digest_truncated"]
     spine_hits: list[dict[str, Any]] = []
     from interview_mux.interview_spine.config import spine_enabled
     from interview_mux.interview_spine.retrieval import query_spine

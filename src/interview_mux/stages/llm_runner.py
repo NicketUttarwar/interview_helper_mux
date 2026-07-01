@@ -165,23 +165,53 @@ def normalize_envelope(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_prompt_envelope(
+def _truncation_blocked_envelope(
+    stage_key: str,
+    task_kind: str,
+    *,
+    flags: list[str],
+    esc_meta: Any,
+) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "artifacts": {},
+        "memory_updates": {},
+        "needs": [
+            {
+                "type": "rerun_stage",
+                "stage": stage_key,
+                "reason": f"LLM input truncated: {', '.join(flags[:3])}",
+                "blocking": True,
+            }
+        ],
+        "follow_up_investigations": [],
+        "confidence": 0.0,
+        "reasoning_summary": f"Blocked: truncated LLM input ({', '.join(flags[:3])})",
+        "_llm_meta": {
+            "task_kind": task_kind,
+            "truncation_escalation": esc_meta.to_dict(),
+        },
+    }
+
+
+def _execute_openai_envelope_call(
     stage_key: str,
     prompt_rel: str,
-    user_content: str | None = None,
+    user_content: str | None,
     *,
-    model: str | None = None,
-    ctx: RunContext | None = None,
-    include_preamble: bool = True,
-    messages: list[dict[str, str]] | None = None,
-    task_kind: str = "primary",
-    bump_tier: bool = False,
-    explicit_tier: str | None = None,
-    response_format: dict[str, Any] | None = None,
-    call_attempt: int | None = None,
-    record_stage_key: str | None = None,
-    system_override: str | None = None,
-    volley_retry_index: int = 0,
+    model: str | None,
+    ctx: RunContext | None,
+    include_preamble: bool,
+    messages: list[dict[str, str]] | None,
+    task_kind: str,
+    bump_tier: bool,
+    explicit_tier: str | None,
+    response_format: dict[str, Any] | None,
+    call_attempt: int | None,
+    record_stage_key: str | None,
+    system_override: str | None,
+    volley_retry_index: int,
+    esc_meta: Any | None = None,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -312,6 +342,20 @@ def run_prompt_envelope(
     verify_target = envelope if task_kind == "arbiter" else envelope
     if task_kind == "arbiter":
         verify_target = envelope.get("artifacts") or envelope
+
+    from interview_mux.llm_output_normalizer import normalize_llm_response
+
+    norm_result = normalize_llm_response(
+        ctx,
+        interaction_id=interaction_id,
+        parsed=envelope,
+        stage_key=record_stage_key or stage_key,
+        task_kind=task_kind,
+        volley=messages,
+    )
+    envelope = norm_result.normalized
+    verify_target = envelope if task_kind != "arbiter" else (envelope.get("artifacts") or envelope)
+
     verification = verify_llm_response(
         interaction_id,
         verify_target,
@@ -395,7 +439,108 @@ def run_prompt_envelope(
                 **({"llm_call_path": llm_path} if llm_path else {}),
             },
         )
+    if esc_meta is not None:
+        from interview_mux.truncation_policy import attach_truncation_meta
+
+        attach_truncation_meta(envelope, esc_meta)
     return envelope
+
+
+def run_prompt_envelope(
+    stage_key: str,
+    prompt_rel: str,
+    user_content: str | None = None,
+    *,
+    model: str | None = None,
+    ctx: RunContext | None = None,
+    include_preamble: bool = True,
+    messages: list[dict[str, str]] | None = None,
+    task_kind: str = "primary",
+    bump_tier: bool = False,
+    explicit_tier: str | None = None,
+    response_format: dict[str, Any] | None = None,
+    call_attempt: int | None = None,
+    record_stage_key: str | None = None,
+    system_override: str | None = None,
+    volley_retry_index: int = 0,
+) -> dict[str, Any]:
+    """OpenAI gateway with universal truncation scan and tier escalation."""
+    from interview_mux.truncation_policy import (
+        TruncationEscalationMeta,
+        log_truncation_event,
+        scan_llm_input,
+        tier_at_ladder_step,
+        truncation_integrity_cfg,
+        truncation_integrity_enabled,
+    )
+
+    cfg = merged_config()
+    esc_meta = TruncationEscalationMeta(provider="openai")
+    scan = scan_llm_input(messages=messages, user_content=user_content)
+    use_bump = bump_tier
+    use_explicit = explicit_tier
+
+    if scan.truncated:
+        esc_meta.final_flags = list(scan.flags)
+        if truncation_integrity_enabled(cfg):
+            ti = truncation_integrity_cfg(cfg)
+            if ti.get("enforce_at_gateways", True):
+                max_rounds = int(ti.get("max_escalation_rounds_per_call", 4))
+                esc_meta.rounds = min(1, max_rounds)
+                if not model:
+                    if use_explicit is None and not use_bump:
+                        use_bump = True
+                        esc_meta.steps.append("tier_bump")
+                    elif use_bump:
+                        use_explicit = tier_at_ladder_step(2, cfg)
+                        esc_meta.steps.append(f"tier_{use_explicit}")
+                if (
+                    ti.get("never_accept_truncated_output", True)
+                    and esc_meta.rounds >= max_rounds
+                    and task_kind in ("primary", "shard")
+                    and use_explicit == tier_at_ladder_step(max_rounds - 1, cfg)
+                ):
+                    blocked = _truncation_blocked_envelope(
+                        record_stage_key or stage_key,
+                        task_kind,
+                        flags=scan.flags,
+                        esc_meta=esc_meta,
+                    )
+                    if ctx:
+                        log_truncation_event(
+                            ctx,
+                            stage_key=record_stage_key or stage_key,
+                            event="blocked",
+                            scan=scan,
+                        )
+                    return blocked
+                if ctx:
+                    log_truncation_event(
+                        ctx,
+                        stage_key=record_stage_key or stage_key,
+                        event="input_truncated",
+                        scan=scan,
+                        step=esc_meta.steps[-1] if esc_meta.steps else None,
+                    )
+
+    return _execute_openai_envelope_call(
+        stage_key,
+        prompt_rel,
+        user_content,
+        model=model,
+        ctx=ctx,
+        include_preamble=include_preamble,
+        messages=messages,
+        task_kind=task_kind,
+        bump_tier=use_bump,
+        explicit_tier=use_explicit,
+        response_format=response_format,
+        call_attempt=call_attempt,
+        record_stage_key=record_stage_key,
+        system_override=system_override,
+        volley_retry_index=volley_retry_index,
+        esc_meta=esc_meta,
+    )
 
 
 def run_prompt(

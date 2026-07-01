@@ -438,11 +438,20 @@ def apply_resilience_and_persist(
     volley: list[dict[str, str]] | None = None,
 ) -> PersistPlan:
     """Sanitize, persist partial/full, log events."""
+    from interview_mux.llm_output_normalizer import normalize_envelope_for_stage
     from interview_mux.null_field_policy import (
         acknowledge_null_fields,
         log_critical_null_blocked,
         null_policy_cfg,
     )
+
+    norm = normalize_envelope_for_stage(
+        ctx,
+        envelope,
+        stage_key=stage_key,
+        volley=volley,
+    )
+    envelope = norm.normalized
 
     artifacts = envelope.get("artifacts") or {}
     if artifacts:
@@ -490,6 +499,10 @@ def apply_resilience_and_persist(
         lint_errors,
         routed_via_collate=routed_via_collate,
     )
+
+    routing = envelope.setdefault("_routing_meta", {})
+    if arbiter_result and str(arbiter_result.get("verdict", "")).strip() != "accept":
+        routing["envelope_blocked"] = True
 
     if plan.action == "none":
         return plan

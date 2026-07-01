@@ -284,7 +284,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     opts.autoRun === true && isPipelineAutopilotEnabled(opts.config);
 
   const tryStartStage = async (stageId: string): Promise<boolean> => {
-    if (!autoRunEnabled || !canAutoRunStage(stageId)) return false;
+    if (!autoRunEnabled || !canAutoRunStage(stageId, refreshed)) return false;
     await opts.executeJob(executeBodyForStage(stageId), { source: "checkpoint_continue" });
     return true;
   };

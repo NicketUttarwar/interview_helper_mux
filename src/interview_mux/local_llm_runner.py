@@ -40,6 +40,13 @@ def generate_local_chat(
     Raises LocalLlmUnavailable on missing deps/weights.
     """
     from interview_mux.config import merged_config
+    from interview_mux.truncation_policy import (
+        TruncationEscalationMeta,
+        log_truncation_event,
+        scan_llm_input,
+        truncation_integrity_cfg,
+        truncation_integrity_enabled,
+    )
     from interview_mux.local_structured_output import (
         build_local_schema_appendix,
         local_structured_outputs_cfg,
@@ -49,6 +56,35 @@ def generate_local_chat(
     from interview_mux.llm_response_verify import verification_to_record_dict, verify_llm_response
 
     resolved_cfg = cfg or merged_config()
+    esc_meta = TruncationEscalationMeta(provider="local_mlx")
+    scan = scan_llm_input(system=system, user_content=user)
+    if scan.truncated:
+        esc_meta.final_flags = list(scan.flags)
+        ti = truncation_integrity_cfg(resolved_cfg)
+        if truncation_integrity_enabled(resolved_cfg) and ti.get("enforce_at_gateways", True):
+            esc_meta.rounds = 1
+            esc_meta.steps.append("local_truncated")
+            if ctx:
+                log_truncation_event(
+                    ctx,
+                    stage_key=stage_key,
+                    event="input_truncated",
+                    scan=scan,
+                )
+            if str(task_kind or "").startswith("local_") and ti.get("local_on_truncation") == "escalate_openai":
+                synthetic = json.dumps(
+                    {
+                        "escalate": True,
+                        "confidence": 0.0,
+                        "reason": f"truncated_input:{','.join(scan.flags[:2])}",
+                        "volley_turns": [],
+                    }
+                )
+                return synthetic, {
+                    "model_id": "local_skipped",
+                    "truncation_escalation": esc_meta.to_dict(),
+                    "skipped_mlx": True,
+                }
     interaction = resolve_local_interaction(stage_key, task_kind)
     iid = interaction_id or resolve_interaction_id(
         stage_key=stage_key,
@@ -110,12 +146,23 @@ def generate_local_chat(
     meta.setdefault("model_id", model_id)
     meta.setdefault("model_path", str(model_path))
     meta["interaction_id"] = iid
+    meta["truncation_escalation"] = esc_meta.to_dict()
 
     parsed: dict[str, Any] | None = None
     try:
         from interview_mux.stages.llm_runner import _extract_json
 
         parsed = _extract_json(text)
+        from interview_mux.llm_output_normalizer import normalize_llm_response
+
+        norm = normalize_llm_response(
+            ctx,
+            interaction_id=iid,
+            parsed=parsed if isinstance(parsed, dict) else {"artifacts": parsed},
+            stage_key=stage_key,
+            task_kind=task_kind,
+        )
+        parsed = norm.normalized if isinstance(norm.normalized, dict) else parsed
         verification = verify_llm_response(iid, parsed, stage_key=stage_key, task_kind=task_kind)
         meta["verification"] = verification_to_record_dict(verification)
         so_cfg = local_structured_outputs_cfg(resolved_cfg)

@@ -683,6 +683,12 @@ def _lint_generic(
     if "envelope_status_complete" in keys and envelope.get("status") != "complete":
         errors.append("envelope_status_complete: status is not complete")
 
+    trunc_meta = (envelope.get("_llm_meta") or {}).get("truncation_escalation") or {}
+    if trunc_meta.get("final_flags") and envelope.get("status") == "complete":
+        errors.append(
+            f"truncation_unresolved: {trunc_meta.get('final_flags')[:2]}"
+        )
+
     if "schema_errors_empty" in keys and schema_errors:
         errors.append(f"schema_errors_empty: {'; '.join(schema_errors[:2])}")
 

@@ -193,6 +193,9 @@ def llm_stage_progress_ok(
 
     if envelope.get("status") != "complete":
         return False
+    trunc_meta = (envelope.get("_llm_meta") or {}).get("truncation_escalation") or {}
+    if trunc_meta.get("final_flags"):
+        return False
     if _blocking_non_operator_needs(envelope):
         return False
 

@@ -1,0 +1,25 @@
+{
+  "status": "complete",
+  "artifacts": {
+    "speakers": [
+      {
+        "speaker_id": "spk_0",
+        "role": "unknown",
+        "confidence": 0.5,
+        "label": null
+      },
+      {
+        "speaker_id": "spk_1",
+        "role": "unknown",
+        "confidence": 0.5,
+        "label": null
+      }
+    ],
+    "notes": null
+  },
+  "memory_updates": {},
+  "needs": [],
+  "follow_up_investigations": [],
+  "confidence": 0.7,
+  "reasoning_summary": "Both speakers unknown; notes null."
+}

@@ -124,6 +124,34 @@ def test_prepare_volley_uses_local_and_openai_fallback(tmp_path, monkeypatch):
     assert any("compressed priors" in m.get("content", "") for m in volley)
 
 
+def test_prepare_volley_skips_injection_when_digest_truncated(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "digest_trunc")
+    monkeypatch.setattr(local_volley_framer_mod, "mlx_available", lambda: True)
+
+    def fake_frame(*_args, **_kwargs):
+        return LocalFramingResult(
+            escalate=True,
+            confidence=0.5,
+            reason="digest_truncated",
+            volley_turns=[{"role": "assistant", "content": "roles unclear"}],
+            used_local=True,
+            digest_truncated=True,
+        )
+
+    monkeypatch.setattr(local_volley_framer_mod, "frame_volley_with_local", fake_frame)
+    volley, framing = prepare_volley_for_llm(
+        ctx,
+        "speaker_roles",
+        {"transcript_samples": "x" * 5000, "speakers": []},
+        profile="full",
+        task_kind="primary",
+        cfg={"local_llm": {"enabled": True}},
+    )
+    assert framing is not None
+    assert framing.digest_truncated is True
+    assert not any("roles unclear" in m.get("content", "") for m in volley)
+
+
 def test_stage_severity_tiers():
     assert stage_severity("speaker_roles") == "low"
     assert stage_severity("boundary_detection") == "medium"

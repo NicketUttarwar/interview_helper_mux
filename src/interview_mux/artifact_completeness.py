@@ -332,6 +332,20 @@ def merge_artifact(
     if rel_path == "understanding/sound_design_plan.json":
         return _deep_merge(existing, patch)
 
+    if rel_path == "understanding/speakers.json" and "speakers" in patch:
+        ex_by_id: dict[str, dict[str, Any]] = {}
+        for sp in existing.get("speakers") or []:
+            if isinstance(sp, dict) and sp.get("speaker_id"):
+                ex_by_id[str(sp["speaker_id"])] = copy.deepcopy(sp)
+        for sp in patch.get("speakers") or []:
+            if isinstance(sp, dict) and sp.get("speaker_id"):
+                sid = str(sp["speaker_id"])
+                if sid in ex_by_id:
+                    ex_by_id[sid] = {**ex_by_id[sid], **sp}
+                else:
+                    ex_by_id[sid] = copy.deepcopy(sp)
+        return {**existing, "speakers": list(ex_by_id.values())}
+
     return _deep_merge(existing, patch)
 
 

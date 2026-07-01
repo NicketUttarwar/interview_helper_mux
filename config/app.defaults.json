@@ -283,6 +283,18 @@
       "enabled": true,
       "mode": "full"
     },
+    "truncation_integrity": {
+      "enabled": true,
+      "enforce_at_gateways": true,
+      "never_accept_truncated_output": true,
+      "never_inject_framer_when_truncated": true,
+      "local_on_truncation": "escalate_openai",
+      "openai_tier_ladder": ["economy", "standard", "flagship"],
+      "decompose_at_flagship_if_still_truncated": true,
+      "max_escalation_rounds_per_call": 4,
+      "framer_digest_limits": { "speaker_roles": 24000, "default": 8000 },
+      "context_cap_boost_steps": [1.0, 2.0, 4.0]
+    },
     "context": {
       "transcript_excerpt_chars": 24000,
       "transcript_full_chars": 72000,
@@ -377,7 +389,13 @@
       "enabled": true,
       "allow_unavailable_reason": true,
       "hard_stop_on_critical_null": true,
-      "exclude_from_volleys": true
+      "exclude_from_volleys": true,
+      "fabricate_enabled": true,
+      "fabricate_model_tier": "mid",
+      "fabricate_max_paths_per_call": 8,
+      "fabricate_max_calls_per_stage_attempt": 2,
+      "prefer_omit_over_fabricate": true,
+      "fabricate_review_threshold": null
     },
     "artifact_issue_triage": {
       "enabled": true,

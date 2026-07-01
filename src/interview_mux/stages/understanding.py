@@ -16,6 +16,7 @@ from interview_mux.context_volley import transcript_quality_for_ctx
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.transcript_sampling import stratified_transcript_samples_from_words
+from interview_mux.speaker_role_evidence import build_speaker_role_evidence
 from interview_mux.value_analysis.extract import (
     maybe_auto_extract_value_features,
     maybe_enqueue_orchestration_investigations,
@@ -55,6 +56,9 @@ def run_speaker_roles(ctx: RunContext) -> None:
         return {
             "transcript_samples": samples,
             "speakers": speakers,
+            **build_speaker_role_evidence(
+                {"transcript_samples": samples, "speakers": speakers}
+            ),
         }
 
     persist = make_stage_persist("understanding/speakers.json", "speaker_roles")

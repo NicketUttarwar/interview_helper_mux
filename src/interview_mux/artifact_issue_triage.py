@@ -128,6 +128,12 @@ def _enqueue_noise_investigations(ctx: Any, stage_key: str, issues: list[Classif
     for issue in issues:
         if issue.severity != "noise":
             continue
+        if "envelope_status_complete" in issue.message.lower():
+            from interview_mux.llm_flow_hardening import producer_artifact_path
+            from interview_mux.stage_acceptance import stage_acceptance_ok
+
+            if stage_acceptance_ok(ctx, stage_key, staged=True, include_cross_validate=False).ok:
+                continue
         items.append(
             {
                 "id": issue_id_for(stage_key, issue.message, issue.segment_id),
@@ -139,6 +145,33 @@ def _enqueue_noise_investigations(ctx: Any, stage_key: str, issues: list[Classif
         )
     if items:
         enqueue_investigations(ctx, items, created_by_stage=stage_key)
+
+
+def close_stale_envelope_investigations(
+    ctx: Any,
+    stage_key: str,
+    envelope: dict[str, Any] | None = None,
+) -> int:
+    """Auto-close open envelope_status_complete ITR items when stage is acceptably complete."""
+    from interview_mux.analysis_memory import load_queue, mark_investigation_done
+
+    if envelope is not None and envelope.get("status") != "complete":
+        return 0
+    queue = load_queue(ctx)
+    closed = 0
+    for it in queue.get("items") or []:
+        if it.get("status") != "open":
+            continue
+        question = str(it.get("question") or "").lower()
+        if it.get("kind") != "artifact_validation" or "envelope_status_complete" not in question:
+            continue
+        if stage_key not in question and it.get("created_by_stage") != stage_key:
+            continue
+        iid = it.get("id")
+        if iid:
+            mark_investigation_done(ctx, str(iid))
+            closed += 1
+    return closed
 
 
 @dataclass

@@ -25,3 +25,6 @@ faster-whisper>=1.1.0,<2
 # Dev / setup gate
 pytest>=8,<9
 pip-audit>=2.7,<3
+
+# Transitive security pin (cachecontrol → pip-audit); GHSA-6v7p-g79w-8964
+msgpack>=1.2.1

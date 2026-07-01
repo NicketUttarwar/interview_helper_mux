@@ -104,6 +104,7 @@ export function hasActionRequiredStage(stages: StageInfo[]): boolean {
 
 export function stageDotClass(status: StageStatus): string {
   if (status === "done") return "done";
+  if (status === "incomplete") return "action_required";
   if (status === "action_required") return "action_required";
   if (status === "awaiting_write_approval") return "action_required";
   if (status === "locked") return "locked";

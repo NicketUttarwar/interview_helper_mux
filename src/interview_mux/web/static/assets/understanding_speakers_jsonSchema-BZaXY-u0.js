@@ -1,0 +1,1 @@
+import{o as e,u as a,a as n,s,n as o,e as r}from"./zod-vendor-CcGq3kAE.js";const i=e({speakers:n(e({speaker_id:s(),role:r(["interviewer","interviewee","unknown"]),confidence:o(),evidence:n(s()).optional()})),notes:a().optional()});export{i as understanding_speakers_jsonSchema};

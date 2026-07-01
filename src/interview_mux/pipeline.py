@@ -312,15 +312,24 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         "mux_flow2",
         "sfx_prompt_refine",
     ) and _guard_stage_reuse(ctx, stage):
-        from interview_mux.write_staging import (
-            after_stage_write_check,
-            has_pending_writes,
-            write_approval_enabled,
-        )
+        from interview_mux.artifact_completeness import should_run_stage_for_artifact
 
-        if write_approval_enabled() and has_pending_writes(ctx, stage):
-            after_stage_write_check(ctx, stage)
-        return
+        if should_run_stage_for_artifact(ctx, stage):
+            ctx.log(
+                f"Re-running {stage}: stage marked done but artifact incomplete",
+                level="info",
+                stage=stage,
+            )
+        else:
+            from interview_mux.write_staging import (
+                after_stage_write_check,
+                has_pending_writes,
+                write_approval_enabled,
+            )
+
+            if write_approval_enabled() and has_pending_writes(ctx, stage):
+                after_stage_write_check(ctx, stage)
+            return
     from interview_mux.analysis_orchestrator import ALL_LLM_STAGES, drain_investigation_queue, llm_stage_runners
     from interview_mux.write_staging import run_wrapped_stage
 

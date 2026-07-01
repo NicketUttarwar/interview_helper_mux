@@ -333,6 +333,29 @@ class RunContext:
             record_pending_approval(self, stage)
             return
 
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
+        from interview_mux.analysis_orchestrator import ALL_LLM_STAGES
+
+        if not force and stage in ALL_LLM_STAGES and rel:
+            from interview_mux.artifact_completeness import artifact_status
+
+            if not self.artifact_exists(rel):
+                self.log(
+                    f"Refusing mark_done({stage}): required artifact {rel} missing",
+                    level="warning",
+                    stage=stage,
+                )
+                return
+            if artifact_status(rel, self) != "complete":
+                self.log(
+                    f"Refusing mark_done({stage}): artifact {rel} not complete",
+                    level="warning",
+                    stage=stage,
+                )
+                return
+
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()

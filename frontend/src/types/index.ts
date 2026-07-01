@@ -81,6 +81,7 @@ export interface RunSummary {
 export type StageStatus =
   | "done"
   | "pending"
+  | "incomplete"
   | "action_required"
   | "locked"
   | "awaiting_write_approval";
@@ -265,6 +266,7 @@ export interface StageInfo {
   phase?: string;
   operator_phase?: OperatorPhase;
   status: StageStatus;
+  incomplete_reason?: string;
   artifacts?: string[];
   editable?: string[];
   artifacts_present?: string[];

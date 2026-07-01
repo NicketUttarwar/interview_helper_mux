@@ -2816,6 +2816,9 @@ def _build_stage_list(
                 handoff = handoff_paths_for_stage(ctx, sid)
                 if handoff:
                     s["handoff_paths"] = handoff
+            from interview_mux.ui_truth import reconcile_stage_status
+
+            reconcile_stage_status(s)
         s["operator_phase"] = stage_operator_phase(sid)
     filtered = _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
     from interview_mux.stage_guidance import attach_guidance_to_stages

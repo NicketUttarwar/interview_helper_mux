@@ -41,18 +41,30 @@ def run_llm_arbiter(
             record_stage_key=stage_key,
         )
     except (ValueError, json.JSONDecodeError):
-        return {
-            "verdict": "enqueue_investigation",
-            "confidence": 0.0,
-            "gaps": ["Arbiter response was not valid JSON."],
-            "shard_plan": [],
-            "suggested_investigation": {
-                "kind": "arbiter_parse_failure",
-                "question": f"Re-run {stage_key} after arbiter parse failure.",
-                "blocking": True,
-            },
-            "reasoning_summary": "Arbiter call failed JSON parse; enqueueing investigation.",
-        }
+        try:
+            verdict_env = run_prompt_envelope(
+                "_arbiter",
+                ARBITER_PROMPT,
+                user_content=_compact_json(payload),
+                ctx=ctx,
+                include_preamble=False,
+                task_kind="arbiter",
+                call_attempt=attempt_number + 100,
+                record_stage_key=stage_key,
+            )
+        except (ValueError, json.JSONDecodeError):
+            return {
+                "verdict": "enqueue_investigation",
+                "confidence": 0.0,
+                "gaps": ["Arbiter response was not valid JSON."],
+                "shard_plan": [],
+                "suggested_investigation": {
+                    "kind": "arbiter_parse_failure",
+                    "question": f"Re-run {stage_key} after arbiter parse failure.",
+                    "blocking": True,
+                },
+                "reasoning_summary": "Arbiter call failed JSON parse; enqueueing investigation.",
+            }
     return _normalize_arbiter_result(verdict_env.get("artifacts") or verdict_env)
 
 

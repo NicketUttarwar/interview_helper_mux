@@ -260,6 +260,7 @@ def build_message_volley(
     stage_input: dict[str, Any],
     *,
     profile: str = "full",
+    max_stage_data_chars_override: int | None = None,
 ) -> list[dict[str, str]]:
     """
     Build OpenAI messages: system (from caller) + user/assistant volley + final user task.
@@ -333,7 +334,7 @@ def build_message_volley(
         shaped = strip_null_leaves_for_volley(shaped)
     gap_fc = shaped.get("gap_fill_context") if isinstance(shaped.get("gap_fill_context"), dict) else None
     data_block = json.dumps(shaped, indent=2, ensure_ascii=False)
-    max_data = _char_limit("max_stage_data_chars", 32000)
+    max_data = max_stage_data_chars_override or _char_limit("max_stage_data_chars", 32000)
     if len(data_block) > max_data:
         data_block = data_block[:max_data] + "\n…[stage data truncated]"
 
@@ -460,12 +461,13 @@ def volley_char_estimate(messages: list[dict[str, str]]) -> int:
 
 
 def truncation_flags_for_volley(messages: list[dict[str, str]]) -> list[str]:
+    from interview_mux.truncation_policy import MARKER_FLAG_MAP
+
     flags: list[str] = []
     joined = "\n".join(m.get("content", "") for m in messages)
-    if "…[stage data truncated]" in joined:
-        flags.append("max_stage_data_chars")
-    if "…[truncated]" in joined:
-        flags.append("field_truncated")
+    for marker, flag in MARKER_FLAG_MAP.items():
+        if marker in joined and flag not in flags:
+            flags.append(flag)
     return flags
 
 

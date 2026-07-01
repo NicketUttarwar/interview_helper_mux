@@ -1,4 +1,4 @@
-# Doc mirror of repo-root requirements.lock (2026-05-29)
+# Doc mirror of repo-root requirements.lock (2026-07-01)
 # Authoritative install: pip install -r requirements.lock
 # Regenerate: pip-compile requirements.txt -o requirements.lock
 # Verify: ./tools/check_prerequisites.sh
@@ -45,7 +45,7 @@ jsonschema-specifications==2025.9.1
 license-expression==30.4.4
 markdown-it-py==4.2.0
 mdurl==0.1.2
-msgpack==1.1.2
+msgpack==1.2.1
 packageurl-python==0.17.6
 packaging==26.2
 pip-api==0.0.34

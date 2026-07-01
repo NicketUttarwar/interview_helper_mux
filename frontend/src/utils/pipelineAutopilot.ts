@@ -49,8 +49,10 @@ export function isPipelineAutopilotEnabled(config?: AppConfig | null): boolean {
   return config?.journey_ui?.auto_advance_pipeline !== false;
 }
 
-export function canAutoRunStage(stageId: string): boolean {
-  return !MANUAL_CHECKPOINT_STAGES.has(stageId);
+export function canAutoRunStage(stageId: string, run?: RunData): boolean {
+  if (MANUAL_CHECKPOINT_STAGES.has(stageId)) return false;
+  if (run && !upstreamArtifactsReady(run.stages, stageId)) return false;
+  return true;
 }
 
 export function isPipelineComplete(run: RunData): boolean {

@@ -160,6 +160,12 @@ def lint_retry_strategy(
         from interview_mux.llm_stage_routing import _LINT_EVIDENCE_APPENDIX
 
         strategy["strict_appendix"] = _LINT_EVIDENCE_APPENDIX
+    if stage_key == "speaker_roles" and any(
+        x in joined for x in ("speakers.all_unknown_roles", "min_row_count_met", "confidence_gte_min")
+    ):
+        strategy["inject_role_evidence"] = True
+        strategy["strip_uncertainty_assistant"] = True
+        strategy["strategy_key"] = "speaker_roles_evidence_retry"
     if not strategy.get("strategy_key"):
         strategy["strategy_key"] = f"lint_retry_{stage_key}"
     return strategy

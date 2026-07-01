@@ -14,6 +14,7 @@ import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { StageReviewGateBanner } from "../gates/StageReviewGateBanner";
 import { resolveReviewGateSpec } from "../../utils/resolveReviewGate";
+import { stageHasCommittedOutputs } from "../../utils/stageOutputs";
 export function StageStepWorkbench() {
   const {
     run,
@@ -94,6 +95,7 @@ export function StageStepWorkbench() {
   const stageReadyToAdvance =
     Boolean(selectedStage) &&
     selectedStage!.status === "done" &&
+    stageHasCommittedOutputs(selectedStage!) &&
     !stageNeedsPendingAction(run!, selectedStage!.id, apiGrants) &&
     !jobRunning;
 

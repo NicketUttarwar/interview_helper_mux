@@ -297,6 +297,23 @@ def _build_registry() -> dict[str, dict[str, Any]]:
     )
     reg["LX-02a"] = {**reg["LX-02"], "id": "LX-02a", "trigger": "collect_issues → options empty"}
 
+    reg["OM-F01"] = _entry(
+        id="OM-F01",
+        provider="openai",
+        interaction="field_fabricate_batch",
+        stage_key="*",
+        task_kind="fabricate",
+        trigger="llm_output_normalizer — fabricatable null paths",
+        entrypoint="llm_fabricate.fabricate_field_values",
+        prompt_rel="llm-fabricate/generic.system.txt",
+        volley_profile="batched field patch",
+        response_schema="artifacts partial",
+        verify="validate_stage_artifacts",
+        on_verify_fail="normalize_then_verify",
+        goal="Benign fabricated values for low-risk null fields",
+        model_tier="mid",
+    )
+
     return reg
 
 

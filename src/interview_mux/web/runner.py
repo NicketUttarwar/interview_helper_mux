@@ -815,6 +815,20 @@ class JobRunner:
                 err_msg = str(exc)
                 tb = traceback.format_exc()
                 stage_id = stage or label
+                if stage_id:
+                    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+                    if rel and not ctx.artifact_exists(rel):
+                        marker = ctx.final_path(".stage_done", stage_id)
+                        if marker.is_file():
+                            marker.unlink(missing_ok=True)
+                            ctx.log(
+                                f"Cleared stale .stage_done/{stage_id} after failure "
+                                f"(missing {rel})",
+                                level="warning",
+                                stage=stage_id,
+                            )
                 last_error = {
                     "message": err_msg,
                     "stage": stage_id,

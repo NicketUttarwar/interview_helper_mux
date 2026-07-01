@@ -16,6 +16,20 @@ def test_t1_done_stage_no_pending_artifacts() -> None:
     assert any(x.code == "T1" for x in v)
 
 
+def test_reconcile_stage_status_downgrades_done():
+    from interview_mux.ui_truth import reconcile_stage_status
+
+    stage = {
+        "id": "speaker_roles",
+        "status": "done",
+        "artifacts_status": {"understanding/speakers.json": "pending"},
+        "artifacts_lifecycle": {"understanding/speakers.json": "missing"},
+    }
+    reconcile_stage_status(stage)
+    assert stage["status"] == "incomplete"
+    assert "speakers.json" in stage.get("incomplete_reason", "")
+
+
 def test_t8_outputs_view_pending_on_done_stage() -> None:
     stages = [
         {

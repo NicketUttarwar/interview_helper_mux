@@ -8,5 +8,5 @@ export const understanding_speakers_jsonSchema = z.object({
   "confidence": z.number(),
   "evidence": z.array(z.string()).optional(),
 })),
-  "notes": z.string().optional(),
+  "notes": z.unknown().optional(),
 });

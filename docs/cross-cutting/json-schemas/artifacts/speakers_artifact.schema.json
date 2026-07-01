@@ -18,6 +18,6 @@
         }
       }
     },
-    "notes": { "type": "string" }
+    "notes": { "type": ["string", "null"] }
   }
 }

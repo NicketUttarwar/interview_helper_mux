@@ -579,6 +579,17 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
                     ctx.mark_done("transcribe", force=True)
                 # transcript_review gate stays open until operator Save and complete
             else:
+                from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                primary = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+                if not copied:
+                    raise ValueError(
+                        f"Reuse copied no files for {stage_id} — cannot mark stage done"
+                    )
+                if primary and not ctx.artifact_exists(primary):
+                    raise ValueError(
+                        f"Reuse did not copy required artifact {primary} for {stage_id}"
+                    )
                 ctx.mark_done(stage_id)
         finally:
             if staging_lock is not None:

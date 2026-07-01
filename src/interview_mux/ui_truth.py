@@ -65,3 +65,31 @@ def validate_run_snapshot(
                 )
             )
     return violations
+
+
+def reconcile_stage_status(stage: dict[str, Any]) -> dict[str, Any]:
+    """Downgrade done → incomplete when required artifacts are pending/partial (T1)."""
+    if stage.get("status") != "done":
+        return stage
+    arts = stage.get("artifacts_status") or {}
+    lifecycle = stage.get("artifacts_lifecycle") or {}
+    for path, st in arts.items():
+        if st not in ("pending", "partial"):
+            continue
+        phase = lifecycle.get(path)
+        if phase in ("n_a", "skipped"):
+            continue
+        stage["status"] = "incomplete"
+        stage["incomplete_reason"] = f"{path} is {st}"
+        return stage
+    outputs = stage.get("outputs_view") or []
+    for row in outputs:
+        if row.get("status") == "pending" and row.get("phase") not in (
+            "n_a",
+            "skipped",
+            "staged",
+        ):
+            stage["status"] = "incomplete"
+            stage["incomplete_reason"] = f"{row.get('path')} missing on disk"
+            return stage
+    return stage

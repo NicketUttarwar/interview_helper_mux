@@ -436,7 +436,7 @@ def apply_padding_budget(
                 trimmed.append(
                     {
                         "role": turn.get("role", "assistant"),
-                        "content": content[: room - 20] + "\n…[truncated]",
+                        "content": content[: room - 20] + "\n…[volley_middle_truncated]",
                     }
                 )
                 flags.append("volley_middle_truncated")
@@ -594,12 +594,13 @@ def append_profile_digest(
     from interview_mux.context_volley import STAGE_PLANS
 
     consumers = [sk for sk, plan in STAGE_PLANS.items() if set(profile_keys) & set(plan.profile_keys)]
+    profile_content = text if len(text) <= 4000 else text[:4000] + "\n…[truncated]"
     return append_volley_entry(
         ctx,
         {
             "kind": "profile_digest",
             "role": "user",
-            "content": text[:4000],
+            "content": profile_content,
             "source": {"stage_key": stage_key, "task_kind": "memory_merge"},
             "scope": {"consumer_stages": consumers},
             "tags": list(profile_keys),

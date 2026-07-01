@@ -10,6 +10,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from interview_mux.config import repo_root
+from interview_mux.schema_nullability import with_nullable_optional_leaves
 
 # stage_key -> artifact schema filename (under artifacts/)
 STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
@@ -118,6 +119,7 @@ def validate_stage_artifacts(stage_key: str, artifacts: dict[str, Any]) -> list[
     schema = _load_schema(filename)
     if not schema:
         return []
+    schema = with_nullable_optional_leaves(schema)
     validator = Draft202012Validator(schema)
     errors: list[str] = []
     for err in sorted(validator.iter_errors(artifacts), key=lambda e: list(e.path)):

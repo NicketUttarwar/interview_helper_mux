@@ -1886,7 +1886,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           if (
             isPipelineAutopilotEnabled(config) &&
-            canAutoRunStage(nextStageId)
+            canAutoRunStage(nextStageId, run)
           ) {
             await executeJob(executeBodyForStage(nextStageId), {
               source: "checkpoint_continue",

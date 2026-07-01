@@ -112,6 +112,53 @@ def _assistant_summary_from_envelope(envelope: dict[str, Any]) -> str:
     )
 
 
+def _try_flagship_uptier_promote(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any],
+    schema_errors: list[str],
+    *,
+    volley: list[dict[str, str]] | None = None,
+) -> bool:
+    """When uptier is exhausted at flagship, accept if lint/schema clean and roles evidenced."""
+    from interview_mux.model_registry import resolve_model
+
+    llm_meta = envelope.get("_llm_meta") or {}
+    tier = str(llm_meta.get("model_tier") or "")
+    resolved = resolve_model(stage_key, task_kind="primary", bump_tier=True)
+    if tier != "flagship" and resolved.tier != "flagship":
+        return False
+    reconcile_envelope_confidence(stage_key, envelope)
+    lint_errors = deterministic_lint(
+        stage_key,
+        envelope,
+        ctx,
+        schema_errors=schema_errors,
+        volley=volley,
+    )
+    if schema_errors or lint_errors:
+        return False
+    if stage_key == "speaker_roles":
+        speakers = (envelope.get("artifacts") or {}).get("speakers") or []
+        if not speakers:
+            return False
+        if all(str(sp.get("role") or "unknown") == "unknown" for sp in speakers if isinstance(sp, dict)):
+            return False
+    arbiter_result["verdict"] = "accept"
+    arbiter_result["reasoning_summary"] = (
+        "Promoted to accept: flagship tier with clean schema/lint after uptier exhaustion."
+    )
+    envelope["status"] = "complete"
+    ctx.log(
+        f"Stage {stage_key}: flagship uptier promote — accepting envelope.",
+        level="info",
+        stage=stage_key,
+        action_id="llm.flagship_promote",
+    )
+    return True
+
+
 def _extend_volley_for_retry(
     volley: list[dict[str, str]],
     envelope: dict[str, Any],
@@ -124,7 +171,19 @@ def _extend_volley_for_retry(
     retry_index: int = 0,
     ctx: RunContext | None = None,
 ) -> list[dict[str, str]]:
-    extended = [*volley, {"role": "assistant", "content": _assistant_summary_from_envelope(envelope)}]
+    extended = [*volley]
+    uncertainty_phrases = ("role is unclear", "roles are unclear", "cannot determine", "not explicitly labeled")
+    stripped = [
+        m
+        for m in extended
+        if not (
+            m.get("role") == "assistant"
+            and any(p in str(m.get("content", "")).lower() for p in uncertainty_phrases)
+        )
+    ]
+    if len(stripped) != len(extended):
+        extended = stripped
+    extended.append({"role": "assistant", "content": _assistant_summary_from_envelope(envelope)})
     if schema_errors:
         env_errs = [e for e in schema_errors if e.startswith("envelope.")]
         art_errs = [e for e in schema_errors if not e.startswith("envelope.")]
@@ -901,16 +960,24 @@ def run_llm_stage_with_routing(
             )
             verdict = arbiter_result.get("verdict")
         elif verdict == "retry_uptier":
-            envelope.setdefault("follow_up_investigations", [])
-            envelope["follow_up_investigations"].append(
-                arbiter_result.get("suggested_investigation")
-                or {
-                    "kind": "uptier_exhausted",
-                    "question": f"{stage_key}: uptier budget exhausted for this run.",
-                    "blocking": True,
-                }
-            )
-            envelope["status"] = "blocked"
+            if not _try_flagship_uptier_promote(
+                ctx,
+                stage_key,
+                envelope,
+                arbiter_result,
+                schema_errors,
+                volley=volley,
+            ):
+                envelope.setdefault("follow_up_investigations", [])
+                envelope["follow_up_investigations"].append(
+                    arbiter_result.get("suggested_investigation")
+                    or {
+                        "kind": "uptier_exhausted",
+                        "question": f"{stage_key}: uptier budget exhausted for this run.",
+                        "blocking": True,
+                    }
+                )
+                envelope["status"] = "blocked"
 
         if verdict == "decompose" and stage_key in DECOMPOSE_ELIGIBLE:
             shard_plan = arbiter_result.get("shard_plan") or []
@@ -1030,6 +1097,10 @@ def finalize_stage_attempt(
             routed_via_collate=routed_via_collate,
             volley=volley,
         )
+        if str((arbiter_result or {}).get("verdict", "")).strip() == "accept":
+            from interview_mux.artifact_issue_triage import close_stale_envelope_investigations
+
+            close_stale_envelope_investigations(ctx, stage_key, envelope)
         routing = envelope.get("_routing_meta") or {}
         record_stage_attempt(
             ctx,

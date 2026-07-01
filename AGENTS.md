@@ -31,6 +31,7 @@
 16c. [LLM-ANALYSIS-ARCHITECTURE.md](LLM-ANALYSIS-ARCHITECTURE.md) — LLM volley, routing, disk outputs; **§18 Flow hardening** (completion truth, preflight, cross-validate)
 16d. [docs/cross-cutting/llm-guidance-program.md](docs/cross-cutting/llm-guidance-program.md) — quality-first program index (P0–P4 tiers, quality layers, GUIDE tickets) · [docs/cross-cutting/stage-quality-scorecard.md](docs/cross-cutting/stage-quality-scorecard.md) — per-stage shipped status (prompt, arbiter, lint, crossval)
 16e. [docs/cross-cutting/operator-action-catalog.md](docs/cross-cutting/operator-action-catalog.md) — action_id catalog · [operator-logging-master-plan.md](docs/cross-cutting/operator-logging-master-plan.md)
+16f. [docs/cross-cutting/truncation-integrity.md](docs/cross-cutting/truncation-integrity.md) — **never clip LLM input without marker**; all OpenAI/MLX calls via gateways only
 17. [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md) — defaults + secrets keys
 18. [docs/build-out/doc-maintenance.md](docs/build-out/doc-maintenance.md) — docs to update per PR
 19. [docs/build-out/testing-and-verification.md](docs/build-out/testing-and-verification.md) — verify each wave
@@ -51,6 +52,7 @@
 ## LLM call records (audit / copy-paste)
 
 - [docs/cross-cutting/llm-call-record-framework.md](docs/cross-cutting/llm-call-record-framework.md) — labels, paths, volley reconstruction
+- [docs/cross-cutting/llm-output-normalization.md](docs/cross-cutting/llm-output-normalization.md) — normalize → verify → volley → fabricate recovery ladder
 - `python tools/export_llm_calls.py --run-id <exec_*>` — export markdown/jsonl for review
 
 ## Local LLM (default on; `local_llm.enabled`)

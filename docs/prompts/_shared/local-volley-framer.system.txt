@@ -12,6 +12,7 @@ Rules:
 - Do not invent facts not present in the input.
 - Set escalate true when the stage needs editorial judgment, gap detection, narrative planning, ranking, or strict schema artifacts.
 - Set escalate true when input indicates truncation or low confidence in prior conclusions.
+- When `stage_input_digest` contains `…[digest truncated]`, set **`escalate: true`**, **`volley_turns: []`**, and **`reason`** citing digest truncation — do not infer roles or conclusions from partial evidence.
 - Set escalate false only when the stage is purely compressive/formatting and the cloud model would add little value.
 
 Output schema:
