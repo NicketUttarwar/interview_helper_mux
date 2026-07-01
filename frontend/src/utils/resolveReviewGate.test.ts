@@ -21,7 +21,7 @@ describe("resolveReviewGateSpec", () => {
     });
   });
 
-  it("hides write_approval banner when autopilot will auto-save", () => {
+  it("shows write_approval banner even when autopilot is enabled", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [stage("ingest", "awaiting_write_approval")],
@@ -31,7 +31,10 @@ describe("resolveReviewGateSpec", () => {
         pending_write_paths: ["ingest/a.json", "ingest/b.wav"],
       },
     };
-    expect(resolveReviewGateSpec(run, run.stages[0], false, null)).toBeNull();
+    expect(resolveReviewGateSpec(run, run.stages[0], false, null)).toEqual({
+      kind: "write_approval",
+      pathCount: 2,
+    });
   });
 
   it("returns write_approval when autopilot disabled", () => {

@@ -132,9 +132,10 @@ describe("advancePipeline", () => {
     );
   });
 
-  it("auto-acknowledges handoff before running next stage", async () => {
+  it("waits for handoff acknowledgment before running next stage", async () => {
     const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
+    const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
         {
@@ -154,7 +155,7 @@ describe("advancePipeline", () => {
       apiGrants: {},
       selectedStageId: "speaker_roles",
       executeJob,
-      selectStage: vi.fn().mockResolvedValue(undefined),
+      selectStage,
       expandStage: vi.fn(),
       setActiveSubstepId: vi.fn(),
       setPipelineSubTab: vi.fn(),
@@ -165,9 +166,10 @@ describe("advancePipeline", () => {
       config: { journey_ui: { auto_advance_pipeline: true } },
       acknowledgeHandoff,
     });
-    expect(started).toBe(true);
-    expect(acknowledgeHandoff).toHaveBeenCalled();
+    expect(started).toBe(false);
+    expect(acknowledgeHandoff).not.toHaveBeenCalled();
     expect(executeJob).not.toHaveBeenCalled();
+    expect(selectStage).toHaveBeenCalledWith("speaker_roles", { stepId: "handoff" });
   });
 
   it("auto-runs next stage when autopilot enabled", async () => {
@@ -310,7 +312,7 @@ describe("tryAutoContinuePipeline", () => {
     expect(executeJob).not.toHaveBeenCalled();
   });
 
-  it("auto-acks handoff before navigation guard", async () => {
+  it("waits for handoff acknowledgment before auto-continuing", async () => {
     const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
@@ -348,8 +350,8 @@ describe("tryAutoContinuePipeline", () => {
       acknowledgeHandoff,
       config: { journey_ui: { auto_advance_pipeline: true } },
     });
-    expect(started).toBe(true);
-    expect(acknowledgeHandoff).toHaveBeenCalled();
+    expect(started).toBe(false);
+    expect(acknowledgeHandoff).not.toHaveBeenCalled();
     expect(executeJob).not.toHaveBeenCalled();
   });
 });

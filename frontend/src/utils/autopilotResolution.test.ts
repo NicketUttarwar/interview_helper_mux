@@ -61,7 +61,7 @@ describe("autopilotResolution", () => {
     });
   });
 
-  it("resolves write_approval when staged paths pending", () => {
+  it("does not resolve write_approval — operator must save manually", () => {
     const run = runStub({
       stages: [{ id: "boundary_detection", title: "Boundaries", status: "awaiting_write_approval", phase: "understand" }],
       job: {
@@ -71,13 +71,10 @@ describe("autopilotResolution", () => {
         pending_write_paths: ["segments/boundaries.json"],
       },
     });
-    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
-      kind: "write_approval",
-      stageId: "boundary_detection",
-    });
+    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toBeNull();
   });
 
-  it("hides review gate when autopilot can clear checkpoint", () => {
+  it("hides review gate only for fix_all autopilot checkpoints", () => {
     const run = runStub({
       job: {
         status: "needs_clarification",

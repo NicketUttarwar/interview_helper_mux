@@ -1,4 +1,5 @@
 import type { RunMeta, StageInfo, StageStatus } from "../types";
+import { firstUpstreamBlocker } from "./stageOutputs";
 
 export function precleanDismissedAtCheckpoint(
   preclean: RunMeta["audio_preclean"] | undefined,
@@ -93,7 +94,13 @@ export function findNextRunnableStage(
     if (s.status === "action_required") return s;
   }
   for (const s of stages) {
-    if (s.status === "pending" && s.phase !== "gate") return s;
+    if (s.status === "incomplete") return s;
+  }
+  for (const s of stages) {
+    if (s.status === "pending" && s.phase !== "gate") {
+      if (firstUpstreamBlocker(stages, s.id)) continue;
+      return s;
+    }
   }
   return undefined;
 }

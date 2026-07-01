@@ -25,16 +25,17 @@ def validate_run_snapshot(
         status = stage.get("status")
         if status == "done":
             for path, st in (stage.get("artifacts_status") or {}).items():
-                if st == "pending":
-                    phase = (stage.get("artifacts_lifecycle") or {}).get(path)
-                    if phase not in ("n_a", "skipped", None):
-                        violations.append(
-                            Violation(
-                                "T1",
-                                f"Stage {sid} done but artifact {path} pending",
-                                sid,
-                            )
+                phase = (stage.get("artifacts_lifecycle") or {}).get(path)
+                if phase in ("n_a", "skipped", None) and st == "pending":
+                    continue
+                if st in ("pending", "partial"):
+                    violations.append(
+                        Violation(
+                            "T1",
+                            f"Stage {sid} done but artifact {path} {st}",
+                            sid,
                         )
+                    )
             outputs = stage.get("outputs_view") or []
             for row in outputs:
                 if row.get("status") == "pending" and row.get("phase") not in (

@@ -11,6 +11,23 @@ def test_verify_arbiter_accepts_valid_verdict():
     assert result.schema_name == "arbiter_verdict"
 
 
+def test_verify_arbiter_accepts_null_investigation_fields():
+    payload = {
+        "verdict": "accept",
+        "confidence": 0.85,
+        "gaps": [],
+        "shard_plan": [],
+        "suggested_investigation": {
+            "kind": None,
+            "question": None,
+            "blocking": None,
+        },
+        "reasoning_summary": "Speaker roles evidenced.",
+    }
+    result = verify_llm_response("OM-02", payload)
+    assert result.ok
+
+
 def test_verify_local_framer_accepts_valid():
     parsed = {
         "escalate": True,

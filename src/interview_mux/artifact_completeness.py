@@ -48,6 +48,13 @@ def _gaps_analysis_state(data: dict[str, Any] | None) -> list[str]:
     return gaps
 
 
+def _gaps_analysis_state_speakers_only(data: dict[str, Any] | None) -> list[str]:
+    """Incremental analysis_state check after speaker_roles memory merge."""
+    if not data:
+        return ["speakers"]
+    return _gaps_speakers({"speakers": data.get("speakers") or []})
+
+
 def _gaps_content_brief(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["thesis", "topics"]
@@ -153,6 +160,10 @@ STAGE_GAP_RULES: dict[str, GapRule] = {
     "content_brief_reanchor": _gaps_content_brief_reanchor,
 }
 
+STAGED_ANALYSIS_STATE_GAP_RULES: dict[str, GapRule] = {
+    "speaker_roles": _gaps_analysis_state_speakers_only,
+}
+
 ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
     "understanding/analysis_state.json": _gaps_analysis_state,
     "understanding/content_brief.json": _gaps_content_brief,
@@ -191,6 +202,26 @@ def compute_gaps(rel_path: str, data: dict[str, Any] | None, *, stage_key: str |
     return [Gap(path=p, reason="incomplete") for p in rule(data)]
 
 
+def compute_staged_write_gaps(
+    rel_path: str,
+    data: dict[str, Any] | None,
+    *,
+    stage_id: str,
+) -> list[Gap]:
+    """
+    Semantic gap checks when flushing staged writes.
+    Bundled sidecar artifacts (e.g. analysis_state during speaker_roles) use
+    stage-appropriate rules instead of full downstream completeness.
+    """
+    producer = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    if rel_path == "understanding/analysis_state.json" and producer != rel_path:
+        rule = STAGED_ANALYSIS_STATE_GAP_RULES.get(stage_id)
+        if rule is not None:
+            return [Gap(path=p, reason="incomplete") for p in rule(data)]
+        return []
+    return compute_gaps(rel_path, data, stage_key=stage_id)
+
+
 def _status_stage_key(rel_path: str, ctx: RunContext) -> str | None:
     if rel_path == "understanding/content_brief.json" and ctx.is_done("content_brief_reanchor"):
         return "content_brief_reanchor"
@@ -203,6 +234,10 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
         return "pending"
     raw = ctx.read_json(rel_path)
     data = raw if isinstance(raw, dict) else None
+    from interview_mux.llm_output_resilience import artifact_resilience_partial
+
+    if artifact_resilience_partial(data):
+        return "partial"
     schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
     semantic = compute_gaps(rel_path, data, stage_key=_status_stage_key(rel_path, ctx))
     if rel_path == "sound_design/mmaudio_qa.json" and data:
@@ -495,6 +530,10 @@ def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
         return True
     raw = ctx.read_json(rel)
     if not isinstance(raw, dict):
+        return True
+    from interview_mux.llm_output_resilience import artifact_resilience_partial
+
+    if artifact_resilience_partial(raw):
         return True
     if validate_artifact_write(rel, raw):
         return True

@@ -132,4 +132,30 @@ describe("findPendingFocusStage", () => {
     });
     expect(findPendingFocusStage(run)).toBe("source_acoustic_profile");
   });
+
+  it("focuses upstream stage when gate message references prerequisite failure", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "speaker_roles",
+          title: "Speaker roles",
+          description: "",
+          status: "incomplete",
+        },
+        {
+          id: "content_context",
+          title: "Content understanding",
+          description: "",
+          status: "pending",
+        },
+      ],
+      job: {
+        status: "gate",
+        stage: "content_context",
+        message:
+          "Prerequisite artifact understanding/speakers.json from stage speaker_roles is incomplete. Use Fill gaps or re-run --from-stage speaker_roles.",
+      },
+    });
+    expect(findPendingFocusStage(run)).toBe("speaker_roles");
+  });
 });

@@ -355,6 +355,14 @@ def _execute_openai_envelope_call(
     )
     envelope = norm_result.normalized
     verify_target = envelope if task_kind != "arbiter" else (envelope.get("artifacts") or envelope)
+    if task_kind == "arbiter" and isinstance(verify_target, dict):
+        from interview_mux.llm_arbiter import sanitize_arbiter_payload
+
+        verify_target = sanitize_arbiter_payload(verify_target)
+        if isinstance(envelope.get("artifacts"), dict):
+            envelope = {**envelope, "artifacts": verify_target}
+        else:
+            envelope = verify_target
 
     verification = verify_llm_response(
         interaction_id,

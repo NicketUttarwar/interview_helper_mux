@@ -2716,6 +2716,10 @@ def _build_stage_list(
     )
     stages = all_stages_for_run(flow)
     pending_write_stages = set(all_pending_stages(ctx))
+    from interview_mux.stage_completion import reconcile_stage_done_marker
+
+    for s in stages:
+        reconcile_stage_done_marker(ctx, s["id"])
     for s in stages:
         sid = s["id"]
         if sid == "transcript_review":

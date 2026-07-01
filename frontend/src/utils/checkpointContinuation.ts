@@ -1,6 +1,7 @@
 import type { JobState, PipelineSubTab, RunData, AppConfig } from "../types";
-import { findHandoffStage, findPendingFocusStage } from "./checkpoint";
+import { findPendingFocusStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
+import { firstUpstreamBlocker } from "./stageOutputs";
 import { readyForStageMessage } from "./stageAdvance";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { resolveOperatorAction } from "./resolveOperatorAction";
@@ -22,9 +23,8 @@ import {
   recordAutopilotCheckpointAttempt,
   resolveAutopilotCheckpoint,
 } from "./autopilotResolution";
-import { traceAction } from "../operator/traceAction";
 
-/** Auto fix-all / auto-save when autopilot is enabled. Returns true if an action ran. */
+/** Auto fix-all when autopilot is enabled. Returns true if an action ran. */
 export async function tryAutopilotCheckpointResolution(
   opts: AdvancePipelineOpts,
 ): Promise<boolean> {
@@ -40,17 +40,7 @@ export async function tryAutopilotCheckpointResolution(
   recordAutopilotCheckpointAttempt(opts.runId, checkpoint);
 
   if (checkpoint.kind === "write_approval") {
-    if (!opts.approveWriteAndContinue) return false;
-    traceAction("gui.autopilot.save", `Autopilot saving staged outputs for ${checkpoint.stageId}`, {
-      stage: checkpoint.stageId,
-      level: "action",
-    });
-    opts.showToast("Autopilot: saving staged outputs…", "info");
-    const ok = await opts.approveWriteAndContinue(checkpoint.stageId);
-    if (ok) {
-      clearAutopilotCheckpointAttempts(opts.runId, checkpoint.stageId);
-    }
-    return ok;
+    return false;
   }
 
   if (!opts.fixAllAndContinueStage) return false;
@@ -285,15 +275,19 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
 
   const tryStartStage = async (stageId: string): Promise<boolean> => {
     if (!autoRunEnabled || !canAutoRunStage(stageId, refreshed)) return false;
+    const blocker = firstUpstreamBlocker(refreshed.stages, stageId);
+    if (blocker) {
+      await focusStageWorkbench({
+        run: refreshed,
+        stageId: blocker.id,
+        selectStage: opts.selectStage,
+        expandStage: opts.expandStage,
+        setActiveStepId: opts.setActiveStepId,
+        setPipelineSubTab: opts.setPipelineSubTab,
+      });
+      return false;
+    }
     await opts.executeJob(executeBodyForStage(stageId), { source: "checkpoint_continue" });
-    return true;
-  };
-
-  const tryAckHandoffAndContinue = async (): Promise<boolean> => {
-    if (!autoRunEnabled || !opts.acknowledgeHandoff) return false;
-    const handoff = findHandoffStage(refreshed);
-    if (!handoff) return false;
-    await opts.acknowledgeHandoff();
     return true;
   };
 
@@ -326,15 +320,8 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     return false;
   }
 
-  if (await tryAckHandoffAndContinue()) {
-    return true;
-  }
-
   const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
   if (blocking?.blocked && blocking.stage_id) {
-    if (blocking.reason === "handoff_review" && (await tryAckHandoffAndContinue())) {
-      return true;
-    }
     const substepId =
       blocking.reason === "stage_reuse"
         ? `stage_reuse:${blocking.stage_id}`
@@ -448,14 +435,6 @@ export async function tryAutoContinuePipeline(
 
   if (!isPipelineAutopilotEnabled(opts.config)) {
     return navigated;
-  }
-
-  if (opts.acknowledgeHandoff) {
-    const handoff = findHandoffStage(refreshed);
-    if (handoff) {
-      await opts.acknowledgeHandoff();
-      return true;
-    }
   }
 
   if (isPipelineAutopilotEnabled(opts.config)) {

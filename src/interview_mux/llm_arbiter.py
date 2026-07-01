@@ -87,7 +87,31 @@ def _summarize_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def sanitize_arbiter_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize arbiter JSON before schema verification (null investigation fields, etc.)."""
+    out = dict(raw)
+    suggested = out.get("suggested_investigation")
+    if suggested is None:
+        return out
+    if not isinstance(suggested, dict):
+        out["suggested_investigation"] = None
+        return out
+    cleaned = {
+        key: value
+        for key, value in suggested.items()
+        if value is not None and not (isinstance(value, str) and not value.strip())
+    }
+    kind = cleaned.get("kind")
+    question = cleaned.get("question")
+    if kind is None and question is None:
+        out["suggested_investigation"] = None
+    else:
+        out["suggested_investigation"] = cleaned
+    return out
+
+
 def _normalize_arbiter_result(raw: dict[str, Any]) -> dict[str, Any]:
+    raw = sanitize_arbiter_payload(raw)
     verdict = str(raw.get("verdict", "")).strip() or "enqueue_investigation"
     out = {
         "verdict": verdict,

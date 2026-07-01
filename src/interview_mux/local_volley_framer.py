@@ -22,6 +22,7 @@ from interview_mux.local_llm_config import (
     should_frame_task_kind,
 )
 from interview_mux.local_llm_runner import generate_local_chat, mlx_available
+from interview_mux.model_registry import stage_severity
 from interview_mux.truncation_policy import should_skip_framer_injection, validate_framer_turns
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import _extract_json, load_system_prompt

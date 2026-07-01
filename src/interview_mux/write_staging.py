@@ -423,6 +423,11 @@ def assert_write_approval_allowed(ctx: RunContext, stage_id: str) -> None:
             )
         )
         raise WriteApprovalBlockedError(stage_id, msg)
+    from interview_mux.stage_completion import staged_artifacts_acceptable
+
+    ok, reason = staged_artifacts_acceptable(ctx, stage_id)
+    if not ok:
+        raise WriteApprovalBlockedError(stage_id, reason)
     from interview_mux.artifact_issue_triage import assert_write_approval_itr_ok
 
     assert_write_approval_itr_ok(ctx, stage_id)
@@ -512,7 +517,10 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             hydrated = hydrate_manifest_from_boundaries(ctx, manifest)
             if hydrated != manifest:
                 ctx.write_json("segments/manifest.json", hydrated, stage_key=stage_id)
-        ctx.mark_done(stage_id, force=True)
+        from interview_mux.stage_completion import assert_stage_artifacts_complete
+
+        assert_stage_artifacts_complete(ctx, stage_id)
+        ctx.mark_done(stage_id)
         now = datetime.now(timezone.utc).isoformat()
 
         def _ack(meta: dict[str, Any]) -> None:

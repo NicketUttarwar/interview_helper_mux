@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StageInfo } from "../types";
-import { stageHasCommittedOutputs, stageIncompleteReason, upstreamArtifactsReady } from "./stageOutputs";
+import { stageArtifactsFullyComplete, stageHasCommittedOutputs, stageIncompleteReason, upstreamArtifactsReady } from "./stageOutputs";
 
 function stage(partial: Partial<StageInfo> & { id: string }): StageInfo {
   return {
@@ -42,6 +42,20 @@ describe("stageOutputs", () => {
       }),
       stage({ id: "content_context", status: "pending" }),
     ];
+    expect(upstreamArtifactsReady(stages, "content_context")).toBe(false);
+  });
+
+  it("upstreamArtifactsReady false when prior done stage has partial artifacts", () => {
+    const stages = [
+      stage({
+        id: "speaker_roles",
+        status: "done",
+        artifacts: ["understanding/speakers.json"],
+        artifacts_status: { "understanding/speakers.json": "partial" },
+      }),
+      stage({ id: "content_context", status: "pending" }),
+    ];
+    expect(stageArtifactsFullyComplete(stages[0])).toBe(false);
     expect(upstreamArtifactsReady(stages, "content_context")).toBe(false);
   });
 });

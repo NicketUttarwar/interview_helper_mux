@@ -5,6 +5,7 @@ import pytest
 from interview_mux.artifact_completeness import (
     artifact_status,
     compute_gaps,
+    compute_staged_write_gaps,
     merge_artifact,
     should_run_stage_for_artifact,
 )
@@ -26,6 +27,22 @@ def test_compute_gaps_complete_content_brief():
         "topics": [{"name": "Topic A", "summary": "Summary here."}],
     }
     assert compute_gaps("understanding/content_brief.json", data) == []
+
+
+def test_compute_staged_write_gaps_relax_analysis_state_for_speaker_roles():
+    from interview_mux.analysis_memory import default_analysis_state
+
+    state = default_analysis_state("exec_test")
+    state["speakers"] = [
+        {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.8},
+        {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.7},
+    ]
+    assert compute_gaps("understanding/analysis_state.json", state, stage_key="speaker_roles")
+    assert not compute_staged_write_gaps(
+        "understanding/analysis_state.json",
+        state,
+        stage_id="speaker_roles",
+    )
 
 
 def test_merge_artifact_preserves_operator_verified_themes():
@@ -138,3 +155,28 @@ def test_seed_analysis_ready_with_empty_gap_report(tmp_path, monkeypatch):
     seed_analysis_ready_artifacts(ctx, verified=True)
     assert artifact_status("understanding/gap_report.json", ctx) == "complete"
     assert analysis_profile_ready_for_review(ctx) is True
+
+
+def test_artifact_status_partial_when_resilience_partial(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    write_validated_artifact(
+        ctx,
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.8},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.7},
+            ],
+            "_meta": {
+                "resilience": {
+                    "partial": True,
+                    "summary": "saved after arbiter failure",
+                }
+            },
+        },
+        merge_from_disk=False,
+        stage_key="speaker_roles",
+    )
+    assert artifact_status("understanding/speakers.json", ctx) == "partial"
+    assert should_run_stage_for_artifact(ctx, "speaker_roles") is True

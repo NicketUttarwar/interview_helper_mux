@@ -26,10 +26,10 @@
     "suggested_investigation": {
       "type": ["object", "null"],
       "properties": {
-        "kind": { "type": "string" },
-        "question": { "type": "string" },
-        "blocking": { "type": "boolean" },
-        "suggested_action": { "type": "object" }
+        "kind": { "type": ["string", "null"] },
+        "question": { "type": ["string", "null"] },
+        "blocking": { "type": ["boolean", "null"] },
+        "suggested_action": { "type": ["object", "null"] }
       }
     },
     "reasoning_summary": { "type": "string" }

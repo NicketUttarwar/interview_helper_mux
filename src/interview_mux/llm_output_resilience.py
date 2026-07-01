@@ -60,6 +60,14 @@ def is_spend_stage_strict(stage_key: str, cfg: dict[str, Any] | None = None) -> 
     return stage_key in spend_stages_strict(cfg)
 
 
+def artifact_resilience_partial(data: dict[str, Any] | None) -> bool:
+    """True when artifact was saved via partial-persist after a failed LLM gate."""
+    if not isinstance(data, dict):
+        return False
+    resilience = (data.get("_meta") or {}).get("resilience") or {}
+    return isinstance(resilience, dict) and bool(resilience.get("partial"))
+
+
 def upstream_artifact_acceptable(
     stage_key: str,
     rel_path: str,
@@ -77,8 +85,7 @@ def upstream_artifact_acceptable(
         return False
     if not isinstance(doc, dict):
         return False
-    resilience = (doc.get("_meta") or {}).get("resilience") or {}
-    if isinstance(resilience, dict) and resilience.get("partial"):
+    if artifact_resilience_partial(doc):
         return False
     return True
 

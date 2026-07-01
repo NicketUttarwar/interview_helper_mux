@@ -1,6 +1,11 @@
 import type { AppConfig, RunData } from "../types";
 import { findHandoffStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
+import {
+  stageArtifactsFullyComplete,
+  upstreamArtifactsReady,
+  firstUpstreamBlocker,
+} from "./stageOutputs";
 import { pendingWriteInfo } from "./writeApproval";
 import { isFullAutopilotEnabled } from "./fullAutopilot";
 
@@ -62,6 +67,7 @@ export function isPipelineComplete(run: RunData): boolean {
   const pending = run.stages.some(
     (s) =>
       s.status === "pending" ||
+      s.status === "incomplete" ||
       s.status === "action_required" ||
       s.status === "awaiting_write_approval",
   );
@@ -90,6 +96,8 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
 export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null): boolean {
   const write = pendingWriteInfo(run);
   if (write?.paths.length) return true;
+
+  if (findHandoffStage(run)) return true;
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) {
@@ -122,6 +130,9 @@ function autopilotBlocksNavigationFromStage(run: RunData, completedStageId: stri
   const write = pendingWriteInfo(run);
   if (write?.paths.length && write.stageId === completedStageId) return true;
 
+  const handoff = findHandoffStage(run);
+  if (handoff?.id === completedStageId) return true;
+
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) {
     if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
@@ -150,19 +161,18 @@ export function shouldAutoNavigateFromStage(
 
   const stage = run.stages.find((s) => s.id === stageId);
   if (!stage || stage.status !== "done") return false;
+  if (!stageArtifactsFullyComplete(stage)) return false;
 
   if (autopilotBlocksNavigationFromStage(run, stageId)) return false;
 
   const next = findNextRunnableStage(run.stages, run.meta);
+  if (next && firstUpstreamBlocker(run.stages, next.id)) return false;
   if (next) return true;
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id && blocking.stage_id !== stageId) {
     return true;
   }
-
-  const handoff = findHandoffStage(run);
-  if (handoff?.id === stageId) return true;
 
   return false;
 }
@@ -174,9 +184,6 @@ export function shouldAutoContinueFromStage(
 ): boolean {
   if (!shouldAutoNavigateFromStage(run, stageId, config)) return false;
   if (autopilotBlocksAutoRun(run, config)) return false;
-
-  const handoff = findHandoffStage(run);
-  if (handoff?.id === stageId) return true;
 
   const next = findNextRunnableStage(run.stages, run.meta);
   return Boolean(next);

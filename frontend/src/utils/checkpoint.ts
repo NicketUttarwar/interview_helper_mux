@@ -4,6 +4,7 @@ import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
+import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
 
@@ -12,6 +13,27 @@ export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 
 export function filterCustomRunHandoffPaths(paths: string[]): string[] {
   return paths.filter(isCustomRunArtifactPath);
+}
+
+/** When a gate message references an upstream prerequisite stage, focus that stage. */
+export function upstreamStageFromGateMessage(
+  message: string | undefined,
+  currentStage?: string | null,
+): string | null {
+  if (!message) return null;
+  const match = message.match(/(?:from stage|Prerequisite stage)\s+([a-z][a-z0-9_]*)/i);
+  if (!match) return null;
+  const upstream = match[1];
+  if (currentStage && upstream === currentStage) return null;
+  return upstream;
+}
+
+function gateFocusStageId(
+  job: RunData["job"],
+): string | null {
+  if (!job?.stage) return null;
+  const msg = job.message || job.error || "";
+  return upstreamStageFromGateMessage(msg, job.stage) || job.stage;
 }
 
 function filterCompleteHandoffPaths(stage: StageInfo, paths: string[]): string[] {
@@ -53,7 +75,7 @@ export function findPendingFocusStage(
   grants: Record<string, boolean> = {},
 ): string | null {
   if (!run) return null;
-  if (run.job?.status === "gate" && run.job.stage) return run.job.stage;
+  if (run.job?.status === "gate" && run.job.stage) return gateFocusStageId(run.job);
   if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
     (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
@@ -82,6 +104,8 @@ export function findPendingFocusStage(
       next.status === "awaiting_write_approval" ||
       next.status === "action_required")
   ) {
+    const blocker = firstUpstreamBlocker(run.stages, next.id);
+    if (blocker) return blocker.id;
     return next.id;
   }
 
@@ -134,6 +158,7 @@ export function findHandoffStage(run: RunData | null): StageInfo | null {
   if (!run) return null;
   for (const s of run.stages) {
     if (s.status !== "done") continue;
+    if (!stageArtifactsFullyComplete(s)) continue;
     const paths = getHandoffPathsLocal(s, run.log_tail);
     if (paths.length > 0 && !run.handoff_ack?.[s.id]) return s;
   }

@@ -1,6 +1,5 @@
 import type { AppConfig, JobState, RunData } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
-import { pendingWriteInfo } from "./writeApproval";
 import { isFullAutopilotEnabled } from "./fullAutopilot";
 
 export type AutopilotCheckpointKind = "fix_all" | "write_approval";
@@ -134,25 +133,6 @@ export function resolveAutopilotCheckpoint(
     }
   }
 
-  const write = pendingWriteInfo(run);
-  const awaitingWrite =
-    Boolean(write?.paths.length) ||
-    job?.status === "awaiting_write_approval" ||
-    job?.awaiting_write_approval ||
-    blocking?.reason === "write_approval" ||
-    run.stages.some((s) => s.id === stageId && s.status === "awaiting_write_approval");
-
-  if (awaitingWrite && write?.paths.length) {
-    const saveCheckpoint: AutopilotCheckpoint = {
-      kind: "write_approval",
-      stageId: write.stageId,
-    };
-    if (canAttemptAutopilotCheckpoint(run.run_id, saveCheckpoint)) {
-      return saveCheckpoint;
-    }
-    return null;
-  }
-
   return null;
 }
 
@@ -174,5 +154,7 @@ export function autopilotHidesReviewGate(
     }
   }
   const checkpoint = resolveAutopilotCheckpoint(run, config);
-  return Boolean(checkpoint && checkpoint.stageId === stageId);
+  return Boolean(
+    checkpoint && checkpoint.kind === "fix_all" && checkpoint.stageId === stageId,
+  );
 }

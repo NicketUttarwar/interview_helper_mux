@@ -210,6 +210,13 @@ def _blocking(
     ):
         blocked = True
         stage_id = job.get("pending_write_stage") or job.get("stage")
+        gate_msg_early = str(job.get("message") or "")
+        if job.get("status") == "gate":
+            from interview_mux.gate_focus import gate_focus_stage
+
+            focused = gate_focus_stage(gate_msg_early, job_stage=str(stage_id or ""))
+            if focused:
+                stage_id = focused
         if job.get("status") == "awaiting_write_approval":
             reason = "write_approval"
             message = "Awaiting your review"

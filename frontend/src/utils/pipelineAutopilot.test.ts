@@ -61,6 +61,23 @@ describe("pipelineAutopilot", () => {
     expect(canAutoRunStage("transcript_review")).toBe(false);
   });
 
+  it("blocks auto-continue while handoff review is pending", () => {
+    const run = runStub({
+      stages: [
+        {
+          id: "speaker_roles",
+          title: "Speaker roles",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/speakers.json"],
+        },
+        { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
+      ],
+    });
+    expect(shouldAutoNavigateFromStage(run, "speaker_roles", null)).toBe(false);
+    expect(shouldAutoContinueFromStage(run, "speaker_roles", null)).toBe(false);
+  });
+
   it("auto-navigates but does not auto-run when next stage has stage_reuse blocking", () => {
     const run = runStub({
       journey: {

@@ -10,9 +10,7 @@ export interface PendingWriteInfo {
 export function isStageGateBlocked(run: RunData | null, stageId: string): boolean {
   if (!run?.job || run.job.status !== "gate") return false;
   const gateStage = run.job.pending_write_stage || run.job.stage;
-  if (!gateStage || gateStage !== stageId) return false;
-  const stage = run.stages.find((s) => s.id === stageId);
-  return stage?.status !== "done";
+  return Boolean(gateStage && gateStage === stageId);
 }
 
 /** Resolve staged file paths from job state, run meta, or API response. */

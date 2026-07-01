@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from interview_mux.llm_arbiter import run_llm_arbiter
+from interview_mux.llm_arbiter import run_llm_arbiter, sanitize_arbiter_payload
 
 
 def test_arbiter_parse_retries_once():
@@ -28,3 +28,17 @@ def test_arbiter_parse_retries_once():
         )
     assert calls["n"] == 2
     assert result["verdict"] == "accept"
+
+
+def test_sanitize_arbiter_payload_drops_empty_investigation():
+    cleaned = sanitize_arbiter_payload(
+        {
+            "verdict": "accept",
+            "confidence": 0.9,
+            "gaps": [],
+            "shard_plan": [],
+            "suggested_investigation": {"kind": None, "question": None, "blocking": False},
+            "reasoning_summary": "ok",
+        }
+    )
+    assert cleaned["suggested_investigation"] is None

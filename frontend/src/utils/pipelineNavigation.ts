@@ -8,7 +8,7 @@ import {
   writeApprovalStatusLine,
 } from "./operatorStatus";
 import { findNextRunnableStage, isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
-import { stageHasCommittedOutputs, upstreamArtifactsReady } from "./stageOutputs";
+import { stageArtifactsFullyComplete, stageHasCommittedOutputs } from "./stageOutputs";
 
 export interface NumberedStage {
   number: number;
@@ -183,7 +183,7 @@ export function stageNavStatus(
   const { stage } = entry;
   if (isOptionalStageSkipped(stage, run.meta)) return "skipped";
   if (stage.status === "incomplete") return "blocked";
-  if (stage.status === "done" && !stageHasCommittedOutputs(stage)) return "blocked";
+  if (stage.status === "done" && !stageArtifactsFullyComplete(stage)) return "blocked";
   if (stage.status === "done") return "done";
   if (stage.status === "action_required" || stage.status === "awaiting_write_approval") {
     return "blocked";

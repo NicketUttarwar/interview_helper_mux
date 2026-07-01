@@ -785,6 +785,7 @@ class JobRunner:
                 )
             except SystemExit as exc:
                 gate_msg = str(exc) or "Operator gate — action required."
+                from interview_mux.gate_focus import gate_focus_stage
                 from interview_mux.write_staging import read_gui_job
 
                 existing = read_gui_job(ctx) or {}
@@ -798,7 +799,13 @@ class JobRunner:
                     refresh_journey_meta(ctx)
                     self._release_run_locks(run_id, dir_lock, lock)
                     return
-                ctx.log(gate_msg, level="action", stage=label, detail="Complete the gate in the GUI to continue.")
+                gate_stage = gate_focus_stage(gate_msg, job_stage=stage) or stage
+                ctx.log(
+                    gate_msg,
+                    level="action",
+                    stage=gate_stage,
+                    detail="Complete the gate in the GUI to continue.",
+                )
                 refresh_journey_meta(ctx)
                 self._release_run_locks(run_id, dir_lock, lock)
                 self._write_job(
@@ -806,7 +813,7 @@ class JobRunner:
                     {
                         "status": "gate",
                         "mode": mode,
-                        "stage": stage,
+                        "stage": gate_stage,
                         "message": gate_msg,
                         "error": str(exc),
                     },

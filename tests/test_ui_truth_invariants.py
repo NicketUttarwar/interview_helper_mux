@@ -30,6 +30,19 @@ def test_reconcile_stage_status_downgrades_done():
     assert "speakers.json" in stage.get("incomplete_reason", "")
 
 
+def test_t1_done_stage_no_partial_artifacts() -> None:
+    stages = [
+        {
+            "id": "speaker_roles",
+            "status": "done",
+            "artifacts_status": {"understanding/speakers.json": "partial"},
+            "artifacts_lifecycle": {"understanding/speakers.json": "committed"},
+        }
+    ]
+    v = validate_run_snapshot(stages=stages)
+    assert any(x.code == "T1" and "partial" in x.message for x in v)
+
+
 def test_t8_outputs_view_pending_on_done_stage() -> None:
     stages = [
         {

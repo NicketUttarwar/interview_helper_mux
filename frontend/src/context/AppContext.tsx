@@ -918,22 +918,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 polled.status === "awaiting_write_approval" ||
                 polled.awaiting_write_approval
               ) {
-                if (isPipelineAutopilotEnabled(config)) {
-                  void autoContinuePipelineRef.current(
-                    polled.pending_write_stage || polled.stage || null,
-                  );
-                } else {
-                  showToast("Review staged outputs before continuing.", "info");
-                  const sid = polled.pending_write_stage || polled.stage;
-                  if (sid) {
-                    void selectStage(sid);
-                    expandStage(sid);
-                  }
-                  userDismissedActionRef.current = false;
-                  lastAutoOpenKeyRef.current = null;
-                  if (activeTabRef.current === "pipeline") {
-                    setActionModalOpen(true);
-                  }
+                showToast("Review staged outputs before continuing.", "info");
+                const sid = polled.pending_write_stage || polled.stage;
+                if (sid) {
+                  void selectStage(sid);
+                  expandStage(sid);
+                }
+                userDismissedActionRef.current = false;
+                lastAutoOpenKeyRef.current = null;
+                if (activeTabRef.current === "pipeline") {
+                  setActionModalOpen(true);
                 }
               } else if (
                 polled.status !== "gate" &&
