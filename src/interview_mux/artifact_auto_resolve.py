@@ -539,12 +539,232 @@ def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
     }
 
 
+def _autopilot_aggressive_choice(item: dict[str, Any], *, cfg: dict[str, Any]) -> Any:
+    """Pick a repair action when normal confidence gates would defer to the operator."""
+    choice = pick_recommended_choice(item, cfg=cfg)
+    if choice is not None:
+        return choice
+    strategy = str(item.get("repair_strategy") or "")
+    msg = str(item.get("message") or "").lower()
+    from interview_mux.issue_severity_rules import _extract_segment_id
+
+    if strategy in (
+        "merge_overlap",
+        "fabricate_missing_segments",
+        "default_value",
+        "drop_row",
+        "drop_orphan_ref",
+        "infer_enum",
+    ):
+        return "accept_auto_repair"
+    if "duplicate segment_id" in msg or "missing speaker_id" in msg:
+        return "accept_auto_repair"
+    seg_id = str(item.get("segment_id") or "") or (_extract_segment_id(msg) or "")
+    if seg_id:
+        return "delete_segment"
+    return "accept_auto_repair"
+
+
+def _prepare_autopilot_propagation(
+    ctx: Any,
+    stage_key: str,
+    *,
+    runner: Any | None = None,
+    run_id: str | None = None,
+) -> None:
+    """Clear downstream propagation blockers so autopilot can save segment stages."""
+    from interview_mux.artifact_root_cause import invalidate_stale_downstream, plan_stale_downstream
+
+    plan = plan_stale_downstream(ctx, stage_key)
+    inv = plan.invalidate_from or (plan.stale_stages[0] if plan.stale_stages else None)
+    if inv and runner and run_id:
+        try:
+            runner.invalidate_from(run_id, inv)
+        except Exception:
+            pass
+    invalidate_stale_downstream(ctx, stage_key)
+    _clear_propagation_investigations(ctx, stage_key)
+
+
+def _dismiss_open_blocking_issues(ctx: Any, stage_key: str, *, reason: str = "autopilot_dismiss") -> int:
+    closed = 0
+    for item in items_for_stage(ctx, stage_key):
+        if item.get("status") != "open" or item.get("blocking") is False:
+            continue
+        iid = str(item.get("id") or "")
+        if not iid:
+            continue
+        mark_resolved(ctx, iid, chosen=reason, auto_applied=True)
+        closed += 1
+    return closed
+
+
+def _autopilot_force_complete(
+    ctx: Any,
+    stage_key: str,
+    result: AutoResolveResult,
+    *,
+    cfg: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+    runner: Any | None = None,
+    run_id: str | None = None,
+) -> AutoResolveResult:
+    """Aggressive autopilot completion: repair, delete blocking segments, dismiss stale issues."""
+    from interview_mux.artifact_repairs import apply_repairs_for_stage
+
+    min_segments = int(cfg.get("min_segments_after_auto_resolve") or 1)
+    resolved = result.resolved_count
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+
+    def _apply_deterministic_repair() -> None:
+        nonlocal resolved
+        if not rel:
+            return
+        _, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
+        if not artifact:
+            return
+        patched, _ = apply_repairs_for_stage(ctx, stage_key, artifact, rel_path=rel)
+        write_pending_content(ctx, stage_key, rel, data=patched)
+        run_triage_pipeline(ctx, stage_key, staged=True)
+        closed = _close_stale_segment_issues(ctx, stage_key)
+        resolved += closed
+
+    def _try_finalize_after_validation() -> AutoResolveResult | None:
+        nonlocal resolved
+        _prepare_autopilot_propagation(ctx, stage_key, runner=runner, run_id=run_id)
+        ok, errors, downstream = revalidate_for_itr_gate(ctx, stage_key, artifact_source="staged")
+        if ok and not downstream and blocking_issues_remaining(ctx, stage_key) == 0:
+            result.warnings.append("Autopilot force-complete cleared artifact issues")
+            result.errors = []
+            return _finalize_auto_resolve_success(
+                ctx,
+                stage_key,
+                result,
+                cfg=cfg,
+                resolved=resolved,
+                runner=runner,
+                run_id=run_id,
+            )
+        ok2, val_errors = revalidate_after_repair(ctx, stage_key, staged=True)
+        if ok2:
+            dismissed = _dismiss_open_blocking_issues(ctx, stage_key)
+            if dismissed:
+                result.warnings.append(f"Autopilot dismissed {dismissed} stale issue(s)")
+                resolved += dismissed
+            result.errors = []
+            result.open_blocking = blocking_issues_remaining(ctx, stage_key)
+            if result.open_blocking == 0:
+                return _finalize_auto_resolve_success(
+                    ctx,
+                    stage_key,
+                    result,
+                    cfg=cfg,
+                    resolved=resolved,
+                    runner=runner,
+                    run_id=run_id,
+                )
+        result.errors = val_errors or errors or downstream
+        return None
+
+    _apply_deterministic_repair()
+    finalized = _try_finalize_after_validation()
+    if finalized is not None:
+        return finalized
+
+    max_issue_passes = int(cfg.get("autopilot_force_max_passes") or 4)
+    for _ in range(max_issue_passes):
+        open_items = [
+            it
+            for it in items_for_stage(ctx, stage_key)
+            if it.get("status") == "open" and it.get("blocking") is not False
+        ]
+        if not open_items:
+            break
+
+        progressed = False
+        for item in open_items:
+            choice = _autopilot_aggressive_choice(item, cfg=cfg)
+            if choice == "delete_segment" and _segment_count(ctx, stage_key) <= min_segments:
+                choice = "accept_auto_repair"
+            issue_id = str(item.get("id") or "")
+            if not issue_id:
+                continue
+            try:
+                ok, errors = resolve_issue(ctx, stage_key, issue_id, choice)
+            except Exception as exc:
+                result.warnings.append(str(exc))
+                continue
+            if ok:
+                resolved += 1
+                result.resolved_ids.append(issue_id)
+                progressed = True
+                break
+            if errors:
+                result.warnings.extend(errors[:2])
+
+        _apply_deterministic_repair()
+        finalized = _try_finalize_after_validation()
+        if finalized is not None:
+            return finalized
+        if not progressed:
+            break
+
+    seg_count = _segment_count(ctx, stage_key)
+    while blocking_issues_remaining(ctx, stage_key) > 0 and seg_count > min_segments:
+        open_items = [
+            it
+            for it in items_for_stage(ctx, stage_key)
+            if it.get("status") == "open" and it.get("blocking") is not False
+        ]
+        seg_ids = _segment_ids_from_issues(open_items)
+        if not seg_ids:
+            break
+        issue_stub = {"segment_id": seg_ids[0], "message": f"autopilot delete {seg_ids[0]}"}
+        _, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
+        if not artifact or not rel:
+            break
+        if rel.endswith("boundaries.json"):
+            artifact = apply_choice_to_boundaries(artifact, issue_stub, "delete_segment")
+        elif rel.endswith("manifest.json"):
+            artifact = apply_choice_to_manifest(artifact, issue_stub, "delete_segment")
+        else:
+            break
+        write_pending_content(ctx, stage_key, rel, data=artifact)
+        for item in open_items:
+            iid = str(item.get("id") or "")
+            seg_id = str(item.get("segment_id") or "")
+            if iid and seg_id == seg_ids[0]:
+                mark_resolved(ctx, iid, chosen="delete_segment", auto_applied=True)
+        resolved += 1
+        result.warnings.append(f"Autopilot deleted {seg_ids[0]}")
+        _apply_deterministic_repair()
+        seg_count = _segment_count(ctx, stage_key)
+        finalized = _try_finalize_after_validation()
+        if finalized is not None:
+            return finalized
+
+    if seg_count < min_segments and snapshot:
+        _restore_staging(ctx, stage_key, snapshot)
+        _apply_deterministic_repair()
+        finalized = _try_finalize_after_validation()
+        if finalized is not None:
+            return finalized
+
+    result.outcome = AutoResolveOutcome.PARTIAL
+    result.phase = "failed"
+    result.resolved_count = resolved
+    result.open_blocking = blocking_issues_remaining(ctx, stage_key)
+    result.preview = build_resolution_preview(ctx, stage_key)
+    return result
+
+
 def auto_resolve_stage(
     ctx: Any,
     stage_key: str,
     *,
     runner: Any | None = None,
     run_id: str | None = None,
+    autopilot: bool = False,
 ) -> AutoResolveResult:
     """Resolve all auto-resolvable artifact issues for a stage."""
     result = AutoResolveResult(outcome=AutoResolveOutcome.SUCCESS, stage_key=stage_key)
@@ -567,6 +787,17 @@ def auto_resolve_stage(
         if gate_active:
             ok, errors = revalidate_after_repair(ctx, stage_key, staged=True)
             if not ok:
+                if autopilot:
+                    snap = _snapshot_staging(ctx, stage_key)
+                    return _autopilot_force_complete(
+                        ctx,
+                        stage_key,
+                        result,
+                        cfg=cfg,
+                        snapshot=snap,
+                        runner=runner,
+                        run_id=run_id,
+                    )
                 result.outcome = AutoResolveOutcome.PARTIAL
                 result.phase = "failed"
                 result.errors.extend(errors)
@@ -594,6 +825,17 @@ def auto_resolve_stage(
         result.errors.append("No staged artifact to repair")
         return result
 
+    if autopilot:
+        return _autopilot_force_complete(
+            ctx,
+            stage_key,
+            result,
+            cfg=cfg,
+            snapshot=snapshot,
+            runner=runner,
+            run_id=run_id,
+        )
+
     items = [
         it
         for it in items_for_stage(ctx, stage_key)
@@ -607,7 +849,7 @@ def auto_resolve_stage(
     seg_before = _segment_count(ctx, stage_key)
     min_segments = int(cfg.get("min_segments_after_auto_resolve") or 1)
 
-    if cap_hit:
+    if cap_hit and not autopilot:
         deleted, esc_warnings = _apply_loop_escape_hatch(
             ctx,
             stage_key,
@@ -640,6 +882,17 @@ def auto_resolve_stage(
         result.open_blocking = blocking_issues_remaining(ctx, stage_key)
         result.errors.append("Auto-resolve attempt cap reached for this stage")
         return result
+
+    if cap_hit and autopilot:
+        return _autopilot_force_complete(
+            ctx,
+            stage_key,
+            result,
+            cfg=cfg,
+            snapshot=snapshot,
+            runner=runner,
+            run_id=run_id,
+        )
 
     max_delete_ratio = float(cfg.get("max_segments_deleted_per_fix_all") or 0.10)
     max_issues = int(cfg.get("auto_resolve_max_issues_per_pass") or 50)
@@ -684,12 +937,15 @@ def auto_resolve_stage(
         progressed = False
         for item in open_items:
             choice = pick_recommended_choice(item, cfg=cfg)
+            if choice is None and autopilot:
+                choice = _autopilot_aggressive_choice(item, cfg=cfg)
             if choice is None:
                 continue
             if _destructive_choice(choice):
                 deleted += 1
                 budget_exempt = (
-                    attempt >= int(cfg.get("max_auto_resolve_attempts_per_stage") or 2)
+                    autopilot
+                    or attempt >= int(cfg.get("max_auto_resolve_attempts_per_stage") or 2)
                     or str(item.get("kind") or "") == "cross_validate"
                     or "missing speaker_id" in str(item.get("message") or "").lower()
                 )
@@ -794,12 +1050,32 @@ def auto_resolve_stage(
     ]
 
     if manual_left:
+        if autopilot:
+            return _autopilot_force_complete(
+                ctx,
+                stage_key,
+                result,
+                cfg=cfg,
+                snapshot=snapshot,
+                runner=runner,
+                run_id=run_id,
+            )
         result.outcome = AutoResolveOutcome.MANUAL_REQUIRED if resolved == 0 else AutoResolveOutcome.PARTIAL
         result.phase = "failed"
         result.preview = build_resolution_preview(ctx, stage_key)
         return result
 
     if not ok or downstream:
+        if autopilot:
+            return _autopilot_force_complete(
+                ctx,
+                stage_key,
+                result,
+                cfg=cfg,
+                snapshot=snapshot,
+                runner=runner,
+                run_id=run_id,
+            )
         result.outcome = AutoResolveOutcome.PARTIAL
         result.phase = "awaiting_save"
         return result

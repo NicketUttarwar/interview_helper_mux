@@ -238,3 +238,59 @@ def test_escape_hatch_on_retry_cap(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
     ok, errors = revalidate_after_repair(ctx, "boundary_detection", staged=True)
     assert ok, errors
     assert blocking_issues_remaining(ctx, "boundary_detection") == 0
+
+
+def test_autopilot_force_complete_duplicate_segment_ids(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Autopilot mode repairs duplicate ids and missing speaker_id without operator clicks."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _itr_config())
+    ctx = isolated_run_ctx(tmp_path, "autopilot_dup")
+    ctx.write_json(
+        "understanding/speakers.json",
+        {"speakers": [{"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9}]},
+        skip_handoff=True,
+    )
+    write_pending_content(
+        ctx,
+        "boundary_detection",
+        "segments/boundaries.json",
+        data={
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "proposed_split_reason": "topic_shift",
+                },
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 1000,
+                    "end_ms": 2000,
+                    "speaker_id": "spk_1",
+                    "proposed_split_reason": "topic_shift",
+                },
+                {
+                    "segment_id": "seg_002",
+                    "start_ms": 2000,
+                    "end_ms": 3000,
+                    "speaker_id": "spk_1",
+                    "proposed_split_reason": "topic_shift",
+                },
+                {
+                    "segment_id": "seg_002",
+                    "start_ms": 3000,
+                    "end_ms": 4000,
+                    "speaker_id": "spk_1",
+                    "proposed_split_reason": "topic_shift",
+                },
+            ]
+        },
+    )
+    run_triage_pipeline(ctx, "boundary_detection", staged=True)
+    assert blocking_issues_remaining(ctx, "boundary_detection") >= 1
+
+    result = auto_resolve_stage(ctx, "boundary_detection", autopilot=True)
+    assert result.outcome == AutoResolveOutcome.SUCCESS
+    assert blocking_issues_remaining(ctx, "boundary_detection") == 0
+    ok, errors = revalidate_after_repair(ctx, "boundary_detection", staged=True)
+    assert ok, errors

@@ -9,36 +9,84 @@ export interface AutopilotCheckpoint {
   stageId: string;
 }
 
-const fixAllAttempts = new Map<string, number>();
+const checkpointAttempts = new Map<string, number>();
 const MAX_FIX_ALL_ATTEMPTS = 3;
+const MAX_WRITE_APPROVAL_ATTEMPTS = 3;
 
-function attemptKey(runId: string, stageId: string): string {
-  return `${runId}:${stageId}`;
+function attemptKey(runId: string, stageId: string, kind: AutopilotCheckpointKind): string {
+  return `${runId}:${stageId}:${kind}`;
 }
 
 export function isClarificationDeferred(job?: JobState | null): boolean {
   return Boolean(job?.clarification_pending);
 }
 
+export function canAttemptAutopilotCheckpoint(
+  runId: string,
+  checkpoint: AutopilotCheckpoint,
+): boolean {
+  const cap =
+    checkpoint.kind === "write_approval" ? MAX_WRITE_APPROVAL_ATTEMPTS : MAX_FIX_ALL_ATTEMPTS;
+  return (checkpointAttempts.get(attemptKey(runId, checkpoint.stageId, checkpoint.kind)) ?? 0) < cap;
+}
+
+/** @deprecated Use canAttemptAutopilotCheckpoint */
 export function canAttemptAutopilotFixAll(runId: string, stageId: string): boolean {
-  return (fixAllAttempts.get(attemptKey(runId, stageId)) ?? 0) < MAX_FIX_ALL_ATTEMPTS;
+  return canAttemptAutopilotCheckpoint(runId, { kind: "fix_all", stageId });
+}
+
+export function recordAutopilotCheckpointAttempt(
+  runId: string,
+  checkpoint: AutopilotCheckpoint,
+): void {
+  const key = attemptKey(runId, checkpoint.stageId, checkpoint.kind);
+  checkpointAttempts.set(key, (checkpointAttempts.get(key) ?? 0) + 1);
 }
 
 export function recordAutopilotFixAllAttempt(runId: string, stageId: string): void {
-  const key = attemptKey(runId, stageId);
-  fixAllAttempts.set(key, (fixAllAttempts.get(key) ?? 0) + 1);
+  recordAutopilotCheckpointAttempt(runId, { kind: "fix_all", stageId });
+}
+
+export function recordAutopilotWriteApprovalAttempt(runId: string, stageId: string): void {
+  recordAutopilotCheckpointAttempt(runId, { kind: "write_approval", stageId });
+}
+
+export function clearAutopilotCheckpointAttempts(
+  runId: string,
+  stageId: string,
+  kind?: AutopilotCheckpointKind,
+): void {
+  if (kind) {
+    checkpointAttempts.delete(attemptKey(runId, stageId, kind));
+    return;
+  }
+  checkpointAttempts.delete(attemptKey(runId, stageId, "fix_all"));
+  checkpointAttempts.delete(attemptKey(runId, stageId, "write_approval"));
 }
 
 export function clearAutopilotFixAllAttempts(runId: string, stageId: string): void {
-  fixAllAttempts.delete(attemptKey(runId, stageId));
+  clearAutopilotCheckpointAttempts(runId, stageId, "fix_all");
 }
 
 export function resetAutopilotAttemptsForRun(runId: string): void {
-  for (const key of [...fixAllAttempts.keys()]) {
+  for (const key of [...checkpointAttempts.keys()]) {
     if (key.startsWith(`${runId}:`)) {
-      fixAllAttempts.delete(key);
+      checkpointAttempts.delete(key);
     }
   }
+}
+
+function hasItrBlockingIssues(run: RunData, stageId: string): boolean {
+  const job = run.job;
+  if (job?.stage && job.stage !== stageId) return false;
+  const open = Number(job?.itr_open_blocking ?? job?.itr_blocking_count ?? 0);
+  if (open > 0) return true;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  return Boolean(
+    blocking?.blocked &&
+      blocking.stage_id === stageId &&
+      blocking.reason === "artifact_clarification",
+  );
 }
 
 function jobCanAutopilotFix(run: RunData, stageId: string): boolean {
@@ -60,11 +108,6 @@ export function resolveAutopilotCheckpoint(
 
   if (isClarificationDeferred(run.job)) return null;
 
-  const write = pendingWriteInfo(run);
-  if (write?.paths.length) {
-    return { kind: "write_approval", stageId: write.stageId };
-  }
-
   const job = run.job;
   const blocking = run.journey?.blocking ?? run.blocking;
   const stageId =
@@ -74,28 +117,35 @@ export function resolveAutopilotCheckpoint(
     null;
   if (!stageId) return null;
 
-  if (
+  const itrBlocked = hasItrBlockingIssues(run, stageId);
+  const needsClarification =
+    job?.status === "needs_clarification" || blocking?.reason === "artifact_clarification";
+  const llmGate = job?.status === "gate" || blocking?.reason === "llm_gate";
+
+  if (itrBlocked || needsClarification || llmGate) {
+    if (jobCanAutopilotFix(run, stageId) || itrBlocked || needsClarification) {
+      const fixCheckpoint: AutopilotCheckpoint = { kind: "fix_all", stageId };
+      if (canAttemptAutopilotCheckpoint(run.run_id, fixCheckpoint)) {
+        return fixCheckpoint;
+      }
+    }
+  }
+
+  const write = pendingWriteInfo(run);
+  const awaitingWrite =
+    Boolean(write?.paths.length) ||
     job?.status === "awaiting_write_approval" ||
     job?.awaiting_write_approval ||
     blocking?.reason === "write_approval" ||
-    run.stages.some((s) => s.id === stageId && s.status === "awaiting_write_approval")
-  ) {
-    return { kind: "write_approval", stageId };
-  }
+    run.stages.some((s) => s.id === stageId && s.status === "awaiting_write_approval");
 
-  if (
-    job?.status === "needs_clarification" ||
-    blocking?.reason === "artifact_clarification"
-  ) {
-    if (jobCanAutopilotFix(run, stageId)) {
-      return { kind: "fix_all", stageId };
-    }
-    return null;
-  }
-
-  if (job?.status === "gate" || blocking?.reason === "llm_gate") {
-    if (jobCanAutopilotFix(run, stageId)) {
-      return { kind: "fix_all", stageId };
+  if (awaitingWrite && write?.paths.length) {
+    const saveCheckpoint: AutopilotCheckpoint = {
+      kind: "write_approval",
+      stageId: write.stageId,
+    };
+    if (canAttemptAutopilotCheckpoint(run.run_id, saveCheckpoint)) {
+      return saveCheckpoint;
     }
     return null;
   }

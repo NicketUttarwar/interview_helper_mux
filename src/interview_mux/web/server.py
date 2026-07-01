@@ -1455,7 +1455,11 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-resolve")
-    async def post_stage_issues_auto_resolve(run_id: str, stage_id: str) -> dict[str, Any]:
+    async def post_stage_issues_auto_resolve(
+        run_id: str,
+        stage_id: str,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ctx = _ctx(run_id)
         if stage_id not in STAGE_BY_ID:
             raise HTTPException(404, f"Unknown stage: {stage_id}")
@@ -1465,8 +1469,16 @@ def create_app() -> FastAPI:
         if not triage_enabled():
             return {"outcome": "success", "stage_key": stage_id, "open_blocking": 0, "can_advance_pipeline": True}
 
+        autopilot = bool((body or {}).get("autopilot"))
+
         def _resolve() -> dict[str, Any]:
-            result = auto_resolve_stage(ctx, stage_id, runner=runner, run_id=run_id)
+            result = auto_resolve_stage(
+                ctx,
+                stage_id,
+                runner=runner,
+                run_id=run_id,
+                autopilot=autopilot,
+            )
             return result.to_dict()
 
         try:

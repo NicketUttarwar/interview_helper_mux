@@ -17,9 +17,9 @@ import {
   shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
 import {
-  canAttemptAutopilotFixAll,
-  clearAutopilotFixAllAttempts,
-  recordAutopilotFixAllAttempt,
+  canAttemptAutopilotCheckpoint,
+  clearAutopilotCheckpointAttempts,
+  recordAutopilotCheckpointAttempt,
   resolveAutopilotCheckpoint,
 } from "./autopilotResolution";
 
@@ -34,21 +34,25 @@ export async function tryAutopilotCheckpointResolution(
 
   const checkpoint = resolveAutopilotCheckpoint(run, opts.config);
   if (!checkpoint) return false;
+  if (!canAttemptAutopilotCheckpoint(opts.runId, checkpoint)) return false;
+
+  recordAutopilotCheckpointAttempt(opts.runId, checkpoint);
 
   if (checkpoint.kind === "write_approval") {
     if (!opts.approveWriteAndContinue) return false;
     opts.showToast("Autopilot: saving staged outputs…", "info");
-    return opts.approveWriteAndContinue(checkpoint.stageId);
+    const ok = await opts.approveWriteAndContinue(checkpoint.stageId);
+    if (ok) {
+      clearAutopilotCheckpointAttempts(opts.runId, checkpoint.stageId);
+    }
+    return ok;
   }
 
   if (!opts.fixAllAndContinueStage) return false;
-  if (!canAttemptAutopilotFixAll(opts.runId, checkpoint.stageId)) return false;
-
-  recordAutopilotFixAllAttempt(opts.runId, checkpoint.stageId);
   opts.showToast("Autopilot: fixing artifact issues…", "info");
   const ok = await opts.fixAllAndContinueStage(checkpoint.stageId);
   if (ok) {
-    clearAutopilotFixAllAttempts(opts.runId, checkpoint.stageId);
+    clearAutopilotCheckpointAttempts(opts.runId, checkpoint.stageId);
     return true;
   }
   return false;

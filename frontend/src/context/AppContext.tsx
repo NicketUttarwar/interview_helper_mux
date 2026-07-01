@@ -796,7 +796,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!focusId || focusId === currentId) return;
     if (currentId && stageNeedsAttention(run, currentId, ALL_API_CONSENTS)) return;
     void syncPipelineStageFocusRef.current();
-  }, [pipelineFocusKey, jobRunning, run]);
+  }, [pipelineFocusKey, jobRunning, run, config]);
 
   useEffect(() => {
     if (!run || activeTabRef.current !== "pipeline" || jobRunning) return;
@@ -807,7 +807,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const checkpoint = resolveAutopilotCheckpoint(run, config);
     if (!checkpoint) return;
     void autoContinuePipelineRef.current(checkpoint.stageId);
-  }, [pipelineFocusKey, jobRunning, run, config]);
+  }, [pipelineFocusKey, jobRunning, config]);
 
   const syncJobRunning = useCallback(async (rid: string) => {
     try {
@@ -2019,7 +2019,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           downstream_job?: unknown;
           errors?: string[];
           open_blocking?: number;
-        }>(`/api/runs/${runId}/stages/${stageId}/issues/auto-resolve`, { method: "POST" });
+        }>(`/api/runs/${runId}/stages/${stageId}/issues/auto-resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ autopilot: true }),
+        });
         await refreshRun();
         const outcome = res.outcome || "unknown";
         if (outcome === "success") {

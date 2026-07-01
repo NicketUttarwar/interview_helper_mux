@@ -1,9 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { RunData } from "../types";
 import {
+  canAttemptAutopilotCheckpoint,
   canAttemptAutopilotFixAll,
-  clearAutopilotFixAllAttempts,
+  clearAutopilotCheckpointAttempts,
   recordAutopilotFixAllAttempt,
+  recordAutopilotWriteApprovalAttempt,
   resolveAutopilotCheckpoint,
   autopilotHidesReviewGate,
 } from "./autopilotResolution";
@@ -18,7 +20,7 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
 
 describe("autopilotResolution", () => {
   beforeEach(() => {
-    clearAutopilotFixAllAttempts("exec_test", "boundary_detection");
+    clearAutopilotCheckpointAttempts("exec_test", "boundary_detection");
   });
 
   it("does not resolve fix_all while clarification is deferred", () => {
@@ -83,6 +85,41 @@ describe("autopilotResolution", () => {
       },
     });
     expect(autopilotHidesReviewGate(run, "boundary_detection", null)).toBe(true);
+  });
+
+  it("prefers fix_all when ITR issues block save", () => {
+    const run = runStub({
+      stages: [{ id: "boundary_detection", title: "Boundaries", status: "awaiting_write_approval", phase: "understand" }],
+      job: {
+        status: "needs_clarification",
+        stage: "boundary_detection",
+        pending_write_stage: "boundary_detection",
+        pending_write_paths: ["segments/boundaries.json"],
+        itr_blocking_count: 5,
+        can_fix_all: true,
+      },
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "artifact_clarification",
+          stage_id: "boundary_detection",
+        },
+      },
+    });
+    expect(resolveAutopilotCheckpoint(run, null)).toEqual({
+      kind: "fix_all",
+      stageId: "boundary_detection",
+    });
+  });
+
+  it("limits write-approval attempts per stage", () => {
+    const checkpoint = { kind: "write_approval" as const, stageId: "boundary_detection" };
+    expect(canAttemptAutopilotCheckpoint("exec_test", checkpoint)).toBe(true);
+    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
+    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
+    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
+    expect(canAttemptAutopilotCheckpoint("exec_test", checkpoint)).toBe(false);
   });
 
   it("limits fix-all attempts per stage", () => {

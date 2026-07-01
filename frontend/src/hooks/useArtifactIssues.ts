@@ -65,7 +65,11 @@ export function useArtifactIssues(stageId: string) {
     try {
       const res = await api<AutoResolveResult>(
         `/api/runs/${runId}/stages/${stageId}/issues/auto-resolve`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ autopilot: true }),
+        },
       );
       if (res.propagation_plan) {
         setPropagationPlan(res.propagation_plan);
