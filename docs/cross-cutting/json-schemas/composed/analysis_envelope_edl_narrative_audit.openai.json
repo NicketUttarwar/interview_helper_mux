@@ -25,7 +25,8 @@
             "pass",
             "warn",
             "fail"
-          ]
+          ],
+          "type": "string"
         },
         "blocking_issues": {
           "type": "array",

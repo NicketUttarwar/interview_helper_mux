@@ -492,6 +492,9 @@ def flow1_overlays_from_sdp(
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
         level_db = float(cue.get("level_db", -24.0))
+        from interview_mux.tbiy_mix import apply_pan_position, tbiy_duck_db, tbiy_level_adjustment_db
+
+        level_db += tbiy_level_adjustment_db(ctx, cue, asset)
         if cue.get("skip") is True:
             continue
 
@@ -518,15 +521,17 @@ def flow1_overlays_from_sdp(
                 continue
             if bool((_mix_cfg()).get("adaptive_level_from_sap", True)):
                 level_db = _adaptive_bed_level_db(ctx, default_level_db=level_db)
-            duck_db = max(MIN_DUCK_DB, float(cue.get("duck_under_speech_db", duck_default)))
+            duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_default))
             fade_in = int(cue.get("crossfade_ms") or 120)
             fade_out = int(cue.get("crossfade_ms") or 150)
             bed = loop_to_duration(base, dur)
+            bed = apply_pan_position(bed, cue.get("pan_position"))
             bed = bed.apply_gain(level_db - duck_db).fade_in(fade_in).fade_out(fade_out)
             out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
             continue
 
-        if asset.get("role") == "chapter_stinger":
+        asset_role = str(asset.get("role") or "")
+        if _cue_uses_pause_alignment(cue, asset):
             if stinger_count >= max_stingers:
                 ctx.log(
                     f"mix_flow1: stinger cap reached ({max_stingers}/timeline) — dropped {asset_id}",
@@ -539,11 +544,14 @@ def flow1_overlays_from_sdp(
         fade_in = int(cue.get("crossfade_ms") or 50)
         fade_out = int(cue.get("crossfade_ms") or 130)
         cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
+        cue_audio = apply_pan_position(cue_audio, cue.get("pan_position"))
         pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
-        if asset.get("role") == "chapter_stinger":
-            cue_audio = cue_audio[: int(float(asset.get("duration_seconds", 1.8)) * 1000)]
+        if _cue_uses_pause_alignment(cue, asset):
+            dur_s = float(asset.get("duration_seconds") or 0.4)
+            if asset_role in ("chapter_stinger", "transition_stinger", "transition_whoosh"):
+                cue_audio = cue_audio[: int(dur_s * 1000)]
             pos = _align_stinger_to_pause_tail(
                 ctx,
                 pos=pos,
@@ -556,7 +564,10 @@ def flow1_overlays_from_sdp(
             )
         if excluded and _overlaps_excluded(int(pos), len(cue_audio), excluded):
             continue
-        role = "bridge" if placement == "before_segment" else "stinger"
+        if asset_role == "rhetorical_punctuator":
+            role = "punctuator"
+        else:
+            role = "bridge" if placement == "before_segment" else "stinger"
         out.append({"audio": cue_audio, "position_ms": pos, "role": role})
 
     return out
@@ -822,6 +833,18 @@ def _stinger_segment_id(cue: dict[str, Any], placement: str) -> str:
     if placement == "after_segment":
         return str(cue.get("after_segment_id") or cue.get("segment_id") or "")
     return str(cue.get("segment_id") or "")
+
+
+def _cue_uses_pause_alignment(cue: dict[str, Any], asset: dict[str, Any]) -> bool:
+    if str(cue.get("trigger") or "") == "pause":
+        return True
+    role = str(asset.get("role") or "")
+    return role in (
+        "chapter_stinger",
+        "rhetorical_punctuator",
+        "transition_stinger",
+        "transition_whoosh",
+    )
 
 
 def _align_stinger_to_pause_tail(

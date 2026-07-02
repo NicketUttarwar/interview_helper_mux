@@ -134,6 +134,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/speakers.json",),
     ),
     StageInfo(
+        "source_topology_build",
+        "Source topology",
+        "Classify interview shape (guest count, talk-time, frame ratio) and lock pickup voice to least-spoken speaker.",
+        "analysis",
+        ("understanding/source_topology.json", "understanding/flow_adaptation.json"),
+        ("understanding/flow_adaptation.json",),
+    ),
+    StageInfo(
         "content_context",
         "Content understanding",
         "Extract themes, narrative arc, and key claims from the full transcript.",
@@ -297,6 +305,14 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         ("flow_1_master/edl.json",),
         (),
         ("flow_1_master/assembly_preview.wav",),
+    ),
+    StageInfo(
+        "g1_5_preview_pickup",
+        "Post-preview pickup (G1.5)",
+        "TBIY only: after listening to assembly preview, re-record reaction lines with preview context.",
+        "gate",
+        ("understanding/gap_report.json", "vo_pickup/"),
+        ("understanding/gap_report.json", "vo_pickup/"),
     ),
     StageInfo(
         "sfx_prompt_craft",
@@ -519,6 +535,8 @@ LLM_ROUTING_STAGE_IDS: frozenset[str] = frozenset(
 def stage_status(ctx_done: Any, stage_id: str) -> str:
     if stage_id == "g1_vo_pickup":
         return "pending"  # resolved by caller
+    if stage_id == "g1_5_preview_pickup":
+        return "pending"  # resolved by caller
     if stage_id == "g2_flow_select":
         return "pending"  # resolved by caller
     if ctx_done(stage_id):
@@ -581,6 +599,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "source_acoustic_profile",
         "interview_spine_build",
         "speaker_roles",
+        "source_topology_build",
         "content_context",
         "boundary_detection",
         "segment_classification",
@@ -612,6 +631,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "transcript_review",
         "analysis_profile",
         "g1_vo_pickup",
+        "g1_5_preview_pickup",
         "g2_flow_select",
         "mux_flow1",
         "mux_flow2",
@@ -624,6 +644,7 @@ _STAGE_REUSE_POLICY.update(
         "transcript_review": "gate",
         "analysis_profile": "gate",
         "g1_vo_pickup": "gate",
+        "g1_5_preview_pickup": "gate",
         "g2_flow_select": "gate",
     }
 )

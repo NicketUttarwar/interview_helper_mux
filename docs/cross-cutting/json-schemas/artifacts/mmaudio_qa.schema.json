@@ -2,31 +2,73 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MmaudioQaArtifact",
   "type": "object",
-  "required": ["version", "assets"],
+  "required": [
+    "version",
+    "assets"
+  ],
   "properties": {
-    "version": { "type": "integer" },
+    "version": {
+      "type": "integer"
+    },
     "assets": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["asset_id", "verdict"],
+        "required": [
+          "asset_id",
+          "verdict"
+        ],
         "properties": {
-          "asset_id": { "type": "string" },
-          "role": { "type": "string" },
-          "verdict": { "enum": ["pass", "warn", "fail"] },
+          "asset_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "warn",
+              "fail"
+            ],
+            "type": "string"
+          },
           "generation_status": {
             "type": "string",
-            "enum": ["pass", "failed", "placeholder"],
+            "enum": [
+              "pass",
+              "failed",
+              "placeholder"
+            ],
             "description": "Subprocess outcome; placeholder/silent WAV must not pass as success."
           },
-          "reasons": { "type": "array", "items": { "type": "string" } },
-          "action": { "type": "string" },
-          "actual_duration_seconds": { "type": "number" },
-          "suggested_trim_ms": { "type": "integer" },
-          "suggested_level_db_delta": { "type": "number" },
-          "suggested_crossfade_ms": { "type": "integer" },
-          "suggested_cfg_delta": { "type": "number" },
-          "speech_band_ratio": { "type": "number" },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "action": {
+            "type": "string"
+          },
+          "actual_duration_seconds": {
+            "type": "number"
+          },
+          "suggested_trim_ms": {
+            "type": "integer"
+          },
+          "suggested_level_db_delta": {
+            "type": "number"
+          },
+          "suggested_crossfade_ms": {
+            "type": "integer"
+          },
+          "suggested_cfg_delta": {
+            "type": "number"
+          },
+          "speech_band_ratio": {
+            "type": "number"
+          },
           "theme_fit_score": {
             "type": "number",
             "minimum": 0,
@@ -43,7 +85,9 @@
             "type": "boolean",
             "description": "True when RMS below silence threshold (failed generation)."
           },
-          "spectral_bucket_match": { "type": "boolean" },
+          "spectral_bucket_match": {
+            "type": "boolean"
+          },
           "semantic_similarity": {
             "type": "number",
             "minimum": -1,
@@ -52,14 +96,30 @@
           },
           "semantic_qa_verdict": {
             "type": "string",
-            "enum": ["pass", "warn", "fail", "skipped"]
+            "enum": [
+              "pass",
+              "warn",
+              "fail",
+              "skipped"
+            ]
           },
-          "semantic_qa_skipped_reason": { "type": "string" },
-          "semantic_qa_model_id": { "type": "string" },
-          "semantic_qa_threshold": { "type": "number" },
+          "semantic_qa_skipped_reason": {
+            "type": "string"
+          },
+          "semantic_qa_model_id": {
+            "type": "string"
+          },
+          "semantic_qa_threshold": {
+            "type": "number"
+          },
           "recommended_action": {
             "type": "string",
-            "enum": ["pass", "refine", "regenerate", "trim_hint"]
+            "enum": [
+              "pass",
+              "refine",
+              "regenerate",
+              "trim_hint"
+            ]
           }
         },
         "additionalProperties": true

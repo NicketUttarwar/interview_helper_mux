@@ -15,6 +15,7 @@ GATE_STAGES = frozenset(
         "disfluency_review",
         "analysis_profile",
         "g1_vo_pickup",
+        "g1_5_preview_pickup",
         "g2_flow_select",
     }
 )
@@ -68,7 +69,10 @@ STAGE_REVIEW: dict[str, list[str]] = {
     ],
     "sonic_context_build": ["Scenario posture looks plausible for this interview"],
     "sound_design_palettes": ["Palettes are grounded to segment_ids"],
-    "missing_framing": ["Gap evaluations have plausible gap_type values"],
+    "missing_framing": [
+        "Gap pickup speaker confirmed",
+        "Gap evaluations have plausible gap_type values",
+    ],
     "optimal_questions": [
         "gap_report.json is complete",
         "Interviewer script is readable",
@@ -402,6 +406,42 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 kind="gate",
                 status="todo" if g1 else "done",
                 next_hint="Next: Confirm output (G2)",
+            ),
+        ]
+    if stage_id == "g1_5_preview_pickup":
+        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+        pending = check_g1_5_preview_pickup_pending(ctx)
+        return [
+            _step(
+                "listen_preview",
+                1,
+                "Listen to assembly preview",
+                instruction="Mark preview listened after reviewing speech + VO timing.",
+                review=["assembly_preview.wav reflects final order"],
+                kind="gate",
+                status="todo" if ctx.artifact_exists("flow_1_master/assembly_preview.wav") else "locked",
+                embed="post_listen",
+            ),
+            _step(
+                "rerecord_post_preview",
+                2,
+                "Re-record post-preview lines",
+                instruction="Reaction lines flagged post-preview need fresh recordings after you heard the mix.",
+                review=["Each post-preview line shows satisfied checkmark"],
+                kind="gate",
+                status="todo" if pending else "done",
+                embed="preview_pickup",
+            ),
+            _step(
+                "continue_sfx",
+                3,
+                "Continue to SFX",
+                instruction="All post-preview pickup lines must be re-recorded before MMAudio SFX generation.",
+                primary_button="Post-preview lines done — continue",
+                kind="gate",
+                status="todo" if pending else "done",
+                next_hint="Next: Craft MMAudio prompts",
             ),
         ]
     if stage_id == "g2_flow_select":
@@ -962,6 +1002,40 @@ def build_stage_steps(
 
     if stage_id == PRECLEAN_STAGE:
         return _preclean_steps(ctx, status)
+
+    if stage_id == "missing_framing" and status == "action_required":
+        from interview_mux.source_topology import check_pickup_speaker_pending
+
+        if check_pickup_speaker_pending(ctx):
+            return [
+                _step(
+                    "pickup_speaker_listen",
+                    1,
+                    "Listen to each speaker",
+                    instruction=(
+                        "Play a sample clip from each speaker. By default the gap pickup voice is "
+                        "whoever spoke least in the source audio."
+                    ),
+                    review=["Each speaker has audible speech", "Roles match your mental model"],
+                    kind="gate",
+                    status="todo",
+                    embed="pickup_speaker",
+                ),
+                _step(
+                    "pickup_speaker_confirm",
+                    2,
+                    "Confirm gap pickup speaker",
+                    instruction=(
+                        "Select who will record new gap-fill lines, then confirm before gap "
+                        "evaluation and question writing run."
+                    ),
+                    primary_button="Confirm gap pickup speaker",
+                    kind="gate",
+                    status="todo",
+                    embed="pickup_speaker",
+                    next_hint="Next: Gap evaluation (missing framing)",
+                ),
+            ]
 
     if stage_id in GATE_STAGES:
         return _gate_steps(ctx, stage_id, status)

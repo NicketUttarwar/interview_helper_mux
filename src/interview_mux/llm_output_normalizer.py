@@ -15,6 +15,12 @@ from interview_mux.field_necessity_registry import (
 )
 from interview_mux.llm_fabricate import fabricate_field_values, merge_fabrication_meta
 from interview_mux.llm_response_verify import verify_llm_response
+from interview_mux.normalization_decision import (
+    DownstreamAction,
+    NormalizationDecision,
+    resolve_normalization_decision,
+    summarize_decisions,
+)
 from interview_mux.null_field_policy import find_null_fields, null_policy_cfg
 from interview_mux.openai_structured_output import resolve_parent_stage_key
 
@@ -26,6 +32,7 @@ class NormalizationAction:
     kind: NormalizationActionKind
     path: str
     detail: str | None = None
+    downstream: str | None = None
 
 
 @dataclass
@@ -33,8 +40,10 @@ class NormalizationResult:
     normalized: dict[str, Any]
     ok: bool
     actions: list[NormalizationAction] = field(default_factory=list)
+    decisions: list[NormalizationDecision] = field(default_factory=list)
     fabricate_calls: int = 0
     blocked_paths: list[str] = field(default_factory=list)
+    suggested_downstream: list[str] = field(default_factory=list)
     verification_errors: list[str] = field(default_factory=list)
 
 
@@ -59,7 +68,6 @@ def _delete_path(obj: Any, path: str) -> bool:
                 return False
             if is_last:
                 if isinstance(arr[idx], dict):
-                    # delete leaf inside object at index — part was wrong split
                     return False
                 arr.pop(idx)
                 return True
@@ -78,7 +86,6 @@ def _delete_path(obj: Any, path: str) -> bool:
 def _delete_null_leaves(artifacts: dict[str, Any], paths: list[str]) -> dict[str, Any]:
     out = copy.deepcopy(artifacts)
     for path in paths:
-        # Try exact path first
         if _delete_path(out, path):
             continue
         norm = re.sub(r"\[\d+\]", "", path).replace("..", ".")
@@ -91,6 +98,20 @@ def _collect_null_paths(stage_key: str, envelope: dict[str, Any]) -> list[str]:
     if not isinstance(artifacts, dict):
         return []
     return find_null_fields(stage_key, artifacts)
+
+
+def _record_decision_meta(envelope: dict[str, Any], decisions: list[NormalizationDecision]) -> None:
+    artifacts = envelope.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return
+    meta = artifacts.setdefault("_meta", {})
+    summary = meta.setdefault("normalization_summary", {})
+    agg = summarize_decisions(decisions)
+    summary.update(agg)
+    summary["updated_at"] = datetime.now(timezone.utc).isoformat()
+    downstreams = sorted({d.downstream.value for d in decisions})
+    if downstreams:
+        summary["suggested_downstream"] = downstreams
 
 
 def _apply_omit_to_envelope(
@@ -112,7 +133,13 @@ def _apply_omit_to_envelope(
     ack["updated_at"] = datetime.now(timezone.utc).isoformat()
     out["artifacts"] = updated
     for p in paths:
-        actions.append(NormalizationAction(kind="omit", path=p))
+        actions.append(
+            NormalizationAction(
+                kind="omit",
+                path=p,
+                downstream=DownstreamAction.OMIT_AND_ACKNOWLEDGE.value,
+            )
+        )
     summary = meta.setdefault("normalization_summary", {})
     summary["omit_count"] = int(summary.get("omit_count") or 0) + len(paths)
     summary["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -124,6 +151,23 @@ def _verify_target(envelope: dict[str, Any], task_kind: str | None) -> dict[str,
         target = envelope.get("artifacts") or envelope
         return target if isinstance(target, dict) else envelope
     return envelope
+
+
+def _decide_for_path(
+    stage_key: str,
+    path: str,
+    *,
+    prefer_omit: bool,
+    cfg: dict[str, Any],
+    error_kind: str | None = None,
+) -> NormalizationDecision:
+    return resolve_normalization_decision(
+        stage_key,
+        path,
+        prefer_omit=prefer_omit,
+        error_kind=error_kind,
+        cfg=cfg,
+    )
 
 
 def normalize_llm_response(
@@ -138,7 +182,11 @@ def normalize_llm_response(
 ) -> NormalizationResult:
     """
     Normalize null/type issues before verify_llm_response.
-    Returns post-normalized envelope and whether verification passes.
+
+    Permissive decision tree (automation-first):
+    1. OMIT nullable / commentary nulls → acknowledge, continue
+    2. FABRICATE low-risk optional fields → benign defaults, continue
+    3. BLOCK only evidentiary/critical → record downstream (volley_retry / micro_gap_fill)
     """
     cfg = null_policy_cfg()
     if task_kind == "arbiter":
@@ -170,16 +218,18 @@ def normalize_llm_response(
     prefer_omit = bool(cfg.get("prefer_omit_over_fabricate", True))
     current = copy.deepcopy(parsed)
     all_actions: list[NormalizationAction] = []
+    all_decisions: list[NormalizationDecision] = []
     fabricate_calls = 0
     blocked: list[str] = []
+    suggested: list[str] = []
 
-    # Proactive omit of nullable null fields before verification
     if parent:
-        proactive_omit = [
-            p
-            for p in _collect_null_paths(parent, current)
-            if classify_field_path(parent, p, prefer_omit=prefer_omit) == FieldAction.OMIT
-        ]
+        proactive_decisions: list[tuple[str, NormalizationDecision]] = []
+        for path in _collect_null_paths(parent, current):
+            decision = _decide_for_path(parent, path, prefer_omit=prefer_omit, cfg=cfg, error_kind="null")
+            proactive_decisions.append((path, decision))
+            all_decisions.append(decision)
+        proactive_omit = [p for p, d in proactive_decisions if d.action == FieldAction.OMIT]
         if proactive_omit:
             current, proactive_actions = _apply_omit_to_envelope(current, parent, proactive_omit)
             all_actions.extend(proactive_actions)
@@ -193,41 +243,67 @@ def normalize_llm_response(
             task_kind=task_kind,
         )
         if verification.ok:
+            _record_decision_meta(current, all_decisions)
             return NormalizationResult(
                 normalized=current,
                 ok=True,
                 actions=all_actions,
+                decisions=all_decisions,
                 fabricate_calls=fabricate_calls,
                 blocked_paths=blocked,
+                suggested_downstream=sorted(set(suggested)),
             )
 
         omit_paths: list[str] = []
         fabricate_paths: list[str] = []
 
-        # Null fields in artifacts
         if parent:
             for path in _collect_null_paths(parent, current):
-                action = classify_field_path(parent, path, prefer_omit=prefer_omit)
-                if action == FieldAction.OMIT:
+                decision = _decide_for_path(parent, path, prefer_omit=prefer_omit, cfg=cfg, error_kind="null")
+                all_decisions.append(decision)
+                suggested.append(decision.downstream.value)
+                if decision.action == FieldAction.OMIT:
                     omit_paths.append(path)
-                elif action == FieldAction.FABRICATE:
+                elif decision.action == FieldAction.FABRICATE:
                     fabricate_paths.append(path)
                 else:
                     blocked.append(path)
-                    all_actions.append(NormalizationAction(kind="block", path=path))
+                    all_actions.append(
+                        NormalizationAction(
+                            kind="block",
+                            path=path,
+                            detail=decision.reason,
+                            downstream=decision.downstream.value,
+                        )
+                    )
 
-        # Paths from verification errors (e.g. type mismatch)
         for err in verification.errors:
             path = parse_verification_error_path(err)
             if not path:
                 continue
-            action = classify_field_path(parent or "", path, prefer_omit=prefer_omit)
-            if action == FieldAction.OMIT and path not in omit_paths:
+            decision = _decide_for_path(
+                parent or "",
+                path,
+                prefer_omit=prefer_omit,
+                cfg=cfg,
+                error_kind="schema",
+            )
+            all_decisions.append(decision)
+            suggested.append(decision.downstream.value)
+            if decision.action == FieldAction.OMIT and path not in omit_paths:
                 omit_paths.append(path)
-            elif action == FieldAction.FABRICATE and path not in fabricate_paths:
+            elif decision.action == FieldAction.FABRICATE and path not in fabricate_paths:
                 fabricate_paths.append(path)
-            elif action == FieldAction.BLOCK:
+            elif decision.action == FieldAction.BLOCK:
                 blocked.append(path)
+                all_actions.append(
+                    NormalizationAction(
+                        kind="block",
+                        path=path,
+                        detail=decision.reason,
+                        downstream=decision.downstream.value,
+                    )
+                )
 
         if not omit_paths and not fabricate_paths:
             break
@@ -261,7 +337,13 @@ def normalize_llm_response(
                     current["artifacts"] = updated
                     fabricate_calls += 1
                     for p in fabricate_paths:
-                        all_actions.append(NormalizationAction(kind="fabricate", path=p))
+                        all_actions.append(
+                            NormalizationAction(
+                                kind="fabricate",
+                                path=p,
+                                downstream=DownstreamAction.FABRICATE_BENIGN.value,
+                            )
+                        )
 
     target = _verify_target(current, task_kind)
     final = verify_llm_response(
@@ -270,21 +352,28 @@ def normalize_llm_response(
         stage_key=stage_key,
         task_kind=task_kind,
     )
+    _record_decision_meta(current, all_decisions)
     if ctx is not None and not final.ok and blocked:
         ctx.log(
-            f"LLM normalizer blocked ({parent}): {', '.join(blocked[:4])}",
-            level="error",
+            f"LLM normalizer blocked ({parent}): {', '.join(blocked[:4])} "
+            f"→ downstream {sorted(set(suggested))[:3]}",
+            level="warning",
             stage=parent or stage_key,
             action_id="llm.null.blocked",
-            detail={"blocked_paths": blocked[:12]},
+            detail={
+                "blocked_paths": blocked[:12],
+                "suggested_downstream": sorted(set(suggested)),
+            },
             origin="pipeline",
         )
     return NormalizationResult(
         normalized=current,
         ok=final.ok,
         actions=all_actions,
+        decisions=all_decisions,
         fabricate_calls=fabricate_calls,
         blocked_paths=blocked,
+        suggested_downstream=sorted(set(suggested)),
         verification_errors=final.errors,
     )
 

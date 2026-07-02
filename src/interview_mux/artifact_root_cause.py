@@ -11,43 +11,69 @@ from interview_mux.issue_severity_rules import ClassifiedIssue
 from interview_mux.llm_flow_hardening import resolve_llm_upstream_stage
 
 _PROPAGATION_FROM: dict[str, tuple[str, ...]] = {
-    "boundary_detection": (
-        "segment_classification",
-        "content_brief_reanchor",
-        "sonic_context_build",
-        "sound_design_palettes",
-        "missing_framing",
-        "optimal_questions",
-    ),
-    "segment_classification": (
-        "content_brief_reanchor",
-        "sonic_context_build",
-        "sound_design_palettes",
-        "missing_framing",
-        "optimal_questions",
-    ),
-    "speaker_roles": ("content_context", "boundary_detection", "segment_classification"),
-    "content_context": ("boundary_detection", "segment_classification", "content_brief_reanchor"),
-    "content_brief_reanchor": (
-        "sonic_context_build",
-        "sound_design_palettes",
-        "missing_framing",
-        "optimal_questions",
-    ),
-    "sound_design_palettes": ("missing_framing", "optimal_questions"),
-    "topic_coverage_audit": ("narrative_arc_plan", "full_master_ranking", "transitions"),
-    "narrative_arc_plan": ("full_master_ranking", "transitions"),
-    "full_master_ranking": ("transitions", "sound_design_plan_flow1", "edl_flow1"),
-    "transitions": ("sound_design_plan_flow1", "edl_flow1"),
-    "sound_design_plan_flow1": ("sfx_prompt_craft", "edl_flow1"),
-    "sound_design_plan_flow2": ("sfx_prompt_craft",),
-    "highlight_selection": ("sound_design_plan_flow2",),
+    k: tuple(v) for k, v in __import__(
+        "interview_mux.artifact_dependency_graph",
+        fromlist=["propagation_map"],
+    ).propagation_map().items()
 }
 
 _CHECKPOINTS_BY_FROM: dict[str, tuple[str, ...]] = {
     "boundary_detection": ("post_boundary_detection", "post_segmentation"),
     "segment_classification": ("post_segmentation", "post_reanchor", "post_gaps"),
 }
+
+_STAGE_LABELS: dict[str, str] = {
+    "source_topology_build": "Source topology",
+    "content_context": "Story brief & strategic moat",
+    "content_brief_reanchor": "Brief re-anchor",
+    "boundary_detection": "Boundary detection",
+    "segment_classification": "Segment classification",
+    "missing_framing": "Missing framing",
+    "optimal_questions": "Gap report / optimal questions",
+    "narrative_arc_plan": "Five-act narrative plan",
+    "topic_coverage_audit": "Topic coverage audit",
+    "full_master_ranking": "Master ranking",
+    "transitions": "Transitions",
+    "sound_design_plan_flow1": "Sound design plan",
+    "sound_design_palettes": "Sound palettes",
+    "sonic_context_build": "Sonic context",
+    "sfx_prompt_craft": "SFX prompt craft",
+    "edl_flow1": "Flow 1 EDL",
+    "sound_design_vo_finalize": "VO finalize",
+    "assembly_preview": "Assembly preview",
+    "g1_vo_pickup": "VO pickup recordings",
+}
+
+_TBIY_PROPAGATION_HINTS: dict[str, str] = {
+    "source_topology_build": (
+        "Topology or pickup eligibility changed — re-confirm adaptation on Story Board, "
+        "then invalidate downstream narrative and sound stages."
+    ),
+    "content_context": (
+        "Strategic moat or thesis changed — narrative arc, ranking, and transitions may no longer match."
+    ),
+    "content_brief_reanchor": (
+        "Segment-to-claim mapping changed — gap analysis and sonic context may be stale."
+    ),
+    "narrative_arc_plan": "Act/chapter bands changed — re-run ranking, transitions, and sound plan.",
+    "g1_vo_pickup": "Pickup lines changed — VO finalize, EDL, assembly preview, and mix need refresh.",
+    "analysis_profile": "Production profile or moat lock changed — re-run TBIY narrative stages.",
+}
+
+_TBIY_STAGE_IDS = frozenset(
+    {
+        "source_topology_build",
+        "content_context",
+        "content_brief_reanchor",
+        "narrative_arc_plan",
+        "topic_coverage_audit",
+        "full_master_ranking",
+        "g1_vo_pickup",
+        "g1_5_preview_pickup",
+        "sound_design_plan_flow1",
+        "analysis_profile",
+    }
+)
 
 
 def _triage_cfg() -> dict[str, Any]:
@@ -64,9 +90,17 @@ class StalePropagationPlan:
     suggested_upstream_stage: str | None = None
 
     def summary(self) -> dict[str, Any]:
+        stale = self.stale_stages
+        labels = {sid: _STAGE_LABELS.get(sid, sid.replace("_", " ")) for sid in stale}
+        tbiy_affected = bool(
+            set(stale) & _TBIY_STAGE_IDS or self.from_stage in _TBIY_STAGE_IDS
+        )
         return {
             "from_stage": self.from_stage,
-            "stale_stages": self.stale_stages,
+            "stale_stages": stale,
+            "stage_labels": labels,
+            "change_hint": _TBIY_PROPAGATION_HINTS.get(self.from_stage),
+            "tbiy_affected": tbiy_affected,
             "invalidate_from": self.invalidate_from,
             "cross_errors": self.cross_errors[:12],
             "cross_errors_by_checkpoint": {

@@ -134,7 +134,15 @@ class RunContext:
         from interview_mux.write_staging import resolve_read_path
 
         p = resolve_read_path(self, rel)
-        return fs_read_json(p)
+        data = fs_read_json(p)
+        consumer = getattr(self, "_lifecycle_consumer_stage", None)
+        if consumer:
+            from interview_mux.artifact_lifecycle import read_stale_guard
+
+            stale = read_stale_guard(self, rel, consumer_stage=str(consumer))
+            if stale:
+                raise ValueError(stale)
+        return data
 
     def artifact_exists_required(
         self,

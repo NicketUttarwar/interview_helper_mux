@@ -1,0 +1,33 @@
+stage_id: edl_narrative_audit
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: flow_1_master/edl_narrative_audit.json
+  schema: edl_narrative_audit_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan_flow1
+  soft: []
+sufficiency:
+- path: findings
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- edl_narrative_audit
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

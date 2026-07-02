@@ -1,0 +1,57 @@
+stage_id: content_brief_reanchor
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/content_brief.json
+  schema: content_brief_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: segments/manifest.json
+    producer: segment_classification
+  soft: []
+sufficiency:
+- path: thesis
+  rule: non_empty_string
+  min_length: 8
+  blocking: progression
+- path: topics
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+propagation:
+  invalidates_stages:
+  - sonic_context_build
+  - sound_design_palettes
+  - missing_framing
+  - optimal_questions
+consumers:
+- content_context
+- content_brief_reanchor
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- thesis
+- topics
+- topics[].name
+- topics[].segment_ids
+- topics[].summary
+nullable_fields:
+- audience
+- emotional_beats
+- jargon_glossary
+- jargon_glossary[].first_segment_id
+- key_claims
+- key_claims[].approx_time_range
+- topic_relationships

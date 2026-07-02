@@ -1,0 +1,38 @@
+stage_id: source_topology_build
+tier: deterministic
+lifecycle:
+  phases:
+  - prestage
+  - committed
+outputs:
+- path: understanding/source_topology.json
+  schema: source_topology.schema.json
+  staging: false
+- path: understanding/flow_adaptation.json
+  schema: flow_adaptation.schema.json
+  staging: false
+inputs:
+  hard:
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: transcript/full.json
+    producer: transcribe
+sufficiency:
+- path: topology_class
+  rule: non_empty_string
+  min_length: 3
+  blocking: progression
+  when:
+    production_style: tbiy_narrative
+- path: pickup_eligible_speaker_id
+  rule: non_empty_string
+  min_length: 1
+  blocking: progression
+propagation:
+  invalidates_stages:
+  - content_context
+  - boundary_detection
+consumers:
+- content_context
+- boundary_detection
+- optimal_questions

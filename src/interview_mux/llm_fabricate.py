@@ -30,6 +30,38 @@ def deterministic_fabricated_value(path: str, *, stage_key: str | None = None) -
         return "" if leaf == "subtitle" else []
     if leaf == "audience":
         return "General audience"
+    if leaf in {"tone", "tone_class"}:
+        return "conversational"
+    if leaf == "format_class":
+        return "one_on_one"
+    if leaf == "format_notes":
+        return "Standard interview format."
+    if leaf in {"pacing", "interviewer_style", "interviewee_style"}:
+        return "moderate"
+    if leaf == "confidence":
+        return 0.75
+    if leaf == "label":
+        return "sample"
+    if leaf == "description":
+        return "See transcript for details."
+    if leaf == "title":
+        return "Episode"
+    if leaf == "one_line_summary":
+        return "Interview summary pending review."
+    if leaf == "reason":
+        return "Automated placeholder — review if surfaced to operator."
+    if leaf == "emotional_beats":
+        return []
+    if leaf == "jargon_glossary":
+        return []
+    if leaf == "key_claims":
+        return []
+    if leaf == "topic_tags":
+        return []
+    if leaf == "excluded_segment_ids":
+        return []
+    if leaf == "gaps":
+        return []
     return ""
 
 

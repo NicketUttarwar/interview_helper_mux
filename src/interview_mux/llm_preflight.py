@@ -383,3 +383,24 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "edl_narrative_audit": _preflight_edl_narrative_audit,
     "podcast_show_description": _preflight_podcast_show_description,
 }
+
+
+class SchemaPreflightError(RuntimeError):
+    """OpenAI response_format schema failed preflight validation."""
+
+
+def run_schema_preflight(stage_key: str, task_kind: str = "primary") -> list[str]:
+    """Validate composed OpenAI schema before spend. Returns error messages (empty = pass)."""
+    from interview_mux.openai_structured_output import resolve_response_format
+    from interview_mux.openai_schema_semantic_lint import lint_openai_semantic_schema
+    from interview_mux.openai_schema_lint import lint_openai_strict_schema
+
+    try:
+        fmt = resolve_response_format(stage_key, task_kind)
+    except Exception as exc:
+        return [f"resolve_response_format: {exc}"]
+    if not fmt or fmt.get("type") != "json_schema":
+        return []
+    schema = (fmt.get("json_schema") or {}).get("schema") or {}
+    errors = lint_openai_strict_schema(schema) + lint_openai_semantic_schema(schema)
+    return errors

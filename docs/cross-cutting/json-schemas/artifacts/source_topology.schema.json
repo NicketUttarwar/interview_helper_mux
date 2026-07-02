@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourceTopology",
+  "type": "object",
+  "required": [
+    "topology_class",
+    "speaker_stats",
+    "least_spoken_speaker_id",
+    "pickup_eligible_speaker_id",
+    "tbiy_role_map",
+    "segmentation_policy",
+    "classified_at"
+  ],
+  "properties": {
+    "topology_class": {
+      "type": "string",
+      "enum": [
+        "one_on_one_asymmetric",
+        "one_on_one_balanced",
+        "panel_multi_guest",
+        "co_host_frame",
+        "multi_idea_sparse_host",
+        "monologue_heavy"
+      ]
+    },
+    "speaker_stats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["speaker_id", "talk_ms", "talk_ratio"],
+        "properties": {
+          "speaker_id": { "type": "string" },
+          "role_hint": { "type": "string" },
+          "talk_ms": { "type": "number" },
+          "talk_ratio": { "type": "number" },
+          "word_count": { "type": "integer" },
+          "turn_count": { "type": "integer" },
+          "avg_turn_ms": { "type": "number" },
+          "question_count": { "type": "integer" }
+        }
+      }
+    },
+    "least_spoken_speaker_id": { "type": "string" },
+    "pickup_eligible_speaker_id": { "type": "string" },
+    "tbiy_role_map": {
+      "type": "object",
+      "properties": {
+        "primary_storyteller_speaker_ids": { "type": "array", "items": { "type": "string" } },
+        "reactor_speaker_ids": { "type": "array", "items": { "type": "string" } },
+        "analytical_lens_speaker_id": { "type": ["string", "null"] },
+        "pickup_eligible_speaker_id": { "type": "string" }
+      }
+    },
+    "segmentation_policy": {
+      "type": "object",
+      "properties": {
+        "granularity": { "type": "string", "enum": ["coarse", "standard", "fine"] },
+        "allow_micro_segments": { "type": "boolean" },
+        "resegment_pass": { "type": "boolean" }
+      }
+    },
+    "production_style": { "type": "string" },
+    "classified_at": { "type": "string" }
+  }
+}

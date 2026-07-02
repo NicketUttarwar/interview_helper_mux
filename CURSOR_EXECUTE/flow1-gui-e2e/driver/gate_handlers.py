@@ -123,7 +123,53 @@ def try_profile(page: Page, log: EventLogger, archive=None) -> bool:
         return True
     if _click_testid(page, "mark-profile-verified-modal", log, "mark profile verified modal", archive):
         return True
+    if _click_role(page, "Lock story for podcast edit", log, archive=archive):
+        return True
     return _click_role(page, "Mark profile verified", log, archive=archive)
+
+
+def try_topology_confirm(page: Page, log: EventLogger, archive=None) -> bool:
+    log.gate("TBIY topology confirm")
+    if _click_testid(page, "confirm-topology", log, "confirm topology", archive):
+        return True
+    for label in ("Confirm topology", "Confirm source topology"):
+        if _click_role(page, label, log, archive=archive):
+            return True
+    return False
+
+
+def try_story_lock_tbiy(page: Page, log: EventLogger, archive=None) -> bool:
+    log.gate("TBIY story lock")
+    sel = page.locator('select').filter(has_text="tbiy_narrative")
+    if sel.count() > 0:
+        log.action("Setting production style tbiy_narrative")
+        sel.first.select_option("tbiy_narrative")
+        page.wait_for_timeout(300)
+    if _click_role(page, "Save story", log, archive=archive):
+        page.wait_for_timeout(500)
+    return _click_role(page, "Lock story for podcast edit", log, archive=archive)
+
+
+def try_g1_5_preview_repickup(page: Page, log: EventLogger, dummy_vo: Path, archive=None) -> bool:
+    """Re-upload VO for post-preview lines (G1.5) before SFX generation."""
+    log.gate("G1.5 post-preview pickup re-record")
+    cards = page.locator(".vo-card")
+    if cards.count() == 0:
+        return False
+    uploaded = False
+    for i in range(cards.count()):
+        card = cards.nth(i)
+        text = card.inner_text()
+        if "post-preview" not in text and "Missing" not in text:
+            continue
+        uploads = card.locator("input.vo-upload[type='file']")
+        if uploads.count() == 0:
+            continue
+        log.action(f"G1.5 re-upload {dummy_vo.name} for post-preview line")
+        uploads.first.set_input_files(str(dummy_vo))
+        page.wait_for_timeout(400)
+        uploaded = True
+    return uploaded
 
 
 def try_g1_vo(page: Page, log: EventLogger, dummy_vo: Path, archive=None) -> bool:
@@ -287,6 +333,14 @@ def resolve_gates(
         if try_profile(page, log, archive):
             return "gate:profile"
 
+    if page.get_by_role("button", name="Confirm topology").count():
+        if try_topology_confirm(page, log, archive):
+            return "gate:topology_confirm"
+
+    if page.get_by_role("button", name="Lock story for podcast edit").count():
+        if try_story_lock_tbiy(page, log, archive):
+            return "gate:story_lock_tbiy"
+
     g1_missing = run.get("g1_missing") or []
     if g1_missing or "g1_vo_pickup" in action_stages:
         if try_g1_vo(page, log, dummy_vo, archive):
@@ -309,6 +363,11 @@ def resolve_gates(
 
     if try_preview_listen(page, log, archive):
         return "gate:preview_listen"
+
+    if try_g1_5_preview_repickup(page, log, dummy_vo, archive):
+        return "gate:g1_5_preview_pickup"
+    if _click_testid(page, "g1-5-preview-continue", log, "g1.5 preview continue", archive):
+        return "gate:g1_5_preview_continue"
 
     if job.get("status") == "gate":
         return "blocker:llm_gate"

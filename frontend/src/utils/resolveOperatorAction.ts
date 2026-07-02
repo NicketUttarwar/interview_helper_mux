@@ -49,6 +49,12 @@ function gateHeadline(run: RunData, stageId: string, blockingReason?: string | n
       return "Review filler clips";
     case "g1_vo_pickup":
       return "Record pickup lines";
+    case "g1_5_preview_pickup":
+      return "Re-record post-preview pickup lines";
+    case "source_topology_build":
+      return "Confirm source topology";
+    case "missing_framing":
+      return "Confirm gap pickup speaker";
     case "g2_flow_select":
       return "Choose output flow";
     case "analysis_profile":
@@ -242,6 +248,7 @@ const GATE_BLOCKING_REASONS = new Set([
   "transcript_review",
   "disfluency_review",
   "g1_vo_pickup",
+  "g1_5_preview_pickup",
   "g2_flow_select",
   "analysis_profile",
   "gate",

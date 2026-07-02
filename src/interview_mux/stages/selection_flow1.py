@@ -11,6 +11,7 @@ from interview_mux.nle_state import (
     segments_by_id_with_nle,
 )
 from interview_mux.gates import check_narrative_qc
+from interview_mux.production_profile import prompt_variant
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
@@ -61,7 +62,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
         attach_spine_to_payload(c, payload, "full_master_ranking")
-        return attach_disfluency_context(payload, c)
+        from interview_mux.source_topology import attach_adaptation_to_payload
+
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         nle = load_nle(c)
@@ -83,7 +86,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "full_master_ranking",
-            "selection/full-master-ranking.system.txt",
+            prompt_variant("selection/full-master-ranking.system.txt", ctx),
             build_input,
             persist,
         )
@@ -100,7 +103,9 @@ def run_transitions(ctx: RunContext) -> None:
             "gap_report": c.read_json("understanding/gap_report.json"),
             "interviewer_sample_lines": interviewer_sample_lines(c),
         }
-        return attach_disfluency_context(payload, c)
+        from interview_mux.source_topology import attach_adaptation_to_payload
+
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     persist = make_stage_persist("flow_1_master/transitions.json", "transitions")
 
@@ -108,7 +113,7 @@ def run_transitions(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "transitions",
-            "assembly/transitions.system.txt",
+            prompt_variant("assembly/transitions.system.txt", ctx),
             build_input,
             persist,
         )

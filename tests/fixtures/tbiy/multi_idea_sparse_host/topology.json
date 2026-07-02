@@ -1,0 +1,25 @@
+{
+  "topology_class": "multi_idea_sparse_host",
+  "production_style": "tbiy_narrative",
+  "least_spoken_speaker_id": "spk_1",
+  "pickup_eligible_speaker_id": "spk_1",
+  "speaker_stats": [
+    {
+      "speaker_id": "spk_0",
+      "talk_ms": 480000,
+      "talk_ratio": 0.88,
+      "role_hint": "interviewee",
+      "turn_count": 22,
+      "question_count": 1
+    },
+    {
+      "speaker_id": "spk_1",
+      "talk_ms": 65000,
+      "talk_ratio": 0.12,
+      "role_hint": "interviewer",
+      "turn_count": 18,
+      "question_count": 14
+    }
+  ],
+  "summary_plain": "Sparse-host multi-idea — fine segmentation; bridge pickup on spk_1."
+}

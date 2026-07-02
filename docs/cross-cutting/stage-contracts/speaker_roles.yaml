@@ -1,0 +1,46 @@
+stage_id: speaker_roles
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/speakers.json
+  schema: speakers_artifact.schema.json
+  staging: true
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: speakers
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+- path: speakers
+  rule: speakers_not_all_unknown
+  blocking: progression
+propagation:
+  invalidates_stages:
+  - content_context
+  - boundary_detection
+  - segment_classification
+consumers:
+- speaker_roles
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- speakers
+- speakers[].role
+- speakers[].speaker_id
+nullable_fields:
+- notes
+- speakers[].confidence
+- speakers[].label

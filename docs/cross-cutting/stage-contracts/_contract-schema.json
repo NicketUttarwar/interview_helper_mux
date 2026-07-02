@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StageContract",
+  "type": "object",
+  "required": ["stage_id", "tier"],
+  "properties": {
+    "stage_id": { "type": "string" },
+    "tier": {
+      "type": "string",
+      "enum": ["llm_full", "deterministic", "gate", "process", "meta"]
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "phases": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "hard": { "type": "array" },
+        "soft": { "type": "array" }
+      }
+    },
+    "outputs": { "type": "array" },
+    "sufficiency": { "type": "array" },
+    "propagation": {
+      "type": "object",
+      "properties": {
+        "invalidates_stages": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "consumers": { "type": "array", "items": { "type": "string" } },
+    "remediation": {
+      "type": "object",
+      "properties": {
+        "strategies": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,41 @@
+stage_id: topic_coverage_audit
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: flow_1_master/coverage_audit.json
+  schema: coverage_audit_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/gap_report.json
+    producer: optimal_questions
+  soft: []
+sufficiency:
+- path: topics
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages:
+  - narrative_arc_plan
+  - full_master_ranking
+  - transitions
+consumers:
+- topic_coverage_audit
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- coverage_score
+nullable_fields:
+- gaps
+- notes

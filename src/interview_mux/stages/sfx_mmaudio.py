@@ -35,6 +35,10 @@ _ROLE_INFLUENCE: dict[str, float] = {
     "cold_open": 0.42,
     "vo_bridge": 0.32,
     "accent_foley": 0.35,
+    "rhetorical_punctuator": 0.36,
+    "environmental_foley": 0.33,
+    "era_music_bed": 0.31,
+    "transition_whoosh": 0.39,
 }
 
 
@@ -56,6 +60,10 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     require_spend_artifacts_complete(ctx, stage)
     require_sfx_generation(ctx)
+    if stage == "mmaudio_sfx_flow1":
+        from interview_mux.gates_tbiy import require_g1_5_preview_pickup_clear
+
+        require_g1_5_preview_pickup_clear(ctx, stage=stage)
     with logged_step(f"{stage}/load_plan", ctx=ctx, stage=stage):
         cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
 

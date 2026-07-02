@@ -9,6 +9,9 @@ export interface RecoveryAction {
 export interface PropagationPlan {
   from_stage?: string;
   stale_stages?: string[];
+  stage_labels?: Record<string, string>;
+  change_hint?: string | null;
+  tbiy_affected?: boolean;
   invalidate_from?: string | null;
   cross_errors?: string[];
   suggested_upstream_stage?: string | null;

@@ -1,0 +1,5 @@
+Audit final EDL narrative for TBIY profile: five-act coverage, strategic moat segment in Act IV region, reaction/pickup density, act transition sanity.
+
+Flag missing moat placement when content_brief.strategic_moat_concept is set. Advisory on reactor line adjacency to punctuator-anchor claims.
+
+Standard edl_narrative_audit rubric applies.

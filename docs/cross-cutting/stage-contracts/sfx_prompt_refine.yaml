@@ -1,0 +1,31 @@
+stage_id: sfx_prompt_refine
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: sound_design/sfx_prompts.json
+  schema: sfx_prompts_artifact.schema.json
+  staging: true
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: prompts
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- sfx_prompt_craft
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

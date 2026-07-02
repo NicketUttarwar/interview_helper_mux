@@ -59,10 +59,10 @@
                   "medium",
                   "high"
                 ],
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": false
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "additionalProperties": false

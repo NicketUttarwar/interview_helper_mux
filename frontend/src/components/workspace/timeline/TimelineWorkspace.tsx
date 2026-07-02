@@ -121,9 +121,54 @@ export function TimelineWorkspace() {
     const raw = (narrativePlan?.chapters as Array<Record<string, unknown>>) || [];
     return raw.map((ch) => ({
       title: String(ch.title || ch.chapter_title || ""),
-      anchor_segment_id: String(ch.anchor_segment_id || ch.opens_with_segment_id || ""),
+      anchor_segment_id: String(
+        ch.suggested_open_segment_id || ch.anchor_segment_id || ch.opens_with_segment_id || "",
+      ),
+      act_number: typeof ch.act_number === "number" ? ch.act_number : undefined,
+      act_title: ch.act_title ? String(ch.act_title) : undefined,
+      is_moat_chapter: ch.is_moat_chapter === true,
     }));
   }, [narrativePlan]);
+
+  const actBands = useMemo(() => {
+    const byAct = new Map<
+      number,
+      { act_number: number; act_title: string; start_ms: number; end_ms: number; is_moat: boolean }
+    >();
+    for (const ch of chapters) {
+      const actNum = ch.act_number;
+      if (!actNum || actNum < 1 || actNum > 5) continue;
+      const seg = segments.find((s) => s.segment_id === ch.anchor_segment_id);
+      if (!seg) continue;
+      const existing = byAct.get(actNum);
+      const title = ch.act_title || `Act ${actNum}`;
+      if (!existing) {
+        byAct.set(actNum, {
+          act_number: actNum,
+          act_title: title,
+          start_ms: seg.start_ms,
+          end_ms: seg.end_ms,
+          is_moat: ch.is_moat_chapter === true,
+        });
+      } else {
+        existing.start_ms = Math.min(existing.start_ms, seg.start_ms);
+        existing.end_ms = Math.max(existing.end_ms, seg.end_ms);
+        if (ch.is_moat_chapter) existing.is_moat = true;
+        if (ch.act_title) existing.act_title = title;
+      }
+    }
+    const sorted = [...byAct.values()].sort((a, b) => a.act_number - b.act_number);
+    return sorted.map((band, idx) => {
+      const endMs = idx + 1 < sorted.length ? sorted[idx + 1].start_ms : durationMs;
+      const span = Math.max(0, endMs - band.start_ms);
+      return {
+        ...band,
+        end_ms: endMs,
+        left: durationMs > 0 ? (band.start_ms / durationMs) * 100 : 0,
+        width: durationMs > 0 ? (span / durationMs) * 100 : 0,
+      };
+    });
+  }, [chapters, segments, durationMs]);
 
   const segmentQcIssues = useMemo(() => {
     if (!selectedSegmentId) return [];
@@ -426,6 +471,7 @@ export function TimelineWorkspace() {
               snapEnabled={snapEnabled}
               waveform={waveform}
               chapters={chapters}
+              actBands={actBands}
               markers={nle?.markers}
               scrollRef={timelineScrollRef}
               onSeek={seekTo}

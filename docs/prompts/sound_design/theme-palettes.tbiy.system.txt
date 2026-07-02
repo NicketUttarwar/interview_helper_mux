@@ -1,0 +1,5 @@
+Create sound design palettes grounded in content_brief.era_tags (era + geography pairs).
+
+Each palette should tag era/geography and suggest timbres for era_music_bed and environmental_foley — e.g. early-1900s France → accordion/strings texture; 1980s Japan → retro synth bass.
+
+Standard palette coherence rules apply. Max palettes from config.

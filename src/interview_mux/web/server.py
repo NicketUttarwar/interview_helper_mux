@@ -574,6 +574,12 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         g1_missing = check_g1_vo(ctx)
+        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+        g1_5_pending = check_g1_5_preview_pickup_pending(ctx)
+        from interview_mux.source_topology import check_pickup_speaker_pending
+
+        pickup_speaker_pending = check_pickup_speaker_pending(ctx)
         flow = get_selected_flow(ctx)
         tr_pending = check_transcript_review_pending(ctx)
         profile_verified = is_operator_profile_verified(ctx)
@@ -637,6 +643,16 @@ def create_app() -> FastAPI:
             "legacy_migration_warnings": legacy_sfx_warnings(ctx),
             "selected_flow": flow,
             "flow_intent": intent,
+            "flow_adaptation": (
+                ctx.read_json("understanding/flow_adaptation.json")
+                if ctx.artifact_exists("understanding/flow_adaptation.json")
+                else None
+            ),
+            "source_topology": (
+                ctx.read_json("understanding/source_topology.json")
+                if ctx.artifact_exists("understanding/source_topology.json")
+                else None
+            ),
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
             "disfluency_review_pending": df_pending,
@@ -648,6 +664,9 @@ def create_app() -> FastAPI:
             "timeline_ready": timeline_ready,
             "g1_missing": g1_missing,
             "g1_clear": not g1_missing,
+            "g1_5_preview_pickup_pending": g1_5_pending,
+            "g1_5_preview_pickup_clear": not g1_5_pending,
+            "pickup_speaker_pending": pickup_speaker_pending,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "job": job,
             "journey": journey,
@@ -747,6 +766,8 @@ def create_app() -> FastAPI:
                 duration_ms = max(s.get("end_ms", 0) for s in segments)
         vo_lines: list[dict[str, Any]] = []
         if ctx.artifact_exists("understanding/gap_report.json"):
+            from interview_mux.gates_tbiy import post_preview_vo_satisfied
+
             report = ctx.read_json("understanding/gap_report.json")
             pickup = ctx.path("vo_pickup")
             for line in report.get("interviewer_lines") or []:
@@ -754,7 +775,12 @@ def create_app() -> FastAPI:
                 seg = line.get("targets_segment_id", "")
                 candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
                 recorded = next((p.name for p in candidates if p.is_file()), None)
-                vo_lines.append({**line, "recorded_file": recorded})
+                row = {**line, "recorded_file": recorded}
+                if line.get("post_preview"):
+                    row["post_preview_satisfied"] = bool(
+                        recorded and post_preview_vo_satisfied(ctx, str(lid))
+                    )
+                vo_lines.append(row)
         return {
             "duration_ms": duration_ms,
             "segments": segments,
@@ -2260,6 +2286,7 @@ def create_app() -> FastAPI:
                     },
                 )
         save_analysis_state(ctx, body.data, stage="operator_gui")
+        _sync_tbiy_operator_profile(ctx, body.data if isinstance(body.data, dict) else {})
         if body.operator_verified is not None:
             mark_operator_verified(ctx, body.operator_verified)
         persist_operator_analysis_profile(ctx, source="analysis_profile_put")
@@ -2454,15 +2481,199 @@ def create_app() -> FastAPI:
     async def upload_vo(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
         with _guarded_run(run_id):
             from interview_mux.file_store import write_bytes as fs_write_bytes
+            from interview_mux.source_topology import pickup_eligible_speaker_id
 
             ctx = _ctx(run_id)
+            eligible = pickup_eligible_speaker_id(ctx)
+            if eligible and ctx.artifact_exists("understanding/gap_report.json"):
+                report = ctx.read_json("understanding/gap_report.json")
+                for ln in report.get("interviewer_lines") or []:
+                    if isinstance(ln, dict) and str(ln.get("line_id")) == line_id:
+                        expected = str(ln.get("voice_speaker_id") or eligible)
+                        if expected != eligible:
+                            raise HTTPException(
+                                400,
+                                f"Line {line_id} is locked to speaker {expected}; pickup must use the confirmed gap pickup speaker.",
+                            )
+                        break
             pickup = ctx.path("vo_pickup")
             pickup.mkdir(parents=True, exist_ok=True)
             dest = pickup / f"{line_id}.wav"
             content = await file.read()
             fs_write_bytes(dest, content)
-            ctx.log(f"VO pickup saved: vo_pickup/{line_id}.wav", level="success", stage="g1_vo_pickup")
+            if ctx.artifact_exists("run_meta.json"):
+                run_meta = ctx.read_json("run_meta.json")
+                if run_meta.get("preview_listened_at") and ctx.artifact_exists("understanding/gap_report.json"):
+                    report = ctx.read_json("understanding/gap_report.json")
+                    for ln in report.get("interviewer_lines") or []:
+                        if (
+                            isinstance(ln, dict)
+                            and str(ln.get("line_id")) == line_id
+                            and ln.get("post_preview")
+                        ):
+                            from interview_mux.gates_tbiy import mark_post_preview_vo_recorded
+
+                            mark_post_preview_vo_recorded(ctx, line_id)
+                            break
+            ctx.log(
+                f"VO pickup saved: vo_pickup/{line_id}.wav",
+                level="success",
+                stage="g1_vo_pickup",
+                detail={"kind": "gate", "line_id": line_id, "pickup_eligible_speaker_id": eligible},
+            )
             return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
+
+    @app.get("/api/runs/{run_id}/source-topology")
+    def get_source_topology(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        out: dict[str, Any] = {}
+        if ctx.artifact_exists("understanding/source_topology.json"):
+            out["topology"] = ctx.read_json("understanding/source_topology.json")
+        if ctx.artifact_exists("understanding/flow_adaptation.json"):
+            out["adaptation"] = ctx.read_json("understanding/flow_adaptation.json")
+        return out
+
+    @app.patch("/api/runs/{run_id}/flow-adaptation")
+    def patch_flow_adaptation(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import apply_flow_adaptation_patch
+
+            ctx = _ctx(run_id)
+            adapt = apply_flow_adaptation_patch(ctx, body)
+            return {"ok": True, "adaptation": adapt}
+
+    @app.post("/api/runs/{run_id}/flow-adaptation/confirm")
+    def confirm_flow_adaptation(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import apply_flow_adaptation_patch
+
+            ctx = _ctx(run_id)
+            adapt = apply_flow_adaptation_patch(
+                ctx, {"operator_overrides": {"topology_confirmed": True}}
+            )
+            ctx.log(
+                "Topology confirmed by operator",
+                level="action",
+                stage="source_topology_build",
+                detail={"kind": "adaptation", "journey_kind": "adaptation", "action_id": "gui.adaptation.confirm"},
+            )
+            return {"ok": True, "adaptation": adapt}
+
+    @app.get("/api/runs/{run_id}/pickup-speaker")
+    def get_pickup_speaker(run_id: str) -> dict[str, Any]:
+        from interview_mux.source_topology import pickup_speaker_payload
+
+        ctx = _ctx(run_id)
+        return pickup_speaker_payload(ctx)
+
+    @app.patch("/api/runs/{run_id}/pickup-speaker")
+    def patch_pickup_speaker(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import apply_flow_adaptation_patch, pickup_speaker_payload
+
+            ctx = _ctx(run_id)
+            speaker_id = body.get("pickup_eligible_speaker_id")
+            if not speaker_id:
+                raise HTTPException(400, "pickup_eligible_speaker_id is required")
+            try:
+                apply_flow_adaptation_patch(ctx, {"pickup_eligible_speaker_id": str(speaker_id)})
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            return {"ok": True, **pickup_speaker_payload(ctx)}
+
+    @app.post("/api/runs/{run_id}/pickup-speaker/confirm")
+    def confirm_pickup_speaker_endpoint(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import confirm_pickup_speaker, pickup_speaker_payload
+
+            ctx = _ctx(run_id)
+            payload = body or {}
+            try:
+                confirm_pickup_speaker(
+                    ctx,
+                    speaker_id=str(payload["pickup_eligible_speaker_id"])
+                    if payload.get("pickup_eligible_speaker_id")
+                    else None,
+                )
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            return {"ok": True, **pickup_speaker_payload(ctx)}
+
+    @app.get("/api/runs/{run_id}/gap-report/lines")
+    def list_gap_report_lines(run_id: str) -> dict[str, Any]:
+        from interview_mux.gap_report_api import list_lines
+
+        ctx = _ctx(run_id)
+        return {"lines": list_lines(ctx)}
+
+    @app.post("/api/runs/{run_id}/gap-report/lines")
+    async def add_gap_report_line(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_report_api import add_line
+
+            ctx = _ctx(run_id)
+            try:
+                line = add_line(ctx, body)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ctx.log(
+                f"Gap report line added: {line.get('line_id')}",
+                level="action",
+                stage="optimal_questions",
+                detail={"kind": "gap_report", "action_id": "gui.gap_report.add_line", "line_id": line.get("line_id")},
+            )
+            return {"ok": True, "line": line}
+
+    @app.patch("/api/runs/{run_id}/gap-report/lines/{line_id}")
+    def patch_gap_report_line(run_id: str, line_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_report_api import update_line
+
+            ctx = _ctx(run_id)
+            try:
+                line = update_line(ctx, line_id, body)
+            except KeyError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            return {"ok": True, "line": line}
+
+    @app.delete("/api/runs/{run_id}/gap-report/lines/{line_id}")
+    def delete_gap_report_line(run_id: str, line_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_report_api import delete_line
+
+            ctx = _ctx(run_id)
+            try:
+                delete_line(ctx, line_id)
+            except KeyError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            ctx.log(
+                f"Gap report line removed: {line_id}",
+                level="action",
+                stage="optimal_questions",
+                detail={"kind": "gap_report", "action_id": "gui.gap_report.remove_line", "line_id": line_id},
+            )
+            return {"ok": True}
+
+    @app.get("/api/runs/{run_id}/vo/{line_id}/boundary-suggest")
+    def vo_boundary_suggest(run_id: str, line_id: str) -> dict[str, Any]:
+        from interview_mux.vo_boundary_detect import suggest_line_boundary
+
+        ctx = _ctx(run_id)
+        return suggest_line_boundary(ctx, line_id)
+
+    @app.post("/api/runs/{run_id}/vo/{line_id}/trim")
+    def vo_apply_trim(run_id: str, line_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.vo_pickup_trim import apply_vo_trim
+
+            ctx = _ctx(run_id)
+            row = apply_vo_trim(
+                ctx,
+                line_id,
+                trim_in_ms=float(body.get("trim_in_ms", 0)),
+                trim_out_ms=float(body["trim_out_ms"]) if body.get("trim_out_ms") is not None else None,
+            )
+            return {"ok": True, "metadata": row}
 
     @app.post("/api/runs/{run_id}/reset")
     def reset_run(run_id: str, body: ResetBody) -> dict[str, Any]:
@@ -2634,6 +2845,39 @@ def _enrich_job_autopilot(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any
         return job
 
 
+def _sync_tbiy_operator_profile(ctx: RunContext, state: dict[str, Any]) -> None:
+    """Mirror operator profile fields into content_brief and flow_adaptation."""
+    if not state:
+        return
+    meta = state.get("meta") if isinstance(state.get("meta"), dict) else {}
+    style = meta.get("production_style")
+    if style:
+        if ctx.artifact_exists("understanding/flow_adaptation.json"):
+            from interview_mux.source_topology import apply_flow_adaptation_patch
+
+            apply_flow_adaptation_patch(ctx, {"production_style": str(style)})
+        if ctx.artifact_exists("run_meta.json"):
+            run_meta = ctx.read_json("run_meta.json")
+            if isinstance(run_meta, dict):
+                run_meta["production_style"] = str(style)
+                ctx.write_json("run_meta.json", run_meta)
+    narrative = state.get("narrative") if isinstance(state.get("narrative"), dict) else {}
+    moat = narrative.get("strategic_moat_concept")
+    if moat and ctx.artifact_exists("understanding/content_brief.json"):
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        brief = ctx.read_json("understanding/content_brief.json")
+        if isinstance(brief, dict):
+            brief["strategic_moat_concept"] = str(moat).strip()
+            write_validated_artifact(
+                ctx,
+                "understanding/content_brief.json",
+                brief,
+                merge_from_disk=True,
+                stage_key="content_context",
+            )
+
+
 def _ctx(run_id: str) -> RunContext:
     if not RunContext.exists(run_id):
         raise HTTPException(404, f"Run not found: {run_id}")
@@ -2738,6 +2982,15 @@ def _build_stage_list(
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"
+        elif sid == "missing_framing":
+            from interview_mux.source_topology import check_pickup_speaker_pending
+
+            if check_pickup_speaker_pending(ctx):
+                s["status"] = "action_required"
+            elif ctx.is_done(sid):
+                s["status"] = "done"
+            else:
+                s["status"] = "pending"
         elif sid == "analysis_profile":
             ensure_analysis_workspace(ctx)
             from interview_mux.artifact_completeness import analysis_profile_ready_for_review
@@ -2752,6 +3005,25 @@ def _build_stage_list(
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 s["status"] = "locked"
             elif g1_missing:
+                s["status"] = "action_required"
+            else:
+                s["status"] = "done"
+        elif sid == "g1_5_preview_pickup":
+            from interview_mux.gates_tbiy import (
+                check_g1_5_preview_pickup_pending,
+                g1_5_preview_pickup_enabled,
+            )
+            from interview_mux.production_profile import is_tbiy
+
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            g1_5_pending = check_g1_5_preview_pickup_pending(ctx)
+            if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
+                s["status"] = "done"
+            elif not ctx.artifact_exists("flow_1_master/assembly_preview.wav"):
+                s["status"] = "locked"
+            elif not meta.get("preview_listened_at"):
+                s["status"] = "locked"
+            elif g1_5_pending:
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"

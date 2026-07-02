@@ -10,6 +10,7 @@ openai==2.38.0
 typer==0.25.1
 rich==13.9.4
 jsonschema==4.26.0
+PyYAML>=6.0,<7
 filelock==3.29.0
 pydantic==2.13.4
 numpy==2.4.6

@@ -1,0 +1,25 @@
+{
+  "topology_class": "monologue_heavy",
+  "production_style": "tbiy_narrative",
+  "least_spoken_speaker_id": "spk_1",
+  "pickup_eligible_speaker_id": "spk_1",
+  "speaker_stats": [
+    {
+      "speaker_id": "spk_0",
+      "talk_ms": 510000,
+      "talk_ratio": 0.91,
+      "role_hint": "interviewee",
+      "turn_count": 12,
+      "question_count": 0
+    },
+    {
+      "speaker_id": "spk_1",
+      "talk_ms": 50000,
+      "talk_ratio": 0.09,
+      "role_hint": "interviewer",
+      "turn_count": 8,
+      "question_count": 6
+    }
+  ],
+  "summary_plain": "Monologue-heavy — coarse acts; minimal punctuators; pickup bridges only."
+}

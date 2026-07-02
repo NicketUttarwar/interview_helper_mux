@@ -113,6 +113,9 @@ export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null):
     if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
       return true;
     }
+    if (Number(run.job?.sufficiency_blocking ?? 0) > 0) {
+      return true;
+    }
     return false;
   }
 

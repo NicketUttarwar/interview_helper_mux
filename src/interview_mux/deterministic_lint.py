@@ -538,6 +538,24 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
                 break
     if not lines and not errors:
         pass
+    from interview_mux.production_profile import is_tbiy
+    from interview_mux.source_topology import pickup_eligible_speaker_id
+
+    if is_tbiy(ctx):
+        eligible = pickup_eligible_speaker_id(ctx)
+        if eligible:
+            for ln in lines:
+                if not isinstance(ln, dict) or ln.get("delivery") != "record":
+                    continue
+                voice = str(ln.get("voice_speaker_id") or "")
+                if voice and voice != eligible:
+                    errors.append(
+                        f"pickup line {ln.get('line_id')} voice_speaker_id must match gap pickup speaker ({eligible})"
+                    )
+                    break
+                if not voice:
+                    errors.append(f"pickup line {ln.get('line_id')} missing voice_speaker_id")
+                    break
     return errors
 
 

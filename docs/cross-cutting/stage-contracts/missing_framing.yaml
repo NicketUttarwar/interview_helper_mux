@@ -1,0 +1,37 @@
+stage_id: missing_framing
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/gap_evaluations.json
+  schema: gap_evaluations_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/content_brief.json
+    producer: content_brief_reanchor
+  soft: []
+sufficiency:
+- path: evaluations
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- missing_framing
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- evaluations
+nullable_fields:
+- evaluations[].notes

@@ -10,6 +10,8 @@ from typing import Any
 
 from interview_mux.config import merged_config, repo_root
 from interview_mux.openai_schema_lint import assert_openai_strict_schema
+from interview_mux.openai_schema_semantic_lint import assert_openai_semantic_schema
+from interview_mux.envelope_min_example import build_envelope_min_example
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
 
 SPECIALIST_SCHEMA_FILES: dict[str, str] = {
@@ -63,11 +65,75 @@ def structured_outputs_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(structured_outputs_cfg(cfg).get("enabled", True))
 
 
+def _infer_json_type(prop: dict[str, Any]) -> str | None:
+    """Infer JSON Schema type when the source property omits ``type``."""
+    if "enum" in prop:
+        vals = prop.get("enum") or []
+        if vals and all(isinstance(v, str) for v in vals):
+            return "string"
+        if vals and all(isinstance(v, bool) for v in vals):
+            return "boolean"
+        if vals and all(isinstance(v, int) and not isinstance(v, bool) for v in vals):
+            return "integer"
+        if vals and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals):
+            return "number"
+    if "const" in prop:
+        val = prop["const"]
+        if isinstance(val, str):
+            return "string"
+        if isinstance(val, bool):
+            return "boolean"
+        if isinstance(val, int) and not isinstance(val, bool):
+            return "integer"
+        if isinstance(val, float):
+            return "number"
+        if isinstance(val, dict):
+            return "object"
+        if isinstance(val, list):
+            return "array"
+    if "items" in prop:
+        return "array"
+    if "properties" in prop:
+        return "object"
+    return None
+
+
+def _sanitize_strict_node(schema: dict[str, Any]) -> dict[str, Any]:
+    """Fix strictify artifacts: enum strings must not sit on empty object nodes."""
+    if not isinstance(schema, dict):
+        return schema
+    effective = schema.get("type")
+    types = [effective] if isinstance(effective, str) else list(effective or [])
+    if (
+        "enum" in schema
+        and ("object" in types or (effective is None and not schema.get("properties")))
+        and not (schema.get("properties") or {})
+    ):
+        inferred = _infer_json_type(schema)
+        if inferred and inferred != "object":
+            out = {k: v for k, v in schema.items() if k != "type"}
+            t = out.get("type")
+            if isinstance(t, list):
+                non_null = [x for x in t if x != "null" and x != "object"]
+                out["type"] = non_null if "null" in t else [inferred]
+                if "null" in t and "null" not in out["type"]:
+                    out["type"] = [*out["type"], "null"]
+            else:
+                out["type"] = inferred
+            out.pop("additionalProperties", None)
+            out.pop("required", None)
+            out.pop("properties", None)
+            return out
+    return schema
+
+
 def _make_nullable(prop: dict[str, Any]) -> dict[str, Any]:
     prop = copy.deepcopy(prop)
     t = prop.get("type")
     if t is None:
-        return {**prop, "type": ["object", "null"]}
+        inferred = _infer_json_type(prop)
+        base = inferred if inferred else "object"
+        return {**prop, "type": [base, "null"]}
     if isinstance(t, list):
         if "null" not in t:
             prop["type"] = [*t, "null"]
@@ -132,7 +198,7 @@ def strictify_schema(
         )
         return schema
 
-    return schema
+    return _sanitize_strict_node(schema)
 
 
 def _need_item_schema() -> dict[str, Any]:
@@ -193,6 +259,7 @@ def compose_envelope_schema(stage_key: str, *, strict: bool = True) -> dict[str,
     if strict:
         envelope = strictify_schema(envelope)
         assert_openai_strict_schema(envelope)
+        assert_openai_semantic_schema(envelope)
     return envelope
 
 
@@ -236,6 +303,7 @@ def compose_envelope_schema_from_artifact(artifact: dict[str, Any], *, strict: b
     if strict:
         envelope = strictify_schema(envelope)
         assert_openai_strict_schema(envelope)
+        assert_openai_semantic_schema(envelope)
     return envelope
 
 
@@ -246,6 +314,7 @@ def compose_arbiter_schema(*, strict: bool = True) -> dict[str, Any]:
     schema = strictify_schema(schema) if strict else copy.deepcopy(schema)
     if strict:
         assert_openai_strict_schema(schema)
+        assert_openai_semantic_schema(schema)
     return schema
 
 
@@ -313,6 +382,7 @@ def resolve_response_format(
 
         if strict:
             assert_openai_strict_schema(schema)
+            assert_openai_semantic_schema(schema)
 
         return {
             "type": "json_schema",
@@ -405,15 +475,7 @@ def min_example_for_stage(stage_key: str) -> dict[str, Any]:
             art = schema_to_min_example(artifact_schema) if artifact_schema else {}
         else:
             art = {}
-    return {
-        "status": "complete",
-        "artifacts": art if isinstance(art, dict) else {},
-        "memory_updates": {},
-        "needs": [],
-        "follow_up_investigations": [],
-        "confidence": 0.0,
-        "reasoning_summary": "2-5 sentences for the next stage",
-    }
+    return build_envelope_min_example(artifacts=art if isinstance(art, dict) else {})
 
 
 def min_example_for_arbiter() -> dict[str, Any]:

@@ -54,6 +54,15 @@
     "word_boundary_margin_ms": 50,
     "word_boundary_max_shift_ms": 400,
     "normalize_vo_pickup": true,
+    "tbiy_narrative": {
+      "punctuator_pause_min_ms": 400,
+      "bed_duck_db": 6,
+      "vo_silence_threshold": 0.02,
+      "punctuator_peak_db": -10,
+      "bed_under_dialogue_db": -26,
+      "foley_under_dialogue_db": -26,
+      "transition_whoosh_peak_db": -6
+    },
     "completeness_gate": {
       "enabled": true,
       "mode": "warn"
@@ -82,6 +91,47 @@
     "block_mix_on_mmaudio_qa_fail": false
   },
   "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict — production values applied in gap-closure GC-F3",
+  "production_style": "documentary_interview",
+  "production_profiles": {
+    "documentary_interview": {
+      "punctuators_enabled": false,
+      "max_assets_flow1": 6,
+      "max_punctuators": 0,
+      "max_beds": 1,
+      "max_foley": 1
+    },
+    "tbiy_narrative": {
+      "punctuators_enabled": true,
+      "max_assets_flow1": 8,
+      "max_punctuators": 4,
+      "max_beds": 2,
+      "max_foley": 2,
+      "mix_overrides": {
+        "punctuator_peak_db": -10,
+        "bed_under_dialogue_db": -26,
+        "foley_under_dialogue_db": -26
+      },
+      "adaptation_defaults": {
+        "require_moat": true,
+        "require_five_act_coverage": true
+      }
+    }
+  },
+  "source_topology": {
+    "thresholds": {
+      "monologue_talk_ratio": 0.8,
+      "asymmetric_content_ratio": 0.65,
+      "balanced_talk_ratio_low": 0.4,
+      "balanced_talk_ratio_high": 0.6,
+      "panel_guest_min": 2,
+      "sparse_host_frame_ratio": 0.15,
+      "resegment_topic_segment_ratio": 2.5
+    },
+    "auto_confirm_topology": false
+  },
+  "g1_5_preview_pickup": {
+    "enabled": true
+  },
   "g1_5_require_prompt_approval": true,
   "narrative_qc": {
     "strict": true
@@ -395,7 +445,10 @@
       "fabricate_max_paths_per_call": 8,
       "fabricate_max_calls_per_stage_attempt": 2,
       "prefer_omit_over_fabricate": true,
-      "fabricate_review_threshold": null
+      "fabricate_review_threshold": null,
+      "permissive_mode": true,
+      "auto_fabricate_unknown_optional": true,
+      "block_only_evidentiary_critical": true
     },
     "artifact_issue_triage": {
       "enabled": true,
@@ -426,6 +479,31 @@
       "in_run_auto_resolve": true,
       "risk_based_force_advance": true,
       "auto_resolve_in_run_mode": "autopilot"
+    },
+    "artifact_contract": {
+      "enabled": true,
+      "contracts_dir": "docs/cross-cutting/stage-contracts",
+      "verify_on_ci": true
+    },
+    "sufficiency": {
+      "enabled": true,
+      "default_blocking_tier": "progression",
+      "per_stage_overrides": {}
+    },
+    "artifact_lifecycle": {
+      "fingerprint_enabled": true,
+      "post_commit_validate": true,
+      "read_stale_guard": true,
+      "reuse_validate": true
+    },
+    "remediation_orchestrator": {
+      "enabled": true,
+      "max_micro_gap_fill_per_stage": 2,
+      "max_upstream_reruns": 2
+    },
+    "downstream_probe": {
+      "enabled": true,
+      "blocking_tier": "progression"
     }
   }
 }

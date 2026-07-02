@@ -189,3 +189,66 @@ def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkey
     assert len(overlays) == 1
     # outro ends 300; segment source starts 800 → timeline 1000 + (300 - 800) = 500
     assert overlays[0]["position_ms"] == 500
+
+
+def test_flow1_overlays_pause_trigger_rhetorical_punctuator(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_punctuator_pause", create=True)
+
+    tone = Sine(440).to_audio_segment(duration=3000).set_channels(1).set_frame_rate(48000)
+    sting = Sine(880).to_audio_segment(duration=400).set_channels(1).set_frame_rate(48000)
+    ctx.path("ingest").mkdir(parents=True, exist_ok=True)
+    ctx.path("sound_design", "assets").mkdir(parents=True, exist_ok=True)
+    tone.export(str(ctx.path("ingest", "normalized.wav")), format="wav")
+    sting.export(str(ctx.path("sound_design", "assets", "punctuator_ding.wav")), format="wav")
+
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=800, end_ms=3000),
+        ),
+    )
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                {"text": "outro", "start_ms": 100, "end_ms": 300},
+                {"text": "chapter", "start_ms": 800, "end_ms": 1000},
+            ]
+        },
+    )
+    ctx.write_json("understanding/source_acoustic_profile.json", _profile(min_pause=400))
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "punctuator_ding",
+                    "role": "rhetorical_punctuator",
+                    "description": "dry ding",
+                    "duration_seconds": 0.35,
+                }
+            ],
+            flow_plans={
+                "flow1": {
+                    "cues": [
+                        {
+                            "cue_id": "punc_1",
+                            "asset_id": "punctuator_ding",
+                            "placement": "before_segment",
+                            "segment_id": "seg_a",
+                            "trigger": "pause",
+                            "level_db": -14.0,
+                            "pan_position": -60,
+                        }
+                    ],
+                }
+            },
+            generated={"punctuator_ding": "sound_design/assets/punctuator_ding.wav"},
+        ),
+    )
+
+    overlays = flow1_overlays_from_sdp(ctx, segment_timing={"seg_a": (1000, 3200)})
+    assert len(overlays) == 1
+    assert overlays[0]["position_ms"] == 500
+    assert overlays[0]["role"] == "punctuator"

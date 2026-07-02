@@ -10,6 +10,8 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.stage_enrichment import compact_value_features_summary, pause_ladder_hints
 from interview_mux.tone_taxonomy import compact_profile_style_hints
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.production_profile import prompt_variant
+from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
 
 
@@ -85,7 +87,7 @@ def run_classification(ctx: RunContext) -> None:
         retry_ob = payload.get("classification_obligation_retry")
         if isinstance(retry_ob, dict):
             payload["classification_obligation_retry"] = retry_ob
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     def _manifest_transform(artifacts: dict) -> dict:
         segments = artifacts.get("segments") or artifacts
@@ -103,7 +105,7 @@ def run_classification(ctx: RunContext) -> None:
         run_analysis_llm_stage(
             ctx,
             "segment_classification",
-            "segmentation/segment-classification.system.txt",
+            prompt_variant("segmentation/segment-classification.system.txt", ctx),
             build_input,
             persist,
         )

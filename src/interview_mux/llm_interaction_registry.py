@@ -314,6 +314,25 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         model_tier="mid",
     )
 
+    for sk in STAGE_ARTIFACT_SCHEMAS:
+        cid = f"OM-MG-{STAGE_PRIMARY_IDS.get(sk, sk)[:2]}"
+        reg[cid] = _entry(
+            id=cid,
+            provider="openai",
+            interaction=f"{sk}_micro_gap_fill",
+            stage_key=sk,
+            task_kind="micro_gap_fill",
+            trigger="remediation_orchestrator sufficiency / acceptance fail",
+            entrypoint="micro_gap_fill.run_micro_gap_fill",
+            prompt_rel="_shared/micro-gap-fill/default.system.txt",
+            volley_profile="patch paths only",
+            response_schema=f"patch envelope+{STAGE_ARTIFACT_SCHEMAS[sk]}",
+            verify="sufficiency_engine.evaluate",
+            on_verify_fail="volley_retry",
+            goal="Targeted artifact path patch without full stage rerun",
+            model_tier="standard",
+        )
+
     return reg
 
 

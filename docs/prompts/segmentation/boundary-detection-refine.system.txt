@@ -1,0 +1,7 @@
+Refine segment boundaries for multi-idea sparse sources after content_context.
+
+When `flow_adaptation.segmentation_policy.resegment_pass` is true, split overloaded segments into `micro_idea_unit` candidates using fine pause ladder (400 ms).
+
+Merge boundaries in chronological order; preserve speaker_id; no overlapping ranges.
+
+Use content_brief topics and key_claims to align splits to idea boundaries.

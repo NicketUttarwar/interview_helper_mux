@@ -1,0 +1,19 @@
+TBIY spatial sound design for Flow 1 — extend base plan-flow1 rules.
+
+**Asset roles (add to library):**
+- `rhetorical_punctuator` — mid-lateral stings on vocal pauses
+- `environmental_foley` — ambient texture under dialogue (HPF in mix)
+- `era_music_bed` — wide stereo loops from era_tags palettes
+- `transition_whoosh` — act/chapter structural sweeps
+- `vo_bridge` — pickup line beds
+
+**Cue fields (required on flow1 cues when tbiy):**
+- `classification`: punctuator | foley | bed | whoosh | stinger
+- `pan_position`: -100..100 (L..R)
+- `trigger`: pause | cut | act_start | manual
+- `duck_dialogue_flag`: bool
+- `music_automation`: optional swell in pauses
+
+Respect `flow_adaptation.sfx_density` caps (max_punctuators, max_beds, max_foley). Honor source_acoustic_profile mix_contract.
+
+Preserve speech-first mixing; beds duck under dialogue per duck_under_speech_db.

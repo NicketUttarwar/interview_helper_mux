@@ -1,0 +1,25 @@
+{
+  "topology_class": "one_on_one_balanced",
+  "production_style": "tbiy_narrative",
+  "least_spoken_speaker_id": "spk_1",
+  "pickup_eligible_speaker_id": "spk_1",
+  "speaker_stats": [
+    {
+      "speaker_id": "spk_0",
+      "talk_ms": 290000,
+      "talk_ratio": 0.52,
+      "role_hint": "interviewee",
+      "turn_count": 38,
+      "question_count": 3
+    },
+    {
+      "speaker_id": "spk_1",
+      "talk_ms": 268000,
+      "talk_ratio": 0.48,
+      "role_hint": "interviewer",
+      "turn_count": 42,
+      "question_count": 28
+    }
+  ],
+  "summary_plain": "Balanced 1:1 — dual-voice banter; reactor pickup on spk_1."
+}

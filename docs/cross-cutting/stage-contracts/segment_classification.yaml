@@ -1,0 +1,46 @@
+stage_id: segment_classification
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: segments/manifest.json
+  schema: manifest_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: segments/boundaries.json
+    producer: boundary_detection
+  soft: []
+sufficiency:
+- path: segments
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+propagation:
+  invalidates_stages:
+  - content_brief_reanchor
+  - sonic_context_build
+  - sound_design_palettes
+  - missing_framing
+  - optimal_questions
+consumers:
+- segment_classification
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- segments
+- segments[].segment_id
+- segments[].type
+nullable_fields:
+- segments[].notes
+- segments[].topic_tags

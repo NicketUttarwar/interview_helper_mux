@@ -21,6 +21,11 @@ IssueKind = Literal[
     "null",
     "enum",
     "coverage",
+    "request_schema",
+    "sufficiency",
+    "downstream_blocked",
+    "stale_artifact",
+    "reuse_invalid",
     "other",
 ]
 
@@ -242,6 +247,28 @@ def classify_schema_error(stage_key: str, error: str, *, artifact_path: str | No
 
     issue.severity = "important"
     issue.repair_strategy = "default_value"
+    return issue
+
+
+def classify_sufficiency_finding(
+    stage_key: str,
+    finding: Any,
+    *,
+    artifact_path: str | None = None,
+) -> ClassifiedIssue:
+    blocking = bool(getattr(finding, "blocking", True))
+    tier = getattr(getattr(finding, "blocking_tier", None), "value", "progression")
+    issue = ClassifiedIssue(
+        message=str(getattr(finding, "message", finding)),
+        kind="sufficiency",
+        severity="critical" if blocking else "minor",
+        blocking=blocking,
+        artifact_path=artifact_path,
+        json_path=str(getattr(finding, "path", "")),
+        source="sufficiency",
+        repair_strategy=str(getattr(finding, "remediation", "micro_gap_fill")),
+        evidence={"blocking_tier": tier},
+    )
     return issue
 
 

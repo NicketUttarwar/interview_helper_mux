@@ -442,6 +442,42 @@ code {
   gap: 0.75rem;
 }
 
+.pickup-speaker-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pickup-speaker-card.selected {
+  border-color: var(--accent, #409eff);
+  box-shadow: 0 0 0 1px var(--accent, #409eff);
+}
+
+.pickup-speaker-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.pickup-speaker-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.pickup-speaker-stats {
+  margin: 0.35rem 0 0.5rem 1.35rem;
+}
+
+.pickup-speaker-panel .audio-player {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
 .vo-card {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2039,11 +2075,48 @@ code {
 }
 
 .chapter-track,
-.marker-track {
+.marker-track,
+.act-band-track {
   position: relative;
   height: 28px;
   min-width: 600px;
   margin-bottom: 0.35rem;
+}
+
+.act-band-track {
+  height: 32px;
+}
+
+.act-band {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  opacity: 0.55;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.act-band-1 { background: rgba(96, 165, 250, 0.25); }
+.act-band-2 { background: rgba(52, 211, 153, 0.25); }
+.act-band-3 { background: rgba(251, 191, 36, 0.28); }
+.act-band-4 { background: rgba(244, 114, 182, 0.28); }
+.act-band-5 { background: rgba(167, 139, 250, 0.28); }
+
+.act-band-moat {
+  box-shadow: inset 0 0 0 2px rgba(244, 114, 182, 0.65);
+  opacity: 0.72;
+}
+
+.act-band-label {
+  display: block;
+  font-size: 0.62rem;
+  padding: 0.15rem 0.35rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
 }
 
 .chapter-marker {

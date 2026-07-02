@@ -1,0 +1,67 @@
+stage_id: content_context
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/content_brief.json
+  schema: content_brief_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  soft: []
+sufficiency:
+- path: thesis
+  rule: non_empty_string
+  min_length: 8
+  blocking: progression
+- path: topics
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+- path: key_claims[]
+  rule: evidence_anchor
+  blocking: advisory
+- path: strategic_moat_concept
+  rule: non_empty_string
+  min_length: 4
+  blocking: advisory
+  when:
+    production_style: tbiy_narrative
+propagation:
+  invalidates_stages:
+  - boundary_detection
+  - segment_classification
+  - content_brief_reanchor
+consumers:
+- content_context
+- content_brief_reanchor
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- thesis
+- topics
+- topics[].name
+- topics[].summary
+nullable_fields:
+- audience
+- emotional_beats
+- jargon_glossary
+- jargon_glossary[].first_segment_id
+- key_claims
+- key_claims[].approx_time_range
+- key_claims[].evidence_segment_ids
+- key_claims[].segment_ids
+- topics[].approx_time_range
+- topics[].segment_ids

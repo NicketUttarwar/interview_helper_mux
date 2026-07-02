@@ -2,18 +2,44 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "EdlNarrativeAuditArtifact",
   "type": "object",
-  "required": ["verdict", "blocking_issues", "warnings", "recommended_actions", "reasoning_summary"],
+  "required": [
+    "verdict",
+    "blocking_issues",
+    "warnings",
+    "recommended_actions",
+    "reasoning_summary"
+  ],
   "properties": {
-    "verdict": { "enum": ["pass", "warn", "fail"] },
+    "verdict": {
+      "enum": [
+        "pass",
+        "warn",
+        "fail"
+      ],
+      "type": "string"
+    },
     "blocking_issues": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["issue", "evidence", "recommended_action"],
+        "required": [
+          "issue",
+          "evidence",
+          "recommended_action"
+        ],
         "properties": {
-          "issue": { "type": "string" },
-          "evidence": { "type": "array", "items": { "type": "string" } },
-          "recommended_action": { "type": "string" }
+          "issue": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended_action": {
+            "type": "string"
+          }
         }
       }
     },
@@ -21,15 +47,35 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["issue", "evidence", "recommended_action"],
+        "required": [
+          "issue",
+          "evidence",
+          "recommended_action"
+        ],
         "properties": {
-          "issue": { "type": "string" },
-          "evidence": { "type": "array", "items": { "type": "string" } },
-          "recommended_action": { "type": "string" }
+          "issue": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended_action": {
+            "type": "string"
+          }
         }
       }
     },
-    "recommended_actions": { "type": "array", "items": { "type": "string" } },
-    "reasoning_summary": { "type": "string" }
+    "recommended_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
   }
 }

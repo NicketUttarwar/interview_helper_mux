@@ -22,6 +22,7 @@ import { TranscriptReviewPanel } from "../gates/TranscriptReviewPanel";
 import { DisfluencyReviewPanel } from "../gates/DisfluencyReviewPanel";
 import { AnalysisProfileGate } from "../gates/AnalysisProfileGate";
 import { VoPickupPanel } from "../gates/VoPickupPanel";
+import { PreviewPickupPanel } from "../gates/PreviewPickupPanel";
 import { FlowSelectPanel } from "../gates/FlowSelectPanel";
 import { SfxPromptReviewPanel } from "../gates/SfxPromptReviewPanel";
 import { useApp } from "../../context/AppContext";
@@ -290,8 +291,12 @@ export function StageStepBody({ step, stage }: Props) {
       return <DisfluencyReviewPanel />;
     case "analysis_profile":
       return <AnalysisProfileGate stage={stage} />;
+    case "pickup_speaker":
+      return <PickupSpeakerPanel stage={stage} />;
     case "vo_pickup":
       return <VoPickupPanel voLines={timeline?.vo_lines || []} />;
+    case "preview_pickup":
+      return <PreviewPickupPanel voLines={timeline?.vo_lines || []} />;
     case "flow_select":
       return <FlowSelectPanel />;
     case "sfx_prompt_review":

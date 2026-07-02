@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FlowAdaptation",
+  "type": "object",
+  "required": ["topology_class", "production_style", "ranking_weights", "sfx_density", "summary_plain"],
+  "properties": {
+    "topology_class": { "type": "string" },
+    "production_style": { "type": "string" },
+    "ranking_weights": {
+      "type": "object",
+      "properties": {
+        "narrative_arc_fit": { "type": "number" },
+        "claim_impact": { "type": "number" },
+        "reaction_opportunity": { "type": "number" },
+        "topic_coherence": { "type": "number" }
+      }
+    },
+    "sfx_density": {
+      "type": "object",
+      "properties": {
+        "max_punctuators": { "type": "integer" },
+        "max_beds": { "type": "integer" },
+        "max_foley": { "type": "integer" }
+      }
+    },
+    "segmentation_policy": { "type": "object" },
+    "operator_overrides": {
+      "type": "object",
+      "properties": {
+        "segmentation_granularity": { "type": ["string", "null"] },
+        "force_resegment": { "type": "boolean" },
+        "topology_confirmed": { "type": "boolean" },
+        "pickup_speaker_confirmed": { "type": "boolean" }
+      }
+    },
+    "pickup_eligible_speaker_id": { "type": "string" },
+    "summary_plain": { "type": "string" }
+  }
+}

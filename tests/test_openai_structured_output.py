@@ -53,6 +53,13 @@ def test_min_example_for_stage_is_envelope():
     assert "speakers" in env["artifacts"]
 
 
+def test_content_context_enum_fields_are_string_nullable():
+    fmt = resolve_response_format("content_context", "primary")
+    items = fmt["json_schema"]["schema"]["properties"]["artifacts"]["properties"]["key_claims"]["items"]
+    claim_type = items["properties"]["claim_type"]
+    assert "string" in (claim_type["type"] if isinstance(claim_type["type"], list) else [claim_type["type"]])
+
+
 @pytest.mark.parametrize("stage_key", sorted(STAGE_ARTIFACT_SCHEMAS.keys()))
 def test_all_stage_envelopes_compose_and_lint_clean(stage_key: str):
     schema = compose_envelope_schema(stage_key, strict=True)

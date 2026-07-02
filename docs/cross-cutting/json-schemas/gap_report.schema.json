@@ -17,7 +17,11 @@
           "placement": { "enum": ["before", "after"] },
           "delivery": { "enum": ["record", "synthesize"] },
           "rationale": { "type": "string" },
-          "line_id": { "type": "string" }
+          "line_id": { "type": "string" },
+          "voice_speaker_id": { "type": "string" },
+          "act_context": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "suggested_tone": { "type": "string", "enum": ["analytical", "consumer", "neutral"] },
+          "trim_hint_ms": { "type": "number" }
         }
       }
     }

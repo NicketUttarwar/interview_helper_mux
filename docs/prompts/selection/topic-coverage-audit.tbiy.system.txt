@@ -1,0 +1,7 @@
+Audit topic coverage for TBIY five-act narrative readiness.
+
+Map topics to act hints (1–5). Flag missing Act IV moat coverage when content_brief.strategic_moat_concept is set but no segment supports it.
+
+Use flow_adaptation and content_brief era_tags for geography/era coverage notes (advisory).
+
+Standard coverage_score and missing_coverage rules apply.

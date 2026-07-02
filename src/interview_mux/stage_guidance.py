@@ -663,6 +663,22 @@ def _stage_actions(
             actions.append(_guidance_item("verify_profile", "Profile verified", "done"))
         return actions
 
+    if stage_id == "missing_framing":
+        if status == "action_required":
+            actions.append(
+                _guidance_item(
+                    "pickup_speaker",
+                    "Select gap pickup speaker before gap evaluation",
+                    "todo",
+                    action="checkpoint",
+                    kind="checkpoint",
+                    substep_label="Confirm gap pickup speaker",
+                )
+            )
+        elif status == "done":
+            actions.append(_guidance_item("pickup_speaker", "Gap pickup speaker confirmed", "done"))
+        return actions
+
     if stage_id == "g1_vo_pickup":
         if status == "action_required":
             actions.append(

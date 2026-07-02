@@ -27,7 +27,11 @@
               "targets_segment_id",
               "placement",
               "delivery",
-              "rationale"
+              "rationale",
+              "voice_speaker_id",
+              "act_context",
+              "suggested_tone",
+              "trim_hint_ms"
             ],
             "properties": {
               "line_id": {
@@ -49,17 +53,50 @@
                 "enum": [
                   "before",
                   "after"
-                ]
+                ],
+                "type": "string"
               },
               "delivery": {
                 "enum": [
                   "record",
                   "synthesize"
-                ]
+                ],
+                "type": "string"
               },
               "rationale": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "voice_speaker_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "act_context": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 5
+              },
+              "suggested_tone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "analytical",
+                  "consumer",
+                  "neutral"
+                ]
+              },
+              "trim_hint_ms": {
+                "type": [
+                  "number",
                   "null"
                 ]
               }

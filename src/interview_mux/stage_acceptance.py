@@ -21,6 +21,7 @@ class AcceptanceResult:
     null_violations: list[str] = field(default_factory=list)
     cross_validate_errors: list[str] = field(default_factory=list)
     downstream_errors: list[str] = field(default_factory=list)
+    sufficiency_errors: list[str] = field(default_factory=list)
 
     @property
     def all_errors(self) -> list[str]:
@@ -29,6 +30,7 @@ class AcceptanceResult:
             + self.schema_errors
             + self.lint_errors
             + self.null_violations
+            + self.sufficiency_errors
             + self.cross_validate_errors
             + self.downstream_errors
         )
@@ -94,6 +96,15 @@ def stage_acceptance_ok(
         if result.null_violations:
             return result
 
+    from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
+
+    if sufficiency_enabled():
+        findings = evaluate(stage_key, artifact, ctx)
+        blocking = [f.message for f in findings if f.blocking]
+        result.sufficiency_errors = blocking
+        if blocking:
+            return result
+
     if include_cross_validate:
         checkpoint = STAGE_CHECKPOINTS.get(stage_key)
         if checkpoint:
@@ -102,6 +113,15 @@ def stage_acceptance_ok(
             )
             if result.cross_validate_errors:
                 return result
+
+    if include_downstream:
+        from interview_mux.downstream_probe import probe_consumers
+
+        probe_findings = probe_consumers(ctx, stage_key, artifact, staged=staged)
+        blocking_probe = [f.message for f in probe_findings if f.blocking]
+        if blocking_probe:
+            result.downstream_errors = blocking_probe
+            return result
 
     if include_downstream and stage_key in ("boundary_detection", "segment_classification"):
         from interview_mux.artifact_issue_triage import revalidate_downstream_on_segment_fix

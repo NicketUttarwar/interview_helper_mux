@@ -33,6 +33,7 @@
                 "type": "string"
               },
               "role": {
+                "type": "string",
                 "enum": [
                   "interviewer",
                   "interviewee",

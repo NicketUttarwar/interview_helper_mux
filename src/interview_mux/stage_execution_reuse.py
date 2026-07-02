@@ -635,6 +635,13 @@ def _validate_copied_artifacts(ctx: RunContext, stage_id: str) -> None:
                 raise ValueError(
                     f"Reused stage {stage_id} failed schema check: {'; '.join(stage_errors[:4])}"
                 )
+            from interview_mux.artifact_lifecycle import validate_reuse_copy
+
+            reuse_errors = validate_reuse_copy(ctx, stage_id, "")
+            if reuse_errors:
+                raise ValueError(
+                    f"Reused artifact {rel} failed sufficiency: {'; '.join(reuse_errors[:4])}"
+                )
 
 
 def reuse_already_applied(ctx: RunContext, stage_id: str) -> bool:

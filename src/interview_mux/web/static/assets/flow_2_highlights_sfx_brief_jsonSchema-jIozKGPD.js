@@ -1,1 +1,0 @@
-import{o as r,r as s,s as a,u as o,a as e}from"./zod-vendor-CcGq3kAE.js";const t=r({cold_open:s(a(),o()).optional(),transitions:e(o()),outro:s(a(),o()).optional()});export{t as flow_2_highlights_sfx_brief_jsonSchema};

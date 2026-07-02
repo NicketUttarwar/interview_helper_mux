@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""Bootstrap docs/cross-cutting/stage-contracts/*.yaml from code registries."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+import yaml  # noqa: E402
+
+from interview_mux.analysis_orchestrator import ALL_LLM_STAGES  # noqa: E402
+from interview_mux.artifact_dependency_graph import _PROPAGATION_SEEDS  # noqa: E402
+from interview_mux.context_resolver import ARTIFACTS_REGISTRY  # noqa: E402
+from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE  # noqa: E402
+from interview_mux.null_field_policy import CRITICAL_FIELDS, NULLABLE_FIELDS  # noqa: E402
+from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER  # noqa: E402
+from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS, STAGE_ARTIFACT_DISK_PATHS  # noqa: E402
+
+OUT = ROOT / "docs" / "cross-cutting" / "stage-contracts"
+
+# Per-stage sufficiency enrichment (LLM-Full)
+_SUFFICIENCY: dict[str, list[dict]] = {
+    "speaker_roles": [
+        {"path": "speakers", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+        {"path": "speakers", "rule": "speakers_not_all_unknown", "blocking": "progression"},
+    ],
+    "content_context": [
+        {"path": "thesis", "rule": "non_empty_string", "min_length": 8, "blocking": "progression"},
+        {"path": "topics", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+        {"path": "key_claims[]", "rule": "evidence_anchor", "blocking": "advisory"},
+    ],
+    "content_brief_reanchor": [
+        {"path": "thesis", "rule": "non_empty_string", "min_length": 8, "blocking": "progression"},
+        {"path": "topics", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
+    "boundary_detection": [
+        {"path": "boundaries", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
+    "segment_classification": [
+        {"path": "segments", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
+}
+
+_LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
+    "sound_design_palettes": [{"path": "palettes", "rule": "min_rows", "min_count": 1}],
+    "missing_framing": [{"path": "evaluations", "rule": "min_rows", "min_count": 1}],
+    "optimal_questions": [{"path": "gaps", "rule": "min_rows", "min_count": 1}],
+    "topic_coverage_audit": [{"path": "topics", "rule": "min_rows", "min_count": 1}],
+    "narrative_arc_plan": [{"path": "chapters", "rule": "min_rows", "min_count": 1}],
+    "full_master_ranking": [{"path": "ranked_segments", "rule": "min_rows", "min_count": 1}],
+    "edl_narrative_audit": [{"path": "findings", "rule": "min_rows", "min_count": 1}],
+    "highlight_selection": [{"path": "highlights", "rule": "min_rows", "min_count": 1}],
+    "transitions": [{"path": "transitions", "rule": "min_rows", "min_count": 1}],
+    "podcast_sfx_brief": [{"path": "brief", "rule": "non_empty_string", "min_length": 8}],
+    "sound_design_plan_flow1": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
+    "sound_design_plan_flow2": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
+    "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
+    "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
+    "sfx_brief": [{"path": "montage", "rule": "non_empty_string", "min_length": 8}],
+    "podcast_show_description": [{"path": "description", "rule": "non_empty_string", "min_length": 50}],
+}
+
+_GATES = {
+    "transcript_review": {"tier": "gate", "gate_id": "G0"},
+    "disfluency_review": {"tier": "gate", "gate_id": "G0.5"},
+    "g1_vo_pickup": {"tier": "gate", "gate_id": "G1"},
+    "g2_flow_select": {"tier": "gate", "gate_id": "G2"},
+}
+
+_PROCESS_STAGES = [
+    "audio_preclean",
+    "ingest",
+    "transcribe",
+    "transcript_review_build",
+    "disfluency_extract",
+    "vo_ingest",
+    "assembly_preview",
+    "edl_flow1",
+    "mmaudio_sfx_flow1",
+    "mmaudio_sfx_flow2",
+    "mix_flow1",
+    "mix_flow2",
+    "master_flow1",
+    "master_flow2",
+    "mux_flow1",
+    "mux_flow2",
+    "export_show_description",
+    "sound_design_plan_init",
+    "_arbiter",
+]
+
+_DETERMINISTIC = [
+    "source_acoustic_profile",
+    "interview_spine_build",
+    "sonic_context_build",
+    "sound_design_vo_finalize",
+]
+
+
+def _all_stage_ids() -> list[str]:
+    seen: list[str] = []
+    for batch in (
+        ANALYSIS_ORDER,
+        ["transcript_review", "disfluency_review", "g1_vo_pickup", "g2_flow_select"],
+        FLOW1_ORDER,
+        FLOW2_ORDER,
+        FLOW3_ORDER,
+        ["vo_ingest", "sound_design_plan_init", "sfx_prompt_refine", "podcast_sfx_brief", "sfx_brief", "mux_flow1", "mux_flow2", "_arbiter"],
+    ):
+        for s in batch:
+            if s not in seen:
+                seen.append(s)
+    return seen
+
+
+def _contract_for(stage_id: str) -> dict:
+    if stage_id in STAGE_ARTIFACT_SCHEMAS or stage_id in ALL_LLM_STAGES:
+        tier = "llm_full"
+    elif stage_id in _DETERMINISTIC:
+        tier = "deterministic"
+    elif stage_id in _GATES:
+        tier = "gate"
+    else:
+        tier = "process"
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    schema_file = STAGE_ARTIFACT_SCHEMAS.get(stage_id)
+
+    doc: dict = {
+        "stage_id": stage_id,
+        "tier": tier,
+        "lifecycle": {
+            "phases": [
+                "prestage",
+                "pre_call",
+                "llm_execute",
+                "staged_validate",
+                "committed",
+                "post_commit_validate",
+            ]
+        },
+        "outputs": [],
+        "inputs": {"hard": [], "soft": []},
+        "sufficiency": _SUFFICIENCY.get(stage_id, _LLM_DEFAULT_SUFFICIENCY.get(stage_id, [])),
+        "propagation": {"invalidates_stages": list(_PROPAGATION_SEEDS.get(stage_id, ()))},
+        "consumers": [c for c, paths in ARTIFACTS_REGISTRY.items() if rel in paths],
+        "remediation": {"strategies": ["micro_gap_fill", "patch_volley", "volley_retry", "full_stage_rerun"]},
+    }
+
+    if rel:
+        doc["outputs"] = [
+            {
+                "path": rel,
+                "schema": schema_file,
+                "staging": tier == "llm_full",
+            }
+        ]
+
+    upstream = LLM_UPSTREAM_STAGE.get(stage_id)
+    if upstream:
+        up_rel = STAGE_ARTIFACT_DISK_PATHS.get(upstream)
+        if up_rel:
+            doc["inputs"]["hard"].append({"path": up_rel, "producer": upstream})
+
+    if stage_id in _GATES:
+        doc.update(_GATES[stage_id])
+
+    crit = sorted(CRITICAL_FIELDS.get(stage_id, frozenset()))
+    if crit:
+        doc["critical_fields"] = crit
+    null = sorted(NULLABLE_FIELDS.get(stage_id, frozenset()))
+    if null:
+        doc["nullable_fields"] = null
+
+    return doc
+
+
+def main() -> int:
+    OUT.mkdir(parents=True, exist_ok=True)
+    for sid in _all_stage_ids():
+        path = OUT / f"{sid}.yaml"
+        doc = _contract_for(sid)
+        path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+        print(f"wrote {path.name}")
+
+    rows = []
+    for p in sorted(OUT.glob("*.yaml")):
+        if p.name.startswith("_"):
+            continue
+        raw = yaml.safe_load(p.read_text())
+        rows.append(
+            {
+                "stage": p.stem,
+                "tier": raw.get("tier"),
+                "outputs": [o.get("path") for o in raw.get("outputs") or []],
+            }
+        )
+    index = OUT / "00-INDEX.md"
+    lines = ["# Stage contracts index\n", "| Stage | Tier | Outputs |", "|-------|------|---------|"]
+    for r in rows:
+        outs = ", ".join(r["outputs"] or []) or "—"
+        lines.append(f"| `{r['stage']}` | {r['tier']} | {outs} |")
+    index.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {index.name} ({len(rows)} stages)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

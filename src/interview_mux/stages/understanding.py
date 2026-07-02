@@ -21,6 +21,8 @@ from interview_mux.value_analysis.extract import (
     maybe_auto_extract_value_features,
     maybe_enqueue_orchestration_investigations,
 )
+from interview_mux.production_profile import prompt_variant
+from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import (
     run_analysis_llm_stage,
@@ -89,15 +91,16 @@ def run_content_context(ctx: RunContext) -> None:
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
         attach_spine_to_payload(c, payload, "content_context")
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_context")
+    prompt_rel = prompt_variant("understanding/content-context.system.txt", ctx)
 
     with logged_step("content_context/llm_stage", ctx=ctx, stage="content_context"):
         run_analysis_llm_stage(
             ctx,
             "content_context",
-            "understanding/content-context.system.txt",
+            prompt_rel,
             build_input,
             persist,
             sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
@@ -126,12 +129,13 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
+    prompt_rel = prompt_variant("understanding/content-brief-reanchor.system.txt", ctx)
 
     with logged_step("content_brief_reanchor/llm_stage", ctx=ctx, stage="content_brief_reanchor"):
         run_analysis_llm_stage(
             ctx,
             "content_brief_reanchor",
-            "understanding/content-brief-reanchor.system.txt",
+            prompt_rel,
             build_input,
             persist,
             sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),

@@ -1,0 +1,1 @@
+import{o as e,a,s,n}from"./zod-vendor-0yp7anPg.js";const r=e({boundaries:a(e({segment_id:s(),start_ms:n(),end_ms:n(),speaker_id:s().optional(),proposed_split_reason:s()})).min(1),warnings:a(s()).optional()});export{r as segments_boundaries_jsonSchema};

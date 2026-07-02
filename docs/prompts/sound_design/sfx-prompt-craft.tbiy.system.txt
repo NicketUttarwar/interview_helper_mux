@@ -1,0 +1,9 @@
+Craft MMAudio prompts for TBIY spatial layer assets.
+
+Per asset role:
+- `era_music_bed`: loopable era/geography texture from palette
+- `rhetorical_punctuator`: short dry stings (no melody)
+- `environmental_foley`: subtle room/location bed
+- `transition_whoosh`: stereo sweep
+
+Avoid lyrics, speech, or ElevenLabs-style voice in prompts. Match duration_seconds to role bands.

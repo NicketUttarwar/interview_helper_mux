@@ -15,6 +15,7 @@ import { formatApiError, reportPanelFetchOutcome } from "../../utils/safeApi";
 import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
+import { FlowAdaptationCard } from "./FlowAdaptationCard";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 function investigationItems(queue: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -41,7 +42,7 @@ export function StoryBoardPanel() {
       const sb = await api<StoryBoardData>(`/api/runs/${runId}/story-board`);
       setData(sb);
       setBaseState(sb.analysis_state);
-      setForm(loadProfileToForm(sb.analysis_state));
+      setForm(loadProfileToForm(sb.analysis_state, sb.content_brief as { strategic_moat_concept?: string }));
       loadErrorLoggedRef.current = null;
     } catch (e) {
       setData(null);
@@ -206,6 +207,28 @@ export function StoryBoardPanel() {
         Tone (nuance)
         <input value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })} />
       </label>
+      <label className="field">
+        Production style
+        <select
+          value={form.productionStyle}
+          onChange={(e) => setForm({ ...form, productionStyle: e.target.value })}
+        >
+          <option value="">Documentary (default)</option>
+          <option value="documentary_interview">documentary_interview</option>
+          <option value="tbiy_narrative">tbiy_narrative</option>
+        </select>
+      </label>
+      {form.productionStyle === "tbiy_narrative" ? (
+        <label className="field">
+          Strategic moat (Act IV)
+          <input
+            value={form.strategicMoat}
+            onChange={(e) => setForm({ ...form, strategicMoat: e.target.value })}
+            placeholder="e.g. network effects, regulatory capture…"
+          />
+        </label>
+      ) : null}
+      <FlowAdaptationCard />
       {form.formatClass ? (
         <p className="muted">
           Format: {formatClassLabel(form.formatClass)}

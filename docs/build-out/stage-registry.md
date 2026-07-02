@@ -40,7 +40,8 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `disfluency_extract` | shipped | `disfluency.py` | — | `transcript/disfluencies.json`, `transcript/disfluency_clips/` | Gate `disfluency_review` (G0.5) |
 | `transcript_review` | gate | `transcript_review.py` | BUILD-018 | `transcript/corrections.json`; dock: `patch_transcript_words` → `transcript/full.json` | GUI: `TranscriptDockViewer`, `FuzzyReplacePopover` |
 | `speaker_roles` | shipped | `understanding.py` | BUILD-022 | `understanding/speakers.json` | `understanding/speaker-roles` |
-| `content_context` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` | `understanding/content-context` |
+| `source_topology_build` | shipped | `source_topology.py` | TBIY | `understanding/source_topology.json`, `understanding/flow_adaptation.json` | deterministic · [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md) |
+| `content_context` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` | `understanding/content-context` (+ `.tbiy` variant) |
 | `boundary_detection` | shipped | `segmentation.py` | BUILD-024 | `segments/boundaries.json` | `segmentation/boundary-detection` |
 | `segment_classification` | shipped | `segmentation.py` | BUILD-024 | `segments/manifest.json` | `segmentation/segment-classification` |
 | `content_brief_reanchor` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` (patch) | `understanding/content-brief-reanchor` |

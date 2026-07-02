@@ -2,12 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Flow1Edl",
   "type": "object",
-  "required": ["version", "ordered_segment_ids", "clips", "timeline_duration_ms"],
+  "required": [
+    "version",
+    "ordered_segment_ids",
+    "clips",
+    "timeline_duration_ms"
+  ],
   "properties": {
-    "version": { "type": "integer", "const": 1 },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
     "ordered_segment_ids": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "clips": {
       "type": "array",
@@ -15,65 +25,170 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["type", "segment_id", "source_start_ms", "source_end_ms", "timeline_start_ms", "duration_ms"],
+            "required": [
+              "type",
+              "segment_id",
+              "source_start_ms",
+              "source_end_ms",
+              "timeline_start_ms",
+              "duration_ms"
+            ],
             "properties": {
-              "type": { "const": "speech" },
-              "segment_id": { "type": "string" },
-              "source_start_ms": { "type": "integer" },
-              "source_end_ms": { "type": "integer" },
-              "timeline_start_ms": { "type": "integer" },
-              "duration_ms": { "type": "integer" }
+              "type": {
+                "const": "speech"
+              },
+              "segment_id": {
+                "type": "string"
+              },
+              "source_start_ms": {
+                "type": "integer"
+              },
+              "source_end_ms": {
+                "type": "integer"
+              },
+              "timeline_start_ms": {
+                "type": "integer"
+              },
+              "duration_ms": {
+                "type": "integer"
+              }
             }
           },
           {
             "type": "object",
-            "required": ["type", "line_id", "targets_segment_id", "placement", "timeline_start_ms", "duration_ms"],
+            "required": [
+              "type",
+              "line_id",
+              "targets_segment_id",
+              "placement",
+              "timeline_start_ms",
+              "duration_ms"
+            ],
             "properties": {
-              "type": { "const": "vo_pickup" },
-              "line_id": { "type": "string" },
-              "targets_segment_id": { "type": "string" },
-              "placement": { "enum": ["before", "after"] },
-              "gap_type": { "type": "string" },
-              "source_path": { "type": ["string", "null"] },
-              "timeline_start_ms": { "type": "integer" },
-              "duration_ms": { "type": "integer" }
+              "type": {
+                "const": "vo_pickup"
+              },
+              "line_id": {
+                "type": "string"
+              },
+              "targets_segment_id": {
+                "type": "string"
+              },
+              "placement": {
+                "enum": [
+                  "before",
+                  "after"
+                ],
+                "type": "string"
+              },
+              "gap_type": {
+                "type": "string"
+              },
+              "source_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "timeline_start_ms": {
+                "type": "integer"
+              },
+              "duration_ms": {
+                "type": "integer"
+              }
             }
           },
           {
             "type": "object",
-            "required": ["type", "after_segment_id", "before_segment_id", "timeline_start_ms"],
+            "required": [
+              "type",
+              "after_segment_id",
+              "before_segment_id",
+              "timeline_start_ms"
+            ],
             "properties": {
-              "type": { "const": "transition" },
-              "after_segment_id": { "type": "string" },
-              "before_segment_id": { "type": "string" },
-              "text": { "type": "string" },
-              "transition_type": { "type": "string" },
-              "duration_ms": { "type": "integer" },
-              "timeline_start_ms": { "type": "integer" }
+              "type": {
+                "const": "transition"
+              },
+              "after_segment_id": {
+                "type": "string"
+              },
+              "before_segment_id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "transition_type": {
+                "type": "string"
+              },
+              "duration_ms": {
+                "type": "integer"
+              },
+              "timeline_start_ms": {
+                "type": "integer"
+              }
             }
           },
           {
             "type": "object",
-            "required": ["type", "event_id", "segment_id", "timeline_start_ms", "duration_ms"],
+            "required": [
+              "type",
+              "event_id",
+              "segment_id",
+              "timeline_start_ms",
+              "duration_ms"
+            ],
             "properties": {
-              "type": { "const": "disfluency" },
-              "event_id": { "type": "string" },
-              "segment_id": { "type": "string" },
-              "source_path": { "type": ["string", "null"] },
-              "source_start_ms": { "type": "integer" },
-              "source_end_ms": { "type": "integer" },
-              "timeline_start_ms": { "type": "integer" },
-              "duration_ms": { "type": "integer" },
-              "text": { "type": "string" }
+              "type": {
+                "const": "disfluency"
+              },
+              "event_id": {
+                "type": "string"
+              },
+              "segment_id": {
+                "type": "string"
+              },
+              "source_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_start_ms": {
+                "type": "integer"
+              },
+              "source_end_ms": {
+                "type": "integer"
+              },
+              "timeline_start_ms": {
+                "type": "integer"
+              },
+              "duration_ms": {
+                "type": "integer"
+              },
+              "text": {
+                "type": "string"
+              }
             }
           }
         ]
       }
     },
-    "gap_placements": { "type": "array" },
-    "timeline_duration_ms": { "type": "integer" },
-    "disfluency_clip_count": { "type": "integer" },
-    "disfluency_restore_enabled": { "type": "boolean" },
-    "mux_scope": { "type": "string" }
+    "gap_placements": {
+      "type": "array"
+    },
+    "timeline_duration_ms": {
+      "type": "integer"
+    },
+    "disfluency_clip_count": {
+      "type": "integer"
+    },
+    "disfluency_restore_enabled": {
+      "type": "boolean"
+    },
+    "mux_scope": {
+      "type": "string"
+    }
   }
 }

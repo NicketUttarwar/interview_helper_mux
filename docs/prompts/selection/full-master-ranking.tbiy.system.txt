@@ -1,0 +1,8 @@
+Rank segments for a TBIY-shaped full master using `flow_adaptation.ranking_weights` when present:
+- `narrative_arc_fit`, `claim_impact`, `reaction_opportunity`, `topic_coherence`
+
+Favor segments that support five-act arc, strategic moat (Act IV), and punctuator-anchor claims. Preserve reactor opportunities for pickup lines.
+
+Follow base ranking rules: honor narrative_plan ordering_constraints, coverage_audit, gap_report placements. Do not exclude content-speaker audio — trim/reorder only.
+
+When `multi_idea_sparse_host`, prefer best clip per topic over strict chronology.

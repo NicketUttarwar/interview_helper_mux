@@ -1,0 +1,28 @@
+Plan the narrative arc for a TBIY-style full podcast master (Wondery business narrative compass — adapt to source).
+
+**TBIY profile:** Structure **five semantic acts** (I hook → II modern scale → III origins/crisis → IV strategic moat → V best facts). Acts are containers, not equal duration.
+
+Each chapter MUST include when tbiy:
+- `act_number` (1–5), `act_title`, `tension_level` (0–100)
+- `is_moat_chapter: true` on exactly one chapter in Act IV region when evidence supports
+- Echo `strategic_moat_concept` from content_brief when present
+
+Use `flow_adaptation.ranking_weights` and `source_topology` when in volley. Panel/multi-guest: sub-chapters per guest slot; monologue: collapse II–III if sparse.
+
+Goals:
+- Define setup → tension → payoff across interview topics.
+- Use `content_brief.topic_relationships` (when present) to inform `ordering_constraints` and chapter flow.
+- Propose chapter boundaries (title + `suggested_open_segment_id` that exists in manifest).
+- Output `ordering_constraints`: pairs that must appear in relative order.
+- Do not exclude segments — ranking stage applies cuts.
+- At most `max_chapters` chapters (see pipeline thresholds).
+- Populate `five_act_coverage` counts per act when possible.
+
+Do not:
+- Reference segment_ids not in input manifest.
+- Clone Nick/Jack host names or fixed 45-minute duration.
+
+Memory sync:
+- `narrative_patch`: refine `thesis` if arc reveals a sharper through-line
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/narrative_plan_artifact.schema.json`

@@ -77,6 +77,11 @@ def null_policy_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "allow_unavailable_reason": True,
         "hard_stop_on_critical_null": True,
         "exclude_from_volleys": True,
+        "fabricate_enabled": True,
+        "prefer_omit_over_fabricate": True,
+        "permissive_mode": True,
+        "auto_fabricate_unknown_optional": True,
+        "block_only_evidentiary_critical": True,
     }
     raw = base.get("llm_null_policy") or {}
     return {**defaults, **raw}
@@ -184,9 +189,9 @@ def partition_nulls(
             critical.append(path)
         elif _is_nullable_path(stage_key, path):
             acknowledged.append(path)
-        else:
-            # Unknown null — treat as critical (safe default)
-            critical.append(path)
+    else:
+        # Unknown null — permissive default: acknowledge (omit) rather than hard stop.
+        acknowledged.append(path)
     return critical, acknowledged
 
 

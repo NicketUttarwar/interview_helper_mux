@@ -57,6 +57,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "sound_design_plan_flow1": "understanding/sound_design_plan.json",
     "sound_design_plan_flow2": "understanding/sound_design_plan.json",
     "sfx_prompt_craft": "sound_design/sfx_prompts.json",
+    "sfx_prompt_refine": "sound_design/sfx_prompts.json",
     "sfx_brief": "flow_2_highlights/sfx_brief.json",
     "podcast_show_description": "flow_3_description/show_description.json",
 }

@@ -1,0 +1,25 @@
+{
+  "topology_class": "one_on_one_asymmetric",
+  "production_style": "tbiy_narrative",
+  "least_spoken_speaker_id": "spk_1",
+  "pickup_eligible_speaker_id": "spk_1",
+  "speaker_stats": [
+    {
+      "speaker_id": "spk_0",
+      "talk_ms": 420000,
+      "talk_ratio": 0.72,
+      "role_hint": "interviewee",
+      "turn_count": 48,
+      "question_count": 2
+    },
+    {
+      "speaker_id": "spk_1",
+      "talk_ms": 163000,
+      "talk_ratio": 0.28,
+      "role_hint": "interviewer",
+      "turn_count": 52,
+      "question_count": 41
+    }
+  ],
+  "summary_plain": "Asymmetric 1:1 — guest-heavy; reactor pickup on spk_1."
+}

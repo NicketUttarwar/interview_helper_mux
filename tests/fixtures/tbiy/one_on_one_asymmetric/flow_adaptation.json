@@ -1,0 +1,25 @@
+{
+  "topology_class": "one_on_one_asymmetric",
+  "production_style": "tbiy_narrative",
+  "pickup_eligible_speaker_id": "spk_1",
+  "summary_plain": "Favor claim-impact ranking; reactor opportunities on interviewer.",
+  "ranking_weights": {
+    "narrative_arc_fit": 0.35,
+    "claim_impact": 0.3,
+    "reaction_opportunity": 0.2,
+    "topic_coherence": 0.15
+  },
+  "segmentation_policy": {
+    "granularity": "standard",
+    "allow_micro_segments": false,
+    "resegment_pass": false
+  },
+  "sfx_density": {
+    "max_punctuators": 4,
+    "max_beds": 2,
+    "max_foley": 2
+  },
+  "operator_overrides": {
+    "topology_confirmed": false
+  }
+}

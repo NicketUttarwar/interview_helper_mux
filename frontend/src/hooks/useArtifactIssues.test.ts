@@ -6,8 +6,15 @@ import type { ArtifactIssue, PropagationPlan } from "./useArtifactIssues.types";
 
 describe("PropagationWizardPanel", () => {
   const plan: PropagationPlan = {
-    stale_stages: ["content_brief_reanchor", "optimal_questions"],
-    invalidate_from: "content_brief_reanchor",
+    from_stage: "source_topology_build",
+    stale_stages: ["content_context", "narrative_arc_plan"],
+    stage_labels: {
+      content_context: "Story brief & strategic moat",
+      narrative_arc_plan: "Five-act narrative plan",
+    },
+    change_hint: "Topology or pickup eligibility changed",
+    tbiy_affected: true,
+    invalidate_from: "content_context",
     cross_errors: ["seg_orphan not in manifest"],
     has_blocking: true,
   };
@@ -21,8 +28,9 @@ describe("PropagationWizardPanel", () => {
       }),
     );
     expect(html).toContain("itr-propagation-wizard");
-    expect(html).toContain("content_brief_reanchor");
-    expect(html).toContain("Invalidate &amp; re-run from content brief reanchor");
+    expect(html).toContain("Story brief &amp; strategic moat");
+    expect(html).toContain("itr-propagation-tbiy-hint");
+    expect(html).toContain("Invalidate &amp; re-run from Story brief &amp; strategic moat");
   });
 
   it("renders nothing when plan is not blocking", () => {

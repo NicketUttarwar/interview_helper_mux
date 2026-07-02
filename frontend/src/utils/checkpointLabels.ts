@@ -36,6 +36,8 @@ export function checkpointPrimaryLabel(
         : "Record pickup lines";
     case "g2_flow_select":
       return "Confirm output type";
+    case "missing_framing":
+      return "Confirm gap pickup speaker";
     case "analysis_profile":
       return "Review AI story profile";
     case "sfx_prompt_craft":

@@ -1,0 +1,5 @@
+Evaluate framing gaps — TBIY profile: never suggest re-recording content/guest speakers. Frame gaps become pickup lines for least-spoken speaker only.
+
+Distinguish content gaps (needs_input / exclude) vs frame gaps (pickup reaction_line / chapter_hook).
+
+Use source_topology pickup_eligible_speaker_id when recommending delivery: record lines.

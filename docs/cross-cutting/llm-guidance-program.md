@@ -38,8 +38,9 @@
 | Flow hardening | `llm_flow_hardening.py` | Critical vs soft stages |
 | Local volley framer | `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) |
 | Artifact issue triage | `artifact_issue_triage.py`, [artifact-issue-triage.md](./artifact-issue-triage.md) | Auto-repair minor issues; operator clarification for ambiguities |
-| Required response format | `required_response_format.py` | Dual-inject envelope/artifact skeleton + null rules (system + final volley turn) |
+| Required response format | `required_response_format.py`, `envelope_min_example.py` | Dual-inject typed envelope/artifact skeleton + null rules (system + final volley turn) |
 | Null field policy | `null_field_policy.py` | JSON `null` acknowledgment, volley exclusion, critical-field hard stops |
+| Normalization decision tree | `normalization_decision.py`, `llm_output_normalizer.py` | Permissive omit → fabricate → volley/gap-fill automation |
 | Stage guidance | `stage_guidance.py` | GUI journey phase copy and gate CTAs (`stages[].guidance`) |
 | Placement QA | `placement_qa.py` | Post-SFX hints; `apply_placement_adjustments` at mix |
 

@@ -12,7 +12,7 @@
         "required": ["speaker_id", "role", "confidence"],
         "properties": {
           "speaker_id": { "type": "string" },
-          "role": { "enum": ["interviewer", "interviewee", "unknown"] },
+          "role": { "type": "string", "enum": ["interviewer", "interviewee", "unknown"] },
           "confidence": { "type": "number" },
           "evidence": { "type": "array", "items": { "type": "string" } }
         }

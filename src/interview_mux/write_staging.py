@@ -510,6 +510,14 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
     )
     try:
         flushed = flush_stage_writes(ctx, stage_id)
+        from interview_mux.artifact_lifecycle import apply_fingerprints_on_flush, post_commit_validate
+
+        apply_fingerprints_on_flush(ctx, stage_id, flushed)
+        post_errors = post_commit_validate(ctx, stage_id)
+        if post_errors:
+            raise ValueError(
+                "Post-commit validation failed: " + "; ".join(post_errors[:4])
+            )
         if "segments/manifest.json" in flushed and ctx.artifact_exists("segments/manifest.json"):
             from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
 

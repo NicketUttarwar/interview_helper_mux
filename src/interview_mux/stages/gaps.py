@@ -11,6 +11,8 @@ from interview_mux.llm_specialists import (
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_value_features_summary
+from interview_mux.source_topology import attach_adaptation_to_payload, pickup_eligible_speaker_id
+from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
 
@@ -36,7 +38,7 @@ def run_missing_framing(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "missing_framing")
-        return payload
+        return attach_adaptation_to_payload(c, payload)
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
 
@@ -47,7 +49,7 @@ def run_missing_framing(ctx: RunContext) -> None:
         run_analysis_llm_stage(
             ctx,
             "missing_framing",
-            "interviewer-gap/missing-framing.system.txt",
+            prompt_variant("interviewer-gap/missing-framing.system.txt", ctx),
             build_input,
             persist,
             sync_fn=lambda c, a: sync_gaps_to_state(c, a),
@@ -64,12 +66,13 @@ def run_optimal_questions(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
-        return payload
+        return attach_adaptation_to_payload(c, payload)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         from interview_mux.artifact_writes import write_validated_artifact
 
         lines = artifacts.get("interviewer_lines") or []
+        eligible = pickup_eligible_speaker_id(c)
         for i, line in enumerate(lines):
             if "line_id" not in line:
                 line["line_id"] = f"line_{i+1:03d}"
@@ -77,6 +80,8 @@ def run_optimal_questions(ctx: RunContext) -> None:
                 line["placement"] = "before"
             if line.get("delivery") == "synthesize":
                 line["delivery"] = "record"
+            if line.get("delivery") == "record" and eligible:
+                line["voice_speaker_id"] = eligible
         write_validated_artifact(
             c,
             "understanding/gap_report.json",
@@ -90,7 +95,7 @@ def run_optimal_questions(ctx: RunContext) -> None:
         run_analysis_llm_stage(
             ctx,
             "optimal_questions",
-            "interviewer-gap/optimal-questions.system.txt",
+            prompt_variant("interviewer-gap/optimal-questions.system.txt", ctx),
             build_input,
             persist,
         )

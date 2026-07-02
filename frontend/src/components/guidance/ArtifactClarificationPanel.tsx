@@ -38,6 +38,11 @@ export function ArtifactClarificationPanel({ stage }: { stage: StageInfo }) {
           ? `${openBlocking} blocking issue(s) remain. Use Fix all to apply recommended repairs when safe.`
           : "All blocking issues cleared — re-check validation or save staged files."}
       </p>
+      {stepLabel ? (
+        <p className="hint sm" data-testid="itr-lifecycle-phase">
+          Remediation phase: <code>{String(stepLabel)}</code>
+        </p>
+      ) : null}
 
       {preview.length && openBlocking ? (
         <details className="itr-preview" open={showAdvanced}>

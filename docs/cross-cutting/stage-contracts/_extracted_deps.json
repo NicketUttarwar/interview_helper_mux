@@ -1,0 +1,208 @@
+{
+  "analysis_flow1_extended": {
+    "reads": [
+      "flow_1_master/coverage_audit.json",
+      "segments/manifest.json",
+      "understanding/content_brief.json"
+    ],
+    "writes": []
+  },
+  "analysis_stage": {
+    "reads": [],
+    "writes": []
+  },
+  "assembly_flow1": {
+    "reads": [
+      "flow_1_master/edl.json",
+      "flow_1_master/edl_narrative_audit.json",
+      "flow_1_master/selection.json",
+      "flow_1_master/transitions.json",
+      "run_meta.json",
+      "transcript/disfluencies.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": [
+      "flow_1_master/disfluency_restore_plan.json",
+      "flow_1_master/edl.json",
+      "flow_1_master/selection.json"
+    ]
+  },
+  "assembly_flow2": {
+    "reads": [],
+    "writes": []
+  },
+  "audio_preclean": {
+    "reads": [
+      "preclean/isolated.wav",
+      "preclean/skip.json",
+      "run_meta.json"
+    ],
+    "writes": [
+      "preclean/lineage.json",
+      "preclean/provider.json"
+    ]
+  },
+  "disfluency": {
+    "reads": [
+      "transcript/disfluencies.json"
+    ],
+    "writes": [
+      "transcript/disfluencies.json",
+      "transcript/disfluency_review.json"
+    ]
+  },
+  "edl_narrative_audit": {
+    "reads": [
+      "flow_1_master/coverage_audit.json",
+      "flow_1_master/narrative_plan.json",
+      "flow_1_master/selection.json",
+      "understanding/content_brief.json"
+    ],
+    "writes": []
+  },
+  "gaps": {
+    "reads": [
+      "segments/manifest.json",
+      "understanding/content_brief.json",
+      "understanding/gap_evaluations.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": []
+  },
+  "ingest": {
+    "reads": [],
+    "writes": [
+      "ingest/checksums.json"
+    ]
+  },
+  "interview_spine_stage": {
+    "reads": [
+      "transcript/full.json",
+      "understanding/source_acoustic_profile.json"
+    ],
+    "writes": [
+      "understanding/interview_spine.json"
+    ]
+  },
+  "llm_runner": {
+    "reads": [],
+    "writes": []
+  },
+  "mastering": {
+    "reads": [],
+    "writes": []
+  },
+  "publishing_flow3": {
+    "reads": [
+      "flow_3_description/show_description.json",
+      "segments/manifest.json",
+      "understanding/content_brief.json",
+      "understanding/gap_evaluations.json",
+      "understanding/gap_report.json",
+      "understanding/speakers.json"
+    ],
+    "writes": []
+  },
+  "segmentation": {
+    "reads": [
+      "segments/boundaries.json",
+      "transcript/full.json",
+      "understanding/content_brief.json",
+      "understanding/source_acoustic_profile.json",
+      "understanding/speakers.json"
+    ],
+    "writes": []
+  },
+  "selection_flow1": {
+    "reads": [
+      "flow_1_master/coverage_audit.json",
+      "flow_1_master/narrative_plan.json",
+      "flow_1_master/selection.json",
+      "flow_1_master/transitions.json",
+      "segments/manifest.json",
+      "understanding/content_brief.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": []
+  },
+  "selection_flow2": {
+    "reads": [
+      "flow_2_highlights/selection.json",
+      "segments/manifest.json",
+      "understanding/content_brief.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": []
+  },
+  "sfx_mmaudio": {
+    "reads": [
+      "run_meta.json",
+      "understanding/sound_design_plan.json"
+    ],
+    "writes": [
+      "run_meta.json"
+    ]
+  },
+  "sonic_context_stages": {
+    "reads": [],
+    "writes": []
+  },
+  "sound_design_stages": {
+    "reads": [
+      "flow_1_master/narrative_plan.json",
+      "flow_1_master/selection.json",
+      "flow_1_master/transitions.json",
+      "flow_2_highlights/selection.json",
+      "run_meta.json",
+      "segments/manifest.json",
+      "sound_design/mmaudio_qa.json",
+      "sound_design/sfx_prompts.json",
+      "understanding/analysis_state.json",
+      "understanding/content_brief.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": [
+      "run_meta.json"
+    ]
+  },
+  "sound_design_vo_finalize": {
+    "reads": [
+      "understanding/gap_report.json"
+    ],
+    "writes": []
+  },
+  "transcribe_aws": {
+    "reads": [],
+    "writes": [
+      "transcript/full.json",
+      "transcript/speakers.json"
+    ]
+  },
+  "transcript_review": {
+    "reads": [
+      "transcript/corrections.json",
+      "transcript/full.json",
+      "transcript/review_queue.json",
+      "transcript/speakers.json"
+    ],
+    "writes": [
+      "transcript/corrections.json",
+      "transcript/full.json",
+      "transcript/review_queue.json"
+    ]
+  },
+  "understanding": {
+    "reads": [
+      "segments/boundaries.json",
+      "segments/manifest.json",
+      "transcript/full.json",
+      "transcript/speakers.json",
+      "understanding/content_brief.json",
+      "understanding/source_acoustic_profile.json",
+      "understanding/speakers.json"
+    ],
+    "writes": [
+      "understanding/source_acoustic_profile.json"
+    ]
+  }
+}

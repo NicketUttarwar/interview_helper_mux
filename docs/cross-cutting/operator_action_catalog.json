@@ -1230,5 +1230,45 @@
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
+  },
+  {
+    "action_id": "gui.adaptation.confirm",
+    "description": "Operator confirms source topology / flow adaptation",
+    "implementation": "server.confirm_flow_adaptation",
+    "stage": "source_topology_build",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.gap_report.add_line",
+    "description": "Add pickup line via conversation studio",
+    "implementation": "server.add_gap_report_line",
+    "stage": "optimal_questions",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.gap_report.remove_line",
+    "description": "Remove pickup line from gap report",
+    "implementation": "server.delete_gap_report_line",
+    "stage": "optimal_questions",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1_5.vo.upload",
+    "description": "Upload post-preview VO re-record (G1.5 TBIY)",
+    "implementation": "server.upload_vo",
+    "stage": "g1_5_preview_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.vo.trim.apply",
+    "description": "Apply suggested VO pickup trim",
+    "implementation": "server.vo_apply_trim",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
   }
 ]

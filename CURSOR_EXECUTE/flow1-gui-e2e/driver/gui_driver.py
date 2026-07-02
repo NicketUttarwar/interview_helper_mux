@@ -184,24 +184,50 @@ def screenshot(page, session_dir: Path, name: str) -> Path:
     return path
 
 
-def dry_run_journey(log: EventLogger) -> None:
+def dry_run_journey(log: EventLogger, config: dict | None = None) -> None:
     log.step("DRY-RUN", "Planned GUI journey (no browser)")
+    cfg = config or {}
+    if cfg.get("production_style"):
+        log.info(f"Profile: production_style={cfg['production_style']}")
+    if cfg.get("topology_fixture"):
+        log.info(f"Topology fixture hint: {cfg['topology_fixture']}")
     phases = [
         "START: flow-intent-flow1 + start-execution",
         "PREPARE: ingest through G0/G0.5",
         "ANALYZE: source_acoustic_profile through optimal_questions + profile",
-        "G1/G2: VO upload + flow1 select",
-        "BUILD: topic_coverage_audit through assembly_preview",
-        "SOUND: sfx_prompt_craft + mmaudio + mix",
-        "SHIP: master_flow1",
     ]
+    if cfg.get("tbiy_gates", {}).get("topology_confirm", True):
+        phases.append("TBIY: Story Board → confirm topology")
+    if cfg.get("tbiy_gates", {}).get("story_lock_tbiy", True):
+        phases.append("TBIY: Lock story (tbiy_narrative + strategic moat)")
+    phases.extend(
+        [
+            "G1/G2: VO upload + flow1 select",
+            "BUILD: topic_coverage_audit through assembly_preview",
+            "TBIY: preview listen → G1.5 post-preview re-record",
+            "SOUND: sfx_prompt_craft + mmaudio + mix",
+            "SHIP: master_flow1",
+        ]
+    )
     for p in phases:
         log.info(p)
     log.step("DRY-RUN", "Complete")
 
 
+def _resolve_config_path(raw: str) -> Path:
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    for base in (_DRIVER_DIR, _CAMPAIGN_DIR):
+        candidate = base / raw
+        if candidate.is_file():
+            return candidate
+    return _DRIVER_DIR / path.name
+
+
 def run_driver(args: argparse.Namespace) -> int:
-    config = load_config(_DRIVER_DIR / "config.yaml")
+    config_path = _resolve_config_path(args.config)
+    config = load_config(config_path)
     if args.headed:
         config["headed"] = True
     if args.verbose:
@@ -210,6 +236,7 @@ def run_driver(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir) if args.session_dir else _CAMPAIGN_DIR / "logs" / f"session_{int(time.time())}"
     session_dir.mkdir(parents=True, exist_ok=True)
     log = EventLogger(session_dir)
+    log.info(f"Driver config: {config_path.name} (production_style={config.get('production_style', 'default')})")
     state_path = default_state_path(_CAMPAIGN_DIR)
     state = DriverState.load(state_path) if args.resume else DriverState()
     state.session_dir = str(session_dir)
@@ -226,7 +253,7 @@ def run_driver(args: argparse.Namespace) -> int:
         log.info(f"Screenshot archive: {archive.archive_root} (max 1 per {archive.min_interval_s:.0f}s on click)")
 
     if args.dry_run:
-        dry_run_journey(log)
+        dry_run_journey(log, config)
         return EXIT_OK
 
     try:
@@ -472,6 +499,7 @@ def run_driver(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Flow 1 GUI E2E driver")
     parser.add_argument("--session-dir", default="")
+    parser.add_argument("--config", default="config.yaml", help="Driver YAML (driver/ or absolute path)")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--headed", action="store_true")

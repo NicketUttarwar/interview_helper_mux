@@ -1,0 +1,39 @@
+stage_id: transitions
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: flow_1_master/transitions.json
+  schema: transitions_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: flow_1_master/selection.json
+    producer: full_master_ranking
+  soft: []
+sufficiency:
+- path: transitions
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages:
+  - sound_design_plan_flow1
+  - edl_flow1
+consumers:
+- transitions
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- transitions
+nullable_fields:
+- transitions[].notes

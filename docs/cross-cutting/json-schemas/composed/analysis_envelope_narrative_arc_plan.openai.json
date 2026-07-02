@@ -15,6 +15,8 @@
       "required": [
         "arc_summary",
         "chapters",
+        "strategic_moat_concept",
+        "five_act_coverage",
         "ordering_constraints",
         "pacing_notes"
       ],
@@ -32,7 +34,11 @@
               "chapter_id",
               "title",
               "topic_tags",
-              "suggested_open_segment_id"
+              "suggested_open_segment_id",
+              "act_number",
+              "act_title",
+              "tension_level",
+              "is_moat_chapter"
             ],
             "properties": {
               "chapter_id": {
@@ -52,10 +58,87 @@
               },
               "suggested_open_segment_id": {
                 "type": "string"
+              },
+              "act_number": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 5
+              },
+              "act_title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tension_level": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "is_moat_chapter": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               }
             },
             "additionalProperties": false
           }
+        },
+        "strategic_moat_concept": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "five_act_coverage": {
+          "type": "object",
+          "properties": {
+            "act_1": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "act_2": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "act_3": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "act_4": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "act_5": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "act_1",
+            "act_2",
+            "act_3",
+            "act_4",
+            "act_5"
+          ],
+          "additionalProperties": false
         },
         "ordering_constraints": {
           "type": "array",

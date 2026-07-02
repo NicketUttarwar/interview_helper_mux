@@ -15,11 +15,22 @@ Canonical recovery order for every LLM gateway (`run_prompt_envelope`, `generate
 
 ## Field tiers
 
-See `field_necessity_registry.py` and `null_field_policy.py`:
+See `field_necessity_registry.py`, `normalization_decision.py`, and `null_field_policy.py`:
 
 - **nullable / commentary** (`notes`, …) → **omit** (strip key, record `_meta.null_acknowledged`)
 - **fabricatable** (low-risk placeholders) → deterministic or mid-tier fabricate
-- **critical / NEVER_FABRICATE** (`thesis`, `role`, `segment_ids`, …) → block + volley
+- **unknown optional** (permissive default) → **fabricate** benign default, not block
+- **critical / NEVER_FABRICATE** (`thesis`, `role`, `segment_ids`, …) → block → `volley_retry` or `micro_gap_fill` (operator last)
+
+### Decision tree (`normalization_decision.py`)
+
+| Classification | Downstream automation |
+|----------------|----------------------|
+| OMIT | Strip key, `_meta.null_acknowledged`, continue |
+| FABRICATE | `llm_fabricate` benign default, continue |
+| BLOCK (evidentiary) | `volley_retry` or `micro_gap_fill` — operator gate only after retries |
+
+Config: `analysis.llm_null_policy.permissive_mode`, `auto_fabricate_unknown_optional`.
 
 ## UI truth (Track B)
 

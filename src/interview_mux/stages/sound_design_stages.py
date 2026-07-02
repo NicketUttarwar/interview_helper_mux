@@ -10,6 +10,8 @@ from interview_mux.prompt_validation import (
 )
 from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
 from interview_mux.operator_trace import logged_step
+from interview_mux.production_profile import prompt_variant
+from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import compact_for_volley as sonic_compact_for_volley, load_sonic_context
@@ -50,7 +52,7 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         notes = style.get("sound_design_notes")
         if notes:
             payload["operator_style_sound_design_notes"] = notes
-        return payload
+        return attach_adaptation_to_payload(c, payload)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)
@@ -68,7 +70,7 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         run_analysis_llm_stage(
             ctx,
             "sound_design_palettes",
-            "sound_design/theme-palettes.system.txt",
+            prompt_variant("sound_design/theme-palettes.system.txt", ctx),
             build_input,
             persist,
         )
@@ -95,7 +97,7 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)
@@ -119,7 +121,7 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "sound_design_plan_flow1",
-            "sound_design/plan-flow1.system.txt",
+            prompt_variant("sound_design/plan-flow1.system.txt", ctx),
             build_input,
             persist,
         )
@@ -195,7 +197,7 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             style = state.get("style") if isinstance(state, dict) else None
             if isinstance(style, dict) and style.get("sound_design_notes"):
                 payload["operator_style_sound_design_notes"] = style["sound_design_notes"]
-        return payload
+        return attach_adaptation_to_payload(c, payload)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         prompts = artifacts.get("prompts")
@@ -219,7 +221,7 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "sfx_prompt_craft",
-            "sound_design/sfx-prompt-craft.system.txt",
+            prompt_variant("sound_design/sfx-prompt-craft.system.txt", ctx),
             build_input,
             persist,
         )

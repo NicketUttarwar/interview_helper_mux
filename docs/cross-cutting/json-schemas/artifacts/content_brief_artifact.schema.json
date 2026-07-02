@@ -28,6 +28,7 @@
           "from_topic": { "type": "string" },
           "to_topic": { "type": "string" },
           "relation": {
+            "type": "string",
             "enum": ["supports", "contradicts", "prerequisite", "example_of", "returns_to"]
           },
           "description": { "type": "string" },
@@ -44,12 +45,40 @@
           "id": { "type": "string" },
           "claim": { "type": "string" },
           "claim_type": {
+            "type": "string",
             "enum": ["fact", "opinion", "prediction", "anecdote", "definition"]
           },
-          "speaker_role": { "enum": ["interviewee", "interviewer"] },
+          "speaker_role": { "type": "string", "enum": ["interviewee", "interviewer"] },
           "segment_ids": { "type": "array", "items": { "type": "string" } },
           "evidence_segment_ids": { "type": "array", "items": { "type": "string" } },
-          "depends_on_claim_ids": { "type": "array", "items": { "type": "string" } }
+          "depends_on_claim_ids": { "type": "array", "items": { "type": "string" } },
+          "punctuator_anchor": { "type": "boolean" },
+          "act_hint": { "type": "integer", "minimum": 1, "maximum": 5 }
+        }
+      }
+    },
+    "strategic_moat_concept": { "type": ["string", "null"] },
+    "era_tags": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "era": { "type": "string" },
+          "geography": { "type": "string" },
+          "palette_id": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "narrative_beats": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "suggested_act": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "tension_contribution": { "type": "number" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } }
         }
       }
     },

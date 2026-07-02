@@ -9,6 +9,8 @@ from interview_mux.stage_enrichment import (
 )
 from interview_mux.operator_trace import logged_step
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.production_profile import prompt_variant
+from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -25,7 +27,7 @@ def run_topic_coverage(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "topic_coverage_audit")
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     persist = make_stage_persist("flow_1_master/coverage_audit.json", "topic_coverage_audit")
 
@@ -33,7 +35,7 @@ def run_topic_coverage(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "topic_coverage_audit",
-            "selection/topic-coverage-audit.system.txt",
+            prompt_variant("selection/topic-coverage-audit.system.txt", ctx),
             build_input,
             persist,
         )
@@ -67,7 +69,7 @@ def run_narrative_arc(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "narrative_arc_plan")
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     persist = make_stage_persist("flow_1_master/narrative_plan.json", "narrative_arc_plan")
 
@@ -75,7 +77,7 @@ def run_narrative_arc(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "narrative_arc_plan",
-            "selection/narrative-arc-plan.system.txt",
+            prompt_variant("selection/narrative-arc-plan.system.txt", ctx),
             build_input,
             persist,
         )

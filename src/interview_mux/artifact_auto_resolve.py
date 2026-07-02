@@ -633,6 +633,8 @@ def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
         "bridge_eligible": bridge_eligible,
         "preview": preview,
         "open_blocking": open_blocking,
+        "sufficiency_blocking": open_blocking,
+        "lifecycle_phase": "staged_validate" if open_blocking else "committed",
     }
 
 
@@ -1005,6 +1007,27 @@ def auto_resolve_stage(
     triage_result = run_triage_pipeline(ctx, stage_key, staged=True)
     if triage_result.errors:
         result.warnings.extend(triage_result.errors[:3])
+
+    from interview_mux.artifact_issue_triage import _write_stage_artifact
+    from interview_mux.remediation_orchestrator import RemediationTrigger, remediate, remediation_enabled
+    from interview_mux.stage_acceptance import stage_acceptance_ok
+
+    if remediation_enabled():
+        acc = stage_acceptance_ok(ctx, stage_key, staged=True, include_downstream=False)
+        if not acc.ok:
+            rem = remediate(
+                ctx,
+                stage_key,
+                RemediationTrigger.ACCEPTANCE_FAIL,
+                acc.sufficiency_errors,
+            )
+            if rem.warnings:
+                result.warnings.extend(rem.warnings[:3])
+            if rem.strategy == "micro_gap_fill" and rem.artifact:
+                _rel, _ = _read_stage_artifact(ctx, stage_key, staged=True)
+                if _rel:
+                    _write_stage_artifact(ctx, stage_key, _rel, rem.artifact)
+
     stale_closed = _close_stale_segment_issues(ctx, stage_key)
     if stale_closed > 0:
         result.warnings.append(f"Closed {stale_closed} stale issue(s) for removed segment(s)")

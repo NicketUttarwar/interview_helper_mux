@@ -109,6 +109,7 @@ export type JourneyBlockingReason =
   | "transcript_review"
   | "disfluency_review"
   | "g1_vo_pickup"
+  | "g1_5_preview_pickup"
   | "g2_flow_select"
   | "analysis_profile"
   | "handoff_review"
@@ -280,6 +281,7 @@ export interface StageInfo {
     status: string;
     phase: string;
     kind: string;
+    sufficiency_status?: string;
   }>;
   stage_output_mode?: string;
   handoff_paths?: string[];
@@ -328,6 +330,8 @@ export interface JobState {
   can_fix_all?: boolean;
   bridge_eligible?: boolean;
   itr_open_blocking?: number;
+  sufficiency_blocking?: number;
+  lifecycle_phase?: string;
   /** Server defers visible needs_clarification while the pipeline lock is held. */
   clarification_pending?: boolean;
   /** In-run finalize phase (full autopilot). */
@@ -362,6 +366,10 @@ export interface RunData {
   timeline_ready?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
+  g1_5_preview_pickup_pending?: string[];
+  g1_5_preview_pickup_clear?: boolean;
+  pickup_speaker_pending?: boolean;
+  flow_adaptation?: FlowAdaptation | null;
   nle_dirty?: boolean;
   analysis_complete?: boolean;
   job?: JobState;
@@ -455,7 +463,25 @@ export interface VoLine {
   text: string;
   gap_type?: string;
   delivery?: string;
+  voice_speaker_id?: string;
+  act_context?: number;
+  post_preview?: boolean;
+  post_preview_satisfied?: boolean;
   recorded_file?: string | null;
+}
+
+export interface FlowAdaptation {
+  topology_class?: string;
+  production_style?: string;
+  pickup_eligible_speaker_id?: string;
+  summary_plain?: string;
+  ranking_weights?: Record<string, number>;
+  operator_overrides?: {
+    topology_confirmed?: boolean;
+    pickup_speaker_confirmed?: boolean;
+    segmentation_granularity?: string | null;
+    force_resegment?: boolean;
+  };
 }
 
 export interface NleState {

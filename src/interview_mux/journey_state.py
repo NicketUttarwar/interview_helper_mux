@@ -63,6 +63,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "edl_narrative_audit": "create",
     "edl_flow1": "create",
     "assembly_preview": "create",
+    "g1_5_preview_pickup": "polish",
     "highlight_selection": "create",
     "sound_design_plan_flow2": "create",
     "podcast_show_description": "create",
@@ -180,6 +181,10 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     preview_ready = ctx.artifact_exists("flow_1_master/assembly_preview.wav")
     preview_listened = bool(meta.get("preview_listened_at"))
 
+    from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+    g1_5_preview_pickup_complete = not check_g1_5_preview_pickup_pending(ctx)
+
     sfx_approved = True
     ok, _ = can_run_sfx_generation(ctx)
     if selected in ("flow1", "flow2"):
@@ -199,6 +204,7 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         "g2_complete": g2_complete,
         "preview_ready": preview_ready,
         "preview_listened": preview_listened,
+        "g1_5_preview_pickup_complete": g1_5_preview_pickup_complete,
         "sfx_approved": sfx_approved,
         "sonic_context_ready": bool(load_sonic_context(ctx)),
         "sfx_generated": _compute_sfx_generated(ctx, selected),

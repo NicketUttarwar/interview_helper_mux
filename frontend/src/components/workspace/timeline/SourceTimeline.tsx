@@ -20,7 +20,23 @@ interface Props {
   hideNonMatching: boolean;
   snapEnabled: boolean;
   waveform: WaveformPeaksData | null;
-  chapters?: Array<{ title: string; anchor_segment_id: string; timeline_start_ms?: number }>;
+  chapters?: Array<{
+    title: string;
+    anchor_segment_id: string;
+    timeline_start_ms?: number;
+    act_number?: number;
+    act_title?: string;
+    is_moat_chapter?: boolean;
+  }>;
+  actBands?: Array<{
+    act_number: number;
+    act_title: string;
+    start_ms: number;
+    end_ms: number;
+    left: number;
+    width: number;
+    is_moat: boolean;
+  }>;
   markers?: Array<Record<string, unknown>>;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   onSeek: (ms: number) => void;
@@ -44,6 +60,7 @@ export function SourceTimeline({
   snapEnabled,
   waveform,
   chapters,
+  actBands,
   markers,
   scrollRef,
   onSeek,
@@ -278,6 +295,24 @@ export function SourceTimeline({
           <div className="playhead-handle" onMouseDown={startPlayheadDrag} title="Drag playhead" />
         </div>
       </div>
+
+      {actBands?.length ? (
+        <>
+          <div className="track-label">Acts</div>
+          <div className="act-band-track" style={{ ["--tl-width" as string]: `${widthPx}px` }}>
+            {actBands.map((act) => (
+              <div
+                key={act.act_number}
+                className={`act-band act-band-${act.act_number}${act.is_moat ? " act-band-moat" : ""}`}
+                style={{ left: `${act.left}%`, width: `${Math.max(act.width, 0.5)}%` }}
+                title={`${act.act_title}${act.is_moat ? " (strategic moat)" : ""}`}
+              >
+                <span className="act-band-label">{act.act_title}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {chapterMarkers.length ? (
         <>

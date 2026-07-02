@@ -8,6 +8,9 @@ import { TranscriptReviewPanel } from "./TranscriptReviewPanel";
 import { DisfluencyReviewPanel } from "./DisfluencyReviewPanel";
 import { DisfluencyRestorePanel } from "./DisfluencyRestorePanel";
 import { VoPickupPanel } from "./VoPickupPanel";
+import { PreviewPickupPanel } from "./PreviewPickupPanel";
+import { ConversationStudioPanel } from "./ConversationStudioPanel";
+import { PickupSpeakerPanel } from "./PickupSpeakerPanel";
 import { FlowSelectPanel } from "./FlowSelectPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
@@ -126,6 +129,14 @@ export function GateActions({ stage }: Props) {
         <AnalysisProfileGate stage={stage} />
       ) : null}
 
+      {stage.id === "missing_framing" && stage.status === "action_required" ? (
+        <PickupSpeakerPanel stage={stage} />
+      ) : null}
+
+      {stage.id === "optimal_questions" && stage.status === "done" ? (
+        <ConversationStudioPanel />
+      ) : null}
+
       {stage.id === "g1_vo_pickup" && stage.status === "done" ? (
         <p className="hint">
           All pickup lines recorded. Optional: clean new VO files before ingest, or
@@ -135,6 +146,15 @@ export function GateActions({ stage }: Props) {
 
       {stage.id === "g1_vo_pickup" && stage.status === "action_required" ? (
         <VoPickupPanel voLines={timeline?.vo_lines || []} />
+      ) : null}
+
+      {stage.id === "g1_5_preview_pickup" && stage.status === "action_required" ? (
+        <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
+      ) : null}
+
+      {(stage.id === "assembly_preview" || stage.id === "mmaudio_sfx_flow1") &&
+      (run.g1_5_preview_pickup_pending || []).length > 0 ? (
+        <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
       ) : null}
 
       {stage.id === "g2_flow_select" && stage.status === "action_required" ? (

@@ -1,0 +1,1 @@
+import{o as s,s as o,b as p,n as a,a as e,u as n,l}from"./zod-vendor-0yp7anPg.js";const i=s({version:l(1),ordered_segment_ids:e(o()),clips:e(n()),gap_placements:e(n()).optional(),timeline_duration_ms:a(),disfluency_clip_count:a().optional(),disfluency_restore_enabled:p().optional(),mux_scope:o().optional()});export{i as flow_1_master_edl_jsonSchema};

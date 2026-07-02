@@ -23,6 +23,7 @@ from interview_mux.issue_severity_rules import (
     classify_cross_validate_message,
     classify_lint_message,
     classify_schema_error,
+    classify_sufficiency_finding,
     repair_priority,
     should_auto_repair,
     should_llm_options,
@@ -242,6 +243,12 @@ def collect_issues(
     if not schema_errors and rel and artifact:
         for err in validate_artifact_write(rel, artifact):
             issues.append(classify_schema_error(stage_key, str(err), artifact_path=rel))
+
+    from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
+
+    if sufficiency_enabled() and artifact:
+        for finding in evaluate(stage_key, artifact, ctx):
+            issues.append(classify_sufficiency_finding(stage_key, finding, artifact_path=rel))
 
     seen: set[str] = set()
     unique: list[ClassifiedIssue] = []

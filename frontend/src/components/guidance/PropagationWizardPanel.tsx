@@ -6,6 +6,16 @@ interface Props {
   onExecute: () => void;
 }
 
+function stageLabel(plan: PropagationPlan, stageId: string): string {
+  return plan.stage_labels?.[stageId] ?? stageId.replace(/_/g, " ");
+}
+
+function invalidateLabel(plan: PropagationPlan): string {
+  const from = plan.invalidate_from;
+  if (!from) return "upstream";
+  return stageLabel(plan, from);
+}
+
 export function PropagationWizardPanel({ plan, busy, onExecute }: Props) {
   if (!plan?.has_blocking) {
     return null;
@@ -21,11 +31,17 @@ export function PropagationWizardPanel({ plan, busy, onExecute }: Props) {
         Saving upstream fixes may leave downstream stages stale. Review affected stages before
         continuing.
       </p>
+      {plan.tbiy_affected && plan.change_hint ? (
+        <p className="itr-propagation-tbiy-hint hint sm" data-testid="itr-propagation-tbiy-hint">
+          <strong>TBIY:</strong> {plan.change_hint}
+        </p>
+      ) : null}
       {stale.length ? (
         <ul className="stage-step-prereq-list">
           {stale.map((sid) => (
             <li key={sid}>
-              <code>{sid}</code>
+              <span>{stageLabel(plan, sid)}</span>
+              <code className="muted sm"> {sid}</code>
             </li>
           ))}
         </ul>
@@ -48,7 +64,7 @@ export function PropagationWizardPanel({ plan, busy, onExecute }: Props) {
           onClick={() => void onExecute()}
           data-testid="itr-propagation-execute"
         >
-          Invalidate &amp; re-run from {plan.invalidate_from?.replace(/_/g, " ") ?? "upstream"}
+          Invalidate &amp; re-run from {invalidateLabel(plan)}
         </button>
       </div>
     </div>

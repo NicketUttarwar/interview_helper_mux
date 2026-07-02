@@ -2,6 +2,7 @@
 # Flow 1 GUI E2E — single entry: preflight → server → Playwright driver ↔ fix loop → finish
 #
 #   ./CURSOR_EXECUTE/flow1-gui-e2e/run.sh
+#   ./CURSOR_EXECUTE/flow1-gui-e2e/run.sh --config driver/config.tbiy.yaml
 #
 # Ctrl+C stops automation safely (exit 130) and saves driver/state.json for --resume.
 set -euo pipefail
@@ -15,6 +16,8 @@ CAMPAIGN_DIR="${SCRIPT_DIR}"
 DRIVER_DIR="${CAMPAIGN_DIR}/driver"
 EXEC_RUN="${REPO_ROOT}/CURSOR_EXECUTE/run.sh"
 COMMANDS_MD="${CAMPAIGN_DIR}/agent-commands.md"
+CONFIG_REL="driver/config.yaml"
+DRIVER_CONFIG=""
 INPUT_WAV="${REPO_ROOT}/ASSETS/notebooklm_original_interview_2024.wav"
 ONE_LINER="cd ${REPO_ROOT} && ./CURSOR_EXECUTE/flow1-gui-e2e/run.sh"
 
@@ -84,7 +87,8 @@ _print_banner() {
   printf '\n\033[1;36m════════════════════════════════════════════════════════\033[0m\n'
   printf '\033[1;36m  Flow 1 GUI E2E — automated run\033[0m\n'
   printf '\033[1;36m  Repo:    %s\033[0m\n' "${REPO_ROOT}"
-  printf '\033[1;36m  Input:   ASSETS/notebooklm_original_interview_2024.wav\033[0m\n'
+  printf '\033[1;36m  Config:  %s\033[0m\n' "${CONFIG_REL}"
+  printf '\033[1;36m  Input:   %s\033[0m\n' "${INPUT_WAV#${REPO_ROOT}/}"
   printf '\033[1;36m  Kill:    Ctrl+C saves state for --resume\033[0m\n'
   printf '\033[1;36m════════════════════════════════════════════════════════\033[0m\n\n'
 }
@@ -123,6 +127,23 @@ MAX_FIX_ROUNDS=10
 FROM_STEP=1
 TO_STEP=4
 
+_resolve_driver_config() {
+  if [[ "${CONFIG_REL}" = /* ]]; then
+    DRIVER_CONFIG="${CONFIG_REL}"
+  else
+    DRIVER_CONFIG="${CAMPAIGN_DIR}/${CONFIG_REL}"
+  fi
+  if [[ ! -f "${DRIVER_CONFIG}" ]]; then
+    _log_fatal "Missing driver config: ${DRIVER_CONFIG}"
+    exit 1
+  fi
+  local wav_rel
+  wav_rel="$(grep -E '^input_wav:' "${DRIVER_CONFIG}" | head -1 | sed 's/^input_wav:[[:space:]]*//')"
+  if [[ -n "${wav_rel}" ]]; then
+    INPUT_WAV="${REPO_ROOT}/${wav_rel}"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
@@ -130,17 +151,20 @@ while [[ $# -gt 0 ]]; do
     --no-fix) NO_FIX=1 ;;
     --headed) HEADED=1 ;;
     --verbose) VERBOSE=1 ;;
+    --config) CONFIG_REL="$2"; shift ;;
     --from) FROM_STEP="$2"; shift ;;
     --to) TO_STEP="$2"; shift ;;
     --max-fix-rounds) MAX_FIX_ROUNDS="$2"; shift ;;
     -h|--help)
-      sed -n '2,20p' "$0"
+      sed -n '2,22p' "$0"
       exit 0
       ;;
     *) _log_fatal "Unknown flag: $1"; exit 1 ;;
   esac
   shift
 done
+
+_resolve_driver_config
 
 # ── phases ────────────────────────────────────────────────────────────────
 
@@ -275,6 +299,7 @@ _phase_driver() {
     exit 1
   fi
   local driver_args=("${_DRIVER_PY}" "${DRIVER_DIR}/gui_driver.py" --session-dir "${SESSION_DIR}")
+  driver_args+=(--config "${DRIVER_CONFIG}")
   [[ "${RESUME}" -eq 1 ]] && driver_args+=(--resume)
   [[ "${DRY_RUN}" -eq 1 ]] && driver_args+=(--dry-run)
   [[ "${HEADED}" -eq 1 ]] && driver_args+=(--headed)

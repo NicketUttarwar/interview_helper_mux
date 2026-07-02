@@ -1,0 +1,6 @@
+Classify segments — when TBIY profile or flow_adaptation present, add optional tags:
+- `micro_idea_unit` for fine-grained idea clips
+- `interviewer_reaction` for in-source frame reactions (keep from recording)
+- `act_hint` (1–5) when narrative_beats or content_brief act hints align
+
+Standard segment types (question, answer, aside, etc.) still required.

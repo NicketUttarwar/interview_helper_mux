@@ -1,0 +1,31 @@
+stage_id: sfx_brief
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: flow_2_highlights/sfx_brief.json
+  schema: sfx_montage_artifact.schema.json
+  staging: true
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: montage
+  rule: non_empty_string
+  min_length: 8
+propagation:
+  invalidates_stages: []
+consumers:
+- sfx_brief
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

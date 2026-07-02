@@ -195,7 +195,19 @@ def _gap_rule_for(rel_path: str, stage_key: str | None = None) -> GapRule | None
     return ARTIFACT_COMPLETENESS_RULES.get(rel_path)
 
 
-def compute_gaps(rel_path: str, data: dict[str, Any] | None, *, stage_key: str | None = None) -> list[Gap]:
+def compute_gaps(
+    rel_path: str,
+    data: dict[str, Any] | None,
+    *,
+    stage_key: str | None = None,
+    ctx: RunContext | None = None,
+) -> list[Gap]:
+    if stage_key:
+        from interview_mux.sufficiency_engine import evaluate, findings_to_gap_paths
+
+        findings = evaluate(stage_key, data, ctx)
+        if findings:
+            return [Gap(path=p, reason="incomplete") for p in findings_to_gap_paths(findings)]
     rule = _gap_rule_for(rel_path, stage_key)
     if not rule:
         return []
@@ -239,7 +251,7 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     if artifact_resilience_partial(data):
         return "partial"
     schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
-    semantic = compute_gaps(rel_path, data, stage_key=_status_stage_key(rel_path, ctx))
+    semantic = compute_gaps(rel_path, data, stage_key=_status_stage_key(rel_path, ctx), ctx=ctx)
     if rel_path == "sound_design/mmaudio_qa.json" and data:
         semantic.extend([Gap(path=p, reason="incomplete") for p in _mmaudio_qa_wav_parity_gaps(ctx, data)])
     if schema_errors or semantic:

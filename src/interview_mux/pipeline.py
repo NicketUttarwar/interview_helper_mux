@@ -60,6 +60,7 @@ ANALYSIS_ORDER = [
     "source_acoustic_profile",
     "interview_spine_build",
     "speaker_roles",
+    "source_topology_build",
     "content_context",
     "boundary_detection",
     "segment_classification",
@@ -111,6 +112,9 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "source_acoustic_profile": lambda: understanding.run_source_acoustic_profile(ctx),
         "interview_spine_build": lambda: interview_spine_stage.run_interview_spine_build(ctx),
         "speaker_roles": lambda: understanding.run_speaker_roles(ctx),
+        "source_topology_build": lambda: __import__(
+            "interview_mux.source_topology", fromlist=["run_source_topology_build"]
+        ).run_source_topology_build(ctx),
         "content_context": lambda: understanding.run_content_context(ctx),
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),
         "segment_classification": lambda: segmentation.run_classification(ctx),
@@ -201,6 +205,10 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         ):
             require_transcript_review_clear(ctx)
             require_disfluency_review_clear(ctx)
+        if stage in ("missing_framing", "optimal_questions"):
+            from interview_mux.source_topology import require_pickup_speaker_clear
+
+            require_pickup_speaker_clear(ctx)
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
@@ -283,6 +291,12 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         )
         return
 
+    if stage == "vo_boundary_detect":
+        from interview_mux.vo_boundary_detect import run_vo_boundary_detect
+
+        run_vo_boundary_detect(ctx)
+        return
+
     raise ValueError(f"Unknown stage: {stage}")
 
 
@@ -303,6 +317,11 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         stage=stage,
         detail={"journey_kind": "execute", "event": "stage_start"},
     )
+    from interview_mux.artifact_lifecycle import LifecyclePhase, run_phase_checks
+
+    pre_errors = run_phase_checks(ctx, stage, LifecyclePhase.PRESTAGE)
+    if pre_errors:
+        raise ValueError(f"Pre-stage lifecycle failed for {stage}: {'; '.join(pre_errors[:4])}")
     if stage not in (
         "transcript_review",
         "disfluency_review",
@@ -334,16 +353,21 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     from interview_mux.write_staging import run_wrapped_stage
 
     def _impl() -> None:
-        if stage in ALL_LLM_STAGES:
-            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+        setattr(ctx, "_lifecycle_consumer_stage", stage)
+        try:
+            if stage in ALL_LLM_STAGES:
+                from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
 
-            maybe_require_upstream_llm_progress(ctx, stage)
-        _run_single_stage_impl(ctx, stage)
-        if stage in ALL_LLM_STAGES:
-            drain_investigation_queue(ctx, llm_stage_runners(ctx))
-            from interview_mux.stage_finalize import post_llm_stage_hooks
+                maybe_require_upstream_llm_progress(ctx, stage)
+            _run_single_stage_impl(ctx, stage)
+            if stage in ALL_LLM_STAGES:
+                drain_investigation_queue(ctx, llm_stage_runners(ctx))
+                from interview_mux.stage_finalize import post_llm_stage_hooks
 
-            post_llm_stage_hooks(ctx, stage)
+                post_llm_stage_hooks(ctx, stage)
+        finally:
+            if hasattr(ctx, "_lifecycle_consumer_stage"):
+                delattr(ctx, "_lifecycle_consumer_stage")
 
     run_wrapped_stage(ctx, stage, _impl)
 

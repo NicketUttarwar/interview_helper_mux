@@ -8,6 +8,7 @@ const GATE_FOCUS_STEP: Record<string, string> = {
   disfluency_review: "review_fillers",
   analysis_profile: "verify_profile",
   g1_vo_pickup: "continue_g2",
+  g1_5_preview_pickup: "continue_sfx",
   g2_flow_select: "choose_flow",
 };
 

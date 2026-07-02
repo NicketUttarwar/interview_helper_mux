@@ -1,0 +1,24 @@
+stage_id: interview_spine_build
+tier: deterministic
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs: []
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

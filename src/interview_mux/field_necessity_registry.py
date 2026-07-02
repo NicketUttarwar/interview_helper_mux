@@ -61,22 +61,52 @@ COMMENTARY_FIELD_PATTERNS: frozenset[str] = frozenset(
         "ordering_constraints",
         "subtitle",
         "keywords",
+        "format_notes",
+        "pacing",
+        "interviewer_style",
+        "interviewee_style",
+    }
+)
+
+# Low-risk leaves — auto-fabricate when null or type-mismatched (permissive default).
+GLOBAL_FABRICATABLE_LEAVES: frozenset[str] = frozenset(
+    {
+        "audience",
+        "subtitle",
+        "keywords",
+        "label",
+        "description",
+        "tone",
+        "tone_class",
+        "format_class",
+        "confidence",
+        "reason",
+        "title",
+        "one_line_summary",
     }
 )
 
 FABRICATABLE_FIELDS: dict[str, frozenset[str]] = {
     "speaker_roles": frozenset({"notes"}),
-    "content_context": frozenset({"audience"}),
+    "content_context": frozenset({"audience", "emotional_beats", "jargon_glossary", "key_claims"}),
+    "content_brief_reanchor": frozenset({"audience", "emotional_beats", "jargon_glossary", "key_claims"}),
     "boundary_detection": frozenset({"notes", "warnings"}),
-    "segment_classification": frozenset({"segments[].notes"}),
+    "segment_classification": frozenset({"segments[].notes", "segments[].topic_tags"}),
     "missing_framing": frozenset({"evaluations[].notes"}),
     "optimal_questions": frozenset({"gaps[].notes"}),
-    "topic_coverage_audit": frozenset({"notes"}),
-    "narrative_arc_plan": frozenset({"notes"}),
-    "full_master_ranking": frozenset({"notes"}),
+    "topic_coverage_audit": frozenset({"notes", "gaps"}),
+    "narrative_arc_plan": frozenset({"notes", "ordering_constraints"}),
+    "full_master_ranking": frozenset({"notes", "excluded_segment_ids"}),
     "highlight_selection": frozenset({"notes"}),
     "transitions": frozenset({"transitions[].notes"}),
     "podcast_show_description": frozenset({"subtitle", "keywords"}),
+    "podcast_sfx_brief": frozenset({"notes"}),
+    "sfx_brief": frozenset({"notes"}),
+    "sfx_prompt_craft": frozenset({"notes"}),
+    "sound_design_palettes": frozenset({"notes"}),
+    "sound_design_plan_flow1": frozenset({"notes"}),
+    "sound_design_plan_flow2": frozenset({"notes"}),
+    "edl_narrative_audit": frozenset({"notes"}),
 }
 
 
@@ -130,6 +160,10 @@ def _is_fabricatable(stage_key: str, path: str) -> bool:
     for pat in FABRICATABLE_FIELDS.get(stage_key, frozenset()):
         if path_matches_pattern(path, pat):
             return True
+    norm = _normalize_path(path)
+    leaf = norm.split(".")[-1] if norm else norm
+    if leaf in GLOBAL_FABRICATABLE_LEAVES:
+        return True
     return False
 
 
@@ -138,6 +172,7 @@ def classify_field_path(
     path: str,
     *,
     prefer_omit: bool = True,
+    permissive: bool = True,
 ) -> FieldAction:
     """Decide omit | fabricate | block for a null or type-mismatch field path."""
     sk = resolve_parent_stage_key(stage_key or "") or stage_key or ""
@@ -153,9 +188,12 @@ def classify_field_path(
     if _is_fabricatable(sk, norm):
         return FieldAction.FABRICATE
 
-    # Unknown optional commentary → omit; unknown required-ish → block
     if leaf in {"notes", "warnings", "subtitle", "keywords"}:
         return FieldAction.OMIT
+
+    # Permissive default: auto-repair unknown optional fields instead of blocking.
+    if permissive:
+        return FieldAction.FABRICATE
 
     return FieldAction.BLOCK
 

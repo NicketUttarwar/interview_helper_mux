@@ -15,8 +15,23 @@
           "chapter_id": { "type": "string" },
           "title": { "type": "string" },
           "topic_tags": { "type": "array", "items": { "type": "string" } },
-          "suggested_open_segment_id": { "type": "string" }
+          "suggested_open_segment_id": { "type": "string" },
+          "act_number": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "act_title": { "type": "string" },
+          "tension_level": { "type": "number", "minimum": 0, "maximum": 100 },
+          "is_moat_chapter": { "type": "boolean" }
         }
+      }
+    },
+    "strategic_moat_concept": { "type": ["string", "null"] },
+    "five_act_coverage": {
+      "type": "object",
+      "properties": {
+        "act_1": { "type": "integer" },
+        "act_2": { "type": "integer" },
+        "act_3": { "type": "integer" },
+        "act_4": { "type": "integer" },
+        "act_5": { "type": "integer" }
       }
     },
     "ordering_constraints": {

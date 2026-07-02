@@ -1,1 +1,0 @@
-import{o as t,s as o,a as e,u as s}from"./zod-vendor-CcGq3kAE.js";const n=t({ordered_segment_ids:e(o()),chapters:e(s()).optional(),excluded_segment_ids:e(s()).optional(),notes:o().optional()});export{n as flow_1_master_selection_jsonSchema};

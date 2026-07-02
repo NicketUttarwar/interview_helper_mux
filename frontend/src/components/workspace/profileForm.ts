@@ -20,12 +20,18 @@ export interface ProfileFormState {
   intStyle: string;
   eeStyle: string;
   notes: string;
+  productionStyle: string;
+  strategicMoat: string;
 }
 
-export function loadProfileToForm(st: AnalysisState): ProfileFormState {
+export function loadProfileToForm(
+  st: AnalysisState,
+  brief?: { strategic_moat_concept?: string } | null,
+): ProfileFormState {
   const ident = st.interview_identity || {};
   const narrative = st.narrative || {};
   const style = st.style || {};
+  const meta = (st as { meta?: { production_style?: string } }).meta || {};
   return {
     title: ident.title || "",
     summary: ident.one_line_summary || "",
@@ -40,6 +46,8 @@ export function loadProfileToForm(st: AnalysisState): ProfileFormState {
     intStyle: style.interviewer_style || "",
     eeStyle: style.interviewee_style || "",
     notes: st.operator_notes || "",
+    productionStyle: meta.production_style || "",
+    strategicMoat: brief?.strategic_moat_concept || "",
   };
 }
 
@@ -57,9 +65,14 @@ export function collectAnalysisProfileFromForm(
     narrative: {
       ...(base?.narrative || {}),
       thesis: form.thesis.trim(),
+      strategic_moat_concept: form.strategicMoat.trim() || undefined,
     },
     themes: textToThemes(form.themes),
     major_questions: textToQuestions(form.questions),
+    meta: {
+      ...((base as { meta?: Record<string, unknown> })?.meta || {}),
+      production_style: form.productionStyle.trim() || undefined,
+    },
     style: {
       ...(base?.style || {}),
       tone: form.tone.trim(),

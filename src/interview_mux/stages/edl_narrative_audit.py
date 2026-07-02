@@ -4,6 +4,8 @@ from interview_mux.disfluency.context import attach_disfluency_context
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.production_profile import prompt_variant
+from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.sonic_context import compact_for_volley as sonic_compact_for_volley, load_sonic_context
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
@@ -42,7 +44,7 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
-        return attach_disfluency_context(payload, c)
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
 
     persist = make_stage_persist("flow_1_master/edl_narrative_audit.json", "edl_narrative_audit")
 
@@ -55,7 +57,7 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
         run_flow_llm_stage(
             ctx,
             "edl_narrative_audit",
-            "selection/edl-narrative-audit.system.txt",
+            prompt_variant("selection/edl-narrative-audit.system.txt", ctx),
             build_input,
             persist,
         )

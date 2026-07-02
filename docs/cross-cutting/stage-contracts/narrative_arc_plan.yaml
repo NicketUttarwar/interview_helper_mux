@@ -1,0 +1,40 @@
+stage_id: narrative_arc_plan
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: flow_1_master/narrative_plan.json
+  schema: narrative_plan_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: flow_1_master/coverage_audit.json
+    producer: topic_coverage_audit
+  soft: []
+sufficiency:
+- path: chapters
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages:
+  - full_master_ranking
+  - transitions
+consumers:
+- narrative_arc_plan
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- chapters
+nullable_fields:
+- notes
+- ordering_constraints

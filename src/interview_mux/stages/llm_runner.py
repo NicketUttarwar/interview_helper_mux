@@ -272,6 +272,20 @@ def _execute_openai_envelope_call(
     )
     if fmt:
         kwargs["response_format"] = fmt
+    if ctx and task_kind in ("primary", "shard", "collate", "specialist"):
+        from interview_mux.llm_preflight import SchemaPreflightError, run_schema_preflight
+
+        schema_errors = run_schema_preflight(stage_key, task_kind)
+        if schema_errors:
+            msg = "; ".join(schema_errors[:3])
+            if ctx:
+                ctx.log(
+                    f"Schema preflight failed ({stage_key}): {msg}",
+                    level="error",
+                    stage=stage_key,
+                    action_id="llm.schema_preflight_fail",
+                )
+            raise SchemaPreflightError(msg)
     if ctx:
         from interview_mux.operator_trace import log_api_call
 

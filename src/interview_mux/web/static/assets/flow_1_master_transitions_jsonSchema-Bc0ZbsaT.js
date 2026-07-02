@@ -1,1 +1,0 @@
-import{o as t,a as s,s as e}from"./zod-vendor-CcGq3kAE.js";const o=t({transitions:s(t({after_segment_id:e(),before_segment_id:e(),text:e(),type:e()}))});export{o as flow_1_master_transitions_jsonSchema};

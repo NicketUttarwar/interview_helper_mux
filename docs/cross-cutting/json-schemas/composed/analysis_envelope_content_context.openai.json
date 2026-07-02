@@ -17,6 +17,9 @@
         "topics",
         "topic_relationships",
         "key_claims",
+        "strategic_moat_concept",
+        "era_tags",
+        "narrative_beats",
         "audience",
         "jargon_glossary",
         "emotional_beats"
@@ -91,6 +94,7 @@
                 "type": "string"
               },
               "relation": {
+                "type": "string",
                 "enum": [
                   "supports",
                   "contradicts",
@@ -132,7 +136,9 @@
               "speaker_role",
               "segment_ids",
               "evidence_segment_ids",
-              "depends_on_claim_ids"
+              "depends_on_claim_ids",
+              "punctuator_anchor",
+              "act_hint"
             ],
             "properties": {
               "id": {
@@ -145,27 +151,27 @@
                 "type": "string"
               },
               "claim_type": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "enum": [
                   "fact",
                   "opinion",
                   "prediction",
                   "anecdote",
                   "definition"
-                ],
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": false
+                ]
               },
               "speaker_role": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "enum": [
                   "interviewee",
                   "interviewer"
-                ],
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": false
+                ]
               },
               "segment_ids": {
                 "type": [
@@ -193,8 +199,117 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "punctuator_anchor": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "act_hint": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 5
               }
             },
+            "additionalProperties": false
+          }
+        },
+        "strategic_moat_concept": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "era_tags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "era": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "geography": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "palette_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "era",
+              "geography",
+              "palette_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "narrative_beats": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "suggested_act": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 5
+              },
+              "tension_contribution": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "segment_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "label",
+              "description",
+              "suggested_act",
+              "tension_contribution",
+              "segment_ids"
+            ],
             "additionalProperties": false
           }
         },

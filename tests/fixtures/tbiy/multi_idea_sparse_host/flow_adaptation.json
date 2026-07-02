@@ -1,0 +1,25 @@
+{
+  "topology_class": "multi_idea_sparse_host",
+  "production_style": "tbiy_narrative",
+  "pickup_eligible_speaker_id": "spk_1",
+  "summary_plain": "Fine-grained idea units; claim-impact ranking; higher punctuator cap.",
+  "ranking_weights": {
+    "narrative_arc_fit": 0.20,
+    "claim_impact": 0.35,
+    "reaction_opportunity": 0.15,
+    "topic_coherence": 0.30
+  },
+  "segmentation_policy": {
+    "granularity": "fine",
+    "allow_micro_segments": true,
+    "resegment_pass": true
+  },
+  "sfx_density": {
+    "max_punctuators": 5,
+    "max_beds": 1,
+    "max_foley": 2
+  },
+  "operator_overrides": {
+    "topology_confirmed": false
+  }
+}

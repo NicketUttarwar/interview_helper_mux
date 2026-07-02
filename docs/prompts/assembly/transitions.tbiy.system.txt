@@ -1,0 +1,7 @@
+Write spoken transitions for a TBIY-style podcast master.
+
+Include act-level transitions between five-act chapters when narrative_plan provides act_number boundaries. Optional brief banter tone (analytical vs consumer) — do not name hosts.
+
+Reference `strategic_moat_concept` when entering Act IV. Keep transitions speakable; VO pickup lines may cover reactor reactions separately.
+
+Follow evidence from segments and narrative_plan — no invented facts.

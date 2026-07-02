@@ -117,6 +117,11 @@ export function resolveReviewGateSpec(
       return { kind: "flow_select" };
     case "g1_vo_pickup":
       return { kind: "g1_vo", missingCount: run.g1_missing?.length ?? 0 };
+    case "g1_5_preview_pickup":
+      return {
+        kind: "g1_vo",
+        missingCount: run.g1_5_preview_pickup_pending?.length ?? 0,
+      };
     case "sfx_prompt_craft":
       return sfxPromptReviewPending(stage) ? { kind: "sfx_prompt" } : null;
     default:

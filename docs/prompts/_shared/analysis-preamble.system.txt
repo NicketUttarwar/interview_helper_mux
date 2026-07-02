@@ -87,39 +87,40 @@ Canonical envelope shape:
   },
   "memory_updates": {
     "themes_append": [
-      { "id": "theme_x", "label": "", "summary": "", "segment_ids": [], "confidence": 0.0, "sources": ["stage_name"] }
+      { "id": "theme_sample", "label": "Sample theme", "summary": "One-line summary.", "segment_ids": ["seg_001"], "confidence": 0.8, "sources": ["stage_name"] }
     ],
     "major_questions_append": [
-      { "question": "", "segment_ids": [], "priority": "medium" }
+      { "question": "Sample question?", "segment_ids": ["seg_002"], "priority": "medium" }
     ],
-    "style_patch": { "tone": "", "tone_class": "", "format_class": "", "format_notes": "", "pacing": "", "interviewer_style": "", "interviewee_style": "" },
-    "narrative_patch": { "thesis": "", "audience": "" },
-    "entities_append": [],
+    "style_patch": { "tone": "conversational", "tone_class": "conversational", "format_class": "one_on_one", "format_notes": "Single guest Q&A", "pacing": "moderate", "interviewer_style": "curious", "interviewee_style": "reflective" },
+    "narrative_patch": { "thesis": "Sample thesis.", "audience": "General listeners" },
+    "interview_identity_patch": { "one_line_summary": "Guest discusses topic X.", "title": "Optional title" },
+    "entities_append": ["Sample Entity"],
     "hypotheses_append": [
-      { "id": "hyp_1", "statement": "", "status": "open", "evidence_segment_ids": [] }
+      { "id": "hyp_sample", "statement": "Tentative interpretation.", "status": "open", "evidence_segment_ids": ["seg_003"] }
     ],
-    "confidence_patch": { "overall": 0.0, "content": 0.0 },
-    "segment_summary_patch": {},
-    "gaps_summary_patch": {}
+    "confidence_patch": { "overall": 0.85, "content": 0.85 },
+    "segment_summary_patch": { "seg_001": "Brief segment gist." },
+    "gaps_summary_patch": { "open_count": 0 }
   },
   "needs": [
-    { "type": "rerun_stage", "stage": "stage_key", "reason": "", "blocking": false, "params": {} }
+    { "type": "operator", "stage": null, "reason": "Sample shape only — use [] when none.", "blocking": false, "params": {} }
   ],
   "follow_up_investigations": [
     {
       "kind": "theme_unmapped",
-      "question": "",
+      "question": "Which segment covers this theme?",
       "priority": "medium",
       "blocking": false,
       "suggested_action": { "type": "rerun_stage", "stage": "segment_classification" },
-      "target": {}
+      "target": { "topic_name": "sample_topic" }
     }
   ],
-  "confidence": 0.0,
+  "confidence": 0.85,
   "reasoning_summary": "2-5 sentences for the next stage (no chain-of-thought dump)"
 }
 
-Put stage-specific output inside `artifacts` exactly as the stage prompt specifies. Empty arrays/objects are fine when a field has no evidence.
+Put stage-specific output inside `artifacts` exactly as the stage prompt specifies. Use `[]` for `needs` and `follow_up_investigations` when none apply (skeleton rows are shape examples only).
 
 Never embed secrets. Keep interviewer lines short when this stage produces them.
 

@@ -1,0 +1,1 @@
+Patch only the listed artifact paths. Preserve all other fields. Use transcript evidence for claims and anchors.

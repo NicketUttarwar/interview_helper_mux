@@ -43,6 +43,7 @@ NEXT_ACTION_CREATE_FLOW1 = "Build episode order → preview"
 NEXT_ACTION_CREATE_FLOW2 = "Select highlight clips"
 NEXT_ACTION_CREATE_FLOW3 = "Generate show description"
 NEXT_ACTION_POLISH_PREVIEW = "Listen to preview, then approve sound"
+NEXT_ACTION_G1_5_PREVIEW_PICKUP = "Re-record post-preview pickup lines"
 NEXT_ACTION_POLISH_CRAFT = "Review and approve SFX prompts"
 NEXT_ACTION_POLISH_GENERATE = "Generate SFX assets"
 NEXT_ACTION_POLISH_LISTEN = "Complete post-listen QA"
@@ -262,6 +263,25 @@ def _blocking(
         stage_id = "g1_vo_pickup"
         message = f"Record {len(g1_missing)} pickup line(s) for gap-fill"
 
+    if not blocked:
+        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+        g1_5_pending = check_g1_5_preview_pickup_pending(ctx)
+        if g1_5_pending:
+            blocked = True
+            reason = "g1_5_preview_pickup"
+            stage_id = "g1_5_preview_pickup"
+            message = f"Re-record {len(g1_5_pending)} post-preview pickup line(s)"
+
+    if not blocked:
+        from interview_mux.source_topology import check_pickup_speaker_pending
+
+        if check_pickup_speaker_pending(ctx):
+            blocked = True
+            reason = "pickup_speaker"
+            stage_id = "missing_framing"
+            message = "Confirm gap pickup speaker before gap evaluation"
+
     if not blocked and check_profile_gate_pending(ctx):
         blocked = True
         reason = "analysis_profile"
@@ -374,6 +394,8 @@ def _gate_headline(stage_id: str, reason: str | None) -> str:
         return "Review filler clips"
     if stage_id == "g1_vo_pickup":
         return "Record pickup lines"
+    if stage_id == "g1_5_preview_pickup":
+        return "Re-record post-preview pickup lines"
     if stage_id == "g2_flow_select":
         return "Choose output flow"
     if stage_id == "analysis_profile":
@@ -400,6 +422,8 @@ def _gate_primary_label(stage_id: str, reason: str | None) -> str:
         return "Review filler clips"
     if stage_id == "g1_vo_pickup":
         return "Record pickup lines"
+    if stage_id == "g1_5_preview_pickup":
+        return "Re-record post-preview lines"
     if stage_id == "g2_flow_select":
         return "Confirm output type"
     if stage_id == "analysis_profile":
@@ -654,6 +678,14 @@ def execute_hint(
                 "stage_id": "assembly_preview",
                 "label": NEXT_ACTION_POLISH_PREVIEW,
             }
+        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+        if check_g1_5_preview_pickup_pending(ctx):
+            return {
+                "action": "checkpoint",
+                "stage_id": "g1_5_preview_pickup",
+                "label": NEXT_ACTION_G1_5_PREVIEW_PICKUP,
+            }
         if not milestones.get("sfx_approved"):
             return {
                 "action": "checkpoint",
@@ -754,6 +786,10 @@ def _next_action(
         if flow_intent == "flow1" and milestones.get("preview_ready") and not milestones.get("preview_listened"):
             if _require_preview_listen():
                 return NEXT_ACTION_POLISH_PREVIEW
+        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
+
+        if check_g1_5_preview_pickup_pending(ctx):
+            return NEXT_ACTION_G1_5_PREVIEW_PICKUP
         if not milestones.get("placement_qa_ready"):
             return NEXT_ACTION_POLISH_PLACEMENT
         return NEXT_ACTION_POLISH_SFX
@@ -996,5 +1032,21 @@ def mark_preview_listened(ctx: RunContext) -> None:
     ms["preview_listened"] = True
     meta["journey_milestones"] = ms
     ctx.write_json("run_meta.json", meta)
+    from interview_mux.production_profile import is_tbiy
+
+    if is_tbiy(ctx) and ctx.artifact_exists("understanding/gap_report.json"):
+        from interview_mux.gap_report_api import update_line
+
+        report = ctx.read_json("understanding/gap_report.json")
+        for ln in report.get("interviewer_lines") or []:
+            if not isinstance(ln, dict):
+                continue
+            if ln.get("delivery") != "record":
+                continue
+            if str(ln.get("gap_type") or "") in ("reaction_line", "chapter_hook"):
+                try:
+                    update_line(ctx, str(ln["line_id"]), {"post_preview": True})
+                except KeyError:
+                    pass
     refresh_journey_meta(ctx)
     log_journey(ctx, "preview", "Assembly preview marked as listened", stage="assembly_preview")

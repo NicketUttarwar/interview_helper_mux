@@ -23,7 +23,7 @@
 |----------|--------------|
 | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
 | `interview_spine_build` | spine |
-| `speaker_roles` | `understanding/speakers.json` |
+| `source_topology_build` | `understanding/source_topology.json`, `flow_adaptation.json` | **TBIY:** topology confirm on Story Board |
 | `content_context` | `understanding/content_brief.json` |
 | `boundary_detection` | `segments/boundaries.json` |
 | `segment_classification` | manifest |
@@ -39,6 +39,7 @@
 | Gate | Stage | Driver event |
 |------|-------|--------------|
 | G1 | `g1_vo_pickup` | `gate:g1_upload`, `gate:g1_continue` |
+| G1.5 (TBIY) | post-preview pickup | `gate:g1_5_preview_pickup` (after `gate:preview_listen`) |
 | G2 | `g2_flow_select` | `gate:g2` |
 
 ## Phase D — Build
