@@ -68,8 +68,11 @@ Canonical reference for **how every operator click and background job must behav
 | `StageReuseOfferCard` | Stage reuse |
 | `WriteApprovalPanel` | Write approval (via `approveWriteAndContinue`) |
 | `HandoffPanel` | Handoff ack (via `acknowledgeHandoff`) |
+| `PickupSpeakerPanel` | TBiy pickup speaker confirm |
+| `PreviewPickupPanel` | G1.5 post-preview pickup |
+| `ConversationStudioPanel` | TBiy gap-report editor (review-only — no advance) |
 
-Review-only panels (spinners + toasts, no advance): `AcousticProfilePanel`, `InterviewSpinePanel`, `CoherenceRisksPanel`, `ValueFeaturesPanel`, `SonicContextPanel`, `PlacementAdjustmentsPanel`, `DisfluencyRestorePanel`.
+Review-only panels (spinners + toasts, no advance): `AcousticProfilePanel`, `InterviewSpinePanel`, `CoherenceRisksPanel`, `ValueFeaturesPanel`, `SonicContextPanel`, `PlacementAdjustmentsPanel`, `DisfluencyRestorePanel`, `ConversationStudioPanel`.
 
 ---
 

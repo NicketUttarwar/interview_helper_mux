@@ -19,10 +19,9 @@ def default_nle() -> dict[str, Any]:
 
 
 def load_nle(ctx: RunContext) -> dict[str, Any]:
-    p = ctx.path(NLE_REL)
-    if not p.is_file():
+    if not ctx.artifact_exists(NLE_REL):
         return default_nle()
-    data = read_json(p)
+    data = read_json(ctx.read_path(NLE_REL))
     base = default_nle()
     base.update(data)
     return base

@@ -85,3 +85,26 @@ def require_g1_5_preview_pickup_clear(ctx: RunContext, *, stage: str) -> None:
         )
         ctx.log(msg, level="warning", stage="g1_5_preview_pickup")
         raise SystemExit(msg)
+
+
+def require_tbiy_gates_clear(ctx: RunContext, *, stage: str) -> None:
+    """Central TBiy gate check for pipeline + journey snapshot."""
+    if not is_tbiy(ctx):
+        return
+    from interview_mux.gates import check_g1_vo, check_transcript_review_pending
+
+    if check_transcript_review_pending(ctx):
+        raise SystemExit("G0 transcript review must be complete before continuing (TBiy).")
+    missing = check_g1_vo(ctx)
+    if missing and stage not in ("g1_vo_pickup", "vo_ingest", "vo_boundary_detect"):
+        raise SystemExit(f"G1 VO pickup missing for: {missing}")
+    if stage in ("mmaudio_sfx_flow1", "mix_flow1", "master_flow1", "mux_flow1"):
+        require_g1_5_preview_pickup_clear(ctx, stage=stage)
+    if not ctx.artifact_exists("understanding/source_topology.json") and stage not in (
+        "source_topology_build",
+        "ingest",
+        "transcribe",
+        "transcript_review_build",
+        "transcript_review",
+    ):
+        raise SystemExit("TBiy requires source_topology.json — run source_topology_build.")

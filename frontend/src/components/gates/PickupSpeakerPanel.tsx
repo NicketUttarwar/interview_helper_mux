@@ -185,6 +185,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
           type="button"
           className="btn primary sm"
           data-testid="confirm-pickup-speaker"
+          data-action-id="gui.adaptation.pickup_speaker"
           disabled={busy || !selected}
           onClick={() => void confirm()}
         >

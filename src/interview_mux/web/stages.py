@@ -517,9 +517,9 @@ STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
 
 EXECUTABLE_ORDER: dict[str, list[str]] = {
     "analysis": [s.id for s in ANALYSIS_STAGES],
-    "flow1": [s.id for s in FLOW1_STAGES],
-    "flow2": [s.id for s in FLOW2_STAGES],
-    "flow3": [s.id for s in FLOW3_STAGES],
+    "flow1": [s.id for s in FLOW1_STAGES if s.phase != "gate"],
+    "flow2": [s.id for s in FLOW2_STAGES if s.phase != "gate"],
+    "flow3": [s.id for s in FLOW3_STAGES if s.phase != "gate"],
 }
 
 # Stages that may surface LLM routing attempts in the GUI (OpenAI-backed or analysis loop).

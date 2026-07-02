@@ -74,3 +74,22 @@ def test_discard_on_invalidate_unblocks_execute(
     assert check_write_approval_before_execute(ctx) is not None
     ctx.clear_from("ingest", ANALYSIS_ORDER)
     assert check_write_approval_before_execute(ctx) is None
+
+
+def test_clear_from_stamps_stale_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    boundaries = ctx.final_path("segments/boundaries.json")
+    boundaries.parent.mkdir(parents=True, exist_ok=True)
+    boundaries.write_text(
+        json.dumps({"boundaries": [], "_meta": {"stale": False, "content_hash": "abc"}}),
+        encoding="utf-8",
+    )
+    ctx.mark_done("boundary_detection", force=True)
+    ctx.clear_from("boundary_detection", ANALYSIS_ORDER)
+    if boundaries.is_file():
+        doc = json.loads(boundaries.read_text(encoding="utf-8"))
+        assert (doc.get("_meta") or {}).get("stale") is True

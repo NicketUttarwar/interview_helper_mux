@@ -232,5 +232,20 @@ def check_handoff_before_execute(ctx: RunContext) -> str | None:
     return handoff_review_message(ctx, sid)
 
 
+def handoff_state_for_run(ctx: RunContext) -> dict[str, Any]:
+    """Canonical handoff snapshot for journey orchestrator and frontend types."""
+    meta = read_run_meta(ctx)
+    pending_stage = pending_handoff_stage(ctx)
+    return {
+        "handoff_ack": dict(meta.get("handoff_ack") or {}),
+        "handoff_pending_writes": dict(meta.get("handoff_pending_writes") or {}),
+        "pending_handoff_stage": pending_stage,
+        "handoff_between_stages_enabled": handoff_between_stages_enabled(),
+        "handoff_paths": handoff_paths_for_stage(ctx, pending_stage)
+        if pending_stage
+        else [],
+    }
+
+
 def filter_custom_run_handoff_paths(paths: list[str]) -> list[str]:
     return [p for p in paths if is_custom_run_artifact(p)]

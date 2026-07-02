@@ -22,21 +22,26 @@ PAT = re.compile(r"subprocess\.(run|Popen)\(")
 
 CHECKPOINT_CONTINUATION = [
     ("context/AppContext.tsx", "advanceFromCheckpoint"),
+    ("context/AppContext.tsx", "completeTranscriptReview"),
+    ("context/AppContext.tsx", "approveSfxPrompts"),
+    ("context/AppContext.tsx", "approveWriteAndContinue"),
+    ("context/AppContext.tsx", "acknowledgeHandoff"),
     ("context/AppContext.tsx", "reconcileBusyRun"),
     ("context/AppContext.tsx", "checkpoint_continue"),
     ("utils/checkpointContinuation.ts", "advancePipeline"),
     ("utils/checkpointContinuation.ts", "reconcileBusyRun"),
-    ("components/guidance/WriteApprovalPanel.tsx", "approveWriteAndContinue"),
-    ("components/guidance/StageReuseOfferCard.tsx", "advanceFromCheckpoint"),
-    ("components/gates/TranscriptReviewPanel.tsx", "advanceFromCheckpoint"),
+    ("components/workspace/StageStepFooter.tsx", "advanceFromCheckpoint"),
+    ("components/gates/StageReviewGateBanner.tsx", "approveWriteAndContinue"),
+    ("components/guidance/WriteApprovalPanel.tsx", "Save all files &amp; continue"),
+    ("components/guidance/StageReuseOfferCard.tsx", "applyReuseResultAndFocus"),
     ("components/gates/DisfluencyReviewPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/VoPickupPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/FlowSelectPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/AnalysisProfileGate.tsx", "advanceFromCheckpoint"),
-    ("components/gates/SfxPromptReviewPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/SfxPostListenPanel.tsx", "advanceFromCheckpoint"),
+    ("components/gates/PickupSpeakerPanel.tsx", "advanceFromCheckpoint"),
+    ("components/gates/PreviewPickupPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/PrecleanOfferCard.tsx", "beginStageExecution"),
-    ("components/modals/OperatorActionModal.tsx", "modal-continue-hint"),
 ]
 
 BACKEND_CHECKPOINT = [

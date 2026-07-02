@@ -155,7 +155,7 @@ def require_g1_clear(ctx: RunContext) -> None:
 def set_selected_flow(ctx: RunContext, flow: str) -> None:
     if flow not in ("flow1", "flow2", "flow3"):
         raise ValueError("flow must be flow1, flow2, or flow3")
-    meta = ctx.read_json("run_meta.json") if ctx.path("run_meta.json").is_file() else {}
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     meta.update(
         {
             "selected_flow": flow,
@@ -166,8 +166,7 @@ def set_selected_flow(ctx: RunContext, flow: str) -> None:
 
 
 def get_selected_flow(ctx: RunContext) -> str | None:
-    p = ctx.path("run_meta.json")
-    if not p.is_file():
+    if not ctx.artifact_exists("run_meta.json"):
         return None
     return ctx.read_json("run_meta.json").get("selected_flow")
 

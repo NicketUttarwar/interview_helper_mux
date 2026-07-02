@@ -120,6 +120,19 @@ def validate_reuse_copy(ctx: Any, stage_key: str, source_run_id: str) -> list[st
     return errors
 
 
+def invalidate_downstream_memory(ctx: Any, from_stage: str) -> list[str]:
+    """Bundle stale stamps, volley index invalidation, and stage summary clears on redo."""
+    stamped = stamp_stale_and_archive(ctx, from_stage)
+    downstream = tuple(transitive_invalidate(from_stage))
+    if downstream:
+        from interview_mux.artifact_cross_validate import invalidate_stage_summaries
+        from interview_mux.context_resolver import invalidate_entries_for_stages
+
+        invalidate_stage_summaries(ctx, downstream)
+        invalidate_entries_for_stages(ctx, downstream)
+    return stamped
+
+
 def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
     stamped: list[str] = []
     for sid in transitive_invalidate(from_stage):
@@ -294,6 +307,7 @@ __all__ = [
     "apply_fingerprints_on_flush",
     "build_outputs_view",
     "fingerprint_artifact",
+    "invalidate_downstream_memory",
     "lifecycle_cfg",
     "post_commit_validate",
     "read_stale_guard",

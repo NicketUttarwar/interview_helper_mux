@@ -165,7 +165,7 @@ export function findHandoffStage(run: RunData | null): StageInfo | null {
   return null;
 }
 
-/** External APIs are assumed configured — no operator consent prompts. */
+/** External APIs are auto-consented — consent never blocks the operator UI. */
 export function isApiConsentJobPending(
   _run: RunData | null,
   _grants: Record<string, boolean> = {},

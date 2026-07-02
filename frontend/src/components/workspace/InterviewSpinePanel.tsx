@@ -7,6 +7,7 @@ import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface SpineSummary {
   window_total?: number;
+  derived_from_stale?: boolean;
   retrieval?: { enabled?: boolean; window_count?: number };
   boundary_events?: Array<Record<string, unknown>>;
   speaker_stats?: Array<Record<string, unknown>>;
@@ -138,6 +139,12 @@ export function InterviewSpinePanel() {
   const body = (
     <>
       <h4>Interview spine</h4>
+      {summary.derived_from_stale ? (
+        <p className="warning-text sm spine-stale-hint" role="status">
+          Source inputs changed since last build (transcript, ingest, SAP, or preclean). Recompute spine
+          before relying on retrieval or downstream analysis.
+        </p>
+      ) : null}
       <p className="muted sm">
         {summary.window_total ?? 0} windows · {events.length} boundary events · retrieval{" "}
         {retrievalOn ? "on" : "off"}

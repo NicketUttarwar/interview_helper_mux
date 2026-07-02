@@ -1270,5 +1270,77 @@
     "stage": "g1_vo_pickup",
     "origin": "gui",
     "doc_link": ""
+  },
+  {
+    "action_id": "gui.adaptation.pickup_speaker",
+    "description": "Confirm TBiy pickup speaker from topology",
+    "implementation": "gui.PickupSpeakerPanel",
+    "stage": "source_topology_build",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1.vo.continue",
+    "description": "Continue after G1 VO pickup complete",
+    "implementation": "gui.VoPickupPanel",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1_5.preview.continue",
+    "description": "Continue after G1.5 post-preview pickup",
+    "implementation": "gui.PreviewPickupPanel",
+    "stage": "g1_5_preview_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.flagship_promote",
+    "description": "Promote LLM call to flagship tier after preflight",
+    "implementation": "llm_runner",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.null.blocked",
+    "description": "Critical null field blocked artifact persist",
+    "implementation": "null_field_policy",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.null.fabricated",
+    "description": "Null field fabricated during normalization",
+    "implementation": "llm_output_normalizer",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.null.omitted",
+    "description": "Null field omitted from artifact output",
+    "implementation": "null_field_policy",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.schema_preflight_fail",
+    "description": "LLM schema preflight failed before spend",
+    "implementation": "llm_preflight",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.verification_failed",
+    "description": "Structured output verification failed",
+    "implementation": "llm_output_normalizer",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
   }
 ]

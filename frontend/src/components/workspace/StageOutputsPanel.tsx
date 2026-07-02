@@ -12,6 +12,7 @@ function artifactRows(stage: StageInfo): {
   status: ArtifactRowStatus;
   phase: string;
   editable: boolean;
+  sufficiencyStatus?: string;
 }[] {
   if (stage.outputs_view?.length) {
     return stage.outputs_view.map((row) => ({
@@ -20,6 +21,7 @@ function artifactRows(stage: StageInfo): {
       status: (row.status as ArtifactRowStatus) || "pending",
       phase: row.phase || row.status,
       editable: (stage.editable || []).includes(row.path),
+      sufficiencyStatus: row.sufficiency_status,
     }));
   }
   const expected = stage.artifacts || [];
@@ -41,6 +43,7 @@ function artifactRows(stage: StageInfo): {
         status,
         phase: phase || status,
         editable: editableSet.has(path),
+        sufficiencyStatus: undefined,
       };
     });
 }
@@ -61,11 +64,20 @@ function statusLabel(status: ArtifactRowStatus): string {
   return "saved";
 }
 
+function sufficiencyLabel(status?: string): string | null {
+  if (!status || status === "ok") return null;
+  if (status === "blocking") return "insufficient for downstream";
+  if (status === "unknown") return "sufficiency unknown";
+  return status;
+}
+
 export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
   const { runId, run, openArtifactInEditor, setPipelineSubTab, refreshRun, showToast } = useApp();
   const [activeAudio, setActiveAudio] = useState<string | null>(null);
 
   const rows = useMemo(() => artifactRows(stage), [stage]);
+  const blockingSufficiency = rows.filter((r) => r.sufficiencyStatus === "blocking").length;
+  const runSufficiencyBlocking = Number(run?.job?.sufficiency_blocking ?? 0);
   const audioOutputs = stage.audio_outputs_present || [];
   const apiProviders = stage.api_providers || [];
   const stageDone = stage.status === "done";
@@ -84,6 +96,13 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
   return (
     <div className="stage-outputs panel nested">
       <h3 className="stage-outputs-title">Stage outputs</h3>
+      {(blockingSufficiency > 0 || runSufficiencyBlocking > 0) && (
+        <p className="sufficiency-blocking-banner warning-text sm" role="status">
+          {blockingSufficiency > 0
+            ? `${blockingSufficiency} artifact(s) fail sufficiency checks — re-run or edit before downstream stages.`
+            : `${runSufficiencyBlocking} blocking sufficiency issue(s) in this run.`}
+        </p>
+      )}
       {run?.working_dir ? (
         <p className="hint sm stage-outputs-wd">
           Working directory: <code>{run.working_dir}</code>
@@ -103,7 +122,7 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
 
       {rows.length > 0 ? (
         <ul className="artifact-checklist">
-          {rows.map(({ path, label, status, editable }) => {
+          {rows.map(({ path, label, status, editable, sufficiencyStatus }) => {
             const canOpen =
               status === "complete" ||
               status === "staged" ||
@@ -124,6 +143,9 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
                 ) : null}
                 {status === "staged" ? (
                   <span className="badge-staged">in review</span>
+                ) : null}
+                {sufficiencyLabel(sufficiencyStatus) ? (
+                  <span className="badge-sufficiency blocking">{sufficiencyLabel(sufficiencyStatus)}</span>
                 ) : null}
                 <span className="artifact-checklist-actions">
                   {canOpen ? (

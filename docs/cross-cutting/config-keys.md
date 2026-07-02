@@ -44,6 +44,10 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
+| `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel | When `enabled`, blocks SFX until post-preview VO re-recorded |
+| `production_profiles` | `production_profile.py`, TBiy profile selection | Wrong profile → incorrect gate and lint behavior |
+| `production_style` | Sound design + mix defaults for production posture | Style mismatch vs operator intent |
+| `source_topology` | `source_topology.py`, topology-driven flow adaptation | Missing topology breaks TBiy pickup speaker rules |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
 | `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
@@ -199,6 +203,66 @@ Setup: `python scripts/download_local_stt.py --model base` (optional; lexicon pa
 ## Legacy note — flat-only config
 
 Older docs described only a flat `models.<stage_key>` map. That still works, but **`models.tiers` + `models.stages` are the preferred shape** in `config/app.defaults.json`.
+
+---
+
+## `analysis.sufficiency`
+
+Semantic completeness gates on committed LLM artifacts — `sufficiency_engine.py`, `artifact_lifecycle.build_outputs_view()`.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.sufficiency.enabled` | `true` | Sufficiency badges hidden; downstream may proceed on thin artifacts |
+| `analysis.sufficiency.default_blocking_tier` | `progression` | Wrong tier → blocks autopilot / progression at wrong severity |
+| `analysis.sufficiency.per_stage_overrides` | `{}` | Per-stage tier overrides ignored |
+
+---
+
+## `analysis.remediation_orchestrator`
+
+Micro-gap fill and upstream rerun orchestration when sufficiency or ITR findings block progression.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.remediation_orchestrator.enabled` | `true` | Auto-remediation disabled |
+| `analysis.remediation_orchestrator.max_micro_gap_fill_per_stage` | `2` | Too many LLM micro-fill attempts per stage |
+| `analysis.remediation_orchestrator.max_upstream_reruns` | `2` | Unbounded upstream reruns |
+
+---
+
+## `analysis.artifact_lifecycle`
+
+Fingerprinting, stale reads, reuse validation — `artifact_lifecycle.py`.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.artifact_lifecycle.fingerprint_enabled` | `true` | No content fingerprints on commit |
+| `analysis.artifact_lifecycle.post_commit_validate` | `true` | Invalid JSON may persist after approve |
+| `analysis.artifact_lifecycle.read_stale_guard` | `true` | Stale artifact reads not blocked |
+| `analysis.artifact_lifecycle.reuse_validate` | `true` | Reuse copies skip schema checks |
+
+---
+
+## `analysis.artifact_contract`
+
+Stage contract verification on CI and optional runtime checks.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.artifact_contract.enabled` | `true` | Contract drift undetected |
+| `analysis.artifact_contract.contracts_dir` | `docs/cross-cutting/stage-contracts` | Wrong contract path |
+| `analysis.artifact_contract.verify_on_ci` | `true` | CI skips contract verification |
+
+---
+
+## `analysis.downstream_probe`
+
+Probe downstream consumers when upstream artifacts change.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.downstream_probe.enabled` | `true` | Downstream impact not surfaced |
+| `analysis.downstream_probe.blocking_tier` | `progression` | Wrong blocking severity for probe findings |
 
 ---
 

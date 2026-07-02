@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://interview-mux.local/schemas/app_config.schema.json",
+  "title": "app.defaults.json subset — high-risk analysis namespaces",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "analysis": {
+      "type": "object",
+      "properties": {
+        "sufficiency": {
+          "type": "object",
+          "required": ["enabled", "default_blocking_tier"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "default_blocking_tier": {
+              "type": "string",
+              "enum": ["progression", "export", "advisory"]
+            },
+            "per_stage_overrides": { "type": "object" }
+          },
+          "additionalProperties": false
+        },
+        "remediation_orchestrator": {
+          "type": "object",
+          "required": ["enabled", "max_micro_gap_fill_per_stage", "max_upstream_reruns"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "max_micro_gap_fill_per_stage": { "type": "integer", "minimum": 0 },
+            "max_upstream_reruns": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "artifact_lifecycle": {
+          "type": "object",
+          "required": [
+            "fingerprint_enabled",
+            "post_commit_validate",
+            "read_stale_guard",
+            "reuse_validate"
+          ],
+          "properties": {
+            "fingerprint_enabled": { "type": "boolean" },
+            "post_commit_validate": { "type": "boolean" },
+            "read_stale_guard": { "type": "boolean" },
+            "reuse_validate": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "artifact_contract": {
+          "type": "object",
+          "required": ["enabled", "contracts_dir", "verify_on_ci"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "contracts_dir": { "type": "string", "minLength": 1 },
+            "verify_on_ci": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "downstream_probe": {
+          "type": "object",
+          "required": ["enabled", "blocking_tier"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "blocking_tier": {
+              "type": "string",
+              "enum": ["progression", "export", "advisory"]
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

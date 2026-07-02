@@ -494,11 +494,10 @@ def _should_skip_generation(
 
 
 def _load_crafted_prompts(ctx: RunContext) -> dict[str, dict]:
-    path = ctx.path("sound_design/sfx_prompts.json")
-    if not path.is_file():
+    if not ctx.artifact_exists("sound_design/sfx_prompts.json"):
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = ctx.read_json("sound_design/sfx_prompts.json")
     except (OSError, json.JSONDecodeError):
         return {}
     rows = data.get("prompts") or data.get("artifacts", {}).get("prompts") or []

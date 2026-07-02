@@ -17,6 +17,7 @@ GATE_AND_ON_DEMAND_STAGES = frozenset(
         "disfluency_review",
         "analysis_profile",
         "g1_vo_pickup",
+        "g1_5_preview_pickup",
         "g2_flow_select",
         "vo_ingest",
     }

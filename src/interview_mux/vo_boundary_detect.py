@@ -63,15 +63,14 @@ def suggest_boundary(wav_path: Path, *, sample_rate: int | None = None) -> dict[
 
 
 def suggest_line_boundary(ctx: RunContext, line_id: str) -> dict[str, Any]:
-    wav = ctx.path("vo_pickup") / f"{line_id}.wav"
+    wav = ctx.read_path("vo_pickup", f"{line_id}.wav")
     if not wav.is_file():
         raise FileNotFoundError(f"Missing vo_pickup/{line_id}.wav")
     return suggest_boundary(wav)
 
 
 def run_vo_boundary_detect(ctx: RunContext) -> None:
-    report_path = ctx.path("understanding/gap_report.json")
-    if not report_path.is_file():
+    if not ctx.artifact_exists("understanding/gap_report.json"):
         ctx.mark_done("vo_boundary_detect")
         return
     report = ctx.read_json("understanding/gap_report.json")
@@ -85,7 +84,7 @@ def run_vo_boundary_detect(ctx: RunContext) -> None:
             line_id = str(line.get("line_id") or "")
             if not line_id:
                 continue
-            wav = ctx.path("vo_pickup") / f"{line_id}.wav"
+            wav = ctx.read_path("vo_pickup", f"{line_id}.wav")
             if not wav.is_file():
                 continue
             suggestion = suggest_boundary(wav)

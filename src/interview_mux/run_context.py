@@ -106,6 +106,10 @@ class RunContext:
         rel = "/".join(parts)
         return resolve_read_path(self, rel)
 
+    def artifact_path(self, rel: str) -> Path:
+        """Alias for read_path — makes read intent obvious at call sites."""
+        return self.read_path(*rel.split("/"))
+
     def write_json(
         self,
         rel: str,
@@ -405,8 +409,10 @@ class RunContext:
             archive_artifacts_from,
             clear_pending_writes_from,
         )
+        from interview_mux.artifact_lifecycle import invalidate_downstream_memory
 
         archive_artifacts_from(self, stage, order)
+        invalidate_downstream_memory(self, stage)
         clear_pending_writes_from(self, stage, order)
         idx = order.index(stage)
         for s in order[idx:]:

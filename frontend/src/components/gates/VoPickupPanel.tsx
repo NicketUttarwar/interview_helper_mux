@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 
@@ -30,9 +31,9 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
 
   const suggestTrim = async (lineId: string) => {
     if (!runId) return;
-    const res = await fetch(`/api/runs/${runId}/vo/${lineId}/boundary-suggest`);
-    if (!res.ok) return;
-    const data = (await res.json()) as { trim_in_ms: number; trim_out_ms: number };
+    const data = await api<{ trim_in_ms: number; trim_out_ms: number }>(
+      `/api/runs/${runId}/vo/${lineId}/boundary-suggest`,
+    );
     setBoundary((b) => ({ ...b, [lineId]: data }));
     showToast(`Suggested trim for ${lineId}`);
   };
@@ -40,7 +41,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   const applyTrim = async (lineId: string) => {
     if (!runId || !boundary[lineId]) return;
     const b = boundary[lineId];
-    await fetch(`/api/runs/${runId}/vo/${lineId}/trim`, {
+    await api(`/api/runs/${runId}/vo/${lineId}/trim`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(b),
@@ -57,7 +58,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
+      await api(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
       showToast(`VO saved for ${lineId}.`);
       const wasMissing = (run?.g1_missing || []).length > 0;
       const refreshed = await refreshRun();
@@ -192,6 +193,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           type="button"
           className="btn primary"
           data-testid="vo-continue"
+          data-action-id="gui.g1.vo.continue"
           disabled={jobRunning || actionBusy}
           onClick={() => void advanceFromCheckpoint()}
         >

@@ -95,6 +95,214 @@ Full gate copy: **`docs/workflows/operator-gates.md`**.
 
 ---
 
+## Artifact I/O (write staging)
+
+- **Writes (current stage):** `ctx.path()` / `ctx.write_json()` — resolves active `.pending_writes/<stage>/` root.
+- **Reads (prior / cross-stage):** `ctx.read_path()` / `ctx.read_json()` / `ctx.read_artifact_path()` / `ctx.artifact_exists()` — never the active staging root.
+- **Never** read upstream artifacts via `ctx.path()` while another stage's `.pending_writes/` is active.
+- Operational paths (`run_meta.json`, `gui_job.json`, `gui_log.jsonl`, `.stage_done/*`) bypass staging — use API consistently.
+- Spec: [assets-and-executions.md](../../docs/cross-cutting/assets-and-executions.md) · [write_staging.py](../../src/interview_mux/write_staging.py).
+
+---
+
+## Artifact lifecycle & invalidation
+
+- Redo / `--from-stage` → `archive_artifacts_from` + `stamp_stale_and_archive` + `invalidate_downstream_memory` (volley + stage summaries).
+- `read_stale_guard()` when `_lifecycle_consumer_stage` is set during pipeline execution; GUI GETs bypass stale guard.
+- Fingerprints: `run_meta.artifact_fingerprints` must match on-disk `_meta.content_hash`.
+- Spec: [artifact-layout.md](../../docs/cross-cutting/artifact-layout.md) · [artifact_lifecycle.py](../../src/interview_mux/artifact_lifecycle.py).
+
+---
+
+## LLM hardening
+
+- **Gateways only:** `run_prompt_envelope` (`llm_runner.py`), `generate_local_chat` (`local_llm_runner.py`) — no `OpenAI()` elsewhere.
+- **Truncation:** never accept complete output when truncation markers present.
+- **Persist gating:** no merge/persist on arbiter `retry_uptier`, `decompose`, `enqueue_investigation`, `blocked`.
+- **Normalization ladder:** parse → normalize → verify → volley → fabricate → block; `NEVER_FABRICATE` critical fields.
+- Local structured output `fail_open_on_verify` is intentional for non-artifact local tasks only.
+- Spec: [truncation-integrity.md](../../docs/cross-cutting/truncation-integrity.md) · [llm-output-normalization.md](../../docs/cross-cutting/llm-output-normalization.md).
+
+---
+
+## Sufficiency & remediation ladder
+
+- Post-schema: sufficiency → deterministic lint → cross-validate → micro-gap-fill → adaptation guard → ITR bridge.
+- Stage-contract YAML sufficiency rules are source of truth over built-in defaults.
+- Spec: [llm-guidance-program.md](../../docs/cross-cutting/llm-guidance-program.md) · [stage-contracts/00-INDEX.md](../../docs/cross-cutting/stage-contracts/00-INDEX.md).
+
+---
+
+## GUI checkpoint kernel
+
+- Gate unblocks → **`advanceFromCheckpoint()`** (`AppContext.tsx`); auto-continue → `executeJob(..., { source: "checkpoint_continue" })`.
+- Primary CTAs → **`guardBusy(jobRunning, actionBusy, showToast)`**; write approval → `approveWriteAndContinue` → `advanceFromCheckpoint`.
+- **`setCheckpointBusy`** during async checkpoint saves; no Continue when `!stageHasCommittedOutputs(stage)`.
+- Spec: [gui-flow-hardening.md](../../docs/workflows/gui-flow-hardening.md) · [ui-truth-invariants.md](../../docs/workflows/ui-truth-invariants.md) (F1–F4).
+
+---
+
+## Codegen & stage contracts
+
+- **Never hand-edit** `frontend/src/schemas/generated/*` or `frontend/src/generated/*`.
+- On schema change: JSON schema → `prompt_validation.py` → stage contract YAML → codegen → `./scripts/verify_artifact_contract.sh`.
+- Spec: [artifact-generation-and-validation.md](../../docs/cross-cutting/artifact-generation-and-validation.md).
+
+---
+
+## Handoff & custom-run checkpoints
+
+- Custom-run paths pause batch runs until `POST …/handoff-ack`; write-approve auto-acks handoff **only** for non-custom-run stages.
+- `handoff_state_for_run(ctx)` is canonical for journey + GUI; volley/profile edits clear downstream acks.
+- `full_autopilot` disables `handoff_between_stages_enabled()`.
+- Spec: [operator-gates.md](../../docs/workflows/operator-gates.md) · [custom_run_handoff.py](../../src/interview_mux/custom_run_handoff.py).
+
+---
+
+## Concurrency & run locks
+
+- Mutating routes use `_guarded_run` / `operator_guard`; lock order: thread lock → `.run.lock` → per-file staging locks.
+- Reuse copy must lock **source** run; HTTP 409 `run_busy` surfaces via shared `api()` helper.
+- Spec: [api-reference.md](../../docs/workflows/api-reference.md) · [run_lock.py](../../src/interview_mux/run_lock.py).
+
+---
+
+## Stage execution reuse
+
+- Reuse offers from `immediate_previous_run_id` + per-stage output specs; `_STAGE_REUSE_OUTPUTS` must match `web/stages.py`.
+- Transcript reuse does **not** auto-complete G0; SDP reuse blocked when `source_run_id` differs.
+- Spec: [stage-execution-reuse.md](../../docs/workflows/stage-execution-reuse.md).
+
+---
+
+## Analysis memory & volley
+
+- LLM stages pad from `context_index.json` + `analysis_state.json`; arbiter reject → no memory merge.
+- Redo / manifest mutation / profile save → `invalidate_downstream_memory` bundle (with lifecycle invalidation).
+- `meta.operator_locked_fields` enforced backend-only.
+- Spec: [analysis-memory.md](../../docs/cross-cutting/analysis-memory.md).
+
+---
+
+## API path guards & client parity
+
+- Artifact paths via `_assert_artifact_path()` — allowlist from artifact registry; reject traversal.
+- All mutating frontend calls via `api/client.ts` with shared `ApiError` / `run_busy` handling.
+- Spec: [api-reference.md](../../docs/workflows/api-reference.md).
+
+---
+
+## Frontend data sources
+
+- **Journey state** (reuse offers, blocking, artifact status): `GET /api/runs/{id}` + job poll only — no parallel reuse/blocking fetches.
+- **Panel detail** (gate sub-resources): stage-scoped API OK (`getSfxPrompts`, gap-report lines, VO upload).
+
+---
+
+## NLE / disfluency / placement
+
+- NLE edits → `structural` vs `trim_only` determines rerun scope; `load_nle()` uses `read_path`.
+- Disfluency restore: single config resolution at execute time; placement QA default-off.
+- Spec: [post-generation-placement.md](../../docs/cross-cutting/post-generation-placement.md).
+
+---
+
+## Operator action_id catalog
+
+- Every operator-visible action → `gui_log.jsonl` with cataloged `action_id`; primary CTAs expose `data-action-id`.
+- E2E driver: single click, GUI auto-continues — no direct `POST …/execute` after gates.
+- Catalog: [operator_action_catalog.json](../../docs/cross-cutting/operator_action_catalog.json).
+
+---
+
+## TBiy production profile
+
+- Pickup voice = least-spoken speaker; G1.5 post-preview pickup; topology-driven flow adaptation.
+- `require_tbiy_gates_clear(ctx, stage)` used by pipeline + journey snapshot.
+- Spec: [tbiy-production-profile.md](../../docs/cross-cutting/tbiy-production-profile.md).
+
+---
+
+## Config keys discipline
+
+- Every `merged_config()` key in production code documented in [config-keys.md](../../docs/cross-cutting/config-keys.md) with default in `app.defaults.json`.
+- CI: `python tools/audit_config_keys.py`.
+
+---
+
+## Secrets & provider consent
+
+- Credentials from `config/secrets/secrets.env` only; stage → provider preflight before Start/Execute.
+- GUI consent must not silently auto-grant cloud providers in production paths without operator grant.
+- Spec: [config-keys.md](../../docs/cross-cutting/config-keys.md) · [gui_api_consent.py](../../src/interview_mux/gui_api_consent.py).
+
+---
+
+## GUI bundle freshness
+
+- Shipped UI under `web/static/` via `./scripts/build_gui.sh`; `needs_gui_build()` must pass in CI when `frontend/src` changes.
+- Checkpoint API changes require updated `bundle_contract_ok` markers in `test_gui_bundle.py`.
+
+---
+
+## Anchored lockfile / toolchain
+
+- Core deps pinned in `requirements.lock` — mirror in `anchored-requirements.lock`; optional stacks pin independently.
+- Spec: [anchored-toolchain.md](../../docs/cross-cutting/anchored-toolchain.md).
+
+---
+
+## Cloud STT / transcribe contract
+
+- Transcription via **AWS CLI subprocess only** — no boto3; re-transcribe invalidates spine/segments/downstream.
+- G0 speaker/timestamp invariants before `interview_spine_build`.
+- Spec: [stt-and-diarization.md](../../docs/pipeline/transcription/stt-and-diarization.md).
+
+---
+
+## Local audio & QC ladder
+
+- Preclean + SFX + mix + mastering in isolated ASSETS venvs; QC chain: `mmaudio_qa` → `placement_qa` → `master_qc`.
+- Optional enrichment (CLAP, semantic QA) **fail-open**; critical LLM stages and operator gates **fail-closed**.
+- `waveform_peaks` cache invalidates when `ingest/normalized.wav` lineage changes.
+- Spec: [local-audio-stack.md](../../docs/cross-cutting/local-audio-stack.md).
+
+---
+
+## Spine & coherence substrate
+
+- `derived_from` lineage skip vs rebuild on preclean/transcript/SAP changes; `llm_preflight` long-interview gates before flagship spend.
+- Coherence open-risk counts must match journey ↔ GUI panel.
+- Spec: [interview-spine.md](../../docs/cross-cutting/interview-spine.md) · [coherence-orc03.md](../../docs/cross-cutting/coherence-orc03.md).
+
+---
+
+## Operator snapshot integrity
+
+- Operator state mirrored under `operator/` via `operator_snapshots.py`; every `SNAPSHOT_PATHS` key round-trips.
+- GUI saves writing operator data must call `record_action_trace_manifest`.
+- Spec: [operator_snapshots.py](../../src/interview_mux/operator_snapshots.py).
+
+---
+
+## Fail-open vs fail-closed
+
+| Class | Behavior | Examples |
+|-------|----------|----------|
+| Optional enrichment | fail-open | CLAP index, emphasis regions, semantic audio QA, laughter windows |
+| Critical LLM stages | fail-closed | `ALL_CRITICAL_LLM_STAGES` |
+| Operator gates | hard stop | G0, G0.5, G1, G2, profile, TBiy gates |
+| Quality offers | never auto-run | pre-clean |
+
+---
+
+## Autopilot exceptions
+
+- Autopilot may auto-run `fix_all` for ITR/LLM gate issues; **`write_approval` never auto-approves**.
+- Full autopilot hides review gates except `operator_decisions`.
+
+---
+
 ## Centralized operator status and logs (single source of truth)
 
 Every **operator-visible** status, progress, error, quality offer, gate prompt, and approve/dismiss outcome → **run logging surface** (GUI log panel, including after refresh). No parallel channels.
@@ -169,6 +377,12 @@ Launch GUI: **`./scripts/run.sh`** or **`python -m interview_mux serve`**.
 ```bash
 ./tools/check_prerequisites.sh
 pytest tests/   # when touching validation / review
+./scripts/verify_artifact_contract.sh        # schema/contract drift
+python tools/audit_operator_logging.py       # subprocess + checkpoint wiring
+python tools/audit_operator_action_catalog.py # action_id catalog parity
+python tools/audit_stage_reuse_matrix.py     # reuse matrix vs web/stages.py
+python tools/audit_config_keys.py            # app.defaults.json ↔ config-keys.md
+python tools/ui_truth_smoke.py               # when touching stage status / lifecycle
 python tools/run_analysis.py --run-id <id>   # shared analysis
 python tools/run_flow.py --flow flow1|flow2|flow3 --run-id <id>
 python tools/verify_master.py <path>/master.wav   # audio flows (flow1/flow2)

@@ -876,6 +876,9 @@ def build_journey_snapshot(
         next_action = str(hint["label"])
     else:
         next_action = _next_action(phase, flow_intent, milestones, ctx)
+    from interview_mux.custom_run_handoff import handoff_state_for_run
+
+    handoff = handoff_state_for_run(ctx)
     return {
         "phase": phase,
         "milestones": milestones,
@@ -884,6 +887,7 @@ def build_journey_snapshot(
         "next_action": next_action,
         "blocking": blocking,
         "active_operator_action": active_operator_action,
+        "handoff": handoff,
         "recommended_preclean": _recommended_preclean(ctx, phase, milestones),
         "preclean_checkpoints": sorted(PRECLEAN_CHECKPOINTS),
         "execute_hint": hint,

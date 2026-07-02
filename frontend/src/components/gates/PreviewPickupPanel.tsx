@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 import { traceAction } from "../../operator/traceAction";
@@ -48,7 +49,7 @@ export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      await fetch(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
+      await api(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
       showToast(`Post-preview VO saved for ${lineId}.`);
       appendClientLog(`G1.5 VO saved: ${lineId}`, "action");
       const wasPending = (run?.g1_5_preview_pickup_pending || []).length > 0;
@@ -148,6 +149,7 @@ export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
           type="button"
           className="btn primary"
           data-testid="g1-5-preview-continue"
+          data-action-id="gui.g1_5.preview.continue"
           disabled={jobRunning || actionBusy}
           onClick={() => void advanceFromCheckpoint()}
         >

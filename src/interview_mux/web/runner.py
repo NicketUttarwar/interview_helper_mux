@@ -11,6 +11,7 @@ from interview_mux.api_providers import (
     PROVIDERS,
     all_provider_grants,
     missing_consents,
+    missing_secrets,
     providers_for_stages,
     stage_api_providers,
 )
@@ -481,6 +482,13 @@ class JobRunner:
                 if pid not in missing:
                     missing.append(pid)
         if not missing:
+            secret_missing = missing_secrets(stage_ids)
+            if secret_missing:
+                labels = [PROVIDERS[p].label for p in secret_missing if p in PROVIDERS]
+                return (
+                    f"Missing credentials for: {', '.join(labels or secret_missing)}. "
+                    "Set keys in config/secrets/secrets.env, then try again."
+                )
             return None
         labels = [PROVIDERS[p].label for p in missing if p in PROVIDERS]
         return (
@@ -1009,6 +1017,7 @@ class JobRunner:
                     "mode": "stage",
                     "stage": stage_id,
                     "message": consent_err,
+                    "needs_api_consent": True,
                 },
             )
             self._release_run_locks(run_id, dir_lock, lock)
@@ -1164,6 +1173,7 @@ class JobRunner:
                     "mode": mode,
                     "stage": stage,
                     "message": consent_err,
+                    "needs_api_consent": True,
                     "missing_api_providers": [
                         p
                         for sid in self._stages_for_execute(

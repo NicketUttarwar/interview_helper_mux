@@ -1,3 +1,4 @@
+import { ALL_API_CONSENTS } from "./index";
 import type { RunData, StageInfo } from "../types";
 import { focusStageWorkbench, type FocusStageWorkbenchOpts } from "./checkpointContinuation";
 import { findNextRunnableStage } from "./preclean";
@@ -79,6 +80,7 @@ export interface TryReuseFromAssetsOpts extends StageWorkbenchDeps {
   runId: string;
   run: RunData;
   stage: StageInfo;
+  apiConsents?: Record<string, boolean>;
   refreshRun: () => Promise<RunData | null>;
   showToast: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
   autoContinuePipeline?: (completedStageId?: string | null) => Promise<boolean>;
@@ -88,7 +90,7 @@ export interface TryReuseFromAssetsOpts extends StageWorkbenchDeps {
 export async function tryReuseFromAssetsForStage(
   opts: TryReuseFromAssetsOpts,
 ): Promise<StageReuseFromAssetsResult> {
-  return tryAcceptStageReuseFromAssets(opts.runId, opts.stage.id);
+  return tryAcceptStageReuseFromAssets(opts.runId, opts.stage.id, opts.apiConsents ?? ALL_API_CONSENTS);
 }
 
 export async function handleReuseFromAssetsForStage(

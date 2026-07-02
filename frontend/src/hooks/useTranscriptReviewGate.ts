@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { guardBusy } from "../utils/guardBusy";
 import { formatApiError } from "../utils/safeApi";
 
 export function useTranscriptReviewGate(enabled: boolean) {
@@ -42,7 +43,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
   const busy = completing || actionBusy || jobRunning;
 
   const acceptAllAndProceed = useCallback(async () => {
-    if (busy || !run) return;
+    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -55,10 +56,10 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [busy, run, completeTranscriptReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog]);
 
   const completeReview = useCallback(async () => {
-    if (busy || !run) return;
+    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -71,7 +72,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [busy, run, completeTranscriptReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog]);
 
   return {
     loading,

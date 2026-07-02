@@ -42,7 +42,7 @@ def list_providers() -> list[dict[str, Any]]:
 
 
 def all_provider_grants() -> dict[str, bool]:
-    """All external APIs are assumed configured and consented for GUI sessions."""
+    """All external APIs are auto-consented for GUI sessions (no operator prompt)."""
     return {pid: True for pid in PROVIDERS}
 
 
@@ -50,6 +50,27 @@ def stage_api_providers(stage_id: str) -> tuple[str, ...]:
     from interview_mux.web.stages import STAGE_API_PROVIDERS
 
     return STAGE_API_PROVIDERS.get(stage_id, ())
+
+
+_SECRET_KEYS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "openai": ("OPENAI_API_KEY",),
+    "aws": ("AWS_S3_BUCKET",),
+}
+
+
+def missing_secrets(stage_ids: list[str]) -> list[str]:
+    """Return provider ids whose required secrets.env keys are empty."""
+    from interview_mux.config import merged_config
+
+    secrets = merged_config().get("secrets") or {}
+    missing: list[str] = []
+    for pid in providers_for_stages(stage_ids):
+        for key in _SECRET_KEYS_BY_PROVIDER.get(pid, ()):
+            if not str(secrets.get(key) or "").strip():
+                if pid not in missing:
+                    missing.append(pid)
+                break
+    return missing
 
 
 def missing_consents(stage_id: str, consents: dict[str, bool]) -> list[str]:

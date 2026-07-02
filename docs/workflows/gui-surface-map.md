@@ -309,6 +309,17 @@ Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: 
 | 3 | Show description | `podcast_show_description` | `flow_3_description/show_description.json` |
 | 3 | Export blurb | `export_show_description` | `flow_3_description/show_description.md` |
 
+### TBiy production profile gates
+
+When `production_profiles.active` is `tbiy` (see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md)):
+
+| Panel | Stage `id` | API | Notes |
+|-------|------------|-----|-------|
+| **Pickup speaker** | `source_topology_build` | `GET/POST …/source-topology`, `POST …/flow-adaptation` | `PickupSpeakerPanel` — confirm least-spoken pickup voice |
+| **Conversation studio** | `optimal_questions` | `GET/PUT …/gap-report/lines` | `ConversationStudioPanel` — edit gap lines + `voice_speaker_id` |
+| **Flow adaptation** | `source_topology_build` | journey `flow_adaptation` | `FlowAdaptationCard` — topology-driven flow class |
+| **G1.5 post-preview pickup** | `g1_5_preview_pickup` | `POST …/vo/{line_id}` | `PreviewPickupPanel` — re-record after assembly preview listen |
+
 ### MMAudio operator journey (SFX + G1.5)
 
 **G1.5 (shipped):** Optional pre-spend prompt review when `g1_5_require_prompt_approval: true` in merged config.

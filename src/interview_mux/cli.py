@@ -139,7 +139,7 @@ def run_pipeline(
 
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
-        if not skip_analysis or not ctx.path("analysis_complete.json").is_file():
+        if not skip_analysis or not ctx.artifact_exists("analysis_complete.json"):
             run_analysis(ctx, from_stage=from_stage)
             _emit(ctx, "Analysis complete.", level="success", stage="cli", console_markup="[green]Analysis complete.[/green]")
         else:

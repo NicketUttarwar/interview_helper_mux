@@ -91,6 +91,13 @@ def _require_artifact(
     remediation: str | None = None,
 ) -> StageInputIssue | None:
     if ctx.artifact_exists(rel):
+        from interview_mux.artifact_lifecycle import lifecycle_cfg, read_stale_guard
+
+        if lifecycle_cfg().get("read_stale_guard", True):
+            consumer = getattr(ctx, "_lifecycle_consumer_stage", None) or "preflight"
+            stale = read_stale_guard(ctx, rel, consumer_stage=str(consumer))
+            if stale:
+                return StageInputIssue(stale, remediation or f"Re-run upstream producer for {rel}.")
         return None
     hint = staging_approval_hint(ctx, rel)
     msg = f"Missing {label or rel}"

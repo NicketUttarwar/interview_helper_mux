@@ -155,3 +155,39 @@ elif [[ ! -f "$_STATIC_INDEX" ]]; then
 fi
 
 echo "Prerequisites OK."
+
+if [[ "${CHECK_ARTIFACT_CONTRACTS:-${CI:-0}}" == "1" ]]; then
+  echo "Running artifact contract verification..."
+  bash "$ROOT/scripts/verify_artifact_contract.sh"
+fi
+
+if [[ "${CHECK_OPERATOR_AUDITS:-${CI:-0}}" == "1" ]]; then
+  echo "Running operator audit scripts..."
+  python "$ROOT/tools/audit_operator_logging.py"
+  python "$ROOT/tools/audit_operator_action_catalog.py"
+  python "$ROOT/tools/audit_stage_reuse_matrix.py"
+  python "$ROOT/tools/audit_config_keys.py"
+  python "$ROOT/tools/audit_route_guards.py"
+  if [[ -d "$ROOT/ASSETS/executions" ]] && compgen -G "$ROOT/ASSETS/executions/exec_*" >/dev/null; then
+    python "$ROOT/tools/ui_truth_smoke.py" || true
+  fi
+fi
+
+if [[ "${CHECK_ANCHORED_LOCK:-${CI:-0}}" == "1" ]]; then
+  python - "$ROOT/requirements.lock" "$ROOT/docs/cross-cutting/anchored-requirements.lock" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+req = Path(sys.argv[1]).read_text(encoding="utf-8")
+anch = Path(sys.argv[2]).read_text(encoding="utf-8")
+pat = re.compile(r"^([a-zA-Z0-9][a-zA-Z0-9._-]*)==", re.M)
+req_direct = {m.group(1).lower() for m in pat.finditer(req)}
+anch_direct = {m.group(1).lower() for m in pat.finditer(anch.split("# --- full transitive")[0])}
+missing = sorted(req_direct - anch_direct)
+if missing:
+    print("anchored-requirements.lock missing direct deps:", ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+print("anchored-requirements.lock direct deps OK")
+PY
+fi

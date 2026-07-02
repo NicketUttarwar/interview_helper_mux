@@ -532,9 +532,19 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
         now = datetime.now(timezone.utc).isoformat()
 
         def _ack(meta: dict[str, Any]) -> None:
-            ack = dict(meta.get("handoff_ack") or {})
-            ack[stage_id] = now
-            meta["handoff_ack"] = ack
+            from interview_mux.custom_run_handoff import (
+                STAGES_REQUIRING_HANDOFF_REVIEW,
+                handoff_between_stages_enabled,
+            )
+
+            if not handoff_between_stages_enabled():
+                ack = dict(meta.get("handoff_ack") or {})
+                ack[stage_id] = now
+                meta["handoff_ack"] = ack
+            elif stage_id not in STAGES_REQUIRING_HANDOFF_REVIEW:
+                ack = dict(meta.get("handoff_ack") or {})
+                ack[stage_id] = now
+                meta["handoff_ack"] = ack
 
         ctx.mutate_run_meta(_ack)
         if stage_id == "disfluency_extract":

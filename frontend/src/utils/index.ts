@@ -96,11 +96,10 @@ export function mapGateToStage(id: string): string {
   return id;
 }
 
-/** External APIs are assumed configured and consented at session start. */
+/** Auto-consent for external APIs — no operator prompt in GUI sessions. */
 export const ALL_API_CONSENTS: Record<string, boolean> = {
   openai: true,
   aws: true,
-  
 };
 
 export const VALUE_FEATURES_PATH = "understanding/value_features.json";

@@ -273,8 +273,7 @@ def drain_investigation_queue(
 
 def pre_analysis_init(ctx: RunContext) -> None:
     ensure_analysis_workspace(ctx)
-    state_path = ctx.path("understanding", "analysis_state.json")
-    if state_path.is_file():
+    if ctx.artifact_exists("understanding/analysis_state.json"):
         state = ctx.read_json("understanding/analysis_state.json")
         ident = state.get("interview_identity") or {}
         if not ident.get("source_audio_note"):

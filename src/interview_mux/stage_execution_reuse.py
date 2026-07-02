@@ -109,6 +109,11 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "understanding/interview_spine/embeddings.npz",
     ),
     "speaker_roles": ("understanding/speakers.json",),
+    "source_topology_build": (
+        "understanding/source_topology.json",
+        "understanding/flow_adaptation.json",
+        "glob:understanding/speaker_samples/*.wav",
+    ),
     "content_context": ("understanding/content_brief.json",),
     "boundary_detection": ("segments/boundaries.json",),
     "segment_classification": ("segments/manifest.json",),

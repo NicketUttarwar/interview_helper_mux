@@ -599,7 +599,7 @@ def create_app() -> FastAPI:
         )
         handoff_ack = meta.get("handoff_ack") or {}
         job = runner.get_job(run_id)
-        job = _enrich_job_autopilot(ctx, job if isinstance(job, dict) else {})
+        job = _enrich_job_autopilot(ctx, job if isinstance(job, dict) else {}, stages)
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
             existing = job.get("last_error") if isinstance(job.get("last_error"), dict) else {}
@@ -696,22 +696,23 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/log")
     def post_log(run_id: str, body: LogBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        detail: dict[str, Any] = {"journey_kind": "execute", "origin": "gui"}
-        if body.action_id:
-            detail["action_id"] = body.action_id
-        from interview_mux.operator_log import operator_log
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            detail: dict[str, Any] = {"journey_kind": "execute", "origin": "gui"}
+            if body.action_id:
+                detail["action_id"] = body.action_id
+            from interview_mux.operator_log import operator_log
 
-        entry = operator_log(
-            body.message,
-            run_dir=ctx.run_dir,
-            level=body.level,
-            stage=body.stage,
-            action_id=body.action_id,
-            origin="gui",
-            detail=detail,
-        )
-        return {"ok": True, "entry": entry}
+            entry = operator_log(
+                body.message,
+                run_dir=ctx.run_dir,
+                level=body.level,
+                stage=body.stage,
+                action_id=body.action_id,
+                origin="gui",
+                detail=detail,
+            )
+            return {"ok": True, "entry": entry}
 
     @app.get("/api/runs/{run_id}/action-trace")
     def get_action_trace(run_id: str, tail: int = 50) -> dict[str, Any]:
@@ -722,23 +723,24 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/action-trace/dump-last")
     def dump_last_action_trace(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        from interview_mux.operator_action_catalog import load_catalog
-        from interview_mux.operator_action_trace import format_dump_text, read_action_trace
-        from interview_mux.operator_log import operator_log
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.operator_action_catalog import load_catalog
+            from interview_mux.operator_action_trace import format_dump_text, read_action_trace
+            from interview_mux.operator_log import operator_log
 
-        entries = read_action_trace(ctx.run_dir, tail=100)
-        text = format_dump_text(entries, catalog=load_catalog())
-        operator_log(
-            "Action trace dump",
-            run_dir=ctx.run_dir,
-            level="info",
-            stage="api",
-            action_id="gui.activity.dump_last",
-            origin="api",
-            detail={"dump": text, "journey_kind": "execute"},
-        )
-        return {"ok": True, "text": text, "entries_used": len(entries)}
+            entries = read_action_trace(ctx.run_dir, tail=100)
+            text = format_dump_text(entries, catalog=load_catalog())
+            operator_log(
+                "Action trace dump",
+                run_dir=ctx.run_dir,
+                level="info",
+                stage="api",
+                action_id="gui.activity.dump_last",
+                origin="api",
+                detail={"dump": text, "journey_kind": "execute"},
+            )
+            return {"ok": True, "text": text, "entries_used": len(entries)}
 
     @app.get("/api/runs/{run_id}/timeline")
     def get_timeline(run_id: str) -> dict[str, Any]:
@@ -809,37 +811,38 @@ def create_app() -> FastAPI:
     def recompute_acoustic_profile(run_id: str) -> dict[str, Any]:
         from interview_mux.stages.understanding import run_source_acoustic_profile
 
-        ctx = _ctx(run_id)
-        prior = ctx.read_json("understanding/source_acoustic_profile.json") if ctx.artifact_exists(
-            "understanding/source_acoustic_profile.json"
-        ) else {}
-        prior_pace = (prior.get("pacing") or {}).get("pace_class") if isinstance(prior, dict) else None
-        run_source_acoustic_profile(ctx)
-        profile = ctx.read_json("understanding/source_acoustic_profile.json")
-        new_pace = (profile.get("pacing") or {}).get("pace_class") if isinstance(profile, dict) else None
-        ctx.log(
-            "Acoustic profile recomputed from current ingest/transcript.",
-            level="success",
-            stage="source_acoustic_profile",
-            detail="acoustic_profile_recomputed",
-        )
-        out: dict[str, Any] = {
-            "ok": True,
-            "profile": profile,
-            "derived_from": profile.get("derived_from"),
-            "prior_pace": prior_pace,
-            "new_pace": new_pace,
-        }
-        if prior_pace and new_pace and prior_pace != new_pace:
-            cleared = _invalidate_sound_design_for_pace_change(ctx)
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            prior = ctx.read_json("understanding/source_acoustic_profile.json") if ctx.artifact_exists(
+                "understanding/source_acoustic_profile.json"
+            ) else {}
+            prior_pace = (prior.get("pacing") or {}).get("pace_class") if isinstance(prior, dict) else None
+            run_source_acoustic_profile(ctx)
+            profile = ctx.read_json("understanding/source_acoustic_profile.json")
+            new_pace = (profile.get("pacing") or {}).get("pace_class") if isinstance(profile, dict) else None
             ctx.log(
-                f"pace_class changed {prior_pace} → {new_pace}; invalidated downstream sound design.",
-                level="warning",
+                "Acoustic profile recomputed from current ingest/transcript.",
+                level="success",
                 stage="source_acoustic_profile",
-                detail=f"acoustic_profile_invalidation: {json.dumps(cleared)}",
+                detail="acoustic_profile_recomputed",
             )
-            out["invalidated_from"] = "sound_design_palettes"
-        return out
+            out: dict[str, Any] = {
+                "ok": True,
+                "profile": profile,
+                "derived_from": profile.get("derived_from"),
+                "prior_pace": prior_pace,
+                "new_pace": new_pace,
+            }
+            if prior_pace and new_pace and prior_pace != new_pace:
+                cleared = _invalidate_sound_design_for_pace_change(ctx)
+                ctx.log(
+                    f"pace_class changed {prior_pace} → {new_pace}; invalidated downstream sound design.",
+                    level="warning",
+                    stage="source_acoustic_profile",
+                    detail=f"acoustic_profile_invalidation: {json.dumps(cleared)}",
+                )
+                out["invalidated_from"] = "sound_design_palettes"
+            return out
 
     @app.get("/api/runs/{run_id}/interview-spine")
     def get_interview_spine(run_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
@@ -854,9 +857,14 @@ def create_app() -> FastAPI:
         start = max(0, offset)
         end = start + max(1, min(limit, 200))
         page = windows[start:end]
+        from interview_mux.interview_spine.lineage import derived_from_matches
+
+        derived = doc.get("derived_from")
+        stale = bool(derived) and not derived_from_matches(ctx, derived or {})
         return {
             "schema_version": doc.get("schema_version"),
-            "derived_from": doc.get("derived_from"),
+            "derived_from": derived,
+            "derived_from_stale": stale,
             "window_policy": doc.get("window_policy"),
             "retrieval": doc.get("retrieval"),
             "speaker_stats": doc.get("speaker_stats"),
@@ -956,85 +964,90 @@ def create_app() -> FastAPI:
     def patch_acoustic_profile_overrides(run_id: str, body: AcousticProfileOverridesBody) -> dict[str, Any]:
         from interview_mux.acoustic_profile import SAP_PATH, load_profile, save_operator_overrides
 
-        ctx = _ctx(run_id)
-        if not ctx.artifact_exists(SAP_PATH):
-            raise HTTPException(404, "Source acoustic profile not found — run source_acoustic_profile first.")
-        try:
-            merged = save_operator_overrides(ctx, body.overrides)
-        except FileNotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(400, {"errors": [str(exc)]}) from exc
-        persist_operator_acoustic_overrides(ctx, merged.get("operator_overrides") or {}, source="gui_override")
-        ctx.log(
-            "Acoustic profile operator overrides saved.",
-            level="success",
-            stage="source_acoustic_profile",
-            detail="acoustic_profile_override_saved",
-        )
-        if body.invalidate_from:
-            runner.invalidate_from(run_id, body.invalidate_from)
-        return {
-            "ok": True,
-            "operator_overrides": merged.get("operator_overrides", {}),
-            "effective": {
-                "pace_class": (merged.get("pacing") or {}).get("pace_class"),
-                "underscore_policy": (merged.get("mix_contract") or {}).get("underscore_policy"),
-            },
-            "profile": load_profile(ctx),
-        }
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists(SAP_PATH):
+                raise HTTPException(404, "Source acoustic profile not found — run source_acoustic_profile first.")
+            try:
+                merged = save_operator_overrides(ctx, body.overrides)
+            except FileNotFoundError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(400, {"errors": [str(exc)]}) from exc
+            persist_operator_acoustic_overrides(ctx, merged.get("operator_overrides") or {}, source="gui_override")
+            ctx.log(
+                "Acoustic profile operator overrides saved.",
+                level="success",
+                stage="source_acoustic_profile",
+                detail="acoustic_profile_override_saved",
+            )
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            return {
+                "ok": True,
+                "operator_overrides": merged.get("operator_overrides", {}),
+                "effective": {
+                    "pace_class": (merged.get("pacing") or {}).get("pace_class"),
+                    "underscore_policy": (merged.get("mix_contract") or {}).get("underscore_policy"),
+                },
+                "profile": load_profile(ctx),
+            }
 
     @app.patch("/api/runs/{run_id}/nle/segment")
     def patch_nle_segment(run_id: str, body: NleSegmentBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        nle = load_nle(ctx)
-        overrides = nle.setdefault("segment_overrides", {})
-        overrides[body.segment_id] = {**overrides.get(body.segment_id, {}), **body.patch}
-        save_nle(ctx, nle)
-        label = body.patch.get("mark_redo") and "marked for redo" or body.patch.get("excluded") and "excluded" or "updated"
-        ctx.log(f"Segment {body.segment_id} {label} in NLE.", level="info", stage="nle")
-        return {"ok": True, "nle": nle}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            nle = load_nle(ctx)
+            overrides = nle.setdefault("segment_overrides", {})
+            overrides[body.segment_id] = {**overrides.get(body.segment_id, {}), **body.patch}
+            save_nle(ctx, nle)
+            label = body.patch.get("mark_redo") and "marked for redo" or body.patch.get("excluded") and "excluded" or "updated"
+            ctx.log(f"Segment {body.segment_id} {label} in NLE.", level="info", stage="nle")
+            return {"ok": True, "nle": nle}
 
     @app.post("/api/runs/{run_id}/nle/split")
     def nle_split(run_id: str, body: SplitBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        nle = split_segment_at(ctx, body.segment_id, body.at_ms)
-        ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
-        return {"ok": True, "nle": nle}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            nle = split_segment_at(ctx, body.segment_id, body.at_ms)
+            ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
+            return {"ok": True, "nle": nle}
 
     @app.post("/api/runs/{run_id}/nle/batch")
     def nle_batch(run_id: str, body: NleBatchBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        nle = load_nle(ctx)
-        overrides = nle.setdefault("segment_overrides", {})
-        count = 0
-        for op in body.operations:
-            if not op.segment_id:
-                continue
-            overrides[op.segment_id] = {**overrides.get(op.segment_id, {}), **op.patch}
-            count += 1
-        try:
-            save_nle(ctx, nle)
-        except ValueError as exc:
-            raise HTTPException(400, {"errors": [str(exc)]}) from exc
-        ctx.log(f"NLE batch update: {count} segment(s).", level="info", stage="nle")
-        return {"ok": True, "updated": count, "nle": nle}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            nle = load_nle(ctx)
+            overrides = nle.setdefault("segment_overrides", {})
+            count = 0
+            for op in body.operations:
+                if not op.segment_id:
+                    continue
+                overrides[op.segment_id] = {**overrides.get(op.segment_id, {}), **op.patch}
+                count += 1
+            try:
+                save_nle(ctx, nle)
+            except ValueError as exc:
+                raise HTTPException(400, {"errors": [str(exc)]}) from exc
+            ctx.log(f"NLE batch update: {count} segment(s).", level="info", stage="nle")
+            return {"ok": True, "updated": count, "nle": nle}
 
     @app.post("/api/runs/{run_id}/nle/snap-boundary")
     def nle_snap_boundary(run_id: str, body: SnapBoundaryBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if body.edge not in ("start", "end"):
-            raise HTTPException(400, "edge must be 'start' or 'end'")
-        try:
-            snapped = snap_boundary_for_segment(
-                ctx,
-                segment_id=body.segment_id,
-                ms=body.ms,
-                edge=body.edge,
-            )
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        return {"ok": True, "snapped_ms": snapped}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if body.edge not in ("start", "end"):
+                raise HTTPException(400, "edge must be 'start' or 'end'")
+            try:
+                snapped = snap_boundary_for_segment(
+                    ctx,
+                    segment_id=body.segment_id,
+                    ms=body.ms,
+                    edge=body.edge,
+                )
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            return {"ok": True, "snapped_ms": snapped}
 
     @app.get("/api/runs/{run_id}/assembly-timeline")
     def get_assembly_timeline(run_id: str) -> dict[str, Any]:
@@ -1080,31 +1093,32 @@ def create_app() -> FastAPI:
     def put_llm_call_record(run_id: str, body: LlmCallRecordUpdateBody) -> dict[str, Any]:
         from interview_mux.llm_calls_gui import update_llm_call_record
 
-        ctx = _ctx(run_id)
-        volley_dict: dict[str, Any] | None = None
-        if body.volley is not None:
-            volley_dict = {
-                "system_prompt": body.volley.system_prompt,
-                "turns": [t.model_dump() for t in body.volley.turns],
-            }
-        try:
-            doc = update_llm_call_record(
-                ctx,
-                body.path,
-                volley=volley_dict,
-                raw_response=body.raw_response,
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            volley_dict: dict[str, Any] | None = None
+            if body.volley is not None:
+                volley_dict = {
+                    "system_prompt": body.volley.system_prompt,
+                    "turns": [t.model_dump() for t in body.volley.turns],
+                }
+            try:
+                doc = update_llm_call_record(
+                    ctx,
+                    body.path,
+                    volley=volley_dict,
+                    raw_response=body.raw_response,
+                )
+            except FileNotFoundError:
+                raise HTTPException(404, f"LLM call record not found: {body.path}") from None
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ctx.log(
+                f"Updated LLM call record {body.path} from GUI.",
+                level="info",
+                stage="llm_calls_editor",
+                detail=json.dumps({"path": body.path}),
             )
-        except FileNotFoundError:
-            raise HTTPException(404, f"LLM call record not found: {body.path}") from None
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        ctx.log(
-            f"Updated LLM call record {body.path} from GUI.",
-            level="info",
-            stage="llm_calls_editor",
-            detail=json.dumps({"path": body.path}),
-        )
-        return {"ok": True, "record": doc}
+            return {"ok": True, "record": doc}
 
     @app.get("/api/runs/{run_id}/context-index")
     def get_context_index(run_id: str) -> dict[str, Any]:
@@ -1235,38 +1249,40 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/flow")
     def set_flow(run_id: str, body: FlowBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        set_selected_flow(ctx, body.flow)
-        persist_operator_flow_selection(ctx, body.flow, source="g2_flow_select")
-        ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
-        refresh_journey_meta(ctx)
-        return {"ok": True, "selected_flow": body.flow}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            set_selected_flow(ctx, body.flow)
+            persist_operator_flow_selection(ctx, body.flow, source="g2_flow_select")
+            ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
+            refresh_journey_meta(ctx)
+            return {"ok": True, "selected_flow": body.flow}
 
     @app.post("/api/runs/{run_id}/preclean-offer")
     def preclean_offer(run_id: str, body: PrecleanOfferBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        allowed_checkpoints = {
-            "before_ingest",
-            "g1_vo_pickup",
-        }
-        if body.checkpoint not in allowed_checkpoints:
-            raise HTTPException(400, f"Unknown pre-clean checkpoint: {body.checkpoint}")
-        if body.scope and body.scope not in {"full_source", "vo_pickup", "normalized_rebuild"}:
-            raise HTTPException(400, f"Invalid pre-clean scope: {body.scope}")
-        changed, payload = _record_preclean_offer(
-            ctx,
-            checkpoint=body.checkpoint,
-            action=body.action,
-            scope=body.scope,
-        )
-        if body.action == "accept" and changed:
-            from interview_mux.stages.audio_preclean import invalidate_after_preclean_accept
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            allowed_checkpoints = {
+                "before_ingest",
+                "g1_vo_pickup",
+            }
+            if body.checkpoint not in allowed_checkpoints:
+                raise HTTPException(400, f"Unknown pre-clean checkpoint: {body.checkpoint}")
+            if body.scope and body.scope not in {"full_source", "vo_pickup", "normalized_rebuild"}:
+                raise HTTPException(400, f"Invalid pre-clean scope: {body.scope}")
+            changed, payload = _record_preclean_offer(
+                ctx,
+                checkpoint=body.checkpoint,
+                action=body.action,
+                scope=body.scope,
+            )
+            if body.action == "accept" and changed:
+                from interview_mux.stages.audio_preclean import invalidate_after_preclean_accept
 
-            scope = str(payload.get("scope") or "full_source")
-            invalidate_after_preclean_accept(ctx, scope)
-        if changed:
-            persist_operator_preclean(ctx, source=f"preclean_{body.action}")
-        return {"ok": True, "changed": changed, "audio_preclean": payload}
+                scope = str(payload.get("scope") or "full_source")
+                invalidate_after_preclean_accept(ctx, scope)
+            if changed:
+                persist_operator_preclean(ctx, source=f"preclean_{body.action}")
+            return {"ok": True, "changed": changed, "audio_preclean": payload}
 
     @app.get("/api/runs/{run_id}/pending-writes")
     def list_pending_writes(run_id: str) -> dict[str, Any]:
@@ -1354,50 +1370,51 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
     async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
 
-        def _approve_locked() -> list[str]:
-            from interview_mux.write_staging import assert_write_approval_allowed
+            def _approve_locked() -> list[str]:
+                from interview_mux.write_staging import assert_write_approval_allowed
 
-            assert_write_approval_allowed(ctx, stage_id)
-            return _approve_staged_writes_locked(run_id, ctx, stage_id)
+                assert_write_approval_allowed(ctx, stage_id)
+                return _approve_staged_writes_locked(run_id, ctx, stage_id)
 
-        try:
-            flushed = await run_in_threadpool(_approve_locked)
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        except HTTPException:
-            raise
-        except Exception as exc:
-            from interview_mux.write_staging import WriteApprovalBlockedError
+            try:
+                flushed = await run_in_threadpool(_approve_locked)
+            except RunBusyError as exc:
+                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                from interview_mux.write_staging import WriteApprovalBlockedError
 
-            if isinstance(exc, WriteApprovalBlockedError):
-                raise HTTPException(409, str(exc)) from exc
-            raise
-        title = STAGE_BY_ID.get(stage_id)
-        stage_label = title.title if title else stage_id.replace("_", " ")
-        runner.clear_operator_pause(
-            ctx,
-            stage_id,
-            message=(
-                f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
-            ),
-        )
-        ctx.log(
-            f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
-            level="success",
-            stage=stage_id,
-            action_id="api.write_approval.approve",
-            origin="api",
-            detail={
-                "journey_kind": "milestone",
-                "event": "write_approval_complete",
-                "paths": flushed,
-                "stage_id": stage_id,
-            },
-        )
-        refresh_journey_meta(ctx)
-        return {"ok": True, "flushed": flushed, "stage_id": stage_id}
+                if isinstance(exc, WriteApprovalBlockedError):
+                    raise HTTPException(409, str(exc)) from exc
+                raise
+            title = STAGE_BY_ID.get(stage_id)
+            stage_label = title.title if title else stage_id.replace("_", " ")
+            runner.clear_operator_pause(
+                ctx,
+                stage_id,
+                message=(
+                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
+                ),
+            )
+            ctx.log(
+                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
+                level="success",
+                stage=stage_id,
+                action_id="api.write_approval.approve",
+                origin="api",
+                detail={
+                    "journey_kind": "milestone",
+                    "event": "write_approval_complete",
+                    "paths": flushed,
+                    "stage_id": stage_id,
+                },
+            )
+            refresh_journey_meta(ctx)
+            return {"ok": True, "flushed": flushed, "stage_id": stage_id}
 
     @app.post("/api/runs/{run_id}/continue-after-checkpoint")
     async def continue_after_checkpoint(
@@ -1587,41 +1604,42 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/revalidate")
     def post_stage_issues_revalidate(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_issue_triage import (
-            blocking_issues_remaining,
-            clear_clarification_gate,
-            get_propagation_plan,
-            revalidate_after_repair,
-            revalidate_downstream_on_segment_fix,
-            triage_enabled,
-        )
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if stage_id not in STAGE_BY_ID:
+                raise HTTPException(404, f"Unknown stage: {stage_id}")
+            from interview_mux.artifact_issue_triage import (
+                blocking_issues_remaining,
+                clear_clarification_gate,
+                get_propagation_plan,
+                revalidate_after_repair,
+                revalidate_downstream_on_segment_fix,
+                triage_enabled,
+            )
 
-        if not triage_enabled():
-            return {"ok": True, "errors": [], "open_blocking": 0}
-        ctx.log(
-            f"api.itr.revalidate stage={stage_id}",
-            level="action",
-            stage=stage_id,
-            action_id="api.itr.revalidate",
-        )
-        ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
-        downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_id)
-        propagation_plan = get_propagation_plan(ctx, stage_id)
-        open_blocking = blocking_issues_remaining(ctx, stage_id)
-        all_ok = ok and not downstream_errors and not propagation_plan.get("has_blocking")
-        if all_ok and open_blocking == 0:
-            clear_clarification_gate(ctx, stage_id)
-        refresh_journey_meta(ctx)
-        return {
-            "ok": all_ok,
-            "errors": errors,
-            "downstream_errors": downstream_errors,
-            "propagation_plan": propagation_plan,
-            "open_blocking": open_blocking,
-        }
+            if not triage_enabled():
+                return {"ok": True, "errors": [], "open_blocking": 0}
+            ctx.log(
+                f"api.itr.revalidate stage={stage_id}",
+                level="action",
+                stage=stage_id,
+                action_id="api.itr.revalidate",
+            )
+            ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
+            downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_id)
+            propagation_plan = get_propagation_plan(ctx, stage_id)
+            open_blocking = blocking_issues_remaining(ctx, stage_id)
+            all_ok = ok and not downstream_errors and not propagation_plan.get("has_blocking")
+            if all_ok and open_blocking == 0:
+                clear_clarification_gate(ctx, stage_id)
+            refresh_journey_meta(ctx)
+            return {
+                "ok": all_ok,
+                "errors": errors,
+                "downstream_errors": downstream_errors,
+                "propagation_plan": propagation_plan,
+                "open_blocking": open_blocking,
+            }
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/propagation-plan")
     def get_stage_propagation_plan(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -1933,130 +1951,132 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/sfx-prompts")
     def put_sfx_prompts(run_id: str, body: ArtifactBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if body.path != "sound_design/sfx_prompts.json":
-            raise HTTPException(400, "This endpoint only supports sound_design/sfx_prompts.json")
-        if not isinstance(body.data, dict):
-            raise HTTPException(400, "Prompt payload must be a JSON object with prompts[].")
-        rows = body.data.get("prompts")
-        if not isinstance(rows, list):
-            raise HTTPException(400, "Prompt payload must include prompts[] array.")
-        schema_errors = validate_prompts_payload({"prompts": rows})
-        if schema_errors:
-            raise HTTPException(400, "; ".join(schema_errors[:5]))
-        write_json(ctx.path(body.path), {"prompts": rows})
-        review = _set_prompt_review_meta(
-            ctx,
-            approved=False,
-            approved_by=None,
-            approved_at=None,
-        )
-        ctx.log(
-            "SFX prompts edited in review panel; approval reset.",
-            level="info",
-            stage="sfx_prompt_craft",
-            detail=f"rows={len(rows)}",
-        )
-        if body.invalidate_from:
-            runner.invalidate_from(run_id, body.invalidate_from)
-        warnings = prompt_completeness_warnings(ctx, rows)
-        persist_operator_sfx_prompts(
-            ctx,
-            {"prompts": rows, "review": review},
-            source="sfx_prompts_put",
-        )
-        return {"ok": True, "path": body.path, "review": review, "warnings": warnings}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if body.path != "sound_design/sfx_prompts.json":
+                raise HTTPException(400, "This endpoint only supports sound_design/sfx_prompts.json")
+            if not isinstance(body.data, dict):
+                raise HTTPException(400, "Prompt payload must be a JSON object with prompts[].")
+            rows = body.data.get("prompts")
+            if not isinstance(rows, list):
+                raise HTTPException(400, "Prompt payload must include prompts[] array.")
+            schema_errors = validate_prompts_payload({"prompts": rows})
+            if schema_errors:
+                raise HTTPException(400, "; ".join(schema_errors[:5]))
+            write_json(ctx.path(body.path), {"prompts": rows})
+            review = _set_prompt_review_meta(
+                ctx,
+                approved=False,
+                approved_by=None,
+                approved_at=None,
+            )
+            ctx.log(
+                "SFX prompts edited in review panel; approval reset.",
+                level="info",
+                stage="sfx_prompt_craft",
+                detail=f"rows={len(rows)}",
+            )
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            warnings = prompt_completeness_warnings(ctx, rows)
+            persist_operator_sfx_prompts(
+                ctx,
+                {"prompts": rows, "review": review},
+                source="sfx_prompts_put",
+            )
+            return {"ok": True, "path": body.path, "review": review, "warnings": warnings}
 
     @app.post("/api/runs/{run_id}/sfx-prompts/approve")
     def approve_sfx_prompts(run_id: str, body: SfxPromptApproveBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        path = "sound_design/sfx_prompts.json"
-        if not ctx.artifact_exists(path):
-            raise HTTPException(404, f"Artifact not found: {path}")
-        data = ctx.read_json(path)
-        rows = data.get("prompts") if isinstance(data, dict) and isinstance(data.get("prompts"), list) else []
-        review = _set_prompt_review_meta(
-            ctx,
-            approved=True,
-            approved_by=body.approved_by or "operator",
-            approved_at=datetime.now(timezone.utc).isoformat(),
-        )
-        asset_ids = [str(row.get("asset_id")) for row in rows if isinstance(row, dict) and row.get("asset_id")]
-        detail = {"approved_by": review.get("approved_by"), "asset_ids": asset_ids}
-        ctx.log(
-            "sfx_prompts_approved",
-            level="success",
-            stage="sfx_prompt_craft",
-            detail=str(detail),
-        )
-        warnings = prompt_completeness_warnings(ctx, rows)
-        for w in warnings:
-            ctx.log(w, level="warning", stage="sfx_prompt_craft")
-        persist_operator_sfx_prompts(
-            ctx,
-            {"prompts": rows, "review": review},
-            source="sfx_prompts_approve",
-        )
-        return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            path = "sound_design/sfx_prompts.json"
+            if not ctx.artifact_exists(path):
+                raise HTTPException(404, f"Artifact not found: {path}")
+            data = ctx.read_json(path)
+            rows = data.get("prompts") if isinstance(data, dict) and isinstance(data.get("prompts"), list) else []
+            review = _set_prompt_review_meta(
+                ctx,
+                approved=True,
+                approved_by=body.approved_by or "operator",
+                approved_at=datetime.now(timezone.utc).isoformat(),
+            )
+            asset_ids = [str(row.get("asset_id")) for row in rows if isinstance(row, dict) and row.get("asset_id")]
+            detail = {"approved_by": review.get("approved_by"), "asset_ids": asset_ids}
+            ctx.log(
+                "sfx_prompts_approved",
+                level="success",
+                stage="sfx_prompt_craft",
+                detail=str(detail),
+            )
+            warnings = prompt_completeness_warnings(ctx, rows)
+            for w in warnings:
+                ctx.log(w, level="warning", stage="sfx_prompt_craft")
+            persist_operator_sfx_prompts(
+                ctx,
+                {"prompts": rows, "review": review},
+                source="sfx_prompts_approve",
+            )
+            return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
 
     @app.post("/api/runs/{run_id}/sfx-prompts/listen-result")
     def post_sfx_listen_result(run_id: str, body: SfxListenResultBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        asset_id = body.asset_id.strip()
-        if not asset_id:
-            raise HTTPException(400, "asset_id is required")
-        if body.mode == "under_speech":
-            entry, results = _append_speech_under_listen_result(
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            asset_id = body.asset_id.strip()
+            if not asset_id:
+                raise HTTPException(400, "asset_id is required")
+            if body.mode == "under_speech":
+                entry, results = _append_speech_under_listen_result(
+                    ctx,
+                    asset_id=asset_id,
+                    result=body.result,
+                    note=body.note,
+                )
+                ctx.log(
+                    "speech_under_listen_result_recorded",
+                    level="info",
+                    stage="mix_flow1",
+                    detail=entry,
+                )
+                return {"ok": True, "entry": entry, "speech_under_listen_results": results}
+
+            entry, results = _append_sfx_listen_result(
                 ctx,
                 asset_id=asset_id,
                 result=body.result,
                 note=body.note,
             )
-            ctx.log(
-                "speech_under_listen_result_recorded",
-                level="info",
-                stage="mix_flow1",
-                detail=entry,
+            event = (
+                "sfx_post_listen_pass"
+                if body.result == "pass"
+                else "sfx_post_listen_fail"
             )
-            return {"ok": True, "entry": entry, "speech_under_listen_results": results}
+            detail: dict[str, str] = {"asset_id": asset_id}
+            if body.note:
+                detail["note"] = body.note
+            ctx.log(
+                event,
+                level="success" if body.result == "pass" else "warning",
+                detail=str(detail),
+            )
+            persist_operator_sfx_listen_results(ctx, source="sfx_listen_result")
+            from interview_mux.gates import sync_post_listen_gate_state
+            from interview_mux.stages.sfx_mmaudio import maybe_auto_refine
 
-        entry, results = _append_sfx_listen_result(
-            ctx,
-            asset_id=asset_id,
-            result=body.result,
-            note=body.note,
-        )
-        event = (
-            "sfx_post_listen_pass"
-            if body.result == "pass"
-            else "sfx_post_listen_fail"
-        )
-        detail: dict[str, str] = {"asset_id": asset_id}
-        if body.note:
-            detail["note"] = body.note
-        ctx.log(
-            event,
-            level="success" if body.result == "pass" else "warning",
-            detail=str(detail),
-        )
-        persist_operator_sfx_listen_results(ctx, source="sfx_listen_result")
-        from interview_mux.gates import sync_post_listen_gate_state
-        from interview_mux.stages.sfx_mmaudio import maybe_auto_refine
-
-        gate_state = sync_post_listen_gate_state(ctx)
-        auto_refined: list[str] = []
-        if body.result == "fail":
-            flow = get_selected_flow(ctx)
-            stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
-            with _guarded_run(run_id):
+            gate_state = sync_post_listen_gate_state(ctx)
+            auto_refined: list[str] = []
+            if body.result == "fail":
+                flow = get_selected_flow(ctx)
+                stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
                 auto_refined = maybe_auto_refine(ctx, stage)
-        return {
-            "ok": True,
-            "entry": entry,
-            "sfx_listen_results": results,
-            "post_listen_gate_state": gate_state,
-            "auto_refined_asset_ids": auto_refined,
-        }
+            return {
+                "ok": True,
+                "entry": entry,
+                "sfx_listen_results": results,
+                "post_listen_gate_state": gate_state,
+                "auto_refined_asset_ids": auto_refined,
+            }
 
     @app.post("/api/runs/{run_id}/sfx-prompts/refine")
     def post_sfx_prompt_refine(run_id: str, body: SfxPromptRefineBody) -> dict[str, Any]:
@@ -2143,87 +2163,74 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if runner.is_running(run_id):
-            job = runner.get_job(run_id)
-            stage_id = job.get("current_stage") or job.get("stage")
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            stage = body.stage or body.from_stage
             stage_label = (
-                STAGE_BY_ID[stage_id].title
-                if stage_id and stage_id in STAGE_BY_ID
-                else (stage_id or "pipeline").replace("_", " ")
+                STAGE_BY_ID[stage].title
+                if stage and stage in STAGE_BY_ID
+                else (stage or body.mode).replace("_", " ")
             )
-            msg = job.get("message") or f"Running {stage_label}"
-            raise HTTPException(
-                409,
-                f"A job is already running for this run ({stage_label}: {msg}). "
-                "Watch Activity for live command output.",
+            ctx.log(
+                f"Operator requested: run {stage_label} (mode={body.mode})",
+                level="action",
+                stage=stage or "gui",
             )
-        stage = body.stage or body.from_stage
-        stage_label = (
-            STAGE_BY_ID[stage].title
-            if stage and stage in STAGE_BY_ID
-            else (stage or body.mode).replace("_", " ")
-        )
-        ctx.log(
-            f"Operator requested: run {stage_label} (mode={body.mode})",
-            level="action",
-            stage=stage or "gui",
-        )
-        set_active_execution(run_id)
-        flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
-        return runner.start(
-            run_id,
-            mode=body.mode,
-            stage=body.stage,
-            flow=body.mode if body.mode in flow_modes else None,
-            from_stage=body.from_stage or body.stage,
-            until_stage=body.until_stage,
-            nle_full_refresh=body.nle_full_refresh,
-            nle_apply_mode=body.nle_apply_mode,
-            api_consents=body.api_consents,
-        )
+            set_active_execution(run_id)
+            flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
+            return runner.start(
+                run_id,
+                mode=body.mode,
+                stage=body.stage,
+                flow=body.mode if body.mode in flow_modes else None,
+                from_stage=body.from_stage or body.stage,
+                until_stage=body.until_stage,
+                nle_full_refresh=body.nle_full_refresh,
+                nle_apply_mode=body.nle_apply_mode,
+                api_consents=body.api_consents,
+            )
 
     @app.post("/api/runs/{run_id}/fill-artifact-gaps")
     def fill_artifact_gaps(run_id: str, body: FillArtifactGapsBody) -> dict[str, Any]:
         from interview_mux.artifact_completeness import stage_keys_for_artifact_path
 
-        ctx = _ctx(run_id)
-        _assert_artifact_path(body.path)
-        stage_ids = stage_keys_for_artifact_path(body.path)
-        if not stage_ids:
-            raise HTTPException(400, f"No LLM stage registered for artifact path: {body.path}")
-        if runner.is_running(run_id):
-            raise HTTPException(409, "A job is already running for this run.")
-        set_active_execution(run_id)
-        stage = stage_ids[0]
-        ctx.log(
-            f"Fill gaps requested for {body.path} — re-running stage {stage}",
-            level="info",
-            stage=stage,
-        )
-        return runner.start(
-            run_id,
-            mode="stage",
-            stage=stage,
-            from_stage=stage,
-            api_consents=body.api_consents,
-        )
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            _assert_artifact_path(body.path)
+            stage_ids = stage_keys_for_artifact_path(body.path)
+            if not stage_ids:
+                raise HTTPException(400, f"No LLM stage registered for artifact path: {body.path}")
+            set_active_execution(run_id)
+            stage = stage_ids[0]
+            ctx.log(
+                f"Fill gaps requested for {body.path} — re-running stage {stage}",
+                level="info",
+                stage=stage,
+            )
+            return runner.start(
+                run_id,
+                mode="stage",
+                stage=stage,
+                from_stage=stage,
+                api_consents=body.api_consents,
+            )
 
     @app.post("/api/runs/{run_id}/extract-value-features")
     def extract_value_features(run_id: str) -> dict[str, Any]:
         from interview_mux.value_analysis.extract import extract_and_write_value_features
 
-        ctx = _ctx(run_id)
-        cfg = merged_config()
-        if not value_analysis_enabled(cfg):
-            raise HTTPException(400, "value_analysis is disabled in config")
-        written = extract_and_write_value_features(ctx, cfg=cfg)
-        ctx.log(
-            f"Value features extracted: {', '.join(written) if written else 'none'}",
-            level="info",
-            stage="content_context",
-        )
-        return {"ok": True, "profiles_written": written or []}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            cfg = merged_config()
+            if not value_analysis_enabled(cfg):
+                raise HTTPException(400, "value_analysis is disabled in config")
+            written = extract_and_write_value_features(ctx, cfg=cfg)
+            ctx.log(
+                f"Value features extracted: {', '.join(written) if written else 'none'}",
+                level="info",
+                stage="content_context",
+            )
+            return {"ok": True, "profiles_written": written or []}
 
     @app.get("/api/runs/{run_id}/job")
     def get_job(run_id: str) -> dict[str, Any]:
@@ -2236,11 +2243,12 @@ def create_app() -> FastAPI:
 
     @app.patch("/api/runs/{run_id}/transcript/words")
     def patch_transcript_words(run_id: str, body: TranscriptWordsPatchBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if not ctx.artifact_exists("transcript/full.json"):
-            raise HTTPException(404, "Transcript not found — run transcribe first.")
-        updates = [{"index": u.index, "text": u.text} for u in body.updates]
-        return transcript_review.patch_transcript_words(ctx, updates)
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("transcript/full.json"):
+                raise HTTPException(404, "Transcript not found — run transcribe first.")
+            updates = [{"index": u.index, "text": u.text} for u in body.updates]
+            return transcript_review.patch_transcript_words(ctx, updates)
 
     @app.get("/api/runs/{run_id}/transcript-review")
     def get_transcript_review(run_id: str) -> dict[str, Any]:
@@ -2249,12 +2257,13 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/transcript-review/{chunk_id}")
     def put_transcript_chunk(run_id: str, chunk_id: str, body: TranscriptChunkBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if not ctx.artifact_exists("transcript/review_queue.json"):
-            raise HTTPException(404, "Review queue not built — run transcript_review_build first.")
-        return transcript_review.save_chunk_correction(
-            ctx, chunk_id, body.text, reviewed=body.reviewed
-        )
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("transcript/review_queue.json"):
+                raise HTTPException(404, "Review queue not built — run transcript_review_build first.")
+            return transcript_review.save_chunk_correction(
+                ctx, chunk_id, body.text, reviewed=body.reviewed
+            )
 
     @app.get("/api/runs/{run_id}/analysis-profile")
     def get_analysis_profile(run_id: str) -> dict[str, Any]:
@@ -2272,48 +2281,50 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/analysis-profile")
     def put_analysis_profile(run_id: str, body: AnalysisProfileBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        ensure_analysis_workspace(ctx)
-        if isinstance(body.data, dict):
-            schema_errors = validate_artifact_write(ANALYSIS_STATE_PATH, body.data)
-            if schema_errors:
-                raise HTTPException(
-                    400,
-                    {
-                        "error": "schema_validation_failed",
-                        "path": ANALYSIS_STATE_PATH,
-                        "errors": schema_errors,
-                    },
-                )
-        save_analysis_state(ctx, body.data, stage="operator_gui")
-        _sync_tbiy_operator_profile(ctx, body.data if isinstance(body.data, dict) else {})
-        if body.operator_verified is not None:
-            mark_operator_verified(ctx, body.operator_verified)
-        persist_operator_analysis_profile(ctx, source="analysis_profile_put")
-        ctx.log(
-            "Interview profile saved from GUI."
-            + (" Verified." if body.operator_verified else ""),
-            level="success",
-            stage="analysis_profile",
-        )
-        if body.invalidate_from:
-            runner.invalidate_from(run_id, body.invalidate_from)
-        state = load_analysis_state(ctx)
-        return {
-            "ok": True,
-            "operator_verified": (state.get("meta") or {}).get("operator_verified"),
-            "completion": state.get("completion"),
-        }
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            ensure_analysis_workspace(ctx)
+            if isinstance(body.data, dict):
+                schema_errors = validate_artifact_write(ANALYSIS_STATE_PATH, body.data)
+                if schema_errors:
+                    raise HTTPException(
+                        400,
+                        {
+                            "error": "schema_validation_failed",
+                            "path": ANALYSIS_STATE_PATH,
+                            "errors": schema_errors,
+                        },
+                    )
+            save_analysis_state(ctx, body.data, stage="operator_gui")
+            _sync_tbiy_operator_profile(ctx, body.data if isinstance(body.data, dict) else {})
+            if body.operator_verified is not None:
+                mark_operator_verified(ctx, body.operator_verified)
+            persist_operator_analysis_profile(ctx, source="analysis_profile_put")
+            ctx.log(
+                "Interview profile saved from GUI."
+                + (" Verified." if body.operator_verified else ""),
+                level="success",
+                stage="analysis_profile",
+            )
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            state = load_analysis_state(ctx)
+            return {
+                "ok": True,
+                "operator_verified": (state.get("meta") or {}).get("operator_verified"),
+                "completion": state.get("completion"),
+            }
 
     @app.post("/api/runs/{run_id}/analysis-profile/verify")
     def verify_analysis_profile(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        ensure_analysis_workspace(ctx)
-        mark_operator_verified(ctx, True)
-        persist_operator_analysis_profile(ctx, source="analysis_profile_verify")
-        ctx.log("Interview profile marked verified.", level="success", stage="analysis_profile")
-        refresh_journey_meta(ctx)
-        return {"ok": True, "operator_verified": True}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            ensure_analysis_workspace(ctx)
+            mark_operator_verified(ctx, True)
+            persist_operator_analysis_profile(ctx, source="analysis_profile_verify")
+            ctx.log("Interview profile marked verified.", level="success", stage="analysis_profile")
+            refresh_journey_meta(ctx)
+            return {"ok": True, "operator_verified": True}
 
     @app.get("/api/runs/{run_id}/story-board")
     def get_story_board(run_id: str) -> dict[str, Any]:
@@ -2371,54 +2382,57 @@ def create_app() -> FastAPI:
     def patch_investigation_item(
         run_id: str, item_id: str, body: InvestigationPatchBody
     ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        path = "understanding/investigation_queue.json"
-        if not ctx.artifact_exists(path):
-            raise HTTPException(404, "Investigation queue not found")
-        queue = ctx.read_json(path)
-        items = queue.get("items") or queue.get("investigations") or []
-        if not isinstance(items, list):
-            raise HTTPException(400, "Invalid investigation queue")
-        found = False
-        for it in items:
-            if isinstance(it, dict) and str(it.get("id")) == item_id:
-                it["status"] = body.status
-                found = True
-                break
-        if not found:
-            raise HTTPException(404, f"Investigation item not found: {item_id}")
-        queue["items"] = items
-        ctx.write_json(path, queue)
-        persist_operator_investigation_queue(ctx, source="investigation_patch")
-        ctx.log(
-            f"Investigation {item_id} marked {body.status}.",
-            level="success",
-            stage="analysis_profile",
-        )
-        refresh_journey_meta(ctx)
-        return {"ok": True, "investigation_queue": queue}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            path = "understanding/investigation_queue.json"
+            if not ctx.artifact_exists(path):
+                raise HTTPException(404, "Investigation queue not found")
+            queue = ctx.read_json(path)
+            items = queue.get("items") or queue.get("investigations") or []
+            if not isinstance(items, list):
+                raise HTTPException(400, "Invalid investigation queue")
+            found = False
+            for it in items:
+                if isinstance(it, dict) and str(it.get("id")) == item_id:
+                    it["status"] = body.status
+                    found = True
+                    break
+            if not found:
+                raise HTTPException(404, f"Investigation item not found: {item_id}")
+            queue["items"] = items
+            ctx.write_json(path, queue)
+            persist_operator_investigation_queue(ctx, source="investigation_patch")
+            ctx.log(
+                f"Investigation {item_id} marked {body.status}.",
+                level="success",
+                stage="analysis_profile",
+            )
+            refresh_journey_meta(ctx)
+            return {"ok": True, "investigation_queue": queue}
 
     @app.post("/api/runs/{run_id}/milestones/preview-listened")
     def post_preview_listened(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        mark_preview_listened(ctx)
-        return {"ok": True, "journey": build_journey_snapshot(ctx)}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            mark_preview_listened(ctx)
+            return {"ok": True, "journey": build_journey_snapshot(ctx)}
 
     @app.post("/api/runs/{run_id}/transcript-review/complete")
     def complete_transcript_review(run_id: str, body: TranscriptReviewCompleteBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        state = transcript_review.get_review_state(ctx)
-        if not state.get("ready"):
-            raise HTTPException(400, "Review queue not ready.")
-        pending = state.get("pending_count", 0)
-        if pending and not body.accept_unreviewed:
-            raise HTTPException(
-                400,
-                f"{pending} clip(s) not marked reviewed. Save each chunk or pass accept_unreviewed=true.",
-            )
-        transcript_review.mark_transcript_review_complete(ctx)
-        refresh_journey_meta(ctx)
-        return {"ok": True, "transcript_review_clear": True}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            state = transcript_review.get_review_state(ctx)
+            if not state.get("ready"):
+                raise HTTPException(400, "Review queue not ready.")
+            pending = state.get("pending_count", 0)
+            if pending and not body.accept_unreviewed:
+                raise HTTPException(
+                    400,
+                    f"{pending} clip(s) not marked reviewed. Save each chunk or pass accept_unreviewed=true.",
+                )
+            transcript_review.mark_transcript_review_complete(ctx)
+            refresh_journey_meta(ctx)
+            return {"ok": True, "transcript_review_clear": True}
 
     @app.get("/api/runs/{run_id}/disfluency-review")
     def get_disfluency_review(run_id: str) -> dict[str, Any]:
@@ -2427,55 +2441,58 @@ def create_app() -> FastAPI:
 
     @app.put("/api/runs/{run_id}/disfluency-review/{event_id}")
     def put_disfluency_event(run_id: str, event_id: str, body: DisfluencyEventBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if not ctx.artifact_exists("transcript/disfluencies.json"):
-            raise HTTPException(404, "Disfluency catalog not built — run disfluency_extract first.")
-        try:
-            return disfluency.update_event_review(
-                ctx,
-                event_id,
-                review_status=body.review_status,
-                text=body.text,
-                include_in_restore=body.include_in_restore,
-            )
-        except KeyError:
-            raise HTTPException(404, f"Unknown event: {event_id}") from None
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("transcript/disfluencies.json"):
+                raise HTTPException(404, "Disfluency catalog not built — run disfluency_extract first.")
+            try:
+                return disfluency.update_event_review(
+                    ctx,
+                    event_id,
+                    review_status=body.review_status,
+                    text=body.text,
+                    include_in_restore=body.include_in_restore,
+                )
+            except KeyError:
+                raise HTTPException(404, f"Unknown event: {event_id}") from None
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/runs/{run_id}/disfluency-review/complete")
     def complete_disfluency_review(
         run_id: str,
         body: DisfluencyReviewCompleteBody = DisfluencyReviewCompleteBody(),
     ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        state = disfluency.get_review_state(ctx)
-        if not state.get("ready"):
-            raise HTTPException(400, "Disfluency catalog not ready.")
-        pending = state.get("pending_count", 0)
-        if pending and not body.accept_unreviewed:
-            raise HTTPException(
-                400,
-                f"{pending} event(s) still pending review. Confirm each or pass accept_unreviewed=true.",
-            )
-        try:
-            disfluency.mark_disfluency_review_complete(ctx, accept_unreviewed=body.accept_unreviewed)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return {"ok": True, "disfluency_review_clear": True}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            state = disfluency.get_review_state(ctx)
+            if not state.get("ready"):
+                raise HTTPException(400, "Disfluency catalog not ready.")
+            pending = state.get("pending_count", 0)
+            if pending and not body.accept_unreviewed:
+                raise HTTPException(
+                    400,
+                    f"{pending} event(s) still pending review. Confirm each or pass accept_unreviewed=true.",
+                )
+            try:
+                disfluency.mark_disfluency_review_complete(ctx, accept_unreviewed=body.accept_unreviewed)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            refresh_journey_meta(ctx)
+            return {"ok": True, "disfluency_review_clear": True}
 
     @app.patch("/api/runs/{run_id}/disfluency-restore")
     def patch_disfluency_restore(run_id: str, body: DisfluencyRestoreBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        block = meta.get("disfluency_restore")
-        if not isinstance(block, dict):
-            block = {}
-        block["enabled"] = body.enabled
-        meta["disfluency_restore"] = block
-        ctx.write_json("run_meta.json", meta)
-        return {"ok": True, "disfluency_restore_enabled": body.enabled}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            block = meta.get("disfluency_restore")
+            if not isinstance(block, dict):
+                block = {}
+            block["enabled"] = body.enabled
+            meta["disfluency_restore"] = block
+            ctx.write_json("run_meta.json", meta)
+            return {"ok": True, "disfluency_restore_enabled": body.enabled}
 
     @app.post("/api/runs/{run_id}/vo/{line_id}")
     async def upload_vo(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
@@ -2677,27 +2694,28 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/reset")
     def reset_run(run_id: str, body: ResetBody) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if body.new_input_audio_path:
-            if source_audio_locked_for_session() and active_run_id() == run_id:
-                raise HTTPException(
-                    409,
-                    "Source audio is locked for this session. "
-                    "Clear session to start over with different audio.",
-                )
-            src = _resolve_repo_path(body.new_input_audio_path)
-            if not src.is_file():
-                raise HTTPException(404, f"Audio file not found: {body.new_input_audio_path}")
-            _assert_asset_input_path(body.new_input_audio_path)
-            ctx.init_run_meta(body.new_input_audio_path)
-            for order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
-                if order:
-                    ctx.clear_from(order[0], order)
-        elif body.from_stage:
-            runner.invalidate_from(run_id, body.from_stage)
-        else:
-            raise HTTPException(400, "Provide from_stage or new_input_audio_path.")
-        return {"ok": True}
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if body.new_input_audio_path:
+                if source_audio_locked_for_session() and active_run_id() == run_id:
+                    raise HTTPException(
+                        409,
+                        "Source audio is locked for this session. "
+                        "Clear session to start over with different audio.",
+                    )
+                src = _resolve_repo_path(body.new_input_audio_path)
+                if not src.is_file():
+                    raise HTTPException(404, f"Audio file not found: {body.new_input_audio_path}")
+                _assert_asset_input_path(body.new_input_audio_path)
+                ctx.init_run_meta(body.new_input_audio_path)
+                for order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
+                    if order:
+                        ctx.clear_from(order[0], order)
+            elif body.from_stage:
+                runner.invalidate_from(run_id, body.from_stage)
+            else:
+                raise HTTPException(400, "Provide from_stage or new_input_audio_path.")
+            return {"ok": True}
 
     @app.get("/api/runs/{run_id}/audio/sfx-under-speech")
     def serve_sfx_under_speech(run_id: str, asset_id: str) -> FileResponse:
@@ -2817,10 +2835,40 @@ def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
     return cleared
 
 
-def _enrich_job_autopilot(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+def _count_sufficiency_blocking(ctx: RunContext, stages: list[dict[str, Any]]) -> int:
+    """Count committed artifacts with blocking sufficiency findings across done stages."""
+    from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
+
+    if not sufficiency_enabled():
+        return 0
+    total = 0
+    for s in stages:
+        if s.get("status") != "done":
+            continue
+        for row in s.get("outputs_view") or []:
+            if row.get("sufficiency_status") != "blocking":
+                continue
+            rel = str(row.get("path") or "")
+            if not rel or not ctx.artifact_exists(rel):
+                continue
+            try:
+                doc = ctx.read_json(rel)
+                if isinstance(doc, dict):
+                    total += len([f for f in evaluate(str(s.get("id") or ""), doc, ctx) if f.blocking])
+            except Exception:
+                total += 1
+    return total
+
+
+def _enrich_job_autopilot(
+    ctx: RunContext, job: dict[str, Any], stages: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Attach ITR autopilot hints so the GUI can auto fix-all without an extra round trip."""
     if not isinstance(job, dict):
         return job
+    suff_count = _count_sufficiency_blocking(ctx, stages or [])
+    if suff_count:
+        job = {**job, "sufficiency_blocking": suff_count}
     stage = job.get("pending_write_stage") or job.get("stage")
     status = str(job.get("status") or "")
     if not stage or status not in ("needs_clarification", "gate", "awaiting_write_approval"):
@@ -2915,8 +2963,34 @@ def _resolve_repo_path(rel: str) -> Path:
 
 
 def _assert_artifact_path(path: str) -> None:
-    if ".." in path or path.startswith("/"):
+    normalized = path.replace("\\", "/").strip()
+    if not normalized or ".." in normalized.split("/") or normalized.startswith("/"):
         raise HTTPException(400, "Invalid artifact path.")
+    from interview_mux.prompt_validation import ARTIFACT_WRITE_VALIDATORS
+
+    allowed = set(ARTIFACT_WRITE_VALIDATORS.keys())
+    for info in STAGE_BY_ID.values():
+        allowed.update(info.artifacts)
+        allowed.update(info.editable)
+        allowed.update(info.audio_outputs)
+    allowed.update(
+        {
+            "run_meta.json",
+            "gui_job.json",
+            "gui_log.jsonl",
+            "analysis_complete.json",
+            "understanding/gap_report.json",
+            "understanding/interviewer_script.txt",
+            "transcript/review_queue.json",
+            "transcript/disfluencies.json",
+            "segments/nle_edits.json",
+            "operator/manifest.json",
+        }
+    )
+    if normalized not in allowed and not any(
+        normalized.startswith(p.rstrip("/") + "/") for p in allowed if p.endswith("/")
+    ):
+        raise HTTPException(400, f"Artifact path not in allowlist: {normalized}")
 
 
 def _is_editable_text_path(path: str) -> bool:

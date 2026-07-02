@@ -19,6 +19,9 @@ _ASSET_REF_RE = re.compile(
 # Shipped bundle must expose the atomic checkpoint save API (not legacy /approve-only).
 _REQUIRED_JS_MARKERS = (
     "continue-after-checkpoint",
+    "advanceFromCheckpoint",
+    "approveWriteAndContinue",
+    "checkpoint_continue",
 )
 
 

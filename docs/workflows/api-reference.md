@@ -364,6 +364,20 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 
 ---
 
+## Run-scoped mutation guards
+
+Disk-writing routes under `/api/runs/{run_id}/` acquire `operator_guard` (via `_guarded_run` in `server.py`) before mutating run state. Concurrent background jobs or another operator mutation returns **HTTP 409**:
+
+```json
+{ "detail": { "error": "run_busy", "message": "…" } }
+```
+
+The GUI `api()` client retries 409 briefly; persistent busy states surface as `ApiError.runBusy`. Registry: `src/interview_mux/web/route_guard_registry.py`, CI audit: `tools/audit_route_guards.py`.
+
+Read-only routes (e.g. `POST …/interview-spine/query`) are exempt. `POST …/execute` and `POST …/fill-artifact-gaps` use the same guard at start.
+
+---
+
 ## `GET /api/runs/{run_id}` — `stages[]` entries
 
 Each stage object includes at least: `id`, `title`, `description`, `phase`, `artifacts`, `editable`, `audio_outputs`, `status` (`locked` \| `pending` \| `done` \| `action_required`), and when applicable:
@@ -372,7 +386,10 @@ Each stage object includes at least: `id`, `title`, `description`, `phase`, `art
 |-------|-------------|
 | `artifacts_present` | Paths that exist on disk (legacy checklist) |
 | `artifacts_status` | Per artifact path: `pending` (missing), `partial` (exists but schema or semantic gaps), `complete` |
+| `outputs_view` | Rich checklist rows including `sufficiency_status` (`ok` \| `blocking` \| `unknown`) |
 | `audio_outputs_present` | Playable WAV paths via `GET /api/runs/{run_id}/audio` |
+
+`job.sufficiency_blocking` counts blocking sufficiency findings across done stages when sufficiency is enabled.
 
 Completeness rules and validation: [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
 

@@ -42,6 +42,7 @@ import {
   getHandoffPathsLocal,
 } from "../utils/checkpoint";
 import { ALL_API_CONSENTS, mapGateToStage } from "../utils";
+import type { ApiProvider } from "../types";
 import {
   findActiveStage,
   findNextRunnableStage,
@@ -104,6 +105,9 @@ interface AppContextValue {
   assets: AssetFile[];
   runs: RunSummary[];
   apiGrants: Record<string, boolean>;
+  apiProviders: ApiProvider[];
+  grantApiConsent: (provider: string, granted?: boolean) => Promise<void>;
+  refreshApiGrants: () => Promise<void>;
   alertsMuted: boolean;
   toast: ToastState | null;
   jobRunning: boolean;
@@ -261,9 +265,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [pipelineFilterNeedsYou, setPipelineFilterNeedsYouState] = useState(true);
   const [pinnedStageId, setPinnedStageId] = useState<string | null>(null);
+  const [apiGrants, setApiGrants] = useState<Record<string, boolean>>(() => ({
+    ...ALL_API_CONSENTS,
+  }));
+  const [apiProviders, setApiProviders] = useState<ApiProvider[]>([]);
 
-  const logCountRef = useRef(0);
   const recentClientLogRef = useRef<{ key: string; at: number } | null>(null);
+  const logCountRef = useRef(0);
   const bootGenRef = useRef(0);
   const persistUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<string | null>(null);
@@ -307,7 +315,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ) as unknown as ReturnType<typeof setTimeout>;
   }, []);
 
-  const mergedApiGrants = useCallback(() => ALL_API_CONSENTS, []);
+  const refreshApiGrants = useCallback(async () => {
+    try {
+      const data = await api<{ providers: ApiProvider[]; grants: Record<string, boolean> }>(
+        "/api/session/api-consent",
+      );
+      setApiProviders(data.providers || []);
+      setApiGrants({ ...ALL_API_CONSENTS, ...(data.grants || {}) });
+    } catch {
+      setApiGrants({ ...ALL_API_CONSENTS });
+    }
+  }, []);
+
+  const grantApiConsent = useCallback(
+    async (provider: string, granted = true) => {
+      const data = await api<{ grants: Record<string, boolean> }>("/api/session/api-consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, granted }),
+      });
+      setApiGrants(data.grants || {});
+      showToast(granted ? `${provider} API access granted.` : `${provider} access revoked.`);
+    },
+    [showToast],
+  );
+
+  const mergedApiGrants = useCallback(
+    () => ({ ...ALL_API_CONSENTS, ...apiGrants }),
+    [apiGrants],
+  );
 
   const pendingActionCount = useMemo(
     () => countRequiredAttention(run, mergedApiGrants()),
@@ -766,7 +802,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         run.job?.stage ?? "",
         run.journey?.blocking?.reason ?? "",
         run.journey?.blocking?.stage_id ?? "",
-        findPendingFocusStage(run, ALL_API_CONSENTS) ?? "",
+        findPendingFocusStage(run, apiGrants) ?? "",
         run.stages.map((s) => `${s.id}:${s.status}`).join("|"),
         run.handoff_ack ? Object.keys(run.handoff_ack).sort().join(",") : "",
       ].join(":")
@@ -791,10 +827,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (autopilotInFlightRef.current || actionBusyRef.current || approveInFlightRef.current) {
       return;
     }
-    const focusId = findPendingFocusStage(run, ALL_API_CONSENTS);
+    const focusId = findPendingFocusStage(run, apiGrants);
     const currentId = selectedStageIdRef.current;
     if (!focusId || focusId === currentId) return;
-    if (currentId && stageNeedsAttention(run, currentId, ALL_API_CONSENTS)) return;
+    if (currentId && stageNeedsAttention(run, currentId, apiGrants)) return;
     void syncPipelineStageFocusRef.current();
   }, [pipelineFocusKey, jobRunning, run, config]);
 
@@ -937,7 +973,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   ? resolveOperatorAction(refreshed, {
                       selectedStageId: selectedStageIdRef.current,
                       jobRunning: false,
-                      apiGrants: ALL_API_CONSENTS,
+                      apiGrants: mergedApiGrants(),
                     }).stageId
                   : null;
                 if (focusId) expandStage(focusId);
@@ -1108,7 +1144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   action: "decline_and_run",
-                  api_consents: ALL_API_CONSENTS,
+                  api_consents: mergedApiGrants(),
                 }),
               })
             : await api<{
@@ -1124,7 +1160,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   ...(body || { mode: "stage", stage: stageId }),
-                  api_consents: ALL_API_CONSENTS,
+                  api_consents: mergedApiGrants(),
                 }),
               });
         return handleJobStartResponse(res, stageId);
@@ -1195,7 +1231,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const res = await api(`/api/runs/${runId}/execute`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...body, api_consents: ALL_API_CONSENTS }),
+            body: JSON.stringify({ ...body, api_consents: mergedApiGrants() }),
           });
           await handleJobStartResponse(res as { ok?: boolean }, body.mode);
         } catch (e) {
@@ -1535,7 +1571,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await advancePipeline({
       run,
       runId,
-      apiGrants: ALL_API_CONSENTS,
+      apiGrants: mergedApiGrants(),
       selectedStageId: selectedStageIdRef.current,
       executeJob,
       selectStage,
@@ -1627,7 +1663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return syncPipelineStageFocus({
         run: runOverride ?? run,
         runId,
-        apiGrants: ALL_API_CONSENTS,
+        apiGrants: mergedApiGrants(),
         selectedStageId: selectedStageIdRef.current,
         executeJob,
         selectStage,
@@ -1685,7 +1721,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const opts: AdvancePipelineOpts = {
           run,
           runId,
-          apiGrants: ALL_API_CONSENTS,
+          apiGrants: mergedApiGrants(),
           selectedStageId: selectedStageIdRef.current,
           executeJob,
           selectStage,
@@ -1899,7 +1935,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const advanced = await advancePipeline({
           run: patched,
           runId,
-          apiGrants: ALL_API_CONSENTS,
+          apiGrants: mergedApiGrants(),
           selectedStageId: selectedStageIdRef.current,
           executeJob,
           selectStage,
@@ -2300,6 +2336,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const cfg = await api<AppConfig>("/api/config");
         if (gen !== bootGenRef.current) return;
         setConfig(cfg);
+        await refreshApiGrants();
         const session = await api<{
           server?: { started_at?: string };
           active?: SessionActive | null;
@@ -2435,7 +2472,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const opAction = resolveOperatorAction(run, {
       selectedStageId: selectedStageIdRef.current,
       jobRunning: jobRunningRef.current,
-      apiGrants: ALL_API_CONSENTS,
+      apiGrants: mergedApiGrants(),
     });
     const substepId = run.journey?.active_substep_id ?? opAction.substepId;
     if (substepId) {
@@ -2466,7 +2503,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const focusId = resolveOperatorAction(run, {
       selectedStageId,
       jobRunning,
-      apiGrants: ALL_API_CONSENTS,
+      apiGrants: mergedApiGrants(),
     }).stageId;
     return Boolean(focusId && selectedStageId !== focusId);
   }, [pinnedStageId, run, selectedStageId, jobRunning]);
@@ -2484,7 +2521,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     homeLog,
     assets,
     runs,
-    apiGrants: ALL_API_CONSENTS,
+    apiGrants: mergedApiGrants(),
+    apiProviders,
+    grantApiConsent,
+    refreshApiGrants,
     alertsMuted,
     toast,
     jobRunning,

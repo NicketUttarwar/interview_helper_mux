@@ -43,15 +43,20 @@ def generate_peaks(audio_path: Path, *, window_ms: int = _WINDOW_MS) -> list[dic
 
 def load_or_generate_peaks(ctx: RunContext, rel_path: str) -> dict[str, Any]:
     cache_path = ctx.read_path(PEAKS_REL)
+    audio_path = _resolve_audio_path(ctx, rel_path)
+    fingerprint = f"{audio_path.stat().st_size}:{int(audio_path.stat().st_mtime)}"
     if rel_path == "ingest/normalized.wav" and cache_path.is_file():
         cached = read_json(cache_path)
-        if cached.get("source_path") == rel_path:
+        if (
+            cached.get("source_path") == rel_path
+            and cached.get("source_fingerprint") == fingerprint
+        ):
             return cached
 
-    audio_path = _resolve_audio_path(ctx, rel_path)
     peaks = generate_peaks(audio_path)
     payload = {
         "source_path": rel_path,
+        "source_fingerprint": fingerprint,
         "window_ms": _WINDOW_MS,
         "duration_ms": int(len(peaks) * _WINDOW_MS) if peaks else 0,
         "peaks": peaks,

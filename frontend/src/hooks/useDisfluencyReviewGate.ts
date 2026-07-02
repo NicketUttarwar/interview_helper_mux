@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useApp } from "../context/AppContext";
+import { guardBusy } from "../utils/guardBusy";
 import { formatApiError } from "../utils/safeApi";
 
 function isExpectedDisfluencyGateError(reason: unknown): boolean {
@@ -91,7 +92,7 @@ export function useDisfluencyReviewGate(enabled: boolean) {
   ]);
 
   const acceptAllAndProceed = useCallback(async () => {
-    if (busy || !run) return;
+    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -106,10 +107,10 @@ export function useDisfluencyReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [busy, run, completeDisfluencyReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeDisfluencyReview, showToast, appendClientLog]);
 
   const completeReview = useCallback(async () => {
-    if (busy || !run) return;
+    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -124,7 +125,7 @@ export function useDisfluencyReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [busy, run, completeDisfluencyReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeDisfluencyReview, showToast, appendClientLog]);
 
   return {
     loading,

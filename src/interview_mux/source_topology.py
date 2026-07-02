@@ -403,7 +403,7 @@ def ensure_speaker_sample_clips(ctx: RunContext) -> dict[str, str]:
         return {}
     if not ctx.artifact_exists("transcript/full.json"):
         return {}
-    audio = ctx.path("ingest/normalized.wav")
+    audio = ctx.read_path("ingest", "normalized.wav")
     if not audio.is_file():
         return {}
     transcript = ctx.read_json("transcript/full.json")

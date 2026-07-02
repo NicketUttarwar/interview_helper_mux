@@ -320,6 +320,7 @@ export interface JobState {
     traceback_excerpt?: string | null;
   };
   missing_api_providers?: string[];
+  needs_api_consent?: boolean;
   preclean_warnings?: Array<{ checkpoint: string; stage: string }>;
   needs_stage_reuse?: boolean;
   reuse_candidates?: ReuseCandidate[];

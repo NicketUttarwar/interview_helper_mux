@@ -25,7 +25,22 @@ export const understanding_content_brief_jsonSchema = z.object({
   "segment_ids": z.array(z.string()).optional(),
   "evidence_segment_ids": z.array(z.string()).optional(),
   "depends_on_claim_ids": z.array(z.string()).optional(),
+  "punctuator_anchor": z.boolean().optional(),
+  "act_hint": z.number().optional(),
 })).optional(),
+  "strategic_moat_concept": z.string().nullable().optional(),
+  "era_tags": z.array(z.object({
+  "era": z.string().optional(),
+  "geography": z.string().optional(),
+  "palette_id": z.string().nullable().optional(),
+})).nullable().optional(),
+  "narrative_beats": z.array(z.object({
+  "label": z.string().optional(),
+  "description": z.string().optional(),
+  "suggested_act": z.number().optional(),
+  "tension_contribution": z.number().optional(),
+  "segment_ids": z.array(z.string()).optional(),
+})).nullable().optional(),
   "audience": z.string().nullable().optional(),
   "jargon_glossary": z.array(z.object({
   "term": z.string(),
