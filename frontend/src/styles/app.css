@@ -2345,25 +2345,73 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   inset: 0;
   z-index: 950;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  backdrop-filter: blur(2px);
-  pointer-events: all;
+  padding: 1.25rem;
+  background: color-mix(in srgb, var(--bg) 18%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
 }
 
 .action-overlay-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.75rem 2rem;
+  align-items: stretch;
+  gap: 0.65rem;
+  padding: 1.25rem 1.5rem;
   border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-  max-width: min(90vw, 22rem);
-  text-align: center;
+  max-width: min(92vw, 28rem);
+  text-align: left;
+  pointer-events: auto;
+}
+
+.action-overlay-card-wide {
+  max-width: min(92vw, 32rem);
+}
+
+.action-overlay-stage {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.action-overlay-phase {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.action-overlay-progress-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.action-overlay-progress-bar {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.action-overlay-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+
+.action-overlay-progress-text {
+  margin: 0;
+}
+
+.action-overlay-hint {
+  margin: 0;
+  opacity: 0.85;
 }
 
 .action-overlay-spinner {

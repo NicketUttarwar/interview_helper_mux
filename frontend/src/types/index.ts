@@ -312,6 +312,10 @@ export interface JobState {
   stages_planned?: string[];
   message?: string;
   updated_at?: string;
+  /** Intra-stage checkpoint (e.g. gap 45/389 during disfluency extract). */
+  phase?: string;
+  step_index?: number;
+  step_total?: number;
   error?: string;
   traceback?: string;
   last_error?: {

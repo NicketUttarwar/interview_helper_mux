@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -65,22 +66,121 @@ def _pump_stream(
         pipe.close()
 
 
-def touch_job_message(ctx: RunContext, message: str) -> None:
-    """Update gui_job.json message while a background job is running."""
+def _read_running_job(ctx: RunContext) -> dict[str, Any] | None:
     path = ctx.path("gui_job.json")
     if not path.is_file():
-        return
+        return None
     try:
         data = ctx.read_json("gui_job.json")
     except OSError:
-        return
+        return None
     if not isinstance(data, dict):
-        return
+        return None
     if data.get("status") not in _RUNNING_STATUSES:
+        return None
+    return data
+
+
+def touch_job_message(ctx: RunContext, message: str) -> None:
+    """Update gui_job.json message while a background job is running."""
+    touch_job_progress(ctx, message)
+
+
+def touch_job_progress(
+    ctx: RunContext,
+    message: str,
+    *,
+    phase: str | None = None,
+    step_index: int | None = None,
+    step_total: int | None = None,
+) -> None:
+    """Update gui_job.json with intra-stage progress for long local stages."""
+    data = _read_running_job(ctx)
+    if data is None:
         return
     data["message"] = message
+    if phase is not None:
+        data["phase"] = phase
+    if step_index is not None:
+        data["step_index"] = int(step_index)
+    if step_total is not None:
+        data["step_total"] = int(step_total)
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     ctx.write_json("gui_job.json", data)
+
+
+class JobProgressReporter:
+    """Throttled gui_job + gui_log updates for CPU-bound local stages."""
+
+    _MIN_INTERVAL_S = 2.0
+
+    def __init__(
+        self,
+        ctx: RunContext,
+        *,
+        stage: str,
+        phase: str,
+        step_total: int | None = None,
+    ) -> None:
+        self._ctx = ctx
+        self._stage = stage
+        self._phase = phase
+        self._step_total = step_total
+        self._last_touch = 0.0
+
+    def set_phase(
+        self,
+        phase: str,
+        message: str,
+        *,
+        step_total: int | None = None,
+        log: bool = True,
+    ) -> None:
+        self._phase = phase
+        if step_total is not None:
+            self._step_total = step_total
+        self._emit(message, step_index=None, force=True, log=log)
+
+    def tick(
+        self,
+        step_index: int,
+        message: str,
+        *,
+        force: bool = False,
+        log: bool = False,
+    ) -> None:
+        self._emit(message, step_index=step_index, force=force, log=log)
+
+    def _emit(
+        self,
+        message: str,
+        *,
+        step_index: int | None,
+        force: bool,
+        log: bool,
+    ) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_touch < self._MIN_INTERVAL_S:
+            return
+        self._last_touch = now
+        touch_job_progress(
+            self._ctx,
+            message,
+            phase=self._phase,
+            step_index=step_index,
+            step_total=self._step_total,
+        )
+        if log:
+            detail: dict[str, Any] = {
+                "journey_kind": "execute",
+                "event": "local_stage_progress",
+                "phase": self._phase,
+            }
+            if step_index is not None:
+                detail["step_index"] = step_index
+            if self._step_total is not None:
+                detail["step_total"] = self._step_total
+            self._ctx.log(message, level="info", stage=self._stage, detail=detail)
 
 
 def run_logged_command(

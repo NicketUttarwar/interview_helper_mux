@@ -259,12 +259,22 @@ export function PipelineStepList() {
               </li>
               {showConnector ? (
                 <StepRunningConnector
-                  stepIndex={run.job?.stage_index ?? entry.number}
-                  stepTotal={run.job?.stage_total ?? numbered.length}
+                  stepIndex={
+                    isRunning && run.job?.step_total
+                      ? run.job?.step_index ?? null
+                      : run.job?.stage_index ?? entry.number
+                  }
+                  stepTotal={
+                    isRunning && run.job?.step_total
+                      ? run.job?.step_total
+                      : run.job?.stage_total ?? numbered.length
+                  }
                   label={
-                    isRunning
-                      ? `Running ${entry.stage.title}…`
-                      : `Running ${nextEntry?.stage.title ?? "pipeline"}…`
+                    isRunning && run.job?.message
+                      ? run.job.message
+                      : isRunning
+                        ? `Running ${entry.stage.title}…`
+                        : `Running ${nextEntry?.stage.title ?? "pipeline"}…`
                   }
                 />
               ) : null}

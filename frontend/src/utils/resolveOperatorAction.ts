@@ -132,17 +132,26 @@ function buildRunningAction(run: RunData, jobRunning: boolean): OperatorAction {
     };
   }
   const shortVerb = message || "in progress";
-  const progress =
-    job?.stage_index != null && job?.stage_total
-      ? { current: job.stage_index, total: job.stage_total, label: title }
+  const intraProgress =
+    job?.step_index != null && job?.step_total && job.step_total > 1
+      ? {
+          current: job.step_index,
+          total: job.step_total,
+          label: job.phase?.replace(/_/g, " ") ?? title,
+        }
       : undefined;
+  const progress =
+    intraProgress ??
+    (job?.stage_index != null && job?.stage_total
+      ? { current: job.stage_index, total: job.stage_total, label: title }
+      : undefined);
 
   return {
     mode: "running",
     stageId,
     substepId: "run",
     headline: `Running ${title} — ${shortVerb.replace(/\.$/, "")}`,
-    subline: "Watch the activity log for progress.",
+    subline: message || "Watch the activity log for progress.",
     primaryLabel: "Running…",
     primaryKind: "none",
     primaryDisabled: true,

@@ -1,1 +1,0 @@
-import{o as a,s as e,a as t}from"./zod-vendor-0yp7anPg.js";const o=a({arc_summary:e().min(1),chapters:t(a({chapter_id:e(),title:e(),topic_tags:t(e()).optional(),suggested_open_segment_id:e()})).max(12),ordering_constraints:t(a({before_segment_id:e(),after_segment_id:e(),reason:e()})),pacing_notes:e().optional()});export{o as flow_1_master_narrative_plan_jsonSchema};

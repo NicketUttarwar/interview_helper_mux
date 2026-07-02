@@ -42,8 +42,8 @@ export function StepActionHeader({ action, stepNumber, whatsNext }: Props) {
           ) : null}
           {action.progress ? (
             <p className="step-action-progress hint sm">
-              Step {action.progress.current} of {action.progress.total}
-              {action.progress.label ? ` — ${action.progress.label}` : ""}
+              {action.progress.label ? `${action.progress.label}: ` : ""}
+              {action.progress.current} / {action.progress.total}
             </p>
           ) : null}
           {whatsNext ? (

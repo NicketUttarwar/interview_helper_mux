@@ -10,6 +10,7 @@ from interview_mux.disfluency.config import extract_settings
 from interview_mux.disfluency.gaps import build_gap_candidates
 from interview_mux.disfluency.vad import gap_has_voice_activity
 from interview_mux.disfluency.whisper_pass import transcribe_clip, whisper_available
+from interview_mux.operator_subprocess import JobProgressReporter
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
@@ -65,6 +66,19 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
         gap_max_ms=settings["gap_max_ms"],
         pad_ms=settings["pad_ms"],
     )
+    gap_total = len(gaps)
+    progress = JobProgressReporter(
+        ctx,
+        stage="disfluency_extract",
+        phase="lexicon_scan",
+        step_total=gap_total if gap_total else None,
+    )
+    lexicon_hits = len(events)
+    progress.set_phase(
+        "lexicon_scan",
+        f"Lexicon scan complete — {lexicon_hits} filler word(s) in transcript.",
+        log=True,
+    )
 
     clips_dir = ctx.path("transcript", "disfluency_clips")
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -72,9 +86,20 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
         old.unlink()
 
     with logged_step("disfluency_extract/scan_gaps", ctx=ctx, stage="disfluency_extract"):
-        for gap in gaps:
+        progress.set_phase(
+            "gap_scan",
+            f"Scanning {gap_total} inter-word gap(s) for filler audio…",
+            step_total=gap_total if gap_total else None,
+            log=True,
+        )
+        whisper_phase_started = False
+        for gap_idx, gap in enumerate(gaps, start=1):
             if len(events) >= settings["max_events"]:
                 break
+            progress.tick(
+                gap_idx,
+                f"Checking gap {gap_idx}/{gap_total} for voice activity…",
+            )
             has_voice, _db = gap_has_voice_activity(
                 str(audio),
                 int(gap["start_ms"]),
@@ -89,6 +114,18 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
             text = ""
             confidence = 0.55
             if use_whisper:
+                if not whisper_phase_started:
+                    progress.set_phase(
+                        "whisper",
+                        f"Running local Whisper on gap audio ({gap_total} gaps to scan)…",
+                        step_total=gap_total,
+                        log=True,
+                    )
+                    whisper_phase_started = True
+                progress.tick(
+                    gap_idx,
+                    f"Whisper gap {gap_idx}/{gap_total} ({len(events)} filler(s) so far)…",
+                )
                 tmp = clips_dir / f"_gap_{gap['gap_index']}.wav"
                 extract_clip(audio, tmp, int(gap["start_ms"]), int(gap["end_ms"]))
                 try:
@@ -117,8 +154,20 @@ def run_extraction(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dic
 
     with logged_step("disfluency_extract/finalize_clips", ctx=ctx, stage="disfluency_extract"):
         events = _dedupe_events(events)[: settings["max_events"]]
+        clip_total = len(events)
+        progress.set_phase(
+            "finalize",
+            f"Exporting {clip_total} disfluency clip(s)…",
+            step_total=clip_total if clip_total else None,
+            log=True,
+        )
 
         for i, ev in enumerate(events, start=1):
+            progress.tick(
+                i,
+                f"Writing clip {i}/{clip_total}…",
+                force=i == 1 or i == clip_total,
+            )
             eid = f"fill_{i:04d}"
             ev["event_id"] = eid
             ev["review_status"] = "pending"

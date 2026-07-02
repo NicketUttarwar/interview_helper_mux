@@ -190,9 +190,11 @@ export function useLiveStatus(
       : null;
 
     const jobProgress =
-      job?.stage_index && job?.stage_total
-        ? { index: job.stage_index, total: job.stage_total }
-        : null;
+      job?.step_index != null && job?.step_total && job.step_total > 1
+        ? { index: job.step_index, total: job.step_total }
+        : job?.stage_index && job?.stage_total
+          ? { index: job.stage_index, total: job.stage_total }
+          : null;
 
     const derived = deriveLiveStatusCopy({
       run,

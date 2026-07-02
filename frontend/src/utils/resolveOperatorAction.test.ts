@@ -521,6 +521,30 @@ describe("copy templates", () => {
     expect(a.headline).toContain(message.replace(/\.$/, ""));
   });
 
+  it("prefers intra-stage step progress over batch stage index", () => {
+    const run = baseRun({
+      stages: [stage("disfluency_extract", "pending", "Disfluency extract")],
+      job: {
+        status: "running",
+        stage: "disfluency_extract",
+        current_stage: "disfluency_extract",
+        message: "Checking gap 45/389 for voice activity…",
+        stage_index: 1,
+        stage_total: 1,
+        phase: "gap_scan",
+        step_index: 45,
+        step_total: 389,
+      },
+    });
+    const a = resolveOperatorAction(run, { jobRunning: true });
+    expect(a.subline).toBe("Checking gap 45/389 for voice activity…");
+    expect(a.progress).toEqual({
+      current: 45,
+      total: 389,
+      label: "gap scan",
+    });
+  });
+
   it("ingest write approval headline", () => {
     const run = baseRun({
       stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
