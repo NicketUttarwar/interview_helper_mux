@@ -142,6 +142,33 @@ def test_resolve_persist_plan_full_when_clean(tmp_path):
     assert plan.merge_memory is True
 
 
+def test_finalize_stage_attempt_no_memory_merge_when_persist_none(tmp_path, monkeypatch):
+    from interview_mux.analysis_memory import load_analysis_state
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _resilience_cfg())
+    ctx = isolated_run_ctx(tmp_path, "no_mem_merge")
+    envelope = {
+        "status": "complete",
+        "reasoning_summary": "Boundaries were proposed based on pauses.",
+        "artifacts": {},
+        "_routing_meta": {"deterministic_lint_errors": [], "routed_via_collate": False},
+    }
+    finalize_stage_attempt(
+        ctx,
+        "boundary_detection",
+        1,
+        envelope,
+        [],
+        {"verdict": "accept"},
+        ["boundaries: required"],
+        0,
+    )
+    state = load_analysis_state(ctx)
+    summaries = (state.get("meta") or {}).get("stage_summaries") or {}
+    assert "boundary_detection" not in summaries
+
+
 def test_upstream_artifact_acceptable_requires_complete(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())

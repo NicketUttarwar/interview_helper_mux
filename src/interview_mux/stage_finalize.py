@@ -174,11 +174,12 @@ def _try_auto_propagation(
     *,
     runner: Any | None,
     run_id: str | None,
+    overlay_stage: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     from interview_mux.artifact_issue_triage import get_propagation_plan, triage_cfg
     from interview_mux.artifact_root_cause import can_downstream_auto_continue, invalidate_stale_downstream
 
-    plan = get_propagation_plan(ctx, stage_key)
+    plan = get_propagation_plan(ctx, stage_key, overlay_stage=overlay_stage)
     if not plan.get("has_blocking"):
         return plan, None
 
@@ -194,14 +195,14 @@ def _try_auto_propagation(
                 target = "segment_classification" if stage_key == "boundary_detection" else str(inv)
                 job = runner.start(run_id, mode="stage", from_stage=target, stage=target)
                 record_downstream_auto_continue(ctx)
-                return get_propagation_plan(ctx, stage_key), job
+                return get_propagation_plan(ctx, stage_key, overlay_stage=overlay_stage), job
             except Exception:
                 pass
         try:
             invalidate_stale_downstream(ctx, stage_key)
             if runner and run_id and inv:
                 runner.invalidate_from(run_id, str(inv))
-            return get_propagation_plan(ctx, stage_key), None
+            return get_propagation_plan(ctx, stage_key, overlay_stage=overlay_stage), None
         except Exception:
             pass
     return plan, None
@@ -259,6 +260,7 @@ def _finalize_stage_outputs_impl(
         return result
 
     from interview_mux.artifact_issue_triage import (
+        _write_approval_overlay_stage,
         blocking_issues_remaining,
         get_propagation_plan,
         run_triage_pipeline,
@@ -268,6 +270,12 @@ def _finalize_stage_outputs_impl(
     if not triage_enabled():
         result.ok = True
         return result
+
+    overlay_stage = _write_approval_overlay_stage(ctx, stage_key, staged=True)
+    if stage_key in ("content_context", "segment_classification"):
+        from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
+
+        sync_content_brief_topic_segment_ids(ctx, overlay_stage=overlay_stage)
 
     write_finalize_job_phase(ctx, stage_key)
     ctx.log(
@@ -299,10 +307,12 @@ def _finalize_stage_outputs_impl(
             )
             result.warnings.extend(risk_warnings)
 
-    plan, chain_job = _try_auto_propagation(ctx, stage_key, runner=runner, run_id=run_id)
+    plan, chain_job = _try_auto_propagation(
+        ctx, stage_key, runner=runner, run_id=run_id, overlay_stage=overlay_stage,
+    )
     if chain_job and not result.downstream_job:
         result.downstream_job = chain_job
-    plan = plan or get_propagation_plan(ctx, stage_key)
+    plan = plan or get_propagation_plan(ctx, stage_key, overlay_stage=overlay_stage)
 
     decisions: list[OperatorDecision] = []
     decisions.extend(_build_issue_decisions(ctx, stage_key))

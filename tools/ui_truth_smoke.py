@@ -39,7 +39,23 @@ def audit_run(run_id: str) -> list[str]:
         import json
 
         job = json.loads(job_path.read_text(encoding="utf-8"))
-    violations = validate_run_snapshot(stages=stages, journey=journey, job=job)
+    analysis_state = None
+    context_index = None
+    try:
+        analysis_state = ctx.read_json("understanding/analysis_state.json")
+    except Exception:
+        analysis_state = None
+    try:
+        context_index = ctx.read_json("understanding/context_index.json")
+    except Exception:
+        context_index = None
+    violations = validate_run_snapshot(
+        stages=stages,
+        journey=journey,
+        job=job,
+        analysis_state=analysis_state,
+        context_index=context_index,
+    )
     return [f"{run_id} [{v.code}] {v.message}" for v in violations]
 
 

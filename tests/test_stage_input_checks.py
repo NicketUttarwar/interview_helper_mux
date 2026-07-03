@@ -18,7 +18,33 @@ from interview_mux.write_staging import (
     staging_approval_hint,
 )
 
-from tests.test_write_staging import _ctx
+from run_fixtures import isolated_run_ctx, patch_merged_config
+
+
+def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
+    root = tmp_path / "repo"
+    executions = root / "ASSETS" / "executions"
+    executions.mkdir(parents=True)
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: root)
+    monkeypatch.setattr(
+        "interview_mux.run_context.merged_config",
+        lambda: {
+            "assets_root": "ASSETS",
+            "executions_root": "ASSETS/executions",
+            "data_root": "data",
+            "journey_ui": {"require_write_approval_per_stage": True},
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.write_staging.merged_config",
+        lambda: {
+            "journey_ui": {"require_write_approval_per_stage": True},
+        },
+    )
+    rid = "exec_001_20260101T000000Z"
+    ctx = RunContext(rid, create=True)
+    ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)
+    return ctx
 
 
 def _write_tone_wav(path: Path) -> None:
@@ -140,3 +166,27 @@ def test_vo_ingest_reads_pickup_from_final_path_during_staging(
     finally:
         exit_stage_staging()
     assert ctx.is_done("vo_ingest")
+
+
+def test_segment_classification_blocked_when_boundaries_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True}}},
+    )
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.mark_done("boundary_detection", force=True)
+    import json
+
+    boundaries_path = ctx.path("segments/boundaries.json")
+    boundaries_path.parent.mkdir(parents=True, exist_ok=True)
+    boundaries_path.write_text(
+        json.dumps({"boundaries": [], "_meta": {"resilience": {"partial": True}}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(StageInputError) as exc:
+        require_stage_inputs(ctx, "segment_classification")
+    assert exc.value.stage_id == "segment_classification"
+    assert any("boundaries" in issue.message.lower() for issue in exc.value.issues)

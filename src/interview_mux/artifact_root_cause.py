@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts
+from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts, cross_validate_pending_overlay
 from interview_mux.config import merged_config
 from interview_mux.issue_severity_rules import ClassifiedIssue
 from interview_mux.llm_flow_hardening import resolve_llm_upstream_stage
@@ -186,7 +186,12 @@ def resolve_recovery_plan(
     }
 
 
-def plan_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
+def plan_stale_downstream(
+    ctx: Any,
+    from_stage: str,
+    *,
+    overlay_stage: str | None = None,
+) -> StalePropagationPlan:
     """Read-only: stale stages and cross-validation errors without mutating summaries."""
     plan = StalePropagationPlan(from_stage=from_stage)
     if from_stage not in _PROPAGATION_FROM:
@@ -197,11 +202,13 @@ def plan_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
     if plan.stale_stages:
         plan.invalidate_from = plan.stale_stages[0]
 
-    for checkpoint in _CHECKPOINTS_BY_FROM.get(from_stage, ()):
-        errs = validate_cross_artifacts(ctx, checkpoint)
-        if errs:
-            plan.cross_errors_by_checkpoint[checkpoint] = errs
-            plan.cross_errors.extend(errs)
+    overlay = overlay_stage or from_stage
+    with cross_validate_pending_overlay(ctx, overlay):
+        for checkpoint in _CHECKPOINTS_BY_FROM.get(from_stage, ()):
+            errs = validate_cross_artifacts(ctx, checkpoint)
+            if errs:
+                plan.cross_errors_by_checkpoint[checkpoint] = errs
+                plan.cross_errors.extend(errs)
 
     if plan.cross_errors and not plan.invalidate_from:
         for stage_key, checkpoint in STAGE_CHECKPOINTS.items():
@@ -229,18 +236,32 @@ def invalidate_stale_downstream(ctx: Any, from_stage: str) -> None:
     invalidate_stage_summaries(ctx, tuple(_PROPAGATION_FROM[from_stage]))
 
 
-def compute_stale_downstream(ctx: Any, from_stage: str) -> StalePropagationPlan:
+def compute_stale_downstream(
+    ctx: Any,
+    from_stage: str,
+    *,
+    overlay_stage: str | None = None,
+) -> StalePropagationPlan:
     """Identify downstream stages stale after an upstream artifact fix (read-only plan)."""
-    return plan_stale_downstream(ctx, from_stage)
+    return plan_stale_downstream(ctx, from_stage, overlay_stage=overlay_stage)
 
 
-def revalidate_downstream_for_stage(ctx: Any, stage_key: str) -> list[str]:
+def revalidate_downstream_for_stage(
+    ctx: Any,
+    stage_key: str,
+    *,
+    overlay_stage: str | None = None,
+) -> list[str]:
     """Cross-validate downstream checkpoints after upstream artifact repair."""
     if not _triage_cfg().get("revalidate_downstream_on_segment_fix", True):
         return []
     if stage_key not in _CHECKPOINTS_BY_FROM:
         return []
-    return plan_stale_downstream(ctx, stage_key).cross_errors
+    return plan_stale_downstream(
+        ctx,
+        stage_key,
+        overlay_stage=overlay_stage,
+    ).cross_errors
 
 
 def downstream_auto_continue_count(ctx: Any) -> int:

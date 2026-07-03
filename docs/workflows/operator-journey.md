@@ -60,6 +60,24 @@ Details: [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 
 **Review before save:** By default, each automated stage pauses in **Review outputs before saving** so you can preview JSON, text, and audio before files land on disk. Approve to continue or discard to re-run — see [gui-surface-map.md](./gui-surface-map.md).
 
+### Manual progression (default)
+
+Shipped defaults keep **`journey_ui.auto_advance_pipeline: false`** — you run each stage explicitly:
+
+```mermaid
+flowchart TD
+  A[Select stage] --> B{Upstream P0 complete?}
+  B -->|No| C[Focus blocker — rerun upstream]
+  B -->|Yes| D[Run stage]
+  D --> E{Artifact issues?}
+  E -->|Yes| F[Resolve issues]
+  E -->|No| G[Review staged files]
+  G --> H[Save to working directory]
+  H --> I[Focus next stage — click Run when ready]
+```
+
+P0 analysis spine order: **speaker_roles → content_context → boundary_detection → segment_classification → content_brief_reanchor**. Volley memory is not artifact truth — committed files (or staged review paths) are.
+
 ---
 
 ## Phase: Prepare

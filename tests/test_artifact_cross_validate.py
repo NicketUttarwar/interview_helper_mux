@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from interview_mux.artifact_cross_validate import validate_cross_artifacts
+from interview_mux.artifact_cross_validate import (
+    cross_validate_pending_overlay,
+    validate_cross_artifacts,
+)
+from interview_mux.write_staging import write_pending_content
 from run_fixtures import (
     isolated_run_ctx,
     minimal_gap_line,
@@ -306,3 +310,27 @@ def test_maybe_cross_validate_raises_on_failure(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit, match="Cross-artifact gate"):
         maybe_cross_validate_after_stage(ctx, "segment_classification")
+
+
+def test_cross_validate_overlay_sees_pending_boundaries(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "cv_overlay")
+    write_pending_content(
+        ctx,
+        "boundary_detection",
+        "segments/boundaries.json",
+        data={
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 2000,
+                    "speaker_id": "spk_1",
+                    "proposed_split_reason": "topic_shift",
+                },
+            ]
+        },
+    )
+    assert validate_cross_artifacts(ctx, "post_boundary_detection")
+    with cross_validate_pending_overlay(ctx, "boundary_detection"):
+        assert validate_cross_artifacts(ctx, "post_boundary_detection") == []

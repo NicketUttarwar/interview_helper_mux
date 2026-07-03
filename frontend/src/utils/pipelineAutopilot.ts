@@ -95,7 +95,7 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
 /** True when autopilot must not start the next stage job (reuse, gates, write approval, etc.). */
 export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null): boolean {
   const write = pendingWriteInfo(run);
-  if (write?.paths.length) return true;
+  if (write?.stageId) return true;
 
   if (findHandoffStage(run)) return true;
 

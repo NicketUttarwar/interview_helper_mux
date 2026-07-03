@@ -36,6 +36,7 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.artifact_cross_validate",
     "interview_mux.artifact_issue_triage",
     "interview_mux.artifact_auto_resolve",
+    "interview_mux.full_autopilot",
     "interview_mux.config",
     "interview_mux.null_field_policy",
     "interview_mux.llm_fabricate",

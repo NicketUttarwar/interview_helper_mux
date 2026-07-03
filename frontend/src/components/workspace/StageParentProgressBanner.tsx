@@ -199,6 +199,9 @@ export function StageParentProgressBanner({
             actionId={
               primaryStep.kind === "write_approval" ? "gui.write_approval.save" : undefined
             }
+            disabled={
+              primaryStep.kind === "write_approval" && writePaths.length === 0
+            }
             onClick={onPrimary}
           />
           {progress.secondaryStep?.secondary_button ? (

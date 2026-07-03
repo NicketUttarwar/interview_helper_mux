@@ -51,4 +51,46 @@ describe("resolveStageWorkbenchProgress", () => {
     const progress = resolveStageWorkbenchProgress(run, s, false, null);
     expect(progress?.reviewGateSpec?.kind).toBe("disfluency_review");
   });
+
+  it("prioritizes artifact clarification before write approval when ITR blocks", () => {
+    const s = stage({
+      id: "boundary_detection",
+      title: "Segment boundaries",
+      status: "awaiting_write_approval",
+      guidance: {
+        steps: [
+          {
+            id: "artifact_clarification",
+            number: 1,
+            label: "Resolve artifact issues",
+            status: "todo",
+            kind: "artifact_clarification",
+            primary_button: "Fix issues",
+            review: [],
+          },
+          {
+            id: "write_approval",
+            number: 2,
+            label: "Review staged files",
+            status: "todo",
+            kind: "write_approval",
+            primary_button: "Save",
+            review: [],
+          },
+        ],
+      },
+    });
+    const run = {
+      run_id: "exec_test",
+      stages: [s],
+      job: {
+        status: "needs_clarification",
+        stage: "boundary_detection",
+        itr_blocking_count: 2,
+        awaiting_write_approval: true,
+      },
+    } as RunData;
+    const steps = findActionableWorkbenchSteps(s, run);
+    expect(steps[0]?.id).toBe("artifact_clarification");
+  });
 });

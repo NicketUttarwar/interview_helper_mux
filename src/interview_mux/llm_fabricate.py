@@ -20,6 +20,40 @@ def _leaf_name(path: str) -> str:
     return part
 
 
+# Top-level / nested array fields — never fabricate as empty string.
+_ARRAY_FIELD_LEAVES: frozenset[str] = frozenset(
+    {
+        "era_tags",
+        "narrative_beats",
+        "topic_relationships",
+        "hypotheses",
+        "themes",
+        "themes_append",
+        "topics",
+        "key_claims",
+        "jargon_glossary",
+        "emotional_beats",
+        "warnings",
+        "gaps",
+        "highlights",
+        "transitions",
+        "chapters",
+        "segments",
+        "boundaries",
+        "evaluations",
+        "speakers",
+        "topic_tags",
+        "excluded_segment_ids",
+        "segment_ids",
+        "evidence_segment_ids",
+        "depends_on_claim_ids",
+        "ordering_constraints",
+        "keywords",
+        "shard_plan",
+    }
+)
+
+
 def deterministic_fabricated_value(path: str, *, stage_key: str | None = None) -> Any:
     """Benign default when LLM fabricate is disabled or in tests."""
     leaf = _leaf_name(path)
@@ -62,6 +96,8 @@ def deterministic_fabricated_value(path: str, *, stage_key: str | None = None) -
     if leaf == "excluded_segment_ids":
         return []
     if leaf == "gaps":
+        return []
+    if leaf in _ARRAY_FIELD_LEAVES:
         return []
     return ""
 

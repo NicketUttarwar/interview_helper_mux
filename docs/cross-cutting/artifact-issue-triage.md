@@ -14,7 +14,7 @@ Manual per-card dropdowns appear only when confidence or safety gates fail (lega
 
 1. **Post-persist** — `run_triage_pipeline()` after staged artifacts are written.
 2. **Pre-cross-validate** — triage before hard halt when `clarification_before_halt` is true.
-3. **Pre-write-approval** — `assert_write_approval_itr_ok()` blocks save when blocking issues remain or propagation is required.
+3. **Pre-write-approval** — `assert_write_approval_itr_ok()` blocks save when blocking issues remain or propagation is required. Pending staged files for the approving stage are overlaid onto committed cross-validation reads so first-time saves cannot fail with false `{path} missing` errors.
 4. **Auto-resolve** — `POST …/issues/auto-resolve` runs `auto_resolve_stage()` in `artifact_auto_resolve.py`.
 5. **Operator UI** — `artifact_clarification` step with **Fix all & continue** primary button; Advanced details for manual cards.
 

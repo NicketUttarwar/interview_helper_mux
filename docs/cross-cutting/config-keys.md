@@ -62,7 +62,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
-| `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `true` (default), after save/checkpoint the GUI auto-focuses and runs the next automated stage. |
+| `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `false` (shipped default), after save/checkpoint the GUI **focuses** the next runnable stage and shows *Ready for … — use Run when you want to start*; operator runs each stage explicitly. Set `true` for unattended auto-run between stages. |
 | `journey_ui.full_autopilot` | `stage_finalize`, GUI stage steps, ITR gates | When `true` (default), in-run `finalize_stage_outputs()` replaces operator Fix all; **Stage Decision Wizard** for unresolved choices; `needs_clarification` not surfaced. Set `false` for legacy Fix all + artifact clarification UI. See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md). |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
@@ -447,7 +447,7 @@ Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artif
 | `auto_resolve_confidence_gap` | `0.15` | Required gap between top two options for auto-pick |
 | `auto_resolve_chain_downstream` | `true` | After boundary fix, chain `segment_classification` when safe |
 | `max_auto_resolve_attempts_per_stage` | `2` | Cap Fix all attempts per stage (oscillation guard) |
-| `auto_advance_after_itr_clear` | `true` | Set `can_advance_pipeline` on successful auto-resolve |
+| `auto_advance_after_itr_clear` | `false` (shipped default) | When `true`, Fix all / ITR clear may chain-execute the next stage; keep `false` with manual progression (`journey_ui.auto_advance_pipeline: false`) |
 | `min_segments_after_auto_resolve` | `1` | Block destructive fix-all that empties manifest |
 | `max_segments_deleted_per_fix_all` | `0.10` | Max fraction of segments deletable in one Fix all pass |
 | `auto_resolve_max_issues_per_pass` | `50` | Cap issues processed per Fix all invocation |

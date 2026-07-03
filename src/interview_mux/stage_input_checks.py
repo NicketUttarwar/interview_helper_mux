@@ -89,7 +89,9 @@ def _require_artifact(
     *,
     label: str | None = None,
     remediation: str | None = None,
+    require_complete: bool = False,
 ) -> StageInputIssue | None:
+    must_be_complete = require_complete or rel in _UPSTREAM_ARTIFACT_PRODUCER
     if ctx.artifact_exists(rel):
         from interview_mux.artifact_lifecycle import lifecycle_cfg, read_stale_guard
 
@@ -98,6 +100,16 @@ def _require_artifact(
             stale = read_stale_guard(ctx, rel, consumer_stage=str(consumer))
             if stale:
                 return StageInputIssue(stale, remediation or f"Re-run upstream producer for {rel}.")
+        if must_be_complete:
+            from interview_mux.artifact_completeness import artifact_status
+
+            st = artifact_status(rel, ctx)
+            if st != "complete":
+                fix = remediation or _remediation_for_missing_artifact(ctx, rel)
+                return StageInputIssue(
+                    f"{label or rel} is {st} (not complete)",
+                    fix or f"Re-run upstream producer for {rel}.",
+                )
         return None
     hint = staging_approval_hint(ctx, rel)
     msg = f"Missing {label or rel}"

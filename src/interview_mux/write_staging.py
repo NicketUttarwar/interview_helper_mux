@@ -468,6 +468,30 @@ def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
         record_pending_approval(ctx, stage_id)
         raise WriteApprovalPending(stage_id, list_pending_paths(ctx, stage_id))
 
+    if not write_approval_enabled():
+        return
+
+    from interview_mux.artifact_completeness import artifact_status
+    from interview_mux.llm_flow_hardening import CRITICAL_LLM_STAGES, producer_artifact_path
+
+    if stage_id not in CRITICAL_LLM_STAGES:
+        return
+    rel = producer_artifact_path(stage_id)
+    if not rel:
+        return
+    if artifact_status(rel, ctx) == "complete":
+        return
+    if has_pending_writes(ctx, stage_id):
+        return
+
+    msg = (
+        f"LLM stage gate ({stage_id}): no staged outputs — "
+        "LLM did not produce savable artifacts. Discard staged attempt and re-run."
+    )
+    set_llm_gate(ctx, stage_id, message=msg)
+    ctx.log(msg, level="action", stage=stage_id)
+    raise SystemExit(msg)
+
 
 def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     """Execute a stage function with optional write staging."""
@@ -485,6 +509,9 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
         from interview_mux.stage_input_checks import require_stage_inputs
 
         require_stage_inputs(ctx, stage_id)
+        from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+        maybe_require_upstream_llm_progress(ctx, stage_id)
         if write_approval_enabled():
             enter_stage_staging(stage_id)
         try:
@@ -537,6 +564,10 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
         function="write_staging.approve_stage_writes",
     )
     try:
+        if stage_id == "segment_classification":
+            from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
+
+            sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_id)
         flushed = flush_stage_writes(ctx, stage_id)
         from interview_mux.artifact_lifecycle import apply_fingerprints_on_flush, post_commit_validate
 

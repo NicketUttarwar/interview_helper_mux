@@ -299,6 +299,29 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     );
   }
 
+  const emptyStaging =
+    writePendingForStage && !paths.length && !loading && !loadError;
+
+  if (emptyStaging) {
+    return (
+      <section
+        id="write-approval-panel"
+        className="write-approval-panel write-approval-panel--empty panel-inset"
+        aria-label="No staged outputs"
+      >
+        <div className="write-approval-empty-state" role="alert">
+          <h3 className="stage-outputs-title">No staged files to review</h3>
+          <p className="hint">
+            The LLM stage did not produce savable outputs for <strong>{stage.title}</strong>.
+            Use <strong>Discard staged attempt</strong>, then re-run this stage. Check{" "}
+            <strong>Engineering debug</strong> below for the latest attempt record.
+          </p>
+        </div>
+        <ReviewPanelControls />
+      </section>
+    );
+  }
+
   if (!writePendingForStage && !paths.length && !loading && !stageComplete) return null;
 
   return (

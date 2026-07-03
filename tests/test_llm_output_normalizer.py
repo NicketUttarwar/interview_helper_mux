@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from interview_mux.field_necessity_registry import FieldAction, classify_field_path
+from interview_mux.field_necessity_registry import (
+    FieldAction,
+    classify_field_path,
+    parse_verification_error_path,
+)
 from interview_mux.llm_output_normalizer import normalize_llm_response
 from interview_mux.normalization_decision import (
     DownstreamAction,
@@ -14,6 +18,14 @@ from interview_mux.normalization_decision import (
 from interview_mux.null_field_policy import find_null_fields
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "llm_envelopes"
+
+
+def test_parse_verification_error_path_strips_envelope_prefix():
+    err = (
+        "envelope.artifacts.emotional_beats.0.segment_ids: "
+        "None is not of type 'array'"
+    )
+    assert parse_verification_error_path(err) == "emotional_beats.0.segment_ids"
 
 
 def test_classify_notes_nullable():
@@ -100,3 +112,56 @@ def test_find_null_fields_includes_notes():
     artifacts = {"speakers": [{"speaker_id": "a", "role": "unknown", "confidence": 0.5}], "notes": None}
     paths = find_null_fields("speaker_roles", artifacts)
     assert "notes" in paths
+
+
+def test_normalize_content_context_empty_string_arrays():
+    """LLM empty strings on array|null fields coerce to null and pass verification."""
+    from interview_mux.openai_structured_output import min_example_for_stage
+
+    raw = min_example_for_stage("content_context")
+    raw["status"] = "complete"
+    raw["needs"] = []
+    raw["follow_up_investigations"] = []
+    art = raw["artifacts"]
+    art["era_tags"] = ""
+    art["narrative_beats"] = ""
+    art["topic_relationships"] = ""
+    result = normalize_llm_response(
+        None,
+        interaction_id="OA-02",
+        parsed=raw,
+        stage_key="content_context",
+        task_kind="primary",
+    )
+    assert result.ok, result.verification_errors
+    normalized_art = result.normalized.get("artifacts") or {}
+    for field in ("era_tags", "narrative_beats", "topic_relationships"):
+        val = normalized_art.get(field)
+        assert val is None or val == [], f"{field} should be null or empty array, got {val!r}"
+
+
+def test_normalize_content_context_null_emotional_beat_segment_ids():
+    """Null segment_ids on emotional_beats coerce to [] and pass OA-02 verification."""
+    from interview_mux.openai_structured_output import min_example_for_stage
+
+    raw = min_example_for_stage("content_context")
+    raw["status"] = "complete"
+    raw["needs"] = []
+    raw["follow_up_investigations"] = []
+    raw["artifacts"]["emotional_beats"] = [
+        {"label": "tension", "description": "stakes rise", "segment_ids": None},
+        {"label": "humor", "description": "light moment", "segment_ids": None},
+        {"label": "vulnerability", "description": "personal share", "segment_ids": None},
+    ]
+    result = normalize_llm_response(
+        None,
+        interaction_id="OA-02",
+        parsed=raw,
+        stage_key="content_context",
+        task_kind="primary",
+    )
+    assert result.ok, result.verification_errors
+    beats = (result.normalized.get("artifacts") or {}).get("emotional_beats") or []
+    assert len(beats) == 3
+    for beat in beats:
+        assert beat.get("segment_ids") == []

@@ -44,6 +44,8 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "key_claims[].approx_time_range",
             "key_claims[].segment_ids",
             "key_claims[].evidence_segment_ids",
+            "emotional_beats[].segment_ids",
+            "emotional_beats[].description",
             "jargon_glossary[].first_segment_id",
         }
     ),
@@ -55,6 +57,8 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "key_claims",
             "topic_relationships",
             "key_claims[].approx_time_range",
+            "emotional_beats[].segment_ids",
+            "emotional_beats[].description",
             "jargon_glossary[].first_segment_id",
         }
     ),

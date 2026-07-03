@@ -1,0 +1,428 @@
+"""Shared helpers for downstream progression / cross-stage sanity checks."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from interview_mux.artifact_completeness import artifact_status
+from interview_mux.artifact_cross_validate import validate_cross_artifacts_for_stage
+from interview_mux.artifact_repairs import is_manifest_segment_id, sync_content_brief_topic_segment_ids
+from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
+from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import stage_artifact_incompleteness
+from interview_mux.stage_input_checks import collect_stage_input_issues
+from interview_mux.write_staging import record_pending_approval, staging_root
+
+FIXTURES_PATH = Path(__file__).parent / "fixtures" / "prompts" / "stage_artifacts.json"
+
+# ANALYSIS_ORDER index 11 = segment_classification (0-based).
+PROGRESSION_START_STAGE = "segment_classification"
+
+PROGRESSION_ANALYSIS_STAGES = ANALYSIS_ORDER[ANALYSIS_ORDER.index(PROGRESSION_START_STAGE) :]
+
+# Flow stages covered by stage_artifacts.json fixtures (audio/mix stages need ASSETS venvs).
+PROGRESSION_FLOW_STAGES = [
+    "topic_coverage_audit",
+    "narrative_arc_plan",
+    "full_master_ranking",
+    "transitions",
+    "sound_design_plan_flow1",
+    "edl_narrative_audit",
+    "highlight_selection",
+    "sound_design_plan_flow2",
+    "podcast_show_description",
+]
+
+FULL_PROGRESSION_CHAIN = [*PROGRESSION_ANALYSIS_STAGES, *PROGRESSION_FLOW_STAGES]
+
+
+def load_stage_fixtures() -> dict[str, Any]:
+    return json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
+
+
+def _enrich_boundaries(doc: dict[str, Any]) -> dict[str, Any]:
+    rows = doc.get("boundaries") or []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        enriched.setdefault("speaker_id", "spk_001")
+        enriched.setdefault("type", "interview")
+        out.append(enriched)
+    return {"boundaries": out}
+
+
+def seed_prefix_through_boundary(ctx: RunContext, fixtures: dict[str, Any]) -> None:
+    """Minimal committed artifacts for stages before segment_classification."""
+    from run_fixtures import (
+        init_run_meta_for_test,
+        minimal_content_brief,
+        minimal_manifest,
+        minimal_manifest_segment,
+        minimal_speakers,
+        minimal_source_acoustic_profile,
+        populated_analysis_state,
+    )
+
+    init_run_meta_for_test(ctx)
+    ctx.path("ingest").mkdir(parents=True, exist_ok=True)
+    (ctx.path("ingest") / "normalized.wav").write_bytes(b"RIFF" + b"\x00" * 64)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "segments": [
+                {
+                    "start_ms": 0,
+                    "end_ms": 12000,
+                    "speaker_id": "spk_001",
+                    "text": "Tell me about the founding constraints.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("understanding/speakers.json", fixtures.get("speaker_roles") or minimal_speakers(), skip_handoff=True)
+    ctx.write_json(
+        "understanding/content_brief.json",
+        fixtures.get("content_context") or minimal_content_brief(),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/analysis_state.json",
+        populated_analysis_state(ctx.run_id),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_acoustic_profile.json",
+        minimal_source_acoustic_profile(),
+        skip_handoff=True,
+    )
+    boundaries = _enrich_boundaries(
+        fixtures.get("boundary_detection")
+        or {
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 12000,
+                    "speaker_id": "spk_001",
+                    "proposed_split_reason": "topic_shift",
+                }
+            ]
+        }
+    )
+    ctx.write_json("segments/boundaries.json", boundaries, skip_handoff=True)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+        skip_handoff=True,
+    )
+    for sid in ANALYSIS_ORDER[: ANALYSIS_ORDER.index(PROGRESSION_START_STAGE)]:
+        ctx.mark_done(sid, force=True)
+    ctx.mark_done("transcript_review", force=True)
+    ctx.mark_done("disfluency_review", force=True)
+
+
+def build_manifest_from_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
+    """Merge boundary_detection + segment_classification fixtures into a full manifest."""
+    from run_fixtures import minimal_manifest_segment
+
+    boundaries_doc = _enrich_boundaries(fixtures.get("boundary_detection") or {})
+    boundaries = {
+        str(b.get("segment_id")): b
+        for b in boundaries_doc.get("boundaries") or []
+        if isinstance(b, dict) and b.get("segment_id")
+    }
+    rows = (fixtures.get("segment_classification") or {}).get("segments") or []
+    if not rows:
+        return {"segments": [minimal_manifest_segment()]}
+    segments: list[dict[str, Any]] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or f"seg_{i + 1:03d}")
+        base = dict(boundaries.get(sid) or {})
+        seg = {
+            **minimal_manifest_segment(
+                sid,
+                start_ms=int(base.get("start_ms", i * 5000)),
+                end_ms=int(base.get("end_ms", (i + 1) * 5000)),
+                text=str(base.get("text") or f"Segment {sid} transcript excerpt."),
+            ),
+            **row,
+        }
+        segments.append(seg)
+    return {"segments": segments}
+
+
+def _sound_design_plan_patch(stage_id: str, fixtures: dict[str, Any]) -> dict[str, Any]:
+    """Return only keys this stage owns — avoid empty default coherence clobbering palettes."""
+    partial = dict(fixtures.get(stage_id) or {})
+    if stage_id == "sound_design_plan_flow2":
+        flow_plans = dict(partial.get("flow_plans") or {})
+        flow2 = dict(flow_plans.get("flow2") or {})
+        cues = [
+            dict(cue)
+            for cue in (flow2.get("cues") or [])
+            if isinstance(cue, dict) and cue.get("placement") != "between_clips"
+        ]
+        if cues:
+            flow2["cues"] = cues
+            flow_plans["flow2"] = flow2
+            partial["flow_plans"] = flow_plans
+    return {k: v for k, v in partial.items() if k in ("assets", "flow_plans", "generated", "coherence", "palettes")}
+
+
+def _sound_design_plan_doc(stage_id: str, fixtures: dict[str, Any]) -> dict[str, Any]:
+    from run_fixtures import sound_design_plan_with
+
+    if stage_id == "sound_design_palettes":
+        partial = fixtures.get("sound_design_palettes") or {}
+        return sound_design_plan_with(
+            palettes=partial.get("palettes") or [],
+            coherence=partial.get("coherence") or {},
+        )
+    if stage_id in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+        return _sound_design_plan_patch(stage_id, fixtures)
+    return sound_design_plan_with()
+
+
+def write_stage_producer_artifact(
+    ctx: RunContext,
+    stage_id: str,
+    fixtures: dict[str, Any],
+) -> str | None:
+    """Write the on-disk producer artifact for ``stage_id``; return relative path."""
+    from interview_mux.artifact_writes import write_validated_artifact
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    if not rel:
+        return None
+    if stage_id == "segment_classification":
+        doc = build_manifest_from_fixtures(fixtures)
+    elif stage_id == "sonic_context_build":
+        sonic_path = Path(__file__).parent / "fixtures" / "sonic_context" / "fireside.json"
+        doc = json.loads(sonic_path.read_text(encoding="utf-8"))
+    elif stage_id in ("sound_design_palettes", "sound_design_plan_flow1", "sound_design_plan_flow2"):
+        doc = _sound_design_plan_doc(stage_id, fixtures)
+    elif stage_id == "transitions":
+        doc = dict(fixtures.get("transitions") or {})
+        for tr in doc.get("transitions") or []:
+            if isinstance(tr, dict):
+                tr["before_segment_id"] = "seg_001"
+                tr["after_segment_id"] = "seg_001"
+    elif stage_id in fixtures:
+        doc = fixtures[stage_id]
+    else:
+        return None
+    write_validated_artifact(
+        ctx,
+        rel,
+        doc,
+        merge_from_disk=stage_id in ("sound_design_plan_flow1", "sound_design_plan_flow2"),
+        stage_key=stage_id,
+    )
+    return rel
+
+
+def validate_stage_committed(ctx: RunContext, stage_id: str) -> list[str]:
+    """Return human-readable validation failures (empty = OK)."""
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    if not rel or not ctx.artifact_exists(rel):
+        return [f"{stage_id}: missing producer artifact {rel}"]
+    doc = ctx.read_json(rel)
+    failures: list[str] = []
+    failures.extend(validate_artifact_write(rel, doc))
+    incompleteness = stage_artifact_incompleteness(ctx, stage_id)
+    if incompleteness:
+        failures.append(f"{stage_id}: {incompleteness}")
+    status = artifact_status(rel, ctx)
+    if status != "complete":
+        failures.append(f"{stage_id}: artifact status {status}")
+    failures.extend(validate_cross_artifacts_for_stage(ctx, stage_id, staged=False))
+    return failures
+
+
+def validate_downstream_inputs(ctx: RunContext, next_stage_id: str) -> list[str]:
+    """Check stage-input readiness; ignore flow-selection gates in fixture chain tests."""
+    skip_gate_stages = frozenset({"g2_flow_select", "analysis_profile", "g1_vo_pickup"})
+    if next_stage_id in skip_gate_stages:
+        return []
+    issues = collect_stage_input_issues(ctx, next_stage_id)
+    return [f"{next_stage_id}: {issue.message}" for issue in issues]
+
+
+def prepare_flow_chain_gates(ctx: RunContext) -> None:
+    """Minimal run_meta + gate markers so flow fixture stages can be input-checked."""
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["selected_flow"] = "flow1"
+    meta.setdefault("handoff_ack", {})
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    ctx.mark_done("analysis_profile", force=True)
+    ctx.mark_done("g2_flow_select", force=True)
+    ctx.mark_done("g1_vo_pickup", force=True)
+    ctx.mark_done("vo_ingest", force=True)
+    state = ctx.read_json("understanding/analysis_state.json")
+    if isinstance(state, dict):
+        state.setdefault("meta", {})["operator_verified"] = True
+        ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
+    ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []}, skip_handoff=True)
+
+
+def validate_content_brief_segment_id_hygiene(ctx: RunContext) -> list[str]:
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        return ["content_brief.json missing"]
+    brief = ctx.read_json("understanding/content_brief.json")
+    manifest_ids: set[str] = set()
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        manifest_ids = {
+            str(s.get("segment_id"))
+            for s in (manifest.get("segments") or [])
+            if isinstance(s, dict) and s.get("segment_id")
+        }
+    failures: list[str] = []
+    for i, topic in enumerate(brief.get("topics") or []):
+        if not isinstance(topic, dict):
+            continue
+        for sid in topic.get("segment_ids") or []:
+            s = str(sid)
+            if not is_manifest_segment_id(s):
+                failures.append(f"topics[{i}] invalid segment_id format: {s}")
+            elif manifest_ids and s not in manifest_ids:
+                failures.append(f"topics[{i}] segment_id {s} not in manifest")
+    return failures
+
+
+def simulate_segment_classification_write_approval(
+    ctx: RunContext,
+    fixtures: dict[str, Any],
+    *,
+    placeholder_topic_ids: bool = True,
+) -> list[str]:
+    """
+    Regression: staged manifest + placeholder topic ids must unblock after sync/finalize.
+    Returns validation failures (empty = OK).
+    """
+    from interview_mux.artifact_issue_triage import (
+        assert_write_approval_itr_ok,
+        get_propagation_plan,
+    )
+    from interview_mux.operator_decisions import clear_stage_decisions, pending_decision_count
+    from interview_mux.write_staging import assert_write_approval_allowed, write_pending_content
+
+    stage_key = "segment_classification"
+    manifest = build_manifest_from_fixtures(fixtures)
+    write_pending_content(ctx, stage_key, "segments/manifest.json", data=manifest)
+    record_pending_approval(ctx, stage_key)
+
+    brief = ctx.read_json("understanding/content_brief.json")
+    if placeholder_topic_ids and isinstance(brief, dict):
+        topics = brief.get("topics") or []
+        if topics and isinstance(topics[0], dict):
+            topics[0] = {**topics[0], "segment_ids": ["t_placeholder_topic"]}
+            brief["topics"] = topics
+            ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+
+    sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_key)
+    clear_stage_decisions(ctx, stage_key)
+
+    failures: list[str] = []
+    failures.extend(validate_content_brief_segment_id_hygiene(ctx))
+
+    plan = get_propagation_plan(ctx, stage_key, overlay_stage=stage_key)
+    if plan.get("has_blocking"):
+        failures.append(
+            "unexpected propagation block: "
+            + "; ".join((plan.get("cross_errors") or [])[:4])
+        )
+
+    if pending_decision_count(ctx, stage_key) > 0:
+        failures.append(f"{stage_key}: pending operator decisions remain")
+    try:
+        assert_write_approval_allowed(ctx, stage_key)
+        assert_write_approval_itr_ok(ctx, stage_key)
+    except Exception as exc:
+        failures.append(f"{stage_key}: write approval blocked — {exc}")
+    return failures
+
+
+def run_progression_chain_sanity(
+    ctx: RunContext,
+    *,
+    chain: list[str] | None = None,
+    include_write_approval_regression: bool = True,
+) -> dict[str, Any]:
+    """Walk the chain stage-by-stage; return structured report."""
+    fixtures = load_stage_fixtures()
+    seed_prefix_through_boundary(ctx, fixtures)
+    chain = list(chain or FULL_PROGRESSION_CHAIN)
+    report: dict[str, Any] = {
+        "chain": chain,
+        "stages": {},
+        "failures": [],
+        "ok": True,
+    }
+
+    if any(s in PROGRESSION_FLOW_STAGES for s in chain):
+        prepare_flow_chain_gates(ctx)
+
+    if include_write_approval_regression and PROGRESSION_START_STAGE in chain:
+        wa_failures = simulate_segment_classification_write_approval(ctx, fixtures)
+        report["write_approval_regression"] = wa_failures
+        if wa_failures:
+            report["failures"].extend(wa_failures)
+            report["ok"] = False
+        manifest = build_manifest_from_fixtures(fixtures)
+        ctx.write_json("segments/manifest.json", manifest, skip_handoff=True)
+        sync_content_brief_topic_segment_ids(ctx)
+        ctx.mark_done("segment_classification", force=True)
+        from interview_mux.write_staging import discard_stage_writes
+
+        discard_stage_writes(ctx, "segment_classification")
+
+    for stage_id in chain:
+        stage_report: dict[str, Any] = {"stage_id": stage_id}
+        if stage_id == PROGRESSION_START_STAGE and include_write_approval_regression:
+            stage_report["skipped_commit"] = "covered by write-approval regression"
+            report["stages"][stage_id] = stage_report
+            continue
+
+        rel = write_stage_producer_artifact(ctx, stage_id, fixtures)
+        if not rel:
+            stage_report["skipped"] = "no fixture producer artifact"
+            report["stages"][stage_id] = stage_report
+            continue
+
+        failures = validate_stage_committed(ctx, stage_id)
+        stage_report["artifact_path"] = rel
+        stage_report["failures"] = failures
+
+        idx = chain.index(stage_id)
+        if idx + 1 < len(chain):
+            next_stage = chain[idx + 1]
+            downstream = validate_downstream_inputs(ctx, next_stage)
+            stage_report["downstream_input_failures"] = downstream
+            failures = [*failures, *downstream]
+
+        if stage_id in ("segment_classification", "content_brief_reanchor", "content_context"):
+            failures.extend(validate_content_brief_segment_id_hygiene(ctx))
+            stage_report["content_brief_segment_failures"] = validate_content_brief_segment_id_hygiene(ctx)
+
+        if stage_id == "segment_classification":
+            sync_content_brief_topic_segment_ids(ctx)
+
+        ctx.mark_done(stage_id, force=True)
+        stage_report["ok"] = not failures
+        report["stages"][stage_id] = stage_report
+        if failures:
+            report["ok"] = False
+            report["failures"].extend(f"{stage_id}: {f}" for f in failures)
+
+    return report

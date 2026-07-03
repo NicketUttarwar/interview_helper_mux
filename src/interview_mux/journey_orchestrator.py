@@ -314,6 +314,30 @@ def _blocking(
                     break
 
     if not blocked:
+        from interview_mux.progression_spine import (
+            first_incomplete_p0_stage,
+            p0_stage_remediation,
+        )
+        from interview_mux.web.stages import operator_linear_stage_ids
+
+        p0 = first_incomplete_p0_stage(ctx)
+        if p0:
+            pending = _next_pending_stage_ids(ctx)
+            if pending:
+                flow = get_selected_flow(ctx)
+                order = operator_linear_stage_ids(flow)
+                try:
+                    p0_idx = order.index(p0)
+                    pend_idx = order.index(pending[0])
+                    if pend_idx > p0_idx:
+                        blocked = True
+                        reason = "upstream_incomplete"
+                        stage_id = p0
+                        message = p0_stage_remediation(ctx, p0)
+                except ValueError:
+                    pass
+
+    if not blocked:
         from interview_mux.stage_execution_reuse import (
             reuse_candidates_if_undecided,
             stage_reuse_offers_enabled,

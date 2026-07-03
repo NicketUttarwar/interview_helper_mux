@@ -80,3 +80,33 @@ def test_t10_complete_job_no_write_approval_fields() -> None:
 
     clean_job = {"status": "complete", "stage": "ingest"}
     assert not validate_run_snapshot(stages=[], job=clean_job)
+
+
+def test_t11_volley_conclusion_requires_producer_artifact() -> None:
+    stages = [
+        {
+            "id": "boundary_detection",
+            "status": "incomplete",
+            "artifacts_status": {"segments/boundaries.json": "pending"},
+            "artifacts_lifecycle": {"segments/boundaries.json": "missing"},
+            "artifacts_staged": [],
+        }
+    ]
+    analysis_state = {
+        "meta": {
+            "stage_summaries": {
+                "boundary_detection": {"reasoning_summary": "done-ish"},
+            }
+        }
+    }
+    v = validate_run_snapshot(stages=stages, analysis_state=analysis_state)
+    assert any(x.code == "T11" and "boundaries.json" in x.message for x in v)
+
+    ok_stages = [
+        {
+            **stages[0],
+            "artifacts_status": {"segments/boundaries.json": "complete"},
+            "artifacts_lifecycle": {"segments/boundaries.json": "committed"},
+        }
+    ]
+    assert not validate_run_snapshot(stages=ok_stages, analysis_state=analysis_state)

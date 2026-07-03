@@ -187,11 +187,13 @@ def classify_field_path(
 def parse_verification_error_path(error: str) -> str | None:
     """Extract artifact field path from jsonschema error message."""
     err = error.strip()
-    if err.startswith("envelope."):
+    if ": " not in err:
         return None
-    if ": " in err:
-        loc = err.split(": ", 1)[0].strip()
-        if loc in ("(root)", "root"):
-            return None
-        return loc
-    return None
+    loc = err.split(": ", 1)[0].strip()
+    for prefix in ("envelope.artifacts.", "artifacts.", "envelope."):
+        if loc.startswith(prefix):
+            loc = loc[len(prefix) :]
+            break
+    if loc in ("(root)", "root"):
+        return None
+    return loc

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator
 
 from interview_mux.analysis_memory import enqueue_investigations, load_analysis_state, save_analysis_state
 from interview_mux.artifact_completeness import artifact_status, compute_gaps
@@ -10,19 +12,64 @@ from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
+_cross_validate_overlay_stage: ContextVar[str | None] = ContextVar(
+    "cross_validate_overlay_stage",
+    default=None,
+)
+
+
+@contextmanager
+def cross_validate_pending_overlay(ctx: RunContext, stage_id: str | None) -> Iterator[None]:
+    """Treat pending writes for ``stage_id`` as committed during cross-validation."""
+    if not stage_id:
+        yield
+        return
+    from interview_mux.write_staging import list_pending_paths
+
+    if not list_pending_paths(ctx, stage_id):
+        yield
+        return
+    token = _cross_validate_overlay_stage.set(stage_id)
+    try:
+        yield
+    finally:
+        _cross_validate_overlay_stage.reset(token)
+
+
+def _overlay_stage_id() -> str | None:
+    return _cross_validate_overlay_stage.get()
+
+
+def _overlay_pending_path(ctx: RunContext, rel: str) -> Any | None:
+    """Return staged path for ``rel`` when write-approval overlay is active."""
+    overlay = _overlay_stage_id()
+    if not overlay:
+        return None
+    from interview_mux.write_staging import list_pending_paths, staged_path
+
+    if rel not in list_pending_paths(ctx, overlay):
+        return None
+    candidate = staged_path(ctx, rel, stage_id=overlay)
+    return candidate if candidate.is_file() else None
+
 
 def _committed_json(ctx: RunContext, rel: str) -> Any | None:
-    """Read committed artifact JSON (never staged pending writes)."""
+    """Read committed artifact JSON; overlay pending writes during write approval."""
     from interview_mux.file_store import read_json as fs_read_json
 
     p = ctx.final_path(*rel.split("/"))
-    if not p.is_file():
-        return None
-    return fs_read_json(p)
+    if p.is_file():
+        return fs_read_json(p)
+    overlay = _overlay_pending_path(ctx, rel)
+    if overlay is not None:
+        return fs_read_json(overlay)
+    return None
 
 
 def _committed_exists(ctx: RunContext, rel: str) -> bool:
-    return ctx.final_path(*rel.split("/")).is_file()
+    if ctx.final_path(*rel.split("/")).is_file():
+        return True
+    return _overlay_pending_path(ctx, rel) is not None
 
 HARD_CHECKPOINTS = frozenset(
     {

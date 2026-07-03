@@ -17,7 +17,7 @@ import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
 import { buildNumberedStages, resolvePipelineNav } from "./pipelineNavigation";
 import { firstTodoItem } from "./stageGuidance";
 import { resolvePendingWritePaths } from "./writeApproval";
-import { stageHasCommittedOutputs, stageIncompleteReason } from "./stageOutputs";
+import { stageHasCommittedOutputs, stageIncompleteReason, firstUpstreamBlocker } from "./stageOutputs";
 
 const MODE_LABELS: Record<StepMode, string> = {
   locked: "Waiting",
@@ -309,16 +309,42 @@ function buildLockedAction(stage: StageInfo): OperatorAction {
   };
 }
 
+function runStageBlocked(run: RunData, stageId: string): StageInfo | null {
+  const upstream = firstUpstreamBlocker(run.stages, stageId);
+  if (upstream && upstream.id !== stageId) return upstream;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id && blocking.stage_id !== stageId) {
+    const blocker = stageById(run, blocking.stage_id);
+    if (blocker) return blocker;
+  }
+  const job = run.job;
+  if (
+    job?.status === "gate" ||
+    job?.status === "needs_clarification" ||
+    job?.awaiting_write_approval
+  ) {
+    const gateStage = job.pending_write_stage || job.stage;
+    if (gateStage && gateStage !== stageId) {
+      const blocker = stageById(run, gateStage);
+      if (blocker) return blocker;
+    }
+  }
+  return null;
+}
+
 function buildIdleAction(run: RunData, stage: StageInfo): OperatorAction {
+  const blocker = runStageBlocked(run, stage.id);
   return {
     mode: "idle",
     stageId: stage.id,
     substepId: "run",
-    headline: `Ready — run ${stage.title}`,
-    subline: "Starts this step and writes outputs when complete.",
+    headline: blocker ? `Blocked — finish ${blocker.title} first` : `Ready — run ${stage.title}`,
+    subline: blocker
+      ? stageIncompleteReason(blocker) || "Complete the upstream stage before running this one."
+      : "Starts this step and writes outputs when complete.",
     primaryLabel: `Run ${stage.title}`,
     primaryKind: "run_stage",
-    primaryDisabled: false,
+    primaryDisabled: Boolean(blocker),
     modalAutoOpen: false,
   };
 }
@@ -622,20 +648,24 @@ export function resolveOperatorActionForStage(
   if (nav.nextStage?.id === stageId && stage.status === "pending") {
     const prereqs = (stage.guidance?.prerequisites || []).some((i) => i.status === "todo");
     if (prereqs) return buildLockedAction(stage);
-    return buildIdleAction(run, stage);
+    const action = buildIdleAction(run, stage);
+    return action;
   }
 
   if (global.stageId === stageId) return global;
 
+  const blocker = runStageBlocked(run, stageId);
   return {
     mode: "idle",
     stageId,
     substepId: null,
     headline: stage.title,
-    subline: stage.description?.split(".")[0] ?? null,
+    subline: blocker
+      ? `Blocked by ${blocker.title} — complete upstream outputs first.`
+      : stage.description?.split(".")[0] ?? null,
     primaryLabel: nav.nextStage?.id === stageId ? `Run ${stage.title}` : "Select when ready",
     primaryKind: nav.nextStage?.id === stageId ? "run_stage" : "none",
-    primaryDisabled: nav.nextStage?.id !== stageId,
+    primaryDisabled: nav.nextStage?.id !== stageId || Boolean(blocker),
     modalAutoOpen: false,
   };
 }

@@ -51,6 +51,7 @@ import {
   resolvePrecleanOffer,
 } from "../utils/preclean";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "../utils/writeApproval";
+import { firstUpstreamBlocker } from "../utils/stageOutputs";
 import { runStepPrimaryPrep, runStepPrimaryPreps } from "../utils/stepPrimaryPrep";
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { guardBusy } from "../utils/guardBusy";
@@ -1160,6 +1161,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
           `Review outputs from ${handoffStage.title} on the Pipeline tab, then acknowledge to continue.`,
         );
         await selectStage(handoffStage.id);
+        return false;
+      }
+      if (run?.stages?.length) {
+        const upstream = firstUpstreamBlocker(run.stages, stageId);
+        if (upstream) {
+          showToast(
+            `Complete ${upstream.title} before running ${stageId.replace(/_/g, " ")}.`,
+            "warning",
+          );
+          await selectStage(upstream.id);
+          return false;
+        }
+      }
+      const blocking = run?.journey?.blocking ?? run?.blocking;
+      if (blocking?.blocked && blocking.stage_id && blocking.stage_id !== stageId) {
+        showToast(blocking.message || "Complete the blocking stage first.", "warning");
+        await selectStage(blocking.stage_id);
+        return false;
+      }
+      const job = run?.job;
+      if (
+        job &&
+        (job.status === "gate" ||
+          job.status === "needs_clarification" ||
+          job.awaiting_write_approval) &&
+        job.stage &&
+        job.stage !== stageId
+      ) {
+        showToast("Finish the open gate or review step before starting another stage.", "warning");
+        await selectStage(job.pending_write_stage || job.stage);
         return false;
       }
       const label =

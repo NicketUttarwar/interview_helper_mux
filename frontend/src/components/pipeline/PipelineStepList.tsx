@@ -9,6 +9,7 @@ import {
 import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stageSubsteps";
 import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { stageNeedsAttention } from "../../utils/attentionQueue";
+import { firstUpstreamBlocker } from "../../utils/stageOutputs";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
@@ -176,6 +177,7 @@ export function PipelineStepList() {
             );
 
           const skipped = status === "skipped";
+          const upstreamBlocker = firstUpstreamBlocker(run.stages, entry.stage.id);
           const metaSuffix = skipped
             ? " · skipped"
             : isError
@@ -246,6 +248,12 @@ export function PipelineStepList() {
                       </span>
                       <span className="pipeline-step-meta muted">
                         {entry.phaseLabel} · step {entry.number}
+                        {upstreamBlocker ? (
+                          <span className="pipeline-step-blocked-chip" title={`Blocked by ${upstreamBlocker.title}`}>
+                            {" "}
+                            · Blocked by {upstreamBlocker.title}
+                          </span>
+                        ) : null}
                         {stageHadAutoNavigation(entry.stage.id) ? " · guided" : ""}
                         {metaSuffix}
                         {progress.activeSubstep && (expanded || isSelected) && !metaSuffix

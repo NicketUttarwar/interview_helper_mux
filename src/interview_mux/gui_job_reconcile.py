@@ -118,6 +118,34 @@ def _mark_stalled(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def reconcile_stale_write_approval_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Clear awaiting_write_approval when staged files were already flushed or discarded."""
+    if str(job.get("status")) != "awaiting_write_approval":
+        return job
+    from interview_mux.write_staging import list_pending_paths
+
+    stage_id = str(job.get("pending_write_stage") or job.get("stage") or "")
+    if not stage_id:
+        return job
+    if list_pending_paths(ctx, stage_id):
+        return job
+
+    out = dict(job)
+    if ctx.is_done(stage_id):
+        out["status"] = "complete"
+        out["message"] = "Outputs saved — continue to the next stage."
+    else:
+        out["status"] = "complete"
+        out["message"] = f"No staged outputs for {stage_id} — re-run if files are missing."
+    out["stage"] = stage_id
+    out.pop("current_stage", None)
+    out.pop("pending_write_stage", None)
+    out.pop("pending_write_paths", None)
+    out.pop("awaiting_write_approval", None)
+    out.pop("error", None)
+    return out
+
+
 def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     """Clear stale operator checkpoint gates once the checkpoint has been satisfied."""
     if str(job.get("status")) != "gate":
@@ -332,6 +360,10 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     if sanitized is not data and sanitized != data:
         ctx.write_json("gui_job.json", sanitized)
         data = sanitized
+    write_reconciled = reconcile_stale_write_approval_job(ctx, data)
+    if write_reconciled is not data:
+        ctx.write_json("gui_job.json", write_reconciled)
+        data = write_reconciled
     reconciled = reconcile_operator_gate_job(ctx, data)
     if reconciled is not data:
         ctx.write_json("gui_job.json", reconciled)

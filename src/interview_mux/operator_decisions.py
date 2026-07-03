@@ -57,8 +57,32 @@ def _load_doc(ctx: Any) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {"by_stage": {}}
 
 
-def _write_doc(ctx: Any, doc: dict[str, Any]) -> None:
-    ctx.write_json(_STORE_PATH, doc, skip_handoff=True)
+def _decisions_staging_overlay(ctx: Any, stage_key: str | None = None) -> str | None:
+    """Stage whose pending write root holds operator_decisions during write approval."""
+    from interview_mux.write_staging import has_pending_writes, pending_stage_for_path
+
+    overlay = pending_stage_for_path(ctx, _STORE_PATH)
+    if overlay:
+        return overlay
+    if stage_key and has_pending_writes(ctx, stage_key):
+        return stage_key
+    return None
+
+
+def _write_doc(ctx: Any, doc: dict[str, Any], *, stage_key: str | None = None) -> None:
+    """Persist decisions to committed disk and mirror into active staging when present."""
+    from interview_mux.file_store import write_json as fs_write_json
+    from interview_mux.write_staging import staged_path
+
+    committed = ctx.final_path(*_STORE_PATH.split("/"))
+    committed.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(committed, doc)
+
+    overlay = _decisions_staging_overlay(ctx, stage_key)
+    if overlay:
+        staged = staged_path(ctx, _STORE_PATH, stage_id=overlay)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        fs_write_json(staged, doc)
 
 
 def _stage_bucket(doc: dict[str, Any], stage_key: str) -> dict[str, Any]:
@@ -87,7 +111,7 @@ def set_stage_decisions(
     bucket["cursor"] = 0
     bucket["warnings"] = list(warnings or [])
     bucket["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _write_doc(ctx, doc)
+    _write_doc(ctx, doc, stage_key=stage_key)
 
 
 def append_stage_decisions(ctx: Any, stage_key: str, decisions: list[OperatorDecision]) -> None:
@@ -103,7 +127,7 @@ def append_stage_decisions(ctx: Any, stage_key: str, decisions: list[OperatorDec
         if isinstance(rows, list):
             rows.append(dec.to_dict())
     bucket["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _write_doc(ctx, doc)
+    _write_doc(ctx, doc, stage_key=stage_key)
 
 
 def clear_stage_decisions(ctx: Any, stage_key: str) -> None:
@@ -111,7 +135,7 @@ def clear_stage_decisions(ctx: Any, stage_key: str) -> None:
     by_stage = doc.get("by_stage")
     if isinstance(by_stage, dict) and stage_key in by_stage:
         del by_stage[stage_key]
-        _write_doc(ctx, doc)
+        _write_doc(ctx, doc, stage_key=stage_key)
 
 
 def pending_decision_count(ctx: Any, stage_key: str) -> int:
@@ -149,7 +173,7 @@ def mark_decision_resolved(ctx: Any, stage_key: str, decision_id: str) -> None:
     if not open_left:
         bucket["decisions"] = []
     bucket["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _write_doc(ctx, doc)
+    _write_doc(ctx, doc, stage_key=stage_key)
 
 
 def stage_decisions_summary(ctx: Any, stage_key: str) -> dict[str, Any]:

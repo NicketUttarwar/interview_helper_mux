@@ -122,6 +122,20 @@ E2E: `CURSOR_EXECUTE/flow1-gui-e2e/run.sh` — prefer `step-action-primary` → 
 
 ---
 
+## Manual progression (shipped default)
+
+With `journey_ui.auto_advance_pipeline: false`:
+
+1. **Run order** — Resolve artifact issues (ITR / `needs_clarification`) **before** write approval when both are open (`resolveActiveStep`, `resolveStageWorkbenchProgress`).
+2. **Empty staging** — P0 LLM stages with no `.pending_writes/` files set an LLM gate on the backend; GUI shows *No staged files to review* and disables **Save** (`WriteApprovalPanel`, `StageParentProgressBanner`).
+3. **Upstream guards** — Manual **Run** is blocked when `firstUpstreamBlocker` or journey `upstream_incomplete` points at an earlier P0 stage (`beginStageExecution`, `resolveOperatorAction`).
+4. **After save** — `advancePipeline` focuses the next stage and toasts *Ready for … — use Run when you want to start*; it does **not** POST execute unless autopilot is enabled.
+5. **Sidebar** — Steps list shows *Blocked by {upstream title}* when downstream P0 artifacts are incomplete.
+
+Autopilot checkpoint resolution (`tryAutopilotCheckpointResolution`) is a no-op when autopilot is off.
+
+---
+
 ## Doc maintenance
 
 When adding a new gate, panel, or primary CTA, update this file, [gui-surface-map.md](./gui-surface-map.md), [operator-stage-checklists.md](./operator-stage-checklists.md), and extend `buttonSanity` / `gateAdvance` tests as needed.

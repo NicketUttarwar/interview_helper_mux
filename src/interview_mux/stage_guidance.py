@@ -316,7 +316,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
             _guidance_item(
                 "cross_validate",
                 f"Cross-artifact checkpoint after run: {checkpoint}",
-                "done" if ctx.is_done(stage_id) else "todo",
+                "done" if ctx.is_done(stage_id) else "waiting",
             )
         )
     if stage_id in ("mix_flow1", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):

@@ -31,8 +31,43 @@ VALID_SEGMENT_TYPES = frozenset(
     }
 )
 
+_MANIFEST_SEGMENT_ID_RE = re.compile(r"^seg_\d+$", re.IGNORECASE)
 
-def _text_jaccard(a: str, b: str) -> float:
+
+def is_manifest_segment_id(value: str) -> bool:
+    """True when ``value`` matches canonical manifest segment_id format."""
+    return bool(_MANIFEST_SEGMENT_ID_RE.match(str(value).strip()))
+
+
+def _normalize_topic_label(name: str) -> str:
+    return (
+        str(name or "")
+        .lower()
+        .strip()
+        .replace("&", "and")
+        .replace(":", " ")
+        .replace("-", " ")
+    )
+
+
+def _topic_name_matches_tag(name: str, tag: str) -> bool:
+    norm_name = _normalize_topic_label(name).replace(" ", "_")
+    norm_tag = str(tag or "").lower().strip().replace(" ", "_")
+    if not norm_name or not norm_tag:
+        return False
+    if norm_tag in norm_name or norm_name in norm_tag:
+        return True
+    name_tokens = {t for t in re.split(r"[_\s]+", norm_name) if len(t) > 3}
+    tag_tokens = {t for t in re.split(r"[_\s]+", norm_tag) if len(t) > 3}
+    return bool(name_tokens & tag_tokens)
+
+
+def _sanitize_topic_segment_ids(seg_ids: list[Any], manifest_ids: set[str]) -> list[str]:
+    if manifest_ids:
+        return [str(s) for s in seg_ids if str(s) in manifest_ids]
+    return [str(s) for s in seg_ids if is_manifest_segment_id(str(s))]
+
+
     ta = set(a.lower().split())
     tb = set(b.lower().split())
     if not ta and not tb:
@@ -427,6 +462,13 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
             if not evidence and str(claim.get("claim") or claim.get("text") or "").strip():
                 applied.append({"action": "drop_row", "path": f"key_claims[{i}]", "reason": "no_evidence"})
                 continue
+            for field in ("segment_ids", "evidence_segment_ids"):
+                vals = claim.get(field)
+                if isinstance(vals, list):
+                    cleaned = _sanitize_topic_segment_ids(vals, manifest_ids)
+                    if cleaned != vals:
+                        claim[field] = cleaned
+                        applied.append({"action": "drop_orphan_ref", "path": f"key_claims[{i}].{field}"})
             kept_claims.append(claim)
         out["key_claims"] = kept_claims
 
@@ -448,16 +490,15 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
             applied.append({"action": "drop_row", "path": f"topics[{i}]", "reason": "generic_theme"})
             continue
         seg_ids = topic.get("segment_ids")
-        if isinstance(seg_ids, list) and manifest_ids:
-            cleaned = [s for s in seg_ids if str(s) in manifest_ids]
+        if isinstance(seg_ids, list):
+            cleaned = _sanitize_topic_segment_ids(seg_ids, manifest_ids)
             if cleaned != seg_ids:
                 topic["segment_ids"] = cleaned
                 applied.append({"action": "drop_orphan_ref", "path": f"topics[{i}].segment_ids"})
         if not topic.get("segment_ids"):
-            norm_name = name.replace(" ", "_")
             matched: list[str] = []
             for tag, sids in tag_to_segments.items():
-                if norm_name and (norm_name in tag or tag in norm_name):
+                if _topic_name_matches_tag(name, tag):
                     matched.extend(sids)
             if matched:
                 topic["segment_ids"] = sorted(set(matched))
@@ -468,6 +509,32 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def sync_content_brief_topic_segment_ids(
+    ctx: Any,
+    *,
+    overlay_stage: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Align content_brief topic segment_ids with manifest topic_tags and persist to disk.
+
+    Uses staged manifest when ``overlay_stage`` has pending writes (write-approval path).
+    """
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        return []
+    from interview_mux.artifact_cross_validate import cross_validate_pending_overlay
+
+    with cross_validate_pending_overlay(ctx, overlay_stage):
+        brief = ctx.read_json("understanding/content_brief.json")
+    if not isinstance(brief, dict):
+        return []
+    with cross_validate_pending_overlay(ctx, overlay_stage):
+        repaired, applied = repair_content_brief(ctx, brief)
+    if not applied:
+        return []
+    ctx.write_json("understanding/content_brief.json", repaired, skip_handoff=True)
+    return applied
 
 
 def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:

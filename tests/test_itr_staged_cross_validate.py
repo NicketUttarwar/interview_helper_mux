@@ -20,11 +20,14 @@ from run_fixtures import isolated_run_ctx, patch_merged_config
 
 def _itr_config() -> dict:
     return {
+        "journey_ui": {
+            "require_write_approval_per_stage": True,
+            "full_autopilot": False,
+        },
         "analysis": {
             "artifact_issue_triage": {"enabled": True, "max_auto_resolve_attempts_per_stage": 1},
             "flow_hardening": {"enabled": True},
         },
-        "journey_ui": {"require_write_approval_per_stage": True},
     }
 
 
@@ -79,6 +82,32 @@ def test_staged_cross_validate_uses_staged_boundaries(tmp_path, monkeypatch: pyt
 
     ok, repair_errors = revalidate_after_repair(ctx, "boundary_detection", staged=True)
     assert ok, repair_errors
+
+
+def test_write_approval_not_blocked_before_first_commit(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.artifact_issue_triage import assert_write_approval_itr_ok
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _itr_config())
+    ctx = isolated_run_ctx(tmp_path, "itr_save_overlay")
+    write_pending_content(
+        ctx,
+        "boundary_detection",
+        "segments/boundaries.json",
+        data={
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 2000,
+                    "speaker_id": "spk_1",
+                    "proposed_split_reason": "topic_shift",
+                },
+            ]
+        },
+    )
+    assert not ctx.final_path("segments", "boundaries.json").is_file()
+    assert_write_approval_itr_ok(ctx, "boundary_detection")
 
 
 def test_set_clarification_gate_defers_while_running(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

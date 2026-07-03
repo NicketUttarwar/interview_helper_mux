@@ -5,8 +5,8 @@ import { resolveReviewGateSpec, type ReviewGateSpec } from "./resolveReviewGate"
 import { stageAwaitingWriteApproval } from "./writeApproval";
 
 const STEP_PRIORITY = [
-  "write_approval",
   "artifact_clarification",
+  "write_approval",
   "operator_decisions",
   "handoff",
   "complete_g0",
@@ -44,11 +44,29 @@ export function findActionableWorkbenchSteps(
 ): StageStep[] {
   const steps = stage.guidance?.steps ?? [];
   const actionable = steps.filter((s) => stepNeedsAction(s, stage, run));
+  const itrBlocksStage =
+    run &&
+    run.job?.stage === stage.id &&
+    (run.job.status === "needs_clarification" || Number(run.job.itr_blocking_count ?? 0) > 0);
   return actionable.sort((a, b) => {
-    const ai = STEP_PRIORITY.indexOf(a.id as (typeof STEP_PRIORITY)[number]);
-    const bi = STEP_PRIORITY.indexOf(b.id as (typeof STEP_PRIORITY)[number]);
-    const ar = ai >= 0 ? ai : STEP_PRIORITY.length;
-    const br = bi >= 0 ? bi : STEP_PRIORITY.length;
+    const sortKey = (step: StageStep) => {
+      if (
+        itrBlocksStage &&
+        (step.id === "artifact_clarification" || step.kind === "artifact_clarification")
+      ) {
+        return -1;
+      }
+      if (
+        itrBlocksStage &&
+        (step.id === "write_approval" || step.kind === "write_approval")
+      ) {
+        return STEP_PRIORITY.length + 1;
+      }
+      const idx = STEP_PRIORITY.indexOf(step.id as (typeof STEP_PRIORITY)[number]);
+      return idx >= 0 ? idx : STEP_PRIORITY.length;
+    };
+    const ar = sortKey(a);
+    const br = sortKey(b);
     if (ar !== br) return ar - br;
     return a.number - b.number;
   });

@@ -93,6 +93,58 @@ def _delete_null_leaves(artifacts: dict[str, Any], paths: list[str]) -> dict[str
     return out
 
 
+# Optional array-typed leaves — JSON null must become [] before schema verify.
+_OPTIONAL_ARRAY_LEAVES: frozenset[str] = frozenset(
+    {
+        "segment_ids",
+        "evidence_segment_ids",
+        "depends_on_claim_ids",
+        "topic_tags",
+        "excluded_segment_ids",
+        "keywords",
+        "ordering_constraints",
+    }
+)
+
+
+def _coerce_empty_strings_to_null(obj: Any) -> Any:
+    """LLMs often emit '' for unavailable array/null fields — treat as JSON null."""
+    if obj == "":
+        return None
+    if isinstance(obj, dict):
+        return {k: _coerce_empty_strings_to_null(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_coerce_empty_strings_to_null(item) for item in obj]
+    return obj
+
+
+def _coerce_null_array_leaves(obj: Any) -> Any:
+    """Coerce null optional array leaves to [] (e.g. emotional_beats[].segment_ids)."""
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for key, val in obj.items():
+            if val is None and key in _OPTIONAL_ARRAY_LEAVES:
+                out[key] = []
+            elif isinstance(val, (dict, list)):
+                out[key] = _coerce_null_array_leaves(val)
+            else:
+                out[key] = val
+        return out
+    if isinstance(obj, list):
+        return [_coerce_null_array_leaves(item) for item in obj]
+    return obj
+
+
+def _coerce_artifact_empty_strings(envelope: dict[str, Any]) -> dict[str, Any]:
+    artifacts = envelope.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return envelope
+    out = copy.deepcopy(envelope)
+    coerced = _coerce_empty_strings_to_null(artifacts)
+    out["artifacts"] = _coerce_null_array_leaves(coerced)
+    return out
+
+
 def _collect_null_paths(stage_key: str, envelope: dict[str, Any]) -> list[str]:
     artifacts = envelope.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -216,7 +268,7 @@ def normalize_llm_response(
 
     parent = resolve_parent_stage_key(stage_key or "") or stage_key or ""
     prefer_omit = bool(cfg.get("prefer_omit_over_fabricate", True))
-    current = copy.deepcopy(parsed)
+    current = _coerce_artifact_empty_strings(parsed)
     all_actions: list[NormalizationAction] = []
     all_decisions: list[NormalizationDecision] = []
     fabricate_calls = 0

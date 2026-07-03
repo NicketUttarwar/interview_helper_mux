@@ -10,6 +10,7 @@ from typing import Any
 
 from interview_mux.config import merged_config, repo_root
 from interview_mux.openai_schema_lint import assert_openai_strict_schema
+from interview_mux.schema_nullability import with_nullable_optional_leaves
 from interview_mux.openai_schema_semantic_lint import assert_openai_semantic_schema
 from interview_mux.envelope_min_example import build_envelope_min_example
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
@@ -230,7 +231,10 @@ def compose_envelope_schema(stage_key: str, *, strict: bool = True) -> dict[str,
     if not artifact:
         raise FileNotFoundError(f"Missing artifact schema: {artifact_file}")
 
-    artifact_body = strictify_schema(artifact) if strict else copy.deepcopy(artifact)
+    if strict:
+        artifact_body = strictify_schema(artifact)
+    else:
+        artifact_body = with_nullable_optional_leaves(copy.deepcopy(artifact))
     envelope: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -274,7 +278,10 @@ def compose_specialist_envelope_schema(specialist_key: str, *, strict: bool = Tr
 
 
 def compose_envelope_schema_from_artifact(artifact: dict[str, Any], *, strict: bool = True) -> dict[str, Any]:
-    artifact_body = strictify_schema(artifact) if strict else copy.deepcopy(artifact)
+    if strict:
+        artifact_body = strictify_schema(artifact)
+    else:
+        artifact_body = with_nullable_optional_leaves(copy.deepcopy(artifact))
     envelope: dict[str, Any] = {
         "type": "object",
         "properties": {

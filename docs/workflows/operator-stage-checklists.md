@@ -92,6 +92,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Artifact clarification | No open blocking issues in **Resolve artifact issues** step (`needs_clarification` cleared) | Open clarification panel; pick options or run auto-repair + re-check |
 | Downstream propagation | After segment/boundary fix: propagation wizard clear or upstream rerun complete | Use **Downstream propagation required** panel; **Invalidate & re-run from …** before **Save & continue** |
 | Staging folder | `.pending_writes/<stage_id>/` contains expected outputs after stage run | Stage may have failed before persist; check `gui_log.jsonl` |
+| Empty staging (P0 LLM) | Write approval step shows staged paths; **Save** enabled | Backend sets LLM gate when P0 stage finishes with zero staged files — **Discard & re-run**; do not treat volley summary as success |
 | Preview | JSON/text editable; WAV plays via pending audio URL | Path typo — refresh panel; re-run stage if staging empty |
 | Approve | Files at final artifact paths; `.stage_done/<stage>` written | Approve failed — validation error in toast; fix JSON in staging editor |
 | Discard | Staging cleared; stage invalidated for re-run | Use **Discard & re-run** then **Run step N** |

@@ -1131,7 +1131,7 @@ def finalize_stage_attempt(
                 ),
             },
         )
-        merge_memory = plan.merge_memory if plan.action in ("partial", "full") else True
+        merge_memory = plan.merge_memory if plan.action in ("partial", "full") else False
         from interview_mux.artifact_issue_triage import run_triage_pipeline, triage_enabled
 
         if triage_enabled() and plan.action in ("partial", "full"):

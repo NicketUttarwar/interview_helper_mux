@@ -83,19 +83,6 @@ export function resolveFocusStepId(
   const fromSubstep = substepIdToStepId(substepHint);
   if (fromSubstep && (steps.length === 0 || hasStep(steps, fromSubstep))) return fromSubstep;
 
-  const write = pendingWriteInfo(run);
-  const awaitingWrite =
-    write?.stageId === stageId ||
-    stageAwaitingWriteApproval(run, stageId) ||
-    blockingReason === "write_approval" ||
-    stage?.status === "awaiting_write_approval";
-  if (awaitingWrite) {
-    if (hasStep(steps, "write_approval")) return "write_approval";
-    if (write?.paths.length || stage?.status === "awaiting_write_approval") {
-      return "write_approval";
-    }
-  }
-
   if (
     blockingReason === "operator_decisions" ||
     (Number(job?.pending_decision_count ?? 0) > 0 && job?.stage === stageId)
@@ -106,10 +93,27 @@ export function resolveFocusStepId(
 
   if (
     blockingReason === "artifact_clarification" ||
-    (job?.status === "needs_clarification" && job.stage === stageId)
+    (job?.status === "needs_clarification" && job.stage === stageId) ||
+    (Number(job?.itr_blocking_count ?? 0) > 0 && job?.stage === stageId)
   ) {
     if (hasStep(steps, "artifact_clarification")) return "artifact_clarification";
     return "artifact_clarification";
+  }
+
+  const write = pendingWriteInfo(run);
+  const awaitingWrite =
+    write?.stageId === stageId ||
+    stageAwaitingWriteApproval(run, stageId) ||
+    blockingReason === "write_approval" ||
+    stage?.status === "awaiting_write_approval";
+  if (awaitingWrite) {
+    if (hasStep(steps, "artifact_clarification") && (job?.status === "needs_clarification" || Number(job?.itr_blocking_count ?? 0) > 0)) {
+      return "artifact_clarification";
+    }
+    if (hasStep(steps, "write_approval")) return "write_approval";
+    if (write?.paths.length || stage?.status === "awaiting_write_approval") {
+      return "write_approval";
+    }
   }
 
   if (

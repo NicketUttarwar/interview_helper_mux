@@ -55,3 +55,27 @@ def test_reconcile_write_approval_running_to_awaiting(tmp_path: Path, monkeypatc
     assert job["status"] == "awaiting_write_approval"
     assert job.get("pending_write_stage") == "audio_preclean"
     assert job.get("mode") == "stage"
+
+
+def test_reconcile_stale_awaiting_write_approval_after_flush(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.final_path("segments", "boundaries.json").parent.mkdir(parents=True, exist_ok=True)
+    ctx.final_path("segments", "boundaries.json").write_text('{"boundaries":[]}', encoding="utf-8")
+    ctx.mark_done("boundary_detection", force=True)
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "awaiting_write_approval",
+            "stage": "boundary_detection",
+            "pending_write_stage": "boundary_detection",
+            "pending_write_paths": ["segments/boundaries.json"],
+            "awaiting_write_approval": True,
+            "message": "Awaiting your review",
+        },
+    )
+    job = reconcile_job_if_stale(ctx.run_id, lock_held=False)
+    assert job["status"] == "complete"
+    assert "pending_write_stage" not in job
+    assert ctx.is_done("boundary_detection")

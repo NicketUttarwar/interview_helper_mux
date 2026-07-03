@@ -8,6 +8,7 @@ from typing import Any
 
 from interview_mux.artifact_cross_validate import (
     STAGE_CHECKPOINTS,
+    cross_validate_pending_overlay,
     validate_cross_artifacts,
     validate_cross_artifacts_for_stage,
 )
@@ -184,16 +185,34 @@ class RecoveryResult:
     invalidated_from: str | None = None
 
 
-def revalidate_downstream_on_segment_fix(ctx: Any, stage_key: str) -> list[str]:
+def revalidate_downstream_on_segment_fix(
+    ctx: Any,
+    stage_key: str,
+    *,
+    overlay_stage: str | None = None,
+) -> list[str]:
     from interview_mux.artifact_root_cause import revalidate_downstream_for_stage
 
-    return revalidate_downstream_for_stage(ctx, stage_key)
+    return revalidate_downstream_for_stage(
+        ctx,
+        stage_key,
+        overlay_stage=overlay_stage,
+    )
 
 
-def get_propagation_plan(ctx: Any, stage_key: str) -> dict[str, Any]:
+def get_propagation_plan(
+    ctx: Any,
+    stage_key: str,
+    *,
+    overlay_stage: str | None = None,
+) -> dict[str, Any]:
     from interview_mux.artifact_root_cause import compute_stale_downstream
 
-    return compute_stale_downstream(ctx, stage_key).summary()
+    return compute_stale_downstream(
+        ctx,
+        stage_key,
+        overlay_stage=overlay_stage,
+    ).summary()
 
 
 def _maybe_enqueue_propagation_investigations(ctx: Any, stage_key: str, plan_summary: dict[str, Any]) -> None:
@@ -218,6 +237,15 @@ def _maybe_enqueue_propagation_investigations(ctx: Any, stage_key: str, plan_sum
     )
 
 
+def _write_approval_overlay_stage(ctx: Any, stage_key: str, *, staged: bool) -> str | None:
+    """Stage id whose pending writes should satisfy cross-validation during save."""
+    from interview_mux.write_staging import has_pending_writes
+
+    if staged and has_pending_writes(ctx, stage_key):
+        return stage_key
+    return None
+
+
 def collect_issues(
     ctx: Any,
     stage_key: str,
@@ -237,8 +265,10 @@ def collect_issues(
 
     if triage_cfg().get("pre_cross_validate_repair", True):
         if STAGE_CHECKPOINTS.get(stage_key):
-            for err in validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged):
-                issues.append(classify_cross_validate_message(stage_key, str(err), artifact_path=rel))
+            overlay = _write_approval_overlay_stage(ctx, stage_key, staged=staged)
+            with cross_validate_pending_overlay(ctx, overlay):
+                for err in validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged):
+                    issues.append(classify_cross_validate_message(stage_key, str(err), artifact_path=rel))
 
     if not schema_errors and rel and artifact:
         for err in validate_artifact_write(rel, artifact):
@@ -291,7 +321,9 @@ def revalidate_after_repair(ctx: Any, stage_key: str, *, staged: bool = True) ->
 
     checkpoint = STAGE_CHECKPOINTS.get(stage_key)
     if checkpoint and triage_cfg().get("pre_cross_validate_repair", True):
-        errors.extend(validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged))
+        overlay = _write_approval_overlay_stage(ctx, stage_key, staged=staged)
+        with cross_validate_pending_overlay(ctx, overlay):
+            errors.extend(validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged))
 
     return len(errors) == 0, errors
 
@@ -704,6 +736,8 @@ def assert_write_approval_itr_ok(ctx: Any, stage_key: str) -> None:
     from interview_mux.full_autopilot import full_autopilot_enabled
     from interview_mux.operator_decisions import pending_decision_count
 
+    overlay_stage = _write_approval_overlay_stage(ctx, stage_key, staged=True)
+
     if full_autopilot_enabled() and pending_decision_count(ctx, stage_key) > 0:
         from interview_mux.write_staging import WriteApprovalBlockedError
 
@@ -716,25 +750,50 @@ def assert_write_approval_itr_ok(ctx: Any, stage_key: str) -> None:
     downstream_errors: list[str] = []
     propagation_plan: dict[str, Any] | None = None
 
-    if stage_key in ("segment_classification", "boundary_detection"):
-        downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_key)
-        propagation_plan = get_propagation_plan(ctx, stage_key)
+    if stage_key in ("boundary_detection", "segment_classification"):
+        downstream_errors = revalidate_downstream_on_segment_fix(
+            ctx,
+            stage_key,
+            overlay_stage=overlay_stage,
+        )
+        if overlay_stage:
+            from interview_mux.write_staging import list_pending_paths
+
+            pending_paths = set(list_pending_paths(ctx, overlay_stage))
+            downstream_errors = [
+                err
+                for err in downstream_errors
+                if not (err.endswith(" missing") and err[: -len(" missing")] in pending_paths)
+            ]
+        propagation_plan = get_propagation_plan(ctx, stage_key, overlay_stage=overlay_stage)
         require_prop = triage_cfg().get("require_propagation_before_segment_approve", True)
         if require_prop and propagation_plan.get("has_blocking"):
-            blocking = max(blocking, 1)
+            if downstream_errors or propagation_plan.get("stale_stages"):
+                blocking = max(blocking, 1)
 
     if blocking > 0 or not ok or downstream_errors:
         from interview_mux.write_staging import WriteApprovalBlockedError
 
-        msg = (
-            f"Stage {stage_key}: {blocking} open artifact issue(s) block save. "
-            "Resolve in the clarification panel."
-        )
+        if full_autopilot_enabled():
+            if blocking > 0:
+                msg = (
+                    f"Stage {stage_key}: {blocking} open artifact issue(s) block save."
+                )
+            else:
+                msg = f"Stage {stage_key}: staged outputs cannot be saved yet."
+        else:
+            msg = (
+                f"Stage {stage_key}: {blocking} open artifact issue(s) block save. "
+                "Resolve in the clarification panel."
+            )
         all_errors = errors + downstream_errors
         if all_errors:
             msg += f" Validation: {'; '.join(all_errors[:3])}"
         if propagation_plan and propagation_plan.get("has_blocking"):
-            msg += " Downstream stages may be stale — use the propagation wizard."
+            if full_autopilot_enabled():
+                msg += " Downstream stages may be stale — resolve in the decision wizard."
+            else:
+                msg += " Downstream stages may be stale — use the propagation wizard."
         exc = WriteApprovalBlockedError(stage_key, msg)
         exc.propagation_plan = propagation_plan  # type: ignore[attr-defined]
         raise exc

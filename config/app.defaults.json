@@ -271,7 +271,7 @@
     "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,
     "require_write_approval_per_stage": true,
-    "auto_advance_pipeline": true,
+    "auto_advance_pipeline": false,
     "full_autopilot": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
@@ -477,7 +477,7 @@
       "auto_resolve_confidence_gap": 0.15,
       "auto_resolve_chain_downstream": true,
       "max_auto_resolve_attempts_per_stage": 2,
-      "auto_advance_after_itr_clear": true,
+      "auto_advance_after_itr_clear": false,
       "min_segments_after_auto_resolve": 1,
       "max_segments_deleted_per_fix_all": 0.10,
       "auto_resolve_max_issues_per_pass": 50,
