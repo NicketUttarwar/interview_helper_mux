@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
-from interview_mux.field_necessity_registry import NEVER_FABRICATE_PATHS, path_matches_pattern
+from interview_mux.field_necessity_registry import NEVER_FABRICATE_PATHS
+from interview_mux.field_path_match import path_matches_pattern
 from interview_mux.null_field_policy import null_policy_cfg
 
 
@@ -103,7 +104,7 @@ def fabricate_field_values(
 
     # Deterministic benign defaults (mid-tier LLM hook point for future OM-F* calls)
     for path in batch:
-        if any(_path_matches_pattern(path, pat) for pat in NEVER_FABRICATE_PATHS):
+        if any(path_matches_pattern(path, pat) for pat in NEVER_FABRICATE_PATHS):
             continue
         val = deterministic_fabricated_value(path, stage_key=stage_key)
         _set_path(out, path, val)

@@ -15,6 +15,7 @@ import { StepListContextHeader } from "./StepListContextHeader";
 import { StepDoneBanner } from "./StepDoneBanner";
 import { StepRunningConnector } from "./StepRunningConnector";
 import { resolveFocusStepId } from "../../utils/resolveActiveStep";
+import { stageHadAutoNavigation } from "../../utils/autoNavigationLedger";
 
 function stageNeedsSubstepAttention(
   run: NonNullable<ReturnType<typeof useApp>["run"]>,
@@ -245,6 +246,7 @@ export function PipelineStepList() {
                       </span>
                       <span className="pipeline-step-meta muted">
                         {entry.phaseLabel} · step {entry.number}
+                        {stageHadAutoNavigation(entry.stage.id) ? " · guided" : ""}
                         {metaSuffix}
                         {progress.activeSubstep && (expanded || isSelected) && !metaSuffix
                           ? ` · ${progress.activeSubstep.label}`

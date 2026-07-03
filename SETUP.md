@@ -1,8 +1,8 @@
 # Setup — interview_helper_mux
 
-Complete this guide **before** `./scripts/run.sh`. The run script creates or refreshes `.venv`, installs Python deps, and builds the React GUI on first launch if needed — but it cannot substitute for system tools, cloud credentials, or local model downloads handled by bootstrap.
+Complete this guide **before** `./scripts/run.sh`. **Install everything once** with `./scripts/install.sh` (same as `./scripts/bootstrap_venv.sh`): core `.venv` + dev tools, React GUI bundle, and isolated local stacks under `ASSETS/`. `./scripts/run.sh` only activates `.venv` and serves — it does not pip-install on every launch (use `MUX_REFRESH_DEPS=1` after `git pull`).
 
-**Single install command:** `./scripts/bootstrap_venv.sh` creates the core `.venv` plus all isolated local stacks under `ASSETS/` (MLX, DeepFilterNet, MMAudio), clones upstream audio repos, downloads MLX weights on macOS Apple Silicon, prefetches optional STT weights, runs verify gates, and writes `install.json` manifests. If you delete any venv or clone tree, re-run this one script.
+**Single install command:** `./scripts/install.sh` creates the core `.venv` plus all isolated local stacks under `ASSETS/` (MLX, DeepFilterNet, MMAudio), builds the GUI, clones upstream audio repos, downloads MLX weights on macOS Apple Silicon, prefetches optional STT weights, runs verify gates, and writes `install.json` manifests. If you delete any venv or clone tree, re-run this one script.
 
 Per-stack requirements: `requirements.txt` (core), `requirements-local-mlx.txt`, `requirements-local-deepfilter.txt`, `requirements-local-mmaudio.txt`. See [Local audio stack](#local-audio-stack) and [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md).
 
@@ -18,9 +18,9 @@ brew install python@3.12 ffmpeg awscli node@20 rust
 brew link --overwrite node@20   # if Homebrew printed a link hint
 node -p process.arch            # arm64 on Apple Silicon (must match uname -m)
 
-# 2. Clone and bootstrap everything (venvs + repos + MLX weights + verify)
+# 2. Clone and install everything (venvs + GUI + repos + MLX weights + verify)
 cd interview_helper_mux
-./scripts/bootstrap_venv.sh
+./scripts/install.sh
 source .venv/bin/activate
 
 # 3. Confirm local stacks (required before preclean / SFX stages)
@@ -32,11 +32,7 @@ CHECK_LOCAL_RUNTIMES=1 ./tools/check_prerequisites.sh   # same verify, fails on 
 cp config/templates/secrets.env.example config/secrets/secrets.env   # edit keys
 aws sts get-caller-identity
 
-# 5. GUI (or let run.sh build on first launch)
-cd frontend && npm ci && cd ..
-./scripts/build_gui.sh
-
-# 6. Source audio + launch
+# 5. Source audio + launch
 mkdir -p ASSETS/input
 # copy your interview.wav → ASSETS/input/
 ./scripts/run.sh
@@ -44,7 +40,9 @@ mkdir -p ASSETS/input
 
 **Optional but recommended on macOS:** install [llmfit](https://github.com/AlexsJones/llmfit) before bootstrap so MLX model selection is hardware-aware (`brew install AlexsJones/llmfit/llmfit`). Without llmfit, bootstrap downloads the default `mlx-community/Llama-3.2-3B-Instruct-4bit` weights.
 
-Skip the post-bootstrap verify gate during bootstrap only: `BOOTSTRAP_SKIP_VERIFY=1 ./scripts/bootstrap_venv.sh` — then run `./scripts/verify_local_models.sh` manually.
+Skip the post-install verify gate only: `BOOTSTRAP_SKIP_VERIFY=1 ./scripts/install.sh` — then run `./scripts/verify_local_models.sh` manually.
+
+Headless / CI (Python only, no npm GUI build): `BOOTSTRAP_SKIP_GUI=1 ./scripts/install.sh`
 
 ---
 

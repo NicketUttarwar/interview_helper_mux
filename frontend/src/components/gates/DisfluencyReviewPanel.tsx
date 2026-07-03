@@ -3,6 +3,12 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { formatMs } from "../../utils";
 import { formatApiError } from "../../utils/safeApi";
+import {
+  disfluencyClipUrl,
+  firstPendingEventIndex,
+  resolveDisfluencyClipPath,
+} from "../../utils/disfluencyReviewEvent";
+import { guardBusy } from "../../utils/guardBusy";
 
 interface DisfluencyEvent {
   event_id: string;
@@ -26,12 +32,34 @@ interface DisfluencyReviewState {
   review_complete?: boolean;
 }
 
+function reviewStatusLabel(status: string): string {
+  if (status === "confirmed") return "Confirmed";
+  if (status === "rejected") return "Rejected";
+  return "Pending";
+}
+
 export function DisfluencyReviewPanel() {
-  const { run, refreshRun, advanceFromCheckpoint, showToast, appendClientLog, config } = useApp();
+  const {
+    run,
+    refreshRun,
+    advanceFromCheckpoint,
+    completeDisfluencyReview,
+    showToast,
+    appendClientLog,
+    config,
+    actionBusy,
+    jobRunning,
+  } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<DisfluencyReviewState | null>(null);
   const [index, setIndex] = useState(0);
+  const [clipLoadError, setClipLoadError] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+
+  useEffect(() => {
+    setClipLoadError(false);
+  }, [run?.run_id, index]);
 
   const reportError = (reason: unknown, label: string, opts?: { toast?: boolean }) => {
     const msg = formatApiError(reason, label);
@@ -53,10 +81,14 @@ export function DisfluencyReviewPanel() {
   useEffect(() => {
     setLoading(true);
     void load()
-      .then(() => setLoading(false))
+      .then((data) => {
+        if (data?.events?.length) {
+          setIndex(firstPendingEventIndex(data.events));
+        }
+      })
+      .finally(() => setLoading(false))
       .catch((reason) => {
         reportError(reason, "Disfluency review", { toast: false });
-        setLoading(false);
       });
   }, [run?.run_id]);
 
@@ -111,38 +143,60 @@ export function DisfluencyReviewPanel() {
 
   const idx = Math.min(index, events.length - 1);
   const ev = events[idx];
-  const clipUrl = ev.clip_path
-    ? `/api/runs/${run!.run_id}/audio?path=${encodeURIComponent(ev.clip_path)}`
-    : "";
+  const clipUrl = run ? disfluencyClipUrl(run.run_id, ev) : "";
+  const clipRel = resolveDisfluencyClipPath(ev);
+  const pendingCount = state?.pending_count ?? statsPending(state);
+  const stats = state?.stats;
+  const busy = finishing || actionBusy || jobRunning;
+  const allReviewed = pendingCount === 0;
+  const showNativeClipPlayer = Boolean(clipUrl) && !clipLoadError;
 
-  async function finishIfReviewComplete(reviewComplete?: boolean) {
-    if (!reviewComplete) {
+  async function finishReviewWhenClear(reviewComplete?: boolean) {
+    if (!run) return;
+    const data = await load();
+    const pending = data?.pending_count ?? 0;
+    if (pending > 0) {
       await refreshRun();
       return;
     }
-    showToast("Disfluency review complete");
-    await refreshRun();
-    await advanceFromCheckpoint();
+    setFinishing(true);
+    try {
+      if (!reviewComplete && !data?.review_complete) {
+        await completeDisfluencyReview(false);
+      } else {
+        showToast("Disfluency review complete");
+        await refreshRun();
+        await advanceFromCheckpoint();
+      }
+    } catch (reason) {
+      reportError(reason, "Complete disfluency review");
+    } finally {
+      setFinishing(false);
+    }
   }
 
   async function saveEvent(reviewStatus: "confirmed" | "rejected") {
-    if (!run) return;
+    if (!run || busy) return;
     try {
       const res = await api<{ review_complete?: boolean }>(
         `/api/runs/${run.run_id}/disfluency-review/${ev.event_id}`,
         {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          review_status: reviewStatus,
-          include_in_restore: reviewStatus === "confirmed",
-        }),
-      });
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            review_status: reviewStatus,
+            include_in_restore: reviewStatus === "confirmed",
+          }),
+        },
+      );
       showToast(reviewStatus === "confirmed" ? "Event confirmed" : "Event rejected");
       const data = await load();
-      const pending = data?.events?.filter((e) => e.review_status === "pending") || [];
-      if (pending.length && idx < events.length - 1) setIndex(idx + 1);
-      await finishIfReviewComplete(res.review_complete);
+      const nextEvents = data?.events ?? [];
+      const nextPending = nextEvents.filter((e) => e.review_status === "pending");
+      if (nextPending.length) {
+        setIndex(firstPendingEventIndex(nextEvents));
+      }
+      await finishReviewWhenClear(res.review_complete);
     } catch (reason) {
       reportError(reason, "Save disfluency event");
     }
@@ -164,77 +218,82 @@ export function DisfluencyReviewPanel() {
     }
   }
 
-  async function confirmAllPending() {
-    if (!run) return;
+  async function confirmAllAndContinue() {
+    if (!run || guardBusy(jobRunning, actionBusy || finishing, showToast)) return;
+    setFinishing(true);
     try {
-      const pending = events.filter((e) => e.review_status === "pending");
-      let reviewComplete = false;
-      for (const event of pending) {
-        const res = await api<{ review_complete?: boolean }>(
-          `/api/runs/${run.run_id}/disfluency-review/${event.event_id}`,
-          {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            review_status: "confirmed",
-            include_in_restore: true,
-          }),
-        });
-        reviewComplete = Boolean(res.review_complete);
-      }
-      showToast(
-        pending.length
-          ? `Confirmed ${pending.length} filler clip${pending.length === 1 ? "" : "s"}`
-          : "No pending clips",
-      );
-      await load();
-      await finishIfReviewComplete(reviewComplete);
+      await completeDisfluencyReview(true);
     } catch (reason) {
       reportError(reason, "Confirm all pending");
+    } finally {
+      setFinishing(false);
     }
   }
 
-  const stats = state?.stats;
+  async function continuePipeline() {
+    if (!run || guardBusy(jobRunning, actionBusy || finishing, showToast)) return;
+    setFinishing(true);
+    try {
+      await completeDisfluencyReview(false);
+    } catch (reason) {
+      reportError(reason, "Continue pipeline");
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   return (
-    <>
-      <p className="hint">
-        Listen to each filler clip. Confirm to allow restore in Flow 1 assembly, or reject false positives.
+    <div className="disfluency-review-panel">
+      <p className="hint sm">
+        Listen to each filler clip. Confirm to allow restore in Flow 1 assembly, or reject false
+        positives. Use <strong>Confirm all &amp; continue</strong> below to accept every pending
+        clip at once.
       </p>
+
       <div className="tr-review-header">
         <span>
-          Event {idx + 1} / {events.length}
+          Clip <strong>{idx + 1}</strong> / <strong>{events.length}</strong>
         </span>
-        {stats && (
+        {stats ? (
           <span className="tr-stats">
-            {stats.confirmed ?? 0} confirmed · {stats.rejected ?? 0} rejected · {stats.pending ?? 0} pending
+            {stats.confirmed ?? 0} confirmed · {stats.rejected ?? 0} rejected ·{" "}
+            {stats.pending ?? 0} pending
           </span>
-        )}
-        {(stats?.pending ?? 0) > 0 ? (
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-testid="disfluency-confirm-all"
-            onClick={() => void confirmAllPending()}
-          >
-            Confirm all pending
-          </button>
         ) : null}
+        <span className={`badge status-${ev.review_status === "pending" ? "todo" : "done"}`}>
+          {reviewStatusLabel(ev.review_status)}
+        </span>
       </div>
+
       <div className="disfluency-event-card">
         <div className="disfluency-meta">
-          <span>{formatMs(ev.start_ms)} – {formatMs(ev.end_ms)}</span>
-          {ev.speaker_id && <span>{ev.speaker_id}</span>}
-          {ev.source && <span className="badge">{ev.source}</span>}
-          {ev.confidence != null && <span>{Math.round(ev.confidence * 100)}% conf</span>}
+          <span>
+            {formatMs(ev.start_ms)} – {formatMs(ev.end_ms)}
+          </span>
+          {ev.speaker_id ? <span>{ev.speaker_id}</span> : null}
+          {ev.source ? <span className="badge">{ev.source}</span> : null}
+          {ev.confidence != null ? <span>{Math.round(ev.confidence * 100)}% conf</span> : null}
         </div>
         <p className="disfluency-text">{ev.text || "(no text)"}</p>
-        {clipUrl ? (
-          <audio controls src={clipUrl} className="tr-audio" />
+        {showNativeClipPlayer ? (
+          <audio
+            key={ev.event_id}
+            controls
+            src={clipUrl}
+            className="tr-audio"
+            preload="metadata"
+            onError={() => setClipLoadError(true)}
+          />
+        ) : clipRel ? (
+          <p className="hint sm tr-clip-missing" role="alert">
+            Clip could not be loaded
+            {clipLoadError ? " (file missing or blocked)" : ""} — re-run{" "}
+            <code>disfluency_extract</code> if needed.
+          </p>
         ) : (
           <p className="hint sm">Clip file missing — re-run disfluency extract if needed.</p>
         )}
-        {ev.review_status === "confirmed" && (
+        {ev.review_status === "confirmed" ? (
           <label className="toggle-row">
             <input
               type="checkbox"
@@ -243,27 +302,100 @@ export function DisfluencyReviewPanel() {
             />
             Include in assembly restore
           </label>
-        )}
+        ) : null}
         <div className="flow-choice">
-          <button type="button" className="btn ghost sm" disabled={idx <= 0} onClick={() => setIndex(idx - 1)}>
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={idx <= 0 || busy}
+            onClick={() => setIndex(idx - 1)}
+          >
             Previous
           </button>
-          <button type="button" className="btn ghost sm" onClick={() => void saveEvent("rejected")}>
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={busy || ev.review_status !== "pending"}
+            onClick={() => void saveEvent("rejected")}
+          >
             Reject
           </button>
-          <button type="button" className="btn primary sm" onClick={() => void saveEvent("confirmed")}>
+          <button
+            type="button"
+            className="btn primary sm"
+            disabled={busy || ev.review_status !== "pending"}
+            onClick={() => void saveEvent("confirmed")}
+          >
             Confirm
           </button>
           <button
             type="button"
             className="btn ghost sm"
-            disabled={idx >= events.length - 1}
+            disabled={idx >= events.length - 1 || busy}
             onClick={() => setIndex(idx + 1)}
           >
             Next
           </button>
         </div>
       </div>
-    </>
+
+      <div className="disfluency-review-actions panel-inset">
+        {allReviewed ? (
+          <p className="hint sm">
+            All clips reviewed — continue to unlock the next pipeline stage.
+          </p>
+        ) : (
+          <p className="hint sm">
+            {pendingCount} clip{pendingCount === 1 ? "" : "s"} still pending — confirm each above
+            or accept all at once.
+          </p>
+        )}
+        <div className="flow-choice">
+          {!allReviewed ? (
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="disfluency-confirm-all"
+              data-action-id="gui.disfluency_review.complete"
+              disabled={busy}
+              aria-busy={finishing || undefined}
+              onClick={() => void confirmAllAndContinue()}
+            >
+              {finishing ? (
+                <>
+                  <span className="spinner-inline" aria-hidden />
+                  Working…
+                </>
+              ) : (
+                "Confirm all & continue"
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="complete-disfluency-review"
+              data-action-id="gui.disfluency_review.complete"
+              disabled={busy}
+              aria-busy={finishing || undefined}
+              onClick={() => void continuePipeline()}
+            >
+              {finishing ? (
+                <>
+                  <span className="spinner-inline" aria-hidden />
+                  Continuing…
+                </>
+              ) : (
+                "Continue pipeline"
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
+}
+
+function statsPending(state: DisfluencyReviewState | null): number {
+  return state?.stats?.pending ?? 0;
 }

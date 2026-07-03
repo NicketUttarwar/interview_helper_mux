@@ -95,7 +95,8 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     discardPendingWrites: (sid: string) => discardPendingWrites(sid),
     completeTranscriptReview: (acceptUnreviewed?: boolean) =>
       completeTranscriptReview(acceptUnreviewed),
-    completeDisfluencyReview: () => completeDisfluencyReview(),
+    completeDisfluencyReview: (acceptUnreviewed?: boolean) =>
+      completeDisfluencyReview(acceptUnreviewed),
     approveSfxPrompts: () => approveSfxPrompts(),
     acknowledgeHandoff: () => acknowledgeHandoff(),
     skipOptional: (sid: string) => skipOptionalStage(sid),

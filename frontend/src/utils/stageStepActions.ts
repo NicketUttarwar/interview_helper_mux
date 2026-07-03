@@ -69,10 +69,19 @@ export async function invokeStepFooterAction(
   }
 
   if (
+    step.id === "review_fillers" ||
+    (step.id === "complete_g05" && label.includes("confirm all")) ||
+    (step.embed === "disfluency_review" && label.includes("confirm all"))
+  ) {
+    await handlers.completeDisfluencyReview(true);
+    return;
+  }
+
+  if (
     step.id === "complete_g05" ||
     (step.embed === "disfluency_review" && label.includes("complete review"))
   ) {
-    await handlers.completeDisfluencyReview(true);
+    await handlers.completeDisfluencyReview(false);
     return;
   }
 
@@ -136,6 +145,7 @@ export async function invokeStepFooterSecondaryAction(
     StepActionHandlers,
     | "discardPendingWrites"
     | "completeTranscriptReview"
+    | "completeDisfluencyReview"
     | "skipOptional"
     | "declineReuseAndRun"
     | "redoFromStage"
@@ -150,6 +160,11 @@ export async function invokeStepFooterSecondaryAction(
 
   if (label.includes("accept remaining")) {
     await handlers.completeTranscriptReview(true);
+    return;
+  }
+
+  if (label.includes("confirm all") && step.embed === "disfluency_review") {
+    await handlers.completeDisfluencyReview(true);
     return;
   }
 

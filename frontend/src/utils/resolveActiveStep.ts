@@ -1,6 +1,7 @@
 import type { RunData, StageStep } from "../types";
 import { isJobActivelyRunning } from "./jobStatus";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
+import { isAutoNavConsumed, markAutoNavConsumed } from "./autoNavigationLedger";
 
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
@@ -224,5 +225,8 @@ export function shouldAdvanceStaleStep(
   if (opts.userReviewingCompletedStep) return null;
   const next = resolveFocusStepId(run, stageId);
   if (!next || next === activeStepId) return null;
+  const target = { stageId, stepId: next };
+  if (isAutoNavConsumed(target)) return null;
+  markAutoNavConsumed(target);
   return next;
 }

@@ -23,6 +23,14 @@ import {
   recordAutopilotCheckpointAttempt,
   resolveAutopilotCheckpoint,
 } from "./autopilotResolution";
+import {
+  isAutoNavConsumed,
+  markAutoNavConsumed,
+  type AutoNavTarget,
+} from "./autoNavigationLedger";
+
+/** Who triggered navigation — auto_surface is once per stage/step per server session. */
+export type NavigationIntent = "auto_surface" | "user_continue";
 
 /** Auto fix-all when autopilot is enabled. Returns true if an action ran. */
 export async function tryAutopilotCheckpointResolution(
@@ -171,6 +179,8 @@ export interface AdvancePipelineOpts {
   fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
   /** Autopilot: auto-save staged outputs. */
   approveWriteAndContinue?: (stageId?: string) => Promise<boolean>;
+  /** auto_surface = show operator focus once per stage/step; user_continue = always navigate. */
+  navigationIntent?: NavigationIntent;
 }
 
 export interface FocusStageWorkbenchOpts {
@@ -183,18 +193,46 @@ export interface FocusStageWorkbenchOpts {
   substepId?: string | null;
   blockingReason?: string | null;
   subTab?: PipelineSubTab;
+  navigationIntent?: NavigationIntent;
+}
+
+function resolveFocusTarget(
+  run: RunData | null,
+  stageId: string,
+  opts: Pick<FocusStageWorkbenchOpts, "substepId" | "blockingReason">,
+): AutoNavTarget {
+  const stepId = resolveFocusStepId(run, stageId, {
+    substepId: opts.substepId,
+    blockingReason: opts.blockingReason,
+  });
+  return { stageId, stepId };
+}
+
+function shouldSkipAutoSurfaceNavigation(
+  intent: NavigationIntent | undefined,
+  target: AutoNavTarget,
+): boolean {
+  if (intent !== "auto_surface") return false;
+  return isAutoNavConsumed(target);
 }
 
 /** Select a stage and land on the correct numbered workbench step. */
 export async function focusStageWorkbench(opts: FocusStageWorkbenchOpts): Promise<string | null> {
-  const stepId = resolveFocusStepId(opts.run, opts.stageId, {
-    substepId: opts.substepId,
-    blockingReason: opts.blockingReason,
-  });
+  const intent = opts.navigationIntent ?? "user_continue";
+  const target = resolveFocusTarget(opts.run, opts.stageId, opts);
+  if (shouldSkipAutoSurfaceNavigation(intent, target)) {
+    return null;
+  }
+
+  const stepId = target.stepId ?? null;
   await opts.selectStage(opts.stageId, { stepId });
   opts.expandStage(opts.stageId);
   opts.setPipelineSubTab(opts.subTab ?? "stage");
   if (stepId) opts.setActiveStepId?.(stepId);
+
+  if (intent === "auto_surface") {
+    markAutoNavConsumed(target);
+  }
   return stepId;
 }
 
@@ -248,8 +286,13 @@ export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise
 
   if (substepId) opts.setActiveSubstepId(substepId);
 
-  const navigated = focusId !== currentId;
-  await focusStageWorkbench({
+  const navIntent = opts.navigationIntent ?? "auto_surface";
+  const target = resolveFocusTarget(refreshed, focusId, { substepId, blockingReason });
+  if (shouldSkipAutoSurfaceNavigation(navIntent, target)) {
+    return false;
+  }
+
+  const stepId = await focusStageWorkbench({
     run: refreshed,
     stageId: focusId,
     selectStage: (id, selOpts) =>
@@ -259,9 +302,10 @@ export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise
     setPipelineSubTab: opts.setPipelineSubTab,
     substepId,
     blockingReason,
+    navigationIntent: navIntent,
   });
 
-  return navigated;
+  return Boolean(stepId) || focusId !== currentId;
 }
 
 export interface ReconcileBusyOpts {
@@ -279,6 +323,8 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
   const refreshed = opts.runId ? await opts.refreshRun() : opts.run;
   if (!refreshed) return false;
 
+  const navIntent = opts.navigationIntent ?? "user_continue";
+
   const autoRunEnabled =
     opts.autoRun === true && isPipelineAutopilotEnabled(opts.config);
 
@@ -293,6 +339,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
         expandStage: opts.expandStage,
         setActiveStepId: opts.setActiveStepId,
         setPipelineSubTab: opts.setPipelineSubTab,
+        navigationIntent: navIntent,
       });
       return false;
     }
@@ -325,6 +372,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
       blockingReason: "write_approval",
+      navigationIntent: navIntent,
     });
     return false;
   }
@@ -351,6 +399,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setPipelineSubTab: opts.setPipelineSubTab,
       substepId,
       blockingReason: blocking.reason,
+      navigationIntent: navIntent,
     });
     return false;
   }
@@ -364,6 +413,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       expandStage: opts.expandStage,
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
+      navigationIntent: navIntent,
     });
   }
 
@@ -383,6 +433,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
       substepId: nextAction.substepId,
+      navigationIntent: navIntent,
     });
     return false;
   }
@@ -402,6 +453,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
         setActiveStepId: opts.setActiveStepId,
         setPipelineSubTab: opts.setPipelineSubTab,
         substepId: "run",
+        navigationIntent: navIntent,
       });
       if (await tryStartStage(nextStage.id)) return true;
       opts.showToast(readyForStageMessage(nextStage.title), "info");
@@ -419,6 +471,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
       substepId: "run",
+      navigationIntent: navIntent,
     });
     if (await tryStartStage(next.id)) return true;
     opts.showToast(readyForStageMessage(next.title), "info");
@@ -439,7 +492,9 @@ export async function tryAutoContinuePipeline(
   if (!refreshed) return false;
   if (isPipelineComplete(refreshed)) return false;
 
-  const navigated = await syncPipelineStageFocus({ ...opts, run: refreshed });
+  const autoSurface = { ...opts, navigationIntent: "auto_surface" as const };
+
+  const navigated = await syncPipelineStageFocus({ ...autoSurface, run: refreshed });
   refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
 
   if (!isPipelineAutopilotEnabled(opts.config)) {
@@ -451,7 +506,11 @@ export async function tryAutoContinuePipeline(
     if (resolved) {
       refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
       if (!autopilotBlocksAutoRun(refreshed, opts.config)) {
-        const started = await advancePipeline({ ...opts, run: refreshed, autoRun: true });
+        const started = await advancePipeline({
+          ...autoSurface,
+          run: refreshed,
+          autoRun: true,
+        });
         return started || true;
       }
       return true;
@@ -469,7 +528,7 @@ export async function tryAutoContinuePipeline(
   }
 
   const autoRun = true;
-  const started = await advancePipeline({ ...opts, run: refreshed, autoRun });
+  const started = await advancePipeline({ ...autoSurface, run: refreshed, autoRun });
   return started || navigated;
 }
 

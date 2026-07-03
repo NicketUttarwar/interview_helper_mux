@@ -78,6 +78,7 @@ import {
   readyForStageMessage,
 } from "../utils/stageAdvance";
 import { recordAutoContinue, shouldSkipDuplicateAutoContinue } from "../utils/autoContinueDedupe";
+import { resetAutoNavLedgerIfServerChanged } from "../utils/autoNavigationLedger";
 import { shouldSuppressJobPollTerminalToast } from "../utils/jobPollToasts";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
 import {
@@ -1642,6 +1643,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       navigateToNextBlocker: runNextStage,
       config,
       autoRun: true,
+      navigationIntent: "user_continue",
       acknowledgeHandoff: () => acknowledgeHandoffRef.current(),
       fixAllAndContinueStage: (stageId: string) => fixAllAndContinueStageRef.current(stageId),
       approveWriteAndContinue: (stageId?: string) => approveWriteAndContinueRef.current(stageId),
@@ -2404,7 +2406,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const startedAt = session.server?.started_at;
         const prevStarted = localStorage.getItem(GUI_SERVER_STARTED_AT_KEY);
         serverRestarted = Boolean(startedAt && prevStarted && startedAt !== prevStarted);
-        if (startedAt) localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
+        if (startedAt) {
+          resetAutoNavLedgerIfServerChanged(startedAt);
+          localStorage.setItem(GUI_SERVER_STARTED_AT_KEY, startedAt);
+        }
         setServerActiveRunId(session.active?.run_id ?? null);
         // Fast boot path: assets + lightweight runs list — do not block on enrich=50.
         await refreshHome({ enrichRuns: false });

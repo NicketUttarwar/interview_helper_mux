@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.field_path_match import path_matches_pattern
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
 # Irreplaceable paths per stage — JSON null triggers hard stop.
@@ -151,21 +152,10 @@ def find_null_fields(stage_key: str, artifacts: dict[str, Any] | None) -> list[s
     return normalized
 
 
-def _path_matches_pattern(path: str, pattern: str) -> bool:
-    import re
-
-    if pattern == path:
-        return True
-    if "[]" in pattern:
-        regex = "^" + re.escape(pattern).replace(r"\[\]", r"\[\d+\]") + "$"
-        return bool(re.match(regex, path))
-    return path == pattern or path.startswith(pattern + ".")
-
-
 def _is_critical_null(stage_key: str, path: str) -> bool:
     critical = critical_fields_for_stage(stage_key)
     for pat in critical:
-        if _path_matches_pattern(path, pat) or path == pat:
+        if path_matches_pattern(path, pat):
             return True
     return False
 
@@ -173,7 +163,7 @@ def _is_critical_null(stage_key: str, path: str) -> bool:
 def _is_nullable_path(stage_key: str, path: str) -> bool:
     nullable = nullable_fields_for_stage(stage_key)
     for pat in nullable:
-        if _path_matches_pattern(path, pat) or path == pat:
+        if path_matches_pattern(path, pat):
             return True
     return False
 
@@ -189,9 +179,9 @@ def partition_nulls(
             critical.append(path)
         elif _is_nullable_path(stage_key, path):
             acknowledged.append(path)
-    else:
-        # Unknown null — permissive default: acknowledge (omit) rather than hard stop.
-        acknowledged.append(path)
+        else:
+            # Unknown null — permissive default: acknowledge (omit) rather than hard stop.
+            acknowledged.append(path)
     return critical, acknowledged
 
 

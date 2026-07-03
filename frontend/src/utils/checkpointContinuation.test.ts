@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import {
   advancePipeline,
   patchRunAfterWriteApproval,
@@ -8,6 +8,15 @@ import {
   tryAutopilotCheckpointResolution,
 } from "./checkpointContinuation";
 import type { RunData } from "../types";
+import { clearAutoNavLedgerForTests, resetAutoNavLedgerIfServerChanged } from "./autoNavigationLedger";
+
+afterEach(() => {
+  clearAutoNavLedgerForTests();
+});
+
+beforeEach(() => {
+  resetAutoNavLedgerIfServerChanged("test-server-session");
+});
 
 function runStub(overrides: Partial<RunData> = {}): RunData {
   return {
@@ -256,6 +265,60 @@ describe("syncPipelineStageFocus", () => {
       stepId: "reuse",
       pinned: false,
     });
+  });
+
+  it("does not auto-navigate to the same stage step twice in one server session", async () => {
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          status: "done",
+          phase: "understand",
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    const opts = {
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "source_acoustic_profile",
+      executeJob: vi.fn(),
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { enabled: true } },
+    };
+    const first = await syncPipelineStageFocus(opts);
+    expect(first).toBe(true);
+    expect(selectStage).toHaveBeenCalledTimes(1);
+
+    const second = await syncPipelineStageFocus({
+      ...opts,
+      selectedStageId: "source_acoustic_profile",
+    });
+    expect(second).toBe(false);
+    expect(selectStage).toHaveBeenCalledTimes(1);
   });
 });
 

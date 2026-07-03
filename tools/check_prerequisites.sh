@@ -15,6 +15,16 @@ if [[ -d .venv ]]; then
   # shellcheck source=/dev/null
   source .venv/bin/activate
   python -c "import interview_mux; print('interview_mux', interview_mux.__version__)"
+  if python -m ruff --version >/dev/null 2>&1; then
+    echo "Running ruff F821 (undefined names)..."
+    python -m ruff check src tests --select F821
+  else
+    echo "WARN: ruff not installed — re-run: ./scripts/install.sh"
+    if [[ "${CI:-0}" == "1" ]]; then
+      echo "CI requires ruff; install dev extras"
+      exit 1
+    fi
+  fi
 fi
 
 LOCK="$ROOT/requirements.lock"

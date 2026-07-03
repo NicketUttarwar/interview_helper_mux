@@ -12,8 +12,7 @@ import { resolveFocusStepId, shouldAdvanceStaleStep } from "../../utils/resolveA
 import { scrollToStageStep } from "../../utils/activateStageStep";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import { StageReuseSection } from "../guidance/StageReuseSection";
-import { StageReviewGateBanner } from "../gates/StageReviewGateBanner";
-import { resolveReviewGateSpec } from "../../utils/resolveReviewGate";
+import { StageParentProgressBanner } from "./StageParentProgressBanner";
 import { stageHasCommittedOutputs } from "../../utils/stageOutputs";
 export function StageStepWorkbench() {
   const {
@@ -28,7 +27,6 @@ export function StageStepWorkbench() {
     appendClientLog,
     autoContinuePipeline,
     syncPipelineStageFocus,
-    config,
   } = useApp();
 
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -124,8 +122,6 @@ export function StageStepWorkbench() {
     );
   }
 
-  const reviewGateSpec = resolveReviewGateSpec(run ?? null, selectedStage, showDoneShell, config);
-
   const activateStep = (stepId: string) => {
     const step = steps.find((s) => s.id === stepId);
     userReviewingCompletedRef.current =
@@ -138,31 +134,26 @@ export function StageStepWorkbench() {
   };
 
   const reviewDetailStepId =
-    reviewGateSpec?.kind === "transcript_review"
+    selectedStage.id === "transcript_review"
       ? "listen_clips"
-      : reviewGateSpec?.kind === "disfluency_review"
+      : selectedStage.id === "disfluency_review"
         ? "review_fillers"
         : undefined;
 
   return (
     <div className={`panel stage-step-workbench${showDoneShell ? " stage-step-workbench--done" : ""}`}>
+      <StageParentProgressBanner
+        stage={selectedStage}
+        showDoneShell={showDoneShell}
+        onReviewDetail={reviewDetailStepId ? () => activateStep(reviewDetailStepId) : undefined}
+        onActivateStep={activateStep}
+      />
+
       <StepActionHeader
         action={stageAction}
         stepNumber={stepEntry?.number}
         whatsNext={whatsNext}
       />
-
-      {reviewGateSpec ? (
-        <StageReviewGateBanner
-          spec={reviewGateSpec}
-          stage={selectedStage}
-          onReviewDetail={
-            reviewDetailStepId
-              ? () => activateStep(reviewDetailStepId)
-              : undefined
-          }
-        />
-      ) : null}
 
       {!showDoneShell ? <StageReuseSection stage={selectedStage} /> : null}
 

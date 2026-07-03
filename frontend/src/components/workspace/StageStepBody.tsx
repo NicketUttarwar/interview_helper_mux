@@ -62,9 +62,9 @@ export function StageStepBody({ step, stage }: Props) {
     return (
       <div className="tr-complete-step-body">
         <p className="hint">
-          Review finishes automatically once every clip is confirmed or rejected. Use{" "}
-          <strong>Confirm all &amp; continue</strong> in the banner above to accept all pending
-          clips at once.
+          When every clip is confirmed or rejected, use <strong>Continue pipeline</strong> in the
+          review panel or step footer. <strong>Confirm all &amp; continue</strong> accepts every
+          pending clip at once.
         </p>
       </div>
     );

@@ -19,7 +19,7 @@ Shared **analysis** runs first: optional pre-clean → ingest → AWS Transcribe
 Full bootstrap, secrets, local LLM, and first run: **[SETUP.md](SETUP.md)**.
 
 ```bash
-./scripts/bootstrap_venv.sh && source .venv/bin/activate
+./scripts/install.sh && source .venv/bin/activate
 ./scripts/verify_local_models.sh
 ./tools/check_prerequisites.sh
 cp config/templates/secrets.env.example config/secrets/secrets.env   # edit keys
@@ -34,8 +34,9 @@ Place source audio under `ASSETS/input/` (any `.wav`; pick from GUI **Input audi
 
 | Mode | Command |
 |------|---------|
-| **Web GUI (recommended)** | `./scripts/run.sh` — creates/refreshes `.venv`, installs deps, **rebuilds React GUI every launch**, **clears GUI session** for a fresh Start tab each launch (`.venv` preserved; prior `exec_*` folders remain under `ASSETS/executions/`), serves on `web_port` (default **8765**) |
-| **Serve only** | `source .venv/bin/activate && python -m interview_mux serve` — run `./scripts/build_gui.sh` first if the GUI changed |
+| **Web GUI (recommended)** | `./scripts/run.sh` — requires `./scripts/install.sh` first; rebuilds React GUI each launch (skip: `MUX_SKIP_GUI_BUILD=1`); clears GUI session for fresh Start tab; serves on `web_port` (default **8765**) |
+| **Install / refresh env** | `./scripts/install.sh` — `.venv` + dev tools + GUI + local audio stacks (alias: `./scripts/bootstrap_venv.sh`) |
+| **Serve only** | `source .venv/bin/activate && python -m interview_mux serve` — run `./scripts/install.sh` first if static bundle missing |
 | **Headless pipeline** | `./scripts/run.sh --cli` then `interview-mux` / `python -m interview_mux` with `--flow`, `--run-id`, `--analysis-only`, etc. |
 | **Stage CLIs** | `python tools/run_analysis.py --run-id <exec_*>` · `python tools/run_flow.py --flow flow1\|flow2\|flow3 --run-id <exec_*>` |
 

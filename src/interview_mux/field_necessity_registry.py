@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from enum import Enum
 from typing import Any
 
+from interview_mux.field_path_match import normalize_field_path, path_matches_pattern
 from interview_mux.null_field_policy import (
     critical_fields_for_stage,
     nullable_fields_for_stage,
@@ -116,22 +116,8 @@ class FieldAction(str, Enum):
     BLOCK = "block"
 
 
-def _normalize_path(path: str) -> str:
-    return re.sub(r"\[\d+\]", "[]", path)
-
-
-def path_matches_pattern(path: str, pattern: str) -> bool:
-    norm = _normalize_path(path)
-    if pattern == norm or pattern == path:
-        return True
-    if "[]" in pattern:
-        regex = "^" + re.escape(pattern).replace(r"\[\]", r"\[\d+\]") + "$"
-        return bool(re.match(regex, norm)) or bool(re.match(regex, path))
-    return norm == pattern or norm.startswith(pattern + ".")
-
-
 def _is_never_fabricate(path: str) -> bool:
-    norm = _normalize_path(path)
+    norm = normalize_field_path(path)
     for pat in NEVER_FABRICATE_PATHS:
         if path_matches_pattern(norm, pat):
             return True
@@ -149,7 +135,7 @@ def _is_nullable(stage_key: str, path: str) -> bool:
     for pat in nullable_fields_for_stage(stage_key):
         if path_matches_pattern(path, pat):
             return True
-    norm = _normalize_path(path)
+    norm = normalize_field_path(path)
     for pat in COMMENTARY_FIELD_PATTERNS:
         if path_matches_pattern(norm, pat):
             return True
@@ -160,7 +146,7 @@ def _is_fabricatable(stage_key: str, path: str) -> bool:
     for pat in FABRICATABLE_FIELDS.get(stage_key, frozenset()):
         if path_matches_pattern(path, pat):
             return True
-    norm = _normalize_path(path)
+    norm = normalize_field_path(path)
     leaf = norm.split(".")[-1] if norm else norm
     if leaf in GLOBAL_FABRICATABLE_LEAVES:
         return True
@@ -176,7 +162,7 @@ def classify_field_path(
 ) -> FieldAction:
     """Decide omit | fabricate | block for a null or type-mismatch field path."""
     sk = resolve_parent_stage_key(stage_key or "") or stage_key or ""
-    norm = _normalize_path(path)
+    norm = normalize_field_path(path)
     leaf = norm.split(".")[-1] if norm else norm
 
     if _is_never_fabricate(norm) or _is_critical(sk, norm):

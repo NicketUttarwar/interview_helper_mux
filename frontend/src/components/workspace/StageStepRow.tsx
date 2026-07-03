@@ -3,6 +3,7 @@ import { ActionMarker } from "../guidance/ActionMarker";
 import { StageStepInstruction } from "./StageStepInstruction";
 import { StageStepBody } from "./StageStepBody";
 import { StageStepFooter } from "./StageStepFooter";
+import { isAutoNavConsumed } from "../../utils/autoNavigationLedger";
 
 interface Props {
   step: StageStep;
@@ -18,10 +19,12 @@ function stepMarkerStatus(step: StageStep): "todo" | "done" | "waiting" {
 }
 
 export function StageStepRow({ step, stage, isActive, onActivate }: Props) {
+  const autoGuided = isAutoNavConsumed({ stageId: stage.id, stepId: step.id });
+
   return (
     <section
       id={`stage-step-${step.id}`}
-      className={`stage-step-row${isActive ? " stage-step-row--active" : ""}${step.status === "done" ? " stage-step-row--done" : ""}${isActive && (step.kind === "reuse" || step.kind === "write_approval") ? " stage-step-row--decision" : ""}`}
+      className={`stage-step-row${isActive ? " stage-step-row--active" : ""}${step.status === "done" ? " stage-step-row--done" : ""}${isActive && (step.kind === "reuse" || step.kind === "write_approval") ? " stage-step-row--decision" : ""}${autoGuided ? " stage-step-row--auto-guided" : ""}`}
       data-testid={`stage-step-${step.id}`}
     >
       <button
@@ -32,7 +35,17 @@ export function StageStepRow({ step, stage, isActive, onActivate }: Props) {
       >
         <span className="stage-step-number">{step.number}</span>
         <ActionMarker status={stepMarkerStatus(step)} />
-        <span className="stage-step-label">{step.label}</span>
+        <span className="stage-step-label">
+          {step.label}
+          {autoGuided ? (
+            <span
+              className="stage-step-auto-guided-badge"
+              title="Auto-guided once this session — browse freely without being sent back here"
+            >
+              guided
+            </span>
+          ) : null}
+        </span>
         <span className={`stage-step-status-chip status-${step.status}`}>{step.status}</span>
       </button>
       {isActive ? (

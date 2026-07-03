@@ -3007,6 +3007,22 @@ def _resolve_repo_path(rel: str) -> Path:
     return p.resolve()
 
 
+def _artifact_path_allowed(normalized: str, allowed: set[str]) -> bool:
+    import fnmatch
+
+    if normalized in allowed:
+        return True
+    for spec in allowed:
+        if spec.endswith("/"):
+            prefix = spec.rstrip("/") + "/"
+            if normalized.startswith(prefix) or normalized == spec.rstrip("/"):
+                return True
+        elif spec.startswith("glob:"):
+            if fnmatch.fnmatch(normalized, spec[5:]):
+                return True
+    return False
+
+
 def _assert_artifact_path(path: str) -> None:
     normalized = path.replace("\\", "/").strip()
     if not normalized or ".." in normalized.split("/") or normalized.startswith("/"):
@@ -3032,9 +3048,7 @@ def _assert_artifact_path(path: str) -> None:
             "operator/manifest.json",
         }
     )
-    if normalized not in allowed and not any(
-        normalized.startswith(p.rstrip("/") + "/") for p in allowed if p.endswith("/")
-    ):
+    if not _artifact_path_allowed(normalized, allowed):
         raise HTTPException(400, f"Artifact path not in allowlist: {normalized}")
 
 

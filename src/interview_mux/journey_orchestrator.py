@@ -678,9 +678,7 @@ def execute_hint(
                 "stage_id": "assembly_preview",
                 "label": NEXT_ACTION_POLISH_PREVIEW,
             }
-        from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
-
-        if check_g1_5_preview_pickup_pending(ctx):
+        if not milestones.get("g1_5_preview_pickup_complete", True):
             return {
                 "action": "checkpoint",
                 "stage_id": "g1_5_preview_pickup",
