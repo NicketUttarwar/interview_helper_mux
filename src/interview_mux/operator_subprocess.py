@@ -13,7 +13,7 @@ from interview_mux.operator_trace import resolve_ctx, resolve_stage
 from interview_mux.run_context import RunContext
 
 _MAX_LINE = 4000
-_RUNNING_STATUSES = frozenset({"running", "running_with_warnings"})
+_RUNNING_STATUSES = frozenset({"running", "running_with_warnings", "stalled"})
 
 
 def format_command(cmd: list[str]) -> str:
@@ -78,6 +78,10 @@ def _read_running_job(ctx: RunContext) -> dict[str, Any] | None:
         return None
     if data.get("status") not in _RUNNING_STATUSES:
         return None
+    if data.get("status") == "stalled":
+        data = dict(data)
+        data["status"] = "running"
+        data.pop("stalled", None)
     return data
 
 

@@ -14,6 +14,7 @@ from interview_mux.application_session import (
     active_run_id,
     assert_session_allows_run_switch,
     build_session_payload,
+    claim_session_client,
     clear_active_execution,
     merge_active_execution,
     set_active_execution,
@@ -42,12 +43,33 @@ class ActiveBody(BaseModel):
     pipeline_filter_needs_you: bool | None = None
     source_locked: bool | None = None
     input_audio_path: str | None = None
+    client_instance_id: str | None = None
+    force_takeover: bool | None = None
+
+
+class SessionClientBody(BaseModel):
+    client_instance_id: str
+    force_takeover: bool = False
 
 
 def register_session_routes(router: APIRouter, *, ctx_factory: Any) -> None:
     @router.get("/api/session")
     def get_session() -> dict[str, Any]:
         return build_session_payload()
+
+    @router.post("/api/session/client")
+    def post_session_client(body: SessionClientBody) -> dict[str, Any]:
+        rid = active_run_id()
+        if not rid:
+            raise HTTPException(400, "No active run — open an execution first.")
+        try:
+            active = claim_session_client(
+                body.client_instance_id,
+                force_takeover=bool(body.force_takeover),
+            )
+            return {"ok": True, "active": active}
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @router.put("/api/session/active")
     def put_active(body: ActiveBody) -> dict[str, Any]:

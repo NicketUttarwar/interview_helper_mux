@@ -134,6 +134,30 @@ def artifact_exists_resolved(ctx: RunContext, rel: str) -> bool:
     return p.is_file()
 
 
+def _stage_output_spec_matches(rel: str, spec: str) -> bool:
+    import fnmatch
+
+    if spec.startswith("glob:"):
+        return fnmatch.fnmatch(rel, spec[5:])
+    if spec.endswith("/"):
+        prefix = spec.rstrip("/") + "/"
+        return rel == spec.rstrip("/") or rel.startswith(prefix)
+    return rel == spec
+
+
+def operator_visible_staging_path(stage_id: str, rel: str) -> bool:
+    """True when a staged relative path is an operator-facing stage output."""
+    from interview_mux.web.stages import STAGE_BY_ID
+
+    info = STAGE_BY_ID.get(stage_id)
+    if not info:
+        return True
+    specs = tuple(info.artifacts) + tuple(info.editable) + tuple(info.audio_outputs)
+    if not specs:
+        return True
+    return any(_stage_output_spec_matches(rel, spec) for spec in specs)
+
+
 def list_pending_paths(ctx: RunContext, stage_id: str) -> list[str]:
     root = staging_root(ctx, stage_id)
     if not root.is_dir():
@@ -141,7 +165,9 @@ def list_pending_paths(ctx: RunContext, stage_id: str) -> list[str]:
     paths: list[str] = []
     for p in sorted(root.rglob("*")):
         if p.is_file() and p.name != ".write.lock":
-            paths.append(str(p.relative_to(root)).replace("\\", "/"))
+            rel = str(p.relative_to(root)).replace("\\", "/")
+            if operator_visible_staging_path(stage_id, rel):
+                paths.append(rel)
     return paths
 
 
@@ -226,6 +252,8 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             if not src.is_file() or src.name.endswith(".lock"):
                 continue
             rel = str(src.relative_to(root)).replace("\\", "/")
+            if not operator_visible_staging_path(stage_id, rel):
+                continue
             dest = ctx.run_dir.joinpath(*rel.split("/"))
             size = src.stat().st_size
             if size >= _LARGE_FLUSH_BYTES:

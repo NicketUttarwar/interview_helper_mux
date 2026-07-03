@@ -196,6 +196,23 @@ if command -v lsof >/dev/null 2>&1; then
   fi
 fi
 
+_CURRENT_STEP="orphan_workers"
+if command -v ps >/dev/null 2>&1; then
+  orphan_workers="$(
+    ps -ax -o pid=,command= 2>/dev/null \
+      | grep 'interview_mux\.stage_worker' \
+      | awk '{print $1}' \
+      | tr '\n' ' ' \
+      || true
+  )"
+  if [[ -n "${orphan_workers// /}" ]]; then
+    echo "Stopping orphan stage worker(s) from a prior session ..."
+    # shellcheck disable=SC2086
+    kill ${orphan_workers} 2>/dev/null || true
+    sleep 1
+  fi
+fi
+
 _CURRENT_STEP="serve"
 if ((${#SERVE_ARGS[@]} > 0)); then
   exec python -m interview_mux serve "${SERVE_ARGS[@]}"

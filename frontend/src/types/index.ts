@@ -927,6 +927,8 @@ export interface SessionActive {
   pipeline_collapsed_stages?: string[];
   pipeline_expanded_done_stages?: string[];
   pipeline_filter_needs_you?: boolean;
+  active_client_instance_id?: string | null;
+  ui_revision?: number;
 }
 
 export interface OpenRunOptions {

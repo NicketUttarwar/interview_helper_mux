@@ -64,6 +64,13 @@ def preclean_was_skipped(ctx: RunContext) -> bool:
 
 def run_audio_preclean(ctx: RunContext) -> Path | None:
     """Optionally run DeepFilterNet noise reduction (operator must enable in run_meta)."""
+    from interview_mux.operator_subprocess import touch_job_progress
+
+    touch_job_progress(
+        ctx,
+        "Audio pre-clean: preparing source…",
+        phase="prepare",
+    )
     scope = _selected_scope(ctx)
     if not scope:
         checkpoint, skip_scope = _skip_context_from_meta(ctx)
@@ -91,6 +98,12 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
     if not source.is_file():
         raise FileNotFoundError(f"Audio pre-clean source not found: {source}")
 
+    if source.stat().st_size > 10_000_000:
+        touch_job_progress(
+            ctx,
+            "Audio pre-clean: hashing source audio…",
+            phase="prepare",
+        )
     src_hash = _sha256(source)
     lineage_path = ctx.path("preclean", "lineage.json")
     out_path = ctx.path("preclean", "isolated.wav")
@@ -358,7 +371,16 @@ def _enhance_source_to_output(
             "Splitting source audio into chunks for DeepFilterNet…",
             log=True,
         )
-    chunks = chunk_wav_by_max_bytes(source, max_bytes, work_dir=work)
+    chunks = chunk_wav_by_max_bytes(
+        source,
+        max_bytes,
+        work_dir=work,
+        heartbeat=(
+            (lambda msg: progress.tick(0, msg, force=True, log=True))
+            if progress is not None
+            else None
+        ),
+    )
     chunk_total = len(chunks)
     if progress is not None:
         progress.set_phase(

@@ -1,14 +1,21 @@
 import type { SfxPromptsResponse } from "../types";
+import { guiClientHeaders } from "../utils/sessionTabLeader";
 
 export class ApiError extends Error {
   status: number;
   runBusy?: boolean;
+  sessionSuperseded?: boolean;
 
-  constructor(message: string, status = 0, opts?: { runBusy?: boolean }) {
+  constructor(
+    message: string,
+    status = 0,
+    opts?: { runBusy?: boolean; sessionSuperseded?: boolean },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.runBusy = opts?.runBusy;
+    this.sessionSuperseded = opts?.sessionSuperseded;
   }
 }
 
@@ -28,7 +35,11 @@ export async function api<T = unknown>(
 ): Promise<T> {
   let attempt = 0;
   while (true) {
-    const res = await fetch(path, opts);
+    const headers = new Headers(opts.headers);
+    for (const [key, value] of Object.entries(guiClientHeaders())) {
+      if (!headers.has(key)) headers.set(key, value);
+    }
+    const res = await fetch(path, { ...opts, headers });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({ detail: res.statusText }))) as {
         detail?: string | unknown;
@@ -48,6 +59,7 @@ export async function api<T = unknown>(
       }
       throw new ApiError(detailStr, res.status, {
         runBusy: isRunBusyError(res.status, detailStr),
+        sessionSuperseded: detailStr.toLowerCase().includes("browser tab"),
       });
     }
     const ct = res.headers.get("content-type") || "";

@@ -2,38 +2,19 @@ import type { LogEntry, RunData, StageInfo } from "../types";
 import { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
 import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
-import { countRequiredAttention } from "./attentionQueue";
+import { countRequiredAttention, topAttentionItem } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
+import { gateFocusStageId } from "./gateFocus";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
 export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
+export { gateFocusStageId, operatorGateFocusStage, upstreamStageFromGateMessage } from "./gateFocus";
 
 export function filterCustomRunHandoffPaths(paths: string[]): string[] {
   return paths.filter(isCustomRunArtifactPath);
-}
-
-/** When a gate message references an upstream prerequisite stage, focus that stage. */
-export function upstreamStageFromGateMessage(
-  message: string | undefined,
-  currentStage?: string | null,
-): string | null {
-  if (!message) return null;
-  const match = message.match(/(?:from stage|Prerequisite stage)\s+([a-z][a-z0-9_]*)/i);
-  if (!match) return null;
-  const upstream = match[1];
-  if (currentStage && upstream === currentStage) return null;
-  return upstream;
-}
-
-function gateFocusStageId(
-  job: RunData["job"],
-): string | null {
-  if (!job?.stage) return null;
-  const msg = job.message || job.error || "";
-  return upstreamStageFromGateMessage(msg, job.stage) || job.stage;
 }
 
 function filterCompleteHandoffPaths(stage: StageInfo, paths: string[]): string[] {
@@ -70,19 +51,50 @@ export function getHandoffPathsLocal(
 }
 
 /** Stage id the operator should focus on for checkpoints, gates, handoffs, or job pause. */
+export function resolveOperatorFocusStageId(
+  run: RunData | null,
+  grants: Record<string, boolean> = {},
+): string | null {
+  if (!run) return null;
+  const top = topAttentionItem(run, grants);
+  if (top?.stageId) return top.stageId;
+  return findPendingFocusStage(run, grants);
+}
+
+/** Stage id the operator should focus on for checkpoints, gates, handoffs, or job pause. */
 export function findPendingFocusStage(
   run: RunData | null,
   grants: Record<string, boolean> = {},
 ): string | null {
   if (!run) return null;
-  if (run.job?.status === "gate" && run.job.stage) return gateFocusStageId(run.job);
-  if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
+
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id) {
+    const reason = blocking.reason || "";
+    if (
+      reason === "transcript_review" ||
+      reason === "disfluency_review" ||
+      reason === "g1_vo_pickup" ||
+      reason === "g1_5_preview_pickup" ||
+      reason === "g2_flow_select" ||
+      reason === "analysis_profile" ||
+      reason === "write_approval" ||
+      reason === "operator_decisions" ||
+      reason === "pickup_speaker" ||
+      reason === "llm_gate"
+    ) {
+      return blocking.stage_id;
+    }
+  }
+
   if (
     (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
     (run.job.pending_write_stage || run.job.stage)
   ) {
     return run.job.pending_write_stage || run.job.stage || null;
   }
+  if (run.job?.status === "gate" && run.job.stage) return gateFocusStageId(run.job);
+  if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
     run.job?.status === "needs_operator" &&
     !isApiConsentJobPending(run, grants) &&
@@ -94,7 +106,6 @@ export function findPendingFocusStage(
   const handoff = findHandoffStage(run);
   if (handoff) return handoff.id;
 
-  const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) return blocking.stage_id;
 
   const next = findNextRunnableStage(run.stages, run.meta);

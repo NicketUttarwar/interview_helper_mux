@@ -7,13 +7,21 @@ import traceback
 
 
 def run_stage_worker(run_id: str, stage_id: str) -> int:
-    from interview_mux.gui_job_reconcile import WRITE_APPROVAL_EXIT, pause_job_for_write_approval
+    import os
+
+    from interview_mux.gui_job_reconcile import RUNNING_STATUSES, WRITE_APPROVAL_EXIT, pause_job_for_write_approval
     from interview_mux.run_context import RunContext
     from interview_mux.run_lock import run_directory_lock
     from interview_mux.write_staging import WriteApprovalPending
 
     with run_directory_lock(run_id):
         ctx = RunContext(run_id, create=False)
+        if ctx.artifact_exists("gui_job.json"):
+            job = ctx.read_json("gui_job.json")
+            if job.get("status") in RUNNING_STATUSES:
+                job["worker_pid"] = os.getpid()
+                job["worker_kind"] = "stage_subprocess"
+                ctx.write_json("gui_job.json", job)
         from interview_mux.pipeline import run_single_stage
 
         try:

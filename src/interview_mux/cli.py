@@ -277,6 +277,13 @@ def serve_cmd(
     on_server_start(port=chosen_port, host=host)
 
     from interview_mux.gui_job_reconcile import reconcile_stale_jobs
+    from interview_mux.process_cleanup import kill_stage_workers
+
+    orphans = kill_stage_workers()
+    if orphans:
+        console.print(
+            f"[yellow]Stopped {orphans} orphan stage worker(s) from a prior session.[/yellow]"
+        )
 
     reconciled = reconcile_stale_jobs()
     if reconciled:

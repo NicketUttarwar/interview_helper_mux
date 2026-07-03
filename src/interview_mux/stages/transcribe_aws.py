@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -62,8 +63,6 @@ def run_transcribe(ctx: RunContext) -> None:
 
     job_name = f"imux-{ctx.run_id}-{uuid.uuid4().hex[:8]}"
     media_uri = s3_uri
-    out_dir = ctx.path("transcript")
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     ctx.log(
         f"Transcribe: starting AWS Transcribe job {job_name}",
@@ -130,15 +129,19 @@ def run_transcribe(ctx: RunContext) -> None:
         detail={"journey_kind": "execute"},
     )
     touch_job_message(ctx, "Transcribe: downloading result…")
-    local_out = out_dir / "aws_raw.json"
-    with logged_step("transcribe/download_result", ctx=ctx, stage="transcribe"):
-        _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+        local_out = Path(tmp.name)
+    try:
+        with logged_step("transcribe/download_result", ctx=ctx, stage="transcribe"):
+            _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
-    with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
-        raw = _read_transcript_json(local_out)
-        full, speakers = _normalize_transcript(raw)
-        ctx.write_json("transcript/full.json", full)
-        ctx.write_json("transcript/speakers.json", speakers)
+        with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
+            raw = _read_transcript_json(local_out)
+            full, speakers = _normalize_transcript(raw)
+            ctx.write_json("transcript/full.json", full)
+            ctx.write_json("transcript/speakers.json", speakers)
+    finally:
+        local_out.unlink(missing_ok=True)
     ctx.log(
         f"Transcription complete — {len(full.get('words') or [])} words, "
         f"{len(speakers.get('speakers') or [])} speaker(s).",

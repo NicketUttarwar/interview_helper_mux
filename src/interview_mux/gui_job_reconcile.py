@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from interview_mux.process_cleanup import worker_pid_alive
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log
 
@@ -21,10 +22,12 @@ def _parse_ts(raw: Any) -> datetime | None:
         return None
 
 
-def _stall_threshold_sec() -> int:
+def _stall_threshold_sec(*, job: dict[str, Any] | None = None) -> int:
     from interview_mux.config import merged_config
 
     row = merged_config().get("gui_job") or {}
+    if job and job.get("worker_kind") == "stage_subprocess":
+        return int(row.get("subprocess_stall_threshold_sec", 7200))
     return int(row.get("stall_threshold_sec", 180))
 
 
@@ -80,6 +83,26 @@ def _job_activity_ts(ctx: RunContext, job: dict[str, Any]) -> datetime | None:
     return updated or logged
 
 
+def _live_worker(job: dict[str, Any]) -> bool:
+    """True when a tracked stage subprocess is still running."""
+    if worker_pid_alive(job.get("worker_pid")):
+        return True
+    return False
+
+
+def _revive_running_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Clear false stall/interrupted state when a live worker is still executing."""
+    out = dict(job)
+    out["status"] = "running"
+    out.pop("stalled", None)
+    stage = out.get("current_stage") or out.get("stage") or "gui"
+    msg = str(out.get("message") or "")
+    if msg in {STALLED_MESSAGE, INTERRUPTED_MESSAGE} or not msg.strip():
+        out["message"] = f"Running {stage}…"
+    ctx.write_json("gui_job.json", out)
+    return out
+
+
 def _mark_stalled(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     out = dict(job)
     out["status"] = "stalled"
@@ -92,6 +115,81 @@ def _mark_stalled(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
         level="warning",
         stage=str(job.get("stage") or job.get("current_stage") or "gui"),
     )
+    return out
+
+
+def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Clear stale operator checkpoint gates once the checkpoint has been satisfied."""
+    if str(job.get("status")) != "gate":
+        return job
+    stage = str(job.get("stage") or "")
+    msg = str(job.get("message") or job.get("error") or "")
+    low = msg.lower()
+
+    from interview_mux.gate_focus import operator_gate_focus_stage
+
+    focus = operator_gate_focus_stage(msg, job_stage=stage) or stage
+
+    if focus == "transcript_review":
+        from interview_mux.stages.transcript_review import check_transcript_review_pending
+
+        if check_transcript_review_pending(ctx):
+            return job
+        return _resume_after_operator_gate(ctx, job, stage_id=stage, message="Transcript review complete — continue pipeline.")
+
+    if focus == "disfluency_review":
+        from interview_mux.gates import check_disfluency_review_pending
+
+        if check_disfluency_review_pending(ctx):
+            return job
+        return _resume_after_operator_gate(ctx, job, stage_id=stage, message="Disfluency review complete — continue pipeline.")
+
+    if stage == "transcript_review_build" and "transcript review required" in low:
+        from interview_mux.stages.transcript_review import check_transcript_review_pending
+
+        if not check_transcript_review_pending(ctx):
+            return _resume_after_operator_gate(
+                ctx,
+                job,
+                stage_id=stage,
+                message="Transcript review complete — continue pipeline.",
+            )
+
+    return job
+
+
+def _resume_after_operator_gate(
+    ctx: RunContext,
+    job: dict[str, Any],
+    *,
+    stage_id: str,
+    message: str,
+) -> dict[str, Any]:
+    from interview_mux.write_staging import list_pending_paths
+
+    paths = list_pending_paths(ctx, stage_id)
+    if paths:
+        out = dict(job)
+        out["status"] = "awaiting_write_approval"
+        out["mode"] = "stage"
+        out["stage"] = stage_id
+        out["current_stage"] = stage_id
+        out["message"] = "Awaiting your review"
+        out["pending_write_stage"] = stage_id
+        out["pending_write_paths"] = paths
+        out["awaiting_write_approval"] = True
+        out.pop("error", None)
+        return out
+
+    if stage_id and not ctx.is_done(stage_id):
+        ctx.mark_done(stage_id)
+
+    out = dict(job)
+    out["status"] = "complete"
+    out["stage"] = stage_id
+    out["current_stage"] = None
+    out["message"] = message
+    out.pop("error", None)
     return out
 
 
@@ -147,13 +245,15 @@ def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
     if not lock_held and _run_directory_lock_held(ctx.run_dir):
         return False
     if lock_held:
+        if _live_worker(data):
+            return False
         activity = _job_activity_ts(ctx, data)
         if activity is not None:
             now = datetime.now(timezone.utc)
             if activity.tzinfo is None:
                 activity = activity.replace(tzinfo=timezone.utc)
             age = (now - activity).total_seconds()
-            if age >= _stall_threshold_sec():
+            if age >= _stall_threshold_sec(job=data):
                 _mark_stalled(ctx, data)
                 return True
         return False
@@ -221,14 +321,21 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     p = ctx.path("gui_job.json")
     if not p.is_file():
         return {"status": "idle", "run_id": run_id}
-    status = ctx.read_json("gui_job.json").get("status")
+    data = ctx.read_json("gui_job.json")
+    status = data.get("status")
     if status in RUNNING_STATUSES:
         _reconcile_job_file(ctx, lock_held=lock_held)
-    data = ctx.read_json("gui_job.json")
+        data = ctx.read_json("gui_job.json")
+    elif status in {"stalled", "interrupted"} and _live_worker(data):
+        data = _revive_running_job(ctx, data)
     sanitized = sanitize_gui_job(ctx, data)
     if sanitized is not data and sanitized != data:
         ctx.write_json("gui_job.json", sanitized)
         data = sanitized
+    reconciled = reconcile_operator_gate_job(ctx, data)
+    if reconciled is not data:
+        ctx.write_json("gui_job.json", reconciled)
+        data = reconciled
     data["run_id"] = run_id
     return data
 

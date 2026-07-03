@@ -212,7 +212,12 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         "placement_qa_ready": ctx.artifact_exists("sound_design/placement_adjustments.json"),
         "master_exported": master_exported,
     }
-    computed.update({k: v for k, v in base.items() if k in computed})
+    for key, stored in base.items():
+        if key not in computed:
+            computed[key] = stored
+            continue
+        if isinstance(stored, bool) and isinstance(computed.get(key), bool):
+            computed[key] = bool(computed[key] or stored)
     return computed
 
 

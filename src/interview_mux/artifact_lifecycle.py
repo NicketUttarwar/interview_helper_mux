@@ -84,7 +84,10 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
     if not ctx.artifact_exists(rel):
         return None
     try:
-        doc = ctx.read_json(rel)
+        from interview_mux.file_store import read_json as fs_read_json
+        from interview_mux.write_staging import resolve_read_path
+
+        doc = fs_read_json(resolve_read_path(ctx, rel))
     except Exception:
         return None
     if not isinstance(doc, dict):
@@ -94,7 +97,11 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         return f"{rel} is marked stale ({meta.get('stale_reason') or 'upstream fix'})"
     stored = {}
     if ctx.artifact_exists("run_meta.json"):
-        stored = (ctx.read_json("run_meta.json") or {}).get("artifact_fingerprints") or {}
+        try:
+            meta_path = resolve_read_path(ctx, "run_meta.json")
+            stored = (fs_read_json(meta_path) or {}).get("artifact_fingerprints") or {}
+        except Exception:
+            stored = {}
     entry = stored.get(rel) or {}
     if entry.get("hash") and meta.get("content_hash") and entry["hash"] != meta["content_hash"]:
         return f"{rel} fingerprint mismatch — re-run producer {entry.get('producer_stage')}"

@@ -246,12 +246,22 @@ class JobRunner:
 
     def is_running(self, run_id: str) -> bool:
         """True only when this process is executing a background job for the run."""
+        from interview_mux.process_cleanup import worker_pid_alive
+
         with self._global:
             if run_id in self._starting_runs:
                 return True
         if self._caller_holds_run_lock(run_id):
             return False
-        return self.lock_held(run_id)
+        if self.lock_held(run_id):
+            return True
+        try:
+            job = self._read_gui_job(run_id)
+            if worker_pid_alive(job.get("worker_pid")):
+                return True
+        except OSError:
+            pass
+        return False
 
     def mark_write_approval_saving(
         self,
@@ -310,13 +320,16 @@ class JobRunner:
 
     def _is_legitimate_pipeline_busy(self, run_id: str) -> bool:
         """True when a live worker is executing a stage (not an operator pause)."""
-        if not self._holder_thread_alive(run_id):
-            return False
         from interview_mux.gui_job_reconcile import RUNNING_STATUSES
+        from interview_mux.process_cleanup import worker_pid_alive
 
         job = self._read_gui_job(run_id)
+        if worker_pid_alive(job.get("worker_pid")):
+            return True
+        if not self._holder_thread_alive(run_id):
+            return False
         status = job.get("status")
-        if status not in RUNNING_STATUSES:
+        if status not in RUNNING_STATUSES and status != "stalled":
             return False
         if job.get("mode") == "write_approval":
             return self._holder_thread_alive(run_id)
@@ -1358,6 +1371,7 @@ class JobRunner:
         dir_lock: RunDirectoryLock,
     ) -> None:
         from interview_mux.gui_job_reconcile import WRITE_APPROVAL_EXIT
+        from interview_mux.process_cleanup import track_worker_pid, untrack_worker_pid
         from interview_mux.write_staging import WriteApprovalPending, list_pending_paths
 
         if from_stage and from_stage != stage:
@@ -1372,19 +1386,35 @@ class JobRunner:
             dir_lock.release()
         except Exception:
             pass
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             self._stage_worker_cmd(ctx.run_id, stage),
             cwd=str(ctx.root),
         )
-        if proc.returncode == WRITE_APPROVAL_EXIT:
+        track_worker_pid(proc.pid)
+        if ctx.artifact_exists("gui_job.json"):
+            job = ctx.read_json("gui_job.json")
+            job["worker_pid"] = proc.pid
+            job["worker_kind"] = "stage_subprocess"
+            ctx.write_json("gui_job.json", job)
+        try:
+            returncode = proc.wait()
+        finally:
+            untrack_worker_pid(proc.pid)
+            if ctx.artifact_exists("gui_job.json"):
+                job = ctx.read_json("gui_job.json")
+                if job.get("worker_pid") == proc.pid:
+                    job.pop("worker_pid", None)
+                    job.pop("worker_kind", None)
+                    ctx.write_json("gui_job.json", job)
+        if returncode == WRITE_APPROVAL_EXIT:
             paths = list_pending_paths(ctx, stage)
             raise WriteApprovalPending(stage, paths)
-        if proc.returncode != 0:
+        if returncode != 0:
             job = ctx.read_json("gui_job.json") if ctx.artifact_exists("gui_job.json") else {}
             msg = str(job.get("message") or job.get("error") or "").strip()
             if msg:
                 raise RuntimeError(msg)
-            raise RuntimeError(f"Stage {stage} failed (exit {proc.returncode})")
+            raise RuntimeError(f"Stage {stage} failed (exit {returncode})")
 
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
         if from_stage and from_stage != stage:

@@ -7157,3 +7157,42 @@ button.pipeline-step-row:focus-visible,
   margin-top: 0.5rem;
 }
 
+.session-stale-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 14, 0.72);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.session-stale-card {
+  max-width: 28rem;
+  margin: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--warning, rgba(251, 191, 36, 0.45));
+  background: var(--panel, #151922);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.session-stale-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.session-stale-card p {
+  margin: 0 0 1rem;
+  opacity: 0.9;
+  line-height: 1.45;
+}
+
+.session-stale-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+

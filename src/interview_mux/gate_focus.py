@@ -27,6 +27,22 @@ def upstream_stage_from_gate_message(
     return upstream
 
 
+def operator_gate_focus_stage(
+    message: str | None,
+    *,
+    job_stage: str | None = None,
+) -> str | None:
+    """Map automated stage gates to the operator checkpoint stage the GUI should open."""
+    if not message or not job_stage:
+        return None
+    low = message.lower()
+    if job_stage == "transcript_review_build" and "transcript review required" in low:
+        return "transcript_review"
+    if job_stage == "disfluency_extract" and "disfluency review required" in low:
+        return "disfluency_review"
+    return None
+
+
 def gate_focus_stage(
     message: str | None,
     *,
@@ -36,4 +52,7 @@ def gate_focus_stage(
     upstream = upstream_stage_from_gate_message(message, current_stage=job_stage)
     if upstream:
         return upstream
+    operator = operator_gate_focus_stage(message, job_stage=job_stage)
+    if operator:
+        return operator
     return job_stage

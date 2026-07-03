@@ -117,12 +117,22 @@ def concat_clips_with_crossfade(clips: list[AudioSegment], crossfade_ms: int) ->
     return out
 
 
-def chunk_wav_by_max_bytes(path: Path, max_bytes: int, *, work_dir: Path) -> list[Path]:
+def chunk_wav_by_max_bytes(
+    path: Path,
+    max_bytes: int,
+    *,
+    work_dir: Path,
+    heartbeat: Any | None = None,
+) -> list[Path]:
     if path.stat().st_size <= max_bytes:
         return [path]
     work_dir.mkdir(parents=True, exist_ok=True)
     pattern = work_dir / "chunk_%03d.wav"
     segment_sec = max(30, int(max_bytes / (48000 * 2 * 1.5)))
+    if heartbeat is not None:
+        heartbeat(
+            f"Splitting {path.name} into ~{segment_sec}s chunks (ffmpeg)…",
+        )
     run_command(
         [
             "ffmpeg",

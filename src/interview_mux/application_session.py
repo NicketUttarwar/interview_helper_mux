@@ -239,6 +239,23 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
     log_tab = active.get("activity_log_tab")
     if log_tab is not None and log_tab not in VALID_ACTIVITY_LOG_TABS:
         raise ValueError(f"Invalid activity_log_tab: {log_tab}")
+
+    client_id = updates.get("client_instance_id")
+    force_takeover = bool(updates.get("force_takeover"))
+    if client_id:
+        leader = str(current.get("active_client_instance_id") or "")
+        revision = int(current.get("ui_revision") or 0)
+        if force_takeover or not leader or leader == str(client_id):
+            active["active_client_instance_id"] = str(client_id)
+            active["ui_revision"] = revision + 1
+        else:
+            raise ValueError(
+                "Another browser tab controls this session. Use Take over in the active tab, "
+                "or close the other tab before continuing."
+            )
+    elif any(k in updates for k in ("selected_stage_id", "active_tab", "pipeline_sub_tab")):
+        active["ui_revision"] = int(current.get("ui_revision") or 0) + 1
+
     active["updated_at"] = datetime.now(timezone.utc).isoformat()
     state["active"] = active
     source = dict(state.get("source") or {})
@@ -249,6 +266,32 @@ def merge_active_execution(updates: dict[str, Any]) -> dict[str, Any]:
         state["source"] = source
     save_state(state)
     return active
+
+
+def claim_session_client(client_instance_id: str, *, force_takeover: bool = False) -> dict[str, Any]:
+    """Register this browser tab as the GUI session leader."""
+    return merge_active_execution(
+        {
+            "run_id": active_run_id(),
+            "client_instance_id": client_instance_id,
+            "force_takeover": force_takeover,
+        }
+    )
+
+
+def assert_client_controls_session(client_instance_id: str | None) -> None:
+    """Reject mutating GUI calls from a non-leader browser tab."""
+    if not client_instance_id:
+        return
+    active = get_active()
+    if not active:
+        return
+    leader = str(active.get("active_client_instance_id") or "")
+    if leader and leader != str(client_instance_id):
+        raise ValueError(
+            "This browser tab is inactive — another tab controls the session. "
+            "Take over or close the other tab."
+        )
 
 
 def active_run_id() -> str | None:

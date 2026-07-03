@@ -40,6 +40,7 @@ import {
   findHandoffStage,
   findPendingFocusStage,
   getHandoffPathsLocal,
+  resolveOperatorFocusStageId,
 } from "../utils/checkpoint";
 import { ALL_API_CONSENTS, mapGateToStage } from "../utils";
 import type { ApiProvider } from "../types";
@@ -90,6 +91,12 @@ import { RunProvider } from "./providers/RunProvider";
 import { SessionProvider } from "./providers/SessionProvider";
 import type { StageSubstep } from "../types";
 import { prefetchTab } from "../components/tabs/lazyTabs";
+import {
+  broadcastSessionTakeover,
+  getClientInstanceId,
+  parseSessionLeader,
+  subscribeSessionBroadcast,
+} from "../utils/sessionTabLeader";
 
 interface AppContextValue {
   activeTab: AppTab;
@@ -194,6 +201,8 @@ interface AppContextValue {
   collapseStage: (stageId: string) => void;
   toggleDoneStageExpanded: (stageId: string) => void;
   setPipelineFilterNeedsYou: (enabled: boolean) => void;
+  sessionStale: boolean;
+  takeOverSession: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -288,6 +297,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [sessionStale, setSessionStale] = useState(false);
+  const sessionUiRevisionRef = useRef(0);
   const userDismissedActionRef = useRef(false);
   const lastAutoOpenKeyRef = useRef<string | null>(null);
   const lastDismissedFocusKeyRef = useRef<string | null>(null);
@@ -437,8 +448,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           pipeline_collapsed_stages: pipelineCollapsedRef.current,
           pipeline_expanded_done_stages: pipelineExpandedDoneRef.current,
           pipeline_filter_needs_you: pipelineFilterNeedsYouRef.current,
+          client_instance_id: getClientInstanceId(),
         }),
-      }).catch(() => {});
+      })
+        .then((active) => {
+          const leader = parseSessionLeader(active as SessionActive);
+          setSessionStale(!leader.isLeader);
+          sessionUiRevisionRef.current = leader.uiRevision;
+        })
+        .catch((err) => {
+          if (err instanceof ApiError && err.sessionSuperseded) {
+            setSessionStale(true);
+          }
+        });
     }, 200);
   }, []);
 
@@ -802,11 +824,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         run.job?.stage ?? "",
         run.journey?.blocking?.reason ?? "",
         run.journey?.blocking?.stage_id ?? "",
-        findPendingFocusStage(run, apiGrants) ?? "",
+        resolveOperatorFocusStageId(run, apiGrants) ?? "",
         run.stages.map((s) => `${s.id}:${s.status}`).join("|"),
         run.handoff_ack ? Object.keys(run.handoff_ack).sort().join(",") : "",
       ].join(":")
     : "";
+
+  const navigateToOperatorFocus = useCallback(
+    async (runOverride?: RunData | null) => {
+      if (sessionStale) return false;
+      const currentRun = runOverride ?? run;
+      if (!currentRun) return false;
+      const focusId = resolveOperatorFocusStageId(currentRun, mergedApiGrants());
+      if (!focusId) return false;
+      if (activeTabRef.current !== "pipeline") {
+        setActiveTabState("pipeline");
+        activeTabRef.current = "pipeline";
+        persistSessionUi();
+      }
+      return syncPipelineStageFocusRef.current(runOverride ?? undefined);
+    },
+    [run, sessionStale, persistSessionUi],
+  );
 
   useEffect(() => {
     if (!run || activeTabRef.current !== "pipeline") return;
@@ -823,16 +862,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [pipelineFocusKey, run]);
 
   useEffect(() => {
-    if (!run || activeTabRef.current !== "pipeline" || jobRunning) return;
+    if (!run || jobRunning) return;
+    if (sessionStale) return;
     if (autopilotInFlightRef.current || actionBusyRef.current || approveInFlightRef.current) {
       return;
     }
-    const focusId = findPendingFocusStage(run, apiGrants);
+    const focusId = resolveOperatorFocusStageId(run, mergedApiGrants());
     const currentId = selectedStageIdRef.current;
     if (!focusId || focusId === currentId) return;
-    if (currentId && stageNeedsAttention(run, currentId, apiGrants)) return;
-    void syncPipelineStageFocusRef.current();
-  }, [pipelineFocusKey, jobRunning, run, config]);
+    void navigateToOperatorFocus();
+  }, [pipelineFocusKey, jobRunning, run, sessionStale, navigateToOperatorFocus]);
 
   useEffect(() => {
     if (!run || activeTabRef.current !== "pipeline" || jobRunning) return;
@@ -943,14 +982,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   void autoContinuePipelineRef.current(polled.stage ?? null);
                 } else {
                   showToast(
-                    "Paused for your review — complete the checkpoint to continue.",
+                    "Paused for your review — opening the checkpoint.",
                     "info",
                   );
                   userDismissedActionRef.current = false;
                   lastAutoOpenKeyRef.current = null;
-                  if (activeTabRef.current === "pipeline") {
-                    setActionModalOpen(true);
-                  }
+                  void navigateToOperatorFocus(refreshed ?? undefined);
                 }
               } else if (polled.status === "needs_clarification") {
                 void autoContinuePipelineRef.current(polled.stage ?? null);
@@ -1344,6 +1381,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (isJobActivelyRunning(job)) startJobPoll();
         else setJobRunning(false);
         setServerActiveRunId(id);
+        try {
+          const claimed = await api<SessionActive>("/api/session/client", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_instance_id: getClientInstanceId(),
+              force_takeover: Boolean(opts.force),
+            }),
+          });
+          const leader = parseSessionLeader(claimed);
+          setSessionStale(!leader.isLeader);
+          sessionUiRevisionRef.current = leader.uiRevision;
+        } catch {
+          /* session leader optional during boot */
+        }
+        void navigateToOperatorFocus(runData);
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Failed to open execution";
         setSessionLoadError(msg);
@@ -2460,9 +2513,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!run) return;
-    const focusId = findPendingFocusStage(run, mergedApiGrants());
+    const focusId = resolveOperatorFocusStageId(run, mergedApiGrants());
     if (!focusId) return;
     expandStage(focusId);
+    if (!sessionStale && focusId !== selectedStageIdRef.current) {
+      void navigateToOperatorFocus();
+    }
   }, [
     run?.journey?.blocking,
     run?.job?.status,
@@ -2470,7 +2526,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
     run?.job?.stage,
     expandStage,
     mergedApiGrants,
+    navigateToOperatorFocus,
+    sessionStale,
   ]);
+
+  const takeOverSession = useCallback(async () => {
+    try {
+      const claimed = await api<SessionActive>("/api/session/client", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_instance_id: getClientInstanceId(),
+          force_takeover: true,
+        }),
+      });
+      const leader = parseSessionLeader(claimed);
+      setSessionStale(!leader.isLeader);
+      sessionUiRevisionRef.current = leader.uiRevision;
+      broadcastSessionTakeover(leader.clientInstanceId, leader.uiRevision);
+      await refreshRun();
+      await navigateToOperatorFocus();
+      showToast("This tab is now controlling the session.", "success");
+    } catch (e) {
+      showToast(formatApiError(e, "Could not take over session"), "error");
+    }
+  }, [refreshRun, navigateToOperatorFocus, showToast]);
+
+  useEffect(() => {
+    const syncLeader = () => {
+      if (!runIdRef.current) return;
+      void api<{ active?: SessionActive }>("/api/session")
+        .then((payload) => {
+          const leader = parseSessionLeader(payload.active);
+          setSessionStale(!leader.isLeader);
+          if (leader.uiRevision > sessionUiRevisionRef.current) {
+            sessionUiRevisionRef.current = leader.uiRevision;
+            void refreshRun().then((refreshed) => {
+              if (refreshed && leader.isLeader) void navigateToOperatorFocus(refreshed);
+            });
+          }
+        })
+        .catch(() => {});
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") syncLeader();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const unsub = subscribeSessionBroadcast((msg) => {
+      if (msg.type === "takeover") syncLeader();
+    });
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      unsub();
+    };
+  }, [refreshRun, navigateToOperatorFocus]);
 
   useEffect(() => {
     if (!run) return;
@@ -2558,6 +2667,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pipelineFilterNeedsYou,
     isStagePinned,
     setPipelineFilterNeedsYou,
+    sessionStale,
+    takeOverSession,
     setActivityLogTab,
     setActivityLogCollapsed,
     setLogFilterPreset,

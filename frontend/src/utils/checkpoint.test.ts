@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findPendingFocusStage } from "./checkpoint";
+import { findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData } from "../types";
 
@@ -131,6 +131,38 @@ describe("findPendingFocusStage", () => {
       },
     });
     expect(findPendingFocusStage(run)).toBe("source_acoustic_profile");
+  });
+
+  it("focuses transcript review when job gate is on STT review prep", () => {
+    const run = minimalRun({
+      stages: [
+        { id: "transcript_review_build", title: "STT review prep", description: "", status: "done" },
+        {
+          id: "transcript_review",
+          title: "Transcript review",
+          description: "",
+          status: "action_required",
+          phase: "gate",
+        },
+      ],
+      job: {
+        status: "gate",
+        stage: "transcript_review_build",
+        message:
+          "Transcript review required. Open the GUI to correct ranked clips, then complete review.",
+      },
+      journey: {
+        phase: "prepare",
+        blocking: {
+          blocked: true,
+          reason: "transcript_review",
+          stage_id: "transcript_review",
+          message: "Review 3 ranked STT clips",
+        },
+      },
+    });
+    expect(findPendingFocusStage(run)).toBe("transcript_review");
+    expect(resolveOperatorFocusStageId(run)).toBe("transcript_review");
   });
 
   it("focuses upstream stage when gate message references prerequisite failure", () => {

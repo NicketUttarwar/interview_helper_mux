@@ -17,6 +17,16 @@ def test_upstream_stage_from_prerequisite_stage_message():
     assert upstream_stage_from_gate_message(msg) == "speaker_roles"
 
 
+def test_gate_focus_maps_g0_to_transcript_review():
+    msg = "Transcript review required. Open the GUI to correct ranked clips, then complete review."
+    assert gate_focus_stage(msg, job_stage="transcript_review_build") == "transcript_review"
+
+
+def test_gate_focus_maps_g05_to_disfluency_review():
+    msg = "Disfluency review required. Confirm or reject filler events in the GUI."
+    assert gate_focus_stage(msg, job_stage="disfluency_extract") == "disfluency_review"
+
+
 def test_gate_focus_keeps_job_stage_when_no_upstream():
     msg = "LLM stage gate (speaker_roles): artifact not complete (status=blocked)."
     assert gate_focus_stage(msg, job_stage="speaker_roles") == "speaker_roles"

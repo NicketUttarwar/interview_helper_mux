@@ -67,3 +67,51 @@ def test_reconcile_stale_jobs_scans_all(tmp_path, monkeypatch) -> None:
         ctx.init_run_meta(wav)
         ctx.write_json("gui_job.json", {"status": "running", "stage": "ingest"})
     assert reconcile_stale_jobs() == 2
+
+
+def test_reconcile_does_not_stall_live_subprocess_worker(tmp_path, monkeypatch) -> None:
+    import os
+
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    ctx = RunContext("exec_031_20260101T000031Z")
+    ctx.init_run_meta(_wav_path(tmp_path))
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "running",
+            "stage": "audio_preclean",
+            "worker_pid": os.getpid(),
+            "worker_kind": "stage_subprocess",
+            "updated_at": "2026-01-01T00:00:00Z",
+        },
+    )
+
+    from interview_mux.gui_job_reconcile import reconcile_job_if_stale
+
+    job = reconcile_job_if_stale(ctx.run_id, lock_held=True)
+    assert job["status"] == "running"
+
+
+def test_reconcile_revives_stalled_when_worker_alive(tmp_path, monkeypatch) -> None:
+    import os
+
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    ctx = RunContext("exec_032_20260101T000032Z")
+    ctx.init_run_meta(_wav_path(tmp_path))
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "stalled",
+            "stalled": True,
+            "stage": "audio_preclean",
+            "worker_pid": os.getpid(),
+            "worker_kind": "stage_subprocess",
+            "message": "Stage stalled — no progress recently. Safe to re-run.",
+        },
+    )
+
+    from interview_mux.gui_job_reconcile import reconcile_job_if_stale
+
+    job = reconcile_job_if_stale(ctx.run_id, lock_held=False)
+    assert job["status"] == "running"
+    assert not job.get("stalled")

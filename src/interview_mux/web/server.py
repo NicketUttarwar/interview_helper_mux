@@ -358,8 +358,21 @@ class SfxPromptRegenBody(BaseModel):
     asset_ids: list[str] = Field(min_length=1)
 
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    yield
+    from interview_mux.gui_job_reconcile import reconcile_stale_jobs
+    from interview_mux.process_cleanup import kill_mux_workers_for_shutdown
+
+    kill_mux_workers_for_shutdown()
+    reconcile_stale_jobs()
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Interview Helper Mux", version="0.2.0")
+    app = FastAPI(title="Interview Helper Mux", version="0.2.0", lifespan=_app_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -369,6 +382,23 @@ def create_app() -> FastAPI:
     from interview_mux.web.action_trace_middleware import ActionTraceMiddleware
 
     app.add_middleware(ActionTraceMiddleware)
+
+    @app.middleware("http")
+    async def gui_client_leader_middleware(request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            path = request.url.path
+            if path.startswith("/api/runs/") and not path.endswith("/job"):
+                from interview_mux.application_session import assert_client_controls_session
+
+                client_id = request.headers.get("X-GUI-Client-Id")
+                try:
+                    assert_client_controls_session(client_id)
+                except ValueError as exc:
+                    return JSONResponse(
+                        status_code=409,
+                        content={"detail": str(exc), "error": "session_superseded"},
+                    )
+        return await call_next(request)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -2432,6 +2462,13 @@ def create_app() -> FastAPI:
                     f"{pending} clip(s) not marked reviewed. Save each chunk or pass accept_unreviewed=true.",
                 )
             transcript_review.mark_transcript_review_complete(ctx)
+            from interview_mux.gui_job_reconcile import reconcile_operator_gate_job
+            from interview_mux.write_staging import read_gui_job
+
+            job = read_gui_job(ctx) or {}
+            reconciled = reconcile_operator_gate_job(ctx, job)
+            if reconciled is not job:
+                ctx.write_json("gui_job.json", reconciled, skip_handoff=True)
             refresh_journey_meta(ctx)
             return {"ok": True, "transcript_review_clear": True}
 
@@ -2479,6 +2516,13 @@ def create_app() -> FastAPI:
                 disfluency.mark_disfluency_review_complete(ctx, accept_unreviewed=body.accept_unreviewed)
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
+            from interview_mux.gui_job_reconcile import reconcile_operator_gate_job
+            from interview_mux.write_staging import read_gui_job
+
+            job = read_gui_job(ctx) or {}
+            reconciled = reconcile_operator_gate_job(ctx, job)
+            if reconciled is not job:
+                ctx.write_json("gui_job.json", reconciled, skip_handoff=True)
             refresh_journey_meta(ctx)
             return {"ok": True, "disfluency_review_clear": True}
 

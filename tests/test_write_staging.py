@@ -104,6 +104,30 @@ def test_read_path_falls_back_to_final_during_later_stage_staging(
         exit_stage_staging()
 
 
+def test_transcribe_staging_hides_internal_aws_raw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Intermediate AWS download must not appear in write-approval paths."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    enter_stage_staging("transcribe")
+    try:
+        scratch = ctx.path("transcript", "aws_raw.json")
+        scratch.parent.mkdir(parents=True, exist_ok=True)
+        scratch.write_text('{"results": {}}', encoding="utf-8")
+        ctx.write_json("transcript/full.json", {"text": "hi", "words": []})
+        ctx.write_json("transcript/speakers.json", {"speakers": []})
+    finally:
+        exit_stage_staging()
+    paths = list_pending_paths(ctx, "transcribe")
+    assert "transcript/aws_raw.json" not in paths
+    assert "transcript/full.json" in paths
+    assert "transcript/speakers.json" in paths
+    flushed = flush_stage_writes(ctx, "transcribe")
+    assert "transcript/aws_raw.json" not in flushed
+    assert ctx.final_path("transcript", "full.json").is_file()
+    assert not ctx.final_path("transcript", "aws_raw.json").is_file()
+
+
 def test_transcript_review_build_reads_prior_stage_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

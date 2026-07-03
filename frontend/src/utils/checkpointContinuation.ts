@@ -1,5 +1,5 @@
 import type { JobState, PipelineSubTab, RunData, AppConfig } from "../types";
-import { findPendingFocusStage } from "./checkpoint";
+import { findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker } from "./stageOutputs";
 import { readyForStageMessage } from "./stageAdvance";
@@ -9,7 +9,7 @@ import { isJobActivelyRunning } from "./jobStatus";
 import { resolveFocusStepId } from "./resolveActiveStep";
 import type { ExecuteBody } from "../types";
 import { executeBodyForStage } from "./operatorActionHandlers";
-import { stageNeedsAttention } from "./attentionQueue";
+import { stageNeedsAttention, topAttentionItem } from "./attentionQueue";
 import {
   autopilotBlocksAutoRun,
   canAutoRunStage,
@@ -212,6 +212,19 @@ function resolveFocusSubstepId(run: RunData, stageId: string): string | null {
   return null;
 }
 
+function shouldDeferFocusNavigation(
+  run: RunData,
+  currentId: string,
+  focusId: string,
+  grants: Record<string, boolean>,
+): boolean {
+  if (!currentId || currentId === focusId) return false;
+  if (!stageNeedsAttention(run, currentId, grants)) return false;
+  const top = topAttentionItem(run, grants);
+  if (top?.stageId === focusId) return false;
+  return true;
+}
+
 /** Keep sidebar + workbench aligned with the run's next operator focus (navigation only). */
 export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise<boolean> {
   if (opts.config?.journey_ui?.enabled === false) return false;
@@ -220,15 +233,11 @@ export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise
   if (!refreshed) return false;
   if (isPipelineComplete(refreshed)) return false;
 
-  const focusId = findPendingFocusStage(refreshed, opts.apiGrants);
+  const focusId = resolveOperatorFocusStageId(refreshed, opts.apiGrants);
   if (!focusId) return false;
 
   const currentId = opts.selectedStageId;
-  if (
-    currentId &&
-    currentId !== focusId &&
-    stageNeedsAttention(refreshed, currentId, opts.apiGrants)
-  ) {
+  if (currentId && shouldDeferFocusNavigation(refreshed, currentId, focusId, opts.apiGrants)) {
     return false;
   }
 
@@ -346,7 +355,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     return false;
   }
 
-  const focusId = findPendingFocusStage(refreshed, opts.apiGrants);
+  const focusId = resolveOperatorFocusStageId(refreshed, opts.apiGrants);
   if (focusId) {
     await focusStageWorkbench({
       run: refreshed,
