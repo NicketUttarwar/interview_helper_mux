@@ -57,12 +57,24 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     (runningStage === "ingest" || jobMsg.includes("hash") || jobMsg.includes("ingest"))
   ) {
     subline = job?.message || "Ingest running — watch Activity log.";
+  } else if (
+    input.jobRunning &&
+    (runningStage === "audio_preclean" ||
+      jobMsg.includes("chunk") ||
+      jobMsg.includes("deepfilter") ||
+      jobMsg.includes("pre-clean"))
+  ) {
+    subline = job?.message || "Audio pre-clean running — watch Activity log.";
   }
 
   if (job?.status === "interrupted") {
     activityKind = "interrupted";
     headline = "Run interrupted";
     subline = job.message || "Server restarted during a job — re-run the last step.";
+  } else if (job?.status === "stalled") {
+    activityKind = "interrupted";
+    headline = "Stage stalled";
+    subline = job.message || "No progress recently — safe to re-run.";
   } else if (input.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
     activityKind = "running";
     headline = action.headline;

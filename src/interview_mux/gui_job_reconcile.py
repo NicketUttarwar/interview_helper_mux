@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -7,6 +8,91 @@ from interview_mux.session_log import append_log
 
 RUNNING_STATUSES = frozenset({"running", "running_with_warnings"})
 INTERRUPTED_MESSAGE = "Server restarted — safe to re-run."
+STALLED_MESSAGE = "Stage stalled — no progress recently. Safe to re-run."
+WRITE_APPROVAL_EXIT = 2
+
+
+def _parse_ts(raw: Any) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _stall_threshold_sec() -> int:
+    from interview_mux.config import merged_config
+
+    row = merged_config().get("gui_job") or {}
+    return int(row.get("stall_threshold_sec", 180))
+
+
+def _run_directory_lock_held(run_dir: Any) -> bool:
+    from filelock import FileLock, Timeout
+
+    lock_path = run_dir / ".run.lock"
+    if not lock_path.is_file():
+        return False
+    lock = FileLock(str(lock_path), timeout=0)
+    try:
+        if lock.acquire(blocking=False):
+            lock.release()
+            return False
+    except Timeout:
+        return True
+    return True
+
+
+def _latest_log_ts(run_dir: Any) -> datetime | None:
+    log_path = run_dir / "gui_log.jsonl"
+    if not log_path.is_file():
+        return None
+    try:
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            import json
+
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = _parse_ts(row.get("ts"))
+        if ts is not None:
+            return ts
+    return None
+
+
+def _job_activity_ts(ctx: RunContext, job: dict[str, Any]) -> datetime | None:
+    updated = _parse_ts(job.get("updated_at"))
+    logged = _latest_log_ts(ctx.run_dir)
+    if updated and logged:
+        if logged.tzinfo is None:
+            logged = logged.replace(tzinfo=timezone.utc)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        return max(updated, logged)
+    return updated or logged
+
+
+def _mark_stalled(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    out = dict(job)
+    out["status"] = "stalled"
+    out["stalled"] = True
+    out["message"] = STALLED_MESSAGE
+    ctx.write_json("gui_job.json", out)
+    append_log(
+        ctx.run_dir,
+        STALLED_MESSAGE,
+        level="warning",
+        stage=str(job.get("stage") or job.get("current_stage") or "gui"),
+    )
+    return out
 
 
 def sanitize_gui_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +135,7 @@ def sanitize_gui_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     return job
 
 
-def _reconcile_job_file(ctx: RunContext) -> bool:
+def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
     """Rewrite stale on-disk running job to interrupted. Returns True if changed."""
     p = ctx.path("gui_job.json")
     if not p.is_file():
@@ -57,6 +143,19 @@ def _reconcile_job_file(ctx: RunContext) -> bool:
     data = ctx.read_json("gui_job.json")
     status = data.get("status")
     if status not in RUNNING_STATUSES:
+        return False
+    if not lock_held and _run_directory_lock_held(ctx.run_dir):
+        return False
+    if lock_held:
+        activity = _job_activity_ts(ctx, data)
+        if activity is not None:
+            now = datetime.now(timezone.utc)
+            if activity.tzinfo is None:
+                activity = activity.replace(tzinfo=timezone.utc)
+            age = (now - activity).total_seconds()
+            if age >= _stall_threshold_sec():
+                _mark_stalled(ctx, data)
+                return True
         return False
     if data.get("mode") == "write_approval":
         from interview_mux.write_staging import list_pending_paths
@@ -101,7 +200,7 @@ def reconcile_stale_job(run_id: str) -> bool:
     if not RunContext.exists(run_id):
         return False
     ctx = RunContext(run_id, create=False)
-    return _reconcile_job_file(ctx)
+    return _reconcile_job_file(ctx, lock_held=False)
 
 
 def reconcile_stale_jobs() -> int:
@@ -122,10 +221,9 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     p = ctx.path("gui_job.json")
     if not p.is_file():
         return {"status": "idle", "run_id": run_id}
-    if not lock_held:
-        status = ctx.read_json("gui_job.json").get("status")
-        if status in RUNNING_STATUSES:
-            _reconcile_job_file(ctx)
+    status = ctx.read_json("gui_job.json").get("status")
+    if status in RUNNING_STATUSES:
+        _reconcile_job_file(ctx, lock_held=lock_held)
     data = ctx.read_json("gui_job.json")
     sanitized = sanitize_gui_job(ctx, data)
     if sanitized is not data and sanitized != data:
@@ -133,3 +231,24 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
         data = sanitized
     data["run_id"] = run_id
     return data
+
+
+def pause_job_for_write_approval(ctx: RunContext, exc: Any) -> None:
+    """Persist awaiting_write_approval gui_job from an isolated stage worker."""
+    from interview_mux.write_staging import WriteApprovalPending
+
+    if not isinstance(exc, WriteApprovalPending):
+        raise TypeError("expected WriteApprovalPending")
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "awaiting_write_approval",
+            "mode": "stage",
+            "stage": exc.stage_id,
+            "current_stage": exc.stage_id,
+            "message": str(exc),
+            "pending_write_stage": exc.stage_id,
+            "pending_write_paths": exc.paths,
+            "awaiting_write_approval": True,
+        },
+    )

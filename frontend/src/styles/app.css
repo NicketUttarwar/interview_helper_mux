@@ -2345,12 +2345,16 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   inset: 0;
   z-index: 950;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   padding: 1.25rem;
-  background: color-mix(in srgb, var(--bg) 18%, transparent);
-  backdrop-filter: blur(1px);
-  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.action-overlay-blocking {
+  pointer-events: auto;
+  cursor: wait;
 }
 
 .action-overlay-card {
@@ -2364,8 +2368,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border: 1px solid var(--border);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   max-width: min(92vw, 28rem);
-  text-align: left;
-  pointer-events: auto;
+  text-align: center;
 }
 
 .action-overlay-card-wide {

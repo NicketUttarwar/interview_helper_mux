@@ -72,4 +72,35 @@ describe("deriveLiveStatusCopy", () => {
     expect(copy.headline).toContain("Running Transcribe");
     expect(copy.headline).toContain("Transcribing");
   });
+
+  it("shows audio pre-clean chunk progress in subline when running", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "audio_preclean",
+          title: "Pre-clean",
+          description: "",
+          status: "pending",
+          operator_phase: "prepare",
+        },
+      ],
+      job: {
+        status: "running",
+        stage: "audio_preclean",
+        current_stage: "audio_preclean",
+        step_index: 2,
+        step_total: 3,
+        message: "Enhancing chunk 2/3 (DeepFilterNet)…",
+      },
+    });
+    const copy = deriveLiveStatusCopy({
+      run,
+      jobRunning: true,
+      selectedStageId: "audio_preclean",
+      logEntries: [],
+      apiGrants: {},
+      cmd: { kind: "running", statusLine: "Running", primaryLabel: null, onPrimary: null },
+    });
+    expect(copy.subline).toContain("Enhancing chunk 2/3");
+  });
 });

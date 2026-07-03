@@ -927,6 +927,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   polled.last_error?.message || polled.message || "Step failed",
                   "error",
                 );
+              } else if (polled.status === "stalled") {
+                showToast(
+                  polled.message || "Stage stalled — no progress recently. Safe to re-run.",
+                  "warning",
+                );
               } else if (
                 polled.status === "gate" ||
                 polled.status === "needs_operator"

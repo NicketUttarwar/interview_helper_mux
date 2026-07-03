@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -47,6 +49,8 @@ from interview_mux.write_staging import (
 )
 from interview_mux.web.job_progress import clear_job_progress, register_job_progress
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
+
+SUBPROCESS_STAGES = frozenset({"audio_preclean"})
 
 
 def _invalidate_disfluency_review_gate(ctx: RunContext) -> None:
@@ -203,9 +207,12 @@ class JobRunner:
         finally:
             self._clear_lock_holder(run_id)
 
+    def _caller_holds_run_lock(self, run_id: str) -> bool:
+        return self._lock_holder_tid.get(run_id) == threading.get_ident()
+
     def _reserve_pipeline_start(self, run_id: str) -> bool:
         """Mark a run as starting so execute cannot double-spawn before the worker acquires."""
-        if self.lock_held(run_id):
+        if not self._caller_holds_run_lock(run_id) and self.lock_held(run_id):
             return False
         with self._global:
             if run_id in self._starting_runs:
@@ -242,6 +249,8 @@ class JobRunner:
         with self._global:
             if run_id in self._starting_runs:
                 return True
+        if self._caller_holds_run_lock(run_id):
+            return False
         return self.lock_held(run_id)
 
     def mark_write_approval_saving(
@@ -629,6 +638,7 @@ class JobRunner:
                 )
 
             register_job_progress(run_id, _progress_hook)
+            dir_lock_released = {"value": False}
             try:
                 msg = info.description if info else f"Running pipeline mode: {mode}"
                 ctx.log(f"Starting: {info.title if info else label}", level="info", stage=label, detail=msg)
@@ -644,7 +654,11 @@ class JobRunner:
                 if mode == "stage" and stage == "transcript_review":
                     transcript_review.mark_transcript_review_complete(ctx)
                 elif mode == "stage" and stage:
-                    self._execute_single_stage(ctx, stage, from_stage)
+                    if stage in SUBPROCESS_STAGES:
+                        dir_lock_released["value"] = True
+                        self._run_subprocess_stage(ctx, stage, from_stage, dir_lock)
+                    else:
+                        self._execute_single_stage(ctx, stage, from_stage)
                 elif mode in ("analysis", "analysis_until_g0"):
                     ctx.log("Running shared analysis pipeline…", level="info", stage="analysis")
                     us = until_stage
@@ -867,10 +881,11 @@ class JobRunner:
                 try:
                     clear_job_progress(run_id)
                 finally:
-                    try:
-                        dir_lock.release()
-                    except Exception:
-                        pass
+                    if not dir_lock_released["value"]:
+                        try:
+                            dir_lock.release()
+                        except Exception:
+                            pass
                     self._release_thread_lock(run_id, lock)
                     active_run_context.reset(ctx_token)
 
@@ -1331,6 +1346,45 @@ class JobRunner:
             raise SystemExit(msg)
         require_post_listen_clear(ctx, stage="flow1_polish")
         require_spend_artifacts_complete(ctx, "mix_flow1")
+
+    def _stage_worker_cmd(self, run_id: str, stage_id: str) -> list[str]:
+        return [sys.executable, "-m", "interview_mux.stage_worker", run_id, stage_id]
+
+    def _run_subprocess_stage(
+        self,
+        ctx: RunContext,
+        stage: str,
+        from_stage: str | None,
+        dir_lock: RunDirectoryLock,
+    ) -> None:
+        from interview_mux.gui_job_reconcile import WRITE_APPROVAL_EXIT
+        from interview_mux.write_staging import WriteApprovalPending, list_pending_paths
+
+        if from_stage and from_stage != stage:
+            self.invalidate_from(ctx.run_id, from_stage)
+            ctx = RunContext(ctx.run_id, create=False)
+        if stage in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+            ok, message = can_run_sfx_generation(ctx)
+            if not ok:
+                ctx.log(message, level="warning", stage=stage)
+                raise RuntimeError(message)
+        try:
+            dir_lock.release()
+        except Exception:
+            pass
+        proc = subprocess.run(
+            self._stage_worker_cmd(ctx.run_id, stage),
+            cwd=str(ctx.root),
+        )
+        if proc.returncode == WRITE_APPROVAL_EXIT:
+            paths = list_pending_paths(ctx, stage)
+            raise WriteApprovalPending(stage, paths)
+        if proc.returncode != 0:
+            job = ctx.read_json("gui_job.json") if ctx.artifact_exists("gui_job.json") else {}
+            msg = str(job.get("message") or job.get("error") or "").strip()
+            if msg:
+                raise RuntimeError(msg)
+            raise RuntimeError(f"Stage {stage} failed (exit {proc.returncode})")
 
     def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
         if from_stage and from_stage != stage:

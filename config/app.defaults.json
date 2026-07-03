@@ -78,6 +78,10 @@
     "local_fallback_enabled": true,
     "chunk_max_bytes": 52428800
   },
+  "_comment_gui_job": "Background job polling and stall detection while a stage worker holds the run lock",
+  "gui_job": {
+    "stall_threshold_sec": 180
+  },
   "_comment_sound_design": "SDP asset caps and post-generation placement QA",
   "sound_design": {
     "enabled": true,

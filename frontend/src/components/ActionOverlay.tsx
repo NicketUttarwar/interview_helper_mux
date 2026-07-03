@@ -43,8 +43,9 @@ export function ActionOverlay() {
 
   return (
     <div
-      className="action-overlay action-overlay-nonblocking"
-      role="status"
+      className="action-overlay action-overlay-blocking"
+      role="alertdialog"
+      aria-modal="true"
       aria-live="polite"
       aria-busy="true"
       data-testid="action-overlay"
@@ -79,9 +80,6 @@ export function ActionOverlay() {
             </p>
           </div>
         ) : null}
-        <p className="hint sm action-overlay-hint">
-          You can keep using the app — check Activity (Live) for log lines.
-        </p>
       </div>
     </div>
   );

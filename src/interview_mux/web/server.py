@@ -696,23 +696,22 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/log")
     def post_log(run_id: str, body: LogBody) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            detail: dict[str, Any] = {"journey_kind": "execute", "origin": "gui"}
-            if body.action_id:
-                detail["action_id"] = body.action_id
-            from interview_mux.operator_log import operator_log
+        ctx = _ctx(run_id)
+        detail: dict[str, Any] = {"journey_kind": "execute", "origin": "gui"}
+        if body.action_id:
+            detail["action_id"] = body.action_id
+        from interview_mux.operator_log import operator_log
 
-            entry = operator_log(
-                body.message,
-                run_dir=ctx.run_dir,
-                level=body.level,
-                stage=body.stage,
-                action_id=body.action_id,
-                origin="gui",
-                detail=detail,
-            )
-            return {"ok": True, "entry": entry}
+        entry = operator_log(
+            body.message,
+            run_dir=ctx.run_dir,
+            level=body.level,
+            stage=body.stage,
+            action_id=body.action_id,
+            origin="gui",
+            detail=detail,
+        )
+        return {"ok": True, "entry": entry}
 
     @app.get("/api/runs/{run_id}/action-trace")
     def get_action_trace(run_id: str, tail: int = 50) -> dict[str, Any]:
@@ -2101,6 +2100,9 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/sfx-prompts/regenerate")
     def post_sfx_prompt_regenerate(run_id: str, body: SfxPromptRegenBody) -> dict[str, Any]:
+        if runner.is_running(run_id):
+            raise HTTPException(409, "A job is already running for this run.")
+        stage: str
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
             asset_ids = [a.strip() for a in body.asset_ids if a.strip()]
@@ -2122,10 +2124,8 @@ def create_app() -> FastAPI:
                 stage=stage,
                 detail={"asset_ids": asset_ids},
             )
-            if runner.is_running(run_id):
-                raise HTTPException(409, "A job is already running for this run.")
             set_active_execution(run_id)
-            return runner.start(run_id, mode="stage", stage=stage, from_stage=stage)
+        return runner.start(run_id, mode="stage", stage=stage, from_stage=stage)
 
     @app.get("/api/runs/{run_id}/sfx-qa")
     def get_sfx_qa(run_id: str) -> dict[str, Any]:
@@ -2177,23 +2177,24 @@ def create_app() -> FastAPI:
                 stage=stage or "gui",
             )
             set_active_execution(run_id)
-            flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
-            return runner.start(
-                run_id,
-                mode=body.mode,
-                stage=body.stage,
-                flow=body.mode if body.mode in flow_modes else None,
-                from_stage=body.from_stage or body.stage,
-                until_stage=body.until_stage,
-                nle_full_refresh=body.nle_full_refresh,
-                nle_apply_mode=body.nle_apply_mode,
-                api_consents=body.api_consents,
-            )
+        flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
+        return runner.start(
+            run_id,
+            mode=body.mode,
+            stage=body.stage,
+            flow=body.mode if body.mode in flow_modes else None,
+            from_stage=body.from_stage or body.stage,
+            until_stage=body.until_stage,
+            nle_full_refresh=body.nle_full_refresh,
+            nle_apply_mode=body.nle_apply_mode,
+            api_consents=body.api_consents,
+        )
 
     @app.post("/api/runs/{run_id}/fill-artifact-gaps")
     def fill_artifact_gaps(run_id: str, body: FillArtifactGapsBody) -> dict[str, Any]:
         from interview_mux.artifact_completeness import stage_keys_for_artifact_path
 
+        stage: str
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
             _assert_artifact_path(body.path)
@@ -2207,13 +2208,13 @@ def create_app() -> FastAPI:
                 level="info",
                 stage=stage,
             )
-            return runner.start(
-                run_id,
-                mode="stage",
-                stage=stage,
-                from_stage=stage,
-                api_consents=body.api_consents,
-            )
+        return runner.start(
+            run_id,
+            mode="stage",
+            stage=stage,
+            from_stage=stage,
+            api_consents=body.api_consents,
+        )
 
     @app.post("/api/runs/{run_id}/extract-value-features")
     def extract_value_features(run_id: str) -> dict[str, Any]:

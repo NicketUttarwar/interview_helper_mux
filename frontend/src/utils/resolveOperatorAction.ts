@@ -391,6 +391,21 @@ export function resolveOperatorAction(
     };
   }
 
+  if (job?.status === "stalled") {
+    const sid = job.stage || focusStageId;
+    return {
+      mode: "idle",
+      stageId: sid,
+      substepId: null,
+      headline: "Stage stalled — retry this step",
+      subline: job.message || "No progress recently — safe to re-run.",
+      primaryLabel: sid ? `Retry ${stageTitle(run, sid)}` : "Retry step",
+      primaryKind: "run_stage",
+      primaryDisabled: false,
+      modalAutoOpen: false,
+    };
+  }
+
   if (job?.status === "error") {
     return buildErrorAction(run);
   }

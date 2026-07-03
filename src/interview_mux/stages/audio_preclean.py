@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from interview_mux.deepfilter_runner import enhance_wav
+from interview_mux.deepfilter_runner import enhance_wav, enhance_wav_batch
+from interview_mux.operator_subprocess import JobProgressReporter
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
@@ -112,8 +113,9 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
             level="info",
             stage="audio_preclean",
         )
+    progress = JobProgressReporter(ctx, stage="audio_preclean", phase="deepfilter")
     with logged_step("audio_preclean/deepfilter_enhance", ctx=ctx, stage="audio_preclean"):
-        _enhance_source_to_output(ctx=ctx, source=source, output=out_path)
+        _enhance_source_to_output(ctx=ctx, source=source, output=out_path, progress=progress)
     with logged_step("audio_preclean/write_lineage", ctx=ctx, stage="audio_preclean"):
         _write_provider(ctx, scope, provider=provider_name)
         _write_full_source_lineage(
@@ -189,10 +191,28 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
     clean_dir = pickup / "clean"
     clean_dir.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
+    progress = JobProgressReporter(
+        ctx,
+        stage="audio_preclean",
+        phase="deepfilter",
+        step_total=len(sources),
+    )
+    progress.set_phase(
+        "deepfilter",
+        f"Enhancing {len(sources)} VO pickup file(s) with DeepFilterNet…",
+        step_total=len(sources),
+        log=True,
+    )
     with logged_step("audio_preclean/vo_pickup_enhance", ctx=ctx, stage="audio_preclean"):
-        for source in sources:
+        for i, source in enumerate(sources, start=1):
             dest = clean_dir / source.name
-            _enhance_source_to_output(ctx=ctx, source=source, output=dest)
+            progress.tick(
+                i,
+                f"Enhancing pickup {i}/{len(sources)}: {source.name}…",
+                force=True,
+                log=True,
+            )
+            _enhance_source_to_output(ctx=ctx, source=source, output=dest, progress=None)
             entries.append(
                 {
                     "source_path": str(source),
@@ -302,28 +322,85 @@ def _chunk_max_bytes() -> int:
     return int(row.get("chunk_max_bytes", 52_428_800))
 
 
-def _enhance_source_to_output(*, ctx: RunContext, source: Path, output: Path) -> None:
+def _preclean_work_dir(ctx: RunContext) -> Path:
+    return ctx.run_dir / "_preclean_work"
+
+
+def _enhance_source_to_output(
+    *,
+    ctx: RunContext,
+    source: Path,
+    output: Path,
+    progress: JobProgressReporter | None = None,
+) -> None:
     from interview_mux.audio_timeline import chunk_wav_by_max_bytes, concat_clips_with_crossfade
     from interview_mux.config import merged_config
+    from interview_mux.file_store import atomic_copy
     from interview_mux.sound_design import load_audio
 
     max_bytes = _chunk_max_bytes()
     if source.stat().st_size <= max_bytes:
+        if progress is not None:
+            progress.set_phase(
+                "deepfilter",
+                "Enhancing audio with DeepFilterNet…",
+                step_total=1,
+                log=True,
+            )
+            progress.tick(1, "Enhancing audio with DeepFilterNet…", force=True)
         enhance_wav(source, output, ctx=ctx)
         return
 
-    work = source.parent / "_preclean_chunks"
+    work = _preclean_work_dir(ctx)
+    if progress is not None:
+        progress.set_phase(
+            "split",
+            "Splitting source audio into chunks for DeepFilterNet…",
+            log=True,
+        )
     chunks = chunk_wav_by_max_bytes(source, max_bytes, work_dir=work)
-    enhanced_segments: list = []
+    chunk_total = len(chunks)
+    if progress is not None:
+        progress.set_phase(
+            "deepfilter",
+            f"Enhancing {chunk_total} chunk(s) with DeepFilterNet…",
+            step_total=chunk_total,
+            log=True,
+        )
+    batch_pairs: list[tuple[Path, Path]] = []
     for i, chunk_path in enumerate(chunks):
         tmp = work / f"enhanced_{i:03d}.wav"
-        enhance_wav(chunk_path, tmp, ctx=ctx)
+        batch_pairs.append((chunk_path, tmp))
+    enhance_wav_batch(batch_pairs, ctx=ctx, progress=progress)
+    enhanced_segments: list = []
+    for i, (_, tmp) in enumerate(batch_pairs):
+        chunk_num = i + 1
+        if progress is not None:
+            progress.tick(
+                chunk_num,
+                f"Loaded enhanced chunk {chunk_num}/{chunk_total}…",
+                force=True,
+                log=True,
+            )
         enhanced_segments.append(load_audio(tmp))
+    if progress is not None:
+        progress.set_phase(
+            "merge",
+            f"Merging {chunk_total} enhanced chunk(s)…",
+            step_total=chunk_total,
+            log=True,
+        )
+        progress.tick(
+            chunk_total,
+            f"Merging {chunk_total} enhanced chunk(s)…",
+            force=True,
+            log=True,
+        )
     crossfade = int((merged_config().get("mix") or {}).get("crossfade_ms_assembly_preview", 80))
     merged = concat_clips_with_crossfade(enhanced_segments, crossfade)
     out_tmp = work / "merged_enhanced.wav"
     merged.export(str(out_tmp), format="wav")
-    output.write_bytes(out_tmp.read_bytes())
+    atomic_copy(out_tmp, output)
 
 
 def _write_provider(ctx: RunContext, scope: str, *, provider: str = "deepfilternet") -> None:
