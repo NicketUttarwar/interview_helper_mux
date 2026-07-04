@@ -9,6 +9,7 @@ import {
   resolveActiveStream,
   resolveFocusStageId,
   resolveLiveStageId,
+  pinnedAlertKey,
   selectPinnedAlerts,
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
@@ -43,10 +44,10 @@ export function ActivityLogPanel({
 
   const [autoScroll, setAutoScroll] = useState(true);
   const [liveSeenTs, setLiveSeenTs] = useState<string | null>(null);
-  const [pinnedExpanded, setPinnedExpanded] = useState(false);
-  const [pinnedDismissedTs, setPinnedDismissedTs] = useState<string | null>(null);
+  const [dismissedAlertKeys, setDismissedAlertKeys] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { panelRef, maxPanelHeight } = useActivityLogPanelHeightCap(!activityLogCollapsed);
+  const heightCapEnabled = variant !== "global" && !activityLogCollapsed;
+  const { panelRef, maxPanelHeight } = useActivityLogPanelHeightCap(heightCapEnabled);
   const userScrolledRef = useRef(false);
   const userPinnedActivityTabRef = useRef(false);
   const prevJobRunningRef = useRef(jobRunning);
@@ -93,21 +94,16 @@ export function ActivityLogPanel({
         allPinned: [],
       };
     }
-    return selectPinnedAlerts(logEntries, {
-      expanded: pinnedExpanded,
-      stageId: pinnedStageId,
-    });
-  }, [activityLogTab, logEntries, pinnedExpanded, pinnedStageId]);
+    return selectPinnedAlerts(logEntries, { stageId: pinnedStageId });
+  }, [activityLogTab, logEntries, pinnedStageId]);
 
-  const showPinnedStrip = useMemo(() => {
-    if (activityLogTab === "all") return false;
-    if (!pinnedSelection.allPinned.length) return false;
-    if (pinnedDismissedTs) {
-      const latest = pinnedSelection.allPinned[pinnedSelection.allPinned.length - 1]?.ts;
-      if (latest && latest <= pinnedDismissedTs) return false;
-    }
-    return true;
-  }, [activityLogTab, pinnedSelection.allPinned, pinnedDismissedTs]);
+  const visiblePinnedAlerts = useMemo(
+    () =>
+      pinnedSelection.allPinned.filter((entry) => !dismissedAlertKeys.has(pinnedAlertKey(entry))),
+    [pinnedSelection.allPinned, dismissedAlertKeys],
+  );
+
+  const showPinnedStrip = activityLogTab !== "all" && visiblePinnedAlerts.length > 0;
 
   const scrollEntries = useMemo(() => {
     const pinned = showPinnedStrip ? pinnedSelection.allPinned : [];
@@ -195,7 +191,7 @@ export function ActivityLogPanel({
       ref={panelRef}
       className={`activity-log-panel panel${variant === "global" ? " activity-log-panel--global" : ""}`}
       aria-label="Pipeline activity log"
-      style={maxPanelHeight ? { maxHeight: maxPanelHeight } : undefined}
+      style={heightCapEnabled && maxPanelHeight ? { maxHeight: maxPanelHeight } : undefined}
     >
       <div className="activity-log-head panel-head">
         <div>
@@ -287,12 +283,14 @@ export function ActivityLogPanel({
 
       {(activityLogTab === "live" || activityLogTab === "step") && showPinnedStrip ? (
         <PinnedAlertStrip
-          selection={pinnedSelection}
-          expanded={pinnedExpanded}
-          onToggleExpanded={() => setPinnedExpanded((v) => !v)}
-          onDismiss={() => {
-            const latest = pinnedSelection.allPinned[pinnedSelection.allPinned.length - 1]?.ts;
-            if (latest) setPinnedDismissedTs(latest);
+          alerts={visiblePinnedAlerts}
+          onDismiss={(entry) => {
+            const key = pinnedAlertKey(entry);
+            setDismissedAlertKeys((prev) => {
+              const next = new Set(prev);
+              next.add(key);
+              return next;
+            });
           }}
         />
       ) : null}

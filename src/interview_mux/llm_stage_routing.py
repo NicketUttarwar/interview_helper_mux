@@ -959,7 +959,7 @@ def run_llm_stage_with_routing(
                 stage_expectations=_arbiter_stage_expectations(stage_key, bump_tier=True),
             )
             verdict = arbiter_result.get("verdict")
-        elif verdict == "retry_uptier":
+        if verdict == "retry_uptier":
             if not _try_flagship_uptier_promote(
                 ctx,
                 stage_key,

@@ -157,6 +157,11 @@ export interface PinnedAlertsSelection {
   allPinned: LogEntry[];
 }
 
+/** Stable key for dismiss state in the activity alert strip. */
+export function pinnedAlertKey(entry: LogEntry): string {
+  return `${entry.ts}|${entry.level ?? "info"}|${entry.message}`;
+}
+
 const DEFAULT_MAX_ERRORS_EXPANDED = 2;
 const DEFAULT_MAX_WARNINGS_EXPANDED = 1;
 
