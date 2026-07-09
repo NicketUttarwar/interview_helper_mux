@@ -1,4 +1,6 @@
+import { ApiError } from "../api/client";
 import type { RunData } from "../types";
+import { isWriteApprovalSaveInProgress } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 
 export interface PendingWriteInfo {
@@ -66,4 +68,28 @@ export function stageAwaitingWriteApproval(
   if (!ctx.awaitingWriteApproval) return false;
   const pendingStage = run.job?.pending_write_stage || run.job?.stage;
   return pendingStage === stageId;
+}
+
+/** True when the GUI should fetch staged file lists or content for this stage. */
+export function canLoadPendingWriteContent(
+  run: RunData | null,
+  stageId: string,
+  opts?: { actionBusy?: boolean },
+): boolean {
+  if (!run || !stageId) return false;
+  if (isWriteApprovalSaveInProgress(run, { actionBusy: opts?.actionBusy, stageId })) {
+    return false;
+  }
+  if (!stageAwaitingWriteApproval(run, stageId)) return false;
+  return resolvePendingWritePaths(run, stageId).length > 0;
+}
+
+/** 404 after staging was flushed or wrong stage — safe to ignore in write-approval UI. */
+export function isStalePendingWriteLoadError(reason: unknown): boolean {
+  if (!(reason instanceof ApiError) || reason.status !== 404) return false;
+  const msg = reason.message;
+  return (
+    msg.includes(".pending_writes/") ||
+    msg.includes("No pending writes for stage")
+  );
 }

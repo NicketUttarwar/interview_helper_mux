@@ -15,11 +15,33 @@ P0_ANALYSIS_SPINE: tuple[str, ...] = (
     "content_brief_reanchor",
 )
 
+# Flow 1 LLM spine — artifact-complete before audio spend.
+P0_FLOW1_SPINE: tuple[str, ...] = (
+    "topic_coverage_audit",
+    "narrative_arc_plan",
+    "full_master_ranking",
+    "transitions",
+    "edl_flow1",
+)
+
 _P0_SPINE_SET = frozenset(P0_ANALYSIS_SPINE)
+_P0_FLOW1_SPINE_SET = frozenset(P0_FLOW1_SPINE)
 
 
 def is_p0_spine_stage(stage_id: str) -> bool:
     return stage_id in _P0_SPINE_SET
+
+
+def is_flow1_spine_stage(stage_id: str) -> bool:
+    return stage_id in _P0_FLOW1_SPINE_SET
+
+
+def flow1_spine_through(stage_id: str) -> tuple[str, ...]:
+    """Stages in P0_FLOW1_SPINE up to and including stage_id."""
+    if stage_id not in _P0_FLOW1_SPINE_SET:
+        return P0_FLOW1_SPINE
+    idx = P0_FLOW1_SPINE.index(stage_id)
+    return P0_FLOW1_SPINE[: idx + 1]
 
 
 def first_incomplete_p0_stage(ctx: Any) -> str | None:
@@ -27,6 +49,24 @@ def first_incomplete_p0_stage(ctx: Any) -> str | None:
     from interview_mux.artifact_completeness import artifact_status
 
     for stage_id in P0_ANALYSIS_SPINE:
+        if stage_id not in CRITICAL_LLM_STAGES:
+            continue
+        rel = producer_artifact_path(stage_id)
+        if not rel:
+            if not ctx.is_done(stage_id):
+                return stage_id
+            continue
+        if artifact_status(rel, ctx) != "complete":
+            return stage_id
+    return None
+
+
+def first_incomplete_flow1_spine_stage(ctx: Any, *, through_stage: str | None = None) -> str | None:
+    """Return earliest Flow 1 spine stage whose producer artifact is not complete."""
+    from interview_mux.artifact_completeness import artifact_status
+
+    chain = flow1_spine_through(through_stage) if through_stage else P0_FLOW1_SPINE
+    for stage_id in chain:
         if stage_id not in CRITICAL_LLM_STAGES:
             continue
         rel = producer_artifact_path(stage_id)

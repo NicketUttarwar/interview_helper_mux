@@ -22,6 +22,43 @@ class Gap:
     reason: str
 
 
+GAP_FILL_PROTECTED_PATHS: frozenset[str] = frozenset(
+    {
+        "thesis",
+        "topics",
+        "topics[].segment_ids",
+        "topics[].name",
+        "topics[].summary",
+        "ordered_segment_ids",
+        "segments",
+        "segments[].segment_id",
+        "segments[].type",
+        "boundaries",
+        "speakers",
+        "speakers[].role",
+        "speakers[].speaker_id",
+        "evaluations",
+        "gaps",
+        "topic_relationships",
+    }
+)
+
+
+def _is_protected_gap_path(path: str) -> bool:
+    if path in GAP_FILL_PROTECTED_PATHS:
+        return True
+    for pat in GAP_FILL_PROTECTED_PATHS:
+        if "[]" in pat:
+            prefix = pat.split("[")[0]
+            if path.startswith(prefix):
+                return True
+    return False
+
+
+def _filter_protected_skip_fields(skip_fields: list[str]) -> list[str]:
+    return [f for f in skip_fields if not _is_protected_gap_path(f)]
+
+
 def _non_empty_str(val: Any) -> bool:
     return isinstance(val, str) and bool(val.strip())
 
@@ -511,7 +548,7 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
             "artifact_path": rel,
             "existing": existing,
             "gaps": [],
-            "skip_fields": list(existing.keys()),
+            "skip_fields": _filter_protected_skip_fields(list(existing.keys())),
             "instructions": "Artifact is complete; return empty artifacts unless correcting errors.",
         }
 
@@ -519,7 +556,7 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
         "artifact_path": rel,
         "existing": existing,
         "gaps": all_gaps[:24],
-        "skip_fields": skip_fields[:32],
+        "skip_fields": _filter_protected_skip_fields(skip_fields[:32]),
         "instructions": (
             "Only fill listed gaps. Do not overwrite skip_fields or satisfied keys in existing. "
             "Return patch-only artifacts when existing is non-null."

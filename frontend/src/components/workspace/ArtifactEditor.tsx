@@ -83,12 +83,10 @@ export function ArtifactEditor() {
           applyPayload(data, "Loaded");
           return;
         }
-        const pendingStage =
-          run.job?.pending_write_stage || run.job?.stage || undefined;
-        if (pendingStage) {
+        if (selectedStage && stageAwaitingWriteApproval(run, selectedStage.id)) {
           const staged = await safeApi(
             api<Record<string, unknown> | { text?: string }>(
-              `/api/runs/${run.run_id}/pending-writes/${pendingStage}/content?path=${encodeURIComponent(path)}`,
+              `/api/runs/${run.run_id}/pending-writes/${selectedStage.id}/content?path=${encodeURIComponent(path)}`,
             ),
             { label: `Load staged ${path}` },
           );
@@ -111,7 +109,7 @@ export function ArtifactEditor() {
         appendClientLog(msg, "error", selectedStage?.id);
       }
     },
-    [run, selectedStage?.id, showToast, appendClientLog],
+    [run, selectedStage, showToast, appendClientLog],
   );
 
   useEffect(() => {

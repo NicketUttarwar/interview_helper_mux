@@ -18,8 +18,12 @@ from interview_mux.write_staging import record_pending_approval, staging_root
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "prompts" / "stage_artifacts.json"
 
-# ANALYSIS_ORDER index 11 = segment_classification (0-based).
-PROGRESSION_START_STAGE = "segment_classification"
+# Full P0 spine from content_context (index 9 in ANALYSIS_ORDER).
+PROGRESSION_START_STAGE = "content_context"
+
+PROGRESSION_P0_STAGES = ANALYSIS_ORDER[
+    ANALYSIS_ORDER.index("content_context") : ANALYSIS_ORDER.index("content_brief_reanchor") + 1
+]
 
 PROGRESSION_ANALYSIS_STAGES = ANALYSIS_ORDER[ANALYSIS_ORDER.index(PROGRESSION_START_STAGE) :]
 
@@ -204,6 +208,11 @@ def write_stage_producer_artifact(
         return None
     if stage_id == "segment_classification":
         doc = build_manifest_from_fixtures(fixtures)
+    elif stage_id == "boundary_detection":
+        doc = _enrich_boundaries(fixtures.get("boundary_detection") or {"boundaries": []})
+    elif stage_id == "content_brief_reanchor":
+        sync_content_brief_topic_segment_ids(ctx)
+        doc = ctx.read_json("understanding/content_brief.json")
     elif stage_id == "sonic_context_build":
         sonic_path = Path(__file__).parent / "fixtures" / "sonic_context" / "fireside.json"
         doc = json.loads(sonic_path.read_text(encoding="utf-8"))
@@ -256,6 +265,44 @@ def validate_downstream_inputs(ctx: RunContext, next_stage_id: str) -> list[str]
     return [f"{next_stage_id}: {issue.message}" for issue in issues]
 
 
+def ensure_reanchored_content_brief(ctx: RunContext) -> None:
+    """Post-segment sync: topic segment_ids + topic_relationships for completeness."""
+    sync_content_brief_topic_segment_ids(ctx)
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        return
+    brief = ctx.read_json("understanding/content_brief.json")
+    if not isinstance(brief, dict):
+        return
+    topics = brief.get("topics") or []
+    for topic in topics:
+        if isinstance(topic, dict) and not (topic.get("segment_ids") or []):
+            topic["segment_ids"] = ["seg_001"]
+    brief["topics"] = topics
+    if not (brief.get("topic_relationships") or []):
+        name_a = topics[0].get("name", "Topic A") if topics and isinstance(topics[0], dict) else "Topic A"
+        brief["topic_relationships"] = [
+            {"from_topic": name_a, "to_topic": name_a, "relation": "supports"}
+        ]
+    ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+    ctx.mark_done("content_brief_reanchor", force=True)
+
+
+def seed_vo_from_gap_report(ctx: RunContext) -> None:
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return
+    gap = ctx.read_json("understanding/gap_report.json")
+    vo_dir = ctx.path("vo_pickup")
+    vo_dir.mkdir(parents=True, exist_ok=True)
+    for row in gap.get("gaps") or gap.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("delivery") or "").lower() == "record":
+            lid = str(row.get("line_id") or "line_001")
+            path = vo_dir / f"{lid}.wav"
+            if not path.is_file():
+                path.write_bytes(b"RIFF" + b"\x00" * 64)
+
+
 def prepare_flow_chain_gates(ctx: RunContext) -> None:
     """Minimal run_meta + gate markers so flow fixture stages can be input-checked."""
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -273,6 +320,7 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
         state.setdefault("meta", {})["operator_verified"] = True
         ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
     ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []}, skip_handoff=True)
+    seed_vo_from_gap_report(ctx)
 
 
 def validate_content_brief_segment_id_hygiene(ctx: RunContext) -> list[str]:
@@ -382,6 +430,7 @@ def run_progression_chain_sanity(
         manifest = build_manifest_from_fixtures(fixtures)
         ctx.write_json("segments/manifest.json", manifest, skip_handoff=True)
         sync_content_brief_topic_segment_ids(ctx)
+        ensure_reanchored_content_brief(ctx)
         ctx.mark_done("segment_classification", force=True)
         from interview_mux.write_staging import discard_stage_writes
 
@@ -403,6 +452,9 @@ def run_progression_chain_sanity(
         failures = validate_stage_committed(ctx, stage_id)
         stage_report["artifact_path"] = rel
         stage_report["failures"] = failures
+
+        if stage_id == "optimal_questions":
+            seed_vo_from_gap_report(ctx)
 
         idx = chain.index(stage_id)
         if idx + 1 < len(chain):

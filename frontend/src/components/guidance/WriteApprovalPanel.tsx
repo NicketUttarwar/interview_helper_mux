@@ -7,6 +7,8 @@ import { isWriteApprovalSaveInProgress } from "../../utils/jobStatus";
 import { writeApprovalSaveInProgressLabel } from "../../utils/writeApprovalLabels";
 import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
+  canLoadPendingWriteContent,
+  isStalePendingWriteLoadError,
   resolvePendingWritePaths,
   stageAwaitingWriteApproval,
 } from "../../utils/writeApproval";
@@ -58,6 +60,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileCacheRef = useRef<Map<string, FileCacheEntry>>(new Map());
+  const contentLoadGenRef = useRef(0);
   const selectedPathRef = useRef(selectedPath);
   const editorValueRef = useRef(editorValue);
   const editorDirtyRef = useRef(editorDirty);
@@ -68,16 +71,17 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   editorDirtyRef.current = editorDirty;
   isJsonRef.current = isJson;
 
-  const stageId = run?.job?.pending_write_stage || run?.job?.stage || stage.id;
-  const writePendingForStage = stageAwaitingWriteApproval(run, stage.id);
+  /** Always scope pending-write I/O to this panel's stage — never job.stage (may be a later gate). */
+  const pendingStageId = stage.id;
+  const writePendingForStage = stageAwaitingWriteApproval(run, pendingStageId);
   const saveInProgress = isWriteApprovalSaveInProgress(run, {
     actionBusy,
-    stageId: stage.id,
+    stageId: pendingStageId,
   });
 
   const paths = useMemo(
-    () => resolvePendingWritePaths(run, stageId, apiPaths),
-    [run, stageId, apiPaths],
+    () => resolvePendingWritePaths(run, pendingStageId, apiPaths),
+    [run, pendingStageId, apiPaths],
   );
 
   const runRef = useRef(run);
@@ -107,15 +111,25 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
 
   const loadPaths = useCallback(async () => {
     if (!runId) return;
+    if (!stageAwaitingWriteApproval(runRef.current, pendingStageId)) {
+      setApiPaths([]);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setLoadError(null);
     try {
       const data = await api<{ paths?: string[] }>(
-        `/api/runs/${runId}/pending-writes/${stageId}`,
+        `/api/runs/${runId}/pending-writes/${pendingStageId}`,
       );
       setApiPaths(data.paths || []);
     } catch (e) {
-      const fallback = resolvePendingWritePaths(runRef.current, stageId);
+      if (isStalePendingWriteLoadError(e)) {
+        setApiPaths([]);
+        return;
+      }
+      const fallback = resolvePendingWritePaths(runRef.current, pendingStageId);
       if (!fallback.length) {
         setApiPaths([]);
         setLoadError(e instanceof ApiError ? e.message : "Could not load staged files");
@@ -123,7 +137,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     } finally {
       setLoading(false);
     }
-  }, [runId, stageId]);
+  }, [runId, pendingStageId]);
 
   useEffect(() => {
     void loadPaths();
@@ -132,11 +146,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   useEffect(() => {
     fileCacheRef.current.clear();
     bumpCacheRevision();
-  }, [stageId, bumpCacheRevision]);
+  }, [pendingStageId, bumpCacheRevision]);
 
   const loadContent = useCallback(
     async (path: string) => {
       if (!runId || !path || fileKind(path) === "audio") return;
+      if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy })) {
+        return;
+      }
 
       const cached = fileCacheRef.current.get(path);
       if (cached) {
@@ -147,32 +164,41 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         return;
       }
 
+      const gen = ++contentLoadGenRef.current;
       setContentLoading(true);
       const json = isJsonArtifactPath(path);
       setIsJson(json);
       setEditorDirty(false);
       try {
         const data = await api<Record<string, unknown> | { text?: string }>(
-          `/api/runs/${runId}/pending-writes/${stageId}/content?path=${encodeURIComponent(path)}`,
+          `/api/runs/${runId}/pending-writes/${pendingStageId}/content?path=${encodeURIComponent(path)}`,
         );
+        if (gen !== contentLoadGenRef.current) return;
         const value = json ? JSON.stringify(data, null, 2) : ((data as { text?: string }).text ?? "");
         setEditorValue(value);
         fileCacheRef.current.set(path, { value, isJson: json, dirty: false });
       } catch (reason) {
+        if (gen !== contentLoadGenRef.current) return;
+        if (isStalePendingWriteLoadError(reason)) return;
+        if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy })) return;
         setEditorValue("");
         const msg = formatApiError(reason, `Load ${path}`);
         showToast(msg, "error");
-        appendClientLog(msg, "error", stageId);
+        appendClientLog(msg, "error", pendingStageId);
       } finally {
-        setContentLoading(false);
+        if (gen === contentLoadGenRef.current) {
+          setContentLoading(false);
+        }
       }
     },
-    [runId, stageId, showToast, appendClientLog],
+    [runId, pendingStageId, actionBusy, showToast, appendClientLog],
   );
 
   useEffect(() => {
-    if (selectedPath && fileKind(selectedPath) !== "audio") void loadContent(selectedPath);
-  }, [selectedPath, loadContent]);
+    if (!selectedPath || fileKind(selectedPath) === "audio") return;
+    if (!canLoadPendingWriteContent(run, pendingStageId, { actionBusy })) return;
+    void loadContent(selectedPath);
+  }, [selectedPath, loadContent, run, pendingStageId, actionBusy]);
 
   useEffect(() => {
     setSelectedPath((prev) => {
@@ -182,19 +208,31 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   }, [paths]);
 
   useEffect(() => {
-    if (stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id)) {
-      setSaveComplete(true);
+    if (saveInProgress || !writePendingForStage) {
+      contentLoadGenRef.current += 1;
       setApiPaths([]);
+      setSelectedPath("");
+      setEditorValue("");
       fileCacheRef.current.clear();
+    }
+    if (stage.status === "done" && !stageAwaitingWriteApproval(run, pendingStageId)) {
+      setSaveComplete(true);
       return;
     }
-    if (writePendingForStage || paths.length) {
+    if (writePendingForStage && paths.length) {
       setSaveComplete(false);
     }
-  }, [writePendingForStage, paths.length, stage.status, stage.id, run]);
+  }, [
+    saveInProgress,
+    writePendingForStage,
+    paths.length,
+    stage.status,
+    pendingStageId,
+    run,
+  ]);
 
   const stageComplete =
-    stage.status === "done" && !stageAwaitingWriteApproval(run, stage.id);
+    stage.status === "done" && !stageAwaitingWriteApproval(run, pendingStageId);
 
   const itrBlocking = run?.job?.itr_blocking_count ?? 0;
   const itrGateActive =
@@ -213,20 +251,20 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         const parsed = JSON.parse(value) as Record<string, unknown>;
         const v = await validateArtifactWrite(path, parsed);
         if (!v.ok) throw new Error(`Validation: ${v.errors[0]}`);
-        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+        await api(`/api/runs/${runId}/pending-writes/${pendingStageId}/content`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path, data: parsed }),
         });
       } else {
-        await api(`/api/runs/${runId}/pending-writes/${stageId}/content`, {
+        await api(`/api/runs/${runId}/pending-writes/${pendingStageId}/content`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path, text: value }),
         });
       }
     },
-    [runId, stageId],
+    [runId, pendingStageId],
   );
 
   const syncAllDirtyToStaging = useCallback(async () => {
@@ -434,12 +472,12 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
           </ul>
 
           <div className="write-approval-preview">
-            {selectedPath && fileKind(selectedPath) === "audio" && run ? (
+            {selectedPath && fileKind(selectedPath) === "audio" && run && writePendingForStage ? (
               <audio
                 ref={audioRef}
                 controls
                 className="write-approval-audio"
-                src={`/api/runs/${run.run_id}/audio?path=${encodeURIComponent(selectedPath)}&pending=1&pending_stage=${encodeURIComponent(stageId)}`}
+                src={`/api/runs/${run.run_id}/audio?path=${encodeURIComponent(selectedPath)}&pending=1&pending_stage=${encodeURIComponent(pendingStageId)}`}
               />
             ) : selectedPath ? (
               <div className="write-approval-editor">

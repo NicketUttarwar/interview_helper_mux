@@ -564,7 +564,7 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
         function="write_staging.approve_stage_writes",
     )
     try:
-        if stage_id == "segment_classification":
+        if stage_id in ("segment_classification", "content_brief_reanchor", "content_context"):
             from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
 
             sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_id)

@@ -16,6 +16,17 @@ source .venv/bin/activate
 
 **Fail fast:** If `pip-audit` reports HIGH/CRITICAL CVEs against the lock, refresh the lock or record an accepted advisory in [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md#accepted-advisories) before continuing.
 
+**Before a long Flow 1 run:**
+
+1. `python tools/progression_chain_sanity.py --scope full` (progression regression)
+2. `./scripts/build_gui.sh` if `frontend/src` changed
+3. ASSETS venvs for audio tail (DeepFilterNet, MMAudio) when running past `edl_flow1`
+4. GUI **Flow 1 readiness** banner clear on `topic_coverage_audit` (`GET …/flow1-readiness`)
+
+See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) for stage/checkpoint map.
+
+**Pre-audio (SFX / mix):** require `flow_1_master/assembly_preview.wav` before `mmaudio_sfx_flow1`; SDP flow1 cues before `mix_flow1`. `GET …/flow1-readiness?scope=pre_audio` lists blockers.
+
 ## Config
 
 - `config/secrets/secrets.env` has `OPENAI_API_KEY`, ``, `AWS_S3_BUCKET`, `AWS_DEFAULT_REGION`

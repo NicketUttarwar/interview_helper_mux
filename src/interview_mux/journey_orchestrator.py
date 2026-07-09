@@ -901,6 +901,11 @@ def build_journey_snapshot(
     from interview_mux.custom_run_handoff import handoff_state_for_run
 
     handoff = handoff_state_for_run(ctx)
+    flow1_readiness: dict[str, Any] | None = None
+    if (selected_flow or flow_intent) == "flow1" and phase in ("understand", "shape", "produce"):
+        from interview_mux.progression_readiness import build_flow1_readiness_report
+
+        flow1_readiness = build_flow1_readiness_report(ctx, target_stage="topic_coverage_audit")
     return {
         "phase": phase,
         "milestones": milestones,
@@ -908,6 +913,7 @@ def build_journey_snapshot(
         "selected_flow": selected_flow,
         "next_action": next_action,
         "blocking": blocking,
+        "flow1_readiness": flow1_readiness,
         "active_operator_action": active_operator_action,
         "handoff": handoff,
         "recommended_preclean": _recommended_preclean(ctx, phase, milestones),

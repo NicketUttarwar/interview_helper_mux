@@ -28,6 +28,10 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
     "highlight_selection": frozenset({"highlights"}),
     "transitions": frozenset({"transitions"}),
     "podcast_show_description": frozenset({"description"}),
+    "sound_design_plan_flow1": frozenset({"assets", "flow_plans"}),
+    "sound_design_plan_flow2": frozenset({"assets", "flow_plans"}),
+    "sfx_prompt_craft": frozenset({"prompts"}),
+    "sound_design_palettes": frozenset({"palettes"}),
 }
 
 # Optional paths where JSON null means "unavailable" — acknowledged and excluded from volleys.
@@ -72,6 +76,10 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
     "highlight_selection": frozenset({"notes"}),
     "transitions": frozenset({"transitions[].notes"}),
     "podcast_show_description": frozenset({"subtitle", "keywords"}),
+    "sound_design_plan_flow1": frozenset({"notes"}),
+    "sound_design_plan_flow2": frozenset({"notes"}),
+    "sfx_prompt_craft": frozenset({"notes"}),
+    "sound_design_palettes": frozenset({"notes"}),
 }
 
 

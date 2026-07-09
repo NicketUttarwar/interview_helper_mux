@@ -348,7 +348,59 @@ def _check_flow1_profile_gate(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def _check_topic_coverage_audit(ctx: RunContext) -> list[StageInputIssue]:
-    return _check_flow1_profile_gate(ctx)
+    issues = _check_flow1_profile_gate(ctx)
+    from interview_mux.progression_readiness import build_flow1_readiness_report
+
+    report = build_flow1_readiness_report(ctx, target_stage="topic_coverage_audit")
+    for row in report.get("blockers") or []:
+        if isinstance(row, dict):
+            issues.append(
+                StageInputIssue(
+                    str(row.get("message", "Flow 1 not ready")),
+                    f"Layer: {row.get('layer', 'readiness')}",
+                )
+            )
+    return issues
+
+
+def _check_narrative_arc_plan(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    issues.extend(_check_flow1_profile_gate(ctx))
+    for rel, remediation in (
+        ("flow_1_master/coverage_audit.json", "Run topic_coverage_audit."),
+        ("understanding/content_brief.json", "Run content_context and content_brief_reanchor."),
+    ):
+        issue = _require_artifact(ctx, rel, remediation=remediation)
+        if issue:
+            issues.append(issue)
+    return issues
+
+
+def _check_full_master_ranking(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    issues.extend(_check_flow1_profile_gate(ctx))
+    for rel, remediation in (
+        ("flow_1_master/narrative_plan.json", "Run narrative_arc_plan."),
+        ("segments/manifest.json", "Run segment_classification."),
+        ("understanding/gap_report.json", "Run optimal_questions."),
+    ):
+        issue = _require_artifact(ctx, rel, remediation=remediation)
+        if issue:
+            issues.append(issue)
+    return issues
+
+
+def _check_sound_design_plan_flow1(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    for rel, remediation in (
+        ("flow_1_master/selection.json", "Run full_master_ranking."),
+        ("flow_1_master/transitions.json", "Run transitions."),
+        ("understanding/gap_report.json", "Run optimal_questions."),
+    ):
+        issue = _require_artifact(ctx, rel, remediation=remediation)
+        if issue:
+            issues.append(issue)
+    return issues
 
 
 _UPSTREAM_ARTIFACT_PRODUCER: dict[str, str] = {
@@ -465,6 +517,9 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "sonic_context_build": _check_sonic_context_build,
     "vo_ingest": _check_vo_ingest,
     "topic_coverage_audit": _check_topic_coverage_audit,
+    "narrative_arc_plan": _check_narrative_arc_plan,
+    "full_master_ranking": _check_full_master_ranking,
+    "sound_design_plan_flow1": _check_sound_design_plan_flow1,
     "assembly_preview": _check_assembly_preview,
     "mix_flow1": _check_mix_flow1,
     "master_flow1": _check_master_flow1,

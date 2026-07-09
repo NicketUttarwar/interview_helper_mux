@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
+import { ApiError } from "../api/client";
+import {
+  canLoadPendingWriteContent,
+  isStalePendingWriteLoadError,
+  resolvePendingWritePaths,
+  stageAwaitingWriteApproval,
+} from "./writeApproval";
 import type { RunData } from "../types";
 
 function runStub(overrides: Partial<RunData> = {}): RunData {
@@ -100,5 +106,68 @@ describe("stageAwaitingWriteApproval", () => {
     expect(resolvePendingWritePaths(run, "speaker_roles", ["understanding/analysis_state.json"])).toEqual(
       [],
     );
+  });
+});
+
+describe("canLoadPendingWriteContent", () => {
+  it("returns false when job advanced to a different stage", () => {
+    const run = runStub({
+      job: {
+        status: "complete",
+        stage: "transcript_review",
+      },
+      stages: [
+        {
+          id: "transcript_review_build",
+          title: "STT review prep",
+          status: "done",
+          phase: "prepare",
+        },
+      ],
+      meta: {
+        pending_write_approval: {
+          transcript_review_build: { paths: ["transcript/review_queue.json"] },
+        },
+      },
+    });
+    expect(canLoadPendingWriteContent(run, "transcript_review_build")).toBe(false);
+  });
+
+  it("returns true while awaiting approval with staged paths", () => {
+    const run = runStub({
+      job: {
+        status: "awaiting_write_approval",
+        pending_write_stage: "ingest",
+        pending_write_paths: ["ingest/normalized.wav"],
+      },
+    });
+    expect(canLoadPendingWriteContent(run, "ingest")).toBe(true);
+  });
+
+  it("returns false during write-approval save", () => {
+    const run = runStub({
+      job: {
+        status: "running",
+        mode: "write_approval",
+        pending_write_stage: "ingest",
+        pending_write_paths: ["ingest/normalized.wav"],
+      },
+    });
+    expect(canLoadPendingWriteContent(run, "ingest")).toBe(false);
+  });
+});
+
+describe("isStalePendingWriteLoadError", () => {
+  it("detects flushed staging 404", () => {
+    const err = new ApiError(
+      "/Users/run/.pending_writes/ingest/ingest/normalized.wav",
+      404,
+    );
+    expect(isStalePendingWriteLoadError(err)).toBe(true);
+  });
+
+  it("ignores unrelated 404", () => {
+    const err = new ApiError("artifact missing", 404);
+    expect(isStalePendingWriteLoadError(err)).toBe(false);
   });
 });

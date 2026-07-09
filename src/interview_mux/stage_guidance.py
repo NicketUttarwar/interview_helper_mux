@@ -261,10 +261,18 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
     if triage_enabled():
         open_count = blocking_issues_remaining(ctx, stage_id)
         if open_count:
+            sample = list_stage_issues(ctx, stage_id)
+            hint = ""
+            if sample and isinstance(sample[0], dict):
+                msg = str(sample[0].get("message") or "")
+                if "not in manifest" in msg.lower():
+                    hint = " — check boundary_detection / segment_classification"
+                elif "thesis" in msg.lower():
+                    hint = " — re-run content_context"
             items.append(
                 _guidance_item(
                     "artifact_clarification",
-                    f"{open_count} artifact issue(s) need clarification before save",
+                    f"{open_count} validation issue(s) (layer: itr) need clarification before save{hint}",
                     "todo",
                 )
             )

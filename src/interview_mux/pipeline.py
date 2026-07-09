@@ -234,6 +234,16 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
                 msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
                 ctx.log(msg, level="warning", stage="g1_vo_pickup")
                 raise SystemExit(msg)
+            from interview_mux.artifact_cross_validate import validate_cross_artifacts
+            from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
+            if flow_hardening_enabled():
+                post_reanchor = validate_cross_artifacts(ctx, "post_reanchor")
+                if post_reanchor:
+                    summary = "; ".join(post_reanchor[:4])
+                    msg = f"Analysis complete blocked — post_reanchor cross-validate: {summary}"
+                    ctx.log(msg, level="error", stage="content_brief_reanchor", detail={"layer": "cross", "checkpoint": "post_reanchor"})
+                    raise SystemExit(msg)
             ctx.write_json(
                 "analysis_complete.json",
                 {"completed_at": datetime.now(timezone.utc).isoformat(), "run_id": ctx.run_id},
@@ -245,6 +255,9 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         require_selected_flow_flow1(ctx)
         if stage == "topic_coverage_audit":
             require_profile_verified_for_flow1_extended(ctx)
+            from interview_mux.progression_readiness import assert_flow1_ready
+
+            assert_flow1_ready(ctx, target_stage="topic_coverage_audit")
         fns = _flow1_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")

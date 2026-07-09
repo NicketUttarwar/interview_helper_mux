@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from interview_mux.file_store import read_json, write_json
+from interview_mux.file_store import read_json
 from interview_mux.run_context import RunContext
 
 NLE_REL = "segments/nle_edits.json"
@@ -37,7 +37,7 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
         if strict:
             raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
         ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="full_master_ranking")
-    write_json(ctx.path(NLE_REL), data)
+    ctx.write_json(NLE_REL, data, stage_key="full_master_ranking")
     from interview_mux.operator_snapshots import persist_operator_nle
 
     persist_operator_nle(ctx, source="nle_save")

@@ -676,6 +676,21 @@ def should_persist_artifacts(
     )
 
 
+def _p0_artifact_committed_or_staged(ctx: RunContext, stage_key: str) -> bool:
+    """True when P0 producer artifact is complete on disk or staged for write approval."""
+    from interview_mux.artifact_completeness import artifact_status
+    from interview_mux.llm_flow_hardening import producer_artifact_path
+    from interview_mux.write_staging import staging_root
+
+    rel = producer_artifact_path(stage_key)
+    if not rel:
+        return True
+    if artifact_status(rel, ctx) == "complete":
+        return True
+    staged = staging_root(ctx, stage_key) / rel
+    return staged.is_file()
+
+
 def apply_envelope_to_memory(
     ctx: RunContext,
     stage_key: str,
@@ -736,33 +751,43 @@ def apply_envelope_to_memory(
             )
 
             if context_index_enabled() and write_on_accept():
-                orch_path = ctx.path("understanding", "analysis_orchestration.json")
-                attempt_n = 1
-                if orch_path.is_file():
-                    attempt_n = int(
-                        (ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}).get(
-                            stage_key, 1
-                        )
-                    )
-                if envelope.get("reasoning_summary"):
-                    append_stage_conclusion(
-                        ctx,
-                        stage_key=stage_key,
-                        attempt=attempt_n,
-                        reasoning_summary=str(envelope["reasoning_summary"]),
-                    )
-                digest = profile_digest_from_memory_updates(envelope.get("memory_updates"))
-                if digest:
-                    from interview_mux.context_volley import plan_for_stage
+                from interview_mux.progression_spine import is_p0_spine_stage
 
-                    plan = plan_for_stage(stage_key)
-                    append_profile_digest(
-                        ctx,
-                        stage_key=stage_key,
-                        content=digest,
-                        profile_keys=plan.profile_keys,
+                if is_p0_spine_stage(stage_key) and not _p0_artifact_committed_or_staged(ctx, stage_key):
+                    ctx.log(
+                        f"Skipping volley stage_conclusion for {stage_key} — producer artifact not complete or staged.",
+                        level="warning",
+                        stage=stage_key,
+                        detail={"layer": "completeness", "invariant": "T11"},
                     )
-                link_entries_to_latest_call(ctx, stage_key=stage_key, attempt=attempt_n)
+                else:
+                    orch_path = ctx.path("understanding", "analysis_orchestration.json")
+                    attempt_n = 1
+                    if orch_path.is_file():
+                        attempt_n = int(
+                            (
+                                ctx.read_json("understanding/analysis_orchestration.json").get("stage_attempts") or {}
+                            ).get(stage_key, 1)
+                        )
+                    if envelope.get("reasoning_summary"):
+                        append_stage_conclusion(
+                            ctx,
+                            stage_key=stage_key,
+                            attempt=attempt_n,
+                            reasoning_summary=str(envelope["reasoning_summary"]),
+                        )
+                    digest = profile_digest_from_memory_updates(envelope.get("memory_updates"))
+                    if digest:
+                        from interview_mux.context_volley import plan_for_stage
+
+                        plan = plan_for_stage(stage_key)
+                        append_profile_digest(
+                            ctx,
+                            stage_key=stage_key,
+                            content=digest,
+                            profile_keys=plan.profile_keys,
+                        )
+                    link_entries_to_latest_call(ctx, stage_key=stage_key, attempt=attempt_n)
         except Exception:
             pass
 

@@ -13,6 +13,7 @@ import { scrollToStageStep } from "../../utils/activateStageStep";
 import { stageNeedsPendingAction } from "../../utils/pendingAction";
 import { StageReuseSection } from "../guidance/StageReuseSection";
 import { StageParentProgressBanner } from "./StageParentProgressBanner";
+import { ProgressionReadinessBanner } from "../guidance/ProgressionReadinessBanner";
 import { stageHasCommittedOutputs } from "../../utils/stageOutputs";
 export function StageStepWorkbench() {
   const {
@@ -148,6 +149,7 @@ export function StageStepWorkbench() {
         onReviewDetail={reviewDetailStepId ? () => activateStep(reviewDetailStepId) : undefined}
         onActivateStep={activateStep}
       />
+      <ProgressionReadinessBanner stageId={selectedStage.id} />
 
       <StepActionHeader
         action={stageAction}

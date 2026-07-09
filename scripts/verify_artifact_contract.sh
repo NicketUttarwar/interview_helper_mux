@@ -12,6 +12,8 @@ cd "$ROOT"
 "$PY" tools/codegen_from_contracts.py
 "$PY" tools/verify_dependency_graph.py
 "$PY" tools/verify_stage_contracts.py
+"$PY" tools/codegen_artifact_manifest.py
+"$PY" tools/progression_chain_sanity.py --scope full
 "$PY" -m pytest tests/test_openai_schema_semantic_lint.py \
   tests/test_openai_structured_output.py \
   tests/test_golden_envelope_schema_validate.py \
@@ -22,4 +24,6 @@ cd "$ROOT"
   tests/test_remediation_orchestrator.py \
   tests/test_artifact_lifecycle.py \
   tests/test_downstream_probe.py \
-  tests/test_codegen_openai_schemas_fresh.py -q
+  tests/test_progression_readiness.py \
+  tests/test_runtime_golden_path.py \
+  tests/test_artifact_manifest.py -q

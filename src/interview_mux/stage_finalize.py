@@ -272,7 +272,7 @@ def _finalize_stage_outputs_impl(
         return result
 
     overlay_stage = _write_approval_overlay_stage(ctx, stage_key, staged=True)
-    if stage_key in ("content_context", "segment_classification"):
+    if stage_key in ("content_context", "segment_classification", "content_brief_reanchor"):
         from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
 
         sync_content_brief_topic_segment_ids(ctx, overlay_stage=overlay_stage)

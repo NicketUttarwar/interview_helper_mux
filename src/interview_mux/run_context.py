@@ -211,11 +211,6 @@ class RunContext:
         """Write JSON with schema validation (delegates to write_json)."""
         return self.write_json(rel, data, stage_key=stage_key, skip_handoff=skip_handoff)
 
-    def read_json_required(self, rel: str) -> Any:
-        if not self.artifact_exists(rel):
-            raise FileNotFoundError(f"Required artifact missing: {rel}")
-        return self.read_json(rel)
-
     def init_run_meta(
         self,
         input_audio_path: str,

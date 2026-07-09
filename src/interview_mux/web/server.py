@@ -707,6 +707,26 @@ def create_app() -> FastAPI:
             "llm_verification_alerts": llm_verification_alerts,
         }
 
+    @app.get("/api/runs/{run_id}/flow1-readiness")
+    def get_flow1_readiness(
+        run_id: str,
+        target_stage: str = "topic_coverage_audit",
+        scope: str = "flow1",
+    ) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.progression_readiness import (
+            build_flow1_readiness_report,
+            build_pre_audio_readiness_report,
+        )
+
+        if scope == "pre_audio":
+            return build_pre_audio_readiness_report(ctx)
+        return build_flow1_readiness_report(
+            ctx,
+            target_stage=target_stage or None,
+            include_flow1_spine=target_stage not in (None, "", "topic_coverage_audit"),
+        )
+
     @app.get("/api/runs/{run_id}/log")
     def get_log(
         run_id: str,
@@ -1211,7 +1231,7 @@ def create_app() -> FastAPI:
     def get_artifact(run_id: str, path: str) -> Any:
         ctx = _ctx(run_id)
         _assert_artifact_path(path)
-        full = ctx.path(path)
+        full = ctx.read_path(path)
         if not full.is_file():
             raise HTTPException(404, f"Artifact not found: {path}")
         if path.endswith(".json"):
