@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SoundscapePolicy",
+  "type": "object",
+  "required": [
+    "version",
+    "underscore_policy",
+    "pace_class",
+    "sfx_density",
+    "mix_contract",
+    "standards",
+    "cue_slots",
+    "operator_overrides",
+    "rationale"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "derived_from": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "policy_hash": { "type": "string" },
+    "underscore_policy": {
+      "type": "string",
+      "enum": ["normal", "sparse", "skip", "sparse_or_skip"]
+    },
+    "pace_class": {
+      "type": "string",
+      "enum": ["calm", "conversational", "brisk", "dense"]
+    },
+    "sfx_density": {
+      "type": "object",
+      "properties": {
+        "max_beds": { "type": "integer", "minimum": 0 },
+        "max_punctuators": { "type": "integer", "minimum": 0 },
+        "max_foley": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "mix_contract": {
+      "type": "object",
+      "required": ["underscore_policy"],
+      "properties": {
+        "bed_level_db_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        },
+        "duck_under_speech_db": { "type": "number" },
+        "stinger_max_per_minute": { "type": "number", "minimum": 0 },
+        "midrange_policy": { "type": "string" },
+        "max_bed_coverage_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rhythmic_presence_default": { "type": "string" },
+        "tempo_feel_bpm": { "type": ["number", "null"] },
+        "underscore_policy": {
+          "type": "string",
+          "enum": ["normal", "sparse", "skip", "sparse_or_skip"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "standards": {
+      "type": "object",
+      "properties": {
+        "min_speech_relative_db": { "type": "number" },
+        "max_midrange_overlap_score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "require_intelligibility_pass": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "cue_slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slot_id", "allowed_roles", "priority"],
+        "properties": {
+          "slot_id": { "type": "string", "minLength": 1 },
+          "segment_id": { "type": "string" },
+          "chapter_id": { "type": "string" },
+          "placement": { "type": "string" },
+          "allowed_roles": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "priority": { "type": "number", "minimum": 0, "maximum": 1 },
+          "max_level_db": { "type": "number" },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "operator_overrides": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "rationale": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

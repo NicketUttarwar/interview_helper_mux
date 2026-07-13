@@ -13,7 +13,9 @@ outputs:
   schema: sfx_prompts_artifact.schema.json
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan
   soft: []
 sufficiency:
 - path: prompts

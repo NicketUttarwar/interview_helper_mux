@@ -58,23 +58,61 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
     sd = cfg.get("sound_design") or {}
     fallback = int(sd.get("max_assets", sd.get("max_assets_flow1", 6)))
     cap = _asset_cap(ctx, fallback=fallback)
-    # Tighten with delivery_brief.sfx_density when present
-    if ctx.artifact_exists("understanding/delivery_brief.json"):
+    dens: dict[str, int] = {}
+    underscore = "normal"
+    bed_range: list[float] | None = None
+    stinger_cap: float | None = None
+    from interview_mux.soundscape_policy import load_policy, role_bucket, strict_slots
+
+    policy = load_policy(ctx)
+    if policy:
+        dens_raw = policy.get("sfx_density") if isinstance(policy.get("sfx_density"), dict) else {}
+        dens = {
+            "max_beds": int(dens_raw.get("max_beds") or 0),
+            "max_punctuators": int(dens_raw.get("max_punctuators") or 0),
+            "max_foley": int(dens_raw.get("max_foley") or 0),
+        }
+        policy_cap = sum(dens.values())
+        if policy_cap > 0:
+            cap = min(cap, policy_cap) if cap else policy_cap
+        underscore = str(policy.get("underscore_policy") or "normal")
+        mc = policy.get("mix_contract") if isinstance(policy.get("mix_contract"), dict) else {}
+        if isinstance(mc.get("bed_level_db_range"), list) and len(mc["bed_level_db_range"]) == 2:
+            bed_range = [float(mc["bed_level_db_range"][0]), float(mc["bed_level_db_range"][1])]
+        if mc.get("stinger_max_per_minute") is not None:
+            stinger_cap = float(mc["stinger_max_per_minute"])
+    elif ctx.artifact_exists("understanding/delivery_brief.json"):
         brief = ctx.read_json("understanding/delivery_brief.json")
         if isinstance(brief, dict):
-            dens = brief.get("sfx_density") if isinstance(brief.get("sfx_density"), dict) else {}
-            brief_parts = [
-                int(dens.get("max_beds") or 0),
-                int(dens.get("max_punctuators") or 0),
-                int(dens.get("max_foley") or 0),
-            ]
-            brief_cap = sum(brief_parts)
+            dens_raw = brief.get("sfx_density") if isinstance(brief.get("sfx_density"), dict) else {}
+            dens = {
+                "max_beds": int(dens_raw.get("max_beds") or 0),
+                "max_punctuators": int(dens_raw.get("max_punctuators") or 0),
+                "max_foley": int(dens_raw.get("max_foley") or 0),
+            }
+            brief_cap = sum(dens.values())
             if brief_cap > 0:
                 cap = min(cap, brief_cap) if cap else brief_cap
     assets = sdp.get("assets") or []
     asset_ids = {str(a.get("asset_id")) for a in assets if isinstance(a, dict) and a.get("asset_id")}
     if len(asset_ids) > cap:
         errors.append(f"asset count {len(asset_ids)} > cap {cap}")
+    # Per-role caps
+    if dens:
+        counts = {"beds": 0, "punctuators": 0, "foley": 0}
+        for a in assets:
+            if not isinstance(a, dict):
+                continue
+            bucket = role_bucket(str(a.get("role") or ""))
+            counts[bucket] = counts.get(bucket, 0) + 1
+        if dens.get("max_beds") is not None and counts["beds"] > dens["max_beds"]:
+            errors.append(f"bed assets {counts['beds']} > max_beds {dens['max_beds']}")
+        if dens.get("max_punctuators") is not None and counts["punctuators"] > dens["max_punctuators"]:
+            errors.append(
+                f"punctuator assets {counts['punctuators']} > max_punctuators {dens['max_punctuators']}"
+            )
+        if dens.get("max_foley") is not None and counts["foley"] > dens["max_foley"]:
+            errors.append(f"foley assets {counts['foley']} > max_foley {dens['max_foley']}")
     selection_ids = _selection_ids(ctx)
     palette_seg_ids: set[str] = set()
     for pal in sdp.get("palettes") or []:
@@ -89,6 +127,21 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
     flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     trauma_adjacent = {str(x) for x in (flags.get("trauma_adjacent") or [])}
+    slot_ids = set()
+    slot_by_seg: dict[str, set[str]] = {}
+    if policy:
+        for slot in policy.get("cue_slots") or []:
+            if not isinstance(slot, dict):
+                continue
+            slot_ids.add(str(slot.get("slot_id") or ""))
+            sid = str(slot.get("segment_id") or "")
+            if sid:
+                slot_by_seg.setdefault(sid, set()).update(str(r) for r in (slot.get("allowed_roles") or []))
+    assets_by_id = {
+        str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
+    }
+    under_seg_count = 0
+    stinger_cues = 0
     for cue in cues:
         if not isinstance(cue, dict):
             continue
@@ -101,16 +154,49 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
             if seg and str(seg) not in palette_seg_ids:
                 errors.append(f"bed cue segment {seg} outside palettes")
         if cue.get("placement") == "under_segment":
+            under_seg_count += 1
             seg = str(cue.get("segment_id") or "")
+            if underscore in {"skip", "sparse_or_skip"}:
+                errors.append(f"under_segment cue {cue.get('cue_id')} forbidden when underscore={underscore}")
             if seg and seg in overlap_high:
                 errors.append(f"bed cue segment {seg} banned for overlap_high")
             if seg and seg in trauma_adjacent:
                 errors.append(f"bed cue segment {seg} banned for trauma_adjacent")
+            if bed_range and cue.get("level_db") is not None:
+                level = float(cue["level_db"])
+                lo, hi = bed_range[0], bed_range[1]
+                if level < min(lo, hi) - 0.5 or level > max(lo, hi) + 0.5:
+                    errors.append(
+                        f"bed cue {cue.get('cue_id')} level_db {level} outside bed_level_db_range {bed_range}"
+                    )
+            if policy and strict_slots() and seg:
+                allowed = slot_by_seg.get(seg) or set()
+                aid = str(cue.get("asset_id") or "")
+                role = str((assets_by_id.get(aid) or {}).get("role") or "ambient_bed")
+                if not allowed or role not in allowed:
+                    errors.append(
+                        f"cue {cue.get('cue_id')} role {role} not in soundscape cue_slots for {seg}"
+                    )
+        placement = str(cue.get("placement") or "")
+        if placement in {"after_segment", "before_segment", "between_clips", "before_timeline", "after_timeline"}:
+            stinger_cues += 1
+    if stinger_cap is not None and stinger_cap >= 0:
+        # Approximate per-minute using selection duration when available
+        minutes = 1.0
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict) and sel.get("estimated_duration_sec"):
+                minutes = max(1.0, float(sel["estimated_duration_sec"]) / 60.0)
+        if stinger_cues / minutes > stinger_cap + 0.01:
+            errors.append(
+                f"stinger cue rate {stinger_cues / minutes:.2f}/min > stinger_max_per_minute {stinger_cap}"
+            )
     return errors
 
 
 # Backward-compat aliases
 validate_post_sound_plan_flow1 = validate_post_sound_plan
+validate_post_sound_plan_flow2 = validate_post_sound_plan
 
 
 def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:

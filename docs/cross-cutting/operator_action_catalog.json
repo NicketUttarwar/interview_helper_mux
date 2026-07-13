@@ -200,6 +200,39 @@
     "doc_link": "docs/workflows/first-try-reliability.md"
   },
   {
+    "action_id": "gui.soundscape.overrides.save",
+    "description": "Save soundscape policy operator overrides (underscore/density)",
+    "implementation": "web/server.py#patch_soundscape_policy_overrides",
+    "stage": "soundscape_policy_build",
+    "origin": "gui",
+    "doc_link": "docs/cross-cutting/soundscape-policy.md"
+  },
+  {
+    "action_id": "gui.soundscape.view",
+    "description": "View soundscape policy summary and verify verdict",
+    "implementation": "web/server.py#get_soundscape_policy",
+    "stage": "soundscape_policy_build",
+    "origin": "gui",
+    "doc_link": "docs/cross-cutting/soundscape-policy.md"
+  },
+  {
+    "action_id": "pipeline.soundscape.verify",
+    "description": "Post-mix soundscape verify and capped remux remediation",
+    "implementation": "soundscape_verify.py#run_soundscape_verify",
+    "stage": "mix",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/soundscape-policy.md"
+  },
+  {
+    "action_id": "pipeline.soundscape.fitness_remediate",
+    "description": "Execute regenerate/skip fitness remediation after MMAudio QA",
+    "implementation": "stages/sfx_mmaudio.py#execute_fitness_remediation",
+    "stage": "mmaudio_sfx",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/soundscape-policy.md"
+  },
+
+  {
     "action_id": "pipeline.selection.auto_pack",
     "description": "Trim selection to delivery_brief max duration",
     "implementation": "selection_auto_pack.py#auto_pack_selection_to_brief",

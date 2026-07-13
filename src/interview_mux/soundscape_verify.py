@@ -1,0 +1,239 @@
+"""Post-mix soundscape verify against policy standards; capped remux remediation."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from interview_mux.config import merged_config
+from interview_mux.run_context import RunContext
+from interview_mux.soundscape_policy import (
+    REPORT_PATH,
+    fail_closed,
+    load_policy,
+    max_remux_cycles,
+    resolve_mix_contract,
+)
+
+
+def _estimate_bed_coverage(ctx: RunContext) -> float:
+    """Fraction of selected speech time with under_segment beds planned (proxy)."""
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return 0.0
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    if not isinstance(sdp, dict):
+        return 0.0
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict)]
+    bed_cues = [c for c in cues if c.get("placement") == "under_segment" and not c.get("skip")]
+    if not bed_cues:
+        return 0.0
+    manifest = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        raw = ctx.read_json("segments/manifest.json")
+        manifest = raw if isinstance(raw, dict) else {}
+    segs = {
+        str(s.get("segment_id") or s.get("id")): s
+        for s in (manifest.get("segments") or [])
+        if isinstance(s, dict)
+    }
+    bed_ms = 0
+    for c in bed_cues:
+        sid = str(c.get("segment_id") or "")
+        seg = segs.get(sid) or {}
+        bed_ms += max(0, int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0))
+    total_ms = 0
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            for sid in sel.get("ordered_segment_ids") or []:
+                seg = segs.get(str(sid)) or {}
+                total_ms += max(0, int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0))
+    if total_ms <= 0:
+        total_ms = sum(
+            max(0, int(s.get("end_ms") or 0) - int(s.get("start_ms") or 0)) for s in segs.values()
+        )
+    if total_ms <= 0:
+        return 0.0
+    return min(1.0, bed_ms / total_ms)
+
+
+def _count_active_cues(ctx: RunContext) -> dict[str, int]:
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return {"beds": 0, "stingers": 0, "skipped": 0}
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    if not isinstance(sdp, dict):
+        return {"beds": 0, "stingers": 0, "skipped": 0}
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict)]
+    beds = stingers = skipped = 0
+    for c in cues:
+        if c.get("skip"):
+            skipped += 1
+            continue
+        if c.get("placement") == "under_segment":
+            beds += 1
+        else:
+            stingers += 1
+    return {"beds": beds, "stingers": stingers, "skipped": skipped}
+
+
+def _min_bed_level_db(ctx: RunContext) -> float | None:
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return None
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    if not isinstance(sdp, dict):
+        return None
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    levels: list[float] = []
+    for c in flow.get("cues") or []:
+        if not isinstance(c, dict) or c.get("skip"):
+            continue
+        if c.get("placement") == "under_segment" and c.get("level_db") is not None:
+            levels.append(float(c["level_db"]))
+    return min(levels) if levels else None
+
+
+def evaluate_soundscape(ctx: RunContext) -> dict[str, Any]:
+    policy = load_policy(ctx)
+    contract = resolve_mix_contract(ctx)
+    standards = (policy or {}).get("standards") if isinstance(policy, dict) else {}
+    if not isinstance(standards, dict):
+        standards = {}
+    max_coverage = float(
+        standards.get("max_bed_coverage_ratio")
+        if standards.get("max_bed_coverage_ratio") is not None
+        else contract.get("max_bed_coverage_ratio", 0.4)
+    )
+    min_rel = float(standards.get("min_speech_relative_db") or 12.0)
+    coverage = _estimate_bed_coverage(ctx)
+    counts = _count_active_cues(ctx)
+    bed_level = _min_bed_level_db(ctx)
+    # Relative speech proxy: -bed_level_db approximates speech dominance when duck is applied
+    speech_rel = abs(float(bed_level)) if bed_level is not None else min_rel + 1.0
+    duck = float(contract.get("duck_under_speech_db") or 16.0)
+    speech_rel_effective = speech_rel + max(0.0, duck - 8.0) * 0.25
+
+    failures: list[str] = []
+    if coverage > max_coverage + 0.01 and max_coverage < 1.0:
+        failures.append(f"bed_coverage {coverage:.2f} > max {max_coverage:.2f}")
+    if bed_level is not None and speech_rel_effective < min_rel:
+        failures.append(f"speech_relative_proxy {speech_rel_effective:.1f} < min {min_rel}")
+    underscore = str(contract.get("underscore_policy") or "normal")
+    if underscore in {"skip", "sparse_or_skip"} and counts["beds"] > 0:
+        failures.append(f"beds={counts['beds']} while underscore={underscore}")
+
+    verdict = "pass" if not failures else "fail"
+    return {
+        "version": 1,
+        "verdict": verdict,
+        "failures": failures,
+        "metrics": {
+            "bed_coverage_ratio": round(coverage, 4),
+            "max_bed_coverage_ratio": max_coverage,
+            "min_speech_relative_db": min_rel,
+            "speech_relative_proxy_db": round(speech_rel_effective, 2),
+            "active_beds": counts["beds"],
+            "active_stingers": counts["stingers"],
+            "skipped_cues": counts["skipped"],
+            "underscore_policy": underscore,
+        },
+        "policy_hash": (policy or {}).get("policy_hash"),
+    }
+
+
+def apply_cheap_remediation(ctx: RunContext) -> list[str]:
+    """Lower beds / skip lowest-priority under_segment cues. Returns action log."""
+    actions: list[str] = []
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return actions
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    if not isinstance(sdp, dict):
+        return actions
+    policy = load_policy(ctx) or {}
+    slot_priority = {
+        str(s.get("segment_id")): float(s.get("priority") or 0)
+        for s in (policy.get("cue_slots") or [])
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    key = "podcast" if isinstance(flow_plans.get("podcast"), dict) else (
+        "flow1" if isinstance(flow_plans.get("flow1"), dict) else None
+    )
+    if not key:
+        return actions
+    flow = dict(flow_plans[key])
+    cues = [dict(c) for c in (flow.get("cues") or []) if isinstance(c, dict)]
+    bed_cues = [c for c in cues if c.get("placement") == "under_segment" and not c.get("skip")]
+    # First lower all bed levels by 2 dB
+    for c in bed_cues:
+        if c.get("level_db") is not None:
+            c["level_db"] = float(c["level_db"]) - 2.0
+            actions.append(f"lower_bed:{c.get('cue_id')}")
+        if c.get("duck_under_speech_db") is not None:
+            c["duck_under_speech_db"] = float(c["duck_under_speech_db"]) + 2.0
+        else:
+            c["duck_under_speech_db"] = float(resolve_mix_contract(ctx).get("duck_under_speech_db", 16)) + 2.0
+    # Drop lowest-priority bed if still many
+    if len(bed_cues) > 1:
+        bed_cues.sort(key=lambda c: slot_priority.get(str(c.get("segment_id") or ""), 0.5))
+        victim = bed_cues[0]
+        victim["skip"] = True
+        actions.append(f"skip_cue:{victim.get('cue_id')}")
+    # Merge back
+    by_id = {str(c.get("cue_id")): c for c in cues}
+    for c in bed_cues:
+        cid = str(c.get("cue_id"))
+        if cid in by_id:
+            by_id[cid] = c
+    flow["cues"] = list(by_id.values())
+    flow_plans = dict(flow_plans)
+    flow_plans[key] = flow
+    sdp["flow_plans"] = flow_plans
+    ctx.write_json("understanding/sound_design_plan.json", sdp)
+    return actions
+
+
+def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str, Any]:
+    report = evaluate_soundscape(ctx)
+    report["remux_cycle"] = remux_cycle
+    report["remediation_actions"] = []
+    max_cycles = max_remux_cycles()
+    if report["verdict"] == "fail" and remux_cycle < max_cycles:
+        actions = apply_cheap_remediation(ctx)
+        report["remediation_actions"] = actions
+        report["verdict"] = "remediate"
+        ctx.log(
+            f"soundscape_verify: remediate cycle={remux_cycle} actions={actions}",
+            level="warning",
+            stage="mix",
+            detail={"failures": report.get("failures")},
+        )
+    elif report["verdict"] == "fail":
+        if fail_closed():
+            report["verdict"] = "fail_closed"
+            ctx.log(
+                f"soundscape_verify fail_closed: {report.get('failures')}",
+                level="error",
+                stage="mix",
+            )
+        else:
+            report["verdict"] = "warning"
+            ctx.log(
+                f"soundscape_verify warning (shipping): {report.get('failures')}",
+                level="warning",
+                stage="mix",
+            )
+    else:
+        ctx.log("soundscape_verify: pass", level="success", stage="mix")
+    ctx.write_json(REPORT_PATH, report)
+    return report
+
+
+def load_soundscape_report(ctx: RunContext) -> dict[str, Any] | None:
+    if not ctx.artifact_exists(REPORT_PATH):
+        return None
+    doc = ctx.read_json(REPORT_PATH)
+    return doc if isinstance(doc, dict) else None

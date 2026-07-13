@@ -235,7 +235,120 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         from interview_mux.placement_qa import maybe_run_placement_qa
 
         maybe_run_placement_qa(ctx)
+        execute_fitness_remediation(ctx, stage=stage)
     ctx.mark_done(stage)
+
+
+def execute_fitness_remediation(ctx: RunContext, *, stage: str) -> list[str]:
+    """Execute placement/mmaudio regenerate once per asset; skip cues that still fail."""
+    from interview_mux.mmaudio_asset_qa import load_mmaudio_qa
+    from interview_mux.placement_qa import load_placement_adjustments
+    from interview_mux.soundscape_policy import max_regen_per_asset
+
+    acted: list[str] = []
+    doc = load_placement_adjustments(ctx)
+    regen_ids: list[str] = []
+    for row in doc.get("adjustments") or []:
+        if not isinstance(row, dict):
+            continue
+        action = str(row.get("action") or row.get("recommended_action") or "")
+        if action == "regenerate" and row.get("asset_id"):
+            regen_ids.append(str(row["asset_id"]))
+    qa = load_mmaudio_qa(ctx)
+    for row in qa.get("assets") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("recommended_action") or row.get("action") or "") == "regenerate" and row.get("asset_id"):
+            aid = str(row["asset_id"])
+            if aid not in regen_ids:
+                regen_ids.append(aid)
+
+    if not regen_ids:
+        return acted
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    counts = meta.get("sfx_regen_counts") if isinstance(meta.get("sfx_regen_counts"), dict) else {}
+    if not isinstance(counts, dict):
+        counts = {}
+    max_n = max_regen_per_asset()
+    eligible: list[str] = []
+    skip_after: list[str] = []
+    for aid in regen_ids:
+        n = int(counts.get(aid) or 0)
+        if n < max_n:
+            eligible.append(aid)
+        else:
+            skip_after.append(aid)
+
+    if eligible:
+        def patch_regen(meta_doc: dict) -> None:
+            rc = meta_doc.get("sfx_regen_counts")
+            if not isinstance(rc, dict):
+                rc = {}
+            for aid in eligible:
+                rc[aid] = int(rc.get(aid) or 0) + 1
+            meta_doc["sfx_regen_counts"] = rc
+            meta_doc["sfx_regen_asset_ids"] = list(eligible)
+
+        ctx.mutate_run_meta(patch_regen)
+        grant_auto_refine_override(ctx, eligible)
+        from interview_mux.stages.sound_design_stages import run_sfx_prompt_refine
+
+        try:
+            run_sfx_prompt_refine(ctx, asset_ids=eligible)
+        except Exception as exc:
+            ctx.log(f"fitness refine skipped: {exc}", level="warning", stage=stage)
+        crafted = _load_crafted_prompts(ctx)
+        generation_items = _collect_generation_items_for_regen(ctx, stage)
+        _regenerate_assets_after_refine(ctx, stage, eligible, crafted=crafted, generation_items=generation_items)
+        run_mmaudio_asset_qa(ctx)
+        maybe_run_placement_qa = __import__(
+            "interview_mux.placement_qa", fromlist=["maybe_run_placement_qa"]
+        ).maybe_run_placement_qa
+        maybe_run_placement_qa(ctx)
+        acted.extend(f"regenerate:{aid}" for aid in eligible)
+        # Re-check QA; still-fail → skip
+        qa2 = load_mmaudio_qa(ctx)
+        for row in qa2.get("assets") or []:
+            if not isinstance(row, dict):
+                continue
+            aid = str(row.get("asset_id") or "")
+            if aid in eligible and str(row.get("verdict") or "") == "fail":
+                skip_after.append(aid)
+
+    if skip_after:
+        _mark_assets_skip_in_placement(ctx, sorted(set(skip_after)))
+        acted.extend(f"skip_cue:{aid}" for aid in sorted(set(skip_after)))
+        ctx.log(
+            f"fitness remediation skip after regen budget: {sorted(set(skip_after))}",
+            level="warning",
+            stage=stage,
+        )
+    if acted:
+        ctx.log(f"fitness remediation: {acted}", level="info", stage=stage)
+    return acted
+
+
+def _mark_assets_skip_in_placement(ctx: RunContext, asset_ids: list[str]) -> None:
+    from interview_mux.placement_qa import OUTPUT_PATH, load_placement_adjustments
+
+    doc = load_placement_adjustments(ctx)
+    by_id = {
+        str(a["asset_id"]): dict(a)
+        for a in (doc.get("adjustments") or [])
+        if isinstance(a, dict) and a.get("asset_id")
+    }
+    for aid in asset_ids:
+        row = by_id.get(aid) or {"asset_id": aid}
+        row["action"] = "skip_cue"
+        row["reason"] = row.get("reason") or "regen_budget_exhausted_or_still_fail"
+        by_id[aid] = row
+    doc = {"version": 1, "adjustments": list(by_id.values())}
+    out = ctx.path(*OUTPUT_PATH.split("/"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    import json
+
+    out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
 
 def grant_auto_refine_override(ctx: RunContext, asset_ids: list[str]) -> None:

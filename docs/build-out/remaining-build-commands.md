@@ -438,6 +438,33 @@ Modules: `llm_stage_routing.py`, `llm_shard_plans.py`, `llm_routing_debug.py`, `
 
 ---
 
+**Status:** Shipped.
+
+---
+
+## Command 17 — Soundscape quality master (BUILD-SS-01…06) (**shipped**)
+
+**Goal:** Closed-loop per-run soundscape policy — unify SAP/sonic/brief density, cue slots, fitness regen/skip, post-mix verify→remux.
+
+**Index:** [soundscape-quality/00-INDEX.md](./soundscape-quality/00-INDEX.md) · [soundscape-policy.md](../cross-cutting/soundscape-policy.md)
+
+**Verify:**
+
+```bash
+pytest tests/ -k "soundscape or sound_design or placement or acoustic or sonic" -q
+./scripts/verify_artifact_contract.sh
+python tools/audit_config_keys.py
+python tools/audit_operator_action_catalog.py
+python tools/audit_stage_reuse_matrix.py
+python tools/validate_soundscape.py --help
+```
+
+**Done when:** BUILD-SS checkboxes in [ticket-specs.md](./ticket-specs.md); stage `soundscape_policy_build` in `ANALYSIS_ORDER`.
+
+**Status:** Shipped.
+
+---
+
 ## Related
 
 - [gap-closure-agent-commands.md](./gap-closure-agent-commands.md) — gap-closure Agent queue (GC-00–GC-D1 shipped; Phase 6 follow-up)  

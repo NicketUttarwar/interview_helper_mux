@@ -56,6 +56,8 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 |-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
 | `sound_design_palettes` | P2 | shipped | shipped | shipped | `post_sound_palettes` | shipped | full | shipped | shipped |
 | `sound_design_plan` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped | shipped |
+| `soundscape_policy_build` | P2 | — | — | shipped | — | shipped | doc_only | — | shipped |
+| `mmaudio_sfx` | P2 | — | — | — | `pre_mix` | partial | doc_only | — | shipped |
 | `REMOVED_sdp_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped | shipped |
 | `sfx_prompt_craft` | P2 | shipped | shipped | shipped | `pre_sfx_generation` | shipped | compact | shipped | shipped |
 | `mmaudio_sfx` | P2 | — | — | — | `pre_mix` | partial | doc_only | — | shipped |

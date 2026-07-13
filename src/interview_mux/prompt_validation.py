@@ -22,7 +22,6 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
     "missing_framing": "gap_evaluations_artifact.schema.json",
     "optimal_questions": "gap_report.schema.json",
-    "delivery_brief_build": "delivery_brief.schema.json",
     "topic_coverage_audit": "coverage_audit_artifact.schema.json",
     "narrative_arc_plan": "narrative_plan_artifact.schema.json",
     "full_master_ranking": "master_selection_artifact.schema.json",
@@ -45,7 +44,6 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "sound_design_palettes": "understanding/sound_design_plan.json",
     "missing_framing": "understanding/gap_evaluations.json",
     "optimal_questions": "understanding/gap_report.json",
-    "delivery_brief_build": "understanding/delivery_brief.json",
     "topic_coverage_audit": "master/coverage_audit.json",
     "narrative_arc_plan": "master/narrative_plan.json",
     "full_master_ranking": "master/selection.json",
@@ -254,6 +252,11 @@ def validate_delivery_brief(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("delivery_brief.schema.json", data)
 
 
+def validate_soundscape_policy(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/soundscape_policy.json` (root schema, not artifacts/)."""
+    return _validate_dict(data, _load_root_schema("soundscape_policy.schema.json"))
+
+
 def validate_source_readiness(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("source_readiness.schema.json", data)
 
@@ -291,6 +294,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/gap_evaluations.json": validate_gap_evaluations,
     "understanding/gap_report.json": validate_gap_report,
     "understanding/delivery_brief.json": validate_delivery_brief,
+    "understanding/soundscape_policy.json": validate_soundscape_policy,
     "understanding/source_readiness.json": validate_source_readiness,
     "segments/boundaries.json": validate_boundaries,
     "segments/manifest.json": validate_manifest,

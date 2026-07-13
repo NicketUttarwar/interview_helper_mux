@@ -213,6 +213,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/delivery_brief.json",),
         ("understanding/delivery_brief.json",),
     ),
+    StageInfo(
+        "soundscape_policy_build",
+        "Soundscape policy",
+        "Unify acoustic, sonic, and delivery density into per-run soundscape standards and cue slots.",
+        "analysis",
+        ("understanding/soundscape_policy.json",),
+        ("understanding/soundscape_policy.json",),
+    ),
 )
 
 ANALYSIS_STAGES = ANALYSIS_STAGES + ANALYSIS_STAGES_CONTINUED
@@ -499,6 +507,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "missing_framing",
         "optimal_questions",
         "delivery_brief_build",
+        "soundscape_policy_build",
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",

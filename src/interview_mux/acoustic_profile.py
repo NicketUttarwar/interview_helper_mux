@@ -108,6 +108,14 @@ def save_operator_overrides(ctx: RunContext, overrides: dict[str, Any]) -> dict[
 
 
 def mix_contract(ctx: RunContext) -> dict[str, Any]:
+    """Prefer unified soundscape policy when present; else SAP mix_contract."""
+    try:
+        from interview_mux.soundscape_policy import load_policy, resolve_mix_contract
+
+        if load_policy(ctx) is not None:
+            return resolve_mix_contract(ctx)
+    except Exception:
+        pass
     profile = load_profile(ctx)
     if not profile:
         return dict(_DEFAULT_MIX_CONTRACT)
@@ -121,6 +129,12 @@ def mix_contract(ctx: RunContext) -> dict[str, Any]:
         out["underscore_policy"] = str(raw["underscore_policy"])
     if raw.get("stinger_max_per_minute") is not None:
         out["stinger_max_per_minute"] = int(raw["stinger_max_per_minute"])
+    if raw.get("bed_level_db_range") is not None:
+        out["bed_level_db_range"] = raw["bed_level_db_range"]
+    if raw.get("midrange_policy") is not None:
+        out["midrange_policy"] = raw["midrange_policy"]
+    if raw.get("max_bed_coverage_ratio") is not None:
+        out["max_bed_coverage_ratio"] = float(raw["max_bed_coverage_ratio"])
     return out
 
 

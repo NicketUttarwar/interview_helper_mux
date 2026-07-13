@@ -64,6 +64,7 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/recompute-interview-spine"),
         ("POST", "/api/runs/{run_id}/recompute-coherence"),
         ("PATCH", "/api/runs/{run_id}/acoustic-profile/overrides"),
+        ("PATCH", "/api/runs/{run_id}/soundscape-policy/overrides"),
         ("POST", "/api/runs/{run_id}/action-trace/dump-last"),
         ("POST", "/api/runs/{run_id}/reuse-from-previous"),
     }

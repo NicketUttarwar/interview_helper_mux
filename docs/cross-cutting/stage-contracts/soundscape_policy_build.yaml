@@ -1,0 +1,34 @@
+stage_id: soundscape_policy_build
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs: []
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: version
+  rule: required_fields
+  fields:
+  - version
+  - underscore_policy
+  - pace_class
+  - sfx_density
+  - mix_contract
+  - standards
+  - cue_slots
+propagation:
+  invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

@@ -13,9 +13,12 @@ Extend SDP with `assets[]` (3–6 items) and `flow_plans.podcast.cues[]`. Preser
 - `gap_report` — `delivery: record` lines → VO placement
 - `segments.manifest`
 - Optional `source_acoustic_profile` — compact slice with `pace_class`, `mix_contract`, `placement_hints`
+- Optional `soundscape_policy` — unified per-run standards: `underscore_policy`, `sfx_density`, `mix_contract`, scored `cue_slots[]`
 
-When input includes `source_acoustic_profile`, `pace_class`, or `underscore_policy`, honor `mix_contract`:
+When input includes `soundscape_policy` (preferred) or `source_acoustic_profile` / `pace_class` / `underscore_policy`, honor the policy:
+- Prefer cues that map to `soundscape_policy.cue_slots` (`slot_id`, `segment_id`, `allowed_roles`, `max_level_db`). Do **not** invent `under_segment` beds outside allowed bed slots when `strict_slots` is implied.
 - If `underscore_policy` is `skip`, omit all `ambient_bed` assets and `under_segment` bed cues; stingers and accents only.
+- Cap assets to `sfx_density.max_beds` / `max_punctuators` / `max_foley` (per-role).
 - Cap chapter stingers so average density stays at or below `stinger_max_per_minute`.
 - Use `bed_level_db_range` and `duck_under_speech_db` for cue levels; tighten duck when `pace_class` is `dense`.
 - Prefer stinger placement on pause tails per `placement_hints` when provided.

@@ -45,6 +45,31 @@ _SUFFICIENCY: dict[str, list[dict]] = {
     ],
 }
 
+_PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
+    "delivery_brief_build": [
+        {
+            "path": "version",
+            "rule": "required_fields",
+            "fields": ["version", "target_duration_sec", "question_budget", "chapter_budget"],
+        },
+    ],
+    "soundscape_policy_build": [
+        {
+            "path": "version",
+            "rule": "required_fields",
+            "fields": [
+                "version",
+                "underscore_policy",
+                "pace_class",
+                "sfx_density",
+                "mix_contract",
+                "standards",
+                "cue_slots",
+            ],
+        },
+    ],
+}
+
 _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "sound_design_palettes": [{"path": "palettes", "rule": "min_rows", "min_count": 1}],
     "missing_framing": [{"path": "evaluations", "rule": "min_rows", "min_count": 1}],
@@ -80,6 +105,9 @@ _PROCESS_STAGES = [
     "mix",
     "master_finalize",
     "sound_design_plan_init",
+    "delivery_brief_build",
+    "soundscape_policy_build",
+    "source_topology_build",
     "_arbiter",
 ]
 
@@ -103,12 +131,14 @@ def _all_stage_ids() -> list[str]:
     return seen
 
 def _contract_for(stage_id: str) -> dict:
-    if stage_id in STAGE_ARTIFACT_SCHEMAS or stage_id in ALL_LLM_STAGES:
-        tier = "llm_full"
+    if stage_id in _PROCESS_STAGES:
+        tier = "process"
     elif stage_id in _DETERMINISTIC:
         tier = "deterministic"
     elif stage_id in _GATES:
         tier = "gate"
+    elif stage_id in STAGE_ARTIFACT_SCHEMAS or stage_id in ALL_LLM_STAGES:
+        tier = "llm_full"
     else:
         tier = "process"
 
@@ -130,7 +160,10 @@ def _contract_for(stage_id: str) -> dict:
         },
         "outputs": [],
         "inputs": {"hard": [], "soft": []},
-        "sufficiency": _SUFFICIENCY.get(stage_id, _LLM_DEFAULT_SUFFICIENCY.get(stage_id, [])),
+        "sufficiency": _SUFFICIENCY.get(
+            stage_id,
+            _LLM_DEFAULT_SUFFICIENCY.get(stage_id, _PROCESS_SUFFICIENCY.get(stage_id, [])),
+        ),
         "propagation": {"invalidates_stages": list(_PROPAGATION_SEEDS.get(stage_id, ()))},
         "consumers": [c for c, paths in ARTIFACTS_REGISTRY.items() if rel in paths],
         "remediation": {"strategies": ["micro_gap_fill", "patch_volley", "volley_retry", "full_stage_rerun"]},

@@ -119,6 +119,7 @@ Use a run with G2 = `flow2` (new execution or change flow in GUI before flow sta
 |-------|-----|
 | Artifacts | `master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `mmaudio_sfx_*` |
 | Listen | `master.wav`: VO bridges (if G1 lines existed), beds/stingers audible — not dry speech-only |
+| Soundscape | `sound_design/soundscape_report.json` present after mix; verdict `pass`, `remediated`/`warning`, or investigated `fail_closed` — `python tools/validate_soundscape.py --run-id <exec_id>` |
 | Metrics | `python tools/verify_master.py <path-to-master.wav>` exits 0 (Flow 1: −16 LUFS ±1; Flow 2: −14 LUFS ±1) |
 
 Optional: `assembly_preview.wav` (speech + VO, no MMAudio SFX) listened **before** SFX spend.

@@ -124,7 +124,7 @@ export function AcousticProfilePanel() {
         <h4>Operator overrides</h4>
         <p className="muted">
           Tune pace and underscore policy without re-running DSP. Leave blank to use
-          derived values.
+          derived values. Underscore overrides also rebuild soundscape policy when present.
         </p>
         {invalidateHint ? (
           <p className="hint sm">

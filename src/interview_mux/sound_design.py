@@ -87,19 +87,31 @@ def _update_segment_timing(
         segment_timing[seg_id] = (t0, t1)
 
 
-def mix(ctx: RunContext) -> Path:
+def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
     from interview_mux.placement_qa import maybe_run_placement_qa
+    from interview_mux.soundscape_policy import soundscape_enabled
+    from interview_mux.soundscape_verify import run_soundscape_verify
 
     with logged_step("mix/placement_qa", ctx=ctx, stage="mix"):
         maybe_run_placement_qa(ctx)
         contract = mix_contract(ctx)
         profile = load_profile(ctx)
         pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
+        policy_hash = ""
+        try:
+            from interview_mux.soundscape_policy import load_policy
+
+            pol = load_policy(ctx)
+            if pol:
+                policy_hash = str(pol.get("policy_hash") or "")[:12]
+        except Exception:
+            pass
         ctx.log(
             (
                 f"mix: mix_contract pace={pace.get('pace_class', 'unknown')} "
                 f"underscore={contract.get('underscore_policy')} duck={contract.get('duck_under_speech_db')}db"
+                + (f" soundscape={policy_hash}" if policy_hash else "")
             ),
             level="info",
             stage="mix",
@@ -253,6 +265,19 @@ def mix(ctx: RunContext) -> Path:
             segment_timing=segment_timing,
             contract=contract,
         )
+        if soundscape_enabled():
+            report = run_soundscape_verify(ctx, remux_cycle=remux_cycle)
+            if report.get("verdict") == "remediate":
+                ctx.log(
+                    f"mix: soundscape remux after remediation (cycle {remux_cycle})",
+                    level="warning",
+                    stage="mix",
+                )
+                return mix(ctx, remux_cycle=remux_cycle + 1)
+            if report.get("verdict") == "fail_closed":
+                raise RuntimeError(
+                    "soundscape_verify fail_closed: " + "; ".join(report.get("failures") or [])
+                )
         enforce_mix_completeness(
             ctx,
             flow="podcast",

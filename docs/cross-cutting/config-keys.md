@@ -600,7 +600,20 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
 | `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `mmaudio_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
 
-`placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. Does not auto-rewrite the plan; operator or re-run adjusts.
+`placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. With BUILD-SS-03, `execute_fitness_remediation` may action `regenerate` / `skip_cue` after MMAudio (capped); mix still applies placement adjustments.
+
+---
+
+## `soundscape.*` — closed-loop policy (BUILD-SS)
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `soundscape.enabled` | `true` | `soundscape_policy_build`, mix verify | Disables policy stage + verify |
+| `soundscape.strict_slots` | `true` | `sdp_cross_validate.validate_post_sound_plan` | When true, beds must map to cue_slots |
+| `soundscape.fail_closed` | `false` | `soundscape_verify` after remux | When true, second verify fail hard-blocks mix |
+| `soundscape.fail_closed_default` | `false` | fail_closed fallback when key unset and not first-try | Production profiles may set true |
+| `soundscape.remediation.max_remux_cycles` | `1` | `soundscape_verify` / `mix` | Caps post-mix remux loops |
+| `soundscape.remediation.max_regen_per_asset` | `1` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
 
 ---
 

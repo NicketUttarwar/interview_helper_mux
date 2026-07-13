@@ -468,6 +468,40 @@ Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-pro
 
 ---
 
+## Wave Soundscape — closed-loop policy (BUILD-SS)
+
+### BUILD-SS-01 — Produce + resolve soundscape policy
+
+- [x] `understanding/soundscape_policy.json` via `soundscape_policy_build` after `delivery_brief_build`
+- [x] `resolve_mix_contract(ctx)` single consumer API; mix/plan/craft honor policy
+- [x] Config `soundscape.*`; schema + stage contract
+
+### BUILD-SS-02 — Cue slots + constrained planning
+
+- [x] Deterministic `cue_slots` scorer; refresh at `sound_design_plan` input
+- [x] Per-role density lint/crossval; strict slots; plan prompt honors policy
+
+### BUILD-SS-03 — Asset fitness remediation
+
+- [x] `execute_fitness_remediation` runs regenerate once then `skip_cue`
+- [x] Placement apply honors `skip` / `skip_cue`
+
+### BUILD-SS-04 — Post-mix verify + remux
+
+- [x] `soundscape_verify` → `sound_design/soundscape_report.json`
+- [x] One remux remediation cycle; `tools/validate_soundscape.py`
+
+### BUILD-SS-05 — Operator surface
+
+- [x] GET/PATCH soundscape-policy API; Sonic panel summary; acoustic overrides sync policy
+- [x] Operator action catalog ids
+
+### BUILD-SS-06 — Signoff
+
+- [x] Audits + docs freeze (soundscape-quality index, stage-registry, scorecard, repository-map)
+
+---
+
 ## Verification matrix
 
 | After shipping | Run |

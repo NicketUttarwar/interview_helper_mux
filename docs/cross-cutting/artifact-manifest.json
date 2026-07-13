@@ -55,8 +55,7 @@
     "understanding/sound_design_plan.json": {
       "schemas_by_producer": {
         "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
-        "sound_design_plan": "sound_design_plan_artifact.schema.json",
-        "REMOVED_sdp_flow2": "REMOVED_sdp_flow2_artifact.schema.json"
+        "sound_design_plan": "sound_design_plan_artifact.schema.json"
       },
       "producers": [
         "sound_design_palettes",
@@ -64,8 +63,7 @@
       ],
       "consumers": [
         "sound_design_palettes",
-        "sound_design_plan",
-        "REMOVED_sdp_flow2"
+        "sound_design_plan"
       ],
       "has_write_validator": true
     },

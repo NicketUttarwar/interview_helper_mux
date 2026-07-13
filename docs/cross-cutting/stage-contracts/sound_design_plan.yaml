@@ -14,8 +14,8 @@ outputs:
   staging: true
 inputs:
   hard:
-  - path: master/selection.json
-    producer: full_master_ranking
+  - path: master/transitions.json
+    producer: transitions
   soft: []
 sufficiency:
 - path: assets

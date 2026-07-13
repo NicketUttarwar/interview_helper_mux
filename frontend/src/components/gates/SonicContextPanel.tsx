@@ -10,10 +10,19 @@ import {
 
 const SONIC_CONTEXT_PATH = "understanding/sonic_context.json";
 
+type SoundscapeSummary = {
+  underscore_policy?: string;
+  pace_class?: string;
+  sfx_density?: Record<string, number>;
+  cue_slot_ids?: string[];
+  verify_verdict?: string;
+};
+
 export function SonicContextPanel() {
   const { run, showToast } = useApp();
   const [loading, setLoading] = useState(false);
   const [doc, setDoc] = useState<SonicContextData | null>(null);
+  const [soundscape, setSoundscape] = useState<SoundscapeSummary | null>(null);
 
   useEffect(() => {
     if (!run) return;
@@ -27,6 +36,17 @@ export function SonicContextPanel() {
         showToast(formatApiError(reason, "Sonic context"), "error");
       })
       .finally(() => setLoading(false));
+    void api<{ summary?: SoundscapeSummary; report?: { verdict?: string } }>(
+      `/api/runs/${run.run_id}/soundscape-policy`,
+    )
+      .then((body) => {
+        const summary = body.summary || null;
+        if (summary && body.report?.verdict) {
+          summary.verify_verdict = body.report.verdict;
+        }
+        setSoundscape(summary);
+      })
+      .catch(() => setSoundscape(null));
   }, [run, showToast]);
 
   if (!run) return null;
@@ -64,6 +84,16 @@ export function SonicContextPanel() {
           {doc.mix_policy?.adaptive_max_assets_flow2 ?? "—"}
         </strong>
       </p>
+      {soundscape ? (
+        <p className="muted sm" data-action-id="gui.soundscape.view">
+          Soundscape policy: underscore <strong>{soundscape.underscore_policy || "—"}</strong>,
+          pace <strong>{soundscape.pace_class || "—"}</strong>, cue slots{" "}
+          <strong>{soundscape.cue_slot_ids?.length ?? 0}</strong>
+          {soundscape.verify_verdict
+            ? `, verify ${soundscape.verify_verdict}`
+            : ""}
+        </p>
+      ) : null}
       <table className="placement-qa-table">
         <thead>
           <tr>

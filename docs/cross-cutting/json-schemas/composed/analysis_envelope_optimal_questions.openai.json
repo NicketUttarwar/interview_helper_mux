@@ -31,7 +31,10 @@
               "voice_speaker_id",
               "act_context",
               "suggested_tone",
-              "trim_hint_ms"
+              "trim_hint_ms",
+              "severity",
+              "blocking",
+              "skipped_optional"
             ],
             "properties": {
               "line_id": {
@@ -99,6 +102,33 @@
                   "number",
                   "null"
                 ]
+              },
+              "severity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ],
+                "description": "G1 blocking uses high|critical when delivery=record; missing severity on record defaults to high at gate time."
+              },
+              "blocking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "When true, force VO required; when false, never block G1 even if severity is high."
+              },
+              "skipped_optional": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "Operator skipped optional (non-blocking) VO via gui.g1.skip_optional."
               }
             },
             "additionalProperties": false

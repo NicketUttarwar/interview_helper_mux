@@ -1,6 +1,6 @@
 # Coherent sound design (shipped)
 
-**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix` / `REMOVED_mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
+**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
 
 **Build tickets:** [Wave 5 — done](../build-out/README.md#wave-5--coherent-sound-design-done)
 

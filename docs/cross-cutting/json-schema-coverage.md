@@ -54,6 +54,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [context_index.schema.json](./json-schemas/context_index.schema.json) | `understanding/context_index.json` volley memory v2 |
 | [sound_design_plan.schema.json](./json-schemas/sound_design_plan.schema.json) | `understanding/sound_design_plan.json` baseline + Wave 5 planning contract |
 | [sonic_context.schema.json](./json-schemas/sonic_context.schema.json) | `understanding/sonic_context.json` — tags, scenario policy, cue opportunities (BUILD-SFX-01) |
+| [soundscape_policy.schema.json](./json-schemas/soundscape_policy.schema.json) | `understanding/soundscape_policy.json` — unified soundscape standards + cue slots (BUILD-SS-01) |
 | [artifacts/mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) | `sound_design/mmaudio_qa.json` post-generation QA |
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
@@ -84,6 +85,7 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_show_description` | `show_notes/show_description.json` | Yes |
 | `validate_sfx_prompts` | `sound_design/sfx_prompts.json` | Yes |
 | `validate_sonic_context` | `understanding/sonic_context.json` | Yes (BUILD-SFX-01) |
+| `validate_soundscape_policy` | `understanding/soundscape_policy.json` | Yes (BUILD-SS-01) |
 | `validate_mmaudio_qa` | `sound_design/mmaudio_qa.json` | Yes (BUILD-SFX-01) |
 | `validate_placement_adjustments` | `sound_design/placement_adjustments.json` | Yes (BUILD-SFX-01) |
 | `validate_run_meta` | `run_meta.json` | Yes |
@@ -126,6 +128,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `understanding/analysis_state.json` | `analysis_state.schema.json` | Yes (GUI + `write_json`) |
 | `understanding/sound_design_plan.json` | `sound_design_plan.schema.json` | Yes (init + Wave 5 persist) |
 | `understanding/sonic_context.json` | `sonic_context.schema.json` | Yes (`sonic_context_build` + cross-validate) |
+| `understanding/soundscape_policy.json` | `soundscape_policy.schema.json` | Yes (`soundscape_policy_build`) |
 | `sound_design/mmaudio_qa.json` | `mmaudio_qa.schema.json` | Yes (post-`mmaudio_sfx_flow*`) |
 | `sound_design/placement_adjustments.json` | `placement_adjustments.schema.json` | Yes (mix-time QA hints) |
 | `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |

@@ -195,7 +195,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 ## Doc ↔ code gaps
 
-**Status (Command 9 + GUIDE wave):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix`/`REMOVED_mix_flow2`), G2 flow3, pre-clean offers, smart LLM routing, Flow 3 analysis-only entry, and the LLM guidance program (GUIDE-001–080) are shipped in code.
+**Status (Command 9 + GUIDE wave + BUILD-SS):** No open operator-facing gaps in the table below. Closed-loop soundscape policy (`soundscape_policy_build`, cue slots, fitness remediation, post-mix verify) is shipped — [soundscape-policy.md](../cross-cutting/soundscape-policy.md). ASSETS picker/resume, full mix (`mix`), G2 flow3, pre-clean offers, smart LLM routing, Flow 3 analysis-only entry, and the LLM guidance program (GUIDE-001–080) are shipped in code.
 
 | Topic | Verification |
 |-------|----------------|

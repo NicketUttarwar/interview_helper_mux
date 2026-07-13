@@ -124,6 +124,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "understanding/interviewer_script.txt",
     ),
     "delivery_brief_build": ("understanding/delivery_brief.json",),
+    "soundscape_policy_build": ("understanding/soundscape_policy.json",),
     "vo_ingest": (),
     "topic_coverage_audit": ("master/coverage_audit.json",),
     "narrative_arc_plan": ("master/narrative_plan.json",),

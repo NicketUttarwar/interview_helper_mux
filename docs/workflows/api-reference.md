@@ -357,6 +357,8 @@ The GUI **Fix similar words** panel is a client-side fuzzy matcher over `words[]
 | `GET` | `/api/runs/{run_id}/coherence-report` | — | Full `understanding/coherence_report.json`; when missing, **200** inactive stub (`gate.activated: false`) |
 | `POST` | `/api/runs/{run_id}/recompute-coherence` | `{ "phase": "post_reanchor" }` optional | `ok`, `report` — rebuild from spine + brief |
 | `PATCH` | `/api/runs/{run_id}/acoustic-profile/overrides` | **AcousticProfileOverridesBody** | `ok`, `operator_overrides`, `effective` (`pace_class`, `underscore_policy`), `profile` |
+| `GET` | `/api/runs/{run_id}/soundscape-policy` | — | `path`, `policy`, `summary`, `report` (BUILD-SS) |
+| `PATCH` | `/api/runs/{run_id}/soundscape-policy/overrides` | **AcousticProfileOverridesBody** | `ok`, `operator_overrides`, `policy`; invalidates from `sound_design_plan` by default |
 
 **`AcousticProfileOverridesBody`:** `{ overrides: {…}, invalidate_from?: string }` — merges operator overrides into `understanding/source_acoustic_profile.json`; optional pipeline invalidation after save. Logs `acoustic_profile_override_saved`.
 

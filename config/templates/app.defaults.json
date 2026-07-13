@@ -47,6 +47,17 @@
     "one_regen_on_fail": true,
     "first_try_allow_placeholder_mix": true
   },
+  "_comment_soundscape": "Closed-loop soundscape policy (BUILD-SS-01…06)",
+  "soundscape": {
+    "enabled": true,
+    "strict_slots": true,
+    "fail_closed": false,
+    "fail_closed_default": false,
+    "remediation": {
+      "max_remux_cycles": 1,
+      "max_regen_per_asset": 1
+    }
+  },
   "_comment_mix_engine": "crossfade_ms_* and preclean acknowledgment for step-through runner",
   "mix": {
     "crossfade_ms_flow1": 100,

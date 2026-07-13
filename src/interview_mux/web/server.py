@@ -1016,6 +1016,23 @@ def create_app() -> FastAPI:
             )
             if body.invalidate_from:
                 runner.invalidate_from(run_id, body.invalidate_from)
+            # Mirror underscore/pace into soundscape policy when present
+            try:
+                from interview_mux.soundscape_policy import POLICY_PATH, save_operator_overrides as save_sp
+
+                if ctx.artifact_exists(POLICY_PATH):
+                    save_sp(ctx, body.overrides if isinstance(body.overrides, dict) else {})
+                    ctx.log(
+                        "Soundscape policy rebuilt from acoustic overrides.",
+                        level="info",
+                        stage="soundscape_policy_build",
+                    )
+            except Exception as exc:
+                ctx.log(
+                    f"soundscape policy sync skipped: {exc}",
+                    level="warning",
+                    stage="source_acoustic_profile",
+                )
             return {
                 "ok": True,
                 "operator_overrides": merged.get("operator_overrides", {}),
@@ -2042,6 +2059,51 @@ def create_app() -> FastAPI:
             "stage_done": ctx.is_done(stage_id),
         }
 
+    @app.get("/api/runs/{run_id}/soundscape-policy")
+    def get_soundscape_policy(run_id: str) -> dict[str, Any]:
+        from interview_mux.soundscape_policy import POLICY_PATH, compact_for_volley, load_policy
+        from interview_mux.soundscape_verify import load_soundscape_report
+
+        ctx = _ctx(run_id)
+        pol = load_policy(ctx)
+        if not pol:
+            raise HTTPException(404, f"Artifact not found: {POLICY_PATH}")
+        report = load_soundscape_report(ctx)
+        return {
+            "path": POLICY_PATH,
+            "policy": pol,
+            "summary": compact_for_volley(pol),
+            "report": report,
+        }
+
+    @app.patch("/api/runs/{run_id}/soundscape-policy/overrides")
+    def patch_soundscape_policy_overrides(run_id: str, body: AcousticProfileOverridesBody) -> dict[str, Any]:
+        from interview_mux.soundscape_policy import POLICY_PATH, save_operator_overrides
+
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists(POLICY_PATH):
+                raise HTTPException(404, "Soundscape policy not found — run soundscape_policy_build first.")
+            try:
+                policy = save_operator_overrides(ctx, body.overrides if isinstance(body.overrides, dict) else {})
+            except ValueError as exc:
+                raise HTTPException(400, {"errors": [str(exc)]}) from exc
+            ctx.log(
+                "Soundscape policy operator overrides saved.",
+                level="success",
+                stage="soundscape_policy_build",
+                detail="soundscape_override_saved",
+            )
+            if body.invalidate_from:
+                runner.invalidate_from(run_id, body.invalidate_from)
+            else:
+                runner.invalidate_from(run_id, "sound_design_plan")
+            return {
+                "ok": True,
+                "operator_overrides": policy.get("operator_overrides") or {},
+                "policy": policy,
+            }
+
     @app.get("/api/runs/{run_id}/sfx-prompts")
     def get_sfx_prompts(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -2058,6 +2120,19 @@ def create_app() -> FastAPI:
         mmaudio_qa = _read_mmaudio_qa(ctx)
         generation_meta = _read_sfx_generation_meta(ctx)
         sonic_context = load_sonic_context(ctx)
+        soundscape_summary = None
+        try:
+            from interview_mux.soundscape_policy import compact_for_volley, load_policy
+            from interview_mux.soundscape_verify import load_soundscape_report
+
+            pol = load_policy(ctx)
+            if pol:
+                soundscape_summary = compact_for_volley(pol)
+                report = load_soundscape_report(ctx)
+                if report:
+                    soundscape_summary["verify_verdict"] = report.get("verdict")
+        except Exception:
+            soundscape_summary = None
         return {
             "path": path,
             "prompts": rows,
@@ -2070,6 +2145,7 @@ def create_app() -> FastAPI:
             "mmaudio_qa": mmaudio_qa,
             "generation_meta": generation_meta,
             "sonic_context": compact_sonic_context(sonic_context) if sonic_context else None,
+            "soundscape_policy": soundscape_summary,
         }
 
     @app.put("/api/runs/{run_id}/sfx-prompts")

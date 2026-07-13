@@ -79,6 +79,22 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         return
 
     def build_input(c: RunContext) -> dict:
+        from interview_mux.soundscape_policy import (
+            compact_for_volley as soundscape_compact,
+            load_policy,
+            refresh_cue_slots,
+            soundscape_enabled,
+        )
+
+        if soundscape_enabled():
+            try:
+                refresh_cue_slots(c)
+            except Exception as exc:
+                c.log(
+                    f"soundscape_policy cue refresh skipped: {exc}",
+                    level="warning",
+                    stage="sound_design_plan",
+                )
         payload = {
             "sound_design_plan": _load_sound_design_plan(c),
             "selection": c.read_json("master/selection.json"),
@@ -93,6 +109,9 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
+        policy = load_policy(c)
+        if policy:
+            payload["soundscape_policy"] = soundscape_compact(policy)
         return attach_disfluency_context(
             __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
                 c, attach_adaptation_to_payload(c, payload)
@@ -148,6 +167,11 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
+        from interview_mux.soundscape_policy import compact_for_volley as soundscape_compact, load_policy
+
+        policy = load_policy(c)
+        if policy:
+            payload["soundscape_policy"] = soundscape_compact(policy)
         if c.artifact_exists("understanding/analysis_state.json"):
             state = c.read_json("understanding/analysis_state.json")
             style = state.get("style") if isinstance(state, dict) else None

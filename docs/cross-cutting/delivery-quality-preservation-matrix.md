@@ -40,6 +40,7 @@ See also: [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_ac
 | missing_framing | stage | pipeline.stage.missing_framing | integrity_only | no | no | post_gaps | Hard |
 | optimal_questions | stage | pipeline.stage.optimal_questions | integrity_only | no | no | post_optimal_questions | Feeds gap_report → brief |
 | delivery_brief_build | stage | pipeline.stage.delivery_brief_build; gui.delivery_brief.* | produce | no | yes | post_delivery_brief | Deterministic adaptive policy |
+| soundscape_policy_build | stage | pipeline.stage.soundscape_policy_build; gui.soundscape.* | produce | yes | no | — | Merges SAP+sonic+brief → soundscape_policy |
 
 ---
 
@@ -64,14 +65,14 @@ See also: [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_ac
 | narrative_arc_plan | stage | pipeline.stage.narrative_arc_plan | honor | yes | no | post_narrative | Chapters ⊆ brief |
 | full_master_ranking | stage | pipeline.stage.full_master_ranking | honor | yes | no | post_ranking | Duration estimate vs band |
 | transitions | stage | pipeline.stage.transitions | honor | yes | no | post_transitions | |
-| sound_design_plan | stage | pipeline.stage.sound_design_plan | honor | yes | no | post_sound_plan | Asset caps ∩ brief |
+| sound_design_plan | stage | pipeline.stage.sound_design_plan | honor | yes | no | post_sound_plan | Asset caps ∩ brief/soundscape |
 | sound_design_vo_finalize | stage | pipeline.stage.sound_design_vo_finalize | honor | yes | no | — | |
 | edl_narrative_audit | stage | pipeline.stage.edl_narrative_audit | honor | yes | no | post_edl_audit | |
 | edl | stage | pipeline.stage.edl | honor | yes | no | — | |
 | assembly_preview | stage | pipeline.stage.assembly_preview | integrity_only | yes | no | — | Preview listen |
 | sfx_prompt_craft | stage | pipeline.stage.sfx_prompt_craft | honor | yes | no | pre_sfx_generation | |
-| mmaudio_sfx | stage | pipeline.stage.mmaudio_sfx | honor | yes | no | pre_mix | |
-| mix | stage | pipeline.stage.mix | honor | yes | no | — | |
+| mmaudio_sfx | stage | pipeline.stage.mmaudio_sfx; pipeline.soundscape.fitness_remediate | honor | yes | no | pre_mix | Fitness regen/skip |
+| mix | stage | pipeline.stage.mix; pipeline.soundscape.verify | honor | yes | no | — | Verify→remux |
 | master_finalize | stage | pipeline.stage.master_finalize | honor | yes | no | pre_master_finalize | |
 
 ---

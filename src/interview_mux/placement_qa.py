@@ -223,8 +223,10 @@ def apply_placement_adjustments(
         aid = str(cue_copy.get("asset_id") or "")
         adj = by_asset.get(aid)
         if adj:
-            if str(adj.get("action") or "") == "skip":
+            if str(adj.get("action") or "") in {"skip", "skip_cue"}:
                 cue_copy["skip"] = True
+            elif str(adj.get("action") or "") == "adjust_level" and adj.get("suggested_level_db_delta") is None:
+                adj = {**adj, "suggested_level_db_delta": -2.0}
             delta = adj.get("suggested_level_db_delta")
             if delta is not None:
                 cue_copy["level_db"] = float(cue_copy.get("level_db", -24.0)) + float(delta)

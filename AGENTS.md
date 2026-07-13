@@ -42,6 +42,8 @@
 
 - [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md) — DeepFilterNet preclean + MMAudio SFX (local venvs)
 - [docs/cross-cutting/sonic-context.md](docs/cross-cutting/sonic-context.md) — scenario posture, tag provenance, cue opportunities for sound planning
+- [docs/cross-cutting/soundscape-policy.md](docs/cross-cutting/soundscape-policy.md) — per-run soundscape standards, cue slots, verify→remediate
+- [docs/build-out/soundscape-quality/00-INDEX.md](docs/build-out/soundscape-quality/00-INDEX.md) — BUILD-SS wave index
 - [docs/pipeline/audio_preclean/README.md](docs/pipeline/audio_preclean/README.md) — optional noise reduction
 - [docs/cross-cutting/mmaudio-prompt-tuning.md](docs/cross-cutting/mmaudio-prompt-tuning.md) — CFG, negative prompts, operator tune loop
 - [docs/prompts/_shared/examples/sfx-prompt-regression.md](docs/prompts/_shared/examples/sfx-prompt-regression.md) — post-listen QA appendix

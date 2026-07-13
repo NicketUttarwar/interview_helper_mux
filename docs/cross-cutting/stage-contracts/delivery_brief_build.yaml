@@ -1,29 +1,33 @@
 stage_id: delivery_brief_build
 tier: process
 lifecycle:
-  phases: [analysis]
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs: []
 inputs:
+  hard:
   - path: understanding/gap_report.json
-    required: false
-  - path: understanding/flow_adaptation.json
-    required: false
-  - path: segments/manifest.json
-    required: false
-  - path: transcript/full.json
-    required: false
-outputs:
-  - path: understanding/delivery_brief.json
-    required: true
+    producer: optimal_questions
+  soft: []
 sufficiency:
-  rules:
-    - kind: required_fields
-      fields: [version, target_duration_sec, question_budget, chapter_budget]
-consumers:
-  - narrative_arc_plan
-  - full_master_ranking
-  - sound_design_plan
-  - g1_vo_pickup
-remediation:
-  strategies: [rebuild_from_inputs]
+- path: version
+  rule: required_fields
+  fields:
+  - version
+  - target_duration_sec
+  - question_budget
+  - chapter_budget
 propagation:
   invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

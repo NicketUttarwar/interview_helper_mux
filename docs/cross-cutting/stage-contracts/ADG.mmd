@@ -78,6 +78,7 @@ flowchart LR
   boundary_detection -->|R| content_context
   content_brief_reanchor -->|R| segment_classification
   content_context -->|R| speaker_roles
+  delivery_brief_build -->|R| optimal_questions
   edl_narrative_audit -->|R| sound_design_plan
   full_master_ranking -->|R| narrative_arc_plan
   highlight_selection -->|I| REMOVED_sdp_flow2
@@ -86,12 +87,8 @@ flowchart LR
   narrative_arc_plan -->|R| topic_coverage_audit
   optimal_questions -->|R| missing_framing
   segment_classification -->|R| boundary_detection
+  sfx_prompt_craft -->|R| sound_design_plan
   sound_design_palettes -->|R| content_brief_reanchor
-  sound_design_plan -->|R| full_master_ranking
-  sound_design_plan_flow1 -->|I| sfx_prompt_craft
-  sound_design_plan_flow1 -->|I| edl
-  sound_design_plan_flow1 -->|R| full_master_ranking
-  sound_design_plan_flow2 -->|R| REMOVED_highlight_selection
-  topic_coverage_audit -->|R| optimal_questions
+  sound_design_plan -->|R| transitions
   transitions -->|R| full_master_ranking
 ```

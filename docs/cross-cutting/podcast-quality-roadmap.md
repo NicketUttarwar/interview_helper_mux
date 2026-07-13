@@ -13,7 +13,7 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 | Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL; **extended EDL narrative QC** after flagship `edl_narrative_audit` | Deeper operator edit UX |
 | Assembly Flow 2 | **`REMOVED_mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
 | Flow 3 publishing | Third-person show description JSON + markdown (BUILD-045–046, 080) | Same |
-| SFX | SDP + **`sfx_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
+| SFX | SDP + **`sfx_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate; **soundscape_policy** cue slots + verify→remux (BUILD-SS) | Deeper craft iteration loops |
 | NLE GUI | Mouse-first editor: smart presets, review queue, filters, undo history, transcript selection trim, partial apply modes (`trim_only` / `structural` / `full_refresh`), assembly A/B preview; feeds ranking + EDL (BUILD-068) | Extended listen-study metrics + deeper craft loops |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks); EDL timeline QC (`validate_edl`); extended EDL narrative QC (`validate_narrative --include-edl`) | Extended listen-study metrics |
 | Pre-clean | **`audio_preclean`** + **GUI offers** at roadmap checkpoints (never auto-enabled) | Same pattern at any new checkpoint |

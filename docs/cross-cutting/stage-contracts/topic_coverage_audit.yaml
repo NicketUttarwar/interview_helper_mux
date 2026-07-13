@@ -13,9 +13,7 @@ outputs:
   schema: coverage_audit_artifact.schema.json
   staging: true
 inputs:
-  hard:
-  - path: understanding/gap_report.json
-    producer: optimal_questions
+  hard: []
   soft: []
 sufficiency:
 - path: topics
