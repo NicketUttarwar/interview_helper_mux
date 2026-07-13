@@ -35,7 +35,7 @@ describe("pipelineAutopilot", () => {
       ],
       journey: {
         phase: "ship",
-        deliverable: { kind: "master", paths: { master: "flow_1_master/master.wav" } },
+        deliverable: { kind: "master", paths: { master: "master/master.wav" } },
       },
     });
     expect(isPipelineComplete(complete)).toBe(true);
@@ -45,11 +45,11 @@ describe("pipelineAutopilot", () => {
     const run = runStub({
       working_dir: "/Users/me/runs/exec_1/",
       journey: {
-        deliverable: { kind: "master", paths: { master: "flow_1_master/master.wav" } },
+        deliverable: { kind: "master", paths: { master: "master/master.wav" } },
       },
     });
     expect(resolveFinalOutputAbsolutePath(run)).toBe(
-      "/Users/me/runs/exec_1/flow_1_master/master.wav",
+      "/Users/me/runs/exec_1/master/master.wav",
     );
   });
 

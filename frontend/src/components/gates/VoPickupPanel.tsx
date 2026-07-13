@@ -112,6 +112,29 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
         {pickupVoice ? ` (${pickupVoice})` : ""}. Saved to{" "}
         <code>ASSETS/executions/…/vo_pickup/</code>
       </p>
+      {(run?.g1_missing || []).length === 0 && lines.some((l) => !l.recorded_file) ? (
+        <p className="hint">
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-action-id="gui.g1.skip_optional"
+            disabled={jobRunning || actionBusy}
+            onClick={async () => {
+              if (!runId) return;
+              await api(`/api/runs/${runId}/g1/skip-optional`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
+              showToast("Optional VO lines skipped.");
+              appendClientLog("G1 skip-optional", "action", "g1_vo_pickup", "gui.g1.skip_optional");
+              await refreshRun();
+            }}
+          >
+            Skip optional (non-blocking) VO
+          </button>
+        </p>
+      ) : null}
       {lines.map((line) => (
         <div key={line.line_id} className="vo-card">
           <h4>

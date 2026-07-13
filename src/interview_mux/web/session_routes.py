@@ -19,7 +19,6 @@ from interview_mux.application_session import (
     merge_active_execution,
     set_active_execution,
 )
-from interview_mux.gates import get_selected_flow
 from interview_mux.run_context import RunContext
 from interview_mux.session_lineage import (
     hash_match_with_previous,
@@ -28,7 +27,6 @@ from interview_mux.session_lineage import (
 )
 from interview_mux.stage_execution_reuse import find_reuse_candidates, prior_run_has_reusable_stage
 from interview_mux.web.stages import STAGE_BY_ID, all_stages_for_run
-
 
 class ActiveBody(BaseModel):
     run_id: str | None = None
@@ -46,11 +44,9 @@ class ActiveBody(BaseModel):
     client_instance_id: str | None = None
     force_takeover: bool | None = None
 
-
 class SessionClientBody(BaseModel):
     client_instance_id: str
     force_takeover: bool = False
-
 
 def register_session_routes(router: APIRouter, *, ctx_factory: Any) -> None:
     @router.get("/api/session")
@@ -115,11 +111,10 @@ def register_session_routes(router: APIRouter, *, ctx_factory: Any) -> None:
         prev_id = resolve_immediate_previous_run_id(ctx)
         hash_match = hash_match_with_previous(ctx) if prev_id else False
         prev_summary = previous_run_summary(prev_id) if prev_id else None
-        flow = get_selected_flow(ctx)
         stages_out: list[dict[str, Any]] = []
         if prev_id and hash_match:
             prev_ctx = RunContext(prev_id, create=False)
-            for stage in all_stages_for_run(flow):
+            for stage in all_stages_for_run(None):
                 sid = stage["id"]
                 if sid not in STAGE_BY_ID:
                     continue

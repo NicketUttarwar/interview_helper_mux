@@ -6,7 +6,7 @@ from interview_mux.edl_qc import validate_flow1_edl
 from interview_mux.gates import check_edl_qc
 from interview_mux.operator_quality import qc_summary
 from interview_mux.run_context import RunContext
-from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from interview_mux.stages.assembly import build_flow1_edl
 from run_fixtures import minimal_gap_line, minimal_gap_report, minimal_manifest, minimal_manifest_segment
 
 
@@ -190,12 +190,12 @@ def test_check_edl_qc_records_summary_on_pass(tmp_path) -> None:
         ],
         "timeline_duration_ms": 5000,
     }
-    check_edl_qc(ctx, stage="edl_flow1", edl=edl, strict=True)
+    check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
     meta = ctx.read_json("run_meta.json")
     summary = qc_summary(meta, "edl_qc")
     assert summary is not None
     assert summary["passed"] is True
-    assert summary["at_stage"] == "edl_flow1"
+    assert summary["at_stage"] == "edl"
 
 
 def test_check_edl_qc_strict_raises() -> None:
@@ -209,7 +209,7 @@ def test_check_edl_qc_strict_raises() -> None:
         "timeline_duration_ms": 100,
     }
     with pytest.raises(SystemExit, match="edl_qc strict"):
-        check_edl_qc(ctx, stage="edl_flow1", edl=edl, strict=True)
+        check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
 
 
 def test_check_edl_qc_warn_does_not_raise() -> None:
@@ -222,6 +222,6 @@ def test_check_edl_qc_warn_does_not_raise() -> None:
         "clips": [],
         "timeline_duration_ms": 100,
     }
-    check_edl_qc(ctx, stage="mix_flow1", edl=edl, strict=False)
+    check_edl_qc(ctx, stage="mix", edl=edl, strict=False)
     meta = ctx.read_json("run_meta.json")
     assert qc_summary(meta, "edl_qc")["passed"] is False

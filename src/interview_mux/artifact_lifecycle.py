@@ -291,6 +291,12 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
 def stage_output_mode(ctx: Any, stage_id: str) -> str:
     from interview_mux.web.stages import STAGE_BY_ID
 
+    if stage_id == "audio_preclean":
+        from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+        if ctx.is_done("audio_preclean") and preclean_was_skipped(ctx):
+            return "optional_skipped"
+
     info = STAGE_BY_ID.get(stage_id)
     if not info or not info.artifacts:
         return "none"

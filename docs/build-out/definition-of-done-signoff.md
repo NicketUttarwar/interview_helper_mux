@@ -73,7 +73,7 @@ Automated: `pytest tests/test_session_active_ui_fields.py tests/test_stage_outpu
 
 ## 2. G2 — all three flows (CLI + GUI)
 
-**Code:** `gates.set_selected_flow` accepts `flow1` \| `flow2` \| `flow3` (`src/interview_mux/gates.py`); CLI `tools/run_flow.py` and GUI `POST /api/runs/{run_id}/execute` with `mode: flow1|flow2|flow3` (`src/interview_mux/cli.py`, `src/interview_mux/web/server.py`, `web/runner.py`).
+**Code:** `gates.set_REMOVED_selected_flow` accepts `flow1` \| `flow2` \| `flow3` (`src/interview_mux/gates.py`); CLI `tools/run_delivery.py` and GUI `POST /api/runs/{run_id}/execute` with `mode: flow1|flow2|flow3` (`src/interview_mux/cli.py`, `src/interview_mux/web/server.py`, `web/runner.py`).
 
 Complete shared analysis through G1 (or confirm G1 not required for your fixture) before flow work.
 
@@ -81,8 +81,8 @@ Complete shared analysis through G1 (or confirm G1 not required for your fixture
 
 | Path | Steps | Pass |
 |------|-------|------|
-| GUI | G2 → choose **Full master podcast** → run flow (or step through stages) | `run_meta.selected_flow` = `flow1`; flow stages visible in workspace |
-| CLI | `python tools/run_flow.py --flow flow1 --run-id <exec_id>` | Reaches `flow_1_master/master.wav` without unhandled exit |
+| GUI | G2 → choose **Full master podcast** → run flow (or step through stages) | `run_meta.REMOVED_selected_flow` = `flow1`; flow stages visible in workspace |
+| CLI | `python tools/run_delivery.py --flow flow1 --run-id <exec_id>` | Reaches `master/master.wav` without unhandled exit |
 
 - [ ] Flow 1 GUI  
 - [ ] Flow 1 CLI  
@@ -93,8 +93,8 @@ Use a run with G2 = `flow2` (new execution or change flow in GUI before flow sta
 
 | Path | Steps | Pass |
 |------|-------|------|
-| GUI | G2 → **Highlight reel** → run flow | `selected_flow` = `flow2` |
-| CLI | `python tools/run_flow.py --flow flow2 --run-id <exec_id>` | `flow_2_highlights/master.wav` exists |
+| GUI | G2 → **Highlight reel** → run flow | `REMOVED_selected_flow` = `flow2` |
+| CLI | `python tools/run_delivery.py --flow flow2 --run-id <exec_id>` | `REMOVED_flow2/master.wav` exists |
 
 - [ ] Flow 2 GUI  
 - [ ] Flow 2 CLI  
@@ -103,8 +103,8 @@ Use a run with G2 = `flow2` (new execution or change flow in GUI before flow sta
 
 | Path | Steps | Pass |
 |------|-------|------|
-| GUI | G2 → **Show description** → run flow | `flow_3_description/show_description.md` present; no `master.wav` |
-| CLI | `python tools/run_flow.py --flow flow3 --run-id <exec_id>` | JSON + markdown export; ~150–250 words |
+| GUI | G2 → **Show description** → run flow | `show_notes/show_description.md` present; no `master.wav` |
+| CLI | `python tools/run_delivery.py --flow flow3 --run-id <exec_id>` | JSON + markdown export; ~150–250 words |
 
 - [ ] Flow 3 GUI  
 - [ ] Flow 3 CLI  
@@ -113,11 +113,11 @@ Use a run with G2 = `flow2` (new execution or change flow in GUI before flow sta
 
 ## 3. Flow 1 / 2 master — VO + SFX mix (listen)
 
-**Not** speech-only concat. Canonical stages: `mix_flow1` / `mix_flow2` → `master_flow1` / `master_flow2` (`pipeline.py` `FLOW1_ORDER` / `FLOW2_ORDER`).
+**Not** speech-only concat. Canonical stages: `mix` / `REMOVED_mix_flow2` → `master_finalize` / `REMOVED_master_flow2` (`pipeline.py` `DELIVERY_ORDER` / `REMOVED_FLOW2_ORDER`).
 
 | Check | How |
 |-------|-----|
-| Artifacts | `flow_1_master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `mmaudio_sfx_*` |
+| Artifacts | `master/assembly.wav` (or flow 2 equivalent) before master; `sound_design/assets/*.wav` or flow `sfx/` populated after `mmaudio_sfx_*` |
 | Listen | `master.wav`: VO bridges (if G1 lines existed), beds/stingers audible — not dry speech-only |
 | Metrics | `python tools/verify_master.py <path-to-master.wav>` exits 0 (Flow 1: −16 LUFS ±1; Flow 2: −14 LUFS ±1) |
 
@@ -153,9 +153,9 @@ Optional: `assembly_preview.wav` (speech + VO, no MMAudio SFX) listened **before
 source .venv/bin/activate
 python -c "
 import sys; sys.path.insert(0, 'src')
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, REMOVED_FLOW2_ORDER, REMOVED_FLOW3_ORDER
 from interview_mux.web.stages import EXECUTABLE_ORDER
-for name, pipe in [('analysis', ANALYSIS_ORDER), ('flow1', FLOW1_ORDER), ('flow2', FLOW2_ORDER), ('flow3', FLOW3_ORDER)]:
+for name, pipe in [('analysis', ANALYSIS_ORDER), ('podcast', DELIVERY_ORDER), ('flow2', REMOVED_FLOW2_ORDER), ('flow3', REMOVED_FLOW3_ORDER)]:
     web = EXECUTABLE_ORDER[name]
     assert list(pipe) == list(web), (name, set(pipe)^set(web))
 print('parity OK')
@@ -164,11 +164,11 @@ print('parity OK')
 
 | Source | Role |
 |--------|------|
-| `pipeline.py` | `ANALYSIS_ORDER`, `FLOW1_ORDER`, `FLOW2_ORDER`, `FLOW3_ORDER` — execution order |
+| `pipeline.py` | `ANALYSIS_ORDER`, `DELIVERY_ORDER`, `REMOVED_FLOW2_ORDER`, `REMOVED_FLOW3_ORDER` — execution order |
 | `web/stages.py` | `EXECUTABLE_ORDER` — GUI stage list metadata |
 | [stage-registry.md](./stage-registry.md) | Human index; gates + legacy aliases documented |
 
-Gates in GUI but not in `ANALYSIS_ORDER` (expected): `transcript_review`, `analysis_profile`, `g1_vo_pickup`, `g2_flow_select`. Legacy rerun ids: `mux_flow1`, `mux_flow2`, `podcast_sfx_brief`, `sfx_brief`.
+Gates in GUI but not in `ANALYSIS_ORDER` (expected): `transcript_review`, `analysis_profile`, `g1_vo_pickup`, `REMOVED_g2_flow_select`. Legacy rerun ids: `mux_flow1`, `mux_flow2`, `podcast_sfx_brief`, `sfx_brief`.
 
 - [x] Parity script exits OK  
 - [ ] Spot-check: new shipped stage has a row in [stage-registry.md](./stage-registry.md)  
@@ -184,8 +184,8 @@ Follow [smoke-test.md](../workflows/smoke-test.md) end-to-end on one fixture int
 | Prerequisites | `bootstrap_venv.sh`, `check_prerequisites.sh`, secrets + AWS |
 | GUI path | Picker + resume (§ ASSETS above) |
 | Analysis CLI | `run_analysis.py`, `analysis_complete.json` |
-| Flow 1 | `run_flow.py --flow flow1`, `verify_master.py` on `flow_1_master/master.wav` |
-| Flow 2 | `run_flow.py --flow flow2`, `verify_master` on `flow_2_highlights/master.wav` |
+| Flow 1 | `run_flow.py --flow flow1`, `verify_master.py` on `master/master.wav` |
+| Flow 2 | `run_flow.py --flow flow2`, `verify_master` on `REMOVED_flow2/master.wav` |
 | Flow 3 | `run_flow.py --flow flow3`, `show_description.md`, no master WAV |
 
 **Note:** Automated `pytest tests/` is optional for release sign-off; use this doc + smoke-test for release candidate.
@@ -233,7 +233,7 @@ From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [st
 | Stage | Listen / read check |
 |-------|---------------------|
 | `sound_design_palettes` | `coherence.sonic_identity` matches interview tone (not generic trailer) |
-| `sound_design_plan_flow1` / `flow2` | Cue count within caps; placements anchor to real segment/rank boundaries |
+| `sound_design_plan` / `flow2` | Cue count within caps; placements anchor to real segment/rank boundaries |
 | `assembly_preview` | Speech + VO intelligible; no SFX yet — **listen before MMAudio SFX generation** |
 | `sfx_prompt_craft` | Prompts instrumental; no voice/policy leaks; G1.5 approved if enabled |
 | `mmaudio_sfx_flow*` | Generated beds/stingers match prompt intent on spot-listen (2 assets minimum) |
@@ -247,8 +247,8 @@ From [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) and [st
 | Stage | Listen / read check |
 |-------|---------------------|
 | `transitions` | Bridge lines match interviewer style; no duplicate content |
-| `highlight_selection` | ≤5 clips; each self-contained or single micro-setup |
-| `podcast_show_description` | Third person; ~150–250 words; no invented facts |
+| `REMOVED_highlight_selection` | ≤5 clips; each self-contained or single micro-setup |
+| `REMOVED_podcast_show_description` | Third person; ~150–250 words; no invented facts |
 
 - [ ] P3 polish read check passed (Flow 2/3 as applicable)
 

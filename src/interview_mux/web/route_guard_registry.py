@@ -19,7 +19,6 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/context-index/rebuild"),
         ("PUT", "/api/runs/{run_id}/artifact/text"),
         ("PUT", "/api/runs/{run_id}/artifact"),
-        ("POST", "/api/runs/{run_id}/flow"),
         ("POST", "/api/runs/{run_id}/preclean-offer"),
         ("PUT", "/api/runs/{run_id}/pending-writes/{stage_id}/content"),
         ("POST", "/api/runs/{run_id}/pending-writes/{stage_id}/approve"),

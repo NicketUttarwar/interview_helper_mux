@@ -30,6 +30,14 @@ def test_run_single_stage_calls_upstream_check(tmp_path, monkeypatch):
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
+        "interview_mux.stage_input_checks.require_stage_inputs",
+        lambda _ctx, _name: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_lifecycle.run_phase_checks",
+        lambda _ctx, _stage, _phase: [],
+    )
+    monkeypatch.setattr(
         "interview_mux.stages.understanding.run_content_context",
         MagicMock(),
     )

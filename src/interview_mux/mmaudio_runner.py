@@ -199,7 +199,7 @@ def generate_text_to_audio(
     if not repo.is_dir():
         raise MMAudioUnavailable(f"MMAudio repo missing at {repo}")
 
-    stage_key = "mmaudio_sfx_flow1"
+    stage_key = "mmaudio_sfx"
     if ctx:
         from interview_mux.operator_trace import log_api_call
 

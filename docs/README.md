@@ -55,6 +55,6 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to thre
   2. **Highlight reel** — ≤5 clips, montage SFX, mastered WAV
   3. **Podcast show description** — ~200-word, third-person blurb to entice listeners (text; no audio mux)
 
-Shared stages run first via `tools/run_analysis.py`. Flow work runs via `tools/run_flow.py`.
+Shared stages run first via `tools/run_analysis.py`. Flow work runs via `tools/run_delivery.py`.
 
-**Implementation status:** Shared analysis, Flow 1/2 mix (`mix_flow1` / `mix_flow2` — VO + SFX in `master.wav`), Flow 3 publishing, and `source_acoustic_profile` (BUILD-082) are shipped. Stage ids: [stage-registry.md](./build-out/stage-registry.md). Release sign-off: [definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) · [build-out/README.md](./build-out/README.md).
+**Implementation status:** Shared analysis, Flow 1/2 mix (`mix` / `REMOVED_mix_flow2` — VO + SFX in `master.wav`), Flow 3 publishing, and `source_acoustic_profile` (BUILD-082) are shipped. Stage ids: [stage-registry.md](./build-out/stage-registry.md). Release sign-off: [definition-of-done-signoff.md](./build-out/definition-of-done-signoff.md). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) · [build-out/README.md](./build-out/README.md).

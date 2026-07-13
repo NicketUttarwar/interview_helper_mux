@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from interview_mux.journey_orchestrator import (
-    NEXT_ACTION_COMPLETE_G2,
     NEXT_ACTION_PREPARE_G0,
     NEXT_ACTION_UNDERSTAND_PROFILE,
+    NEXT_ACTION_CREATE_DELIVERY,
     _active_operator_action,
     _active_substep,
     _blocking,
@@ -20,7 +20,6 @@ from interview_mux.journey_orchestrator import (
 from interview_mux.run_context import RunContext
 
 FIXTURE = Path(__file__).parent / "fixtures/runs/base_smoke"
-
 
 @pytest.fixture
 def smoke_ctx(tmp_path, monkeypatch):
@@ -51,14 +50,12 @@ def smoke_ctx(tmp_path, monkeypatch):
     )
     return RunContext(run_id, create=False)
 
-
 def test_next_action_constants_documented():
     doc = Path(__file__).parents[1] / "docs/workflows/operator-journey.md"
     text = doc.read_text(encoding="utf-8")
     assert NEXT_ACTION_PREPARE_G0 in text
     assert NEXT_ACTION_UNDERSTAND_PROFILE in text
-    assert NEXT_ACTION_COMPLETE_G2 in text
-
+    assert NEXT_ACTION_CREATE_DELIVERY in text
 
 def test_build_journey_snapshot_smoke(smoke_ctx):
     snap = build_journey_snapshot(smoke_ctx)
@@ -78,7 +75,6 @@ def test_build_journey_snapshot_smoke(smoke_ctx):
     for key in ("sfx_generated", "sfx_listen_complete", "placement_qa_ready"):
         assert key in snap["milestones"]
 
-
 def test_active_substep_write_approval_priority():
     job = {
         "status": "awaiting_write_approval",
@@ -90,13 +86,11 @@ def test_active_substep_write_approval_priority():
     assert out["active_substep_id"] == "write_approval:ingest"
     assert "ingest" in out["active_substep_label"].lower()
 
-
 def test_active_substep_running_job():
     job = {"status": "running", "stage": "transcribe", "current_stage": "transcribe"}
     out = _active_substep(None, job=job, blocking={}, hint=None)
     assert out["active_substep_id"] == "running"
     assert "transcribe" in out["active_substep_label"].lower()
-
 
 def test_active_substep_blocked_gate(smoke_ctx):
     snap = build_journey_snapshot(smoke_ctx)
@@ -105,7 +99,6 @@ def test_active_substep_blocked_gate(smoke_ctx):
     out = _active_substep(smoke_ctx, job=None, blocking=blocking, hint=snap.get("execute_hint"))
     sub_id = str(out.get("active_substep_id") or "")
     assert sub_id.startswith("blocked:") or sub_id.startswith("gate:")
-
 
 def test_active_substep_stage_reuse_blocking():
     blocking = {
@@ -117,52 +110,23 @@ def test_active_substep_stage_reuse_blocking():
     out = _active_substep(None, job=None, blocking=blocking, hint=None)
     assert out["active_substep_id"] == "stage_reuse:transcribe"
 
-
 def test_active_substep_stage_reuse_job():
     job = {"status": "needs_operator", "stage": "transcribe", "needs_stage_reuse": True}
     out = _active_substep(None, job=job, blocking={}, hint=None)
     assert out["active_substep_id"] == "stage_reuse:transcribe"
 
-
 def test_journey_milestones_sfx_generated(tmp_path, monkeypatch):
-    from interview_mux.gates import set_selected_flow
     from interview_mux.journey_state import compute_milestones
     from run_fixtures import isolated_run_ctx, seed_flow1_sound_spend_ready
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "journey_sfx")
-    set_selected_flow(ctx, "flow1")
     seed_flow1_sound_spend_ready(ctx)
-    ctx.mark_done("mmaudio_sfx_flow1")
+    ctx.mark_done("mmaudio_sfx")
     ms = compute_milestones(ctx)
     assert ms["sfx_generated"] is True
     assert ms["sfx_listen_complete"] is True
     assert ms["placement_qa_ready"] is False
-
-
-def test_execute_hint_flow2_polish_skips_preview(tmp_path, monkeypatch):
-    from interview_mux.gates import set_selected_flow
-    from interview_mux.journey_orchestrator import execute_hint
-    from run_fixtures import isolated_run_ctx
-
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = isolated_run_ctx(tmp_path, "journey_f2")
-    set_selected_flow(ctx, "flow2")
-    ctx.mark_done("highlight_selection")
-    ctx.mark_done("sfx_prompt_craft")
-    milestones = {
-        "g0_complete": True,
-        "g1_complete": True,
-        "g2_complete": True,
-        "sfx_approved": True,
-        "sfx_generated": False,
-        "sfx_listen_complete": True,
-        "preview_ready": False,
-        "preview_listened": False,
-    }
-    hint = execute_hint("polish", "flow2", "flow2", milestones)
-    assert hint is not None
-    assert hint.get("from_stage") == "mmaudio_sfx_flow2"
 
 
 def test_execute_hint_prepare(smoke_ctx):
@@ -172,7 +136,6 @@ def test_execute_hint_prepare(smoke_ctx):
         if hint:
             assert hint["mode"] in ("analysis", "analysis_until_g0")
             assert hint.get("until_stage") == "transcript_review_build" or hint.get("mode")
-
 
 def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch):
     from interview_mux.journey_orchestrator import _blocking
@@ -209,7 +172,6 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
     assert snap["reason"] == "write_approval"
     assert snap["stage_id"] == "ingest"
     assert snap["message"] == "Awaiting your review"
-
 
 def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
     from interview_mux.journey_orchestrator import _blocking
@@ -252,7 +214,6 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
     assert snap["blocked"] is False
     assert calls == ["audio_preclean"]
 
-
 def test_active_operator_action_write_approval(tmp_path, monkeypatch):
     from run_fixtures import init_run_meta_for_test, isolated_run_ctx
 
@@ -283,7 +244,6 @@ def test_active_operator_action_write_approval(tmp_path, monkeypatch):
     assert "Review" in action["headline"]
     assert "2 staged files" in action["subline"]
 
-
 def test_active_operator_action_running_job():
     job = {
         "status": "running",
@@ -296,14 +256,12 @@ def test_active_operator_action_running_job():
     assert "uploading" in action["headline"].lower()
     assert action["modal_auto_open"] is False
 
-
 def test_is_llm_gate_message_recognizes_budget_exhaustion() -> None:
     assert _is_llm_gate_message(
         "Stage content_context: primary attempt budget exhausted (4/4)."
     )
     assert _is_llm_gate_message("LLM stage gate (content_context): blocked")
     assert not _is_llm_gate_message("Awaiting your review")
-
 
 def test_blocking_budget_exhaustion_uses_llm_gate_reason(tmp_path, monkeypatch):
     from run_fixtures import init_run_meta_for_test, isolated_run_ctx
@@ -320,7 +278,6 @@ def test_blocking_budget_exhaustion_uses_llm_gate_reason(tmp_path, monkeypatch):
     assert blocking["blocked"] is True
     assert blocking["reason"] == "llm_gate"
     assert blocking["stage_id"] == "content_context"
-
 
 def test_build_journey_snapshot_includes_active_operator_action(smoke_ctx):
     snap = build_journey_snapshot(smoke_ctx)

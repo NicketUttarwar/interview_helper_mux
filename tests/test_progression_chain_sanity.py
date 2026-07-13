@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from progression_chain_sanity_helpers import (
     FULL_PROGRESSION_CHAIN,
     PROGRESSION_ANALYSIS_STAGES,
@@ -45,8 +45,8 @@ def sanity_ctx(tmp_path, monkeypatch):
     return isolated_run_ctx(tmp_path, "progression_sanity")
 
 
-def test_progression_start_is_segment_classification():
-    assert ANALYSIS_ORDER[11] == PROGRESSION_START_STAGE
+def test_progression_start_is_content_context():
+    assert ANALYSIS_ORDER.index(PROGRESSION_START_STAGE) == ANALYSIS_ORDER.index("content_context")
 
 
 def test_content_understanding_prefix_supports_segment_classification(sanity_ctx):
@@ -104,4 +104,4 @@ def test_pipeline_orders_are_subsets_of_executable_progression():
     for sid in analysis_tail:
         assert sid in FULL_PROGRESSION_CHAIN
     for sid in PROGRESSION_FLOW_STAGES:
-        assert sid in FLOW1_ORDER or sid in FLOW2_ORDER or sid in FLOW3_ORDER
+        assert sid in DELIVERY_ORDER

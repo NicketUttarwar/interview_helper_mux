@@ -9,7 +9,6 @@ describe("validateArtifactWrite", () => {
 
   it("rejects invalid data for a known artifact path", async () => {
     const result = await validateArtifactWrite("run_meta.json", {
-      selected_flow: "not_a_valid_flow",
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -18,7 +17,6 @@ describe("validateArtifactWrite", () => {
   });
 
   it("accepts valid data and reuses cached schema on repeat calls", async () => {
-    const valid = { selected_flow: "flow1" as const };
     const first = await validateArtifactWrite("run_meta.json", valid);
     const second = await validateArtifactWrite("run_meta.json", valid);
     expect(first).toEqual({ ok: true });

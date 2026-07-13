@@ -17,7 +17,13 @@ from interview_mux.operator_snapshots import persist_operator_transcript
 
 MAX_CHUNK_MS = 30_000
 MIN_PAUSE_MS = 700
-LOW_CONFIDENCE_THRESHOLD = 0.85
+LOW_CONFIDENCE_THRESHOLD = 0.85  # fallback; prefer first_try.low_confidence_threshold()
+
+
+def _low_confidence_threshold() -> float:
+    from interview_mux.first_try import low_confidence_threshold
+
+    return low_confidence_threshold()
 
 
 def _review_sort_mode(cfg: dict[str, Any] | None = None) -> str:
@@ -70,14 +76,15 @@ def run_transcript_review_build(ctx: RunContext) -> None:
 
         sort_mode = _review_sort_mode()
         ranked = _rank_review_chunks(chunks, sort_mode=sort_mode)
+        threshold = _low_confidence_threshold()
         for rank, chunk in enumerate(ranked, start=1):
             chunk["rank"] = rank
             chunk["reviewed"] = False
-            chunk["needs_review"] = chunk["confidence"] < LOW_CONFIDENCE_THRESHOLD
+            chunk["needs_review"] = chunk["confidence"] < threshold
 
         queue = {
             "version": 1,
-            "low_confidence_threshold": LOW_CONFIDENCE_THRESHOLD,
+            "low_confidence_threshold": threshold,
             "sort_mode": sort_mode,
             "chunk_count": len(ranked),
             "chunks": ranked,
@@ -124,6 +131,33 @@ def run_transcript_review_build(ctx: RunContext) -> None:
         ctx.write_json("transcript/corrections.json", {"corrections": {}})
 
     ctx.mark_done("transcript_review_build")
+    maybe_auto_complete_transcript_review(ctx)
+
+
+def maybe_auto_complete_transcript_review(ctx: RunContext) -> bool:
+    """Under first_try, auto-complete G0 when zero chunks need review."""
+    from interview_mux.first_try import transcript_auto_complete_when_clean
+
+    if not transcript_auto_complete_when_clean():
+        return False
+    if ctx.is_done("transcript_review"):
+        return False
+    if not ctx.artifact_exists("transcript/review_queue.json"):
+        return False
+    queue = ctx.read_json("transcript/review_queue.json")
+    chunks = queue.get("chunks") or []
+    needs = [c for c in chunks if isinstance(c, dict) and c.get("needs_review")]
+    if needs:
+        return False
+    mark_transcript_review_complete(ctx)
+    ctx.log(
+        "G0 auto-completed (first_try): no low-confidence chunks needing review.",
+        level="success",
+        stage="transcript_review",
+        action_id="gui.transcript_review.complete_auto",
+        detail={"event": "g0_auto_complete", "chunk_count": len(chunks)},
+    )
+    return True
 
 
 def check_transcript_review_pending(ctx: RunContext) -> bool:

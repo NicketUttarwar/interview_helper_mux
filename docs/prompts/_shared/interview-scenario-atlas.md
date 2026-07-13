@@ -62,7 +62,7 @@ Three or more participants; moderator may not be sole question-asker.
 - **content_context:** `format_class: panel`; thesis may be collective (“the panel agreed…”).
 - **boundary_detection:** Prefer speaker-change boundaries; tolerate mid-sentence splits on overlap.
 - **segment_classification:** Tag `speaker_id` per segment; note `multi_speaker` when overlap.
-- **highlight_selection:** Favor clips with single-speaker clarity for Flow 2.
+- **REMOVED_highlight_selection:** Favor clips with single-speaker clarity for Flow 2.
 
 ### Sound posture
 
@@ -163,13 +163,13 @@ Celebrity / public figure; personality-forward; clip-friendly.
 |--------|---------------|
 | High `quotability_signals` | `stage_enrichment` |
 | Short punchy answers | Segment duration variance |
-| `highlight_selection` candidates abundant | Emotional peaks |
+| `REMOVED_highlight_selection` candidates abundant | Emotional peaks |
 | Public figure entities | `content_brief.entities` |
 
 ### Prompt adaptations
 
-- **highlight_selection:** Prioritize standalone clips; `hook_strength` weight up.
-- **podcast_show_description:** Lead with personality hook; avoid spoiler thesis.
+- **REMOVED_highlight_selection:** Prioritize standalone clips; `hook_strength` weight up.
+- **REMOVED_podcast_show_description:** Lead with personality hook; avoid spoiler thesis.
 - **transitions:** Lighter touch; don't over-explain famous context.
 - **content_brief_reanchor:** Confirm `hypotheses` about public narrative vs transcript.
 
@@ -279,7 +279,7 @@ Similar to technical_deep_dive but emphasis on **uninterrupted** terminology cha
 - **segment_classification:** Tag `dense_jargon` on segments; do not over-summarize.
 - **topic_coverage_audit:** `emphasis_coverage_pass` for acoustically emphasized jargon.
 - **optimal_questions:** Glossary-style VO bridges at first occurrence.
-- **podcast_show_description:** Audience line must state expertise level assumed.
+- **REMOVED_podcast_show_description:** Audience line must state expertise level assumed.
 
 ### Sound posture
 
@@ -313,9 +313,9 @@ Sensitive personal history, grief, abuse, discrimination; dignity and consent po
 ### Prompt adaptations
 
 - **content_context:** Never sensationalize; `tone_class: trauma_informed`.
-- **highlight_selection:** Exclude clips that retraumatize without context; no cold-open on disclosure peak.
+- **REMOVED_highlight_selection:** Exclude clips that retraumatize without context; no cold-open on disclosure peak.
 - **transitions:** No cheerful pivots; acknowledge weight before topic shift.
-- **podcast_show_description:** Content warnings when disclosure is central; no clickbait.
+- **REMOVED_podcast_show_description:** Content warnings when disclosure is central; no clickbait.
 - **sfx_prompt_craft:** No triumphant stingers after heavy segments.
 
 ### Sound posture
@@ -330,7 +330,7 @@ Sensitive personal history, grief, abuse, discrimination; dignity and consent po
 |---------|---------|----------|
 | Tonal whiplash | Upbeat SFX after grief | Edit SDP cues; re-run mix |
 | Exploitative clip | Highlight isolates trauma | Re-rank; add framing clip |
-| Missing warning | Publish without context | `podcast_show_description` + operator gate |
+| Missing warning | Publish without context | `REMOVED_podcast_show_description` + operator gate |
 
 ---
 

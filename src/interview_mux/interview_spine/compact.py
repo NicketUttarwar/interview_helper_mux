@@ -11,7 +11,6 @@ STAGE_SPINE_VOLLEY_KEYS = frozenset(
         "segment_classification",
         "missing_framing",
         "content_context",
-        "highlight_selection",
         "full_master_ranking",
     }
 )
@@ -20,10 +19,8 @@ _STAGE_SPINE_LIMITS: dict[str, dict[str, int]] = {
     "content_context": {"max_windows": 2, "max_events": 8, "max_chars": 100},
     "segment_classification": {"max_windows": 3, "max_events": 10, "max_chars": 120},
     "missing_framing": {"max_windows": 4, "max_events": 15, "max_chars": 120},
-    "highlight_selection": {"max_windows": 5, "max_events": 12, "max_chars": 140},
     "full_master_ranking": {"max_windows": 3, "max_events": 10, "max_chars": 120},
 }
-
 
 def attach_spine_to_payload(ctx, payload: dict[str, Any], stage_key: str) -> None:
     from interview_mux.interview_spine.config import spine_enabled
@@ -49,13 +46,11 @@ def attach_spine_to_payload(ctx, payload: dict[str, Any], stage_key: str) -> Non
     if compact:
         payload["interview_spine"] = compact
 
-
 def load_spine(ctx) -> dict[str, Any] | None:
     if not ctx.artifact_exists(SPINE_PATH):
         return None
     doc = ctx.read_json(SPINE_PATH)
     return doc if isinstance(doc, dict) else None
-
 
 def rank_boundary_events(
     events: list[dict[str, Any]],
@@ -121,7 +116,6 @@ def rank_boundary_events(
     picked.sort(key=lambda e: int(e.get("start_ms") or e.get("time_ms") or 0))
     return picked[:cap]
 
-
 def compact_for_boundary(ctx, *, pace_class: str = "conversational", oversplit: bool = False) -> dict[str, Any] | None:
     spine = load_spine(ctx)
     if not spine:
@@ -145,7 +139,6 @@ def compact_for_boundary(ctx, *, pace_class: str = "conversational", oversplit: 
         "speaker_stats": spine.get("speaker_stats") or [],
         **meta,
     }
-
 
 def compact_for_volley(ctx, *, max_windows: int = 3, max_chars: int = 120) -> dict[str, Any] | None:
     spine = load_spine(ctx)

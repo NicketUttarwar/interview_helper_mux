@@ -30,8 +30,8 @@ Listener-facing **output path** — ranking, EDL, mix, and placement QA wired to
 
 | ID | Hypothesis | Pipeline path |
 |----|------------|---------------|
-| **H-F1N-02** | Emphasis regions → ranking/EDL/mix | `emphasis_regions` → `full_master_ranking` → `edl_flow1` → `mix_flow1` |
-| **H-F2-02** | Quotability → highlight montage | `highlight_selection` → `mix_flow2` |
+| **H-F1N-02** | Emphasis regions → ranking/EDL/mix | `emphasis_regions` → `full_master_ranking` → `edl` → `mix` |
+| **H-F2-02** | Quotability → highlight montage | `REMOVED_highlight_selection` → `REMOVED_mix_flow2` |
 | **H-F1S-02** | Sting placement QA | `placement_qa.py`, SFX/mix, trauma/laughter guardrails |
 
 **Deliverable:** Code + docs PR. Wave D is the final implementation wave before [07-FINISH-signoff.md](./07-FINISH-signoff.md).
@@ -61,7 +61,7 @@ Listener-facing **output path** — ranking, EDL, mix, and placement QA wired to
 
 ### Scope summary
 
-**Modules:** `full_master_ranking`, `edl_flow1`, `mix_flow1`, `highlight_selection`, `mix_flow2`, `placement_qa.py`, `acoustic_profile.py`, `sonic_context.py`, `tools/verify_master.py`, `tools/validate_narrative.py`.
+**Modules:** `full_master_ranking`, `edl`, `mix`, `REMOVED_highlight_selection`, `REMOVED_mix_flow2`, `placement_qa.py`, `acoustic_profile.py`, `sonic_context.py`, `tools/verify_master.py`, `tools/validate_narrative.py`.
 
 **Critical fixtures:** `noisy_room`, `trauma_adjacent`, `media_profile` (+ full `tests/fixtures/sonic_context/` set).
 
@@ -112,7 +112,7 @@ The product goal is **not** literal zero-failure on arbitrary first upload. Targ
 | # | Criterion | How verified (Wave D) |
 |---|-----------|------------------------|
 | 1 | **No silent failure** | Ranking/EDL/mix blocks emit `gui_log.jsonl` + QC summary + [troubleshooting.md](../../workflows/troubleshooting.md) row |
-| 2 | **Always recoverable** | Operator fixes via `--from-stage full_master_ranking` \| `edl_flow1` \| `mix_flow1` \| `highlight_selection` \| `mix_flow2` without re-ingest |
+| 2 | **Always recoverable** | Operator fixes via `--from-stage full_master_ranking` \| `edl` \| `mix` \| `REMOVED_highlight_selection` \| `REMOVED_mix_flow2` without re-ingest |
 | 3 | **Scenario robustness** | All nine sonic fixtures + `noisy_room` / `trauma_adjacent` regression pass ([§3](#3-scenario-coverage-matrix)) |
 | 4 | **Fail open** | Empty `laughter_windows`, missing spine boost, missing value_features → omit feature; pipeline continues |
 | 5 | **Promote with evidence** | Each hypothesis passes [15-point checklist](#2-promote-with-evidence-checklist-15-points) before default-on |
@@ -121,8 +121,8 @@ The product goal is **not** literal zero-failure on arbitrary first upload. Targ
 
 | Flow | Artifact | Validators | Wave D hypotheses |
 |------|----------|------------|-------------------|
-| Flow 1 | `flow_1_master/master.wav` | `validate_narrative.py`, `verify_master.py`, assembly preview listen | H-F1N-02 (ranking→EDL), H-F1S-02 (sting placement) |
-| Flow 2 | `flow_2_highlights/master.wav` | Hook first-3s listen, diversity, `verify_master.py` | H-F2-02 (montage selection) |
+| Flow 1 | `master/master.wav` | `validate_narrative.py`, `verify_master.py`, assembly preview listen | H-F1N-02 (ranking→EDL), H-F1S-02 (sting placement) |
+| Flow 2 | `REMOVED_flow2/master.wav` | Hook first-3s listen, diversity, `verify_master.py` | H-F2-02 (montage selection) |
 | Analysis | COM retell post-mix | [value-metrics-library §1.2](../../pipeline/value-analysis/value-metrics-library.md#12-retell-protocol-com-a-com-b) | H-F1N-02 coverage weighting |
 
 ---
@@ -205,7 +205,7 @@ Before **Promoted → Shipped** on any Wave D hypothesis, complete the listen pr
 1. Set `understanding/sonic_context.json` atlas bucket (or run full analysis so `sonic_context_build` infers bucket).
 2. Complete Flow 1 and/or Flow 2 through `assembly_preview` — **listen before MMAudio spend**.
 3. Complete `mix_flow*` → `master_*`; run `verify_master.py`.
-4. Spot-check stinger placement log lines (`mix_flow1: stinger_aligned pause_tail`).
+4. Spot-check stinger placement log lines (`mix: stinger_aligned pause_tail`).
 5. Record bucket + `run_id` in sign-off record.
 
 - [ ] **D-LISTEN-01** Nine-scenario matrix spot-checked before Shipped (note bucket + run_id)
@@ -223,7 +223,7 @@ Before **Promoted → Shipped** on any Wave D hypothesis, complete the listen pr
 | CLAP / spine retrieval disabled | No spine boost; highlight selection uses LLM + quotability proxy | H-F2-02 |
 | `placement_qa_enabled: false` | Skip `run_placement_qa`; mix uses SDP cues only | All mix |
 | Missing SFX WAV at mix | Log warning; `enforce_mix_completeness` per config; speech montage still exports | mix_flow* |
-| `underscore_policy: skip` | Cold open skipped (`mix_flow2: cold_open skipped`) | H-F2-02 |
+| `underscore_policy: skip` | Cold open skipped (`REMOVED_mix_flow2: cold_open skipped`) | H-F2-02 |
 | Trauma/overlap segment flags | `placement_qa` sets `action: skip` on beds — fail-open **omit**, not halt | H-F1S-02 |
 
 **Hard gates (allowed to stop):** `narrative_qc.strict`, `edl_narrative_qc.strict`, `verify_master` LUFS/peak fail at ship, G2/profile gates — each cites [troubleshooting.md](../../workflows/troubleshooting.md).
@@ -250,9 +250,9 @@ Before **Promoted → Shipped** on any Wave D hypothesis, complete the listen pr
 
 | Event | Level | When | Operator action |
 |-------|-------|------|-------------------|
-| `Flow 1 narrative QC passed` | success | Before `full_master_ranking`, `edl_flow1` | Continue |
+| `Flow 1 narrative QC passed` | success | Before `full_master_ranking`, `edl` | Continue |
 | `Flow 1 narrative QC failed (N issue(s)): …` | error/warn | Coverage/selection gaps | Fix audit or `narrative_qc.strict=false` (dev); run `validate_narrative.py` |
-| `edl_narrative_qc strict: N issue(s)` | error | After `edl_flow1` | `--from-stage edl_flow1` after fix |
+| `edl_narrative_qc strict: N issue(s)` | error | After `edl` | `--from-stage edl` after fix |
 | `run_meta.qc_summaries.narrative_qc` | — | GUI QC panel | Shows `passed`, `errors[]`, `at_stage` |
 
 **Strict mode:** `narrative_qc.strict: true` (default in production paths) → `SystemExit` with CLI hint. Non-strict → warn only.
@@ -263,7 +263,7 @@ Before **Promoted → Shipped** on any Wave D hypothesis, complete the listen pr
 
 | Event | Level | When | Operator action |
 |-------|-------|------|-------------------|
-| `placement_qa: N adjustment hint(s) → sound_design/placement_adjustments.json` | info | Start of `mix_flow1` / `mix_flow2` when enabled | Review adjustments before re-mix |
+| `placement_qa: N adjustment hint(s) → sound_design/placement_adjustments.json` | info | Start of `mix` / `REMOVED_mix_flow2` when enabled | Review adjustments before re-mix |
 | `placement_qa: applied level to N cue(s), crossfade to M cue(s)` | info | During mix | None if listen OK |
 | Scenario skip | (in JSON) | `action: skip`, `scenario_override: true` | Confirm trauma/overlap ban intentional |
 
@@ -275,11 +275,11 @@ Config: `sound_design.placement_qa_enabled` (default `false` — enable for Prom
 
 | Failure message | Meaning | Recovery |
 |-----------------|---------|----------|
-| `Integrated LUFS X out of range [-17, -15]` (flow1) | Master gain staging | Re-run `master_flow1` or adjust mix levels |
-| `Integrated LUFS X out of range [-15, -13]` (flow2) | Montage louder target | Re-run `master_flow2` |
+| `Integrated LUFS X out of range [-17, -15]` (flow1) | Master gain staging | Re-run `master_finalize` or adjust mix levels |
+| `Integrated LUFS X out of range [-15, -13]` (flow2) | Montage louder target | Re-run `REMOVED_master_flow2` |
 | `True peak X dBTP exceeds -1.0` | Clipping risk | Reduce stinger/transition gain in SDP or mix |
 | `Sample rate XHz is out of spec` | Export issue | Check ffmpeg export chain |
-| Intelligibility fail (mix QC) | Speech band RMS too low vs bed | `--from-stage mix_flow1`; lower beds via placement QA |
+| Intelligibility fail (mix QC) | Speech band RMS too low vs bed | `--from-stage mix`; lower beds via placement QA |
 
 CLI: `python tools/verify_master.py <path>/master.wav [--flow flow1|flow2]`
 
@@ -288,9 +288,9 @@ CLI: `python tools/verify_master.py <path>/master.wav [--flow flow1|flow2]`
 | Stage | Key log lines | `stage` id |
 |-------|---------------|------------|
 | `full_master_ranking` | `Master order: N segments, M excluded` | `full_master_ranking` |
-| `edl_flow1` | `EDL built: N events, … timeline X ms` | `edl_flow1` |
-| `mix_flow1` | `mix_flow1: mix_contract pace=…`; `stinger_aligned pause_tail` | `mix_flow1` |
-| `mix_flow2` | `mix_flow2: montage X ms — highlights=N, transitions=M` | `mix_flow2` |
+| `edl` | `EDL built: N events, … timeline X ms` | `edl` |
+| `mix` | `mix: mix_contract pace=…`; `stinger_aligned pause_tail` | `mix` |
+| `REMOVED_mix_flow2` | `REMOVED_mix_flow2: montage X ms — highlights=N, transitions=M` | `REMOVED_mix_flow2` |
 
 ---
 
@@ -305,7 +305,7 @@ Wave D output quality depends on upstream artifacts wired before mix. Integratio
 
 | Field | Wave D consumer | Effect |
 |-------|-----------------|--------|
-| `pacing.pace_class` | `mix_flow1` log, adaptive crossfade | Dense → shorter crossfades |
+| `pacing.pace_class` | `mix` log, adaptive crossfade | Dense → shorter crossfades |
 | `mix_contract.duck_under_speech_db` | `mix_contract()` in `sound_design.py` | Bed duck depth |
 | `mix_contract.underscore_policy` | Flow 2 cold open skip | `skip` → no underscore under montage |
 | `placement_hints.prefer_stinger_after_pause_tail` | `resolve_stinger_position_ms` | H-F1S-02 anchor |
@@ -321,19 +321,19 @@ Wave D output quality depends on upstream artifacts wired before mix. Integratio
 | `scenario.atlas_bucket` | Bucket overrides (−2 dB beds for panel/noisy/trauma) | H-F1S-02, mix policy |
 | `segment_flags.overlap_high` | Bed `action: skip` | Panel scenario |
 | `segment_flags.trauma_adjacent` | Bed/stinger ban | Trauma scenario |
-| `mix_policy.crossfade_ms_flow2` | `mix_flow2` crossfade override | Montage pacing |
+| `mix_policy.crossfade_ms_flow2` | `REMOVED_mix_flow2` crossfade override | Montage pacing |
 
 Fixtures: `tests/fixtures/sonic_context/*.json` — use in scenario tests.
 
 ### 8.3 SDP craft path (`sdp_craft_path`)
 
-**Stages:** `sound_design_palettes` → `sound_design_plan_flow1/2` → `sfx_prompt_craft` → `mmaudio_sfx_flow*` → `mix_flow*`
+**Stages:** `sound_design_palettes` → `sound_design_plan/2` → `sfx_prompt_craft` → `mmaudio_sfx_flow*` → `mix_flow*`
 
 | Checkpoint | Validator | Wave D relevance |
 |------------|-----------|------------------|
 | `post_sound_plan_flow1` | `artifact_cross_validate` | Cue anchors vs `selection.json` order |
 | `pre_sfx_generation` | Spend block | No MMAudio waste if ranking stale |
-| `pre_mix_flow1/2` | SFX WAV presence | Hard stop when `block_mix_without_sfx_when_enabled` |
+| `pre_mix/2` | SFX WAV presence | Hard stop when `block_mix_without_sfx_when_enabled` |
 | Post-listen | `mmaudio_qa.json` → `placement_qa` | Level/crossfade hints |
 
 **spike-results winner for sound:** `sdp_craft_path` promoted separately — Wave D assumes SDP path default per [flow1-sound-and-mix.md](../../pipeline/value-analysis/sections/flow1-sound-and-mix.md).
@@ -344,8 +344,8 @@ Fixtures: `tests/fixtures/sonic_context/*.json` — use in scenario tests.
 - [x] **D-INT-02** Verify `compact_for_volley(profile)` reaches `sound_design_plan_flow*` build_input
 - [x] **D-INT-03** `sonic_context_build` completes before Flow 1 extended stages on fixture run
 - [x] **D-INT-04** `placement_qa` reads `trauma_adjacent` + `overlap_high` from sonic_context — test both flags
-- [x] **D-INT-05** `mix_flow2` respects `sonic_context.mix_policy.crossfade_ms_flow2`
-- [x] **D-INT-06** Spend block prevents `mix_flow1` when ranking artifact stale (re-run ranking invalidates downstream)
+- [x] **D-INT-05** `REMOVED_mix_flow2` respects `sonic_context.mix_policy.crossfade_ms_flow2`
+- [x] **D-INT-06** Spend block prevents `mix` when ranking artifact stale (re-run ranking invalidates downstream)
 - [x] **D-INT-07** `assembly_preview` listen checkpoint documented in operator checklist before SFX
 - [x] **D-INT-08** Cross-artifact `post_ranking` validates selection segment_ids ⊆ manifest
 - [x] **D-INT-09** EDL clip order matches `selection.ordered_segment_ids` after NLE apply
@@ -369,21 +369,21 @@ flowchart TB
         NAP[narrative_arc_plan<br/>emphasis_regions]
         FMR[full_master_ranking]
         TR[transitions]
-        SDP1[sound_design_plan_flow1]
+        SDP1[sound_design_plan]
         ENA[edl_narrative_audit]
-        EDL[edl_flow1]
+        EDL[edl]
         AP[assembly_preview]
-        SFX1[mmaudio_sfx_flow1]
-        MIX1[mix_flow1<br/>placement_qa + laughter nudge]
-        M1[master_flow1]
+        SFX1[mmaudio_sfx]
+        MIX1[mix<br/>placement_qa + laughter nudge]
+        M1[master_finalize]
     end
 
     subgraph flow2 [Flow 2 — H-F2-02]
-        HS[highlight_selection<br/>quotability_signals]
-        SDP2[sound_design_plan_flow2]
-        SFX2[mmaudio_sfx_flow2]
-        MIX2[mix_flow2<br/>montage + cold open]
-        M2[master_flow2]
+        HS[REMOVED_highlight_selection<br/>quotability_signals]
+        SDP2[REMOVED_sdp_flow2]
+        SFX2[REMOVED_mmaudio_flow2]
+        MIX2[REMOVED_mix_flow2<br/>montage + cold open]
+        M2[REMOVED_master_flow2]
     end
 
     subgraph qc [Deterministic QC]
@@ -408,10 +408,10 @@ flowchart TB
 
 | Validator | Runs when | Blocks? |
 |-----------|-----------|---------|
-| `check_narrative_qc` | Before `full_master_ranking`, `edl_flow1` | If `narrative_qc.strict` |
+| `check_narrative_qc` | Before `full_master_ranking`, `edl` | If `narrative_qc.strict` |
 | `check_edl_narrative_qc` | After `build_flow1_edl` | If `edl_narrative_qc.strict` |
-| `validate_edl_flow1` | `edl_flow1` persist | Schema errors logged |
-| `maybe_run_placement_qa` | Start of `mix_flow1`/`mix_flow2` | Never — hints only |
+| `validate_edl` | `edl` persist | Schema errors logged |
+| `maybe_run_placement_qa` | Start of `mix`/`REMOVED_mix_flow2` | Never — hints only |
 | `maybe_check_mix_intelligibility` | End of mix | Warn / config block |
 | `verify_master` | Manual + smoke | Exit 1 — ship gate |
 
@@ -420,10 +420,10 @@ flowchart TB
 | Failure | `--from-stage` |
 |---------|----------------|
 | Bad ranking order | `full_master_ranking` |
-| EDL clip errors | `edl_flow1` |
-| Mix/SFX issues | `sfx_prompt_craft` or `mix_flow1` |
-| Flat highlights | `highlight_selection` |
-| Montage issues | `mix_flow2` |
+| EDL clip errors | `edl` |
+| Mix/SFX issues | `sfx_prompt_craft` or `mix` |
+| Flat highlights | `REMOVED_highlight_selection` |
+| Montage issues | `REMOVED_mix_flow2` |
 
 ---
 
@@ -447,14 +447,14 @@ flowchart TB
 | Layer | Paths / docs |
 |-------|----------------|
 | Emphasis / quotability | `src/interview_mux/stage_enrichment.py` |
-| Flow 1 ranking | `src/interview_mux/stages/selection_flow1.py`, `stages/analysis_flow1_extended.py` |
-| Flow 2 selection | `src/interview_mux/stages/selection_flow2.py` |
-| EDL | `src/interview_mux/stages/assembly_flow1.py` (`build_flow1_edl`) |
-| Mix | `src/interview_mux/sound_design.py` (`mix_flow1`, `mix_flow2`, stinger placement) |
+| Flow 1 ranking | `src/interview_mux/stages/selection.py`, `stages/analysis_extended.py` |
+| Flow 2 selection | `src/interview_mux/stages/REMOVED_selection_flow2.py` |
+| EDL | `src/interview_mux/stages/assembly.py` (`build_flow1_edl`) |
+| Mix | `src/interview_mux/sound_design.py` (`mix`, `REMOVED_mix_flow2`, stinger placement) |
 | Placement QA | `src/interview_mux/placement_qa.py` |
 | Volley | `src/interview_mux/context_volley.py` (emphasis_regions, quotability_signals caps) |
 | QC gates | `src/interview_mux/gates.py`, `narrative_qc.py`, `master_qc.py` |
-| Pipeline order | `src/interview_mux/pipeline.py` `FLOW1_ORDER`, `FLOW2_ORDER` |
+| Pipeline order | `src/interview_mux/pipeline.py` `DELIVERY_ORDER`, `REMOVED_FLOW2_ORDER` |
 | Prompts | `docs/prompts/selection/topic-coverage-audit.system.txt`, `selection/highlight-selection.system.txt` |
 | Spikes | `tests/fixtures/value_analysis/spike_flow1_extended_narrative.json`, `spike_flow2_highlights.json` |
 | Docs | [post-generation-placement.md](../../cross-cutting/post-generation-placement.md), [sonic-context.md](../../cross-cutting/sonic-context.md) |
@@ -466,12 +466,12 @@ flowchart TB
 **Thesis:** Weight coverage by **acoustic emphasis** so “quietly said but vital” claims surface in Flow 1 narrative → ranking → EDL → mix.  
 **Spike:** 4.037 ([spike-results § flow1 extended narrative](../../pipeline/value-analysis/spike-results-and-winners.md))  
 **Tier:** T1 · **Status:** Partial  
-**Product tie:** `topic_coverage_audit` → `full_master_ranking` → `edl_flow1` → `mix_flow1`
+**Product tie:** `topic_coverage_audit` → `full_master_ranking` → `edl` → `mix`
 
 ### Mechanism
 
 1. `emphasis_regions_for_segments(ctx)` computes segment-level RMS peaks vs global/segment baselines (`stage_enrichment.py`).
-2. `analysis_flow1_extended.run_topic_coverage` / `run_narrative_arc` inject `emphasis_regions` into LLM volley (max 24).
+2. `analysis_extended.run_topic_coverage` / `run_narrative_arc` inject `emphasis_regions` into LLM volley (max 24).
 3. Prompt [topic-coverage-audit.system.txt](../../prompts/selection/topic-coverage-audit.system.txt) instructs weighting quiet-but-vital claims.
 4. Optional specialist `emphasis-coverage-pass` post-pass maps emphasis → coverage gaps.
 5. Ranking (`full_master_ranking`) inherits coverage-weighted narrative plan; EDL preserves order; mix does not re-rank.
@@ -485,7 +485,7 @@ def emphasis_regions_for_segments(ctx, *, max_regions=24) -> list[dict]:
 ```
 
 ```python
-# analysis_flow1_extended.py — volley injection
+# analysis_extended.py — volley injection
 "emphasis_regions": emphasis_regions_for_segments(c),
 ```
 
@@ -614,20 +614,20 @@ def emphasis_regions_for_segments(ctx, *, max_regions=24) -> list[dict]:
 **Thesis:** **Paralinguistic peaks × quotability** fusion improves Flow 2 hook strength and montage diversity.  
 **Spike:** 3.971 ([spike-results § flow2 highlights](../../pipeline/value-analysis/spike-results-and-winners.md))  
 **Tier:** T0 · **Status:** Partial  
-**Product tie:** `highlight_selection` → `mix_flow2` montage
+**Product tie:** `REMOVED_highlight_selection` → `REMOVED_mix_flow2` montage
 
 ### Mechanism
 
 1. `quotability_signals(ctx)` fuses text length, question marks, segment RMS p90, optional spine boost (`stage_enrichment.py`).
-2. `selection_flow2.run_highlight_selection` injects signals into volley (max 30).
-3. LLM `highlight_selection` schema picks ≤5 highlights with quotability-informed diversity.
-4. `mix_flow2` builds montage: cold open (SDP) + highlight slices + transitions + outro.
+2. `REMOVED_selection_flow2.run_REMOVED_highlight_selection` injects signals into volley (max 30).
+3. LLM `REMOVED_highlight_selection` schema picks ≤5 highlights with quotability-informed diversity.
+4. `REMOVED_mix_flow2` builds montage: cold open (SDP) + highlight slices + transitions + outro.
 5. First-3s hook listen + acoustic spread validates promotion.
 
 ### Code anchors
 
 ```python
-# selection_flow2.py
+# REMOVED_selection_flow2.py
 "quotability_signals": quotability_signals(c),
 ```
 
@@ -645,15 +645,15 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 | No WAV | energy_score=0; text-only quotability |
 | Spine absent | boost=0.0 |
 | `spine_flow2_quotability_enabled: false` | boost=0.0 |
-| Empty quotability list | LLM highlight_selection proceeds with manifest only |
+| Empty quotability list | LLM REMOVED_highlight_selection proceeds with manifest only |
 
 ### Observability & recovery
 
 | Signal | Log |
 |--------|-----|
 | Selection | Highlight count in schema validation |
-| Mix | `mix_flow2: montage X ms — highlights=N, transitions=M` |
-| Recovery | `--from-stage highlight_selection` |
+| Mix | `REMOVED_mix_flow2: montage X ms — highlights=N, transitions=M` |
+| Recovery | `--from-stage REMOVED_highlight_selection` |
 
 ### Scenario regression (H-F2-02)
 
@@ -681,7 +681,7 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 - [x] **F2-02-G12** log quotability top-3 segment_ids (debug/info)
 - [x] **F2-02-G13** scenario rows checked
 - [x] **F2-02-G14** spine fail-open tested
-- [x] **F2-02-G15** `--from-stage highlight_selection` in troubleshooting
+- [x] **F2-02-G15** `--from-stage REMOVED_highlight_selection` in troubleshooting
 
 ### Implementation todos (H-F2-02) — 50+
 
@@ -700,7 +700,7 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 
 **Highlight selection**
 
-- [x] **F2-02-11** deterministic_lint highlight_selection diversity rule
+- [x] **F2-02-11** deterministic_lint REMOVED_highlight_selection diversity rule
 - [x] **F2-02-12** arbiter rubric mentions quotability_signals usage
 - [x] **F2-02-13** prompt highlight-selection.system.txt cites paralinguistic fusion
 - [x] **F2-02-14** volley truncates quotability_signals to 30
@@ -711,9 +711,9 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 - [x] **F2-02-19** Cross-artifact post_ranking N/A — flow2 selection validated
 - [x] **F2-02-20** highlight count ≤5 enforced
 
-**mix_flow2 montage**
+**REMOVED_mix_flow2 montage**
 
-- [x] **F2-02-21** Integration test: mix_flow2 renders N highlights
+- [x] **F2-02-21** Integration test: REMOVED_mix_flow2 renders N highlights
 - [x] **F2-02-22** Cold open skipped when underscore_policy=skip
 - [x] **F2-02-23** Crossfade from sonic_context mix_policy
 - [x] **F2-02-24** resolve_between_clip_transition uses SDP cues
@@ -730,7 +730,7 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 - [x] **F2-02-32** troubleshooting: "Flat highlight reel"
 - [x] **F2-02-33** troubleshooting: "Quotability ignored"
 - [x] **F2-02-34** qc_summaries for mix completeness
-- [x] **F2-02-35** operator checklist mix_flow2 listen
+- [x] **F2-02-35** operator checklist REMOVED_mix_flow2 listen
 
 **Scenario tests**
 
@@ -742,15 +742,15 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 
 **Recovery & integration**
 
-- [x] **F2-02-41** `--from-stage highlight_selection`
-- [x] **F2-02-42** `--from-stage mix_flow2` after SDP fix
+- [x] **F2-02-41** `--from-stage REMOVED_highlight_selection`
+- [x] **F2-02-42** `--from-stage REMOVED_mix_flow2` after SDP fix
 - [x] **F2-02-43** SAP underscore_policy in sfx_brief build_input
 - [x] **F2-02-44** placement_qa on flow2 when enabled
-- [x] **F2-02-45** spend block before mix_flow2
+- [x] **F2-02-45** spend block before REMOVED_mix_flow2
 - [x] **F2-02-46** G2 flow2 selected before stages run
 - [x] **F2-02-47** smoke-test Flow 2 CLI + GUI
 - [x] **F2-02-48** test_flow2_crossfade.py green
-- [x] **F2-02-49** Wave C coherence does not block highlight_selection
+- [x] **F2-02-49** Wave C coherence does not block REMOVED_highlight_selection
 - [x] **F2-02-50** INDEX.md link
 - [x] **F2-02-51** Paralinguistic limits doc in value-metrics-library
 - [x] **F2-02-52** Kill prompt-only picks — spike-results confirmed
@@ -762,14 +762,14 @@ def _spine_quotability_boost(ctx, start_ms, end_ms) -> float:
 **Thesis:** **Laughter / applause** windows constrain sting placement to protect intelligibility (LEX-B sonic trust).  
 **Spike:** — (T0 mechanism shipped in code; promotion via placement tests)  
 **Tier:** T0 · **Status:** Partial  
-**Product tie:** `mix_flow1` stinger alignment via `resolve_stinger_position_ms`
+**Product tie:** `mix` stinger alignment via `resolve_stinger_position_ms`
 
 ### Mechanism
 
 1. `_laughter_windows_from_value_features(value_features)` extracts windows from quality_trajectory_flags / audio laughter_windows (fail-open empty list).
 2. `resolve_stinger_position_ms` finds pause tail anchor via SAP placement_hints.
 3. `_nudge_away_from_laughter` shifts stinger position ±buffer if overlap detected.
-4. `_align_stinger_to_pause_tail` maps source ms → timeline ms in `mix_flow1`.
+4. `_align_stinger_to_pause_tail` maps source ms → timeline ms in `mix`.
 5. `placement_qa` additionally skips beds on trauma/overlap segments per sonic_context.
 
 ### Code anchors
@@ -801,9 +801,9 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 
 | Signal | Log |
 |--------|-----|
-| Aligned stinger | `mix_flow1: stinger_aligned pause_tail segment=… pos=…` |
+| Aligned stinger | `mix: stinger_aligned pause_tail segment=… pos=…` |
 | placement_qa skip | JSON `action: skip`, `reason: scenario_segment_ban` |
-| Recovery | `--from-stage mix_flow1` after value_features update |
+| Recovery | `--from-stage mix` after value_features update |
 
 ### Scenario regression (H-F1S-02)
 
@@ -831,7 +831,7 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 - [x] **F1S02-G12** log when nudge applied vs skipped
 - [x] **F1S02-G13** scenario matrix trauma + noisy_room
 - [x] **F1S02-G14** empty laughter_windows fail-open test
-- [x] **F1S02-G15** `--from-stage mix_flow1` recovery doc
+- [x] **F1S02-G15** `--from-stage mix` recovery doc
 
 ### Implementation todos (H-F1S-02) — 50+
 
@@ -892,17 +892,17 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 
 **Observability & docs**
 
-- [x] **F1S02-41** ctx.log stinger_aligned (verify stage=mix_flow1)
+- [x] **F1S02-41** ctx.log stinger_aligned (verify stage=mix)
 - [x] **F1S02-42** troubleshooting: "Stinger over laughter"
 - [x] **F1S02-43** troubleshooting: "Stinger on trauma segment"
-- [x] **F1S02-44** operator-stage-checklists mix_flow1 stinger listen
+- [x] **F1S02-44** operator-stage-checklists mix stinger listen
 - [x] **F1S02-45** post-generation-placement.md laughter subsection
 - [x] **F1S02-46** sfx-prompt-regression.md spot-listen stinger row
 - [x] **F1S02-47** gui_log detail JSON for placement_qa count
 - [x] **F1S02-48** master_qc intelligibility speech band check
 - [x] **F1S02-49** verify_master true peak check after stinger mix
 - [ ] **F1S02-50** nine-scenario trauma + noisy listen sign-off
-- [x] **F1S02-51** `--from-stage mix_flow1` after laughter extract
+- [x] **F1S02-51** `--from-stage mix` after laughter extract
 - [x] **F1S02-52** Wave 0 fail-open inventory row for laughter_windows
 
 ---
@@ -922,7 +922,7 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 - [x] **D-W06** End-to-end Flow 2 fixture: quotability → montage → verify_master
 - [ ] **D-W07** Run full nine-scenario listen matrix (§4)
 - [x] **D-W08** `validate_narrative.py --run-id` on Flow 1 fixture
-- [x] **D-W09** `validate_narrative.py --include-edl` after edl_flow1
+- [x] **D-W09** `validate_narrative.py --include-edl` after edl
 - [x] **D-W10** assembly_preview listen documented in smoke-test
 
 **Docs & index**
@@ -962,29 +962,29 @@ def _nudge_away_from_laughter(pos_ms, windows, *, buffer_ms=200):
 **Recovery drills**
 
 - [x] **D-W36** Drill: re-run from full_master_ranking without re-ingest
-- [x] **D-W37** Drill: re-run from edl_flow1 after NLE edit
-- [x] **D-W38** Drill: re-run from mix_flow1 after placement_qa tweak
-- [x] **D-W39** Drill: re-run highlight_selection after quotability fix
+- [x] **D-W37** Drill: re-run from edl after NLE edit
+- [x] **D-W38** Drill: re-run from mix after placement_qa tweak
+- [x] **D-W39** Drill: re-run REMOVED_highlight_selection after quotability fix
 - [x] **D-W40** Drill: G2 flow switch flow1 ↔ flow2 without analysis re-run
 
 **Recovery drill commands** (verified via `tests/test_wave_d_output_resilience.py -k recovery`):
 
 ```bash
 # D-W36 — bad ranking order
-python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage full_master_ranking
+python tools/run_delivery.py --flow flow1 --run-id <exec_id> --from-stage full_master_ranking
 
 # D-W37 — NLE edit after EDL
-python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage edl_flow1
+python tools/run_delivery.py --flow flow1 --run-id <exec_id> --from-stage edl
 
 # D-W38 — placement QA tweak
-python tools/run_flow.py --flow flow1 --run-id <exec_id> --from-stage mix_flow1
+python tools/run_delivery.py --flow flow1 --run-id <exec_id> --from-stage mix
 
 # D-W39 — quotability / highlight fix
-python tools/run_flow.py --flow flow2 --run-id <exec_id> --from-stage highlight_selection
+python tools/run_delivery.py --flow flow2 --run-id <exec_id> --from-stage REMOVED_highlight_selection
 
-# D-W40 — G2 flow switch (set run_meta.selected_flow; no analysis re-ingest)
-# GUI: Flow select panel, or PATCH run_meta.json selected_flow
-python tools/run_flow.py --flow flow2 --run-id <exec_id>  # after G2=flow2
+# D-W40 — G2 flow switch (set run_meta.REMOVED_selected_flow; no analysis re-ingest)
+# GUI: Flow select panel, or PATCH run_meta.json REMOVED_selected_flow
+python tools/run_delivery.py --flow flow2 --run-id <exec_id>  # after G2=flow2
 ```
 
 ---

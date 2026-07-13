@@ -55,8 +55,6 @@ function gateHeadline(run: RunData, stageId: string, blockingReason?: string | n
       return "Confirm source topology";
     case "missing_framing":
       return "Confirm gap pickup speaker";
-    case "g2_flow_select":
-      return "Choose output flow";
     case "analysis_profile":
       return "Verify interview profile";
     case "operator_decisions":
@@ -258,7 +256,6 @@ const GATE_BLOCKING_REASONS = new Set([
   "disfluency_review",
   "g1_vo_pickup",
   "g1_5_preview_pickup",
-  "g2_flow_select",
   "analysis_profile",
   "gate",
 ]);
@@ -451,8 +448,11 @@ export function resolveOperatorAction(
   }
 
   if (jobCtx.awaitingWriteApproval) {
-    const sid = job?.pending_write_stage || job?.stage || focusStageId;
-    if (sid) return buildWriteApprovalAction(run, sid);
+    const deferred = Boolean(run.journey?.first_try?.write_approval_deferred);
+    if (!deferred) {
+      const sid = job?.pending_write_stage || job?.stage || focusStageId;
+      if (sid) return buildWriteApprovalAction(run, sid);
+    }
   }
 
   if (jobCtx.needsStageReuse && job?.stage) {

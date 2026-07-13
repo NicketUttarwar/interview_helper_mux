@@ -1,4 +1,4 @@
-stage_id: highlight_selection
+stage_id: REMOVED_highlight_selection
 tier: llm_full
 lifecycle:
   phases:
@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_2_highlights/selection.json
+- path: REMOVED_flow2/selection.json
   schema: highlights_artifact.schema.json
   staging: true
 inputs:
@@ -23,9 +23,9 @@ sufficiency:
   min_count: 1
 propagation:
   invalidates_stages:
-  - sound_design_plan_flow2
+  - REMOVED_sdp_flow2
 consumers:
-- highlight_selection
+- REMOVED_highlight_selection
 remediation:
   strategies:
   - micro_gap_fill

@@ -10,11 +10,8 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.web.runner import JobRunner, RunBusyError
-from interview_mux.write_staging import (
-    enter_stage_staging,
-    exit_stage_staging,
-    list_pending_paths,
-)
+from interview_mux.write_staging import enter_stage_staging, exit_stage_staging, list_pending_paths
+from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -82,7 +79,8 @@ def test_approve_write_after_orphaned_lock_with_awaiting_job(
     iso = ctx.path("preclean/isolated.wav")
     iso.parent.mkdir(parents=True, exist_ok=True)
     iso.write_bytes(b"wav")
-    ctx.path("preclean/lineage.json").write_text("{}", encoding="utf-8")
+    ctx.write_json("preclean/lineage.json", minimal_preclean_lineage())
+    ctx.write_json("preclean/provider.json", minimal_preclean_provider())
     exit_stage_staging()
     ctx.write_json(
         "gui_job.json",

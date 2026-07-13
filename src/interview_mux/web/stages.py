@@ -9,7 +9,7 @@ class StageInfo:
     id: str
     title: str
     description: str
-    phase: str  # analysis | flow1 | flow2 | flow3 | gate
+    phase: str  # analysis | delivery | gate
     artifacts: tuple[str, ...]
     editable: tuple[str, ...]
     audio_outputs: tuple[str, ...] = ()
@@ -205,6 +205,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/gap_report.json", "understanding/interviewer_script.txt"),
         ("understanding/gap_report.json",),
     ),
+    StageInfo(
+        "delivery_brief_build",
+        "Delivery brief",
+        "Derive adaptive soft targets (duration, question budget, chapters, SFX density) from analysis.",
+        "analysis",
+        ("understanding/delivery_brief.json",),
+        ("understanding/delivery_brief.json",),
+    ),
 )
 
 ANALYSIS_STAGES = ANALYSIS_STAGES + ANALYSIS_STAGES_CONTINUED
@@ -227,44 +235,44 @@ VO_INGEST_STAGE = StageInfo(
     ("vo_pickup/normalized/",),
 )
 
-FLOW1_STAGES: tuple[StageInfo, ...] = (
+DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "topic_coverage_audit",
         "Topic coverage",
         "Audit that every theme from the content brief is covered by selected segments.",
-        "flow1",
-        ("flow_1_master/coverage_audit.json",),
-        ("flow_1_master/coverage_audit.json",),
+        "delivery",
+        ("master/coverage_audit.json",),
+        ("master/coverage_audit.json",),
     ),
     StageInfo(
         "narrative_arc_plan",
         "Narrative arc",
         "Plan chapters, setup → payoff structure, and ordering constraints for the full podcast.",
-        "flow1",
-        ("flow_1_master/narrative_plan.json",),
-        ("flow_1_master/narrative_plan.json",),
+        "delivery",
+        ("master/narrative_plan.json",),
+        ("master/narrative_plan.json",),
     ),
     StageInfo(
         "full_master_ranking",
         "Segment ordering",
         "Ranked optimal segment order for the full master podcast (not chronological default).",
-        "flow1",
-        ("flow_1_master/selection.json",),
-        ("flow_1_master/selection.json",),
+        "delivery",
+        ("master/selection.json",),
+        ("master/selection.json",),
     ),
     StageInfo(
         "transitions",
         "Transitions",
         "Generate interviewer bridge lines between segments.",
-        "flow1",
-        ("flow_1_master/transitions.json",),
-        ("flow_1_master/transitions.json",),
+        "delivery",
+        ("master/transitions.json",),
+        ("master/transitions.json",),
     ),
     StageInfo(
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "Sound design plan",
         "Build Flow 1 reusable sound design assets and cues in the shared sound design plan.",
-        "flow1",
+        "delivery",
         ("understanding/sound_design_plan.json",),
         ("understanding/sound_design_plan.json",),
     ),
@@ -272,7 +280,7 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         "sound_design_vo_finalize",
         "VO bridge finalize",
         "Measure vo_pickup WAV durations and adjust VO bridge cues in the sound design plan.",
-        "flow1",
+        "delivery",
         ("understanding/sound_design_plan.json", "vo_pickup/"),
         ("understanding/sound_design_plan.json",),
     ),
@@ -280,31 +288,31 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         "edl_narrative_audit",
         "EDL narrative audit",
         "Flagship review of final Flow 1 narrative readiness before EDL construction.",
-        "flow1",
+        "delivery",
         (
-            "flow_1_master/edl_narrative_audit.json",
-            "flow_1_master/selection.json",
-            "flow_1_master/narrative_plan.json",
-            "flow_1_master/transitions.json",
+            "master/edl_narrative_audit.json",
+            "master/selection.json",
+            "master/narrative_plan.json",
+            "master/transitions.json",
         ),
-        ("flow_1_master/edl_narrative_audit.json",),
+        ("master/edl_narrative_audit.json",),
     ),
     StageInfo(
-        "edl_flow1",
+        "edl",
         "Edit decision list",
         "Build the EDL combining speech order, VO pickup placements, and transition anchors.",
-        "flow1",
-        ("flow_1_master/edl.json",),
-        ("flow_1_master/edl.json",),
+        "delivery",
+        ("master/edl.json",),
+        ("master/edl.json",),
     ),
     StageInfo(
         "assembly_preview",
         "Assembly preview",
         "Render speech + recorded VO only (no MMAudio SFX) so you can listen before generation.",
-        "flow1",
-        ("flow_1_master/edl.json",),
+        "delivery",
+        ("master/edl.json",),
         (),
-        ("flow_1_master/assembly_preview.wav",),
+        ("master/assembly_preview.wav",),
     ),
     StageInfo(
         "g1_5_preview_pickup",
@@ -319,156 +327,57 @@ FLOW1_STAGES: tuple[StageInfo, ...] = (
         "Craft MMAudio prompts",
         "Build one MMAudio text-to-audio prompt per planned asset_id (positive + negative). "
         "When G1.5 is enabled (g1_5_require_prompt_approval), review and approve prompts here before SFX generation.",
-        "flow1",
+        "delivery",
         ("sound_design/sfx_prompts.json",),
         ("sound_design/sfx_prompts.json",),
     ),
     StageInfo(
-        "mmaudio_sfx_flow1",
+        "mmaudio_sfx",
         "Generate SFX",
         "Local MMAudio text-to-audio per unique asset_id; writes sound_design/assets/{asset_id}.wav.",
-        "flow1",
+        "delivery",
         ("understanding/sound_design_plan.json", "sound_design/sfx_prompts.json"),
         (),
-        ("sound_design/assets/", "flow_1_master/sfx/"),
+        ("sound_design/assets/", "master/sfx/"),
     ),
     StageInfo(
-        "mix_flow1",
+        "mix",
         "Mix assembly",
         "Mix speech, VO, beds, and stingers into a pre-master assembly WAV.",
-        "flow1",
-        ("flow_1_master/assembly.wav",),
+        "delivery",
+        ("master/assembly.wav",),
         (),
-        ("flow_1_master/assembly.wav",),
+        ("master/assembly.wav",),
     ),
     StageInfo(
-        "master_flow1",
+        "master_finalize",
         "Master export",
         "Apply loudness mastering (−16 LUFS) and export the final podcast.",
-        "flow1",
+        "delivery",
         (),
         (),
-        ("flow_1_master/master.wav",),
+        ("master/master.wav",),
     ),
 )
 
-FLOW2_STAGES: tuple[StageInfo, ...] = (
-    StageInfo(
-        "highlight_selection",
-        "Highlight selection",
-        "Pick up to five punchy clips for the highlight reel.",
-        "flow2",
-        ("flow_2_highlights/selection.json",),
-        ("flow_2_highlights/selection.json",),
-    ),
-    StageInfo(
-        "sound_design_plan_flow2",
-        "Sound design plan",
-        "Build Flow 2 reusable sound design assets and cue plan in the shared sound design plan.",
-        "flow2",
-        ("understanding/sound_design_plan.json",),
-        ("understanding/sound_design_plan.json",),
-    ),
-    StageInfo(
-        "sfx_prompt_craft",
-        "Craft MMAudio prompts",
-        "Build one MMAudio text-to-audio prompt per planned asset_id (positive + negative). "
-        "When G1.5 is enabled (g1_5_require_prompt_approval), review and approve prompts here before SFX generation.",
-        "flow2",
-        ("sound_design/sfx_prompts.json",),
-        ("sound_design/sfx_prompts.json",),
-    ),
-    StageInfo(
-        "mmaudio_sfx_flow2",
-        "Generate SFX",
-        "Local MMAudio text-to-audio per unique asset_id; writes sound_design/assets/{asset_id}.wav.",
-        "flow2",
-        ("understanding/sound_design_plan.json", "sound_design/sfx_prompts.json"),
-        (),
-        ("sound_design/assets/", "flow_2_highlights/sfx/"),
-    ),
-    StageInfo(
-        "mix_flow2",
-        "Mix assembly",
-        "Assemble highlight clips with cold open, transitions, and SFX into a pre-master WAV.",
-        "flow2",
-        ("flow_2_highlights/assembly.wav",),
-        (),
-        ("flow_2_highlights/assembly.wav",),
-    ),
-    StageInfo(
-        "master_flow2",
-        "Master export",
-        "Apply loudness mastering (−14 LUFS) and export the highlight reel.",
-        "flow2",
-        (),
-        (),
-        ("flow_2_highlights/master.wav",),
-    ),
-)
-
-FLOW3_STAGES: tuple[StageInfo, ...] = (
-    StageInfo(
-        "podcast_show_description",
-        "Show description",
-        "Generate a ~200-word third-person podcast blurb from shared analysis (flagship LLM).",
-        "flow3",
-        ("flow_3_description/show_description.json",),
-        ("flow_3_description/show_description.json",),
-    ),
-    StageInfo(
-        "export_show_description",
-        "Export blurb",
-        "Export plain-text show description for podcast directories (no LLM).",
-        "flow3",
-        ("flow_3_description/show_description.md",),
-        (),
-    ),
-)
-
-G2_STAGE = StageInfo(
-    "g2_flow_select",
-    "Confirm output (G2)",
-    "Confirm full master podcast, highlight reel, or show description. Matches your intent from the start screen.",
-    "gate",
-    ("run_meta.json",),
-    ("run_meta.json",),
-)
 
 _LEGACY_STAGE_ALIASES: tuple[StageInfo, ...] = (
     StageInfo(
         "mux_flow1",
         "Assembly (legacy)",
-        "Backward-compatible id for mix_flow1.",
-        "flow1",
-        ("flow_1_master/assembly.wav",),
+        "Backward-compatible id for mix.",
+        "delivery",
+        ("master/assembly.wav",),
         (),
-        ("flow_1_master/assembly.wav",),
-    ),
-    StageInfo(
-        "mux_flow2",
-        "Micro-assembly (legacy)",
-        "Backward-compatible id for mix_flow2.",
-        "flow2",
-        ("flow_2_highlights/assembly.wav",),
-        (),
-        ("flow_2_highlights/assembly.wav",),
+        ("master/assembly.wav",),
     ),
     StageInfo(
         "podcast_sfx_brief",
         "SFX brief (v1 legacy)",
-        "v1 one-shot brief — not on the default Flow 1 path. Use sound_design_plan_flow1 instead.",
-        "flow1",
-        ("flow_1_master/podcast_sfx_brief.json",),
-        ("flow_1_master/podcast_sfx_brief.json",),
-    ),
-    StageInfo(
-        "sfx_brief",
-        "SFX brief (v1 legacy)",
-        "v1 montage brief — not on the default Flow 2 path. Use sound_design_plan_flow2 instead.",
-        "flow2",
-        ("flow_2_highlights/sfx_brief.json",),
-        ("flow_2_highlights/sfx_brief.json",),
+        "v1 one-shot brief — not on the default delivery path. Use sound_design_plan instead.",
+        "delivery",
+        ("master/podcast_sfx_brief.json",),
+        ("master/podcast_sfx_brief.json",),
     ),
 )
 
@@ -481,10 +390,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
         ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
         VO_INGEST_STAGE,
-        G2_STAGE,
-        *FLOW1_STAGES,
-        *FLOW2_STAGES,
-        *FLOW3_STAGES,
+        *DELIVERY_STAGES,
         *_LEGACY_STAGE_ALIASES,
     )
 }
@@ -504,22 +410,15 @@ STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
     "narrative_arc_plan": ("openai",),
     "full_master_ranking": ("openai",),
     "transitions": ("openai",),
-    "sound_design_plan_flow1": ("openai",),
-    "sound_design_plan_flow2": ("openai",),
+    "sound_design_plan": ("openai",),
     "sfx_prompt_craft": ("openai",),
-    "mmaudio_sfx_flow1": (),
-    "mmaudio_sfx_flow2": (),
-    "highlight_selection": ("openai",),
-    "podcast_show_description": ("openai",),
+    "mmaudio_sfx": (),
     "podcast_sfx_brief": ("openai",),
-    "sfx_brief": ("openai",),
 }
 
 EXECUTABLE_ORDER: dict[str, list[str]] = {
     "analysis": [s.id for s in ANALYSIS_STAGES],
-    "flow1": [s.id for s in FLOW1_STAGES if s.phase != "gate"],
-    "flow2": [s.id for s in FLOW2_STAGES if s.phase != "gate"],
-    "flow3": [s.id for s in FLOW3_STAGES if s.phase != "gate"],
+    "delivery": [s.id for s in DELIVERY_STAGES if s.phase != "gate"],
 }
 
 # Stages that may surface LLM routing attempts in the GUI (OpenAI-backed or analysis loop).
@@ -527,7 +426,6 @@ LLM_ROUTING_STAGE_IDS: frozenset[str] = frozenset(
     {
         *STAGE_API_PROVIDERS.keys(),
         "sound_design_vo_finalize",
-        "export_show_description",
     }
 )
 
@@ -537,16 +435,15 @@ def stage_status(ctx_done: Any, stage_id: str) -> str:
         return "pending"  # resolved by caller
     if stage_id == "g1_5_preview_pickup":
         return "pending"  # resolved by caller
-    if stage_id == "g2_flow_select":
-        return "pending"  # resolved by caller
     if ctx_done(stage_id):
         return "done"
     return "pending"
 
 
-def operator_stages_for_run(selected_flow: str | None) -> tuple[StageInfo, ...]:
+def operator_stages_for_run(selected_flow: str | None = None) -> tuple[StageInfo, ...]:
     """Operator sidebar / GUI order: gates interleaved where they block downstream work."""
-    stages: list[StageInfo] = [
+    _ = selected_flow
+    return (
         *ANALYSIS_STAGES_PRE_G0,
         TRANSCRIPT_REVIEW_GATE,
         DISFLUENCY_EXTRACT_STAGE,
@@ -554,15 +451,8 @@ def operator_stages_for_run(selected_flow: str | None) -> tuple[StageInfo, ...]:
         *ANALYSIS_STAGES_CONTINUED,
         ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
-        G2_STAGE,
-    ]
-    if selected_flow == "flow1":
-        stages.extend(FLOW1_STAGES)
-    elif selected_flow == "flow2":
-        stages.extend(FLOW2_STAGES)
-    elif selected_flow == "flow3":
-        stages.extend(FLOW3_STAGES)
-    return tuple(stages)
+        *DELIVERY_STAGES,
+    )
 
 
 def operator_linear_stage_ids(selected_flow: str | None = None) -> list[str]:
@@ -608,33 +498,25 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "sound_design_palettes",
         "missing_framing",
         "optimal_questions",
+        "delivery_brief_build",
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
         "transitions",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "sound_design_vo_finalize",
         "edl_narrative_audit",
-        "edl_flow1",
+        "edl",
         "assembly_preview",
         "sfx_prompt_craft",
-        "mmaudio_sfx_flow1",
-        "mix_flow1",
-        "master_flow1",
-        "highlight_selection",
-        "sound_design_plan_flow2",
-        "mmaudio_sfx_flow2",
-        "mix_flow2",
-        "master_flow2",
-        "podcast_show_description",
-        "export_show_description",
+        "mmaudio_sfx",
+        "mix",
+        "master_finalize",
         "transcript_review",
         "analysis_profile",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
-        "g2_flow_select",
         "mux_flow1",
-        "mux_flow2",
     )
 }
 _STAGE_REUSE_POLICY.update(
@@ -645,7 +527,6 @@ _STAGE_REUSE_POLICY.update(
         "analysis_profile": "gate",
         "g1_vo_pickup": "gate",
         "g1_5_preview_pickup": "gate",
-        "g2_flow_select": "gate",
     }
 )
 

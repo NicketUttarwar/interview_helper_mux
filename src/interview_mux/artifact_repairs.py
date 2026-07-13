@@ -20,6 +20,17 @@ from interview_mux.segment_timeline import sort_segments_by_start_ms, segment_ti
 VALID_FLAGS = frozenset(
     {"starts_mid_thought", "references_prior_missing", "heavy_crosstalk"}
 )
+def _text_jaccard(a: str, b: str) -> float:
+    """Token-set Jaccard similarity for near-duplicate segment text."""
+    ta = {t for t in a.lower().split() if t}
+    tb = {t for t in b.lower().split() if t}
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
 VALID_SEGMENT_TYPES = frozenset(
     {
         "interviewee_answer",

@@ -1,6 +1,6 @@
 # sound-design-plan-flow1 examples (reference)
 
-Flow 1 SDP patch: `assets[]` + `flow_plans.flow1.cues[]` aligned to `full_master_ranking` and palettes.
+Flow 1 SDP patch: `assets[]` + `flow_plans.podcast.cues[]` aligned to `full_master_ranking` and palettes.
 
 Pair with: `sound_design/plan-flow1.system.txt` · [post-generation-placement.md](../../../cross-cutting/post-generation-placement.md)
 
@@ -27,7 +27,7 @@ Pair with: `sound_design/plan-flow1.system.txt` · [post-generation-placement.md
       }
     ],
     "flow_plans": {
-      "flow1": {
+      "podcast": {
         "cues": [
           {
             "cue_id": "bed_seg_018",
@@ -119,7 +119,7 @@ Passed to SAP / mix engine via `source_acoustic_profile` merge.
 
 ## Bad — cue anchor not in selection
 
-- `segment_id: "seg_099"` in cue but absent from `flow_1_master/selection.json` `ordered_segment_ids`.
+- `segment_id: "seg_099"` in cue but absent from `master/selection.json` `ordered_segment_ids`.
 
 **Why:** Lint `cue anchor not in selection`.
 

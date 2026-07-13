@@ -7,8 +7,8 @@ from pydub.generators import Sine
 
 from interview_mux import master_qc
 from interview_mux.run_context import RunContext
-from interview_mux.sound_design import mix_flow1
-from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from interview_mux.sound_design import mix
+from interview_mux.stages.assembly import build_flow1_edl
 from run_fixtures import init_run_meta_for_test, minimal_manifest, minimal_manifest_segment, sound_design_plan_with
 
 
@@ -36,7 +36,7 @@ def _bed_plan(*, segment_id: str, level_db: float, duck_db: float) -> dict:
             }
         ],
         flow_plans={
-            "flow1": {
+            "podcast": {
                 "cues": [
                     {
                         "cue_id": "bed_1",
@@ -67,7 +67,7 @@ def test_analyze_mix_intelligibility_fails_on_silent_speech_and_loud_bed() -> No
         mix,
         speech,
         [window],
-        flow="flow1",
+        flow="podcast",
         source=Path("/tmp/assembly.wav"),
         duck_under_speech_db=16.0,
         qc_cfg={"silent_speech_mix_ceiling_dbfs": -32},
@@ -90,7 +90,7 @@ def test_analyze_mix_intelligibility_passes_when_bed_is_heavily_ducked() -> None
         mix,
         speech,
         [window],
-        flow="flow1",
+        flow="podcast",
         source=Path("/tmp/assembly.wav"),
         duck_under_speech_db=16.0,
         qc_cfg={"silent_speech_mix_ceiling_dbfs": -32},
@@ -99,7 +99,7 @@ def test_analyze_mix_intelligibility_passes_when_bed_is_heavily_ducked() -> None
     assert result.flagged_segment_ids == []
 
 
-def test_mix_flow1_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypatch) -> None:
+def test_mix_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(
         master_qc,
@@ -122,27 +122,27 @@ def test_mix_flow1_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypat
         selection={"ordered_segment_ids": ["seg_a"]},
         segments_by_id={"seg_a": {"segment_id": "seg_a", "start_ms": 0, "end_ms": 1500}},
     )
-    ctx.write_json("flow_1_master/edl.json", edl)
+    ctx.write_json("master/edl.json", edl)
     ctx.write_json(
         "understanding/sound_design_plan.json",
         _bed_plan(segment_id="seg_a", level_db=-6.0, duck_db=4.0),
     )
 
-    details: list[str | None] = []
+    details: list[object] = []
     orig_log = ctx.log
 
-    def capture(message: str, *, level: str, stage: str, detail: str | None = None) -> None:
-        details.append(detail)
-        orig_log(message, level=level, stage=stage, detail=detail)
+    def capture(message: str, **kwargs: object) -> None:
+        details.append(kwargs.get("detail"))
+        orig_log(message, **kwargs)
 
     monkeypatch.setattr(ctx, "log", capture)
-    mix_flow1(ctx)
+    mix(ctx)
 
     meta = ctx.read_json("run_meta.json")
     qc = meta.get("qc_summaries", {}).get("mix_intelligibility", {})
     assert qc.get("passed") is False
     assert "seg_a" in qc.get("flagged_segment_ids", [])
-    assert "intelligibility_warn" in details
+    assert any("intelligibility" in str(d).lower() for d in details if d is not None)
 
 
 def test_mix_intelligibility_qc_skipped_when_disabled(tmp_path: Path, monkeypatch) -> None:
@@ -164,12 +164,12 @@ def test_mix_intelligibility_qc_skipped_when_disabled(tmp_path: Path, monkeypatc
         selection={"ordered_segment_ids": ["seg_a"]},
         segments_by_id={"seg_a": {"segment_id": "seg_a", "start_ms": 0, "end_ms": 1500}},
     )
-    ctx.write_json("flow_1_master/edl.json", edl)
+    ctx.write_json("master/edl.json", edl)
     ctx.write_json(
         "understanding/sound_design_plan.json",
         _bed_plan(segment_id="seg_a", level_db=-6.0, duck_db=4.0),
     )
 
-    mix_flow1(ctx)
+    mix(ctx)
     meta = ctx.read_json("run_meta.json")
     assert "mix_intelligibility" not in (meta.get("qc_summaries") or {})

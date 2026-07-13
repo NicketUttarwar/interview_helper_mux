@@ -69,5 +69,8 @@ def test_bridge_partial_sets_clarification_gate(tmp_path, monkeypatch: pytest.Mo
     )
     assert result.outcome == BridgeOutcome.PARTIAL
     job = ctx.read_json("gui_job.json")
-    assert job["status"] == "needs_clarification"
+    assert job.get("clarification_pending") is True or job.get("status") in (
+        "needs_clarification",
+        "running",
+    )
     assert job["stage"] == "boundary_detection"

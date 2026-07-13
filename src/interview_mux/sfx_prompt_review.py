@@ -41,7 +41,7 @@ def _collect_sdp_asset_ids(sdp: dict[str, Any]) -> set[str]:
     for asset in sdp.get("assets") or []:
         if isinstance(asset, dict) and asset.get("asset_id"):
             ids.add(str(asset["asset_id"]))
-    for flow_key in ("flow1", "flow2"):
+    for flow_key in ("podcast", "flow2"):
         plan = (sdp.get("flow_plans") or {}).get(flow_key) or {}
         for cue in plan.get("cues") or []:
             if isinstance(cue, dict) and cue.get("asset_id"):
@@ -103,3 +103,53 @@ def require_sfx_generation(ctx: RunContext) -> None:
     ok, message = can_run_sfx_generation(ctx)
     if not ok:
         raise RuntimeError(message)
+
+
+def set_prompt_review_approved(
+    ctx: RunContext,
+    *,
+    approved: bool,
+    approved_by: str = "operator",
+) -> None:
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+
+    def patch(meta: dict[str, Any]) -> None:
+        meta["sfx_prompt_review"] = {
+            "approved": bool(approved),
+            "approved_at": now if approved else None,
+            "approved_by": approved_by if approved else None,
+        }
+
+    ctx.mutate_run_meta(patch)
+
+
+def maybe_auto_approve_prompt_review(ctx: RunContext) -> bool:
+    """Auto-approve G1.5 when prompt completeness QA is green (first_try)."""
+    from interview_mux.first_try import first_try_mode_enabled
+
+    if not first_try_mode_enabled():
+        return False
+    if not g15_required():
+        return False
+    if not ctx.artifact_exists(PROMPTS_PATH):
+        return False
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    review = meta.get("sfx_prompt_review")
+    if isinstance(review, dict) and review.get("approved"):
+        return False
+    data = ctx.read_json(PROMPTS_PATH)
+    prompts = data.get("prompts") if isinstance(data, dict) else None
+    if not isinstance(prompts, list):
+        prompts = data if isinstance(data, list) else []
+    warnings = prompt_completeness_warnings(ctx, prompts)
+    if warnings:
+        return False
+    set_prompt_review_approved(ctx, approved=True, approved_by="auto_qa_green")
+    ctx.log(
+        "G1.5 auto-approved (first_try): prompt completeness QA green.",
+        level="success",
+        stage="sfx_prompt_craft",
+        action_id="gui.sfx_prompts.approve_auto",
+        detail={"event": "g15_auto_approve", "approved_by": "auto_qa_green"},
+    )
+    return True

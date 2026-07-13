@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveryBrief",
+  "type": "object",
+  "required": [
+    "version",
+    "source_duration_ms",
+    "target_duration_sec",
+    "question_budget",
+    "chapter_budget",
+    "selection_mode",
+    "sfx_density",
+    "ranking_weights",
+    "rationale",
+    "operator_overrides",
+    "generated"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "source_duration_ms": { "type": "integer", "minimum": 0 },
+    "target_duration_sec": {
+      "type": "object",
+      "required": ["min", "ideal", "max"],
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "ideal": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "question_budget": {
+      "type": "object",
+      "required": ["min", "ideal", "max"],
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "ideal": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "chapter_budget": {
+      "type": "object",
+      "required": ["min", "ideal", "max"],
+      "properties": {
+        "min": { "type": "integer", "minimum": 1 },
+        "ideal": { "type": "integer", "minimum": 1 },
+        "max": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "selection_mode": {
+      "type": "string",
+      "enum": ["coverage_first", "runtime_pack", "hook_montage"]
+    },
+    "sfx_density": {
+      "type": "object",
+      "properties": {
+        "max_punctuators": { "type": "integer", "minimum": 0 },
+        "max_beds": { "type": "integer", "minimum": 0 },
+        "max_foley": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "ranking_weights": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "rationale": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "operator_overrides": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "generated": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

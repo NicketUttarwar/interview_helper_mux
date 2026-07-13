@@ -131,7 +131,7 @@ When verdict is `decompose` and stage is `decompose_eligible` in the matrix:
 
 If `decompose` is requested for a non-eligible stage, fall back to `enqueue_investigation` with kind matching existing orchestration (e.g. `theme_unmapped`, `gap_unresolved`).
 
-**Eligible stages (shipped):** `content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, and `highlight_selection`. `content_context` may also shard **proactively** when transcript length exceeds `proactive_decompose_chars`. See [long-interview-chunking.md](../workflows/long-interview-chunking.md) and [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
+**Eligible stages (shipped):** `content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, and `REMOVED_highlight_selection`. `content_context` may also shard **proactively** when transcript length exceeds `proactive_decompose_chars`. See [long-interview-chunking.md](../workflows/long-interview-chunking.md) and [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
 ### Investigations vs shard_plan
 

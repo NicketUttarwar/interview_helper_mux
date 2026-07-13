@@ -146,7 +146,7 @@ Fixture: `tests/fixtures/value_analysis/spike_flow2_highlights.json`
 | Rank | Candidate | Score | Outcome | Mechanism | Moonshot | Section fit |
 |------|-----------|-------|---------|-------------|----------|-------------|
 | 1 | Paralinguistic peaks × quotability fusion (H-F2-02) | 3.971 | 4.111 | 3.75 | 3.667 | 4.0 |
-| 2 | LLM highlight_selection schema (current path) | 3.929 | 3.889 | 4.25 | 3.333 | 4.0 |
+| 2 | LLM REMOVED_highlight_selection schema (current path) | 3.929 | 3.889 | 4.25 | 3.333 | 4.0 |
 | 3 | No external tool; prompt-only editorial pattern | 3.4 | 3.222 | 4.0 | 2.667 | 4.0 |
 
 Stable across profiles. **Promote** H-F2-02 paralinguistic × quotability fusion. **Park** LLM-only highlight schema. **Kill** prompt-only picks (flat hook strength).

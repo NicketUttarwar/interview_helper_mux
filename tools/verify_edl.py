@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate flow_1_master/edl.json for an execution (BUILD-067 boundary check)."""
+"""Validate master/edl.json for an execution (BUILD-067 boundary check)."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from interview_mux.config import merged_config, repo_root  # noqa: E402
-from interview_mux.prompt_validation import validate_edl_flow1  # noqa: E402
+from interview_mux.prompt_validation import validate_edl  # noqa: E402
 
 
 def _resolve_run_dir(run_id: str) -> Path:
@@ -26,12 +26,12 @@ def _resolve_run_dir(run_id: str) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate flow_1_master/edl.json for a run.")
+    parser = argparse.ArgumentParser(description="Validate master/edl.json for a run.")
     parser.add_argument("--run-id", required=True, help="Execution id (e.g. exec_001_20260523T120000Z)")
     args = parser.parse_args()
 
     run_dir = _resolve_run_dir(args.run_id)
-    edl_path = run_dir / "flow_1_master" / "edl.json"
+    edl_path = run_dir / "master" / "edl.json"
     if not edl_path.is_file():
         print(f"Not found: {edl_path}")
         sys.exit(1)
@@ -48,7 +48,7 @@ def main() -> None:
         print("  expected a JSON object at root")
         sys.exit(1)
 
-    errors = validate_edl_flow1(edl)
+    errors = validate_edl(edl)
     if errors:
         print(f"FAIL: {edl_path}")
         for err in errors:

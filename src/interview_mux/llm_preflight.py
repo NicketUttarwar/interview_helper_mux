@@ -18,15 +18,15 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
         "understanding/content_brief.json",
         "understanding/analysis_state.json",
     ),
-    "narrative_arc_plan": ("flow_1_master/coverage_audit.json",),
-    "full_master_ranking": ("flow_1_master/narrative_plan.json",),
+    "narrative_arc_plan": ("master/coverage_audit.json",),
+    "full_master_ranking": ("master/narrative_plan.json",),
     "highlight_selection": (
         "segments/manifest.json",
         "understanding/content_brief.json",
     ),
-    "transitions": ("flow_1_master/selection.json",),
-    "podcast_sfx_brief": ("flow_1_master/selection.json",),
-    "sound_design_plan_flow1": ("understanding/sound_design_plan.json",),
+    "transitions": ("master/selection.json",),
+    "podcast_sfx_brief": ("master/selection.json",),
+    "sound_design_plan": ("understanding/sound_design_plan.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
     "sfx_brief": ("flow_2_highlights/selection.json",),
 }
@@ -198,7 +198,7 @@ def _preflight_optimal_questions(ctx: RunContext) -> list[str]:
     return []
 
 
-def _preflight_pre_flow1(ctx: RunContext) -> list[str]:
+def _preflight_pre_delivery(ctx: RunContext) -> list[str]:
     from interview_mux.llm_output_resilience import upstream_artifact_acceptable
 
     errors: list[str] = []
@@ -229,13 +229,13 @@ def _preflight_sound_design_palettes(ctx: RunContext) -> list[str]:
     return errors
 
 
-def _preflight_sound_design_plan_flow1(ctx: RunContext) -> list[str]:
+def _preflight_sound_design_plan(ctx: RunContext) -> list[str]:
     errors = _check_upstream_artifacts(
         ctx,
         (
             "understanding/sound_design_plan.json",
-            "flow_1_master/selection.json",
-            "flow_1_master/narrative_plan.json",
+            "master/selection.json",
+            "master/narrative_plan.json",
         ),
     )
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -287,9 +287,9 @@ def _preflight_edl_narrative_audit(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(
         ctx,
         (
-            "flow_1_master/selection.json",
-            "flow_1_master/narrative_plan.json",
-            "flow_1_master/coverage_audit.json",
+            "master/selection.json",
+            "master/narrative_plan.json",
+            "master/coverage_audit.json",
         ),
     )
 
@@ -307,7 +307,7 @@ def _preflight_podcast_show_description(ctx: RunContext) -> list[str]:
                 "segments/manifest.json",
             ),
         )
-    return _check_upstream_artifacts(ctx, ("flow_1_master/selection.json",))
+    return _check_upstream_artifacts(ctx, ("master/selection.json",))
 
 
 def _coherence_report_preflight(ctx: RunContext) -> list[str]:
@@ -326,7 +326,7 @@ def _coherence_report_preflight(ctx: RunContext) -> list[str]:
 
 
 def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
-    errors = _check_upstream_artifacts(ctx, ("flow_1_master/coverage_audit.json",))
+    errors = _check_upstream_artifacts(ctx, ("master/coverage_audit.json",))
     errors.extend(_coherence_report_preflight(ctx))
     return errors
 
@@ -334,7 +334,7 @@ def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
 def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(
         ctx,
-        ("flow_1_master/narrative_plan.json", "flow_1_master/coverage_audit.json"),
+        ("master/narrative_plan.json", "master/coverage_audit.json"),
     )
 
 
@@ -346,11 +346,11 @@ def _preflight_highlight_selection(ctx: RunContext) -> list[str]:
 
 
 def _preflight_transitions(ctx: RunContext) -> list[str]:
-    return _check_upstream_artifacts(ctx, ("flow_1_master/selection.json",))
+    return _check_upstream_artifacts(ctx, ("master/selection.json",))
 
 
 def _preflight_topic_coverage(ctx: RunContext) -> list[str]:
-    errors = _preflight_pre_flow1(ctx)
+    errors = _preflight_pre_delivery(ctx)
     errors.extend(_coherence_report_preflight(ctx))
     return errors
 
@@ -376,7 +376,7 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "full_master_ranking": _preflight_full_master_ranking,
     "highlight_selection": _preflight_highlight_selection,
     "transitions": _preflight_transitions,
-    "sound_design_plan_flow1": _preflight_sound_design_plan_flow1,
+    "sound_design_plan": _preflight_sound_design_plan,
     "sound_design_plan_flow2": _preflight_sound_design_plan_flow2,
     "sfx_prompt_craft": _preflight_sfx_prompt_craft,
     "sfx_prompt_refine": _preflight_sfx_prompt_refine,

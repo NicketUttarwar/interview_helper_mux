@@ -170,12 +170,12 @@ def validate_flow1_edl(
 ) -> list[str]:
     """Return actionable Flow 1 EDL QC errors (empty list = pass)."""
     if edl is None:
-        if not ctx.artifact_exists("flow_1_master/edl.json"):
-            return ["Missing flow_1_master/edl.json"]
-        edl = ctx.read_json("flow_1_master/edl.json")
+        if not ctx.artifact_exists("master/edl.json"):
+            return ["Missing master/edl.json"]
+        edl = ctx.read_json("master/edl.json")
 
     if not isinstance(edl, dict):
-        return ["flow_1_master/edl.json root must be an object"]
+        return ["master/edl.json root must be an object"]
 
     errors: list[str] = []
     clips = edl.get("clips") or []

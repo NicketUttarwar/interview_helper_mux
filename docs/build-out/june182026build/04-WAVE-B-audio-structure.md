@@ -527,7 +527,7 @@ Single fixed pause thresholds over-split reflective speech (fireside) and under-
 - [x] **SEG-G06** Add `segmentation.pause_ladder_ms` override keys only if needed — else document "fixed tiers"
 - [x] **SEG-G07** Run `audit_stage_plans_doc.py`; fix boundary_detection plan drift
 - [x] **SEG-G08** Update operator-stage-checklists boundary_detection row with ladder bullets
-- [x] **SEG-G09** Trace one fixture run to `master_flow1/master.wav` in smoke-test doc
+- [x] **SEG-G09** Trace one fixture run to `master_finalize/master.wav` in smoke-test doc
 - [x] **SEG-G10** PR includes doc-maintenance checkbox
 - [x] **SEG-G11** Clear all §10.G blockers
 - [x] **SEG-G12** Implement `pause_ladder_oversplit_risk` log + gui_log verification
@@ -723,7 +723,7 @@ Every consumer must **fail-open** when spine missing or `retrieval.enabled: fals
 | **SAP prosody** | `acoustic_profile` / SAP build reads spine windows | F0 quartile bands in `prosody_summary` | No | SAP builds without spine F0 | ORC-CV06 |
 | **segment_classification** | volley compact | Window samples | No | Omit key | ORC-CV07 |
 | **missing_framing** | volley compact | Boundary events for gap context | No | Omit key | ORC-CV08 |
-| **highlight_selection** | volley compact | Events + windows | No | Omit key | ORC-CV09 |
+| **REMOVED_highlight_selection** | volley compact | Events + windows | No | Omit key | ORC-CV09 |
 | **full_master_ranking** | volley compact | Events for ranking context | No | Omit key | ORC-CV10 |
 | **value_analysis / ORC-02** | `_spine_orchestration_investigations` | trust_dip events | No | No investigations when extract off | ORC-CV11 |
 | **coherence ORC-03** | coherence analyze hooks | Windows + embeddings | Partial | Duration gate + fail-open per coherence-orc03.md | ORC-CV12 |
@@ -765,7 +765,7 @@ Every consumer must **fail-open** when spine missing or `retrieval.enabled: fals
 - [x] **ORC-CV06** SAP prosody_summary without spine F0 still valid
 - [x] **ORC-CV07** segment_classification volley limits per _STAGE_SPINE_LIMITS
 - [x] **ORC-CV08** missing_framing max 15 events enforced
-- [x] **ORC-CV09** highlight_selection max 12 events enforced
+- [x] **ORC-CV09** REMOVED_highlight_selection max 12 events enforced
 - [x] **ORC-CV10** full_master_ranking compact char limits respected
 - [x] **ORC-CV11** extract investigations empty when value_analysis off
 - [x] **ORC-CV12** coherence duration gate suppresses ORC-03 on short runs
@@ -873,8 +873,8 @@ Every consumer must **fail-open** when spine missing or `retrieval.enabled: fals
 |------|----------|------------------|-----------|
 | Analysis | `segments/boundaries.json` | H-SEG-02 ladder + ORC-01 spine compact | deterministic_lint, flow_hardening |
 | Analysis | `understanding/interview_spine.json` | H-ORC-01 windows + events | validate_interview_spine |
-| Flow 1 | `master_flow1/master.wav` | Indirect via ranking inputs | verify_master, validate_narrative |
-| Flow 2 | `master_flow2/master.wav` | Optional quotability boost (flag off) | Hook listen (Wave D) |
+| Flow 1 | `master_finalize/master.wav` | Indirect via ranking inputs | verify_master, validate_narrative |
+| Flow 2 | `REMOVED_master_flow2/master.wav` | Optional quotability boost (flag off) | Hook listen (Wave D) |
 | Analysis ready | G1/G2 gates | Bad boundaries → gap/VO issues | operator-gates.md |
 
 Partial proxies remain **Partial** until prosody scenario checks + listener study clear **do-not-promote-until** blockers.

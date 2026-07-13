@@ -45,9 +45,9 @@ _ROLE_INFLUENCE: dict[str, float] = {
 def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
     """Generate sound-design WAVs via local MMAudio text-to-audio."""
     if profile == "podcast":
-        brief_path = "flow_1_master/podcast_sfx_brief.json"
-        out_rel = "flow_1_master/sfx"
-        stage = "mmaudio_sfx_flow1"
+        brief_path = "master/podcast_sfx_brief.json"
+        out_rel = "master/sfx"
+        stage = "mmaudio_sfx"
     else:
         brief_path = "flow_2_highlights/sfx_brief.json"
         out_rel = "flow_2_highlights/sfx"
@@ -60,7 +60,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     require_spend_artifacts_complete(ctx, stage)
     require_sfx_generation(ctx)
-    if stage == "mmaudio_sfx_flow1":
+    if stage == "mmaudio_sfx":
         from interview_mux.gates_tbiy import require_g1_5_preview_pickup_clear
 
         require_g1_5_preview_pickup_clear(ctx, stage=stage)
@@ -102,13 +102,32 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                     "skipped_generation": True,
                 }
                 continue
-            meta = _generate_with_retry(
-                ctx=ctx,
-                stage=stage,
-                asset_id=asset_id,
-                params=params,
-                out_file=out_file,
-            )
+            try:
+                meta = _generate_with_retry(
+                    ctx=ctx,
+                    stage=stage,
+                    asset_id=asset_id,
+                    params=params,
+                    out_file=out_file,
+                )
+            except MMAudioUnavailable as exc:
+                from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
+
+                if not (first_try_mode_enabled() and allow_placeholder_mix()):
+                    raise
+                ctx.log(
+                    f"MMAudio soft-fail (first_try) for {asset_id}: {exc}",
+                    level="warning",
+                    stage=stage,
+                    detail={"asset_id": asset_id, "event": "sfx_soft_fail"},
+                )
+                generation_meta[asset_id] = {
+                    "generation_status": "placeholder",
+                    "plan_hash": plan_hash,
+                    "error": str(exc)[:300],
+                    "placeholder": True,
+                }
+                continue
             _trim_wav_to_duration(out_file, params["duration_seconds"])
             meta["generation_status"] = "pass"
             meta["plan_hash"] = plan_hash
@@ -152,9 +171,41 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             if not (assets_dir / f"{item['asset_id']}.wav").is_file()
         ]
         if missing_assets:
-            raise RuntimeError(
-                f"MMAudio SFX incomplete — missing WAV for: {', '.join(sorted(missing_assets))}"
-            )
+            from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
+
+            if first_try_mode_enabled() and allow_placeholder_mix():
+                from pydub import AudioSegment
+
+                for aid in missing_assets:
+                    out_file = assets_dir / f"{aid}.wav"
+                    dur = 1.0
+                    for item in generation_items:
+                        if item["asset_id"] == aid:
+                            try:
+                                dur = float(item.get("duration_seconds") or 1.0)
+                            except (TypeError, ValueError):
+                                dur = 1.0
+                            break
+                    AudioSegment.silent(duration=max(1, int(dur * 1000)), frame_rate=48000).export(
+                        out_file, format="wav"
+                    )
+                    generation_meta[aid] = {
+                        "generation_status": "placeholder",
+                        "plan_hash": "",
+                        "placeholder": True,
+                    }
+                    ctx.log(
+                        f"MMAudio placeholder (first_try) for {aid}.wav",
+                        level="warning",
+                        stage=stage,
+                        detail={"asset_id": aid, "event": "sfx_placeholder"},
+                    )
+                if generation_meta:
+                    _persist_generation_meta(ctx, generation_meta)
+            else:
+                raise RuntimeError(
+                    f"MMAudio SFX incomplete — missing WAV for: {', '.join(sorted(missing_assets))}"
+                )
 
         if generation_items:
             _mirror_assets_to_flow_dir(
@@ -280,7 +331,7 @@ def maybe_auto_refine(ctx: RunContext, stage: str) -> list[str]:
 def _collect_generation_items_for_regen(ctx: RunContext, stage: str) -> list[dict]:
     profile = "podcast" if stage.endswith("flow1") else "montage"
     brief_path = (
-        "flow_1_master/podcast_sfx_brief.json"
+        "master/podcast_sfx_brief.json"
         if profile == "podcast"
         else "flow_2_highlights/sfx_brief.json"
     )
@@ -563,7 +614,7 @@ def _collect_generation_items(
     if not plan:
         return _dedupe_fallback_cues(fallback_cues)
 
-    flow_key = "flow1" if profile == "podcast" else "flow2"
+    flow_key = "podcast" if profile == "podcast" else "flow2"
     flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
     flow = flow_plans.get(flow_key) if isinstance(flow_plans.get(flow_key), dict) else {}
     cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
@@ -673,7 +724,7 @@ def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
             "1",
             str(path.with_suffix(".trim.wav")),
         ],
-        stage="mmaudio_sfx_flow1",
+        stage="mmaudio_sfx",
         label=f"ffmpeg trim {path.name}",
         capture_output=True,
     )

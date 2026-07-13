@@ -28,16 +28,14 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "understanding/sonic_context.json": "sonic_context.schema.json",
     "segments/boundaries.json": "artifacts/boundaries_artifact.schema.json",
     "segments/manifest.json": "artifacts/manifest_artifact.schema.json",
-    "flow_1_master/coverage_audit.json": "artifacts/coverage_audit_artifact.schema.json",
-    "flow_1_master/narrative_plan.json": "artifacts/narrative_plan_artifact.schema.json",
-    "flow_1_master/selection.json": "artifacts/master_selection_artifact.schema.json",
-    "flow_1_master/transitions.json": "artifacts/transitions_artifact.schema.json",
-    "flow_1_master/podcast_sfx_brief.json": "artifacts/podcast_sfx_artifact.schema.json",
-    "flow_1_master/edl_narrative_audit.json": "artifacts/edl_narrative_audit_artifact.schema.json",
-    "flow_1_master/edl.json": "artifacts/edl_flow1.schema.json",
-    "flow_2_highlights/selection.json": "artifacts/highlights_artifact.schema.json",
-    "flow_2_highlights/sfx_brief.json": "artifacts/sfx_montage_artifact.schema.json",
-    "flow_3_description/show_description.json": "artifacts/show_description_artifact.schema.json",
+    "master/coverage_audit.json": "artifacts/coverage_audit_artifact.schema.json",
+    "master/narrative_plan.json": "artifacts/narrative_plan_artifact.schema.json",
+    "master/selection.json": "artifacts/master_selection_artifact.schema.json",
+    "master/transitions.json": "artifacts/transitions_artifact.schema.json",
+    "master/podcast_sfx_brief.json": "artifacts/podcast_sfx_artifact.schema.json",
+    "master/edl_narrative_audit.json": "artifacts/edl_narrative_audit_artifact.schema.json",
+    "master/edl.json": "artifacts/edl.schema.json",
+    "show_notes/show_description.json": "artifacts/show_description_artifact.schema.json",
     "sound_design/sfx_prompts.json": "artifacts/sfx_prompts_artifact.schema.json",
     "sound_design/mmaudio_qa.json": "artifacts/mmaudio_qa.schema.json",
     "sound_design/placement_adjustments.json": "placement_adjustments.schema.json",
@@ -48,11 +46,9 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "transcript/review_queue.json": "transcript_review.schema.json",
 }
 
-
 def _safe_name(rel: str) -> str:
     base = re.sub(r"[^a-zA-Z0-9]+", "_", rel).strip("_")
     return f"{base}Schema"
-
 
 def _type_branches(prop: dict[str, Any]) -> tuple[list[str], bool]:
     t = prop.get("type")
@@ -62,7 +58,6 @@ def _type_branches(prop: dict[str, Any]) -> tuple[list[str], bool]:
     if t:
         return [t], False
     return [], False
-
 
 def _with_constraints(inner: str, prop: dict[str, Any], *, is_array: bool = False) -> str:
     if is_array:
@@ -79,7 +74,6 @@ def _with_constraints(inner: str, prop: dict[str, Any], *, is_array: bool = Fals
         if prop.get("maxLength") is not None:
             inner += f".max({prop['maxLength']})"
     return inner
-
 
 def _emit_type(prop: dict[str, Any], *, name: str = "value") -> str:
     if isinstance(prop.get("enum"), list):
@@ -113,7 +107,6 @@ def _emit_type(prop: dict[str, Any], *, name: str = "value") -> str:
 
     return inner
 
-
 def _emit_object(schema: dict[str, Any], *, name: str) -> str:
     props = schema.get("properties") or {}
     required = set(schema.get("required") or [])
@@ -127,7 +120,6 @@ def _emit_object(schema: dict[str, Any], *, name: str) -> str:
         return "z.record(z.string(), z.unknown())"
     return "z.object({\n" + "\n".join(lines) + "\n})"
 
-
 def schema_to_zod(schema: dict[str, Any], export_name: str) -> str:
     root = _emit_object(schema, name=export_name)
     return (
@@ -135,7 +127,6 @@ def schema_to_zod(schema: dict[str, Any], export_name: str) -> str:
         "import { z } from \"zod\";\n\n"
         f"export const {export_name} = {root};\n"
     )
-
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,7 +180,6 @@ def main() -> None:
 
     (OUT_DIR / "index.ts").write_text("\n".join(index_lines), encoding="utf-8")
     print(f"wrote {OUT_DIR / 'index.ts'}")
-
 
 if __name__ == "__main__":
     main()

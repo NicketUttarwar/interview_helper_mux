@@ -499,7 +499,7 @@ export function TimelineWorkspace() {
             />
           ) : (
             <p className="empty-state">
-              {assembly?.reason || "Assembly timeline not ready — apply edits or run edl_flow1."}
+              {assembly?.reason || "Assembly timeline not ready — apply edits or run edl."}
             </p>
           )}
         </div>

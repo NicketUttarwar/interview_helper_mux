@@ -11,7 +11,7 @@ from run_fixtures import minimal_gap_line, minimal_gap_report
 
 def _write_story_artifacts(ctx: RunContext) -> None:
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {
             "ordered_segment_ids": ["seg_a", "seg_b", "seg_c"],
             "chapters": [
@@ -22,7 +22,7 @@ def _write_story_artifacts(ctx: RunContext) -> None:
         },
     )
     ctx.write_json(
-        "flow_1_master/coverage_audit.json",
+        "master/coverage_audit.json",
         {
             "coverage_score": 1.0,
             "topic_mappings": [
@@ -36,7 +36,7 @@ def _write_story_artifacts(ctx: RunContext) -> None:
         },
     )
     ctx.write_json(
-        "flow_1_master/narrative_plan.json",
+        "master/narrative_plan.json",
         {
             "arc_summary": "Setup before payoff.",
             "chapters": [
@@ -49,7 +49,7 @@ def _write_story_artifacts(ctx: RunContext) -> None:
         },
     )
     ctx.write_json(
-        "flow_1_master/transitions.json",
+        "master/transitions.json",
         {
             "transitions": [
                 {
@@ -73,7 +73,7 @@ def _write_story_artifacts(ctx: RunContext) -> None:
         ),
     )
     ctx.write_json(
-        "flow_1_master/edl_narrative_audit.json",
+        "master/edl_narrative_audit.json",
         {
             "verdict": "pass",
             "blocking_issues": [],
@@ -174,11 +174,11 @@ def test_check_edl_narrative_qc_records_summary(monkeypatch) -> None:
         "interview_mux.gates.merged_config",
         lambda: {"edl_narrative_qc": {"strict": True}},
     )
-    check_edl_narrative_qc(ctx, stage="edl_flow1", edl=_good_edl())
+    check_edl_narrative_qc(ctx, stage="edl", edl=_good_edl())
     summary = qc_summary(ctx.read_json("run_meta.json"), "edl_narrative_qc")
     assert summary is not None
     assert summary["passed"] is True
-    assert summary["at_stage"] == "edl_flow1"
+    assert summary["at_stage"] == "edl"
 
 
 def test_check_edl_narrative_qc_strict_raises(monkeypatch) -> None:
@@ -191,4 +191,4 @@ def test_check_edl_narrative_qc_strict_raises(monkeypatch) -> None:
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("segment_id") != "seg_c"]
     with pytest.raises(SystemExit, match="edl_narrative_qc strict"):
-        check_edl_narrative_qc(ctx, stage="edl_flow1", edl=edl)
+        check_edl_narrative_qc(ctx, stage="edl", edl=edl)

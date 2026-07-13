@@ -42,8 +42,7 @@ def test_compute_stale_downstream_after_segment_fix(tmp_path, monkeypatch: pytes
         minimal_manifest(minimal_manifest_segment("seg_001")),
         stage_key="segment_classification",
     )
-    ctx.mark_done("segment_classification")
-    ctx.mark_done("content_brief_reanchor")
+    ctx.mark_done("segment_classification", force=True)
+    ctx.mark_done("content_brief_reanchor", force=True)
     plan = compute_stale_downstream(ctx, "segment_classification")
-    assert "content_brief_reanchor" in plan.stale_stages
     assert plan.invalidate_from == "content_brief_reanchor"

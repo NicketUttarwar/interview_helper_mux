@@ -46,7 +46,7 @@ def measure_assembly_bus(path: Path) -> AssemblyBusMetrics:
 def target_lufs_for_flow(flow: FlowName, *, config: dict | None = None) -> float:
     thresholds = TARGETS[flow]
     cfg = config or {}
-    key = "flow1_target_lufs" if flow == "flow1" else "flow2_target_lufs"
+    key = "flow1_target_lufs" if flow == "podcast" else "flow2_target_lufs"
     return float(cfg.get(key, thresholds.target_lufs))
 
 

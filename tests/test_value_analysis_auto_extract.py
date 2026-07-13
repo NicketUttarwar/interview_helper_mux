@@ -9,7 +9,7 @@ from interview_mux.value_analysis.extract import (
     profiles_for_flags,
 )
 from interview_mux.value_analysis.features_transcript import VALUE_FEATURES_PATH
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, parse_log_detail
 
 
 def _minimal_transcript() -> dict:
@@ -58,8 +58,16 @@ def test_maybe_auto_extract_writes_transcript_profile(tmp_path, monkeypatch):
     entries = read_log(ctx.run_dir)
     extracted = [e for e in entries if e.get("message") == "value_features_extracted"]
     assert len(extracted) == 1
-    detail = json.loads(extracted[0]["detail"])
-    assert detail["profiles"] == ["transcript"]
+    detail = parse_log_detail(extracted[0])
+    inner = detail.get("detail")
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except json.JSONDecodeError:
+            inner = detail
+    elif not isinstance(inner, dict):
+        inner = detail
+    assert inner.get("profiles") == ["transcript"]
 
 
 def test_profiles_for_flags_requires_master(tmp_path):

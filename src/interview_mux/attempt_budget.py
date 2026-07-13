@@ -19,8 +19,14 @@ def _budget_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def max_primary_attempts(cfg: dict[str, Any] | None = None, *, ctx: RunContext | None = None) -> int:
     from interview_mux.interview_duration_policy import primary_attempt_cap
+    from interview_mux.first_try import first_try_mode_enabled, first_try_triage_overrides
 
-    return primary_attempt_cap(ctx, cfg)
+    base = primary_attempt_cap(ctx, cfg)
+    if first_try_mode_enabled(cfg):
+        overrides = first_try_triage_overrides(cfg)
+        if overrides.get("brief_constrained_extra_attempt", True):
+            return base + 1
+    return base
 
 
 def max_arbiter_rejects(cfg: dict[str, Any] | None = None) -> int:

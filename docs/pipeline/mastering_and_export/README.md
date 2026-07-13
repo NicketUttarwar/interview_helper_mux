@@ -21,14 +21,14 @@ BUILD-036 (Flow 1), BUILD-044 (Flow 2), BUILD-050 (shared module)
 
 | Path | Description |
 |------|-------------|
-| `flow_1_master/master.wav` | Full episode |
-| `flow_2_highlights/master.wav` | Short reel |
+| `master/master.wav` | Full episode |
+| `REMOVED_flow2/master.wav` | Short reel |
 
 Flow 3 has **no mastering step** — text export only. See [publishing/README.md](../publishing/README.md).
 
 ## QA
 
-`python tools/verify_master.py <path> [--flow flow1|flow2]` — integrated LUFS and true peak per [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md) (BUILD-070). Infers flow from path (`flow_1_master` / `flow_2_highlights`) or use `--flow`.
+`python tools/verify_master.py <path> [--flow flow1|flow2]` — integrated LUFS and true peak per [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md) (BUILD-070). Infers flow from path (`master` / `flow_2_highlights`) or use `--flow`.
 
 If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclean/README.md) and re-run from mux/ingest per operator choice — see [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 

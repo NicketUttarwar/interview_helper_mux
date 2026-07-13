@@ -22,7 +22,7 @@ def test_generate_with_retry_hard_fail_logs_and_raises(tmp_path, monkeypatch) ->
     with pytest.raises(sfx_mmaudio.MMAudioUnavailable, match="timeout"):
         sfx_mmaudio._generate_with_retry(
             ctx=ctx,
-            stage="mmaudio_sfx_flow1",
+            stage="mmaudio_sfx",
             asset_id="bed_a",
             params={"prompt": "x", "negative_prompt": "", "duration_seconds": 2.0},
             out_file=out,

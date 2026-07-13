@@ -6,7 +6,7 @@ Select a **small set of moments** that hook strangers fast, carry the thesis, an
 
 ## 2. Signals used today (context only)
 
-LLM `highlight_selection` with salience/clarity/emotion/quotability schema per [highlight-selection.system.txt](../../../prompts/selection/highlight-selection.system.txt) and artifact schemas under `docs/cross-cutting/json-schemas/`.
+LLM `REMOVED_highlight_selection` with salience/clarity/emotion/quotability schema per [highlight-selection.system.txt](../../../prompts/selection/highlight-selection.system.txt) and artifact schemas under `docs/cross-cutting/json-schemas/`.
 
 ## 3. Value hypotheses
 

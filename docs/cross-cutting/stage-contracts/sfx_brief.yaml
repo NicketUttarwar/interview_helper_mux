@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_2_highlights/sfx_brief.json
+- path: REMOVED_flow2/sfx_brief.json
   schema: sfx_montage_artifact.schema.json
   staging: true
 inputs:

@@ -87,29 +87,29 @@ def _update_segment_timing(
         segment_timing[seg_id] = (t0, t1)
 
 
-def mix_flow1(ctx: RunContext) -> Path:
+def mix(ctx: RunContext) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
     from interview_mux.placement_qa import maybe_run_placement_qa
 
-    with logged_step("mix_flow1/placement_qa", ctx=ctx, stage="mix_flow1"):
+    with logged_step("mix/placement_qa", ctx=ctx, stage="mix"):
         maybe_run_placement_qa(ctx)
         contract = mix_contract(ctx)
         profile = load_profile(ctx)
         pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
         ctx.log(
             (
-                f"mix_flow1: mix_contract pace={pace.get('pace_class', 'unknown')} "
+                f"mix: mix_contract pace={pace.get('pace_class', 'unknown')} "
                 f"underscore={contract.get('underscore_policy')} duck={contract.get('duck_under_speech_db')}db"
             ),
             level="info",
-            stage="mix_flow1",
+            stage="mix",
         )
         crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
         disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
         speech_join_crossfades = _flow1_speech_join_crossfades(ctx)
         words = _transcript_words(ctx)
-        ctx.log("mix_flow1: loading EDL and ingest stem", level="info", stage="mix_flow1")
-        edl = ctx.read_json("flow_1_master/edl.json")
+        ctx.log("mix: loading EDL and ingest stem", level="info", stage="mix")
+        edl = ctx.read_json("master/edl.json")
         excluded_windows = _disfluency_excluded_windows(edl)
         source = load_audio(ctx.read_path("ingest", "normalized.wav"))
 
@@ -121,7 +121,7 @@ def mix_flow1(ctx: RunContext) -> Path:
     missing_vo: list[str] = []
     prev_speech_seg_id = ""
 
-    with logged_step("mix_flow1/build_base_timeline", ctx=ctx, stage="mix_flow1"):
+    with logged_step("mix/build_base_timeline", ctx=ctx, stage="mix"):
         for clip in edl.get("clips") or []:
             ctype = str(clip.get("type") or "")
             if ctype == "speech":
@@ -181,22 +181,22 @@ def mix_flow1(ctx: RunContext) -> Path:
 
         if missing_vo:
             ctx.log(
-                f"mix_flow1: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
+                f"mix: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
                 level="warning",
-                stage="mix_flow1",
+                stage="mix",
             )
 
         ctx.log(
             (
-                f"mix_flow1: base timeline {len(base)} ms — "
+                f"mix: base timeline {len(base)} ms — "
                 f"speech={speech_count}, vo={vo_count}, disfluency={disfluency_count}, "
                 f"segments={len(segment_timing)}, crossfade_ms={crossfade_ms}"
             ),
             level="info",
-            stage="mix_flow1",
+            stage="mix",
         )
 
-    with logged_step("mix_flow1/apply_overlays", ctx=ctx, stage="mix_flow1"):
+    with logged_step("mix/apply_overlays", ctx=ctx, stage="mix"):
         overlays, overlay_stats = build_flow1_overlays(
             ctx,
             segment_timing=segment_timing,
@@ -218,49 +218,49 @@ def mix_flow1(ctx: RunContext) -> Path:
 
         if skipped_on_disfluency:
             ctx.log(
-                f"mix_flow1: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
+                f"mix: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
                 level="info",
-                stage="mix_flow1",
+                stage="mix",
             )
 
         ctx.log(
             (
-                f"mix_flow1: applied overlays beds={overlay_stats['beds']}, "
+                f"mix: applied overlays beds={overlay_stats['beds']}, "
                 f"stingers={overlay_stats['stingers']}, bridges={overlay_stats['bridges']}, "
                 f"missing_assets={overlay_stats['missing_assets']}"
             ),
             level="info",
-            stage="mix_flow1",
+            stage="mix",
         )
 
-    assembly = ctx.path("flow_1_master", "assembly.wav")
-    with logged_step("mix_flow1/export_assembly", ctx=ctx, stage="mix_flow1"):
+    assembly = ctx.path("master", "assembly.wav")
+    with logged_step("mix/export_assembly", ctx=ctx, stage="mix"):
         mix.export(str(assembly), format="wav")
         ctx.log(
-            f"mix_flow1: assembly.wav ready ({len(mix)} ms, VO + beds + stingers)",
+            f"mix: assembly.wav ready ({len(mix)} ms, VO + beds + stingers)",
             level="success",
-            stage="mix_flow1",
+            stage="mix",
             detail=str(assembly),
         )
 
-    with logged_step("mix_flow1/post_mix_qc", ctx=ctx, stage="mix_flow1"):
+    with logged_step("mix/post_mix_qc", ctx=ctx, stage="mix"):
         maybe_check_mix_intelligibility(
             ctx,
             assembly_path=assembly,
-            flow="flow1",
-            stage="mix_flow1",
+            flow="podcast",
+            stage="mix",
             speech_stem=base,
             segment_timing=segment_timing,
             contract=contract,
         )
         enforce_mix_completeness(
             ctx,
-            flow="flow1",
-            stage="mix_flow1",
+            flow="podcast",
+            stage="mix",
             missing_vo=missing_vo,
             missing_sfx=list(overlay_stats.get("missing_assets") or []),
         )
-    ctx.mark_done("mix_flow1")
+    ctx.mark_done("mix")
     return assembly
 
 
@@ -415,14 +415,21 @@ def build_flow1_overlays(
     return legacy, stats
 
 
+def _flow_plan_cues(plan: dict[str, Any]) -> list[Any]:
+    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    if not flow and isinstance(flow_plans.get("flow1"), dict):
+        flow = flow_plans["flow1"]
+    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    return cues
+
+
 def _flow1_speech_join_crossfades(ctx: RunContext) -> dict[tuple[str, str], int]:
     """Per-segment speech join crossfade overrides from SDP transition/stinger cues."""
     plan = load_sound_design_plan(ctx)
     if not plan:
         return {}
-    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
-    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    cues = _flow_plan_cues(plan)
     from interview_mux.placement_qa import apply_placement_adjustments
 
     cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
@@ -454,7 +461,7 @@ def flow1_overlays_from_sdp(
     contract = contract or mix_contract(ctx)
     excluded = excluded_windows or []
     if contract.get("underscore_policy") == "skip":
-        ctx.log("mix_flow1: underscore_skipped — no bed overlays", level="info", stage="mix_flow1")
+        ctx.log("mix: underscore_skipped — no bed overlays", level="info", stage="mix")
         return []
     profile = load_profile(ctx)
     transcript = _load_transcript(ctx)
@@ -462,9 +469,7 @@ def flow1_overlays_from_sdp(
     plan = load_sound_design_plan(ctx)
     if not plan:
         return []
-    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
-    cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
+    cues = _flow_plan_cues(plan)
     from interview_mux.placement_qa import apply_placement_adjustments
 
     cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
@@ -501,9 +506,9 @@ def flow1_overlays_from_sdp(
         if wav is None:
             base = placeholder_audio(asset, cue=cue)
             ctx.log(
-                f"mix_flow1: missing asset {asset_id!r} — placeholder silence",
+                f"mix: missing asset {asset_id!r} — placeholder silence",
                 level="warning",
-                stage="mix_flow1",
+                stage="mix",
             )
         else:
             base = load_audio(wav)
@@ -534,9 +539,9 @@ def flow1_overlays_from_sdp(
         if _cue_uses_pause_alignment(cue, asset):
             if stinger_count >= max_stingers:
                 ctx.log(
-                    f"mix_flow1: stinger cap reached ({max_stingers}/timeline) — dropped {asset_id}",
+                    f"mix: stinger cap reached ({max_stingers}/timeline) — dropped {asset_id}",
                     level="warning",
-                    stage="mix_flow1",
+                    stage="mix",
                 )
                 continue
             stinger_count += 1
@@ -576,7 +581,7 @@ def flow1_overlays_from_sdp(
 def flow1_overlays_legacy(
     ctx: RunContext, *, segment_timing: dict[str, tuple[int, int]], timeline_ms: int
 ) -> list[dict[str, Any]]:
-    sfx_dir = ctx.final_path("flow_1_master", "sfx")
+    sfx_dir = ctx.final_path("master", "sfx")
     sfx_files = sorted(sfx_dir.glob("*.wav")) if sfx_dir.is_dir() else []
     if not sfx_files:
         return []
@@ -606,9 +611,9 @@ def flow1_overlays_legacy(
                 if mapped is not None:
                     aligned = mapped
                     ctx.log(
-                        f"mix_flow1: stinger_aligned pause_tail segment={seg_id} pos={aligned}",
+                        f"mix: stinger_aligned pause_tail segment={seg_id} pos={aligned}",
                         level="info",
-                        stage="mix_flow1",
+                        stage="mix",
                     )
         sting = load_audio(path).apply_gain(-16.0).fade_in(40).fade_out(180)
         out.append({"audio": sting, "position_ms": aligned, "role": "stinger"})
@@ -879,9 +884,9 @@ def _align_stinger_to_pause_tail(
     if mapped is None:
         return pos
     ctx.log(
-        f"mix_flow1: stinger_aligned pause_tail segment={seg_id} pos={mapped}",
+        f"mix: stinger_aligned pause_tail segment={seg_id} pos={mapped}",
         level="info",
-        stage="mix_flow1",
+        stage="mix",
     )
     return mapped
 
@@ -991,7 +996,7 @@ def resolve_asset_path(ctx: RunContext, *, asset_id: str, generated: object) -> 
                 return candidate
     for path in (
         ctx.read_path("sound_design", "assets", f"{asset_id}.wav"),
-        ctx.read_path("flow_1_master", "sfx", f"{asset_id}.wav"),
+        ctx.read_path("master", "sfx", f"{asset_id}.wav"),
         ctx.read_path("flow_2_highlights", "sfx", f"{asset_id}.wav"),
     ):
         if path.is_file():

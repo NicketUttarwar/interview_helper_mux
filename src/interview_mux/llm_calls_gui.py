@@ -13,7 +13,7 @@ from interview_mux.llm_call_record import (
     list_calls_for_run,
     messages_to_openai_format,
 )
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 
 LLM_CALLS_PREFIX = "understanding/llm_calls/"
@@ -21,7 +21,7 @@ LLM_CALLS_PREFIX = "understanding/llm_calls/"
 
 def _stage_sort_key(stage_key: str) -> tuple[int, str]:
     order: list[str] = []
-    for seq in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
+    for seq in (ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, FLOW3_ORDER):
         for s in seq:
             if s not in order:
                 order.append(s)

@@ -13,7 +13,6 @@ from interview_mux.stages.llm_runner import run_prompt_envelope
 
 __all__ = ["DECOMPOSE_ELIGIBLE", "run_shards_then_collate"]
 
-
 def run_shards_then_collate(
     ctx: RunContext,
     *,
@@ -183,7 +182,6 @@ def run_shards_then_collate(
     )
     return collate_env, len(shard_outputs)
 
-
 def _apply_deterministic_segment_collate(
     collate_env: dict[str, Any],
     shard_outputs: list[dict[str, Any]],
@@ -208,7 +206,6 @@ def _apply_deterministic_segment_collate(
     if merged.get("status") != "complete" and len(by_id) >= 1:
         merged["status"] = "complete"
     return merged
-
 
 def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[str, Any]) -> dict[str, Any]:
     copied = dict(stage_input)
@@ -287,7 +284,6 @@ def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[
                 "required_segment_ids": sorted(segment_ids),
                 "required_count": len(segment_ids),
             }
-    if stage_key in ("missing_framing", "topic_coverage_audit", "highlight_selection", "full_master_ranking"):
         segs = copied.get("segments")
         if isinstance(segs, dict):
             all_segments = segs.get("segments") or []

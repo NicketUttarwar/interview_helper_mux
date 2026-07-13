@@ -14,7 +14,6 @@ OPERATOR_DIR = "operator"
 MANIFEST_REL = f"{OPERATOR_DIR}/manifest.json"
 ACTION_TRACE_REL = f"{OPERATOR_DIR}/action_trace.jsonl"
 
-
 def record_action_trace_manifest(run_dir: Path) -> None:
     """Record action_trace.jsonl in operator manifest when first written."""
     from interview_mux.operator_action_trace import ACTION_TRACE_REL
@@ -43,7 +42,6 @@ def record_action_trace_manifest(run_dir: Path) -> None:
     manifest["updated_at"] = _now_iso()
     write_json(run_dir / MANIFEST_REL, manifest)
 
-
 def _load_manifest_direct(run_dir: Path) -> dict[str, Any]:
     rel = MANIFEST_REL
     path = run_dir / rel
@@ -62,7 +60,6 @@ SNAPSHOT_PATHS: dict[str, str] = {
     "analysis_profile": f"{OPERATOR_DIR}/analysis_profile.json",
     "nle_edits": f"{OPERATOR_DIR}/nle_edits.json",
     "acoustic_profile_overrides": f"{OPERATOR_DIR}/acoustic_profile_overrides.json",
-    "flow_selection": f"{OPERATOR_DIR}/flow_selection.json",
     "preclean_decisions": f"{OPERATOR_DIR}/preclean_decisions.json",
     "stage_reuse_decisions": f"{OPERATOR_DIR}/stage_reuse_decisions.json",
     "sfx_prompts": f"{OPERATOR_DIR}/sfx_prompts.json",
@@ -72,10 +69,8 @@ SNAPSHOT_PATHS: dict[str, str] = {
     "investigation_queue": f"{OPERATOR_DIR}/investigation_queue.json",
 }
 
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 def _load_manifest(ctx: RunContext) -> dict[str, Any]:
     rel = MANIFEST_REL
@@ -84,7 +79,6 @@ def _load_manifest(ctx: RunContext) -> dict[str, Any]:
         if isinstance(data, dict):
             return data
     return {"version": 1, "run_id": ctx.run_id, "snapshots": {}}
-
 
 def _write_manifest_entry(
     ctx: RunContext,
@@ -107,7 +101,6 @@ def _write_manifest_entry(
     manifest["updated_at"] = _now_iso()
     ctx.write_json(MANIFEST_REL, manifest)
 
-
 def write_operator_snapshot(
     ctx: RunContext,
     key: str,
@@ -123,7 +116,6 @@ def write_operator_snapshot(
     ctx.write_json(rel, data)
     _write_manifest_entry(ctx, key, path=rel, source=source, detail=detail)
     return rel
-
 
 def write_operator_text_snapshot(
     ctx: RunContext,
@@ -142,7 +134,6 @@ def write_operator_text_snapshot(
     fs_write_text(dest, text)
     _write_manifest_entry(ctx, key, path=rel, source=source)
     return rel
-
 
 def mirror_artifact_to_operator(
     ctx: RunContext,
@@ -163,7 +154,6 @@ def mirror_artifact_to_operator(
         detail={"artifact_path": artifact_rel},
     )
     return rel
-
 
 def persist_operator_transcript(
     ctx: RunContext,
@@ -203,7 +193,6 @@ def persist_operator_transcript(
             source=source,
         )
 
-
 def persist_operator_analysis_profile(ctx: RunContext, *, source: str) -> None:
     if not ctx.artifact_exists("understanding/analysis_state.json"):
         return
@@ -222,7 +211,6 @@ def persist_operator_analysis_profile(ctx: RunContext, *, source: str) -> None:
         source=source,
     )
 
-
 def persist_operator_nle(ctx: RunContext, *, source: str) -> None:
     from interview_mux.nle_state import NLE_REL, load_nle
 
@@ -240,7 +228,6 @@ def persist_operator_nle(ctx: RunContext, *, source: str) -> None:
         source=source,
     )
 
-
 def persist_operator_acoustic_overrides(ctx: RunContext, overrides: dict[str, Any], *, source: str) -> None:
     write_operator_snapshot(
         ctx,
@@ -254,22 +241,6 @@ def persist_operator_acoustic_overrides(ctx: RunContext, overrides: dict[str, An
         },
         source=source,
     )
-
-
-def persist_operator_flow_selection(ctx: RunContext, flow: str, *, source: str) -> None:
-    write_operator_snapshot(
-        ctx,
-        "flow_selection",
-        {
-            "version": 1,
-            "run_id": ctx.run_id,
-            "saved_at": _now_iso(),
-            "source": source,
-            "selected_flow": flow,
-        },
-        source=source,
-    )
-
 
 def persist_operator_preclean(ctx: RunContext, *, source: str) -> None:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -286,7 +257,6 @@ def persist_operator_preclean(ctx: RunContext, *, source: str) -> None:
         },
         source=source,
     )
-
 
 def append_operator_stage_reuse(
     ctx: RunContext,
@@ -311,7 +281,6 @@ def append_operator_stage_reuse(
     )
     write_operator_snapshot(ctx, "stage_reuse_decisions", doc, source=source)
 
-
 def persist_operator_sfx_prompts(ctx: RunContext, payload: dict[str, Any], *, source: str) -> None:
     write_operator_snapshot(
         ctx,
@@ -325,7 +294,6 @@ def persist_operator_sfx_prompts(ctx: RunContext, payload: dict[str, Any], *, so
         },
         source=source,
     )
-
 
 def persist_operator_sfx_listen_results(ctx: RunContext, *, source: str) -> None:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -342,7 +310,6 @@ def persist_operator_sfx_listen_results(ctx: RunContext, *, source: str) -> None
         },
         source=source,
     )
-
 
 def persist_operator_mmaudio_snapshots(ctx: RunContext, *, source: str) -> None:
     if ctx.artifact_exists("sound_design/mmaudio_qa.json"):
@@ -373,7 +340,6 @@ def persist_operator_mmaudio_snapshots(ctx: RunContext, *, source: str) -> None:
             },
             source=source,
         )
-
 
 def persist_operator_investigation_queue(ctx: RunContext, *, source: str) -> None:
     if not ctx.artifact_exists("understanding/investigation_queue.json"):

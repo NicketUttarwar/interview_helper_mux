@@ -17,7 +17,7 @@ from interview_mux.artifact_dependency_graph import _PROPAGATION_SEEDS  # noqa: 
 from interview_mux.context_resolver import ARTIFACTS_REGISTRY  # noqa: E402
 from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE  # noqa: E402
 from interview_mux.null_field_policy import CRITICAL_FIELDS, NULLABLE_FIELDS  # noqa: E402
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER  # noqa: E402
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER  # noqa: E402
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS, STAGE_ARTIFACT_DISK_PATHS  # noqa: E402
 
 OUT = ROOT / "docs" / "cross-cutting" / "stage-contracts"
@@ -53,22 +53,18 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "narrative_arc_plan": [{"path": "chapters", "rule": "min_rows", "min_count": 1}],
     "full_master_ranking": [{"path": "ranked_segments", "rule": "min_rows", "min_count": 1}],
     "edl_narrative_audit": [{"path": "findings", "rule": "min_rows", "min_count": 1}],
-    "highlight_selection": [{"path": "highlights", "rule": "min_rows", "min_count": 1}],
     "transitions": [{"path": "transitions", "rule": "min_rows", "min_count": 1}],
     "podcast_sfx_brief": [{"path": "brief", "rule": "non_empty_string", "min_length": 8}],
-    "sound_design_plan_flow1": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
-    "sound_design_plan_flow2": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
+    "sound_design_plan": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_brief": [{"path": "montage", "rule": "non_empty_string", "min_length": 8}],
-    "podcast_show_description": [{"path": "description", "rule": "non_empty_string", "min_length": 50}],
 }
 
 _GATES = {
     "transcript_review": {"tier": "gate", "gate_id": "G0"},
     "disfluency_review": {"tier": "gate", "gate_id": "G0.5"},
     "g1_vo_pickup": {"tier": "gate", "gate_id": "G1"},
-    "g2_flow_select": {"tier": "gate", "gate_id": "G2"},
 }
 
 _PROCESS_STAGES = [
@@ -79,16 +75,10 @@ _PROCESS_STAGES = [
     "disfluency_extract",
     "vo_ingest",
     "assembly_preview",
-    "edl_flow1",
-    "mmaudio_sfx_flow1",
-    "mmaudio_sfx_flow2",
-    "mix_flow1",
-    "mix_flow2",
-    "master_flow1",
-    "master_flow2",
-    "mux_flow1",
-    "mux_flow2",
-    "export_show_description",
+    "edl",
+    "mmaudio_sfx",
+    "mix",
+    "master_finalize",
     "sound_design_plan_init",
     "_arbiter",
 ]
@@ -100,22 +90,17 @@ _DETERMINISTIC = [
     "sound_design_vo_finalize",
 ]
 
-
 def _all_stage_ids() -> list[str]:
     seen: list[str] = []
     for batch in (
         ANALYSIS_ORDER,
-        ["transcript_review", "disfluency_review", "g1_vo_pickup", "g2_flow_select"],
-        FLOW1_ORDER,
-        FLOW2_ORDER,
-        FLOW3_ORDER,
-        ["vo_ingest", "sound_design_plan_init", "sfx_prompt_refine", "podcast_sfx_brief", "sfx_brief", "mux_flow1", "mux_flow2", "_arbiter"],
+        DELIVERY_ORDER,
+        ["vo_ingest", "sound_design_plan_init", "sfx_prompt_refine", "_arbiter"],
     ):
         for s in batch:
             if s not in seen:
                 seen.append(s)
     return seen
-
 
 def _contract_for(stage_id: str) -> dict:
     if stage_id in STAGE_ARTIFACT_SCHEMAS or stage_id in ALL_LLM_STAGES:
@@ -178,7 +163,6 @@ def _contract_for(stage_id: str) -> dict:
 
     return doc
 
-
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for sid in _all_stage_ids():
@@ -207,7 +191,6 @@ def main() -> int:
     index.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {index.name} ({len(rows)} stages)")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

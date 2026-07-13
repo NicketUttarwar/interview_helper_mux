@@ -140,7 +140,7 @@ def build_coherence_report(ctx, *, phase: str) -> dict[str, Any]:
             )
         )
 
-    if phase == "post_coverage" and ctx.artifact_exists("flow_1_master/coverage_audit.json"):
+    if phase == "post_coverage" and ctx.artifact_exists("master/coverage_audit.json"):
         risks = _reconcile_coverage(ctx, risks)
 
     summary = _build_summary(risks, phase)
@@ -224,7 +224,7 @@ def _topic_drift_risks(scores: list[dict[str, Any]], cfg: dict[str, Any]) -> lis
 
 
 def _reconcile_coverage(ctx, risks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    audit = ctx.read_json("flow_1_master/coverage_audit.json")
+    audit = ctx.read_json("master/coverage_audit.json")
     covered = set()
     for row in audit.get("topic_coverage") or audit.get("topics") or []:
         if not isinstance(row, dict):

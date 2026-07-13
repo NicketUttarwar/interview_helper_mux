@@ -13,7 +13,7 @@ It gives downstream sound stages one shared source of:
 ## Producer and consumers
 
 - **Producer stage:** `sonic_context_build`
-- **Primary consumers:** `sound_design_palettes`, `sound_design_plan_flow1`, `sound_design_plan_flow2`, `sfx_prompt_craft`, `sfx_prompt_refine`, mix/post-QA guidance
+- **Primary consumers:** `sound_design_palettes`, `sound_design_plan`, `REMOVED_sdp_flow2`, `sfx_prompt_craft`, `sfx_prompt_refine`, mix/post-QA guidance
 - **GUI surface:** `SonicContextPanel` in stage detail context panels
 
 ## Contract

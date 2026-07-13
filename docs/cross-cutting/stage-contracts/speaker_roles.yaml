@@ -28,6 +28,7 @@ propagation:
   - content_context
   - boundary_detection
   - segment_classification
+  - source_topology_build
 consumers:
 - speaker_roles
 remediation:

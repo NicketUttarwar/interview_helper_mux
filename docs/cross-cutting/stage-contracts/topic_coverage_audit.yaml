@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_1_master/coverage_audit.json
+- path: master/coverage_audit.json
   schema: coverage_audit_artifact.schema.json
   staging: true
 inputs:

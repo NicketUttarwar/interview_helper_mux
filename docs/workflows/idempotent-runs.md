@@ -14,7 +14,7 @@ Legacy runs use `data/run_NNN/.stage_done/<stage_name>` instead.
 
 ```bash
 python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --from-stage segmentation
-python tools/run_flow.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --flow flow1 --from-stage full_master_ranking
+python tools/run_delivery.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --flow flow1 --from-stage full_master_ranking
 ```
 
 `--from-stage` deletes that stage's marker and downstream markers, then re-executes.
@@ -46,5 +46,5 @@ When `journey_ui.enable_stage_reuse_offers` is `true`, each automated stage can 
 | Changed prompts only | `--from-stage <llm_stage>` |
 | LLM artifact incomplete (GUI **partial**) | `POST …/fill-artifact-gaps` or `--from-stage <producer>` — pipeline may also auto re-run done stages when `should_run_stage_for_artifact` is true ([artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md)) |
 | New VO files added | `--from-stage vo_ingest` |
-| Switched flow | New `selected_flow` in `run_meta.json`; do not mix `flow_1_master/`, `flow_2_highlights/`, and `flow_3_description/` artifacts in one run without clearing |
+| Switched flow | New `REMOVED_selected_flow` in `run_meta.json`; do not mix `master/`, `REMOVED_flow2/`, and `show_notes/` artifacts in one run without clearing |
 | Relaunch app mid-run | `./scripts/run.sh` → **Previous executions** → same `run_id`; then `--from-stage` or GUI execute as needed |

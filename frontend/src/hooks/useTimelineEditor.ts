@@ -126,7 +126,7 @@ export function useTimelineEditor() {
     void loadWaveform();
     try {
       const sel = await api<{ ordered_segment_ids?: string[] }>(
-        `/api/runs/${runId}/artifact?path=${encodeURIComponent("flow_1_master/selection.json")}`,
+        `/api/runs/${runId}/artifact?path=${encodeURIComponent("master/selection.json")}`,
       );
       setSelectionOrder(sel.ordered_segment_ids || []);
     } catch (reason) {
@@ -137,7 +137,7 @@ export function useTimelineEditor() {
     }
     try {
       const plan = await api<Record<string, unknown>>(
-        `/api/runs/${runId}/artifact?path=${encodeURIComponent("flow_1_master/narrative_plan.json")}`,
+        `/api/runs/${runId}/artifact?path=${encodeURIComponent("master/narrative_plan.json")}`,
       );
       setNarrativePlan(plan);
     } catch (reason) {

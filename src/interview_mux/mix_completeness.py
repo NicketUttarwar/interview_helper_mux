@@ -31,16 +31,30 @@ def enforce_mix_completeness(
     stage: str,
     missing_vo: list[str] | None = None,
     missing_sfx: list[str] | None = None,
+    empty_speech: bool = False,
 ) -> None:
-    """Raise on block mode when required VO/SFX assets are missing; always log."""
+    """Hard-fail blocking VO / empty speech; soft-fail SFX placeholders under first_try."""
     if not completeness_gate_enabled():
         return
+
+    from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
+
+    cfg = _completeness_cfg()
+    hard_vo = bool(cfg.get("hard_fail_missing_blocking_vo", True))
+    hard_speech = bool(cfg.get("hard_fail_empty_speech", True))
+    soft_sfx = bool(cfg.get("soft_fail_sfx_placeholder", True)) or allow_placeholder_mix()
 
     vo = sorted({str(x) for x in (missing_vo or []) if x})
     sfx = sorted({str(x) for x in (missing_sfx or []) if x})
     qa_missing = _missing_sfx_from_mmaudio_qa(ctx)
     if qa_missing:
         sfx = sorted(set(sfx) | qa_missing)
+
+    if empty_speech and hard_speech:
+        msg = f"{stage}: mix completeness — empty speech assembly (hard fail)"
+        ctx.log(msg, level="error", stage=stage, detail=f"flow={flow}")
+        raise RuntimeError(msg)
+
     if not vo and not sfx:
         return
 
@@ -48,18 +62,22 @@ def enforce_mix_completeness(
     if vo:
         parts.append(f"missing VO: {vo}")
     if sfx:
-        parts.append(f"missing SFX: {sfx}")
+        parts.append(f"missing/placeholder SFX: {sfx}")
 
     message = f"{stage}: mix completeness — {'; '.join(parts)}"
     mode = completeness_gate_mode()
-    level = "error" if mode == "block" else "warning"
-    ctx.log(message, level=level, stage=stage, detail=f"flow={flow} mode={mode}")
 
-    if mode == "block":
+    block_for_vo = bool(vo) and hard_vo and (mode == "block" or first_try_mode_enabled())
+    block_for_sfx = bool(sfx) and mode == "block" and not soft_sfx
+
+    if block_for_vo or block_for_sfx:
+        ctx.log(message, level="error", stage=stage, detail=f"flow={flow} mode=block")
         raise RuntimeError(
             f"{stage}: cannot continue with missing mix assets ({'; '.join(parts)}). "
-            "Record VO, regenerate SFX, or set mix.completeness_gate.mode to warn."
+            "Record VO, regenerate SFX, or adjust mix.completeness_gate."
         )
+
+    ctx.log(message, level="warning", stage=stage, detail=f"flow={flow} mode=warn soft_sfx={soft_sfx}")
 
 
 def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:

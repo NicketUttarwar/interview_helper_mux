@@ -51,7 +51,7 @@ def _seed_base(ctx: RunContext) -> None:
         skip_handoff=True,
     )
     ctx.write_json(
-        "flow_1_master/narrative_plan.json",
+        "master/narrative_plan.json",
         {"chapters": [], "arc_summary": "test", "ordering_constraints": []},
         skip_handoff=True,
     )

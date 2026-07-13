@@ -83,17 +83,17 @@ def _validate_selection_parity(
     selected = _id_list(selection.get("ordered_segment_ids"))
     if selected and speech != selected:
         errors.append(
-            "flow_1_master/edl.json: speech clips do not match final selection "
+            "master/edl.json: speech clips do not match final selection "
             f"ordered_segment_ids; expected {selected}, got {speech}. "
-            "Re-run edl_flow1 after saving timeline edits."
+            "Re-run edl after saving timeline edits."
         )
 
     speech_set = set(speech)
     for sid in _id_list(selection.get("excluded_segment_ids")):
         if sid in speech_set:
             errors.append(
-                f'flow_1_master/edl.json: excluded segment "{sid}" appears as speech. '
-                "Fix selection.json or re-run full_master_ranking / edl_flow1."
+                f'master/edl.json: excluded segment "{sid}" appears as speech. '
+                "Fix selection.json or re-run full_master_ranking / edl."
             )
 
 
@@ -111,7 +111,7 @@ def _validate_coverage_survives_edl(
         mapped = set(_id_list(mapping.get("segment_ids")))
         if mapped and not mapped.intersection(speech_set) and name.casefold() not in documented:
             errors.append(
-                f'flow_1_master/edl.json: covered topic "{name}" lost all mapped '
+                f'master/edl.json: covered topic "{name}" lost all mapped '
                 "segments in the final EDL. Re-run full_master_ranking after NLE edits "
                 "or document the exclusion in coverage_audit.missing_coverage."
             )
@@ -123,7 +123,7 @@ def _validate_coverage_survives_edl(
         mapped = set(_id_list(mapping.get("segment_ids")))
         if mapped and not mapped.intersection(speech_set):
             errors.append(
-                f'flow_1_master/edl.json: covered claim "{claim or "(unnamed claim)"}" '
+                f'master/edl.json: covered claim "{claim or "(unnamed claim)"}" '
                 "lost all mapped segments in the final EDL. Re-run full_master_ranking "
                 "or revise the coverage audit."
             )
@@ -146,14 +146,14 @@ def _validate_chapter_continuity(
         missing = [sid for sid in ids if sid not in positions]
         if missing:
             errors.append(
-                f'flow_1_master/selection.json: chapter "{label}" references segments '
+                f'master/selection.json: chapter "{label}" references segments '
                 f"missing from EDL speech clips: {missing}. Re-run full_master_ranking."
             )
             continue
         idxs = sorted(positions[sid] for sid in ids)
         if idxs and idxs[-1] - idxs[0] + 1 != len(idxs):
             errors.append(
-                f'flow_1_master/edl.json: chapter "{label}" is split by unrelated '
+                f'master/edl.json: chapter "{label}" is split by unrelated '
                 "speech clips in the final timeline. Re-run full_master_ranking."
             )
         chapter_ranges.append((idxs[0], idxs[-1], label))
@@ -163,7 +163,7 @@ def _validate_chapter_continuity(
         start_b, _, label_b = chapter_ranges[i + 1]
         if start_b <= end_a:
             errors.append(
-                f'flow_1_master/selection.json: chapters "{label_a}" and "{label_b}" '
+                f'master/selection.json: chapters "{label_a}" and "{label_b}" '
                 "overlap in final EDL order. Re-run full_master_ranking."
             )
 
@@ -192,7 +192,7 @@ def _validate_ordering_constraints(
         if before not in positions or after not in positions:
             missing = [sid for sid in (before, after) if sid not in positions]
             errors.append(
-                f"flow_1_master/narrative_plan.json: ordering_constraints[{index}] "
+                f"master/narrative_plan.json: ordering_constraints[{index}] "
                 f"references segment(s) missing from final EDL: {missing}. "
                 "Re-run narrative_arc_plan or full_master_ranking."
             )
@@ -201,7 +201,7 @@ def _validate_ordering_constraints(
             reason = _as_id(constraint.get("reason"))
             suffix = f" ({reason})" if reason else ""
             errors.append(
-                f'flow_1_master/edl.json: ordering constraint violated: "{before}" '
+                f'master/edl.json: ordering constraint violated: "{before}" '
                 f'must appear before "{after}"{suffix}. Re-run full_master_ranking.'
             )
 
@@ -222,12 +222,12 @@ def _validate_transitions(
         pair = (after, before)
         if pair in adjacency and pair not in edl_transition_pairs:
             errors.append(
-                f'flow_1_master/edl.json: missing transition clip between "{after}" '
-                f'and "{before}" from transitions.json. Re-run edl_flow1.'
+                f'master/edl.json: missing transition clip between "{after}" '
+                f'and "{before}" from transitions.json. Re-run edl.'
             )
         elif pair not in adjacency and after in speech and before in speech:
             errors.append(
-                f'flow_1_master/transitions.json: transition "{after}" -> "{before}" '
+                f'master/transitions.json: transition "{after}" -> "{before}" '
                 "does not match adjacent final EDL speech order. Re-run transitions "
                 "after full_master_ranking/NLE edits."
             )
@@ -235,8 +235,8 @@ def _validate_transitions(
     for pair in edl_transition_pairs:
         if pair not in adjacency:
             errors.append(
-                f'flow_1_master/edl.json: transition clip "{pair[0]}" -> "{pair[1]}" '
-                "does not sit between adjacent speech clips. Re-run edl_flow1."
+                f'master/edl.json: transition clip "{pair[0]}" -> "{pair[1]}" '
+                "does not sit between adjacent speech clips. Re-run edl."
             )
 
 
@@ -276,28 +276,28 @@ def _validate_gap_placements(
             warning_ok = line_id in missing_vo or target in missing_vo
             if not warning_ok:
                 errors.append(
-                    f'flow_1_master/edl.json: gap line "{line_id}" targeting "{target}" '
+                    f'master/edl.json: gap line "{line_id}" targeting "{target}" '
                     "has no vo_pickup clip and no missing_vo_files warning. Re-run vo_ingest "
-                    "or edl_flow1."
+                    "or edl."
                 )
         if key not in placement_keys:
             errors.append(
-                f'flow_1_master/edl.json: gap line "{line_id}" targeting "{target}" '
-                "has no matching gap_placements entry. Re-run edl_flow1."
+                f'master/edl.json: gap line "{line_id}" targeting "{target}" '
+                "has no matching gap_placements entry. Re-run edl."
             )
 
     for key in placement_keys:
         if key not in vo_keys:
             errors.append(
-                f'flow_1_master/edl.json: gap_placements entry {key} has no matching '
-                "vo_pickup clip. Re-run edl_flow1."
+                f'master/edl.json: gap_placements entry {key} has no matching '
+                "vo_pickup clip. Re-run edl."
             )
 
 
 def _validate_audit_artifact(ctx: RunContext, errors: list[str]) -> None:
-    if not ctx.artifact_exists("flow_1_master/edl_narrative_audit.json"):
+    if not ctx.artifact_exists("master/edl_narrative_audit.json"):
         return
-    audit = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+    audit = ctx.read_json("master/edl_narrative_audit.json")
     verdict = _as_id(audit.get("verdict")).casefold()
     blocking = audit.get("blocking_issues") or []
     if verdict == "fail" or blocking:
@@ -309,9 +309,9 @@ def _validate_audit_artifact(ctx: RunContext, errors: list[str]) -> None:
                 labels.append(_as_id(item))
         detail = "; ".join(label for label in labels if label)
         errors.append(
-            "flow_1_master/edl_narrative_audit.json: flagship audit found blocking "
+            "master/edl_narrative_audit.json: flagship audit found blocking "
             f"narrative issue(s){': ' + detail if detail else ''}. "
-            "Resolve the audit recommendations before edl_flow1."
+            "Resolve the audit recommendations before edl."
         )
 
 
@@ -321,32 +321,32 @@ def validate_flow1_edl_narrative(
 ) -> list[str]:
     """Return actionable final-EDL narrative errors (empty list = pass)."""
     if edl is None:
-        if not ctx.artifact_exists("flow_1_master/edl.json"):
-            return ["Missing flow_1_master/edl.json"]
-        edl = ctx.read_json("flow_1_master/edl.json")
+        if not ctx.artifact_exists("master/edl.json"):
+            return ["Missing master/edl.json"]
+        edl = ctx.read_json("master/edl.json")
     if not isinstance(edl, dict):
-        return ["flow_1_master/edl.json root must be an object"]
+        return ["master/edl.json root must be an object"]
 
     required = [
-        "flow_1_master/selection.json",
-        "flow_1_master/coverage_audit.json",
-        "flow_1_master/narrative_plan.json",
+        "master/selection.json",
+        "master/coverage_audit.json",
+        "master/narrative_plan.json",
     ]
     errors = [f"Missing {path}" for path in required if not ctx.artifact_exists(path)]
     if errors:
         return errors
 
-    selection = ctx.read_json("flow_1_master/selection.json")
-    coverage = ctx.read_json("flow_1_master/coverage_audit.json")
-    narrative_plan = ctx.read_json("flow_1_master/narrative_plan.json")
+    selection = ctx.read_json("master/selection.json")
+    coverage = ctx.read_json("master/coverage_audit.json")
+    narrative_plan = ctx.read_json("master/narrative_plan.json")
     transitions = (
-        ctx.read_json("flow_1_master/transitions.json")
-        if ctx.artifact_exists("flow_1_master/transitions.json")
+        ctx.read_json("master/transitions.json")
+        if ctx.artifact_exists("master/transitions.json")
         else None
     )
     speech = _speech_order(edl)
     if not speech:
-        return ["flow_1_master/edl.json: no speech clips available for narrative validation"]
+        return ["master/edl.json: no speech clips available for narrative validation"]
 
     _validate_selection_parity(selection, speech, errors)
     _validate_coverage_survives_edl(coverage, speech, errors)

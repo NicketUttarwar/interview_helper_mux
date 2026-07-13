@@ -50,6 +50,8 @@ critical_fields:
 nullable_fields:
 - audience
 - emotional_beats
+- emotional_beats[].description
+- emotional_beats[].segment_ids
 - jargon_glossary
 - jargon_glossary[].first_segment_id
 - key_claims

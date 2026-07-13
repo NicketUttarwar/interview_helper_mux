@@ -47,7 +47,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `gui_session.py` | Back-compat re-exports delegating to `application_session` | BUILD-014 |
 | `gates.py` | G0/G1/G2 checks, profile gate, narrative QC enforcement | BUILD-017, 081 |
 | `narrative_qc.py` | Flow 1 topic/chapter validation (`validate_flow1_narrative`) | BUILD-067 |
-| `pipeline.py` | Stage orders, `run_analysis`, `run_flow1/2/3` | BUILD-028, 035–036, 043–044, 080 |
+| `pipeline.py` | Stage orders, `run_analysis`, `run_delivery/2/3` | BUILD-028, 035–036, 043–044, 080 |
 | `analysis_orchestrator.py` | Investigation queue drain after LLM stages | BUILD-018 |
 | `analysis_memory.py` | `analysis_state.json`, profile, queue | BUILD-018 |
 | `context_volley.py` | LLM message volleys per stage | BUILD-013 |
@@ -62,7 +62,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `acoustic_profile.py` | Shared SAP load, `mix_contract`, volley compact helpers | gap-closure GC-F1 |
 | `audio_timeline.py` | WAV duration, crossfade concat, chunk-by-bytes | gap-closure GC-F1 |
 | `operator_quality.py` | Preclean checkpoints, `qc_summaries` on `run_meta` | gap-closure GC-F1/F3 |
-| `mix_completeness.py` | VO/SFX completeness gate after `mix_flow1`/`mix_flow2` | gap-closure orchestration |
+| `mix_completeness.py` | VO/SFX completeness gate after `mix`/`REMOVED_mix_flow2` | gap-closure orchestration |
 | `arbiter_expectations.py` | Load per-stage arbiter rubrics; merge into routing payload | LLM guidance |
 | `deterministic_lint.py` | Pre-arbiter generic + stage-specific lint | LLM guidance |
 | `attempt_budget.py` | Per-stage primary/arbiter attempt budgets | LLM guidance |
@@ -77,7 +77,7 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `llm_call_record.py` | Per-call OpenAI audit under `understanding/llm_calls/` | BUILD-013 |
 | `llm_calls_gui.py` | GUI helpers for LLM call index | BUILD-014 |
 | `stage_enrichment.py` | Stage-specific enrichment inputs for volleys | BUILD-013 |
-| `show_description_qc.py` | Flow 3 show-description validation | BUILD-045 |
+| `show_notes_qc.py` | Flow 3 show-description validation | BUILD-045 |
 | `stages/llm_runner.py` | OpenAI calls (`task_kind`, tier meta) | BUILD-013, 073 |
 | `stages/analysis_stage.py` | Shared LLM stage runner + arbiter | BUILD-013, 073 |
 | `stages/model_registry.py` | Tier → API ID resolution | BUILD-073 |
@@ -102,18 +102,18 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `segmentation.py` | `boundary_detection`, `segment_classification` | BUILD-023–024 |
 | `gaps.py` | `missing_framing`, `optimal_questions`, `vo_ingest` | BUILD-025–027 |
 | `edl_narrative_qc.py` | Final Flow 1 EDL narrative semantics | EDL narrative QC |
-| `analysis_flow1_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
-| `selection_flow1.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
-| `selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
-| `sfx_mmaudio.py` | `mmaudio_sfx_flow1/2` | BUILD-034, 042 |
-| `sound_design.py` | `mix_flow1`, `mix_flow2` | BUILD-065 |
-| `assembly_flow1.py` | `edl_flow1`, `mux_flow1` → `mix_flow1` | BUILD-035, 065, 067, 068 |
-| `assembly_flow2.py` | `mux_flow2` → `mix_flow2` | BUILD-043, 065 |
-| `mastering.py` | `master_flow1`, `master_flow2` | BUILD-036, 050 |
+| `analysis_extended.py` | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 |
+| `selection.py` | ranking, transitions, sfx brief | BUILD-031–033, 068 |
+| `REMOVED_selection_flow2.py` | highlights, sfx brief | BUILD-040–041 |
+| `sfx_mmaudio.py` | `mmaudio_sfx/2` | BUILD-034, 042 |
+| `sound_design.py` | `mix`, `REMOVED_mix_flow2` | BUILD-065 |
+| `assembly.py` | `edl`, `mux_flow1` → `mix` | BUILD-035, 065, 067, 068 |
+| `REMOVED_assembly_flow2.py` | `mux_flow2` → `REMOVED_mix_flow2` | BUILD-043, 065 |
+| `mastering.py` | `master_finalize`, `REMOVED_master_flow2` | BUILD-036, 050 |
 | `audio_preclean.py` | DeepFilterNet preclean (optional) | BUILD-019 |
-| `publishing_flow3.py` | `podcast_show_description`, `export_show_description` | BUILD-045–046 |
+| `REMOVED_publishing_flow3.py` | `REMOVED_podcast_show_description`, `REMOVED_export_show_description` | BUILD-045–046 |
 | `edl_narrative_audit.py` | `edl_narrative_audit` flagship Flow 1 audit | EDL narrative QC |
-| `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan_flow1/2`, `sfx_prompt_craft` | BUILD-061–064 |
+| `sound_design_stages.py` | `sound_design_palettes`, `sound_design_plan/2`, `sfx_prompt_craft` | BUILD-061–064 |
 | `sound_design_vo_finalize.py` | `sound_design_vo_finalize` — VO bridge measured durations | gap-closure GC-A3 |
 
 ### Web GUI (`src/interview_mux/web/`)
@@ -150,11 +150,11 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `scripts/run.sh` | Web GUI (`python -m interview_mux serve`; builds static if missing) | BUILD-014 |
 | `tools/check_prerequisites.sh` | ffmpeg, ffprobe, aws, import smoke, `pip-audit` on `requirements.lock` | BUILD-010 |
 | `tools/run_analysis.py` | Shared analysis | BUILD-028 |
-| `tools/run_flow.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
+| `tools/run_delivery.py` | Flow 1, 2, or 3 after G2 | BUILD-051 |
 | `tools/verify_master.py` | LUFS + true-peak QA on `master.wav` | BUILD-052, BUILD-070 |
 | `tools/validate_narrative.py` | Flow 1 topic/chapter checks; `--include-edl` adds timeline + EDL narrative checks | BUILD-067 + EDL narrative QC |
-| `tools/validate_edl.py` | EDL timeline/mechanical validation for `flow_1_master/edl.json` | BUILD-067 |
-| `tools/verify_edl.py` | EDL schema validation for `flow_1_master/edl.json` | BUILD-067 |
+| `tools/validate_edl.py` | EDL timeline/mechanical validation for `master/edl.json` | BUILD-067 |
+| `tools/verify_edl.py` | EDL schema validation for `master/edl.json` | BUILD-067 |
 | `tools/extract_value_features.py` | Opt-in value metrics artifact | value-analysis |
 | `tools/run_value_spike.py` | Spike scorecard aggregation | value-analysis |
 | `tools/export_llm_calls.py` | Export labeled LLM call records + stage-run audit appendix | LLM guidance |
@@ -195,15 +195,15 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 
 ## Doc ↔ code gaps
 
-**Status (Command 9 + GUIDE wave):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix_flow1`/`mix_flow2`), G2 flow3, pre-clean offers, smart LLM routing, Flow 3 analysis-only entry, and the LLM guidance program (GUIDE-001–080) are shipped in code.
+**Status (Command 9 + GUIDE wave):** No open operator-facing gaps in the table below. ASSETS picker/resume, full mix (`mix`/`REMOVED_mix_flow2`), G2 flow3, pre-clean offers, smart LLM routing, Flow 3 analysis-only entry, and the LLM guidance program (GUIDE-001–080) are shipped in code.
 
 | Topic | Verification |
 |-------|----------------|
 | ASSETS-first input | `GET /api/assets`, `POST /api/runs`, `PUT /api/session/active` — `web/server.py`; runs under `ASSETS/executions/exec_*` |
-| Full podcast mix | `mix_flow1` / `mix_flow2` in `pipeline.py`; listen + `verify_master.py` — [definition-of-done-signoff.md](./definition-of-done-signoff.md) §3 |
+| Full podcast mix | `mix` / `REMOVED_mix_flow2` in `pipeline.py`; listen + `verify_master.py` — [definition-of-done-signoff.md](./definition-of-done-signoff.md) §3 |
 | Pre-clean offers | `POST …/preclean-offer`; never auto — `web/server.py`, `stages/audio_preclean.py` |
 | Stage parity | `pipeline.py` orders = `web/stages.py` `EXECUTABLE_ORDER` — signoff §5 |
-| Flow 3 analysis-only entry | `run_flow3` → `require_g1_clear` + `require_analysis_artifacts_complete` (no Flow 1 ranking); `podcast_show_description` preflight when `selected_flow: flow3` checks `content_brief.json`, `speakers.json`, `manifest.json` — `pipeline.py`, `llm_preflight.py`, [stage-registry.md](./stage-registry.md) Flow 3 |
+| Flow 3 analysis-only entry | `REMOVED_run_flow3` → `require_g1_clear` + `require_analysis_artifacts_complete` (no Flow 1 ranking); `REMOVED_podcast_show_description` preflight when `REMOVED_selected_flow: flow3` checks `content_brief.json`, `speakers.json`, `manifest.json` — `pipeline.py`, `llm_preflight.py`, [stage-registry.md](./stage-registry.md) Flow 3 |
 | LLM guidance program | P0–P4 scorecard + quality layers — [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md), [stage-quality-scorecard.md](../cross-cutting/stage-quality-scorecard.md), `attempt_budget.py`, `local_volley_framer.py`, `placement_qa.py` |
 
 When you introduce a new gap, add a row here and a command in [remaining-build-commands.md](./remaining-build-commands.md). Manual release checklist: [definition-of-done-signoff.md](./definition-of-done-signoff.md).

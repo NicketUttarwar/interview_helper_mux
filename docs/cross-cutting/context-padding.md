@@ -38,16 +38,16 @@ Defined in `STAGE_PLANS` in `context_volley.py`. Examples:
 | `topic_coverage_audit` | content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, major_questions | theme kinds ≤2 |
 | `narrative_arc_plan` | topic_coverage_audit, optimal_questions, missing_framing, content_context | themes, narrative, style, major_questions | — |
 | `full_master_ranking` | narrative_arc_plan, topic_coverage_audit, optimal_questions, missing_framing | themes, narrative, style | — |
-| `highlight_selection` | content_context, missing_framing | themes, narrative, style, major_questions | ≤1 |
+| `REMOVED_highlight_selection` | content_context, missing_framing | themes, narrative, style, major_questions | ≤1 |
 | `transitions` | full_master_ranking, optimal_questions | style, narrative | — |
-| `sound_design_plan_flow1` | full_master_ranking, narrative_arc_plan, transitions, optimal_questions | style, themes, narrative | — |
-| `sound_design_plan_flow2` | highlight_selection | style, themes, narrative | — |
-| `edl_narrative_audit` | full_master_ranking, narrative_arc_plan, topic_coverage_audit, transitions, missing_framing, sound_design_plan_flow1 | style, themes, narrative, major_questions | ≤1 |
-| `sfx_prompt_craft` | sound_design_plan_flow1, sound_design_plan_flow2 | style, themes, narrative | — |
+| `sound_design_plan` | full_master_ranking, narrative_arc_plan, transitions, optimal_questions | style, themes, narrative | — |
+| `REMOVED_sdp_flow2` | REMOVED_highlight_selection | style, themes, narrative | — |
+| `edl_narrative_audit` | full_master_ranking, narrative_arc_plan, topic_coverage_audit, transitions, missing_framing, sound_design_plan | style, themes, narrative, major_questions | ≤1 |
+| `sfx_prompt_craft` | sound_design_plan, REMOVED_sdp_flow2 | style, themes, narrative | — |
 | `sfx_prompt_refine` | sfx_prompt_craft | style, themes, narrative | — |
 | `podcast_sfx_brief` | full_master_ranking, narrative_arc_plan | style | — |
-| `sfx_brief` | highlight_selection | style, narrative | — |
-| `podcast_show_description` | speaker_roles, content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
+| `sfx_brief` | REMOVED_highlight_selection | style, narrative | — |
+| `REMOVED_podcast_show_description` | speaker_roles, content_context, segment_classification, missing_framing, optimal_questions | themes, narrative, style, major_questions, entities | gap kinds ≤2 |
 
 See [prompts/analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md). Per-stage volley profile: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 
@@ -79,11 +79,11 @@ Heavy fields are stripped per stage:
 - Flow stages get slim brief + capped manifest; ranking also gets compact `coverage_audit`, `narrative_plan`, `gap_report`
 - `transitions` gets `interviewer_sample_lines` from manifest + `gap_report`
 - `sound_design_palettes` gets compact brief + manifest + optional existing SDP stub; no raw transcript
-- `sound_design_plan_flow1` / `sound_design_plan_flow2` get compact `sound_design_plan`, selection/highlights, transitions (flow1), not full transcript
+- `sound_design_plan` / `REMOVED_sdp_flow2` get compact `sound_design_plan`, selection/highlights, transitions (flow1), not full transcript
 - `edl_narrative_audit` gets slim ranking, narrative plan, coverage audit, transitions, gap summaries, SDP plan — not raw transcript
 - `sfx_prompt_craft` gets compact SDP `assets[]` and coherence; not full transcript
 - `podcast_sfx_brief` / `sfx_brief` get compact `selection` (order or highlights), not full transcript
-- `podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
+- `REMOVED_podcast_show_description` gets `content_brief`, slim manifest (capped segments with topic tags + truncated text), `speakers`, profile slice, and optional one-line gap summaries — **not** full ranked selection or SFX plans
 
 **Enrichment keys** (when present): `pause_ladder_hints` (boundary), `emphasis_regions` (coverage/narrative arc), `quotability_signals` (highlights), `value_features_summary` (opt-in), `comprehension_risks` (missing framing after specialist pass). Built by [`stage_enrichment.py`](../../src/interview_mux/stage_enrichment.py).
 
@@ -131,7 +131,7 @@ When `interview_spine.enabled`, build inputs attach a compact spine slice via `a
 | `content_context` | 2 sample windows, 8 events |
 | `segment_classification` | 3 windows, 10 events |
 | `missing_framing` | 4 windows, 15 events |
-| `highlight_selection` | 5 windows, 12 events |
+| `REMOVED_highlight_selection` | 5 windows, 12 events |
 | `full_master_ranking` | 3 windows, 10 events |
 
 Spec: [interview-spine.md](./interview-spine.md).
@@ -146,6 +146,6 @@ When `coherence.enabled` and interview duration ≥ 30m, build inputs attach `co
 | `narrative_arc_plan` | 4 |
 | `content_brief_reanchor` | 4 |
 | `missing_framing` | 3 |
-| `podcast_show_description` | 2 (blocking `claim_contradiction` only) |
+| `REMOVED_podcast_show_description` | 2 (blocking `claim_contradiction` only) |
 
 Spec: [coherence-orc03.md](./coherence-orc03.md).

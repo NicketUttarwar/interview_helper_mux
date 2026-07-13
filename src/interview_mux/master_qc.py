@@ -14,13 +14,12 @@ from interview_mux.config import merged_config
 from interview_mux.operator_quality import record_qc_summary
 from interview_mux.run_context import RunContext
 
-FlowName = Literal["flow1", "flow2"]
+FlowName = Literal["podcast", "flow2"]
 
 SPEECH_BAND_LOW_HZ = 300
 SPEECH_BAND_HIGH_HZ = 4000
 _RMS_FLOOR = 1e-12
 _SILENT_SPEECH_RMS = 0.002
-
 
 @dataclass(frozen=True)
 class QCTarget:
@@ -29,7 +28,6 @@ class QCTarget:
     tolerance_lufs: float
     max_true_peak_dbtp: float
 
-
 @dataclass(frozen=True)
 class MasterMetrics:
     duration_seconds: float
@@ -37,7 +35,6 @@ class MasterMetrics:
     channels: int
     integrated_lufs: float
     true_peak_dbtp: float
-
 
 @dataclass(frozen=True)
 class VerificationResult:
@@ -51,21 +48,16 @@ class VerificationResult:
     def ok(self) -> bool:
         return not self.failures
 
-
 TARGETS: dict[FlowName, QCTarget] = {
-    "flow1": QCTarget(flow="flow1", target_lufs=-16.0, tolerance_lufs=1.0, max_true_peak_dbtp=-1.0),
+    "podcast": QCTarget(flow="podcast", target_lufs=-16.0, tolerance_lufs=1.0, max_true_peak_dbtp=-1.0),
     "flow2": QCTarget(flow="flow2", target_lufs=-14.0, tolerance_lufs=1.0, max_true_peak_dbtp=-1.0),
 }
 
-
 def detect_flow_from_path(path: Path) -> FlowName | None:
     path_str = str(path).replace("\\", "/")
-    if "/flow_1_master/" in path_str:
-        return "flow1"
-    if "/flow_2_highlights/" in path_str:
-        return "flow2"
+    if "/master/" in path_str:
+        return "podcast"
     return None
-
 
 def verify_master(path: Path, *, flow: FlowName | None = None) -> VerificationResult:
     resolved_flow = flow or detect_flow_from_path(path)
@@ -110,7 +102,6 @@ def verify_master(path: Path, *, flow: FlowName | None = None) -> VerificationRe
         checks=checks,
         failures=failures,
     )
-
 
 def _collect_metrics(path: Path) -> MasterMetrics:
     from interview_mux.operator_subprocess import run_command
@@ -162,7 +153,6 @@ def _collect_metrics(path: Path) -> MasterMetrics:
         true_peak_dbtp=true_peak_dbtp,
     )
 
-
 def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
     start = stderr.rfind("{")
     end = stderr.rfind("}")
@@ -174,14 +164,12 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
         raise RuntimeError("Incomplete loudnorm output from ffmpeg (missing input_i or input_tp).")
     return data
 
-
 @dataclass(frozen=True)
 class BedSpeechWindow:
     segment_id: str
     start_ms: int
     end_ms: int
     duck_under_speech_db: float
-
 
 @dataclass(frozen=True)
 class IntelligibilityResult:
@@ -193,16 +181,13 @@ class IntelligibilityResult:
     flagged_segment_ids: list[str]
     window_metrics: list[dict[str, Any]] = field(default_factory=list)
 
-
 def intelligibility_qc_config() -> dict[str, Any]:
     mix = merged_config().get("mix") or {}
     qc = mix.get("intelligibility_qc")
     return qc if isinstance(qc, dict) else {}
 
-
 def intelligibility_qc_enabled() -> bool:
     return bool(intelligibility_qc_config().get("enabled"))
-
 
 def speech_band_rms(segment: AudioSegment) -> float:
     """RMS of 300 Hz–4 kHz band (speech intelligibility range)."""
@@ -216,14 +201,12 @@ def speech_band_rms(segment: AudioSegment) -> float:
     normalized = samples / max_val
     return float(np.sqrt(np.mean(np.square(normalized))))
 
-
 def _max_allowed_excess_db(duck_under_speech_db: float, qc_cfg: dict[str, Any]) -> float:
     override = qc_cfg.get("max_speech_band_excess_db")
     if override is not None:
         return float(override)
     # Tighter duck contract => less bed bleed allowed in the speech band.
     return max(3.0, min(8.0, 14.0 - (duck_under_speech_db - 14.0) * 0.5))
-
 
 def collect_flow1_bed_speech_windows(
     ctx: RunContext,
@@ -239,7 +222,7 @@ def collect_flow1_bed_speech_windows(
         return []
     plan = ctx.read_json(plan_path)
     flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    flow = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
     windows: list[BedSpeechWindow] = []
@@ -268,7 +251,6 @@ def collect_flow1_bed_speech_windows(
         )
         seen.add(seg_id)
     return windows
-
 
 def analyze_mix_intelligibility(
     assembly: AudioSegment,
@@ -356,7 +338,6 @@ def analyze_mix_intelligibility(
         window_metrics=metrics,
     )
 
-
 def maybe_check_mix_intelligibility(
     ctx: RunContext,
     *,
@@ -374,7 +355,7 @@ def maybe_check_mix_intelligibility(
     assembly = AudioSegment.from_file(str(assembly_path))
     bed_windows = (
         collect_flow1_bed_speech_windows(ctx, segment_timing=segment_timing, contract=contract)
-        if flow == "flow1"
+        if flow == "podcast"
         else []
     )
     duck_db = float(contract.get("duck_under_speech_db", 16.0))

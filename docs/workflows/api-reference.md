@@ -97,7 +97,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
-| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, `selected_flow`, … | **404** |
+| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, `REMOVED_selected_flow`, … | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** (`message`, `level`, `stage`, optional `action_id`) | `ok`, `entry` | **404** |
 | `GET` | `/api/runs/{run_id}/action-trace` | `tail` (int, default 50) | — | `entries[]` — structured action trace rows | **404** |
@@ -123,7 +123,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `POST` | `/api/runs/{run_id}/extract-value-features` | — | — | `{ok, profiles_written[]}` when `value_analysis.enabled` | **400** if disabled, **404** |
 | `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
 | `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
-| `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `selected_flow` | **404** |
+| `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `REMOVED_selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
 | `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `blocking`, `candidates[]` (hash fields, `paths[]`, `same_source_audio`), `pending_decision`, `current_source_audio_hash_short` | **404** unknown stage |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/reuse` | — | **StageReuseBody** `{action, source_run_id?}` | `ok`, `stage_reuse`, `copied[]` on accept | **400** ineligible source, **404** |
@@ -132,6 +132,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | `path` (required) | — | JSON object, or `{text}` for `.md`/`.txt` | **404** |
 | `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
+| `POST` | `/api/runs/{run_id}/pending-writes/approve-batch` | — | optional `{phases?: string[], stage_ids?: string[]}` | `ok`, `approved{}`, `errors{}` — batch Save for first-try phase end | **409** run_busy |
+| `POST` | `/api/runs/{run_id}/g1/skip-optional` | — | optional `{line_ids?: string[]}` | `ok`, `skipped[]`, `g1_missing[]` — mark non-blocking VO optional | **404** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |
 
 **GUI after approve/discard/gate complete:** The React client calls `advanceFromCheckpoint()` (refresh run → auto-execute next stage or focus blocker). See [gui-flow-hardening.md](./gui-flow-hardening.md).
@@ -195,9 +197,9 @@ When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land
 
 **Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
 
-**MMAudio sound-design stages (`mmaudio_sfx_flow1` / `mmaudio_sfx_flow2`):** local MMAudio text-to-audio per asset per unique SDP `asset_id` (variant `large_44k_v2` default, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
+**MMAudio sound-design stages (`mmaudio_sfx` / `REMOVED_mmaudio_flow2`):** local MMAudio text-to-audio per asset per unique SDP `asset_id` (variant `large_44k_v2` default, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
 
-**Mix stages (`mix_flow1` / `mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `FLOW1_ORDER` / `FLOW2_ORDER`.
+**Mix stages (`mix` / `REMOVED_mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `DELIVERY_ORDER` / `REMOVED_FLOW2_ORDER`.
 
 ### `FlowBody`
 
@@ -394,6 +396,18 @@ Each stage object includes at least: `id`, `title`, `description`, `phase`, `art
 Completeness rules and validation: [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md).
 
 Stage ids match `src/interview_mux/web/stages.py` (`STAGE_BY_ID`).
+
+---
+
+## Delivery brief (adaptive policy)
+
+| Method | Path | Body | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/runs/{run_id}/delivery-brief` | — | `{ brief }` from `understanding/delivery_brief.json` (or `null`) |
+| `PATCH` | `/api/runs/{run_id}/delivery-brief` | operator override fields (`target_duration_sec`, `question_budget`, `chapter_budget`, …) | Rebuilds brief with overrides; logs `gui.delivery_brief.save` |
+| `POST` | `/api/runs/{run_id}/delivery-brief/rebuild` | — | Deterministic rebuild preserving prior overrides unless cleared; logs `gui.delivery_brief.reset` |
+
+Also mirrored on `GET /api/runs/{run_id}` as `delivery_brief`. See [delivery-quality-preservation-matrix.md](../cross-cutting/delivery-quality-preservation-matrix.md).
 
 ---
 

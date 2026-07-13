@@ -35,7 +35,7 @@ After each pickup (or when all lines are recorded), the operator should be **off
 
 ## Assembly use (BUILD-067)
 
-Gap placements (`before` / `after` segment) and `vo_pickup` paths appear in Flow 1 `edl.json` (`edl_flow1`). Final audible mix of VO + SFX is **BUILD-065/069** — see [assembly_and_mux](../assembly_and_mux/README.md).
+Gap placements (`before` / `after` segment) and `vo_pickup` paths appear in Flow 1 `edl.json` (`edl`). Final audible mix of VO + SFX is **BUILD-065/069** — see [assembly_and_mux](../assembly_and_mux/README.md).
 
 ## Prompts
 

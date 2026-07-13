@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from interview_mux.stage_execution_reuse import (
     resolve_before_stage_run,
     reuse_already_applied,
 )
+from interview_mux.write_staging import exit_stage_staging
 from run_fixtures import (
     TEST_SOURCE_AUDIO_HASH,
     TEST_SOURCE_AUDIO_HASH_SHORT,
@@ -27,9 +29,17 @@ from run_fixtures import (
 
 
 def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    root = tmp_path / "ASSETS" / "executions"
-    root.mkdir(parents=True)
-    cfg = {**merged_config(), "executions_root": str(root), "assets_root": str(tmp_path / "ASSETS")}
+    repo = tmp_path / "repo"
+    executions = repo / "ASSETS" / "executions"
+    executions.mkdir(parents=True)
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: repo)
+    cfg = {
+        **merged_config(),
+        "assets_root": "ASSETS",
+        "executions_root": "ASSETS/executions",
+        "data_root": "data",
+    }
     monkeypatch.setattr("interview_mux.config.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.run_context.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.stage_execution_reuse.merged_config", lambda: cfg)
@@ -38,7 +48,7 @@ def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
         "interview_mux.write_staging.write_approval_enabled",
         lambda: False,
     )
-    return root
+    return executions
 
 
 def _ctx_in_root(run_id: str, executions_root: Path) -> RunContext:
@@ -232,19 +242,24 @@ def test_accept_reuse_marks_transcribe_done_when_bypassing_staging(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Transcript reuse copies to final paths and marks transcribe done even with write approval on."""
+    exit_stage_staging()
     _patch_executions_root(monkeypatch, tmp_path)
-    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: True)
-    prior = _ctx_in_root("exec_060_20260101T000060Z", tmp_path)
-    current = _ctx_in_root("exec_061_20260101T000061Z", tmp_path)
+    suffix = uuid.uuid4().hex[:8]
+    prior_id = f"exec_reuse_prior_{suffix}"
+    current_id = f"exec_reuse_current_{suffix}"
+    prior = _ctx_in_root(prior_id, tmp_path)
+    current = _ctx_in_root(current_id, tmp_path)
 
     prior.write_json("transcript/full.json", {"segments": []})
     prior.write_json("transcript/speakers.json", {"speakers": []})
-    prior.mark_done("transcribe")
+    prior.mark_done("transcribe", force=True)
+
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: True)
 
     record_reuse_decision(
-        current, "transcribe", action="accept", source_run_id="exec_060_20260101T000060Z"
+        current, "transcribe", action="accept", source_run_id=prior_id
     )
-    apply_stage_reuse(current, "transcribe", "exec_060_20260101T000060Z")
+    apply_stage_reuse(current, "transcribe", prior_id)
     assert current.is_done("transcribe")
     assert reuse_already_applied(current, "transcribe")
     assert resolve_before_stage_run(current, "transcribe") == "skipped"

@@ -207,7 +207,7 @@ flowchart TB
 | `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`acoustic_profile.compact_for_volley` via `context_volley.py`) |
 | `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | shipped (`compact_for_volley` in plan stage `build_input`) |
 | `sfx_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
-| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | shipped (`selection_flow1.run_podcast_sfx_brief`) |
+| `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | shipped (`selection.run_podcast_sfx_brief`) |
 
 Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 
@@ -216,10 +216,10 @@ Keep under ~500 tokens prose per injection — numeric fields as short bullets.
 | Stage | SAP fields read (volley / `build_input`) | On-disk SAP path |
 |-------|------------------------------------------|------------------|
 | `sound_design_palettes` | `room_timbre_hint`, `mix_contract`, `pace_class`, `prompt_tokens` | `understanding/source_acoustic_profile.json` |
-| `sound_design_plan_flow1` | `placement_hints`, `stinger_max_per_minute`, `mix_contract` | same |
-| `sound_design_plan_flow2` | `placement_hints`, `mix_contract`, montage density hints | same |
+| `sound_design_plan` | `placement_hints`, `stinger_max_per_minute`, `mix_contract` | same |
+| `REMOVED_sdp_flow2` | `placement_hints`, `mix_contract`, montage density hints | same |
 | `sfx_prompt_craft` | `prompt_tokens`, `musical_intent`, `mix_contract`, `pace_class` | same |
-| `mix_flow1` / `mix_flow2` | `duck_under_speech_db`, pause-tail placement via `mix_contract` | same (not re-injected at mix; read from disk in `sound_design.py`) |
+| `mix` / `REMOVED_mix_flow2` | `duck_under_speech_db`, pause-tail placement via `mix_contract` | same (not re-injected at mix; read from disk in `sound_design.py`) |
 
 ---
 

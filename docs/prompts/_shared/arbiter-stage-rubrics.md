@@ -38,8 +38,8 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 | Stage | Rubric file | Severity | Decompose |
 |-------|-------------|----------|-----------|
 | `sound_design_palettes` | [sound_design_palettes.json](./arbiter-rubrics/sound_design_palettes.json) | low | no |
-| `sound_design_plan_flow1` | [sound_design_plan_flow1.json](./arbiter-rubrics/sound_design_plan_flow1.json) | high | no |
-| `sound_design_plan_flow2` | [sound_design_plan_flow2.json](./arbiter-rubrics/sound_design_plan_flow2.json) | high | no |
+| `sound_design_plan` | [sound_design_plan.json](./arbiter-rubrics/sound_design_plan.json) | high | no |
+| `REMOVED_sdp_flow2` | [REMOVED_sdp_flow2.json](./arbiter-rubrics/REMOVED_sdp_flow2.json) | high | no |
 | `sfx_prompt_craft` | [sfx_prompt_craft.json](./arbiter-rubrics/sfx_prompt_craft.json) | low | no |
 | `podcast_sfx_brief` | [podcast_sfx_brief.json](./arbiter-rubrics/podcast_sfx_brief.json) | low | no |
 | `sfx_brief` | [sfx_brief.json](./arbiter-rubrics/sfx_brief.json) | low | no |
@@ -49,8 +49,8 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 | Stage | Rubric file | Severity | Decompose |
 |-------|-------------|----------|-----------|
 | `transitions` | [transitions.json](./arbiter-rubrics/transitions.json) | low | no |
-| `highlight_selection` | [highlight_selection.json](./arbiter-rubrics/highlight_selection.json) | high | yes |
-| `podcast_show_description` | [podcast_show_description.json](./arbiter-rubrics/podcast_show_description.json) | high | no |
+| `REMOVED_highlight_selection` | [REMOVED_highlight_selection.json](./arbiter-rubrics/REMOVED_highlight_selection.json) | high | yes |
+| `REMOVED_podcast_show_description` | [REMOVED_podcast_show_description.json](./arbiter-rubrics/REMOVED_podcast_show_description.json) | high | no |
 
 ---
 
@@ -58,7 +58,7 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 
 | Severity | Editorial impact if wrong | Stages |
 |----------|---------------------------|--------|
-| **high** | Listener confusion, wrong master, or wasted API spend | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `highlight_selection`, `sound_design_plan_flow1`, `sound_design_plan_flow2`, `podcast_show_description` |
+| **high** | Listener confusion, wrong master, or wasted API spend | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `REMOVED_highlight_selection`, `sound_design_plan`, `REMOVED_sdp_flow2`, `REMOVED_podcast_show_description` |
 | **medium** | Downstream patch cost; decompose often fixes | `boundary_detection`, `segment_classification`, `content_brief_reanchor` |
 | **low** | Operator-recoverable or spend-adjacent | `speaker_roles`, `sound_design_palettes`, `transitions`, `sfx_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
 

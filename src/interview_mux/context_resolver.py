@@ -36,45 +36,35 @@ ARTIFACTS_REGISTRY: dict[str, tuple[str, ...]] = {
     "sound_design_palettes": ("understanding/sound_design_plan.json",),
     "missing_framing": ("understanding/gap_evaluations.json",),
     "optimal_questions": ("understanding/gap_report.json",),
-    "topic_coverage_audit": ("flow_1_master/coverage_audit.json",),
-    "narrative_arc_plan": ("flow_1_master/narrative_plan.json",),
-    "full_master_ranking": ("flow_1_master/selection.json",),
-    "highlight_selection": ("flow_2_highlights/selection.json",),
-    "transitions": ("flow_1_master/transitions.json",),
-    "podcast_sfx_brief": ("flow_1_master/podcast_sfx_brief.json",),
-    "sound_design_plan_flow1": ("understanding/sound_design_plan.json",),
-    "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
-    "edl_narrative_audit": ("flow_1_master/edl_narrative_audit.json",),
+    "delivery_brief_build": ("understanding/delivery_brief.json",),
+    "topic_coverage_audit": ("master/coverage_audit.json",),
+    "narrative_arc_plan": ("master/narrative_plan.json",),
+    "full_master_ranking": ("master/selection.json",),
+    "transitions": ("master/transitions.json",),
+    "podcast_sfx_brief": ("master/podcast_sfx_brief.json",),
+    "sound_design_plan": ("understanding/sound_design_plan.json",),
+    "edl_narrative_audit": ("master/edl_narrative_audit.json",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
-    "sfx_brief": ("flow_2_highlights/sfx_brief.json",),
-    "podcast_show_description": ("flow_3_description/show_description.json",),
 }
-
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 def context_index_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     analysis = (cfg or merged_config()).get("analysis") or {}
     return analysis.get("context_index") or {}
 
-
 def context_index_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(context_index_cfg(cfg).get("enabled", True))
-
 
 def prefer_index_over_legacy(cfg: dict[str, Any] | None = None) -> bool:
     return bool(context_index_cfg(cfg).get("prefer_index_over_legacy_summaries", False))
 
-
 def write_on_accept(cfg: dict[str, Any] | None = None) -> bool:
     return bool(context_index_cfg(cfg).get("write_on_accept", True))
 
-
 def new_entry_id() -> str:
     return str(uuid.uuid4())
-
 
 def deterministic_entry_id(
     *,
@@ -86,7 +76,6 @@ def deterministic_entry_id(
     raw = f"{kind}:{stage_key}:{attempt}:{suffix}"
     digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
     return f"backfill_{digest}"
-
 
 def default_padding_rules() -> dict[str, Any]:
     ctx_cfg = (merged_config().get("analysis") or {}).get("context") or {}
@@ -104,7 +93,6 @@ def default_padding_rules() -> dict[str, Any]:
             "artifact_digest": 12,
         },
     }
-
 
 def migrate_context_index_v1_to_v2(doc: dict[str, Any], run_id: str) -> dict[str, Any]:
     if int(doc.get("schema_version", 1)) >= CONTEXT_INDEX_SCHEMA_VERSION:
@@ -126,7 +114,6 @@ def migrate_context_index_v1_to_v2(doc: dict[str, Any], run_id: str) -> dict[str
     out["meta"]["migrated_at"] = _now()
     return out
 
-
 def _plan_to_dict(plan: Any) -> dict[str, Any]:
     return {
         "task_line": plan.task_line,
@@ -135,7 +122,6 @@ def _plan_to_dict(plan: Any) -> dict[str, Any]:
         "investigation_kinds": sorted(plan.investigation_kinds),
         "max_investigations": plan.max_investigations,
     }
-
 
 def sync_stage_plans(ctx: RunContext, index: dict[str, Any] | None = None) -> dict[str, Any]:
     from interview_mux.context_volley import STAGE_PLANS
@@ -153,7 +139,6 @@ def sync_stage_plans(ctx: RunContext, index: dict[str, Any] | None = None) -> di
     idx["meta"]["plans_schema_version"] = PLANS_SCHEMA_VERSION
     return idx
 
-
 def load_context_index(ctx: RunContext, *, write: bool = True) -> dict[str, Any]:
     from interview_mux.analysis_memory import ensure_analysis_workspace
 
@@ -169,13 +154,11 @@ def load_context_index(ctx: RunContext, *, write: bool = True) -> dict[str, Any]
         save_context_index(ctx, doc)
     return doc
 
-
 def save_context_index(ctx: RunContext, index: dict[str, Any]) -> None:
     index.setdefault("meta", {})
     index["meta"]["last_updated_at"] = _now()
     index["meta"]["entries_count"] = len(index.get("volley_entries") or [])
     ctx.write_json(CONTEXT_INDEX_PATH, index, stage_key="context_index")
-
 
 def _supersede_prior(
     entries: list[dict[str, Any]],
@@ -200,7 +183,6 @@ def _supersede_prior(
             entry["status"] = "superseded"
         if investigation_id and src.get("investigation_id") == investigation_id and kind == "investigation":
             entry["status"] = "superseded"
-
 
 def append_volley_entry(
     ctx: RunContext,
@@ -251,7 +233,6 @@ def append_volley_entry(
     save_context_index(ctx, idx)
     return entry_id
 
-
 def invalidate_entries_for_stages(ctx: RunContext, stage_keys: tuple[str, ...]) -> int:
     if not context_index_enabled():
         return 0
@@ -274,7 +255,6 @@ def invalidate_entries_for_stages(ctx: RunContext, stage_keys: tuple[str, ...]) 
         save_context_index(ctx, idx)
     return count
 
-
 def invalidate_entry(ctx: RunContext, entry_id: str) -> bool:
     idx = load_context_index(ctx, write=False)
     for entry in idx.get("volley_entries") or []:
@@ -283,7 +263,6 @@ def invalidate_entry(ctx: RunContext, entry_id: str) -> bool:
             save_context_index(ctx, idx)
             return True
     return False
-
 
 def update_volley_entry(ctx: RunContext, entry_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
     idx = load_context_index(ctx, write=False)
@@ -302,7 +281,6 @@ def update_volley_entry(ctx: RunContext, entry_id: str, patch: dict[str, Any]) -
         save_context_index(ctx, idx)
         return entry
     return None
-
 
 def link_entries_to_latest_call(
     ctx: RunContext,
@@ -342,7 +320,6 @@ def link_entries_to_latest_call(
     if linked:
         save_context_index(ctx, idx)
     return linked
-
 
 def select_entries_for_stage(
     index: dict[str, Any],
@@ -411,7 +388,6 @@ def select_entries_for_stage(
 
     return selected
 
-
 def apply_padding_budget(
     turns: list[dict[str, str]],
     padding_rules: dict[str, Any],
@@ -444,7 +420,6 @@ def apply_padding_budget(
         trimmed.append(turn)
         used += len(content)
     return trimmed, flags
-
 
 def _entries_to_turns(
     entries: list[dict[str, Any]],
@@ -502,7 +477,6 @@ def _entries_to_turns(
             )
     return turns
 
-
 def resolve_volley_context(
     ctx: RunContext,
     stage_key: str,
@@ -547,7 +521,6 @@ def resolve_volley_context(
         "plan": plan,
     }
 
-
 def append_stage_conclusion(
     ctx: RunContext,
     *,
@@ -580,7 +553,6 @@ def append_stage_conclusion(
         },
     )
 
-
 def append_profile_digest(
     ctx: RunContext,
     *,
@@ -606,7 +578,6 @@ def append_profile_digest(
             "tags": list(profile_keys),
         },
     )
-
 
 def append_investigation_entry(
     ctx: RunContext,
@@ -638,7 +609,6 @@ def append_investigation_entry(
         },
     )
 
-
 def append_shard_summary(
     ctx: RunContext,
     *,
@@ -669,7 +639,6 @@ def append_shard_summary(
         },
     )
 
-
 def append_specialist_finding(
     ctx: RunContext,
     *,
@@ -692,7 +661,6 @@ def append_specialist_finding(
             "tags": [specialist_key, parent_stage],
         },
     )
-
 
 def append_local_framing_entry(
     ctx: RunContext,
@@ -721,7 +689,6 @@ def append_local_framing_entry(
             "tags": ["local_llm", stage_key],
         },
     )
-
 
 def profile_digest_from_memory_updates(
     updates: dict[str, Any] | None,
@@ -752,7 +719,6 @@ def profile_digest_from_memory_updates(
             lines.append(f"Thesis patch: {thesis[:200]}")
     return "\n".join(lines)
 
-
 def sync_investigation_entries_from_queue(ctx: RunContext) -> int:
     from interview_mux.analysis_memory import load_queue
 
@@ -766,7 +732,6 @@ def sync_investigation_entries_from_queue(ctx: RunContext) -> int:
         append_investigation_entry(ctx, investigation=item, created_by_stage=str(item.get("created_by_stage") or ""))
         count += 1
     return count
-
 
 def invalidate_investigation_entry(ctx: RunContext, investigation_id: str) -> None:
     idx = load_context_index(ctx, write=False)

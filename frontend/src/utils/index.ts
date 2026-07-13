@@ -92,7 +92,6 @@ export function nleHasOperatorEdits(nle: Record<string, unknown> | null): boolea
 
 export function mapGateToStage(id: string): string {
   if (id === "transcript_review") return "transcript_review_build";
-  if (id === "g1_vo_pickup" || id === "g2_flow_select") return "optimal_questions";
   return id;
 }
 

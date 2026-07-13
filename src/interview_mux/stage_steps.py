@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from interview_mux.gates import check_disfluency_review_pending, check_g1_vo, get_selected_flow
+from interview_mux.gates import check_g1_vo
 from interview_mux.run_context import RunContext
 from interview_mux.stage_guidance import LLM_HANDOFF_STAGES, STAGE_UNLOCKS
 from interview_mux.web.stages import STAGE_BY_ID
@@ -16,19 +16,16 @@ GATE_STAGES = frozenset(
         "analysis_profile",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
-        "g2_flow_select",
     }
 )
 
 PRECLEAN_STAGE = "audio_preclean"
 
-NLE_EMBED_STAGES = frozenset({"full_master_ranking", "edl_flow1"})
-
-LISTEN_STAGES = frozenset({"assembly_preview", "master_flow1", "master_flow2"})
-
-POST_LISTEN_STAGES = frozenset({"mmaudio_sfx_flow1", "mmaudio_sfx_flow2"})
+NLE_EMBED_STAGES = frozenset({"full_master_ranking", "edl"})
 
 PROMPT_REVIEW_STAGE = "sfx_prompt_craft"
+
+POST_LISTEN_STAGES = frozenset({"mmaudio_sfx"})
 
 STAGE_REVIEW: dict[str, list[str]] = {
     "ingest": [
@@ -81,11 +78,8 @@ STAGE_REVIEW: dict[str, list[str]] = {
         "Listen to assembly_preview.wav — speech and VO are audible",
         "No obvious clipping or silence gaps",
     ],
-    "mix_flow1": ["Listen to assembly.wav — beds and speech are balanced"],
-    "mix_flow2": ["Listen to assembly.wav — montage levels are balanced"],
-    "master_flow1": ["Listen to master.wav — final deliverable sounds correct"],
-    "master_flow2": ["Listen to master.wav — highlight reel sounds correct"],
-    "export_show_description": ["Open show_description.md — copy is ready to publish"],
+    "mix": ["Listen to assembly.wav — beds and speech are balanced"],
+    "master_finalize": ["Listen to master.wav — final deliverable sounds correct"],
 }
 
 STAGE_EMBED: dict[str, str] = {
@@ -96,16 +90,12 @@ STAGE_EMBED: dict[str, str] = {
     "sonic_context_build": "sonic_context",
     "content_brief_reanchor": "coherence_risks",
     "full_master_ranking": "timeline",
-    "edl_flow1": "timeline",
+    "edl": "timeline",
     "assembly_preview": "listen",
-    "mmaudio_sfx_flow1": "post_listen",
-    "mmaudio_sfx_flow2": "post_listen",
-    "mix_flow1": "placement_qa",
-    "mix_flow2": "placement_qa",
-    "master_flow1": "deliverable",
-    "master_flow2": "deliverable",
+    "mmaudio_sfx": "post_listen",
+    "mix": "placement_qa",
+    "master_finalize": "deliverable",
 }
-
 
 def _step(
     step_id: str,
@@ -143,7 +133,6 @@ def _step(
         row["blocking_reason"] = blocking_reason
     return row
 
-
 def _next_stage_title(stage_id: str) -> str:
     unlock = STAGE_UNLOCKS.get(stage_id, "")
     if " — " in unlock:
@@ -153,11 +142,9 @@ def _next_stage_title(stage_id: str) -> str:
     info = STAGE_BY_ID.get(stage_id)
     return info.title if info else stage_id
 
-
 def _prereqs_met(guidance: dict[str, Any]) -> bool:
     prereqs = guidance.get("prerequisites") or []
     return all(p.get("status") != "todo" for p in prereqs)
-
 
 def _job_running_stage(ctx: RunContext, stage_id: str) -> bool:
     if not ctx.artifact_exists("gui_job.json"):
@@ -172,7 +159,6 @@ def _job_running_stage(ctx: RunContext, stage_id: str) -> bool:
     cur = job.get("current_stage") or job.get("stage")
     return str(cur or "") == stage_id
 
-
 def _needs_reuse(ctx: RunContext, stage_id: str) -> bool:
     if not ctx.artifact_exists("gui_job.json"):
         return False
@@ -182,18 +168,19 @@ def _needs_reuse(ctx: RunContext, stage_id: str) -> bool:
         return False
     return bool(job.get("needs_stage_reuse") and job.get("stage") == stage_id)
 
-
 def _needs_write(ctx: RunContext, stage_id: str) -> bool:
     from interview_mux.write_staging import write_approval_allowed
+    from interview_mux.first_try import write_approval_deferred
 
+    # Deferred phase_end: mid-stage write steps are informational only; batch Save handles commit.
+    if write_approval_deferred():
+        return False
     return write_approval_allowed(ctx, stage_id)
-
 
 def _stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
     from interview_mux.write_staging import is_stage_gate_blocked
 
     return is_stage_gate_blocked(ctx, stage_id)
-
 
 def _gate_job_message(ctx: RunContext, stage_id: str) -> str:
     from interview_mux.write_staging import read_gui_job
@@ -202,7 +189,6 @@ def _gate_job_message(ctx: RunContext, stage_id: str) -> str:
     if not job or str(job.get("stage") or "") != stage_id:
         return ""
     return str(job.get("message") or job.get("error") or "")
-
 
 def _latest_resilience_sidecar(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
     base = ctx.path("understanding", "stage_runs", stage_id)
@@ -217,7 +203,6 @@ def _latest_resilience_sidecar(ctx: RunContext, stage_id: str) -> dict[str, Any]
     except Exception:
         return None
     return doc if isinstance(doc, dict) else None
-
 
 def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str], list[str]]:
     from interview_mux.deterministic_lint import lint_remediation_hints
@@ -238,7 +223,6 @@ def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str
     lint = [str(e) for e in (doc.get("deterministic_lint_errors") or [])]
     return lint, lint_remediation_hints(lint)
 
-
 def _needs_handoff(ctx: RunContext, stage_id: str, status: str) -> bool:
     if status != "done":
         return False
@@ -255,7 +239,6 @@ def _needs_handoff(ctx: RunContext, stage_id: str, status: str) -> bool:
     if not info:
         return False
     return any(ctx.artifact_exists(p) for p in info.artifacts if p and not p.endswith("/"))
-
 
 def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, Any]]:
     if stage_id == "transcript_review":
@@ -423,7 +406,7 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 instruction="Mark preview listened after reviewing speech + VO timing.",
                 review=["assembly_preview.wav reflects final order"],
                 kind="gate",
-                status="todo" if ctx.artifact_exists("flow_1_master/assembly_preview.wav") else "locked",
+                status="todo" if ctx.artifact_exists("master/assembly_preview.wav") else "locked",
                 embed="post_listen",
             ),
             _step(
@@ -447,7 +430,6 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 next_hint="Next: Craft MMAudio prompts",
             ),
         ]
-    if stage_id == "g2_flow_select":
         return [
             _step(
                 "review_summary",
@@ -471,7 +453,6 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 "confirm_flow",
                 3,
                 "Confirm selection",
-                instruction="This commits selected_flow in run_meta.json.",
                 primary_button="Confirm output type",
                 kind="gate",
                 status="todo" if status == "action_required" else "done",
@@ -479,7 +460,6 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
             ),
         ]
     return []
-
 
 def _preclean_steps(ctx: RunContext, status: str) -> list[dict[str, Any]]:
     from interview_mux.operator_quality import preclean_checkpoint_decision
@@ -588,7 +568,6 @@ def _preclean_steps(ctx: RunContext, status: str) -> list[dict[str, Any]]:
 
     return steps
 
-
 def _locked_steps(stage_id: str, guidance: dict[str, Any]) -> list[dict[str, Any]]:
     blocking = next(
         (p for p in (guidance.get("prerequisites") or []) if p.get("status") == "todo"),
@@ -609,7 +588,6 @@ def _locked_steps(stage_id: str, guidance: dict[str, Any]) -> list[dict[str, Any
         )
     ]
 
-
 def _done_steps(stage_id: str) -> list[dict[str, Any]]:
     info = STAGE_BY_ID.get(stage_id)
     title = info.title if info else stage_id
@@ -627,7 +605,6 @@ def _done_steps(stage_id: str) -> list[dict[str, Any]]:
             status="done",
         )
     ]
-
 
 def _automated_steps(
     ctx: RunContext,
@@ -988,7 +965,6 @@ def _automated_steps(
 
     return steps
 
-
 def build_stage_steps(
     ctx: RunContext,
     stage_id: str,
@@ -1048,7 +1024,6 @@ def build_stage_steps(
             return _done_steps(stage_id)
 
     return _automated_steps(ctx, stage_id, status, guidance)
-
 
 def attach_steps_to_guidance(
     ctx: RunContext,

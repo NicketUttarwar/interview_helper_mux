@@ -27,7 +27,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 def test_nle_apply_stages_trim_only(ctx: RunContext) -> None:
     runner = JobRunner()
     stages = runner._nle_apply_stages(ctx, full_refresh=False)
-    assert stages == ["edl_flow1", "assembly_preview"]
+    assert stages == ["edl", "assembly_preview"]
 
 
 def test_nle_apply_stages_structural(ctx: RunContext) -> None:
@@ -41,7 +41,7 @@ def test_nle_apply_stages_structural(ctx: RunContext) -> None:
     runner = JobRunner()
     stages = runner._nle_apply_stages(ctx, full_refresh=False)
     assert "full_master_ranking" in stages
-    assert stages[-2:] == ["edl_flow1", "assembly_preview"]
+    assert stages[-2:] == ["edl", "assembly_preview"]
 
 
 def test_nle_apply_stages_empty_without_edits(ctx: RunContext) -> None:
@@ -60,7 +60,7 @@ def test_nle_apply_stages_trim_only_mode_skips_ranking(ctx: RunContext) -> None:
     )
     runner = JobRunner()
     stages = runner._nle_apply_stages(ctx, full_refresh=False, apply_mode="trim_only")
-    assert stages == ["edl_flow1", "assembly_preview"]
+    assert stages == ["edl", "assembly_preview"]
     assert "full_master_ranking" not in stages
 
 

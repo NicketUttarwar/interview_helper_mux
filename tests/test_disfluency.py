@@ -11,7 +11,7 @@ from interview_mux.disfluency.gaps import build_gap_candidates
 from interview_mux.disfluency.restore import build_restore_plan, split_speech_with_disfluencies
 from interview_mux.gates import check_disfluency_review_pending, require_disfluency_review_clear
 from interview_mux.run_context import RunContext
-from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from interview_mux.stages.assembly import build_flow1_edl
 from interview_mux.stages.disfluency import (
     mark_disfluency_review_complete,
     maybe_auto_complete_review,

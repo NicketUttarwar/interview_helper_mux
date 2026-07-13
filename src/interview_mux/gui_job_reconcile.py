@@ -375,9 +375,30 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
 def pause_job_for_write_approval(ctx: RunContext, exc: Any) -> None:
     """Persist awaiting_write_approval gui_job from an isolated stage worker."""
     from interview_mux.write_staging import WriteApprovalPending
+    from interview_mux.first_try import write_approval_deferred
 
     if not isinstance(exc, WriteApprovalPending):
         raise TypeError("expected WriteApprovalPending")
+    if write_approval_deferred():
+        # Keep job running-complete; deferred staging must not stall every stage.
+        ctx.write_json(
+            "gui_job.json",
+            {
+                "status": "complete",
+                "mode": "stage",
+                "stage": exc.stage_id,
+                "current_stage": exc.stage_id,
+                "message": (
+                    f"Staged {len(exc.paths)} file(s) for {exc.stage_id} "
+                    "(write approval deferred until phase-end batch Save)."
+                ),
+                "pending_write_stage": exc.stage_id,
+                "pending_write_paths": exc.paths,
+                "awaiting_write_approval": False,
+                "write_approval_deferred": True,
+            },
+        )
+        return
     ctx.write_json(
         "gui_job.json",
         {

@@ -1,30 +1,9 @@
-import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { useLiveStatus } from "../../hooks/useLiveStatus";
 import { formatBytes } from "../../utils";
 import { InfoTooltip } from "../InfoTooltip";
 import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
 import { ActionMarker } from "../guidance/ActionMarker";
-
-type FlowIntent = "flow1" | "flow2" | "flow3";
-
-const INTENT_CARDS: { id: FlowIntent; title: string; tooltip: string }[] = [
-  {
-    id: "flow1",
-    title: "Full podcast",
-    tooltip: "Complete episode with VO bridges, sound design, and mastered WAV.",
-  },
-  {
-    id: "flow2",
-    title: "Highlights",
-    tooltip: "Up to five clips with montage SFX (~60s–3min mastered WAV).",
-  },
-  {
-    id: "flow3",
-    title: "Description",
-    tooltip: "Third-person show blurb for directories — no audio output.",
-  },
-];
 
 export function StartTab() {
   const {
@@ -33,7 +12,6 @@ export function StartTab() {
     setSelectedAsset,
     refreshHome,
     startRun,
-    config,
     run,
     runId,
     setActiveTab,
@@ -57,8 +35,6 @@ export function StartTab() {
     setActiveSubstepId,
     actionBusy,
   } = useApp();
-  const [flowIntent, setFlowIntent] = useState<FlowIntent>("flow1");
-  const intentEnabled = config?.journey_ui?.intent_at_start !== false;
   const sessionLocked = Boolean(runId);
 
   const live = useLiveStatus(run, {
@@ -134,6 +110,20 @@ export function StartTab() {
             <strong>{live.headline}</strong>
             {live.subline ? <> — {live.subline}</> : null}
           </p>
+          {run.journey?.source_readiness?.band ? (
+            <p className="hint" data-testid="source-readiness-banner">
+              Source readiness:{" "}
+              <strong className={`readiness-band readiness-band--${run.journey.source_readiness.band}`}>
+                {run.journey.source_readiness.band}
+              </strong>
+              {typeof run.journey.source_readiness.score === "number"
+                ? ` (${run.journey.source_readiness.score.toFixed(2)})`
+                : ""}
+              {(run.journey.source_readiness.reasons || []).length
+                ? ` — ${(run.journey.source_readiness.reasons || []).slice(0, 2).join("; ")}`
+                : ""}
+            </p>
+          ) : null}
         </section>
         <section className="panel panel-compact source-locked-panel">
           <h3>
@@ -182,29 +172,6 @@ export function StartTab() {
         </h2>
       </section>
       <StartPhaseGuidance />
-      {intentEnabled ? (
-        <section className="panel panel-compact">
-          <h3>
-            Output type
-            <InfoTooltip text="You can change this later at Record & choose (G2)." />
-          </h3>
-          <div className="flow-intent-cards">
-            {INTENT_CARDS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`flow-intent-card${flowIntent === c.id ? " selected" : ""}`}
-                data-testid={`flow-intent-${c.id}`}
-                title={c.tooltip}
-                onClick={() => setFlowIntent(c.id)}
-              >
-                <strong>{c.title}</strong>
-                <InfoTooltip text={c.tooltip} label={`About ${c.title}`} />
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
       <section
         className="panel panel-compact"
         data-testid="start-tab-ready"
@@ -252,7 +219,7 @@ export function StartTab() {
                   disabled={!sessionReady || openRunLoading}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void startRun(f.path, intentEnabled ? flowIntent : undefined);
+                    void startRun(f.path);
                   }}
                 >
                   <ActionMarker status="todo" /> Start

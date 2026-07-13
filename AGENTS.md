@@ -14,6 +14,7 @@
 7. [docs/build-out/stage-registry.md](docs/build-out/stage-registry.md) — stage id ↔ module ↔ artifacts
 8. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md) — **operator** happy path (Prepare → Ship; journey kernel)
 8a. [docs/workflows/full-autopilot-operator-model.md](docs/workflows/full-autopilot-operator-model.md) — **full autopilot** default UX (Run → decisions wizard → Review → Save; Fix all is legacy only)
+8a2. [docs/workflows/first-try-reliability.md](docs/workflows/first-try-reliability.md) — **first-try** cold-start friction collapse (batch Save, G0/G1 shortcuts, SFX soft-fail)
 8b. [docs/workflows/operator-flow-audit.md](docs/workflows/operator-flow-audit.md) — full GUI tab/modal flow map + resolved UX issues
 9. [docs/build-out/full-application-flow.md](docs/build-out/full-application-flow.md) — end-to-end system + CLI journey
 10. [docs/build-out/repository-map.md](docs/build-out/repository-map.md) — repo layout ↔ code ↔ docs

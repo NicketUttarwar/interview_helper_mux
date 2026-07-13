@@ -24,8 +24,7 @@ from interview_mux.run_context import RunContext
 _SOUND_LLM_STAGES = frozenset(
     {
         "sound_design_palettes",
-        "sound_design_plan_flow1",
-        "sound_design_plan_flow2",
+        "sound_design_plan",
         "sfx_prompt_craft",
         "sfx_prompt_refine",
         "edl_narrative_audit",
@@ -33,7 +32,6 @@ _SOUND_LLM_STAGES = frozenset(
         "sfx_brief",
     }
 )
-
 
 def _sonic_context_hash(run_dir: Path) -> str:
     path = run_dir / "understanding" / "sonic_context.json"
@@ -46,7 +44,6 @@ def _sonic_context_hash(run_dir: Path) -> str:
     if isinstance(doc, dict) and doc.get("sonic_context_hash"):
         return str(doc["sonic_context_hash"])
     return ""
-
 
 def _record_markdown_with_sonic_hash(
     record: dict[str, Any],
@@ -61,7 +58,6 @@ def _record_markdown_with_sonic_hash(
         lines.insert(2, f"- **sonic_context_hash:** `{sonic_hash}`")
         return "\n".join(lines) + ("\n" if md.endswith("\n") else "")
     return f"- **sonic_context_hash:** `{sonic_hash}`\n\n{md}"
-
 
 def _stage_run_audit_appendix(run_dir: Path, stage_filter: str | None) -> str:
     """Summarize arbiter verdicts and deterministic lint from stage_runs attempts."""
@@ -96,13 +92,11 @@ def _stage_run_audit_appendix(run_dir: Path, stage_filter: str | None) -> str:
                 break
     return "\n".join(lines) if count else ""
 
-
 def _resolve_run_dir(run_id: str) -> Path:
     ctx = RunContext(run_id, create=False)
     if not ctx.run_dir.is_dir():
         raise SystemExit(f"Run not found: {run_id}")
     return ctx.run_dir
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -157,7 +151,6 @@ def main() -> None:
         print(f"Wrote {len(records)} record(s) to {args.output}")
     else:
         print(out)
-
 
 if __name__ == "__main__":
     main()

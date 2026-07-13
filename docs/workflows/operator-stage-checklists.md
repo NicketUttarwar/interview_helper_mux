@@ -37,7 +37,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **E2E selectors:** prefer `step-action-primary` → modal panel buttons → sidebar substeps ([02-GUI-JOURNEY.md](../../CURSOR_EXECUTE/flow1-gui-e2e/02-GUI-JOURNEY.md)).
 
-**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_flow1`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
+**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_delivery`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
 
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
@@ -49,7 +49,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Flow hardening (preflight):** [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening) — deterministic prerequisites before flagship OpenAI calls.
 
-**Cross-artifact checkpoints (after stage run):** `post_segmentation` (segment_classification) · `post_reanchor` (content_brief_reanchor) · `post_gaps` (optimal_questions) · `pre_flow1` (full_master_ranking). GUI shows checkpoint name in stage guidance when hardening is enabled.
+**Cross-artifact checkpoints (after stage run):** `post_segmentation` (segment_classification) · `post_reanchor` (content_brief_reanchor) · `post_gaps` (missing_framing) · `post_optimal_questions` · `post_delivery_brief` · `post_narrative` · `post_ranking` · `post_sound_plan` · `pre_delivery` (analysis complete). GUI shows checkpoint name in stage guidance when hardening is enabled.
 
 **Toolchain:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) — venv from `requirements.lock`, `check_prerequisites.sh` + `pip-audit`.
 
@@ -132,14 +132,14 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Stage | Pass | If fail |
 |-------|------|--------|
 | `sound_design_palettes` | Palettes grounded to manifest `segment_id`s; `coherence.sonic_identity` set | `--from-stage sound_design_palettes`; fix orphan palette segments |
-| `sound_design_plan_flow1` | SDP `assets[]` ≤ cap; flow1 cues reference `selection` ids | `--from-stage sound_design_plan_flow1` |
-| `sound_design_plan_flow2` | flow2 cues match highlight ranks; asset cap | `--from-stage sound_design_plan_flow2` |
+| `sound_design_plan` | SDP `assets[]` ≤ cap; flow1 cues reference `selection` ids | `--from-stage sound_design_plan` |
+| `REMOVED_sdp_flow2` | flow2 cues match highlight ranks; asset cap | `--from-stage REMOVED_sdp_flow2` |
 | `full_master_ranking` | Ordered ids ⊆ manifest; chapter membership valid | `--from-stage full_master_ranking` |
 | `transitions` | Transition targets valid; no fuzzy duplicate of `gap_report` VO | `--from-stage transitions` |
-| `edl_narrative_audit` | `verdict` not `fail` before `edl_flow1` | Re-run ranking/transitions/audit per recommendations |
+| `edl_narrative_audit` | `verdict` not `fail` before `edl` | Re-run ranking/transitions/audit per recommendations |
 | `sfx_prompt_craft` | SDP `assets[]` non-empty; `sfx_prompts.json` on disk (**pre-spend hard**) | Complete plan stages; approve G1.5 when enabled |
-| `mmaudio_sfx_flow1` / `_flow2` | One WAV per `asset_id` before mix (**pre-mix hard**) | Re-run craft + SFX; check `sound_design/assets/` |
-| `mix_flow1` / `mix_flow2` | Spend gate satisfied; optional `placement_adjustments.json` reviewed | Listen preview first; fix SDP levels — [post-generation-placement.md](../cross-cutting/post-generation-placement.md) |
+| `mmaudio_sfx` / `_flow2` | One WAV per `asset_id` before mix (**pre-mix hard**) | Re-run craft + SFX; check `sound_design/assets/` |
+| `mix` / `REMOVED_mix_flow2` | Spend gate satisfied; optional `placement_adjustments.json` reviewed | Listen preview first; fix SDP levels — [post-generation-placement.md](../cross-cutting/post-generation-placement.md) |
 
 ---
 
@@ -157,6 +157,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `value_features.json` | Trust-dip flags optional; `quality_trajectory_flags` when WAV present | `extract_value_features.py` or auto-extract after `content_context` |
 | `missing_framing` | Pre-stage `comprehension_risk_blind` fail-open; risks in volley when present | Re-run `--from-stage missing_framing` |
 | `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
+| `delivery_brief_build` | `understanding/delivery_brief.json` has duration + question + chapter budgets | `--from-stage delivery_brief_build`; edit overrides on Story board |
 | Flow LLM stages | Analysis-ready artifacts all `complete` | Finish analysis; **Fill gaps** |
 
 **Note:** `gap_report.json` with `"interviewer_lines": []` is valid when no VO lines are needed — the report is still `complete`.
@@ -218,7 +219,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 ## Profile gate — Flow 1 extended (BUILD-081)
 
-**When:** `run_meta.json` has `selected_flow: flow1` and the next run would execute `topic_coverage_audit`. **Not blocking** for Flow 2 or Flow 3 (Flow 3 logs a warning only).
+**When:** `run_meta.json` has `REMOVED_selected_flow: flow1` and the next run would execute `topic_coverage_audit`. **Not blocking** for Flow 2 or Flow 3 (Flow 3 logs a warning only).
 
 | Check | Pass | If fail |
 |-------|------|--------|
@@ -261,8 +262,8 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `run_meta.json` | `selected_flow` is `flow1`, `flow2`, or `flow3`; `selected_at` set | GUI G2 (**Use planned choice** if `flow_intent` set) or `python tools/run_flow.py --flow flow1` — [operator-gates.md](./operator-gates.md#g2--flow-selection) |
-| Flow match intent | `flow1` → expect `flow_1_master/`; `flow2` → `flow_2_highlights/`; `flow3` → `flow_3_description/` only (no audio) | Re-select G2; see [artifact-layout](../cross-cutting/artifact-layout.md) |
+| `run_meta.json` | `REMOVED_selected_flow` is `flow1`, `flow2`, or `flow3`; `selected_at` set | GUI G2 (**Use planned choice** if `REMOVED_flow_intent` set) or `python tools/run_delivery.py --flow flow1` — [operator-gates.md](./operator-gates.md#g2--flow-selection) |
+| Flow match intent | `flow1` → expect `master/`; `flow2` → `REMOVED_flow2/`; `flow3` → `show_notes/` only (no audio) | Re-select G2; see [artifact-layout](../cross-cutting/artifact-layout.md) |
 
 ---
 
@@ -273,7 +274,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Smart actions | Use **Remove tangents**, **Tighten all pauses**, or **Review flagged** before hand-trimming every segment | Open **Review queue** for step-through |
 | QC checklist | Resolve VO/chapter conflicts shown in timeline QC before Apply | **Jump** to segment → **Restore** or adjust trim |
 | Apply mode | **Trims only** when only in/out edits changed; **Structural** when excluding/reordering; **Full narrative refresh** when transitions may be stale | Re-apply with correct `nle_apply_mode` — [api-reference.md](./api-reference.md) |
-| Assembly preview | After Apply, listen in **Assembly** view; compare before/after preview players when present | Re-run `edl_flow1` + `assembly_preview` via Apply |
+| Assembly preview | After Apply, listen in **Assembly** view; compare before/after preview players when present | Re-run `edl` + `assembly_preview` via Apply |
 | Undo | Use **Edit history** or **Undo** if a batch preset over-trimmed | Restore prior `nle_edits.json` state from history panel |
 
 ---
@@ -283,33 +284,33 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Check | Pass | If fail |
 |-------|------|--------|
 | **Profile gate** | See [Profile gate](#profile-gate--flow-1-extended-build-081) before `topic_coverage_audit` | — |
-| `topic_coverage_audit` | `flow_1_master/coverage_audit.json`; `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix `segments/manifest.json` / profile topics — [artifact-layout](../cross-cutting/artifact-layout.md#flow-1--flow_1_master) |
-| `narrative_arc_plan` | `flow_1_master/narrative_plan.json`; chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
-| `full_master_ranking` | `flow_1_master/selection.json`; `ordered_segment_ids` unique; constraints satisfied; after NLE **Save timeline**, re-run so `nle_edits.json` merges (`nle_applied` when overrides present) | `--from-stage full_master_ranking` |
+| `topic_coverage_audit` | `master/coverage_audit.json`; `coverage_score` sane; `missing_coverage` empty or triaged | `--from-stage topic_coverage_audit`; fix `segments/manifest.json` / profile topics — [artifact-layout](../cross-cutting/artifact-layout.md#flow-1--master) |
+| `narrative_arc_plan` | `master/narrative_plan.json`; chapters + `ordering_constraints` achievable | `--from-stage narrative_arc_plan` |
+| `full_master_ranking` | `master/selection.json`; `ordered_segment_ids` unique; constraints satisfied; after NLE **Save timeline**, re-run so `nle_edits.json` merges (`nle_applied` when overrides present) | `--from-stage full_master_ranking` |
 | `validate_narrative.py` | Exits 0; every brief topic mapped or documented exclude; no empty selection chapters | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md); `--require-selection` before EDL |
-| `transitions` | `flow_1_master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
-| `sound_design_plan_flow1` | G2 `selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.flow1.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan_flow1`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
-| `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl_flow1` |
-| `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
-| `edl_flow1` | `flow_1_master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl_flow1`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
-| `assembly_preview` | `flow_1_master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before MMAudio SFX generation |
-| `mix_flow1` | `flow_1_master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix_flow1`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
-| `podcast_sfx_brief` | v1 legacy only (not in default `FLOW1_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
+| `transitions` | `master/transitions.json`; no duplicate gap VO; short lines | `--from-stage transitions` |
+| `sound_design_plan` | G2 `REMOVED_selected_flow` is `flow1`; SDP has `assets[]` (3–6 unique `asset_id`s) and `flow_plans.podcast.cues[]`; every cue `asset_id` appears in `assets[]`; chapter stinger reused across chapters | `--from-stage sound_design_plan`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-1-plan) |
+| `sound_design_vo_finalize` | VO bridge cues have `measured_duration_ms` matching `vo_pickup/{line_id}.wav`; skipped cues logged when pickup missing | `--from-stage sound_design_vo_finalize` after G1 pickups; fix filenames before `edl` |
+| `edl_narrative_audit` | `master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
+| `edl` | `master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
+| `assembly_preview` | `master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before MMAudio SFX generation |
+| `mix` | `master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
+| `podcast_sfx_brief` | v1 legacy only (not in default `DELIVERY_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
 
 ---
 
 ## MMAudio SFX + DeepFilterNet preclean
 
-**Canonical guide:** [local-audio-stack.md](../cross-cutting/local-audio-stack.md). Default path: SDP `assets[]` → `sound_design/assets/{asset_id}.wav` → `mix_flow1` / `mix_flow2`. Legacy v1: per-cue `sfx/*.wav` and `podcast_sfx_brief` / `sfx_brief` (single-stage rerun only).
+**Canonical guide:** [local-audio-stack.md](../cross-cutting/local-audio-stack.md). Default path: SDP `assets[]` → `sound_design/assets/{asset_id}.wav` → `mix` / `REMOVED_mix_flow2`. Legacy v1: per-cue `sfx/*.wav` and `podcast_sfx_brief` / `sfx_brief` (single-stage rerun only).
 
 ### Pre-spend (before any generation API call)
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| Flow selected | G2 done; `run_meta.selected_flow` set | Complete G2 |
+| Flow selected | G2 done; `run_meta.REMOVED_selected_flow` set | Complete G2 |
 | Preview first | `assembly_preview.wav` listened before SFX spend | `--from-stage assembly_preview`; fix EDL / VO before craft |
-| Plan exists | Flow 1: SDP `flow_plans.flow1` + `assets[]` (`sound_design_plan_flow1`); Flow 2: SDP `flow_plans.flow2` or v1 `sfx_brief.json`; craft follows plan | Re-run `sound_design_plan_flow1` / `_flow2` or v1 brief stages |
+| Plan exists | Flow 1: SDP `flow_plans.podcast` + `assets[]` (`sound_design_plan`); Flow 2: SDP `REMOVED_flow_plans_flow2` or v1 `sfx_brief.json`; craft follows plan | Re-run `sound_design_plan` / `_flow2` or v1 brief stages |
 | **G1.5** (shipped; if `g1_5_require_prompt_approval`) | Operator approved `sfx_prompts.json` in GUI | Edit prompts; approve in GUI — [operator-gates.md](./operator-gates.md) |
 | Craft quality | No vocals/lyrics in prompts; durations match role bands | [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md); regression: [sfx-prompt-regression.md](../prompts/_shared/examples/sfx-prompt-regression.md) |
 | Post-listen regression | Golden fixtures pass must-not-hear | [influence tuning](../cross-cutting/local-audio-stack.md); GUI **Pass** on craft/SFX panel or log `sfx_post_listen_pass` |
@@ -362,23 +363,23 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| Artifacts | No accidental mixing of `flow_1_master/`, `flow_2_highlights/`, and `flow_3_description/` in one logical export | Use clean run or clear flow-specific dir per [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
-| `run_meta.json` | `selected_flow` matches the flow you are about to export | Fix before `run_flow.py` |
+| Artifacts | No accidental mixing of `master/`, `REMOVED_flow2/`, and `show_notes/` in one logical export | Use clean run or clear flow-specific dir per [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
+| `run_meta.json` | `REMOVED_selected_flow` matches the flow you are about to export | Fix before `run_flow.py` |
 
 ---
 
 ## Flow 3 — show description
 
-**Artifacts:** `flow_3_description/` — [artifact-layout](../cross-cutting/artifact-layout.md#flow-3--flow_3_description). **After G2** with `selected_flow: flow3`. Shared analysis complete; no Flow 1 ranking or Flow 2 highlights required.
+**Artifacts:** `show_notes/` — [artifact-layout](../cross-cutting/artifact-layout.md#flow-3--flow_3_description). **After G2** with `REMOVED_selected_flow: flow3`. Shared analysis complete; no Flow 1 ranking or Flow 2 highlights required.
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| G2 | `run_meta.json` → `selected_flow: flow3` | Complete [G2](#g2--flow-pick); `python tools/run_flow.py --flow flow3` |
+| G2 | `run_meta.json` → `REMOVED_selected_flow: flow3` | Complete [G2](#g2--flow-pick); `python tools/run_delivery.py --flow flow3` |
 | Profile (recommended) | `understanding/analysis_state.json` → `meta.operator_verified: true`, or you accept the unverified warning in `gui_log.jsonl` | [Profile gate](#profile-gate--flow-1-extended-build-081) (warn-only for Flow 3) |
-| `podcast_show_description` | `flow_3_description/show_description.json` exists; `word_count` 150–250; third person in `description_markdown` | `--from-stage podcast_show_description`; edit profile / `understanding/content_brief.json` |
+| `REMOVED_podcast_show_description` | `show_notes/show_description.json` exists; `word_count` 150–250; third person in `description_markdown` | `--from-stage REMOVED_podcast_show_description`; edit profile / `understanding/content_brief.json` |
 | Evidence | `evidence_segment_ids` populated; claims traceable to brief / manifest | Re-run `content_brief_reanchor` or fix brief |
-| `export_show_description` | `flow_3_description/show_description.md` exists; plain text (no `**` / `*` left from markdown strip) | `--from-stage export_show_description` after JSON stage |
-| No audio | No `master.wav` or `assembly.wav` under `flow_3_description/` | Select flow1/flow2 for audio deliverables — [publishing](../pipeline/publishing/README.md) |
+| `REMOVED_export_show_description` | `show_notes/show_description.md` exists; plain text (no `**` / `*` left from markdown strip) | `--from-stage REMOVED_export_show_description` after JSON stage |
+| No audio | No `master.wav` or `assembly.wav` under `show_notes/` | Select flow1/flow2 for audio deliverables — [publishing](../pipeline/publishing/README.md) |
 
 ---
 
@@ -390,7 +391,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [MMAudio pre-generation](#mmaudio-sfx--preclean) |
 | Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [local-audio-stack.md](../cross-cutting/local-audio-stack.md) · `sound_design/placement_adjustments.json` |
-| Mix path | `mix_flow1` / `mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix_flow1` or `mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
+| Mix path | `mix` / `REMOVED_mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix` or `REMOVED_mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
 
 ---
 
@@ -398,9 +399,9 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| `selection.json` | ≤5 clips; non-overlapping `start_ms`/`end_ms` | `--from-stage highlight_selection` |
+| `selection.json` | ≤5 clips; non-overlapping `start_ms`/`end_ms` | `--from-stage REMOVED_highlight_selection` |
 | Self-contained | Each clip or ≤8s setup VO per spec | Edit selection or gap VO |
-| `sound_design_plan_flow2` | G2 `selected_flow` is `flow2`; SDP has `assets[]` (2–4 unique `asset_id`s) and `flow_plans.flow2.cues[]`; every cue `asset_id` appears in `assets[]`; one `transition_stinger` reused for all `between_clips` | `--from-stage sound_design_plan_flow2`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-2-plan) |
+| `REMOVED_sdp_flow2` | G2 `REMOVED_selected_flow` is `flow2`; SDP has `assets[]` (2–4 unique `asset_id`s) and `REMOVED_flow_plans_flow2.cues[]`; every cue `asset_id` appears in `assets[]`; one `transition_stinger` reused for all `between_clips` | `--from-stage REMOVED_sdp_flow2`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-2-plan) |
 | `sfx_brief.json` | v1 montage brief (optional if SDP flow2 plan used) | `--from-stage sfx_brief` |
 
 ---
@@ -411,24 +412,24 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 
 | Stage panel | GUI card | `qc_summaries` key | Source |
 |-------------|----------|-------------------|--------|
-| `full_master_ranking`, `edl_flow1`, `edl_narrative_audit` | Yes | `narrative_qc` / audit card | `gates.check_narrative_qc`, `edl_narrative_audit` |
-| `podcast_show_description` | Yes | `show_description_qc` | `gates.check_show_description_qc` |
+| `full_master_ranking`, `edl`, `edl_narrative_audit` | Yes | `narrative_qc` / audit card | `gates.check_narrative_qc`, `edl_narrative_audit` |
+| `REMOVED_podcast_show_description` | Yes | `show_notes_qc` | `gates.check_show_notes_qc` |
 
 **Log-only summaries** (inspect `run_meta.json` or `gui_log.jsonl`):
 
 | Key | Written at | Source |
 |-----|------------|--------|
-| `edl_qc` | `edl_flow1`, `mix_flow1` | `gates.check_edl_qc` |
-| `mix_intelligibility` | `mix_flow1`, `mix_flow2` | `master_qc.maybe_check_mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
+| `edl_qc` | `edl`, `mix` | `gates.check_edl_qc` |
+| `mix_intelligibility` | `mix`, `REMOVED_mix_flow2` | `master_qc.maybe_check_mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
 
 ### Strict-gate recovery
 
 | Key | If fail (strict) |
 |-----|------------------|
 | `narrative_qc` | Fix `coverage_audit.json` / `selection.json`; `python tools/validate_narrative.py --run-id <id>`; or `narrative_qc.strict: false` |
-| `edl_qc` | Fix `flow_1_master/edl.json`; `python tools/validate_edl.py --run-id <id>`; `--from-stage edl_flow1`; or `edl_qc.strict: false` |
-| `edl_narrative_qc` | Fix coverage/order/transition/gap placement issue; `python tools/validate_narrative.py --run-id <id> --include-edl`; re-run `edl_narrative_audit` or `edl_flow1`; or `edl_narrative_qc.strict: false` |
-| `show_description_qc` | Fix JSON evidence / word count; re-run stage; or `show_description_qc.strict: false` |
+| `edl_qc` | Fix `master/edl.json`; `python tools/validate_edl.py --run-id <id>`; `--from-stage edl`; or `edl_qc.strict: false` |
+| `edl_narrative_qc` | Fix coverage/order/transition/gap placement issue; `python tools/validate_narrative.py --run-id <id> --include-edl`; re-run `edl_narrative_audit` or `edl`; or `edl_narrative_qc.strict: false` |
+| `show_notes_qc` | Fix JSON evidence / word count; re-run stage; or `show_notes_qc.strict: false` |
 | `mix_intelligibility` | Lower bed levels / increase duck; re-run mix; or disable `mix.intelligibility_qc.enabled` |
 
 **General:** Read error lists on the card or in `gui_log.jsonl` (`*_qc_fail` details). Fix artifacts, then `--from-stage <stage>`. With `nle_edits.strict: true`, fix `segments/nle_edits.json` before re-running ranking or EDL.

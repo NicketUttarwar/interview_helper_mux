@@ -34,7 +34,7 @@ Speech montage and clip joins use equal-power crossfade via `append_with_crossfa
 
 | Flow | Config key | Default | When applied |
 |------|------------|---------|--------------|
-| Flow 1 speech | `mix_engine.crossfade_ms_flow1` | **100 ms** | EDL segment joins in `mix_flow1` |
+| Flow 1 speech | `mix_engine.crossfade_ms_flow1` | **100 ms** | EDL segment joins in `mix` |
 | Flow 2 montage | `mix_engine.crossfade_ms_flow2` | **120 ms** | Highlight clip joins |
 | Assembly preview | `mix_engine.crossfade_ms_assembly_preview` | **80 ms** | Speech + VO only preview |
 | Disfluency restore | `disfluency_restore.crossfade_ms` | **30 ms** | Spliced filler clips |
@@ -78,15 +78,15 @@ Log line when applied: `placement_qa: applied level to N cue(s), crossfade to M 
 
 ## Laughter window nudge (H-F1S-02)
 
-When `understanding/value_features.json` includes laughter windows (from `quality_trajectory_flags` labels containing `laugh` or `audio.laughter_windows`), `mix_flow1` nudges chapter stingers away from those windows via `_nudge_away_from_laughter()` in `sound_design.py`.
+When `understanding/value_features.json` includes laughter windows (from `quality_trajectory_flags` labels containing `laugh` or `audio.laughter_windows`), `mix` nudges chapter stingers away from those windows via `_nudge_away_from_laughter()` in `sound_design.py`.
 
 | Condition | Behavior |
 |-----------|----------|
 | `laughter_windows` empty or missing | Placement unchanged; no error (fail-open) |
-| Stinger pause-tail overlaps laughter ±200 ms | Nudge ±200/400/600 ms; log `mix_flow1: stinger_aligned pause_tail` |
+| Stinger pause-tail overlaps laughter ±200 ms | Nudge ±200/400/600 ms; log `mix: stinger_aligned pause_tail` |
 | All nudge candidates blocked | Returns `None`; mixer keeps cue plan position |
 
-Recovery: update value features or transcript, then `--from-stage mix_flow1`. See [troubleshooting.md](../workflows/troubleshooting.md) § Audio / mix.
+Recovery: update value features or transcript, then `--from-stage mix`. See [troubleshooting.md](../workflows/troubleshooting.md) § Audio / mix.
 
 ### Adaptive bed level (`mix.adaptive_level_from_sap`)
 
@@ -102,7 +102,7 @@ Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech
 
 ### Scenario crossfade override (`mix_policy.crossfade_ms_flow2`)
 
-`sonic_context.compute_mix_policy()` may set per-atlas `crossfade_ms_flow2` (e.g. `media_profile`: 80 ms, `fireside`: 180 ms). `mix_flow2()` prefers this over `mix_engine.crossfade_ms_flow2` when present; Flow 1 speech joins still use `mix_engine.crossfade_ms_flow1` unless cue-level `crossfade_ms` is set by placement QA.
+`sonic_context.compute_mix_policy()` may set per-atlas `crossfade_ms_flow2` (e.g. `media_profile`: 80 ms, `fireside`: 180 ms). `REMOVED_mix_flow2()` prefers this over `mix_engine.crossfade_ms_flow2` when present; Flow 1 speech joins still use `mix_engine.crossfade_ms_flow1` unless cue-level `crossfade_ms` is set by placement QA.
 
 ---
 
@@ -170,7 +170,7 @@ After position resolve:
 
 | Check | Pass | Fail action |
 |-------|------|-------------|
-| Stinger onset ≥ min_pause after last word | `mix_flow1: stinger_aligned pause_tail` log | Reposition; if no pause, shift +50 ms after segment end |
+| Stinger onset ≥ min_pause after last word | `mix: stinger_aligned pause_tail` log | Reposition; if no pause, shift +50 ms after segment end |
 | Overlap excluded window (disfluency restore) | Skip cue | — |
 | Stinger cap | Within `cap * timeline_minutes` | Drop cue; warn |
 

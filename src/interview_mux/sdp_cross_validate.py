@@ -24,22 +24,11 @@ def _manifest_ids(ctx: RunContext) -> set[str]:
     return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
 
 
-def _selection_ids_flow1(ctx: RunContext) -> set[str]:
-    if not ctx.artifact_exists("flow_1_master/selection.json"):
+def _selection_ids(ctx: RunContext) -> set[str]:
+    if not ctx.artifact_exists("master/selection.json"):
         return set()
-    sel = ctx.read_json("flow_1_master/selection.json")
+    sel = ctx.read_json("master/selection.json")
     return {str(x) for x in (sel.get("ordered_segment_ids") or [])}
-
-
-def _highlight_ranks_flow2(ctx: RunContext) -> set[int]:
-    if not ctx.artifact_exists("flow_2_highlights/selection.json"):
-        return set()
-    sel = ctx.read_json("flow_2_highlights/selection.json")
-    ranks: set[int] = set()
-    for clip in sel.get("clips") or sel.get("highlights") or []:
-        if isinstance(clip, dict) and clip.get("rank") is not None:
-            ranks.add(int(clip["rank"]))
-    return ranks
 
 
 def validate_post_sound_palettes(ctx: RunContext) -> list[str]:
@@ -61,21 +50,41 @@ def validate_post_sound_palettes(ctx: RunContext) -> list[str]:
     return errors
 
 
-def validate_post_sound_plan_flow1(ctx: RunContext) -> list[str]:
+def validate_post_sound_plan(ctx: RunContext) -> list[str]:
+    """Validate podcast SDP assets/cues against selection and adaptive asset caps."""
     errors: list[str] = []
     sdp = _sdp(ctx)
     cfg = merged_config()
-    cap = _asset_cap(ctx, flow="flow1", fallback=int((cfg.get("sound_design") or {}).get("max_assets_flow1", 6)))
+    sd = cfg.get("sound_design") or {}
+    fallback = int(sd.get("max_assets", sd.get("max_assets_flow1", 6)))
+    cap = _asset_cap(ctx, fallback=fallback)
+    # Tighten with delivery_brief.sfx_density when present
+    if ctx.artifact_exists("understanding/delivery_brief.json"):
+        brief = ctx.read_json("understanding/delivery_brief.json")
+        if isinstance(brief, dict):
+            dens = brief.get("sfx_density") if isinstance(brief.get("sfx_density"), dict) else {}
+            brief_parts = [
+                int(dens.get("max_beds") or 0),
+                int(dens.get("max_punctuators") or 0),
+                int(dens.get("max_foley") or 0),
+            ]
+            brief_cap = sum(brief_parts)
+            if brief_cap > 0:
+                cap = min(cap, brief_cap) if cap else brief_cap
     assets = sdp.get("assets") or []
     asset_ids = {str(a.get("asset_id")) for a in assets if isinstance(a, dict) and a.get("asset_id")}
     if len(asset_ids) > cap:
-        errors.append(f"flow1 asset count {len(asset_ids)} > cap {cap}")
-    selection_ids = _selection_ids_flow1(ctx)
+        errors.append(f"asset count {len(asset_ids)} > cap {cap}")
+    selection_ids = _selection_ids(ctx)
     palette_seg_ids: set[str] = set()
     for pal in sdp.get("palettes") or []:
         if isinstance(pal, dict):
             palette_seg_ids.update(str(x) for x in (pal.get("segment_ids") or []))
-    cues = ((sdp.get("flow_plans") or {}).get("flow1") or {}).get("cues") or []
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    if not flow and isinstance(flow_plans.get("flow1"), dict):
+        flow = flow_plans["flow1"]
+    cues = (flow.get("cues") or []) if isinstance(flow.get("cues"), list) else []
     sonic = load_sonic_context(ctx) or {}
     flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
@@ -86,7 +95,7 @@ def validate_post_sound_plan_flow1(ctx: RunContext) -> list[str]:
         for key in ("segment_id", "after_segment_id", "before_segment_id"):
             sid = cue.get(key)
             if sid and selection_ids and str(sid) not in selection_ids:
-                errors.append(f"flow1 cue {cue.get('cue_id')}: {key}={sid} not in selection")
+                errors.append(f"cue {cue.get('cue_id')}: {key}={sid} not in selection")
         if cue.get("placement") == "under_segment" and palette_seg_ids:
             seg = cue.get("segment_id")
             if seg and str(seg) not in palette_seg_ids:
@@ -100,29 +109,8 @@ def validate_post_sound_plan_flow1(ctx: RunContext) -> list[str]:
     return errors
 
 
-def validate_post_sound_plan_flow2(ctx: RunContext) -> list[str]:
-    errors: list[str] = []
-    sdp = _sdp(ctx)
-    cfg = merged_config()
-    cap = _asset_cap(ctx, flow="flow2", fallback=int((cfg.get("sound_design") or {}).get("max_assets_flow2", 4)))
-    assets = sdp.get("assets") or []
-    if len(assets) > cap:
-        errors.append(f"flow2 asset count {len(assets)} > cap {cap}")
-    ranks = _highlight_ranks_flow2(ctx)
-    cues = ((sdp.get("flow_plans") or {}).get("flow2") or {}).get("cues") or []
-    clip_count = len(ranks)
-    for cue in cues:
-        if not isinstance(cue, dict):
-            continue
-        for key in ("from_clip_rank", "to_clip_rank"):
-            r = cue.get(key)
-            if r is not None and ranks and int(r) not in ranks:
-                errors.append(f"flow2 cue rank {key}={r} not in selection")
-    if clip_count < 2:
-        between = [c for c in cues if isinstance(c, dict) and c.get("placement") == "between_clips"]
-        if between:
-            errors.append("between_clips cues present but fewer than 2 highlight clips")
-    return errors
+# Backward-compat aliases
+validate_post_sound_plan_flow1 = validate_post_sound_plan
 
 
 def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
@@ -160,7 +148,8 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
     return errors
 
 
-def validate_pre_mix(ctx: RunContext, flow: str) -> list[str]:
+def validate_pre_mix(ctx: RunContext, flow: str = "podcast") -> list[str]:
+    _ = flow  # podcast-only delivery
     errors: list[str] = list(validate_post_mmaudio_qa(ctx))
     sdp = _sdp(ctx)
     for asset in sdp.get("assets") or []:
@@ -175,7 +164,7 @@ def validate_pre_mix(ctx: RunContext, flow: str) -> list[str]:
     return errors
 
 
-def validate_pre_master(ctx: RunContext, flow: str) -> list[str]:
+def validate_pre_master(ctx: RunContext, flow: str = "podcast") -> list[str]:
     """Cross-check assembly readiness before loudnorm (mix completeness + QC + listen gate)."""
     errors: list[str] = list(validate_pre_mix(ctx, flow))
     from interview_mux.gates import check_post_listen_gate_pending
@@ -203,15 +192,16 @@ def validate_pre_master(ctx: RunContext, flow: str) -> list[str]:
     return errors
 
 
-def _asset_cap(ctx: RunContext, *, flow: str, fallback: int) -> int:
+def _asset_cap(ctx: RunContext, *, fallback: int) -> int:
     cfg = merged_config()
     sound = cfg.get("sound_design") or {}
     if not bool(sound.get("use_adaptive_caps", False)):
         return fallback
     sonic = load_sonic_context(ctx) or {}
     mix_policy = sonic.get("mix_policy") if isinstance(sonic.get("mix_policy"), dict) else {}
-    key = "adaptive_max_assets_flow1" if flow == "flow1" else "adaptive_max_assets_flow2"
-    val = mix_policy.get(key)
+    val = mix_policy.get("adaptive_max_assets")
+    if val is None:
+        val = mix_policy.get("adaptive_max_assets_flow1")
     if val is None:
         return fallback
     try:

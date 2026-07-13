@@ -157,28 +157,28 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 ### Phase 3a — Flow 1 full master (BUILD-029–036)
 
-**Goal:** Ranked full episode → `flow_1_master/master.wav` via `mix_flow1` (BUILD-065–066; legacy `mux_flow1` alias for single-stage rerun).
+**Goal:** Ranked full episode → `master/master.wav` via `mix` (BUILD-065–066; legacy `mux_flow1` alias for single-stage rerun).
 
 | Stage | Ticket | Prompt |
 |-------|--------|--------|
 | `topic_coverage_audit`, `narrative_arc_plan` | BUILD-029–030 | `selection/topic-coverage-audit`, `narrative-arc-plan` |
 | `full_master_ranking`, `transitions`, `podcast_sfx_brief` | BUILD-031–033 | `selection/*`, `assembly/*` |
-| `mmaudio_sfx_flow1` | BUILD-034 | local MMAudio |
-| `edl_flow1`, `mux_flow1`, `master_flow1` | BUILD-035–036 | — |
+| `mmaudio_sfx` | BUILD-034 | local MMAudio |
+| `edl`, `mux_flow1`, `master_finalize` | BUILD-035–036 | — |
 
-**Requires:** G1 clear, `selected_flow: flow1` (G2). **Profile gate (BUILD-081):** `meta.operator_verified: true` in `analysis_state.json` before `topic_coverage_audit` — [operator-gates.md](../workflows/operator-gates.md#profile-gate--flow-1-extended-build-081).
+**Requires:** G1 clear, `REMOVED_selected_flow: flow1` (G2). **Profile gate (BUILD-081):** `meta.operator_verified: true` in `analysis_state.json` before `topic_coverage_audit` — [operator-gates.md](../workflows/operator-gates.md#profile-gate--flow-1-extended-build-081).
 
-**Verify:** `python tools/run_flow.py --flow flow1` + `verify_master.py` on `master.wav`.
+**Verify:** `python tools/run_delivery.py --flow flow1` + `verify_master.py` on `master.wav`.
 
 ---
 
 ### Phase 3b — Flow 2 highlights (BUILD-040–044)
 
-**Goal:** ≤5 clips → `flow_2_highlights/master.wav`.
+**Goal:** ≤5 clips → `REMOVED_flow2/master.wav`.
 
 | Stage | Ticket |
 |-------|--------|
-| `highlight_selection`, `sfx_brief`, `mmaudio_sfx_flow2`, `mux_flow2`, `master_flow2` | BUILD-040–044 |
+| `REMOVED_highlight_selection`, `sfx_brief`, `REMOVED_mmaudio_flow2`, `mux_flow2`, `REMOVED_master_flow2` | BUILD-040–044 |
 
 **Verify:** smoke-test Flow 2 section.
 
@@ -190,13 +190,13 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 | Stage | Ticket |
 |-------|--------|
-| `podcast_show_description` | BUILD-045 |
-| `export_show_description` | BUILD-046 |
+| `REMOVED_podcast_show_description` | BUILD-045 |
+| `REMOVED_export_show_description` | BUILD-046 |
 | Pipeline/CLI/GUI wire-up | BUILD-080 |
 
 **Spec:** [publishing/README.md](../pipeline/publishing/README.md)
 
-**Verify:** `run_flow.py --flow flow3`; `flow_3_description/show_description.json` + `.md`; no `master.wav`.
+**Verify:** `run_flow.py --flow flow3`; `show_notes/show_description.json` + `.md`; no `master.wav`.
 
 ---
 
@@ -214,7 +214,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 **Spec:** [sound-design.md](../cross-cutting/sound-design.md) · **Prompts:** [prompts/sound_design/](../prompts/sound_design/)
 
-**Shipped:** `sound_design_palettes`, flow plans, `sfx_prompt_craft`, `mix_flow1`/`mix_flow2` in `pipeline.py` + GUI; G1.5 prompt review panel.
+**Shipped:** `sound_design_palettes`, flow plans, `sfx_prompt_craft`, `mix`/`REMOVED_mix_flow2` in `pipeline.py` + GUI; G1.5 prompt review panel.
 
 **Verify:** `master.wav` contains beds + stingers + VO; one WAV per `asset_id`; ducking applied.
 
@@ -226,7 +226,7 @@ Each phase lists tickets, primary code paths, and verification. Dependencies mat
 
 **Spec:** [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md)
 
-**Shipped:** `edl_flow1` with VO/gap placements; NLE overrides; `assembly_preview.wav`; `verify_master` LUFS/peak; pickup-scoped pre-clean GUI offers (BUILD-072).
+**Shipped:** `edl` with VO/gap placements; NLE overrides; `assembly_preview.wav`; `verify_master` LUFS/peak; pickup-scoped pre-clean GUI offers (BUILD-072).
 
 **Verify:** Gap placements in EDL; `assembly_preview.wav` before SFX spend; `verify_master` LUFS/peak.
 
@@ -266,7 +266,7 @@ Repository-wide checklist (also in [steps-forward.md](./steps-forward.md)):
 - [x] ASSETS-first operator path: WAV in `ASSETS/`, GUI picker, full state under `ASSETS/executions/exec_*`, resume after `./scripts/run.sh` ([assets-and-executions.md](../cross-cutting/assets-and-executions.md); GUI: `src/interview_mux/web/server.py`, `gui_session.py`)
 - [ ] Fresh clone: SETUP → bootstrap → check_prerequisites → smoke-test for **flow1, flow2, and flow3** — manual: [definition-of-done-signoff.md](./definition-of-done-signoff.md)
 - [x] All three flows selectable at G2 and runnable via CLI + GUI (`flow1` \| `flow2` \| `flow3` in `gates.py`, `cli.py`, `server.py`, `web/runner.py`)
-- [x] `master.wav` for flow1/2 includes VO + SFX mix per north star (`mix_flow1`/`mix_flow2` in `pipeline.py` → `assembly_flow1.py` / `assembly_flow2.py` / `sound_design.py`, BUILD-065–066)
+- [x] `master.wav` for flow1/2 includes VO + SFX mix per north star (`mix`/`REMOVED_mix_flow2` in `pipeline.py` → `assembly.py` / `REMOVED_assembly_flow2.py` / `sound_design.py`, BUILD-065–066)
 - [x] `verify_master` enforces LUFS/true peak per [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) (`tools/verify_master.py`, `src/interview_mux/master_qc.py`)
 - [x] Pre-clean offered at documented checkpoints; never auto-enabled (`stages/audio_preclean.py`, `POST …/preclean-offer` in `web/server.py`; BUILD-019 + BUILD-072)
 - [x] [stage-registry.md](./stage-registry.md) matches `pipeline.py` and `web/stages.py` (`EXECUTABLE_ORDER` parity — see signoff §5)

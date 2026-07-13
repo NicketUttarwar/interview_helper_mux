@@ -8,8 +8,8 @@
     "doc_link": ""
   },
   {
-    "action_id": "gui.start.set_flow_intent",
-    "description": "Set optional flow intent on Start tab",
+    "action_id": "gui.start.set_REMOVED_flow_intent",
+    "description": "[REMOVED] Set optional flow intent on Start tab",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -152,6 +152,62 @@
     "doc_link": ""
   },
   {
+    "action_id": "gui.write_approval.batch_save",
+    "description": "Batch Save all pending stage writes (first-try phase_end)",
+    "implementation": "frontend/src/context/AppContext.tsx#approveBatchWrites",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "api.write_approval.batch_approve",
+    "description": "POST pending-writes/approve-batch",
+    "implementation": "web/server.py#approve_pending_writes_batch",
+    "stage": "*",
+    "origin": "api",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "write_approval.batch_approve",
+    "description": "Pipeline log for batch flush of staged writes",
+    "implementation": "write_staging.py#approve_batch_stage_writes",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "gui.g1.skip_optional",
+    "description": "Skip non-blocking G1 VO lines",
+    "implementation": "frontend/src/components/gates/VoPickupPanel.tsx",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "gui.transcript_review.complete_auto",
+    "description": "G0 auto-complete when review queue is clean",
+    "implementation": "stages/transcript_review.py#maybe_auto_complete_transcript_review",
+    "stage": "transcript_review",
+    "origin": "pipeline",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "gui.sfx_prompts.approve_auto",
+    "description": "G1.5 auto-approve when prompt QA green",
+    "implementation": "sfx_prompt_review.py#maybe_auto_approve_prompt_review",
+    "stage": "sfx_prompt_craft",
+    "origin": "pipeline",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
+    "action_id": "pipeline.selection.auto_pack",
+    "description": "Trim selection to delivery_brief max duration",
+    "implementation": "selection_auto_pack.py#auto_pack_selection_to_brief",
+    "stage": "full_master_ranking",
+    "origin": "pipeline",
+    "doc_link": "docs/workflows/first-try-reliability.md"
+  },
+  {
     "action_id": "gui.write_approval.discard",
     "description": "Discard staged files and re-run stage",
     "implementation": "*",
@@ -265,7 +321,7 @@
   },
   {
     "action_id": "gui.g2.select_flow",
-    "description": "Select output flow at G2",
+    "description": "[REMOVED] Select output flow at G2",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -273,7 +329,7 @@
   },
   {
     "action_id": "gui.g2.use_planned",
-    "description": "Use planned flow intent at G2",
+    "description": "[REMOVED] Use planned flow intent at G2",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -481,7 +537,7 @@
   },
   {
     "action_id": "pipeline.execute_flow2",
-    "description": "Execute pipeline mode flow2",
+    "description": "[REMOVED] Execute pipeline mode flow2",
     "implementation": "runner.start",
     "stage": "*",
     "origin": "gui",
@@ -489,7 +545,7 @@
   },
   {
     "action_id": "pipeline.execute_flow3",
-    "description": "Execute pipeline mode flow3",
+    "description": "[REMOVED] Execute pipeline mode flow3",
     "implementation": "runner.start",
     "stage": "*",
     "origin": "gui",
@@ -520,10 +576,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.master_flow2",
-    "description": "Run pipeline stage master_flow2",
-    "implementation": "stages/master_flow2",
-    "stage": "master_flow2",
+    "action_id": "pipeline.stage.REMOVED_master_flow2",
+    "description": "[REMOVED] Run pipeline stage REMOVED_master_flow2",
+    "implementation": "stages/REMOVED_master_flow2",
+    "stage": "REMOVED_master_flow2",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -552,10 +608,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.mix_flow1",
-    "description": "Run pipeline stage mix_flow1",
-    "implementation": "stages/mix_flow1",
-    "stage": "mix_flow1",
+    "action_id": "pipeline.stage.mix",
+    "description": "Run pipeline stage mix",
+    "implementation": "stages/mix",
+    "stage": "mix",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -584,10 +640,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.master_flow1",
-    "description": "Run pipeline stage master_flow1",
-    "implementation": "stages/master_flow1",
-    "stage": "master_flow1",
+    "action_id": "pipeline.stage.master_finalize",
+    "description": "Run pipeline stage master_finalize",
+    "implementation": "stages/master_finalize",
+    "stage": "master_finalize",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -632,10 +688,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.sound_design_plan_flow1",
-    "description": "Run pipeline stage sound_design_plan_flow1",
-    "implementation": "stages/sound_design_plan_flow1",
-    "stage": "sound_design_plan_flow1",
+    "action_id": "pipeline.stage.sound_design_plan",
+    "description": "Run pipeline stage sound_design_plan",
+    "implementation": "stages/sound_design_plan",
+    "stage": "sound_design_plan",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -648,10 +704,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.g2_flow_select",
-    "description": "Run pipeline stage g2_flow_select",
-    "implementation": "stages/g2_flow_select",
-    "stage": "g2_flow_select",
+    "action_id": "pipeline.stage.REMOVED_g2_flow_select",
+    "description": "[REMOVED] Run pipeline stage REMOVED_g2_flow_select",
+    "implementation": "stages/REMOVED_g2_flow_select",
+    "stage": "REMOVED_g2_flow_select",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -688,26 +744,26 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.sound_design_plan_flow2",
-    "description": "Run pipeline stage sound_design_plan_flow2",
-    "implementation": "stages/sound_design_plan_flow2",
-    "stage": "sound_design_plan_flow2",
+    "action_id": "pipeline.stage.REMOVED_sdp_flow2",
+    "description": "[REMOVED] Run pipeline stage REMOVED_sdp_flow2",
+    "implementation": "stages/REMOVED_sdp_flow2",
+    "stage": "REMOVED_sdp_flow2",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.highlight_selection",
-    "description": "Run pipeline stage highlight_selection",
-    "implementation": "stages/highlight_selection",
-    "stage": "highlight_selection",
+    "action_id": "pipeline.stage.REMOVED_highlight_selection",
+    "description": "[REMOVED] Run pipeline stage REMOVED_highlight_selection",
+    "implementation": "stages/REMOVED_highlight_selection",
+    "stage": "REMOVED_highlight_selection",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.mmaudio_sfx_flow2",
-    "description": "Run pipeline stage mmaudio_sfx_flow2",
-    "implementation": "stages/mmaudio_sfx_flow2",
-    "stage": "mmaudio_sfx_flow2",
+    "action_id": "pipeline.stage.REMOVED_mmaudio_flow2",
+    "description": "[REMOVED] Run pipeline stage REMOVED_mmaudio_flow2",
+    "implementation": "stages/REMOVED_mmaudio_flow2",
+    "stage": "REMOVED_mmaudio_flow2",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -744,10 +800,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.mmaudio_sfx_flow1",
-    "description": "Run pipeline stage mmaudio_sfx_flow1",
-    "implementation": "stages/mmaudio_sfx_flow1",
-    "stage": "mmaudio_sfx_flow1",
+    "action_id": "pipeline.stage.mmaudio_sfx",
+    "description": "Run pipeline stage mmaudio_sfx",
+    "implementation": "stages/mmaudio_sfx",
+    "stage": "mmaudio_sfx",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -760,10 +816,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.export_show_description",
-    "description": "Run pipeline stage export_show_description",
-    "implementation": "stages/export_show_description",
-    "stage": "export_show_description",
+    "action_id": "pipeline.stage.REMOVED_export_show_description",
+    "description": "[REMOVED] Run pipeline stage REMOVED_export_show_description",
+    "implementation": "stages/REMOVED_export_show_description",
+    "stage": "REMOVED_export_show_description",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -784,10 +840,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.podcast_show_description",
-    "description": "Run pipeline stage podcast_show_description",
-    "implementation": "stages/podcast_show_description",
-    "stage": "podcast_show_description",
+    "action_id": "pipeline.stage.REMOVED_podcast_show_description",
+    "description": "[REMOVED] Run pipeline stage REMOVED_podcast_show_description",
+    "implementation": "stages/REMOVED_podcast_show_description",
+    "stage": "REMOVED_podcast_show_description",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -816,10 +872,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.edl_flow1",
-    "description": "Run pipeline stage edl_flow1",
-    "implementation": "stages/edl_flow1",
-    "stage": "edl_flow1",
+    "action_id": "pipeline.stage.edl",
+    "description": "Run pipeline stage edl",
+    "implementation": "stages/edl",
+    "stage": "edl",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -840,10 +896,10 @@
     "doc_link": ""
   },
   {
-    "action_id": "pipeline.stage.mix_flow2",
-    "description": "Run pipeline stage mix_flow2",
-    "implementation": "stages/mix_flow2",
-    "stage": "mix_flow2",
+    "action_id": "pipeline.stage.REMOVED_mix_flow2",
+    "description": "[REMOVED] Run pipeline stage REMOVED_mix_flow2",
+    "implementation": "stages/REMOVED_mix_flow2",
+    "stage": "REMOVED_mix_flow2",
     "origin": "pipeline",
     "doc_link": ""
   },
@@ -1033,7 +1089,7 @@
   },
   {
     "action_id": "stage_finalize.failed",
-    "description": "Stage finalize failed — auto-resolve exhausted",
+    "description": "Stage finalize failed \u2014 auto-resolve exhausted",
     "implementation": "stage_finalize",
     "stage": "*",
     "origin": "pipeline",
@@ -1341,6 +1397,38 @@
     "implementation": "llm_output_normalizer",
     "stage": "*",
     "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.stage.delivery_brief_build",
+    "description": "Build adaptive delivery brief",
+    "implementation": "delivery_brief.run_delivery_brief_build",
+    "stage": "delivery_brief_build",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.delivery_brief.save",
+    "description": "Save delivery brief operator overrides",
+    "implementation": "server.patch_delivery_brief",
+    "stage": "delivery_brief_build",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.delivery_brief.reset",
+    "description": "Rebuild delivery brief from analysis",
+    "implementation": "server.rebuild_delivery_brief",
+    "stage": "delivery_brief_build",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "api.delivery_brief.patch",
+    "description": "PATCH delivery brief",
+    "implementation": "server.patch_delivery_brief",
+    "stage": "delivery_brief_build",
+    "origin": "api",
     "doc_link": ""
   }
 ]

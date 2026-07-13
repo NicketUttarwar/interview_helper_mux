@@ -45,9 +45,9 @@ def test_measure_assembly_bus_missing_file(tmp_path: Path) -> None:
 
 
 def test_target_lufs_for_flow_uses_build_070_defaults() -> None:
-    assert target_lufs_for_flow("flow1") == -16.0
+    assert target_lufs_for_flow("podcast") == -16.0
     assert target_lufs_for_flow("flow2") == -14.0
-    assert target_lufs_for_flow("flow1", config={"flow1_target_lufs": -15.5}) == -15.5
+    assert target_lufs_for_flow("podcast", config={"flow1_target_lufs": -15.5}) == -15.5
 
 
 def test_loudnorm_offset() -> None:

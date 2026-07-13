@@ -8,10 +8,8 @@ from interview_mux.gates import (
     check_profile_gate_pending,
     is_operator_profile_verified,
     require_analysis_artifacts_complete,
-    require_flow1_extended_gates,
-    require_profile_verified_for_flow1_extended,
-    require_selected_flow_flow2,
-    set_selected_flow,
+    require_delivery_gates,
+    require_profile_verified_for_delivery,
 )
 from run_fixtures import patch_merged_config
 from interview_mux.analysis_memory import default_analysis_state
@@ -25,7 +23,6 @@ def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
 
 def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_001")
-    set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
     assert check_profile_gate_pending(ctx) is True
     _write_analysis_state(ctx, verified=True)
@@ -34,57 +31,31 @@ def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):
 
 def test_profile_gate_skipped_after_topic_coverage_done(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_002")
-    set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
-    ctx.mark_done("topic_coverage_audit")
+    ctx.mark_done("topic_coverage_audit", force=True)
     assert check_profile_gate_pending(ctx) is False
 
 
 def test_require_profile_verified_raises_and_logs(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_003")
-    set_selected_flow(ctx, "flow1")
     _write_analysis_state(ctx, verified=False)
     with pytest.raises(SystemExit, match="Profile gate"):
-        require_profile_verified_for_flow1_extended(ctx)
+        require_profile_verified_for_delivery(ctx)
     log_path = ctx.path("gui_log.jsonl")
     assert log_path.is_file()
     assert "Profile gate" in log_path.read_text(encoding="utf-8")
 
 
-def test_flow1_extended_requires_selected_flow_flow1(tmp_path):
+def test_delivery_gates_require_profile_verified(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_004")
-    _write_analysis_state(ctx, verified=True)
-    set_selected_flow(ctx, "flow2")
-    with pytest.raises(SystemExit, match="selected_flow=flow1"):
-        require_flow1_extended_gates(ctx)
+    _write_analysis_state(ctx, verified=False)
+    with pytest.raises(SystemExit, match="Profile gate"):
+        require_delivery_gates(ctx)
 
 
 def test_is_operator_profile_verified_missing_state(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_005")
     assert is_operator_profile_verified(ctx) is False
-
-
-def test_flow2_requires_selected_flow_flow2(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "run_006")
-    set_selected_flow(ctx, "flow1")
-    with pytest.raises(SystemExit, match="selected_flow=flow2"):
-        require_selected_flow_flow2(ctx)
-
-
-def test_set_selected_flow_preserves_existing_run_meta(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "run_007")
-    ctx.write_json(
-        "run_meta.json",
-        {
-            "input_audio_path": "ASSETS/input/demo.wav",
-            "audio_preclean": {"enabled": True, "scope": "vo_pickup"},
-        },
-    )
-    set_selected_flow(ctx, "flow3")
-    meta = ctx.read_json("run_meta.json")
-    assert meta["selected_flow"] == "flow3"
-    assert meta["input_audio_path"] == "ASSETS/input/demo.wav"
-    assert meta["audio_preclean"]["scope"] == "vo_pickup"
 
 
 def test_check_transcript_review_pending_clears_after_done_marker(tmp_path):

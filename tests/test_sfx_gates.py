@@ -49,7 +49,7 @@ def test_require_post_listen_clear_raises(tmp_path, monkeypatch):
         skip_handoff=True,
     )
     with pytest.raises(SystemExit, match="Post-listen gate"):
-        require_post_listen_clear(ctx, stage="mix_flow1")
+        require_post_listen_clear(ctx, stage="mix")
 
 
 def test_require_spend_artifacts_uses_post_listen_helper(tmp_path, monkeypatch):
@@ -57,7 +57,7 @@ def test_require_spend_artifacts_uses_post_listen_helper(tmp_path, monkeypatch):
     patch_merged_config(
         monkeypatch,
         {
-            "analysis": {"flow_hardening": {"enabled": True, "spend_block_stages": ["mix_flow1"]}},
+            "analysis": {"flow_hardening": {"enabled": True, "spend_block_stages": ["mix"]}},
             "sound_design": {"post_listen_gate_mode": "block_mix"},
         },
     )
@@ -67,7 +67,7 @@ def test_require_spend_artifacts_uses_post_listen_helper(tmp_path, monkeypatch):
     meta["sfx_listen_results"] = [{"asset_id": "bed_01", "result": "fail", "at": "2026-01-01T00:00:00+00:00"}]
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
     with pytest.raises(SystemExit, match="Post-listen gate"):
-        require_spend_artifacts_complete(ctx, "mix_flow1")
+        require_spend_artifacts_complete(ctx, "mix")
 
 
 def test_maybe_auto_refine_invokes_refine_on_qa_fail(tmp_path, monkeypatch):
@@ -112,7 +112,7 @@ def test_maybe_auto_refine_invokes_refine_on_qa_fail(tmp_path, monkeypatch):
     monkeypatch.setattr("interview_mux.stages.sound_design_stages.run_sfx_prompt_refine", _fake_refine)
     monkeypatch.setattr(sfx_mmaudio, "_regenerate_assets_after_refine", lambda *a, **k: None)
 
-    sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx_flow1")
+    sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx")
     assert refined == ["bed_01"]
 
 

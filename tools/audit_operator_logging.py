@@ -36,7 +36,6 @@ CHECKPOINT_CONTINUATION = [
     ("components/guidance/StageReuseOfferCard.tsx", "applyReuseResultAndFocus"),
     ("components/gates/DisfluencyReviewPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/VoPickupPanel.tsx", "advanceFromCheckpoint"),
-    ("components/gates/FlowSelectPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/AnalysisProfileGate.tsx", "advanceFromCheckpoint"),
     ("components/gates/SfxPostListenPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/PickupSpeakerPanel.tsx", "advanceFromCheckpoint"),

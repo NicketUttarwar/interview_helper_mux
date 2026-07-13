@@ -270,7 +270,6 @@ describe("resolveOperatorAction gate branches", () => {
   const gateCases = [
     ["disfluency_review", "Disfluency review"],
     ["g1_vo_pickup", "G1 VO pickup"],
-    ["g2_flow_select", "G2 flow select"],
     ["analysis_profile", "Analysis profile"],
   ] as const;
 
@@ -574,15 +573,6 @@ describe("copy templates", () => {
     });
     const a = resolveOperatorAction(run);
     expect(a.subline).toMatch(/2 prior runs/);
-  });
-
-  it("g2 flow select gate headline", () => {
-    const run = baseRun({
-      stages: [stage("g2_flow_select", "action_required", "G2 flow select")],
-      job: { status: "gate", stage: "g2_flow_select" },
-    });
-    const a = resolveOperatorAction(run);
-    expect(a.headline).toMatch(/Choose output flow|G2/i);
   });
 
   it("analysis_profile gate headline", () => {

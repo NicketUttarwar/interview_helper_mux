@@ -84,7 +84,7 @@ def run_placement_qa(ctx: RunContext) -> dict[str, Any]:
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     trauma_adjacent = {str(x) for x in (flags.get("trauma_adjacent") or [])}
     flow1_cues = (
-        ((sdp.get("flow_plans") or {}).get("flow1") or {}).get("cues") or []
+        ((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or []
         if isinstance(sdp, dict)
         else []
     )
@@ -196,7 +196,7 @@ def _write_placement_doc(ctx: RunContext, doc: dict[str, Any]) -> None:
         ctx.log(
             f"placement_qa: {len(adjustments)} adjustment hint(s) → {OUTPUT_PATH}",
             level="info",
-            stage="mix_flow1",
+            stage="mix",
         )
 
 
@@ -239,7 +239,7 @@ def apply_placement_adjustments(
         ctx.log(
             f"placement_qa: applied level to {level_applied} cue(s), crossfade to {crossfade_applied} cue(s)",
             level="info",
-            stage="mix_flow1",
+            stage="mix",
         )
     return out
 

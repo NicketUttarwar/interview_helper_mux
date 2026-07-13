@@ -53,7 +53,7 @@ python tools/run_analysis.py --from-stage boundary_detection
 ## Re-rank (Flow 1)
 
 ```bash
-python tools/run_flow.py --flow flow1 --from-stage full_master_ranking
+python tools/run_delivery.py --flow flow1 --from-stage full_master_ranking
 ```
 
 Requires `coverage_audit.json` and `narrative_plan.json` unless `--from-stage topic_coverage_audit`.
@@ -61,7 +61,7 @@ Requires `coverage_audit.json` and `narrative_plan.json` unless `--from-stage to
 ## Re-pick highlights (Flow 2)
 
 ```bash
-python tools/run_flow.py --flow flow2 --from-stage highlight_selection
+python tools/run_delivery.py --flow flow2 --from-stage REMOVED_highlight_selection
 ```
 
 ## Edit interview profile (themes, questions, style)
@@ -92,12 +92,12 @@ The pipeline also re-runs a done LLM stage automatically when `should_run_stage_
 **Apply timeline edits** (`POST …/execute` with `mode: nle_apply`) runs a light cascade by default:
 
 1. `full_master_ranking` — only when order, exclude, or split changed
-2. `edl_flow1` — always when operator edits exist
+2. `edl` — always when operator edits exist
 3. `assembly_preview` — listen-before-SFX preview after EDL rebuild
 
 Optional `nle_full_refresh: true` or `nle_apply_mode: full_refresh` also runs `transitions` and `edl_narrative_audit` before EDL build. Use `nle_apply_mode: trim_only` to rebuild EDL + `assembly_preview.wav` without re-running `full_master_ranking`.
 
-Manual stage reruns (`full_master_ranking`, `edl_flow1`) remain available from the pipeline sidebar.
+Manual stage reruns (`full_master_ranking`, `edl`) remain available from the pipeline sidebar.
 
 ## Human override (v1)
 
@@ -105,7 +105,7 @@ Edit JSON artifacts directly:
 
 - `understanding/analysis_state.json` — themes, major questions, style, narrative
 - `segments/manifest.json` — force-include segment
-- `flow_1_master/selection.json` — lock order
-- `flow_2_highlights/selection.json` — pin clip ids
+- `master/selection.json` — lock order
+- `REMOVED_flow2/selection.json` — pin clip ids
 
 Re-run assembly from `edl` or `micro_assembly` stage after edits.

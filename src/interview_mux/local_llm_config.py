@@ -12,30 +12,23 @@ DEFAULT_MODEL_ID = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 LOCAL_FRAMER_PROMPT = "_shared/local-volley-framer.system.txt"
 DEFAULT_MODELS_DIR_REL = "ASSETS/local_llm/models"
 
-
 def local_llm_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return (cfg or merged_config()).get("local_llm") or {}
-
 
 def local_llm_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("enabled", True))
 
-
 def repo_slug(repo_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", repo_id)
-
 
 def default_models_dir() -> Path:
     return repo_root() / "ASSETS" / "local_llm" / "models"
 
-
 def default_hf_cache_dir() -> Path:
     return repo_root() / "ASSETS" / "local_llm" / "hf_cache"
 
-
 def selection_manifest_path() -> Path:
     return repo_root() / "ASSETS" / "local_llm" / "selection.json"
-
 
 def _resolve_models_dir(cfg: dict[str, Any] | None = None) -> Path:
     llm = local_llm_cfg(cfg)
@@ -49,7 +42,6 @@ def _resolve_models_dir(cfg: dict[str, Any] | None = None) -> Path:
     if env_override:
         return Path(env_override)
     return default_models_dir()
-
 
 def resolve_model_id(cfg: dict[str, Any] | None = None) -> str:
     """Model HF repo id: secrets > selection.json > config > default."""
@@ -69,7 +61,6 @@ def resolve_model_id(cfg: dict[str, Any] | None = None) -> str:
     llm = local_llm_cfg(cfg)
     return str(llm.get("model_id") or DEFAULT_MODEL_ID).strip()
 
-
 def resolve_model_path(cfg: dict[str, Any] | None = None) -> Path:
     """Resolved directory containing MLX weights."""
     model_id = resolve_model_id(cfg)
@@ -81,38 +72,29 @@ def resolve_model_path(cfg: dict[str, Any] | None = None) -> Path:
         return Path(model_id)
     return slug_path
 
-
 def max_volley_turns(cfg: dict[str, Any] | None = None) -> int:
     return max(1, int(local_llm_cfg(cfg).get("max_volley_turns", 2)))
-
 
 def max_tokens(cfg: dict[str, Any] | None = None) -> int:
     return max(64, int(local_llm_cfg(cfg).get("max_tokens", 768)))
 
-
 def min_confidence(cfg: dict[str, Any] | None = None) -> float:
     return float(local_llm_cfg(cfg).get("min_confidence", 0.6))
-
 
 def escalate_on_parse_error(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("escalate_on_parse_error", True))
 
-
 def skip_openai_when_local_satisfied(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("skip_openai_primary_when_local_satisfied", False))
-
 
 def apply_to_specialists(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("apply_to_specialists", True))
 
-
 def apply_to_shards(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("apply_to_shards", True))
 
-
 def apply_to_collate(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("apply_to_collate", True))
-
 
 # P0–P2 stages always escalate to OpenAI (quality-first; see llm-guidance-program.md).
 ALWAYS_ESCALATE_STAGES = frozenset(
@@ -129,17 +111,13 @@ ALWAYS_ESCALATE_STAGES = frozenset(
         "full_master_ranking",
         "edl_narrative_audit",
         "sound_design_palettes",
-        "sound_design_plan_flow1",
-        "sound_design_plan_flow2",
+        "sound_design_plan",
         "sfx_prompt_craft",
-        "highlight_selection",
     }
 )
 
-
 def force_escalate_stage(stage_key: str) -> bool:
     return stage_key in ALWAYS_ESCALATE_STAGES
-
 
 def should_frame_task_kind(task_kind: str, profile: str, cfg: dict[str, Any] | None = None) -> bool:
     if not local_llm_enabled(cfg):

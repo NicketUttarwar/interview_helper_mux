@@ -11,7 +11,7 @@
     "Final timeline breaks coverage or chapter continuity",
     "Audit accepts EDL with known gap clarity failures",
     "Ordering violations vs master selection without flagging",
-    "Audit references segment_ids absent from flow_1_master/edl.json"
+    "Audit references segment_ids absent from master/edl.json"
   ],
   "min_confidence_on_accept": 0.75,
   "decompose_eligible": false,

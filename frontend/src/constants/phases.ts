@@ -3,14 +3,12 @@ export const PHASE_LABELS: Record<string, string> = {
   start: "Start",
   prepare: "Prepare",
   understand: "Analyze",
-  complete: "Record & choose",
+  complete: "Record pickup",
   create: "Build",
   polish: "Sound",
   ship: "Export",
   analysis: "Analyze",
-  flow1: "Build",
-  flow2: "Build",
-  flow3: "Export",
+  delivery: "Build",
   gate: "Checkpoint",
 };
 

@@ -29,7 +29,6 @@ from run_fixtures import (
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sonic_context"
 
-
 def _write_wav_with_peaks(path: Path, *, duration_s: float = 8.0, peak_segments: list[tuple[float, float, float]] | None = None) -> None:
     """Write mono WAV; peak_segments = (start_s, end_s, amplitude_multiplier)."""
     rate = 16000
@@ -40,10 +39,8 @@ def _write_wav_with_peaks(path: Path, *, duration_s: float = 8.0, peak_segments:
         wave[int(rate * start_s) : int(rate * end_s)] *= mult
     sf.write(str(path), wave, rate)
 
-
 def _manifest_with_segments(segments: list[dict]) -> dict:
     return {"segments": segments}
-
 
 def test_emphasis_detects_local_peak_vs_quiet_neighbors(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_emph_peak")
@@ -67,7 +64,6 @@ def test_emphasis_detects_local_peak_vs_quiet_neighbors(tmp_path):
     ids = {r["segment_id"] for r in regions}
     assert "seg_peak" in ids
 
-
 def test_emphasis_max_regions_enforced(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_emph_cap")
     ctx.path("ingest").mkdir(parents=True, exist_ok=True)
@@ -80,7 +76,6 @@ def test_emphasis_max_regions_enforced(tmp_path):
     ctx.write_json("segments/manifest.json", _manifest_with_segments(segs), skip_handoff=True)
     regions = emphasis_regions_for_segments(ctx, max_regions=24)
     assert len(regions) <= 24
-
 
 def test_emphasis_noisy_room_fixture_at_most_three_regions(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_noisy_emph")
@@ -98,18 +93,15 @@ def test_emphasis_noisy_room_fixture_at_most_three_regions(tmp_path):
     regions = emphasis_regions_for_segments(ctx)
     assert len(regions) <= 3
 
-
 def test_emphasis_empty_without_wav(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_emph_no_wav")
     ctx.write_json("segments/manifest.json", minimal_manifest("seg_1"), skip_handoff=True)
     assert emphasis_regions_for_segments(ctx) == []
 
-
 def test_emphasis_volley_truncated_to_24():
     raw = {"emphasis_regions": [{"segment_id": f"s{i}"} for i in range(40)]}
     out = _slim_flow_input(raw, "topic_coverage_audit")
     assert len(out["emphasis_regions"]) == 24
-
 
 def test_quotability_question_mark_boosts_score(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_q_qm")
@@ -126,7 +118,6 @@ def test_quotability_question_mark_boosts_score(tmp_path):
     signals = quotability_signals(ctx)
     by_id = {s["segment_id"]: s["quotability_score"] for s in signals}
     assert by_id["seg_b"] > by_id["seg_a"]
-
 
 def test_quotability_energy_capped_relative_to_text(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_q_cap")
@@ -145,7 +136,6 @@ def test_quotability_energy_capped_relative_to_text(tmp_path):
     signals = quotability_signals(ctx)
     assert signals[0]["quotability_score"] <= 0.55
 
-
 def test_quotability_spine_boost_fail_open(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "wd_q_spine")
     ctx.write_json(
@@ -161,7 +151,6 @@ def test_quotability_spine_boost_fail_open(tmp_path, monkeypatch):
     )
     assert _spine_quotability_boost(ctx, 0, 2000) == 0.0
 
-
 def test_quotability_max_signals_30(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_q_max")
     segs = [
@@ -172,12 +161,12 @@ def test_quotability_max_signals_30(tmp_path):
     signals = quotability_signals(ctx, max_signals=30)
     assert len(signals) <= 30
 
-
 def test_quotability_volley_truncated_to_30():
-    raw = {"quotability_signals": [{"segment_id": f"s{i}", "quotability_score": 0.5} for i in range(50)]}
-    out = _slim_flow_input(raw, "highlight_selection")
-    assert len(out["quotability_signals"]) == 30
+    from interview_mux.context_volley import _shape_stage_input
 
+    raw = {"quotability_signals": [{"segment_id": f"s{i}", "quotability_score": 0.5} for i in range(50)]}
+    out = _shape_stage_input("highlight_selection", raw)
+    assert len(out["quotability_signals"]) == 30
 
 def test_placement_qa_skips_bed_on_trauma_segment(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -191,7 +180,6 @@ def test_placement_qa_skips_bed_on_trauma_segment(tmp_path, monkeypatch):
     assert skips
     assert any(a.get("reason") == "scenario_segment_ban" for a in skips)
 
-
 def test_placement_qa_skips_overlap_high_segment(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "wd_pq_panel")
@@ -202,7 +190,6 @@ def test_placement_qa_skips_overlap_high_segment(tmp_path, monkeypatch):
     doc = run_placement_qa(ctx)
     assert any(a.get("action") == "skip" for a in doc["adjustments"])
 
-
 def test_placement_qa_noisy_room_extra_duck(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "wd_pq_noisy")
@@ -212,11 +199,9 @@ def test_placement_qa_noisy_room_extra_duck(tmp_path, monkeypatch):
     beds = [a for a in doc["adjustments"] if a.get("role") == "ambient_bed"]
     assert beds and beds[0].get("suggested_level_db_delta", 0) <= -4.0
 
-
 def test_laughter_empty_windows_fail_open():
     assert _nudge_away_from_laughter(1500, [], buffer_ms=200) == 1500
     assert _laughter_windows_from_value_features(None) == []
-
 
 def test_emphasis_spike_stability_under_threshold_perturbation(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "wd_stab")
@@ -238,15 +223,12 @@ def test_emphasis_spike_stability_under_threshold_perturbation(tmp_path):
     again = {r["segment_id"] for r in emphasis_regions_for_segments(ctx)}
     assert base == again
 
-
 @pytest.mark.parametrize(
     "from_stage,order_attr",
     [
-        ("full_master_ranking", "FLOW1_ORDER"),
-        ("edl_flow1", "FLOW1_ORDER"),
-        ("mix_flow1", "FLOW1_ORDER"),
-        ("highlight_selection", "FLOW2_ORDER"),
-        ("mix_flow2", "FLOW2_ORDER"),
+        ("full_master_ranking", "DELIVERY_ORDER"),
+        ("edl", "DELIVERY_ORDER"),
+        ("mix", "DELIVERY_ORDER"),
     ],
 )
 def test_recovery_drill_clear_from_stage(tmp_path, from_stage, order_attr):
@@ -254,7 +236,7 @@ def test_recovery_drill_clear_from_stage(tmp_path, from_stage, order_attr):
     ctx = RunContext("wd_recovery", create=True)
     order = getattr(pipeline, order_attr)
     for stage in order:
-        ctx.mark_done(stage)
+        ctx.mark_done(stage, force=True)
     ctx.clear_from(from_stage, order)
     idx = order.index(from_stage)
     for stage in order[idx:]:
@@ -262,10 +244,7 @@ def test_recovery_drill_clear_from_stage(tmp_path, from_stage, order_attr):
     for stage in order[:idx]:
         assert ctx.is_done(stage)
 
-
 def test_recovery_g2_flow_switch_clears_flow_markers(tmp_path):
     ctx = RunContext("wd_g2", create=True)
-    for stage in pipeline.FLOW1_ORDER:
+    for stage in pipeline.DELIVERY_ORDER:
         ctx.mark_done(stage)
-    ctx.clear_from("highlight_selection", pipeline.FLOW2_ORDER)
-    assert not ctx.is_done("highlight_selection")

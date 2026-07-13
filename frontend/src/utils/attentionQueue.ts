@@ -184,9 +184,24 @@ export function listAttentionItems(
   }
 
   if (ctx.awaitingWriteApproval && !jobRunning) {
-    const sid = job?.pending_write_stage || job?.stage || focusStageId || "";
-    if (sid && !isStageGateBlocked(run, sid)) {
-      push(writeApprovalItem(run, sid, job?.message));
+    const deferred = Boolean(run.journey?.first_try?.write_approval_deferred);
+    if (!deferred) {
+      const sid = job?.pending_write_stage || job?.stage || focusStageId || "";
+      if (sid && !isStageGateBlocked(run, sid)) {
+        push(writeApprovalItem(run, sid, job?.message));
+      }
+    } else if ((run.journey?.pending_write_stages || []).length) {
+      push({
+        kind: "write_approval",
+        priority: 4,
+        stageId: run.journey?.pending_write_stages?.[0] || "",
+        stageTitle: "Batch Save",
+        title: "Save all pending stages",
+        message: `${run.journey.pending_write_stages.length} stage(s) staged — batch Save when ready.`,
+        primaryLabel: "Save all pending",
+        phase: run.journey?.phase ?? "prepare",
+        subTab: "stage",
+      });
     }
   }
 
@@ -272,7 +287,6 @@ export function listAttentionItems(
       reason === "transcript_review" ||
       reason === "disfluency_review" ||
       reason === "g1_vo_pickup" ||
-      reason === "g2_flow_select" ||
       reason === "analysis_profile" ||
       reason === "handoff_review" ||
       reason === "llm_gate"

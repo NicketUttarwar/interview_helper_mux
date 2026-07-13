@@ -26,8 +26,9 @@ FLOW_CRITICAL_LLM_STAGES = frozenset(
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
-        "highlight_selection",
-        "podcast_show_description",
+        "transitions",
+        "sound_design_plan",
+        "edl_narrative_audit",
     }
 )
 
@@ -40,6 +41,7 @@ ANALYSIS_READY_ARTIFACT_PATHS = (
     "understanding/gap_evaluations.json",
     "understanding/gap_report.json",
     "understanding/analysis_state.json",
+    "understanding/delivery_brief.json",
 )
 
 # Immediate upstream LLM stage for pipeline pre-checks (None = no LLM upstream).
@@ -52,31 +54,20 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "sound_design_palettes": "content_brief_reanchor",
     "missing_framing": "content_brief_reanchor",
     "optimal_questions": "missing_framing",
-    "topic_coverage_audit": "optimal_questions",
+    "delivery_brief_build": "optimal_questions",
+    "topic_coverage_audit": "delivery_brief_build",
     "narrative_arc_plan": "topic_coverage_audit",
     "full_master_ranking": "narrative_arc_plan",
     "transitions": "full_master_ranking",
-    "highlight_selection": "optimal_questions",
-    "sound_design_plan_flow1": "full_master_ranking",
-    "sound_design_plan_flow2": "highlight_selection",
-    "edl_narrative_audit": "sound_design_plan_flow1",
-    # podcast_show_description and sfx_prompt_craft resolved per selected_flow — see resolve_llm_upstream_stage
+    "sound_design_plan": "transitions",
+    "edl_narrative_audit": "sound_design_plan",
+    "sfx_prompt_craft": "sound_design_plan",
 }
 
 
 def resolve_llm_upstream_stage(ctx: RunContext, stage_key: str) -> str | None:
-    """Flow-aware upstream LLM stage (None = no LLM upstream)."""
-    from interview_mux.gates import get_selected_flow
-
-    flow = get_selected_flow(ctx)
-    if stage_key == "podcast_show_description":
-        if flow == "flow3":
-            return "optimal_questions"
-        return "full_master_ranking"
-    if stage_key == "sfx_prompt_craft":
-        if flow == "flow2":
-            return "sound_design_plan_flow2"
-        return "sound_design_plan_flow1"
+    """Upstream LLM stage (None = no LLM upstream)."""
+    _ = ctx
     return LLM_UPSTREAM_STAGE.get(stage_key)
 
 
@@ -120,7 +111,7 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
             )
             ctx.log(exit_msg, level="error", stage=stage_key)
             raise SystemExit(exit_msg)
-    if stage_key in ("mix_flow1", "mix_flow2"):
+    if stage_key in ("mix", "mix_flow2"):
         from interview_mux.gates import require_post_listen_clear
 
         require_post_listen_clear(ctx, stage=stage_key)
@@ -140,11 +131,21 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                         if aid:
                             failing.append(aid)
                 if failing:
-                    exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
-                    ctx.log(exit_msg, level="error", stage=stage_key)
-                    raise SystemExit(exit_msg)
+                    from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
+
+                    if first_try_mode_enabled() and allow_placeholder_mix():
+                        ctx.log(
+                            f"Mix gate soft (first_try): mmaudio_qa placeholder/fail asset(s): "
+                            f"{', '.join(sorted(set(failing))[:6])}",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                    else:
+                        exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
+                        ctx.log(exit_msg, level="error", stage=stage_key)
+                        raise SystemExit(exit_msg)
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
-            flow = "flow1" if stage_key == "mix_flow1" else "flow2"
+            flow = "flow1" if stage_key == "mix" else "flow2"
             from interview_mux.sdp_cross_validate import validate_pre_mix
 
             errors = validate_pre_mix(ctx, flow)

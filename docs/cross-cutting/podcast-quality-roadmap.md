@@ -10,15 +10,15 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 |-------|--------------|--------|
 | Analysis | Content brief, segments, gaps, Flow 1 ranking; profile gate before extended Flow 1 (BUILD-081); **narrative QC** (`validate_narrative.py`) | Same pattern as validators expand |
 | VO pickup (G1) | Record lines to `vo_pickup/`; optional **pickup-scoped pre-clean** (`vo_pickup` scope, BUILD-019 + BUILD-072) | Same |
-| Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix_flow1`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL; **extended EDL narrative QC** after flagship `edl_narrative_audit` | Deeper operator edit UX |
-| Assembly Flow 2 | **`mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
+| Assembly Flow 1 | EDL with gaps + VO + transitions; **`assembly_preview.wav`** before SFX; **`mix`** (speech + VO + SDP beds/stingers); narrative QC warn/block before ranking + EDL; **extended EDL narrative QC** after flagship `edl_narrative_audit` | Deeper operator edit UX |
+| Assembly Flow 2 | **`REMOVED_mix_flow2`** montage + shared transition assets via SDP | Cold-open polish refinements |
 | Flow 3 publishing | Third-person show description JSON + markdown (BUILD-045–046, 080) | Same |
 | SFX | SDP + **`sfx_prompt_craft`** + one WAV per `asset_id`; G1.5 optional approve gate | Deeper craft iteration loops |
 | NLE GUI | Mouse-first editor: smart presets, review queue, filters, undo history, transcript selection trim, partial apply modes (`trim_only` / `structural` / `full_refresh`), assembly A/B preview; feeds ranking + EDL (BUILD-068) | Extended listen-study metrics + deeper craft loops |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071); narrative QC (`validate_narrative`, topic + chapter checks); EDL timeline QC (`validate_edl`); extended EDL narrative QC (`validate_narrative --include-edl`) | Extended listen-study metrics |
 | Pre-clean | **`audio_preclean`** + **GUI offers** at roadmap checkpoints (never auto-enabled) | Same pattern at any new checkpoint |
 
-**Shipped mix path:** Flow 1/2 `master.wav` is built via `mix_flow1`/`mix_flow2` (BUILD-065–066), not speech-only concat. Legacy `mux_flow*` remains a single-stage rerun alias only.
+**Shipped mix path:** Flow 1/2 `master.wav` is built via `mix`/`REMOVED_mix_flow2` (BUILD-065–066), not speech-only concat. Legacy `mux_flow*` remains a single-stage rerun alias only.
 
 ---
 
@@ -27,14 +27,14 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 ### Wave A — Assembly honesty (BUILD-067–069) — **done**
 
 1. **Gap report → EDL** — **shipped:** `vo_pickup` and gap placements in `edl.json`.
-2. **NLE → selection** — **shipped:** `nle_edits.json` overrides applied in `full_master_ranking` and `edl_flow1`.
+2. **NLE → selection** — **shipped:** `nle_edits.json` overrides applied in `full_master_ranking` and `edl`.
 3. **Speech preview** — **shipped:** `assembly_preview.wav` (speech + VO, no MMAudio SFX) after ranking for operator listen-before-SFX.
 
 ### Wave B — Coherent sound + mix (BUILD-060–066) — **done**
 
 See [sound-design.md](./sound-design.md), [local-audio-stack.md](./local-audio-stack.md), and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-done).
 
-**Shipped:** SDP init + palettes, flow plans, craft/generate, `mix_flow1`/`mix_flow2` in pipeline + GUI.
+**Shipped:** SDP init + palettes, flow plans, craft/generate, `mix`/`REMOVED_mix_flow2` in pipeline + GUI.
 
 **Design companion:** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `source_acoustic_profile` (BUILD-082) feeds palettes and craft.
 

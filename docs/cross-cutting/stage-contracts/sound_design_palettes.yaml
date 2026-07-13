@@ -27,11 +27,14 @@ propagation:
   - optimal_questions
 consumers:
 - sound_design_palettes
-- sound_design_plan_flow1
-- sound_design_plan_flow2
+- sound_design_plan
 remediation:
   strategies:
   - micro_gap_fill
   - patch_volley
   - volley_retry
   - full_stage_rerun
+critical_fields:
+- palettes
+nullable_fields:
+- notes

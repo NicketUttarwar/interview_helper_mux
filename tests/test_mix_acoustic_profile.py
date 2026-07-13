@@ -74,7 +74,7 @@ def test_vo_finalize_sets_measured_duration(tmp_path):
             "duration_seconds": 1.0,
         }
     ]
-    plan["flow_plans"]["flow1"]["cues"] = [
+    plan["flow_plans"]["podcast"]["cues"] = [
         {
             "cue_id": "cue_vo_1",
             "asset_id": "vo_bridge_1",
@@ -85,5 +85,5 @@ def test_vo_finalize_sets_measured_duration(tmp_path):
     ctx.write_json("understanding/sound_design_plan.json", plan)
     run_sound_design_vo_finalize(ctx)
     sdp = ctx.read_json("understanding/sound_design_plan.json")
-    cue = sdp["flow_plans"]["flow1"]["cues"][0]
+    cue = sdp["flow_plans"]["podcast"]["cues"][0]
     assert cue.get("measured_duration_ms") == 800

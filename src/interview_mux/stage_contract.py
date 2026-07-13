@@ -13,7 +13,6 @@ from interview_mux.config import merged_config, repo_root
 
 Tier = Literal["llm_full", "deterministic", "gate", "process", "meta"]
 
-
 @dataclass
 class InputDep:
     path: str
@@ -22,13 +21,11 @@ class InputDep:
     min_chars: int | None = None
     when: dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class OutputDep:
     path: str
     schema: str | None = None
     staging: bool = True
-
 
 @dataclass
 class SufficiencyRule:
@@ -39,7 +36,6 @@ class SufficiencyRule:
     min_count: int | None = None
     when: dict[str, Any] = field(default_factory=dict)
     remediation: str = "micro_gap_fill"
-
 
 @dataclass
 class StageContract:
@@ -54,12 +50,10 @@ class StageContract:
     remediation: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
-
 def contracts_dir() -> Path:
     cfg = (merged_config().get("analysis") or {}).get("artifact_contract") or {}
     rel = cfg.get("contracts_dir") or "docs/cross-cutting/stage-contracts"
     return repo_root() / rel
-
 
 def _parse_input(item: dict[str, Any], *, hard: bool) -> InputDep:
     return InputDep(
@@ -69,7 +63,6 @@ def _parse_input(item: dict[str, Any], *, hard: bool) -> InputDep:
         min_chars=item.get("min_chars"),
         when=dict(item.get("when") or {}),
     )
-
 
 def _parse_contract(stage_id: str, raw: dict[str, Any]) -> StageContract:
     suff_raw = raw.get("sufficiency") or []
@@ -120,7 +113,6 @@ def _parse_contract(stage_id: str, raw: dict[str, Any]) -> StageContract:
         raw=raw,
     )
 
-
 @lru_cache(maxsize=128)
 def load_contract(stage_id: str) -> StageContract | None:
     path = contracts_dir() / f"{stage_id}.yaml"
@@ -131,13 +123,11 @@ def load_contract(stage_id: str) -> StageContract | None:
         return None
     return _parse_contract(stage_id, raw)
 
-
 def all_contract_stage_ids() -> list[str]:
     root = contracts_dir()
     if not root.is_dir():
         return []
     return sorted(p.stem for p in root.glob("*.yaml") if not p.stem.startswith("_"))
-
 
 def contract_for_artifact_path(rel: str) -> StageContract | None:
     for sid in all_contract_stage_ids():
@@ -149,7 +139,6 @@ def contract_for_artifact_path(rel: str) -> StageContract | None:
                 return c
     return None
 
-
 def evaluate_when(when: dict[str, Any], ctx: Any) -> bool:
     if not when:
         return True
@@ -159,8 +148,6 @@ def evaluate_when(when: dict[str, Any], ctx: Any) -> bool:
             meta = ctx.read_json("run_meta.json") or {}
         except Exception:
             meta = {}
-    if "selected_flow" in when:
-        if str(meta.get("selected_flow") or "") != str(when["selected_flow"]):
             return False
     if "spine_enabled" in when:
         from interview_mux.interview_spine.config import spine_enabled
@@ -189,7 +176,6 @@ def evaluate_when(when: dict[str, Any], ctx: Any) -> bool:
             return False
     return True
 
-
 def _interview_duration_ms(ctx: Any) -> int:
     if not ctx or not ctx.artifact_exists("transcript/full.json"):
         return 0
@@ -207,7 +193,6 @@ def _interview_duration_ms(ctx: Any) -> int:
     except Exception:
         return 0
     return 0
-
 
 __all__ = [
     "InputDep",

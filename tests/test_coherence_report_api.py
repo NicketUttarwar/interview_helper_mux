@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, patch_executions_root
+from run_fixtures import init_run_meta_for_test, minimal_coherence_report, patch_executions_root
 
 
 def _client_with_run(tmp_path: Path, monkeypatch) -> tuple[TestClient, str]:
@@ -33,16 +33,10 @@ def test_coherence_report_returns_persisted_document(
 ) -> None:
     client, run_id = _client_with_run(tmp_path, monkeypatch)
     ctx = RunContext(run_id)
-    doc = {
-        "schema_version": 1,
-        "gate": {"activated": True, "duration_ms": 1_800_000},
-        "risks": [{"risk_id": "r1", "kind": "drift", "status": "open"}],
-        "summary": {
-            "topic_drift_count": 1,
-            "claim_contradiction_count": 0,
-            "missing_callback_count": 0,
-        },
-    }
+    doc = minimal_coherence_report(
+        risks=[{"risk_id": "r1", "kind": "topic_drift", "time_ms": 60_000, "confidence": 0.8, "evidence": {}, "status": "open"}],
+        summary={"topic_drift_count": 1, "claim_contradiction_count": 0, "missing_callback_count": 0},
+    )
     ctx.write_json("understanding/coherence_report.json", doc)
     res = client.get(f"/api/runs/{run_id}/coherence-report")
     assert res.status_code == 200

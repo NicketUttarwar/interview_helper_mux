@@ -294,7 +294,7 @@ No H-hypothesis feature work should ship until Wave 0 Implementation todos for a
    - How content_context sets format_class / tone_class
    - sonic_context atlas_bucket → sound_posture → sound_design plans
    - placement_adjustments scenario_override schema
-10. **Deterministic QC chain** — narrative_qc, validate_edl, verify_master, placement_qa, show_description_qc — when each runs; what operator sees on fail
+10. **Deterministic QC chain** — narrative_qc, validate_edl, verify_master, placement_qa, show_notes_qc — when each runs; what operator sees on fail
 11. **Cross-artifact validation** — /Users/nicketuttarwar/IDEProjects/interview_helper_mux/src/interview_mux/artifact_cross_validate.py; relationship to flow_hardening
 12. **Wave blocking rules** — Wave A may start after Wave 0 doc exists; B after A; etc.
 13. **Repository touch matrix** — full harness map from prompts doc
@@ -506,8 +506,8 @@ Read first (attach with @):
 
 | Seq | ID | Spike | Product tie |
 |-----|-----|-------|-------------|
-| 09 | H-F1N-02 | 4.037 | ranking → EDL → mix_flow1 |
-| 10 | H-F2-02 | 3.971 | mix_flow2 montage |
+| 09 | H-F1N-02 | 4.037 | ranking → EDL → mix |
+| 10 | H-F2-02 | 3.971 | REMOVED_mix_flow2 montage |
 | 11 | H-F1S-02 | — | sting intelligibility |
 
 ## Wave D do-no-harm
@@ -520,7 +520,7 @@ Stingers on laughter; trauma_adjacent cold open; flat highlight montage; emphasi
 2. Prosody: quiet emphasis (F1N-02); paralinguistic proxy limits (F2-02)
 3. Fail-open: laughter_windows empty → placement unchanged; quotability without spine boost
 4. Observability: narrative_qc failures; placement_qa warnings; verify_master LUFS fail messages
-5. Pipeline mermaid through mix_flow1/2 + placement_qa + verify_master
+5. Pipeline mermaid through mix/2 + placement_qa + verify_master
 6. Non-H deps: source_acoustic_profile, sonic_context, sdp_craft_path — integration todos
 7. H-F1N-02, H-F2-02, H-F1S-02 — 50+ todos each; trauma_adjacent + noisy_room scenario tests required
 8. **Agent execution contract** — at top of generated doc: full file-reference workflow (see Command 0 item 16)
@@ -545,9 +545,9 @@ Target 550–1000 lines. Unlimited todos.
 
 | Flow | Artifact | Validator |
 |------|----------|-----------|
-| Flow 1 | `master_flow1/master.wav` | verify_master, validate_narrative, assembly preview listen |
-| Flow 2 | `master_flow2/master.wav` | Hook listen + diversity |
-| Flow 3 | show description | show_description_qc, CRE-C |
+| Flow 1 | `master_finalize/master.wav` | verify_master, validate_narrative, assembly preview listen |
+| Flow 2 | `REMOVED_master_flow2/master.wav` | Hook listen + diversity |
+| Flow 3 | show description | show_notes_qc, CRE-C |
 | Analysis | analysis_ready | G1/G2, coherence blocking |
 
 Partial proxies remain **Partial** until prosody scenario checks + listener/operator study clear **do-not-promote-until**.

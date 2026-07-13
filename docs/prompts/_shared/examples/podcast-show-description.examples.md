@@ -1,6 +1,6 @@
 # Podcast show description — good vs bad examples
 
-Flow 3 stage: `podcast_show_description` · Prompt: [podcast-show-description.system.txt](../../publishing/podcast-show-description.system.txt)
+Flow 3 stage: `REMOVED_podcast_show_description` · Prompt: [podcast-show-description.system.txt](../../publishing/podcast-show-description.system.txt)
 
 ---
 

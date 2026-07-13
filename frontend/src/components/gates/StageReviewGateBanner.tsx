@@ -1,20 +1,12 @@
 import { useState } from "react";
-import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { useDisfluencyReviewGate } from "../../hooks/useDisfluencyReviewGate";
 import { useTranscriptReviewGate } from "../../hooks/useTranscriptReviewGate";
 import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 import { writeApprovalPrimaryLabel } from "../../utils/writeApprovalLabels";
-import { formatApiError } from "../../utils/safeApi";
 import type { ReviewGateSpec } from "../../utils/resolveReviewGate";
 import type { StageInfo } from "../../types";
 import { ReviewGateBannerShell } from "./ReviewGateBannerShell";
-
-const FLOW_LABELS: Record<string, string> = {
-  flow1: "Flow 1 — Full podcast",
-  flow2: "Flow 2 — Highlight reel",
-  flow3: "Flow 3 — Show description",
-};
 
 interface Props {
   spec: ReviewGateSpec;
@@ -345,78 +337,6 @@ function SfxPromptGateContent() {
   );
 }
 
-function FlowSelectGateContent() {
-  const {
-    run,
-    refreshRun,
-    advanceFromCheckpoint,
-    showToast,
-    actionBusy,
-    jobRunning,
-  } = useApp();
-  const [submitting, setSubmitting] = useState(false);
-  const busy = submitting || actionBusy || jobRunning;
-
-  const intent = run?.flow_intent || run?.meta?.flow_intent;
-  const intentValid =
-    intent === "flow1" || intent === "flow2" || intent === "flow3";
-
-  const selectFlow = async (flow: string) => {
-    if (!run || busy) return;
-    setSubmitting(true);
-    try {
-      await api(`/api/runs/${run.run_id}/flow`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flow }),
-      });
-      showToast(`Selected ${FLOW_LABELS[flow] || flow} — continuing pipeline.`);
-      await refreshRun();
-      await advanceFromCheckpoint();
-    } catch (e) {
-      showToast(formatApiError(e, "Flow selection"), "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <ReviewGateBannerShell
-      title="Confirm output type (G2)"
-      lead="Choose which deliverable to produce. Use your planned choice or pick a flow below."
-      meta={intentValid ? `Planned: ${FLOW_LABELS[intent!] || intent}` : undefined}
-      ariaLabel="Flow selection"
-      testId="flow-select-gate-banner"
-      actions={
-        <>
-          {intentValid ? (
-            <BusyButton
-              busy={busy}
-              label={`Use planned choice (${FLOW_LABELS[intent!] || intent})`}
-              testId="select-flow-use-intent-banner"
-              onClick={() => void selectFlow(intent!)}
-            />
-          ) : null}
-          <div className="flow-choice">
-            {(["flow1", "flow2", "flow3"] as const).map((flow) => (
-              <button
-                key={flow}
-                type="button"
-                className={`btn sm${intent === flow ? " primary" : " ghost"}`}
-                data-testid={`select-flow-${flow}`}
-                disabled={busy}
-                onClick={() => void selectFlow(flow)}
-              >
-                {FLOW_LABELS[flow]}
-              </button>
-            ))}
-          </div>
-        </>
-      }
-    />
-  );
-}
-
 function G1VoGateContent({ missingCount }: { missingCount: number }) {
   const { advanceFromCheckpoint, actionBusy, jobRunning } = useApp();
   const busy = actionBusy || jobRunning;
@@ -427,7 +347,7 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
       title="VO pickup (G1)"
       lead={
         ready
-          ? "All pickup lines are recorded — continue to flow selection."
+          ? "All pickup lines are recorded — continue to delivery."
           : `${missingCount} pickup line${missingCount === 1 ? "" : "s"} still need recordings before you can continue.`
       }
       ariaLabel="VO pickup"
@@ -435,7 +355,7 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
       actions={
         <BusyButton
           busy={busy}
-          label={ready ? "Continue to flow selection" : "Record lines below first"}
+          label={ready ? "Continue to delivery" : "Record lines below first"}
           testId="g1-vo-continue-banner"
           disabled={!ready}
           onClick={() => void advanceFromCheckpoint()}
@@ -553,8 +473,6 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
       return <HandoffGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
     case "sfx_prompt":
       return <SfxPromptGateContent />;
-    case "flow_select":
-      return <FlowSelectGateContent />;
     case "g1_vo":
       return <G1VoGateContent missingCount={spec.missingCount ?? 0} />;
     default:

@@ -134,9 +134,9 @@ Lint reference: [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubr
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | `Cross-artifact gate (post_sound_palettes)` | Palette `segment_id` ∉ manifest or missing `sonic_identity` | `understanding/sound_design_plan.json` `palettes`, `coherence` | Re-run `sound_design_palettes`; fix manifest first if ids wrong |
-| `post_sound_plan_flow1` / `flow2` fail | Cue anchors reference missing selection ranks or assets over cap | SDP `cues[]`, `flow_1_master/selection.json` or Flow 2 `selection.json` | Re-run `sound_design_plan_flow*` after fixing ranking/highlights |
+| `post_sound_plan_flow1` / `flow2` fail | Cue anchors reference missing selection ranks or assets over cap | SDP `cues[]`, `master/selection.json` or Flow 2 `selection.json` | Re-run `sound_design_plan_flow*` after fixing ranking/highlights |
 | `pre_sfx_generation` blocked | Craft prompts missing or `asset_id` mismatch | `sfx_prompts.json`, SDP `assets[]` | Re-run `sfx_prompt_craft`; verify G1.5 approval if enabled |
-| `pre_mix_flow1` / `pre_mix_flow2` fail | Generated WAV missing for planned `asset_id` | `sound_design/assets/`, `.stage_done/mmaudio_sfx_*` | Re-run generate stage; check `spend_block_stages` prerequisites |
+| `pre_mix` / `pre_REMOVED_mix_flow2` fail | Generated WAV missing for planned `asset_id` | `sound_design/assets/`, `.stage_done/mmaudio_sfx_*` | Re-run generate stage; check `spend_block_stages` prerequisites |
 | Placement QA hints ignored | Beds too hot or wrong duck | `sound_design/placement_adjustments.json`, `gui_log.jsonl` | Adjust SDP cue levels; confirm `sound_design.placement_qa_enabled: true`; re-run `mmaudio_sfx_flow*` or mix after editing adjustments |
 
 Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_prerequisites()`. Recovery playbook: fix cited producer → delete downstream `.stage_done` only if needed → `--from-stage` at failing producer.
@@ -152,7 +152,7 @@ Module: `sdp_cross_validate.py`. Spend gates: `llm_flow_hardening.require_spend_
 | GUI save fails / schema toast | Zod or server jsonschema | Editor status lines, response `errors[]` | Fix fields; compare to `docs/cross-cutting/json-schemas/` |
 | `content_brief.json` missing themes in profile | `memory_updates` not merged | Latest `content_context` attempt envelope | Re-run `content_context`; check arbiter `accept` |
 | Operator themes overwritten | Profile not verified | `analysis_state.json` `meta.operator_verified` | Mark verified; re-run from stage |
-| Profile gate (BUILD-081) blocks Flow 1 | `selected_flow: flow1` and `meta.operator_verified` not true before `topic_coverage_audit` | `analysis_state.json`, `run_meta.json`, `gui_log.jsonl` `stage=analysis_profile` | Open Story/Profile; **Mark profile verified**; `--from-stage topic_coverage_audit` |
+| Profile gate (BUILD-081) blocks Flow 1 | `REMOVED_selected_flow: flow1` and `meta.operator_verified` not true before `topic_coverage_audit` | `analysis_state.json`, `run_meta.json`, `gui_log.jsonl` `stage=analysis_profile` | Open Story/Profile; **Mark profile verified**; `--from-stage topic_coverage_audit` |
 | Coherence blocking contradiction | High-confidence `claim_contradiction` risk with `coherence.blocking_claim_contradiction: true` | `understanding/coherence_report.json` `risks[]`, `analysis_state.json` `completion.blockers` | Resolve contradiction in transcript/brief; re-run `topic_coverage_audit` or upstream analysis |
 | Pipeline re-runs same stage unexpectedly | Incomplete artifact guard | `artifact_completeness.should_run_stage_for_artifact` | Complete file or edit to valid shape |
 
@@ -258,14 +258,14 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| Duplicate `segment_id` in order | Model error | `flow_1_master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
+| Duplicate `segment_id` in order | Model error | `master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
 | Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
 | Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
-| Coverage misses quiet vital claim | Emphasis-weighted gap not in `coverage_audit` | `flow_1_master/coverage_audit.json`, `gui_log.jsonl` `emphasis_regions count=` | Re-run `--from-stage topic_coverage_audit`; verify `ingest/normalized.wav` for H-F1N-02 emphasis; check `emphasis_regions` in volley |
+| Coverage misses quiet vital claim | Emphasis-weighted gap not in `coverage_audit` | `master/coverage_audit.json`, `gui_log.jsonl` `emphasis_regions count=` | Re-run `--from-stage topic_coverage_audit`; verify `ingest/normalized.wav` for H-F1N-02 emphasis; check `emphasis_regions` in volley |
 | `validate_narrative.py` fails | Brief topic unmapped or empty chapter | `coverage_audit.json`, `selection.json` | Fix audit/ranking; or set `narrative_qc.strict: false` to warn-only |
-| `validate_narrative.py --include-edl` fails | Final EDL breaks coverage, chapter continuity, ordering constraints, transition anchors, or gap placements | `edl_narrative_audit.json`, `selection.json`, `narrative_plan.json`, `transitions.json`, `edl.json` | Fix recommended artifact; usually re-run `full_master_ranking`, `transitions`, `vo_ingest`, or `edl_flow1` |
-| `validate_edl.py` fails | Invalid EDL timeline events or bounds | `flow_1_master/edl.json` event paths | Re-run `edl_flow1` after fixing selection/transitions/VO paths |
-| `verify_edl.py` fails | EDL JSON schema shape invalid | `flow_1_master/edl.json` schema paths | Fix EDL writer or malformed manual edit; re-run `edl_flow1` |
+| `validate_narrative.py --include-edl` fails | Final EDL breaks coverage, chapter continuity, ordering constraints, transition anchors, or gap placements | `edl_narrative_audit.json`, `selection.json`, `narrative_plan.json`, `transitions.json`, `edl.json` | Fix recommended artifact; usually re-run `full_master_ranking`, `transitions`, `vo_ingest`, or `edl` |
+| `validate_edl.py` fails | Invalid EDL timeline events or bounds | `master/edl.json` event paths | Re-run `edl` after fixing selection/transitions/VO paths |
+| `verify_edl.py` fails | EDL JSON schema shape invalid | `master/edl.json` schema paths | Fix EDL writer or malformed manual edit; re-run `edl` |
 
 ---
 
@@ -273,9 +273,9 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| Overlapping clips | Selection error | `flow_2_highlights/selection.json` | `--from-stage highlight_selection` |
-| Flat highlight reel | Montage lacks diversity or weak hooks | `flow_2_highlights/selection.json`, `gui_log.jsonl` `quotability top-3` | Re-run `--from-stage highlight_selection`; verify `quotability_signals` in volley; listen first 3s |
-| Quotability ignored | LLM selection without paralinguistic fusion | `understanding/stage_runs/highlight_selection/`, `value_features.json` | Confirm WAV present for energy scores; re-run highlight selection |
+| Overlapping clips | Selection error | `REMOVED_flow2/selection.json` | `--from-stage REMOVED_highlight_selection` |
+| Flat highlight reel | Montage lacks diversity or weak hooks | `REMOVED_flow2/selection.json`, `gui_log.jsonl` `quotability top-3` | Re-run `--from-stage REMOVED_highlight_selection`; verify `quotability_signals` in volley; listen first 3s |
+| Quotability ignored | LLM selection without paralinguistic fusion | `understanding/stage_runs/REMOVED_highlight_selection/`, `value_features.json` | Confirm WAV present for energy scores; re-run highlight selection |
 | All clips same topic | Diversity not enforced | `scores.diversity_bonus`, `rejected_candidates` | Re-run selection; tighten brief audience |
 
 ---
@@ -284,10 +284,10 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| Blurb uses "we" / "you" | First/second person leak | `flow_3_description/show_description.json` → `description_markdown` | Re-run `podcast_show_description`; see [examples](../prompts/_shared/examples/podcast-show-description.examples.md) |
+| Blurb uses "we" / "you" | First/second person leak | `show_notes/show_description.json` → `description_markdown` | Re-run `REMOVED_podcast_show_description`; see [examples](../prompts/_shared/examples/podcast-show-description.examples.md) |
 | Too short or too long | Word count out of band | `word_count` field | Re-run stage; adjust `show_description_*_words` in [config-keys.md](../cross-cutting/config-keys.md) |
-| Generic hype, no specifics | Thin volley or weak brief | `content_brief.json`, `analysis_state.json`, `stage_runs/podcast_show_description/` | Verify profile; `--from-stage content_context` |
-| `show_description_qc` strict halt | Word count, person, or hype violations with `show_description_qc.strict: true` | `flow_3_description/show_description.json`, `run_meta.qc_summaries` | Fix copy in GUI or re-run `podcast_show_description`; `python tools/validate_show_description.py --run-id <id>` |
+| Generic hype, no specifics | Thin volley or weak brief | `content_brief.json`, `analysis_state.json`, `stage_runs/REMOVED_podcast_show_description/` | Verify profile; `--from-stage content_context` |
+| `show_notes_qc` strict halt | Word count, person, or hype violations with `show_notes_qc.strict: true` | `show_notes/show_description.json`, `run_meta.qc_summaries` | Fix copy in GUI or re-run `REMOVED_podcast_show_description`; `python tools/validate_show_description.py --run-id <id>` |
 | Invented facts | Model drift | `evidence_segment_ids`, transcript | Re-run with verified profile; tighten prompt guardrails |
 
 ---
@@ -296,11 +296,11 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| No VO in `master.wav` | Missing `vo_pickup/` files, EDL gap placements, or mix skipped | `flow_1_master/edl.json`, `vo_pickup/`, `.stage_done/mix_flow1` | Match WAV filenames to `gap_report`; `--from-stage edl_flow1` then `assembly_preview`; re-run `mix_flow1` — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
-| SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/mmaudio_sfx_flow1` | Re-run `sound_design_plan_flow1` → craft → generate → `mix_flow1`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
+| No VO in `master.wav` | Missing `vo_pickup/` files, EDL gap placements, or mix skipped | `master/edl.json`, `vo_pickup/`, `.stage_done/mix` | Match WAV filenames to `gap_report`; `--from-stage edl` then `assembly_preview`; re-run `mix` — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) |
+| SFX unused in master | Missing SDP assets, craft/generate not run, or empty cues | `understanding/sound_design_plan.json`, `sound_design/assets/`, `.stage_done/mmaudio_sfx` | Re-run `sound_design_plan` → craft → generate → `mix`; verify cue `asset_id` links — [sound-design.md](../cross-cutting/sound-design.md) |
 | SFX feels random | Weak palette/plan or skipped post-listen QA | SDP `coherence`, `sfx_prompts.json` | Re-run `sound_design_palettes` / flow plan; enable G1.5 (`g1_5_require_prompt_approval: true`) |
 | Loudness wrong | Master out of LUFS/peak spec | `verify_master.py` failure lines; re-run `master_flow*` after fix | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
-| Stinger over laughter | Stinger aligned into paralinguistic window | `gui_log.jsonl` `stinger_aligned`, `understanding/value_features.json` laughter windows | Re-run `--from-stage mix_flow1` after value extract; verify `_nudge_away_from_laughter` in mix log |
+| Stinger over laughter | Stinger aligned into paralinguistic window | `gui_log.jsonl` `stinger_aligned`, `understanding/value_features.json` laughter windows | Re-run `--from-stage mix` after value extract; verify `_nudge_away_from_laughter` in mix log |
 | Stinger on trauma segment | Scenario ban not applied | `understanding/sonic_context.json` `segment_flags.trauma_adjacent`, `placement_adjustments.json` | Enable `placement_qa_enabled`; confirm bed/stinger skip on flagged segments; re-run mix |
 | GUI auto-runs `verify_master` after `master_flow*` | Post-master QC in `web/runner.py` | `run_meta.qc_summaries`, `gui_log.jsonl` `stage=verify_master` | Fix mix levels; re-run `master_flow*`; read LUFS/peak lines in gate panel |
 | Spine recompute invalidates Story Board | SAP or spine rebuild clears downstream markers | `gui_log.jsonl` invalidation lines, `.stage_done/` | Re-run from invalidated stage; confirm `execution_invalidation.py` scope — [gui-surface-map.md](./gui-surface-map.md) Story Board |
@@ -327,7 +327,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| SFX unused in master | Missing assets or mix not run | SDP `assets[]`, `sound_design/assets/`, `.stage_done/mix_flow*` | Re-run craft → generate → `mix_flow1` / `mix_flow2`; check cue `asset_id` references — [stage-registry](../build-out/stage-registry.md) |
+| SFX unused in master | Missing assets or mix not run | SDP `assets[]`, `sound_design/assets/`, `.stage_done/mix_flow*` | Re-run craft → generate → `mix` / `REMOVED_mix_flow2`; check cue `asset_id` references — [stage-registry](../build-out/stage-registry.md) |
 | Random / trailer feel | Weak craft or legacy v1 brief path | SDP + `sfx_prompts.json` | Default: SDP + craft; tune [prompt_influence](../cross-cutting/local-audio-stack.md) |
 | Wrong timbre after regen | Variance or influence | `sfx_prompts.json` | [Regression appendix](../prompts/_shared/examples/sfx-prompt-regression.md); rewrite prompt |
 | Voice in generated bed | Weak craft | `sfx_prompts.json` | Regen; strengthen `negative_prompt`; block policy strings |
@@ -350,7 +350,7 @@ Match **substrings** in stderr / exit output (wording varies by CLI version). Tr
 
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
-| Timeline edits ignored | Stale selection/EDL | `segments/nle_edits.json` vs `selection.json` | **Save timeline**, then re-run from `full_master_ranking` or `edl_flow1` — [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
+| Timeline edits ignored | Stale selection/EDL | `segments/nle_edits.json` vs `selection.json` | **Save timeline**, then re-run from `full_master_ranking` or `edl` — [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) |
 
 ---
 

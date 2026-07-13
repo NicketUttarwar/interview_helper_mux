@@ -140,7 +140,7 @@ def default_sound_design_plan() -> dict[str, Any]:
         "palettes": [],
         "assets": [],
         "flow_plans": {
-            "flow1": {"profile": "podcast", "cues": []},
+            "podcast": {"profile": "podcast", "cues": []},
             "flow2": {"profile": "montage", "cues": []},
         },
         "generated": {},
@@ -1006,6 +1006,46 @@ def mark_operator_verified(ctx: RunContext, verified: bool = True) -> None:
     if verified:
         state["meta"]["operator_locked_fields"] = _all_lockable_profile_fields()
     save_analysis_state(ctx, state, stage="operator")
+
+
+def maybe_auto_verify_profile(ctx: RunContext) -> bool:
+    """Under first_try, auto-verify when profile ready and no critical investigations."""
+    from interview_mux.first_try import first_try_mode_enabled
+    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
+
+    if not first_try_mode_enabled():
+        return False
+    if bool((load_analysis_state(ctx).get("meta") or {}).get("operator_verified")):
+        return False
+    if not analysis_profile_ready_for_review(ctx):
+        return False
+    # Critical open investigations block auto-verify
+    try:
+        orch = ctx.read_json("understanding/orchestration.json") if ctx.artifact_exists("understanding/orchestration.json") else {}
+        inv = orch.get("investigations") if isinstance(orch, dict) else None
+        if isinstance(inv, list):
+            for row in inv:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("status") or "").lower() in {"open", "blocking", "critical"}:
+                    sev = str(row.get("severity") or row.get("priority") or "").lower()
+                    if sev in {"critical", "high", "blocking"} or row.get("blocking"):
+                        return False
+    except Exception:
+        pass
+    mark_operator_verified(ctx, True)
+    state = load_analysis_state(ctx)
+    state.setdefault("meta", {})
+    state["meta"]["verified_by"] = "first_try_auto"
+    save_analysis_state(ctx, state, stage="operator")
+    ctx.log(
+        "Profile auto-verified (first_try).",
+        level="success",
+        stage="analysis_profile",
+        action_id="gui.analysis_profile.verify",
+        detail={"event": "profile_auto_verify", "verified_by": "first_try_auto"},
+    )
+    return True
 
 
 def invalidate_sonic_context(ctx: RunContext, *, reason: str, stage: str = "invalidation") -> bool:

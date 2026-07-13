@@ -16,6 +16,7 @@ import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 import { FlowAdaptationCard } from "./FlowAdaptationCard";
+import { DeliveryBriefCard } from "./DeliveryBriefCard";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 function investigationItems(queue: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -229,6 +230,7 @@ export function StoryBoardPanel() {
         </label>
       ) : null}
       <FlowAdaptationCard />
+      <DeliveryBriefCard />
       {form.formatClass ? (
         <p className="muted">
           Format: {formatClassLabel(form.formatClass)}

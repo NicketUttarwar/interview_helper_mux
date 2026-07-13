@@ -33,20 +33,20 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 | edl_narrative_audit | selection/edl-narrative-audit | flagship | full |
 | transitions | assembly/transitions | flagship | full |
 | podcast_sfx_brief | assembly/podcast-sfx-brief | flagship | full |
-| sound_design_plan_flow1 | sound_design/plan-flow1 | flagship | full |
-| sound_design_plan_flow2 | sound_design/plan-flow2 | flagship | full |
+| sound_design_plan | sound_design/plan-flow1 | flagship | full |
+| REMOVED_sdp_flow2 | sound_design/plan-flow2 | flagship | full |
 | sfx_prompt_craft | sound_design/sfx-prompt-craft | flagship | full |
-| highlight_selection | selection/highlight-selection | flagship | full / shard / collate |
+| REMOVED_highlight_selection | selection/highlight-selection | flagship | full / shard / collate |
 | sfx_brief | assembly/sfx-brief | flagship | full |
 
 ## Flow 3
 
 | Stage | Prompt | Tier | Volley | artifacts | Memory sync |
 |-------|--------|------|--------|-----------|-------------|
-| podcast_show_description | publishing/podcast-show-description | flagship | full | show_description.json | narrative_patch.audience, confidence_patch.show_description |
-| export_show_description | — | — | — | show_description.md | — |
+| REMOVED_podcast_show_description | publishing/podcast-show-description | flagship | full | show_description.json | narrative_patch.audience, confidence_patch.show_description |
+| REMOVED_export_show_description | — | — | — | show_description.md | — |
 
-[^flow3]: **Analysis-only entry:** Flow 3 runs after G2 with `selected_flow: flow3`. Requires shared analysis complete (`require_analysis_artifacts_complete`) but **not** Flow 1 ranking or Flow 2 selection. Preflight for `podcast_show_description` checks `content_brief.json`, `speakers.json`, and `manifest.json` when flow3 is selected (`llm_preflight.py`). `export_show_description` is deterministic markdown export — no LLM call.
+[^flow3]: **Analysis-only entry:** Flow 3 runs after G2 with `REMOVED_selected_flow: flow3`. Requires shared analysis complete (`require_analysis_artifacts_complete`) but **not** Flow 1 ranking or Flow 2 selection. Preflight for `REMOVED_podcast_show_description` checks `content_brief.json`, `speakers.json`, and `manifest.json` when flow3 is selected (`llm_preflight.py`). `REMOVED_export_show_description` is deterministic markdown export — no LLM call.
 
 ## Meta
 

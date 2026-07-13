@@ -2,26 +2,18 @@
 import type { z } from "zod";
 
 const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
-  "flow_1_master/coverage_audit.json": async () =>
-    (await import("./flow_1_master_coverage_audit_jsonSchema")).flow_1_master_coverage_audit_jsonSchema,
-  "flow_1_master/edl.json": async () =>
-    (await import("./flow_1_master_edl_jsonSchema")).flow_1_master_edl_jsonSchema,
-  "flow_1_master/edl_narrative_audit.json": async () =>
-    (await import("./flow_1_master_edl_narrative_audit_jsonSchema")).flow_1_master_edl_narrative_audit_jsonSchema,
-  "flow_1_master/narrative_plan.json": async () =>
-    (await import("./flow_1_master_narrative_plan_jsonSchema")).flow_1_master_narrative_plan_jsonSchema,
-  "flow_1_master/podcast_sfx_brief.json": async () =>
-    (await import("./flow_1_master_podcast_sfx_brief_jsonSchema")).flow_1_master_podcast_sfx_brief_jsonSchema,
-  "flow_1_master/selection.json": async () =>
-    (await import("./flow_1_master_selection_jsonSchema")).flow_1_master_selection_jsonSchema,
-  "flow_1_master/transitions.json": async () =>
-    (await import("./flow_1_master_transitions_jsonSchema")).flow_1_master_transitions_jsonSchema,
-  "flow_2_highlights/selection.json": async () =>
-    (await import("./flow_2_highlights_selection_jsonSchema")).flow_2_highlights_selection_jsonSchema,
-  "flow_2_highlights/sfx_brief.json": async () =>
-    (await import("./flow_2_highlights_sfx_brief_jsonSchema")).flow_2_highlights_sfx_brief_jsonSchema,
-  "flow_3_description/show_description.json": async () =>
-    (await import("./flow_3_description_show_description_jsonSchema")).flow_3_description_show_description_jsonSchema,
+  "master/coverage_audit.json": async () =>
+    (await import("./master_coverage_audit_jsonSchema")).master_coverage_audit_jsonSchema,
+  "master/edl_narrative_audit.json": async () =>
+    (await import("./master_edl_narrative_audit_jsonSchema")).master_edl_narrative_audit_jsonSchema,
+  "master/narrative_plan.json": async () =>
+    (await import("./master_narrative_plan_jsonSchema")).master_narrative_plan_jsonSchema,
+  "master/podcast_sfx_brief.json": async () =>
+    (await import("./master_podcast_sfx_brief_jsonSchema")).master_podcast_sfx_brief_jsonSchema,
+  "master/selection.json": async () =>
+    (await import("./master_selection_jsonSchema")).master_selection_jsonSchema,
+  "master/transitions.json": async () =>
+    (await import("./master_transitions_jsonSchema")).master_transitions_jsonSchema,
   "run_meta.json": async () =>
     (await import("./run_meta_jsonSchema")).run_meta_jsonSchema,
   "segments/boundaries.json": async () =>
@@ -30,6 +22,8 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./segments_manifest_jsonSchema")).segments_manifest_jsonSchema,
   "segments/nle_edits.json": async () =>
     (await import("./segments_nle_edits_jsonSchema")).segments_nle_edits_jsonSchema,
+  "show_notes/show_description.json": async () =>
+    (await import("./show_notes_show_description_jsonSchema")).show_notes_show_description_jsonSchema,
   "sound_design/mmaudio_qa.json": async () =>
     (await import("./sound_design_mmaudio_qa_jsonSchema")).sound_design_mmaudio_qa_jsonSchema,
   "sound_design/placement_adjustments.json": async () =>

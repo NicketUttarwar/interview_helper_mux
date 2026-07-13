@@ -34,11 +34,11 @@ _STAGE_LABELS: dict[str, str] = {
     "topic_coverage_audit": "Topic coverage audit",
     "full_master_ranking": "Master ranking",
     "transitions": "Transitions",
-    "sound_design_plan_flow1": "Sound design plan",
+    "sound_design_plan": "Sound design plan",
     "sound_design_palettes": "Sound palettes",
     "sonic_context_build": "Sonic context",
     "sfx_prompt_craft": "SFX prompt craft",
-    "edl_flow1": "Flow 1 EDL",
+    "edl": "Flow 1 EDL",
     "sound_design_vo_finalize": "VO finalize",
     "assembly_preview": "Assembly preview",
     "g1_vo_pickup": "VO pickup recordings",
@@ -70,7 +70,7 @@ _TBIY_STAGE_IDS = frozenset(
         "full_master_ranking",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "analysis_profile",
     }
 )

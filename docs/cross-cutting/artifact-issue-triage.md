@@ -99,6 +99,7 @@ Phases: `local_fix`, `downstream_job`, `awaiting_save`, `complete`, `failed`.
 See `analysis.artifact_issue_triage` in [config-keys.md](./config-keys.md):
 
 - `auto_resolve_min_confidence`, `auto_resolve_confidence_gap`
+- Under **first-try**, `analysis.first_try.artifact_issue_triage` overrides merge into `triage_cfg()` (lower confidence / extra attempts / `risk_based_force_advance` stays on for passable residuals). See [first-try-reliability.md](../workflows/first-try-reliability.md).
 - `max_auto_resolve_attempts_per_stage`, `auto_resolve_max_issues_per_pass`
 - `min_segments_after_auto_resolve`, `max_segments_deleted_per_fix_all`
 - `auto_resolve_chain_downstream`, `max_downstream_auto_continue`

@@ -33,7 +33,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
         },
     )
     c.write_json(
-        "flow_1_master/edl.json",
+        "master/edl.json",
         {
             "version": 1,
             "ordered_segment_ids": ["seg_a"],

@@ -168,7 +168,7 @@ def test_flow1_overlays_uses_pause_tail_not_segment_start(tmp_path: Path, monkey
                 }
             ],
             flow_plans={
-                "flow1": {
+                "podcast": {
                     "cues": [
                         {
                             "cue_id": "sting_1",
@@ -230,7 +230,7 @@ def test_flow1_overlays_pause_trigger_rhetorical_punctuator(tmp_path: Path, monk
                 }
             ],
             flow_plans={
-                "flow1": {
+                "podcast": {
                     "cues": [
                         {
                             "cue_id": "punc_1",

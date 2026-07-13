@@ -26,7 +26,7 @@ For `content_brief.json`: **complete** after `content_context` means thesis + to
 
 **Zero-shot + review:** The pipeline runs automatically stage-by-stage, but **stops after each step** that writes custom-run profile JSON until you **Acknowledge & continue** ([operator-gates.md](../workflows/operator-gates.md#gui-operator-console-checkpoints--api-consent)). Re-writing a profile file (LLM or manual save) clears the prior ack for that stage so you can review again.
 
-After edits, use **Redo from selected stage** to re-run downstream LLM stages with your changes. Flow 3 (`podcast_show_description`) reads the same profile slice as Flow 1 ranking — verification is strongly recommended before generating show copy.
+After edits, use **Redo from selected stage** to re-run downstream LLM stages with your changes. Flow 3 (`REMOVED_podcast_show_description`) reads the same profile slice as Flow 1 ranking — verification is strongly recommended before generating show copy.
 
 ### Operator verification
 

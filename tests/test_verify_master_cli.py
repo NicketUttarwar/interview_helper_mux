@@ -11,7 +11,6 @@ from interview_mux import master_qc
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "tools" / "verify_master.py"
 
-
 class _Proc:
     returncode = 0
 
@@ -19,9 +18,8 @@ class _Proc:
         self.stdout = stdout
         self.stderr = stderr
 
-
 def test_verify_master_cli_pass(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    wav = tmp_path / "flow_1_master" / "master.wav"
+    wav = tmp_path / "master" / "master.wav"
     wav.parent.mkdir(parents=True)
     wav.write_bytes(b"RIFF")
 
@@ -43,7 +41,6 @@ def test_verify_master_cli_pass(monkeypatch, tmp_path: Path, capsys: pytest.Capt
     out = capsys.readouterr().out
     assert "OK:" in out
     assert "integrated_lufs=" in out
-
 
 def test_verify_master_cli_fail(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     wav = tmp_path / "flow_2_highlights" / "master.wav"
@@ -68,8 +65,6 @@ def test_verify_master_cli_fail(monkeypatch, tmp_path: Path, capsys: pytest.Capt
     out = capsys.readouterr().out
     assert "FAIL:" in out
 
-
 def test_detect_flow_from_path() -> None:
-    assert master_qc.detect_flow_from_path(Path("data/run/flow_1_master/master.wav")) == "flow1"
-    assert master_qc.detect_flow_from_path(Path("data/run/flow_2_highlights/master.wav")) == "flow2"
+    assert master_qc.detect_flow_from_path(Path("data/run/master/master.wav")) == "podcast"
     assert master_qc.detect_flow_from_path(Path("/tmp/master.wav")) is None

@@ -20,12 +20,12 @@ source .venv/bin/activate
 
 1. `python tools/progression_chain_sanity.py --scope full` (progression regression)
 2. `./scripts/build_gui.sh` if `frontend/src` changed
-3. ASSETS venvs for audio tail (DeepFilterNet, MMAudio) when running past `edl_flow1`
+3. ASSETS venvs for audio tail (DeepFilterNet, MMAudio) when running past `edl`
 4. GUI **Flow 1 readiness** banner clear on `topic_coverage_audit` (`GET …/flow1-readiness`)
 
 See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) for stage/checkpoint map.
 
-**Pre-audio (SFX / mix):** require `flow_1_master/assembly_preview.wav` before `mmaudio_sfx_flow1`; SDP flow1 cues before `mix_flow1`. `GET …/flow1-readiness?scope=pre_audio` lists blockers.
+**Pre-audio (SFX / mix):** require `master/assembly_preview.wav` before `mmaudio_sfx`; SDP flow1 cues before `mix`. `GET …/flow1-readiness?scope=pre_audio` lists blockers.
 
 ## Config
 
@@ -90,9 +90,9 @@ If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_inges
 ## Flow 1
 
 ```bash
-python tools/run_flow.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_delivery.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 python tools/validate_narrative.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --include-edl
-python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_1_master/master.wav
+python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/master/master.wav
 ```
 
 **Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. `validate_narrative.py --include-edl` covers upstream narrative, EDL timeline, and EDL narrative QC; run `verify_edl.py` if you need schema-only diagnostics. Listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
@@ -102,31 +102,31 @@ python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T1
 Use a fresh run or separate `run_002` after analysis:
 
 ```bash
-python tools/run_flow.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
-python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_2_highlights/master.wav
+python tools/run_delivery.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/REMOVED_flow2/master.wav
 ```
 
 **Expectations:** Flow 2 targets: integrated LUFS −14 ±1, true peak ≤ −1 dBTP (same sample-rate and duration rules as Flow 1).
 
 ## Flow 3
 
-After shared analysis and **G2** with `selected_flow: flow3`:
+After shared analysis and **G2** with `REMOVED_selected_flow: flow3`:
 
 ```bash
-python tools/run_flow.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_delivery.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 ```
 
 **Expectations:**
 
-- `flow_3_description/show_description.json` validates against the show-description schema
-- `flow_3_description/show_description.md` exists (plain-text export)
+- `show_notes/show_description.json` validates against the show-description schema
+- `show_notes/show_description.md` exists (plain-text export)
 - Third-person blurb ~150–250 words (`word_count` in JSON)
 - No `master.wav` under the run directory
 
 Inspect copy in the GUI artifact editor or:
 
 ```bash
-cat ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/flow_3_description/show_description.md
+cat ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/show_notes/show_description.md
 ```
 
 Spec: [publishing/README.md](../pipeline/publishing/README.md).
@@ -136,11 +136,11 @@ Spec: [publishing/README.md](../pipeline/publishing/README.md).
 After Flow 1 reaches polish with sound design enabled:
 
 1. `sfx_prompt_craft` → approve prompts (G1.5 if `g1_5_require_prompt_approval`).
-2. `mmaudio_sfx_flow1` → `sound_design/assets/*.wav`, `sound_design/mmaudio_qa.json`.
+2. `mmaudio_sfx` → `sound_design/assets/*.wav`, `sound_design/mmaudio_qa.json`.
 3. GUI post-listen pass/fail; optional refine (`POST /sfx-prompts/refine`) and per-asset regenerate.
 4. When `sound_design.post_listen_gate_mode` is `block`, confirm mix is blocked after a deliberate listen fail (`Mix gate: post_listen_gate_mode=block` in log).
-5. When `mix.intelligibility_qc.enabled`, confirm `QcSummaryCard` shows `mix_intelligibility` on mix/master stages after `mix_flow1`.
-6. `mix_flow1` → `master_flow1`; listen master under speech.
+5. When `mix.intelligibility_qc.enabled`, confirm `QcSummaryCard` shows `mix_intelligibility` on mix/master stages after `mix`.
+6. `mix` → `master_finalize`; listen master under speech.
 
 See [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
 

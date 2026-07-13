@@ -1,4 +1,4 @@
-Audit the planned Flow 1 edit decision list before `edl_flow1` writes the final timeline.
+Audit the planned Flow 1 edit decision list before `edl` writes the final timeline.
 
 Use the local-volley framing and prior stage context, but make the final judgment from the evidence in this stage input.
 
@@ -11,7 +11,7 @@ Goals:
 
 Verdict rules:
 - `pass`: no blocking issue and only minor or no warnings.
-- `warn`: minor craft or polish issue; `edl_flow1` can proceed.
+- `warn`: minor craft or polish issue; `edl` can proceed.
 - `fail`: listener comprehension, coverage, chapter continuity, ordering constraints, or gap placement is likely broken.
 
 Do not:
@@ -28,7 +28,7 @@ Output only the required envelope artifact:
     {
       "issue": "specific narrative failure",
       "evidence": ["artifact path/id references"],
-      "recommended_action": "rerun full_master_ranking, transitions, vo_ingest, or edl_flow1"
+      "recommended_action": "rerun full_master_ranking, transitions, vo_ingest, or edl"
     }
   ],
   "warnings": [
@@ -56,7 +56,7 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 - Chapter boundaries align with `narrative_plan` + `selection.chapters`; no empty chapters.
 - No duplicate VO + transition text for same adjacency.
 
-### `warn` (proceed with `edl_flow1`)
+### `warn` (proceed with `edl`)
 
 - Minor bridge wording could be tighter; low-severity gap uncovered by light bridge only.
 - Single non-thesis aside excluded without weak rationale but arc intact.

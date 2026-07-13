@@ -45,7 +45,7 @@ def main() -> None:
             print(f"  - {err}")
         sys.exit(1)
 
-    edl = ctx.read_json("flow_1_master/edl.json")
+    edl = ctx.read_json("master/edl.json")
     clip_count = len(edl.get("clips") or [])
     print(
         f"OK: {run_dir} (Flow 1 EDL QC passed, {clip_count} clip(s), "

@@ -28,7 +28,7 @@ def test_collect_generation_items_uses_unique_plan_asset_ids(tmp_path, monkeypat
                 },
             ],
             "flow_plans": {
-                "flow1": {
+                "podcast": {
                     "profile": "podcast",
                     "cues": [
                         {"cue_id": "c1", "asset_id": "bed_a", "placement": "under_segment"},
@@ -84,7 +84,7 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
                 }
             ],
             "flow_plans": {
-                "flow1": {
+                "podcast": {
                     "profile": "podcast",
                     "cues": [{"cue_id": "c1", "asset_id": "sting_a", "placement": "after_segment"}],
                 },
@@ -136,11 +136,11 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
     sfx_mmaudio.run_sfx_generation(ctx, profile="podcast")
 
     asset_wav = ctx.path("sound_design", "assets", "sting_a.wav")
-    flow_wav = ctx.path("flow_1_master", "sfx", "sting_a.wav")
+    flow_wav = ctx.path("master", "sfx", "sting_a.wav")
     assert asset_wav.is_file()
     assert flow_wav.is_file()
     assert calls == [1.6]
-    assert ctx.is_done("mmaudio_sfx_flow1")
+    assert ctx.is_done("mmaudio_sfx")
 
 
 def test_hash_generation_plan_changes_with_sonic_context_hash():
@@ -178,7 +178,7 @@ def test_generate_with_retry_retries_once(tmp_path, monkeypatch):
     monkeypatch.setattr(sfx_mmaudio, "generate_text_to_audio", flaky)
     meta = sfx_mmaudio._generate_with_retry(
         ctx=ctx,
-        stage="mmaudio_sfx_flow1",
+        stage="mmaudio_sfx",
         asset_id="bed_a",
         params={"prompt": "x", "negative_prompt": "", "duration_seconds": 2.0},
         out_file=out,
@@ -214,7 +214,7 @@ def test_maybe_auto_refine_skips_trauma_without_override(tmp_path, monkeypatch):
     monkeypatch.setattr(sfx_mmaudio, "_load_crafted_prompts", lambda *_a: {})
     monkeypatch.setattr(sfx_mmaudio, "_collect_generation_items_for_regen", lambda *_a: [])
 
-    sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx_flow1")
+    sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx")
     assert refined == []
 
 
@@ -254,7 +254,7 @@ def test_maybe_auto_refine_runs_trauma_with_auto_on_trauma(tmp_path, monkeypatch
     monkeypatch.setattr(sfx_mmaudio, "_load_crafted_prompts", lambda *_a: {})
     monkeypatch.setattr(sfx_mmaudio, "_collect_generation_items_for_regen", lambda *_a: [])
 
-    out = sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx_flow1")
+    out = sfx_mmaudio.maybe_auto_refine(ctx, "mmaudio_sfx")
     assert out == ["sting_a"]
     assert refined == [["sting_a"]]
     meta = ctx.read_json("run_meta.json")

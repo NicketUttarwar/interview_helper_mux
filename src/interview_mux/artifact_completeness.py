@@ -15,12 +15,10 @@ from interview_mux.run_context import RunContext
 
 GapRule = Callable[[dict[str, Any] | None], list[str]]
 
-
 @dataclass(frozen=True)
 class Gap:
     path: str
     reason: str
-
 
 GAP_FILL_PROTECTED_PATHS: frozenset[str] = frozenset(
     {
@@ -43,7 +41,6 @@ GAP_FILL_PROTECTED_PATHS: frozenset[str] = frozenset(
     }
 )
 
-
 def _is_protected_gap_path(path: str) -> bool:
     if path in GAP_FILL_PROTECTED_PATHS:
         return True
@@ -54,14 +51,11 @@ def _is_protected_gap_path(path: str) -> bool:
                 return True
     return False
 
-
 def _filter_protected_skip_fields(skip_fields: list[str]) -> list[str]:
     return [f for f in skip_fields if not _is_protected_gap_path(f)]
 
-
 def _non_empty_str(val: Any) -> bool:
     return isinstance(val, str) and bool(val.strip())
-
 
 def _gaps_analysis_state(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -84,13 +78,11 @@ def _gaps_analysis_state(data: dict[str, Any] | None) -> list[str]:
         gaps.append("style.format_class")
     return gaps
 
-
 def _gaps_analysis_state_speakers_only(data: dict[str, Any] | None) -> list[str]:
     """Incremental analysis_state check after speaker_roles memory merge."""
     if not data:
         return ["speakers"]
     return _gaps_speakers({"speakers": data.get("speakers") or []})
-
 
 def _gaps_content_brief(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -107,7 +99,6 @@ def _gaps_content_brief(data: dict[str, Any] | None) -> list[str]:
                 gaps.append(f"topics[{i}].summary")
     return gaps
 
-
 def _gaps_content_brief_reanchor(data: dict[str, Any] | None) -> list[str]:
     gaps = _gaps_content_brief(data)
     if not data:
@@ -118,7 +109,6 @@ def _gaps_content_brief_reanchor(data: dict[str, Any] | None) -> list[str]:
     if not (data.get("topic_relationships") or []):
         gaps.append("topic_relationships")
     return gaps
-
 
 def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -140,7 +130,6 @@ def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
         gaps.append("speakers.all_unknown_roles")
     return gaps
 
-
 def _gaps_sound_design_plan(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["coherence"]
@@ -152,18 +141,15 @@ def _gaps_sound_design_plan(data: dict[str, Any] | None) -> list[str]:
         gaps.append("palettes")
     return gaps
 
-
 def _gaps_investigation_queue(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return []
     return []
 
-
 def _gaps_generic_nonempty(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["(root)"]
     return []
-
 
 def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -172,7 +158,6 @@ def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
     if not segs:
         return ["segments"]
     return []
-
 
 def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -183,7 +168,6 @@ def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
         return ["interviewer_lines"]
     return []
 
-
 def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["assets"]
@@ -191,7 +175,6 @@ def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
     if not isinstance(assets, list):
         return ["assets"]
     return []
-
 
 STAGE_GAP_RULES: dict[str, GapRule] = {
     "content_brief_reanchor": _gaps_content_brief_reanchor,
@@ -209,20 +192,18 @@ ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
     "understanding/investigation_queue.json": _gaps_investigation_queue,
     "understanding/gap_evaluations.json": _gaps_generic_nonempty,
     "understanding/gap_report.json": _gaps_gap_report,
+    "understanding/delivery_brief.json": _gaps_generic_nonempty,
     "segments/boundaries.json": _gaps_generic_nonempty,
     "segments/manifest.json": _gaps_manifest,
-    "flow_1_master/coverage_audit.json": _gaps_generic_nonempty,
-    "flow_1_master/narrative_plan.json": _gaps_generic_nonempty,
-    "flow_1_master/selection.json": _gaps_generic_nonempty,
-    "flow_1_master/transitions.json": _gaps_generic_nonempty,
-    "flow_1_master/podcast_sfx_brief.json": _gaps_generic_nonempty,
-    "flow_2_highlights/selection.json": _gaps_generic_nonempty,
-    "flow_2_highlights/sfx_brief.json": _gaps_generic_nonempty,
-    "flow_3_description/show_description.json": _gaps_generic_nonempty,
+    "master/coverage_audit.json": _gaps_generic_nonempty,
+    "master/narrative_plan.json": _gaps_generic_nonempty,
+    "master/selection.json": _gaps_generic_nonempty,
+    "master/transitions.json": _gaps_generic_nonempty,
+    "master/podcast_sfx_brief.json": _gaps_generic_nonempty,
+    "show_notes/show_description.json": _gaps_generic_nonempty,
     "sound_design/sfx_prompts.json": _gaps_generic_nonempty,
     "sound_design/mmaudio_qa.json": _gaps_mmaudio_qa,
 }
-
 
 def _gap_rule_for(rel_path: str, stage_key: str | None = None) -> GapRule | None:
     if stage_key and stage_key in STAGE_GAP_RULES:
@@ -230,7 +211,6 @@ def _gap_rule_for(rel_path: str, stage_key: str | None = None) -> GapRule | None
         if rel_for_stage == rel_path:
             return STAGE_GAP_RULES[stage_key]
     return ARTIFACT_COMPLETENESS_RULES.get(rel_path)
-
 
 def compute_gaps(
     rel_path: str,
@@ -249,7 +229,6 @@ def compute_gaps(
     if not rule:
         return []
     return [Gap(path=p, reason="incomplete") for p in rule(data)]
-
 
 def compute_staged_write_gaps(
     rel_path: str,
@@ -270,17 +249,20 @@ def compute_staged_write_gaps(
         return []
     return compute_gaps(rel_path, data, stage_key=stage_id)
 
-
 def _status_stage_key(rel_path: str, ctx: RunContext) -> str | None:
     if rel_path == "understanding/content_brief.json" and ctx.is_done("content_brief_reanchor"):
         return "content_brief_reanchor"
     return None
 
-
 def artifact_status(rel_path: str, ctx: RunContext) -> str:
     """pending | partial | complete"""
     if not ctx.artifact_exists(rel_path):
         return "pending"
+    if rel_path.endswith(".txt"):
+        from interview_mux.write_staging import resolve_read_path
+
+        p = resolve_read_path(ctx, rel_path)
+        return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
     raw = ctx.read_json(rel_path)
     data = raw if isinstance(raw, dict) else None
     from interview_mux.llm_output_resilience import artifact_resilience_partial
@@ -294,7 +276,6 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     if schema_errors or semantic:
         return "partial"
     return "complete"
-
 
 def _mmaudio_qa_wav_parity_gaps(ctx: RunContext, data: dict[str, Any]) -> list[str]:
     out: list[str] = []
@@ -311,11 +292,9 @@ def _mmaudio_qa_wav_parity_gaps(ctx: RunContext, data: dict[str, Any]) -> list[s
         out.append(f"qa_missing_wav:{aid}")
     return out
 
-
 def artifact_ready_for_review(rel_path: str, ctx: RunContext) -> bool:
     """True when artifact exists and passes schema + semantic completeness."""
     return artifact_status(rel_path, ctx) == "complete"
-
 
 def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
     """True after understanding analysis populated the interview profile."""
@@ -337,13 +316,11 @@ def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
         return True
     return artifact_ready_for_review("understanding/analysis_state.json", ctx)
 
-
 def story_board_ready_for_gui(ctx: RunContext) -> bool:
     """True when Story board panel has meaningful workspace content."""
     if not ctx.is_done("content_context"):
         return False
     return ctx.artifact_exists("understanding/content_brief.json")
-
 
 def timeline_ready_for_gui(ctx: RunContext) -> bool:
     """True when NLE timeline has classified segments."""
@@ -354,7 +331,6 @@ def timeline_ready_for_gui(ctx: RunContext) -> bool:
         return False
     segments = manifest.get("segments")
     return isinstance(segments, list) and len(segments) > 0
-
 
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     out = copy.deepcopy(base)
@@ -378,7 +354,6 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
         else:
             out[key] = copy.deepcopy(val)
     return out
-
 
 def merge_artifact(
     rel_path: str,
@@ -431,7 +406,6 @@ def merge_artifact(
         return {**existing, "speakers": list(ex_by_id.values())}
 
     return _deep_merge(existing, patch)
-
 
 def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
     """Fill timeline fields on manifest segments from segments/boundaries.json."""
@@ -499,7 +473,6 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
 
     return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}
 
-
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
     from interview_mux.null_field_policy import null_acknowledged_paths
 
@@ -563,13 +536,11 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
         ),
     }
 
-
 def attach_gap_fill_to_input(ctx: RunContext, stage_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     gfc = build_gap_fill_context(ctx, stage_key)
     if gfc:
         payload = {**payload, "gap_fill_context": gfc}
     return payload
-
 
 def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
@@ -591,10 +562,8 @@ def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
     stage_errors = validate_stage_artifacts(stage_key, raw)
     return bool(stage_errors)
 
-
 def stage_keys_for_artifact_path(rel_path: str) -> list[str]:
     return [k for k, p in STAGE_ARTIFACT_DISK_PATHS.items() if p == rel_path]
-
 
 def make_stage_persist(
     rel_path: str,

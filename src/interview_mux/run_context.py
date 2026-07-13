@@ -23,7 +23,6 @@ from interview_mux.source_audio_hash import (
 EXEC_ID_RE = re.compile(r"^exec_\d{3,}(?:_[a-f0-9]{12})?_\d{8}T\d{6}Z$")
 LEGACY_RUN_RE = re.compile(r"^run_\d{3}$")
 
-
 class RunContext:
     def __init__(self, run_id: str | None = None, *, create: bool = True) -> None:
         cfg = merged_config()
@@ -503,8 +502,7 @@ class RunContext:
             meta = ctx.read_json("run_meta.json")
         outputs: list[str] = []
         for rel in (
-            "flow_1_master/master.wav",
-            "flow_2_highlights/master.wav",
+            "master/master.wav",
             "ingest/normalized.wav",
         ):
             if ctx.artifact_exists(rel):
@@ -516,7 +514,6 @@ class RunContext:
             "input_audio_path": meta.get("input_audio_path"),
             "source_audio_hash": meta.get("source_audio_hash") or ctx.source_audio_hash(),
             "source_audio_hash_short": hash_short,
-            "selected_flow": meta.get("selected_flow"),
             "created_at": meta.get("created_at"),
             "updated_at": meta.get("updated_at"),
             "storage_path": meta.get("storage_root") or str(ctx.run_dir.relative_to(ctx.root)),

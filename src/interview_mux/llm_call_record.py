@@ -20,12 +20,10 @@ from interview_mux.run_context import RunContext
 SCHEMA_VERSION = 1
 INDEX_NAME = "index.jsonl"
 
-
 class CallImportance(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
-
 
 def _importance_for_task_kind(task_kind: str) -> str:
     if task_kind in ("primary", "collate", "arbiter"):
@@ -33,7 +31,6 @@ def _importance_for_task_kind(task_kind: str) -> str:
     if task_kind in ("shard", "specialist") or task_kind.startswith("shard"):
         return CallImportance.MEDIUM.value
     return CallImportance.LOW.value
-
 
 def _phase_for_stage(stage_key: str) -> str:
     flow1 = {
@@ -44,21 +41,14 @@ def _phase_for_stage(stage_key: str) -> str:
         "transitions",
         "podcast_sfx_brief",
         "sound_design_palettes",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "sfx_prompt_craft",
     }
-    flow2 = {"highlight_selection", "sfx_brief", "sound_design_plan_flow2"}
-    flow3 = {"podcast_show_description"}
     if stage_key in flow1:
-        return "flow1"
-    if stage_key in flow2:
-        return "flow2"
-    if stage_key in flow3:
-        return "flow3"
+        return "podcast"
     if stage_key.startswith("_"):
         return "system"
     return "analysis"
-
 
 def build_call_label(
     *,
@@ -72,7 +62,6 @@ def build_call_label(
     tk = task_kind.replace(" ", "_")
     return f"{phase}:{stage_key}:a{attempt:03d}:{sequence:02d}:{tk}"
 
-
 def build_call_id(
     *,
     run_id: str,
@@ -84,17 +73,14 @@ def build_call_id(
     """Unique id across runs (includes run_id)."""
     return f"{run_id}/{stage_key}/a{attempt:03d}/{sequence:02d}_{task_kind}"
 
-
 def llm_call_records_enabled(cfg: dict[str, Any] | None = None) -> bool:
     analysis = (cfg or merged_config()).get("analysis") or {}
     rec = analysis.get("llm_call_records") or {}
     return bool(rec.get("enabled", True))
 
-
 def _write_markdown_sidecar(cfg: dict[str, Any]) -> bool:
     rec = (cfg.get("analysis") or {}).get("llm_call_records") or {}
     return bool(rec.get("write_markdown_sidecar", True))
-
 
 def _attempt_from_ctx(ctx: RunContext, stage_key: str, explicit: int | None) -> int:
     if explicit is not None:
@@ -108,12 +94,10 @@ def _attempt_from_ctx(ctx: RunContext, stage_key: str, explicit: int | None) -> 
     except (json.JSONDecodeError, TypeError, ValueError):
         return 1
 
-
 def _next_sequence(call_dir: Path) -> int:
     if not call_dir.is_dir():
         return 1
     return len(list(call_dir.glob("*.json"))) + 1
-
 
 def split_messages_for_volley(
     messages: list[dict[str, str]],
@@ -130,7 +114,6 @@ def split_messages_for_volley(
             volley.append({"role": role, "content": content})
     return "\n\n".join(system_parts), volley
 
-
 def messages_to_openai_format(record: dict[str, Any]) -> list[dict[str, str]]:
     """Full Chat Completions message list (system + volley)."""
     req = record.get("request") or {}
@@ -144,11 +127,9 @@ def messages_to_openai_format(record: dict[str, Any]) -> list[dict[str, str]]:
     out.extend(volley)
     return out
 
-
 def messages_to_volley_only(record: dict[str, Any]) -> list[dict[str, str]]:
     """User/assistant turns only — for re-injection into build_message_volley."""
     return list((record.get("volley") or {}).get("turns") or [])
-
 
 def record_to_markdown(record: dict[str, Any]) -> str:
     """Copy-paste friendly transcript of one call."""
@@ -184,7 +165,6 @@ def record_to_markdown(record: dict[str, Any]) -> str:
             ]
         )
     return "\n".join(lines).rstrip() + "\n"
-
 
 def record_llm_call(
     ctx: RunContext,
@@ -299,7 +279,6 @@ def record_llm_call(
     _append_index(ctx, record, rel_path)
     return record
 
-
 def _append_index(ctx: RunContext, record: dict[str, Any], rel_path: Path) -> None:
     index_path = ctx.path("understanding", "llm_calls", INDEX_NAME)
     index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,10 +299,8 @@ def _append_index(ctx: RunContext, record: dict[str, Any], rel_path: Path) -> No
     with index_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-
 def load_call_record(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
 
 def list_calls_for_run(run_dir: Path) -> list[dict[str, Any]]:
     index_path = run_dir / "understanding" / "llm_calls" / INDEX_NAME
@@ -336,7 +313,6 @@ def list_calls_for_run(run_dir: Path) -> list[dict[str, Any]]:
             continue
         rows.append(json.loads(line))
     return rows
-
 
 def reconstruct_volley_from_calls(
     records: list[dict[str, Any]],

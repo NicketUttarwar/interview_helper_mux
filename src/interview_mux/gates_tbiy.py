@@ -39,7 +39,12 @@ def check_g1_5_preview_pickup_pending(ctx: RunContext) -> list[str]:
 
 
 def list_g1_5_preview_pickup_lines(ctx: RunContext) -> list[dict[str, Any]]:
-    """Enriched post-preview pickup rows for GUI."""
+    """Enriched post-preview pickup rows for GUI.
+
+    Documentary profile: typically empty (no ``post_preview`` lines).
+    TBIY: after preview listen, only ``post_preview`` record lines require re-record.
+    First-try does not skip TBIY G1.5 when those lines exist.
+    """
     if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
         return []
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -98,7 +103,7 @@ def require_tbiy_gates_clear(ctx: RunContext, *, stage: str) -> None:
     missing = check_g1_vo(ctx)
     if missing and stage not in ("g1_vo_pickup", "vo_ingest", "vo_boundary_detect"):
         raise SystemExit(f"G1 VO pickup missing for: {missing}")
-    if stage in ("mmaudio_sfx_flow1", "mix_flow1", "master_flow1", "mux_flow1"):
+    if stage in ("mmaudio_sfx", "mix", "master_finalize", "mux_flow1"):
         require_g1_5_preview_pickup_clear(ctx, stage=stage)
     if not ctx.artifact_exists("understanding/source_topology.json") and stage not in (
         "source_topology_build",

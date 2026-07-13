@@ -19,7 +19,6 @@ Layer = Literal[
     "audio",
 ]
 
-
 @dataclass(frozen=True)
 class ProgressionBlocker:
     layer: str
@@ -34,13 +33,11 @@ class ProgressionBlocker:
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
-
 def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
     from interview_mux.gates import (
         check_disfluency_review_pending,
         check_g1_vo,
         check_transcript_review_pending,
-        get_selected_flow,
     )
 
     out: list[ProgressionBlocker] = []
@@ -73,17 +70,6 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
                 stage_id="g1_vo_pickup",
             )
         )
-    flow = get_selected_flow(ctx)
-    if flow != "flow1":
-        out.append(
-            ProgressionBlocker(
-                layer="gate",
-                id="g2_flow_select",
-                message=f"Flow 2 selection required: set selected_flow to flow1 (current: {flow or 'unset'}).",
-                path="run_meta.json",
-                stage_id="g2_flow_select",
-            )
-        )
     if ctx.artifact_exists("understanding/analysis_state.json"):
         state = ctx.read_json("understanding/analysis_state.json")
         meta = state.get("meta") if isinstance(state, dict) else {}
@@ -99,7 +85,6 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
                 )
             )
     return out
-
 
 def _p0_spine_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
     from interview_mux.artifact_completeness import artifact_status
@@ -126,7 +111,6 @@ def _p0_spine_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
             break
     return out
 
-
 def _cross_blockers(ctx: RunContext, checkpoint: str) -> list[ProgressionBlocker]:
     from interview_mux.artifact_cross_validate import validate_cross_artifacts
 
@@ -141,7 +125,6 @@ def _cross_blockers(ctx: RunContext, checkpoint: str) -> list[ProgressionBlocker
         for err in errors[:12]
     ]
 
-
 def _guess_pointer(error: str) -> str | None:
     low = error.lower()
     if "segment_id" in low and "topics" in low:
@@ -151,7 +134,6 @@ def _guess_pointer(error: str) -> str | None:
     if "manifest" in low:
         return "/segments"
     return None
-
 
 def _analysis_complete_blocker(ctx: RunContext) -> ProgressionBlocker | None:
     if ctx.artifact_exists("analysis_complete.json"):
@@ -164,14 +146,13 @@ def _analysis_complete_blocker(ctx: RunContext) -> ProgressionBlocker | None:
         stage_id="optimal_questions",
     )
 
-
 def _flow1_spine_blockers(ctx: RunContext, *, through_stage: str | None = None) -> list[ProgressionBlocker]:
     from interview_mux.artifact_completeness import artifact_status
     from interview_mux.llm_flow_hardening import producer_artifact_path
-    from interview_mux.progression_spine import P0_FLOW1_SPINE, flow1_spine_through
+    from interview_mux.progression_spine import P0_DELIVERY_SPINE, flow1_spine_through
 
     out: list[ProgressionBlocker] = []
-    chain = flow1_spine_through(through_stage) if through_stage else P0_FLOW1_SPINE
+    chain = flow1_spine_through(through_stage) if through_stage else P0_DELIVERY_SPINE
     for stage_id in chain:
         rel = producer_artifact_path(stage_id)
         if not rel:
@@ -191,7 +172,6 @@ def _flow1_spine_blockers(ctx: RunContext, *, through_stage: str | None = None) 
             break
     return out
 
-
 def _preflight_blockers(ctx: RunContext, stage_id: str) -> list[ProgressionBlocker]:
     from interview_mux.llm_preflight import run_preflight
 
@@ -204,7 +184,6 @@ def _preflight_blockers(ctx: RunContext, stage_id: str) -> list[ProgressionBlock
         )
         for issue in issues[:8]
     ]
-
 
 def _pending_write_blocker(ctx: RunContext) -> ProgressionBlocker | None:
     pending_root = ctx.run_dir / ".pending_writes"
@@ -220,8 +199,7 @@ def _pending_write_blocker(ctx: RunContext) -> ProgressionBlocker | None:
         stage_id=stages[0],
     )
 
-
-def build_flow1_readiness_report(
+def build_delivery_readiness_report(
     ctx: RunContext,
     *,
     target_stage: str | None = "topic_coverage_audit",
@@ -235,7 +213,7 @@ def build_flow1_readiness_report(
     if ac:
         blockers.append(ac)
     blockers.extend(_cross_blockers(ctx, "post_reanchor"))
-    blockers.extend(_cross_blockers(ctx, "pre_flow1"))
+    blockers.extend(_cross_blockers(ctx, "pre_delivery"))
     pending = _pending_write_blocker(ctx)
     if pending:
         blockers.append(pending)
@@ -260,22 +238,21 @@ def build_flow1_readiness_report(
         "blockers": [b.to_dict() for b in unique],
     }
 
-
 def build_pre_audio_readiness_report(ctx: RunContext) -> dict[str, Any]:
-    """Readiness before mmaudio_sfx_flow1 / mix_flow1 spend."""
+    """Readiness before mmaudio_sfx / mix spend."""
     from interview_mux.stage_input_checks import collect_stage_input_issues
 
     blockers: list[ProgressionBlocker] = []
-    flow_report = build_flow1_readiness_report(
+    flow_report = build_delivery_readiness_report(
         ctx,
-        target_stage="edl_flow1",
+        target_stage="edl",
         include_flow1_spine=True,
     )
     for row in flow_report.get("blockers") or []:
         if isinstance(row, dict):
             blockers.append(ProgressionBlocker(**{k: row[k] for k in row if k in ProgressionBlocker.__dataclass_fields__}))
 
-    for stage_id in ("mmaudio_sfx_flow1", "mix_flow1"):
+    for stage_id in ("mmaudio_sfx", "mix"):
         for issue in collect_stage_input_issues(ctx, stage_id):
             blockers.append(
                 ProgressionBlocker(
@@ -297,11 +274,15 @@ def build_pre_audio_readiness_report(ctx: RunContext) -> dict[str, Any]:
     return {
         "ready": len(unique) == 0,
         "blockers": [b.to_dict() for b in unique],
+        "source_readiness": (
+            __import__(
+                "interview_mux.source_readiness", fromlist=["load_source_readiness"]
+            ).load_source_readiness(ctx)
+        ),
     }
 
-
-def assert_flow1_ready(ctx: RunContext, *, target_stage: str = "topic_coverage_audit") -> None:
-    report = build_flow1_readiness_report(ctx, target_stage=target_stage)
+def assert_delivery_ready(ctx: RunContext, *, target_stage: str = "topic_coverage_audit") -> None:
+    report = build_delivery_readiness_report(ctx, target_stage=target_stage)
     if report["ready"]:
         return
     summary = "; ".join(
@@ -314,7 +295,6 @@ def assert_flow1_ready(ctx: RunContext, *, target_stage: str = "topic_coverage_a
         detail={"readiness": report, "layer": "readiness"},
     )
     raise SystemExit(f"Flow 1 readiness gate: {summary}")
-
 
 def log_blocker(ctx: RunContext, blocker: ProgressionBlocker, *, stage: str | None = None) -> None:
     """Emit operator-visible log with unified failure taxonomy."""

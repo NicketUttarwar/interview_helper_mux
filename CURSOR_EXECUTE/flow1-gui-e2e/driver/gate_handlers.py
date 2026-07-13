@@ -62,13 +62,25 @@ def _click_role(
 
 def try_write_approval(page: Page, log: EventLogger, archive=None) -> bool:
     """Single click only — GUI auto-starts next stage after save; do not retry while busy."""
+    batch = page.locator('[data-action-id="gui.write_approval.batch_save"]')
+    if batch.count():
+        try:
+            if batch.first.is_enabled():
+                log.action("Clicking gui.write_approval.batch_save (first-try)")
+                batch.first.click(timeout=5000)
+                if archive:
+                    archive.maybe_capture_after_click(page, "click:batch_save")
+                time.sleep(1.0)
+                return True
+        except Exception:
+            pass
     if _click_testid(page, "write-approval-save-continue", log, "write approval", archive):
         time.sleep(1.0)
         return True
     if _click_testid(page, "stage-step-primary", log, "write approval footer", archive):
         time.sleep(1.0)
         return True
-    for label in ("Save all files & continue", "Save & continue"):
+    for label in ("Save all pending stages", "Save all files & continue", "Save & continue"):
         if _click_role(page, label, log, archive=archive):
             return True
     return False
@@ -194,7 +206,7 @@ def try_g2_flow(page: Page, log: EventLogger, archive=None) -> bool:
     log.gate("G2 flow select flow1")
     if _click_testid(page, "select-flow-flow1", log, "select flow1", archive):
         return True
-    return _click_role(page, "flow1", log, archive=archive)
+    return _click_role(page, "podcast", log, archive=archive)
 
 
 def try_g1_5_sfx(page: Page, log: EventLogger, archive=None) -> bool:
@@ -350,7 +362,7 @@ def resolve_gates(
         if try_g1_vo(page, log, dummy_vo, archive):
             return "gate:g1_continue"
 
-    if "g2_flow_select" in action_stages or not run.get("selected_flow"):
+    if "REMOVED_g2_flow_select" in action_stages or not run.get("REMOVED_selected_flow"):
         if try_g2_flow(page, log, archive):
             return "gate:g2"
 

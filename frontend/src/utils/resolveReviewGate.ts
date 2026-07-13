@@ -16,7 +16,6 @@ export type ReviewGateKind =
   | "llm_gate"
   | "handoff"
   | "sfx_prompt"
-  | "flow_select"
   | "g1_vo";
 
 export interface ReviewGateSpec {
@@ -113,8 +112,6 @@ export function resolveReviewGateSpec(
       return { kind: "disfluency_review" };
     case "analysis_profile":
       return { kind: "analysis_profile" };
-    case "g2_flow_select":
-      return { kind: "flow_select" };
     case "g1_vo_pickup":
       return { kind: "g1_vo", missingCount: run.g1_missing?.length ?? 0 };
     case "g1_5_preview_pickup":

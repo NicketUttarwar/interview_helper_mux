@@ -14,13 +14,12 @@ export const MANUAL_CHECKPOINT_STAGES = new Set([
   "transcript_review",
   "disfluency_review",
   "g1_vo_pickup",
-  "g2_flow_select",
-  "analysis_profile",
 ]);
 
 const LEGACY_MANUAL_BLOCKING = new Set([
   "artifact_clarification",
   "downstream_propagation",
+  "analysis_profile",
 ]);
 
 const FULL_AUTOPILOT_MANUAL_BLOCKING = new Set([
@@ -29,15 +28,27 @@ const FULL_AUTOPILOT_MANUAL_BLOCKING = new Set([
 
 const SHARED_MANUAL_BLOCKING = new Set([
   "stage_reuse",
-  "write_approval",
   "llm_gate",
   "transcript_review",
   "disfluency_review",
   "g1_vo_pickup",
-  "g2_flow_select",
-  "analysis_profile",
   "gate",
 ]);
+
+function firstTryEnabled(config?: AppConfig | null, run?: RunData): boolean {
+  if (run?.journey?.first_try?.enabled === false) return false;
+  if (config?.journey_ui && "first_try_mode" in config.journey_ui) {
+    return Boolean((config.journey_ui as { first_try_mode?: boolean }).first_try_mode);
+  }
+  return run?.journey?.first_try?.enabled !== false;
+}
+
+function writeApprovalDeferred(config?: AppConfig | null, run?: RunData): boolean {
+  if (run?.journey?.first_try?.write_approval_deferred) return true;
+  const ju = config?.journey_ui as { defer_write_approval_until?: string; first_try_mode?: boolean } | undefined;
+  if (ju?.defer_write_approval_until === "phase_end") return true;
+  return firstTryEnabled(config, run) && ju?.defer_write_approval_until !== "off";
+}
 
 function manualBlockingReasons(config?: AppConfig | null): Set<string> {
   const reasons = new Set(SHARED_MANUAL_BLOCKING);
@@ -45,6 +56,10 @@ function manualBlockingReasons(config?: AppConfig | null): Set<string> {
     for (const r of FULL_AUTOPILOT_MANUAL_BLOCKING) reasons.add(r);
   } else {
     for (const r of LEGACY_MANUAL_BLOCKING) reasons.add(r);
+  }
+  if (!firstTryEnabled(config)) {
+    reasons.add("write_approval");
+    reasons.add("analysis_profile");
   }
   return reasons;
 }
@@ -54,8 +69,18 @@ export function isPipelineAutopilotEnabled(config?: AppConfig | null): boolean {
   return config?.journey_ui?.auto_advance_pipeline !== false;
 }
 
-export function canAutoRunStage(stageId: string, run?: RunData): boolean {
-  if (MANUAL_CHECKPOINT_STAGES.has(stageId)) return false;
+export function canAutoRunStage(stageId: string, run?: RunData, config?: AppConfig | null): boolean {
+  if (MANUAL_CHECKPOINT_STAGES.has(stageId)) {
+    if (!run || !firstTryEnabled(config, run)) return false;
+    if (stageId === "disfluency_review") return true;
+    if (stageId === "transcript_review") {
+      return run.journey?.blocking?.reason !== "transcript_review";
+    }
+    if (stageId === "g1_vo_pickup") {
+      return (run.g1_missing || []).length === 0;
+    }
+    return false;
+  }
   if (run && !upstreamArtifactsReady(run.stages, stageId)) return false;
   return true;
 }
@@ -95,7 +120,7 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
 /** True when autopilot must not start the next stage job (reuse, gates, write approval, etc.). */
 export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null): boolean {
   const write = pendingWriteInfo(run);
-  if (write?.stageId) return true;
+  if (write?.stageId && !writeApprovalDeferred(config, run)) return true;
 
   if (findHandoffStage(run)) return true;
 
@@ -110,7 +135,10 @@ export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null):
       const pending = Number(run.job?.pending_decision_count ?? 0);
       if (pending > 0) return true;
     }
-    if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
+    if (
+      (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
+      !writeApprovalDeferred(config, run)
+    ) {
       return true;
     }
     if (Number(run.job?.sufficiency_blocking ?? 0) > 0) {

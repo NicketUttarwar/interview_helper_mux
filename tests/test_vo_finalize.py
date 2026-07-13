@@ -55,7 +55,7 @@ def test_vo_finalize_patches_sonic_context_vo_bridge(tmp_path):
             "duration_seconds": 1.0,
         }
     ]
-    plan["flow_plans"]["flow1"]["cues"] = [
+    plan["flow_plans"]["podcast"]["cues"] = [
         {
             "cue_id": "cue_vo_1",
             "asset_id": "vo_bridge_1",

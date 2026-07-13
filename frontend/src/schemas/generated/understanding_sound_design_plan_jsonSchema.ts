@@ -35,7 +35,7 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "cue_opportunity_refs": z.array(z.string()).optional(),
 })),
   "flow_plans": z.object({
-  "flow1": z.object({
+  "podcast": z.object({
   "profile": z.string(),
   "cues": z.array(z.object({
   "cue_id": z.string(),

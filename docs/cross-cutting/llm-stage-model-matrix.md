@@ -50,7 +50,7 @@
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `highlight_selection` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — candidate batches | weak hook / over cap clips; truncation | [highlight-selection.system.txt](../prompts/selection/highlight-selection.system.txt) |
+| `REMOVED_highlight_selection` | high | flagship | primary, arbiter, shard, collate | full / shard / collate | yes — candidate batches | weak hook / over cap clips; truncation | [highlight-selection.system.txt](../prompts/selection/highlight-selection.system.txt) |
 | `sfx_brief` | low | **flagship** | primary, arbiter | full | no | — | [sfx-brief.system.txt](../prompts/assembly/sfx-brief.system.txt) |
 
 ---
@@ -59,7 +59,7 @@
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
-| `podcast_show_description` | high | flagship | primary, arbiter | full | no | thin evidence; wrong person/voice; word count out of band | [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt) |
+| `REMOVED_podcast_show_description` | high | flagship | primary, arbiter | full | no | thin evidence; wrong person/voice; word count out of band | [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt) |
 
 Rich **user/assistant** prior turns: `content_context`, `speaker_roles`, `segment_classification`, profile slice (`themes`, `narrative`, `style`, `major_questions`), optional gap summaries — [context-padding.md](./context-padding.md).
 
@@ -67,13 +67,13 @@ Rich **user/assistant** prior turns: `content_context`, `speaker_roles`, `segmen
 
 ## Sound design (shipped — BUILD-060+)
 
-Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW1_ORDER` / `FLOW2_ORDER`; tier defaults below match `models.stages` in `app.defaults.json`.
+Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `DELIVERY_ORDER` / `REMOVED_FLOW2_ORDER`; tier defaults below match `models.stages` in `app.defaults.json`.
 
 | Stage key | Severity | Default tier | Task kinds | Volley | Decompose | Upgrade triggers | Prompt |
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `sound_design_palettes` | low | **flagship** | primary, arbiter | full | no | — | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
-| `sound_design_plan_flow1` | high | flagship | primary, arbiter | full | no | density / palette mismatch | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
-| `sound_design_plan_flow2` | high | flagship | primary, arbiter | full | no | — | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
+| `sound_design_plan` | high | flagship | primary, arbiter | full | no | density / palette mismatch | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
+| `REMOVED_sdp_flow2` | high | flagship | primary, arbiter | full | no | — | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
 | `sfx_prompt_craft` | low | **flagship** | primary, arbiter | full | no | policy / voice bleed | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
 
 ---
@@ -107,7 +107,7 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `FLOW
 | `content_context` | Transcript chunks | `{ "label", "start_ms", "end_ms" }` or `segment_ids` |
 | `topic_coverage_audit` | Segment batches | `{ "label", "segment_ids" }` |
 | `full_master_ranking` | Chapter or theme batches | `{ "label", "segment_ids" }` |
-| `highlight_selection` | Candidate batches | `{ "label", "segment_ids" }` |
+| `REMOVED_highlight_selection` | Candidate batches | `{ "label", "segment_ids" }` |
 
 Max shards per attempt: **8** (see [llm-orchestration.md](./llm-orchestration.md)).
 
@@ -115,4 +115,4 @@ Max shards per attempt: **8** (see [llm-orchestration.md](./llm-orchestration.md
 
 ## v1 runtime note
 
-**BUILD-084:** `DECOMPOSE_ELIGIBLE` in `llm_shard_plans.py` includes `content_context`, `boundary_detection`, `segment_classification`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `highlight_selection`. Deterministic `shard_plan` when arbiter omits plan but `truncation_flags` are set.
+**BUILD-084:** `DECOMPOSE_ELIGIBLE` in `llm_shard_plans.py` includes `content_context`, `boundary_detection`, `segment_classification`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `REMOVED_highlight_selection`. Deterministic `shard_plan` when arbiter omits plan but `truncation_flags` are set.

@@ -140,4 +140,11 @@ def run_ingest(ctx: RunContext) -> Path:
         detail={"journey_kind": "milestone", "source_sha256": source_sha[:12]},
     )
     ctx.mark_done("ingest")
+    try:
+        from interview_mux.source_readiness import maybe_auto_dismiss_preclean, write_source_readiness
+
+        write_source_readiness(ctx, stage="ingest")
+        maybe_auto_dismiss_preclean(ctx, checkpoint="before_ingest")
+    except Exception as exc:  # noqa: BLE001 — readiness is fail-open
+        ctx.log(f"source_readiness after ingest failed: {exc}", level="warning", stage="ingest")
     return normalized

@@ -1,6 +1,6 @@
 # edl-narrative-audit examples (reference)
 
-QC pass on `flow_1_master/edl.json` before operator ships Flow 1. Validates narrative semantics against `selection.json`, `narrative_plan.json`, and `coverage_audit.json` — not sample-accurate waveform editing.
+QC pass on `master/edl.json` before operator ships Flow 1. Validates narrative semantics against `selection.json`, `narrative_plan.json`, and `coverage_audit.json` — not sample-accurate waveform editing.
 
 Pair with: `selection/edl-narrative-audit.system.txt` · [narrative-arc-plan.examples.md](./narrative-arc-plan.examples.md)
 
@@ -61,7 +61,7 @@ Pair with: `selection/edl-narrative-audit.system.txt` · [narrative-arc-plan.exa
       "check_id": "ordering_constraints_honored",
       "message": "seg_010 (scale-up numbers) appears before seg_003 (origin story) despite narrative_plan constraint.",
       "segment_ids": ["seg_003", "seg_010"],
-      "suggested_action": "rerun edl_flow1 after full_master_ranking"
+      "suggested_action": "rerun edl after full_master_ranking"
     }
   ]
 }
@@ -115,7 +115,7 @@ Pair with: `selection/edl-narrative-audit.system.txt` · [narrative-arc-plan.exa
 
 - References `seg_200` in issues but `selection.json` ordered list ends at `seg_048`.
 
-**Why:** Cross-artifact ref invalid; rerun from `edl_flow1` after fixing ranking.
+**Why:** Cross-artifact ref invalid; rerun from `edl` after fixing ranking.
 
 ---
 

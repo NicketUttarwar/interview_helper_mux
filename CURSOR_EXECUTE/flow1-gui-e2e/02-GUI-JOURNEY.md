@@ -40,23 +40,23 @@
 |------|-------|--------------|
 | G1 | `g1_vo_pickup` | `gate:g1_upload`, `gate:g1_continue` |
 | G1.5 (TBIY) | post-preview pickup | `gate:g1_5_preview_pickup` (after `gate:preview_listen`) |
-| G2 | `g2_flow_select` | `gate:g2` |
+| G2 | `REMOVED_g2_flow_select` | `gate:g2` |
 
 ## Phase D — Build
 
-`topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan_flow1` → `sound_design_vo_finalize` → `edl_narrative_audit` → `edl_flow1` → `assembly_preview`
+`topic_coverage_audit` → `narrative_arc_plan` → `full_master_ranking` → `transitions` → `sound_design_plan` → `sound_design_vo_finalize` → `edl_narrative_audit` → `edl` → `assembly_preview`
 
 ## Phase E — Sound
 
 | Stage | Gate | Driver event |
 |-------|------|--------------|
 | `sfx_prompt_craft` | G1.5 | `gate:g1_5` |
-| `mmaudio_sfx_flow1` | post-listen | `gate:sfx_post_listen` |
-| `mix_flow1` | | |
+| `mmaudio_sfx` | post-listen | `gate:sfx_post_listen` |
+| `mix` | | |
 
 ## Phase F — Export
 
-`master_flow1` → `flow_1_master/master.wav`
+`master_finalize` → `master/master.wav`
 
 ---
 
@@ -108,8 +108,8 @@ Scripted checks for middle-panel tools and Activity stream policy. Run manually 
 | P10 | Any | Job starts while Activity on **All** | Pin clears; tab switches to **Live** |
 | P14 | Flow 1 post-classify | **Timeline** → Assembly before EDL | Assembly button disabled |
 | P19 | Flow 1 | Activity **All** with duplicate errors in `gui_log.jsonl` | Scroll list dedupes consecutive identical lines |
-| F2-1 | Flow 2 | Same as P3/P5 on `selected_flow: flow_2` run | Timeline locked until segments; Story per `story_board_ready` |
-| F3-1 | Flow 3 | Same as P3/P5 on `selected_flow: flow_3` run | Same gating; narrative arc stages differ, sub-tab rules unchanged |
+| F2-1 | Flow 2 | Same as P3/P5 on `REMOVED_selected_flow: flow_2` run | Timeline locked until segments; Story per `story_board_ready` |
+| F3-1 | Flow 3 | Same as P3/P5 on `REMOVED_selected_flow: flow_3` run | Same gating; narrative arc stages differ, sub-tab rules unchanged |
 
 Selectors: `data-testid="pipeline-tool-story"`, `pipeline-tool-timeline`, `pipeline-tool-profile`, Activity tabs `activity-log-all|activity-log-live|activity-log-step`.
 

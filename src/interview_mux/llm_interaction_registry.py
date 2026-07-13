@@ -27,12 +27,9 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "narrative_arc_plan": "OF-02",
     "full_master_ranking": "OF-03",
     "transitions": "OF-04",
-    "sound_design_plan_flow1": "OF-05",
+    "sound_design_plan": "OF-05",
     "edl_narrative_audit": "OF-06",
     "sfx_prompt_craft": "OF-07",
-    "highlight_selection": "OF-08",
-    "sound_design_plan_flow2": "OF-09",
-    "podcast_show_description": "OF-10",
     "podcast_sfx_brief": "OF-L1",
     "sfx_brief": "OF-L2",
     "sfx_prompt_refine": "OF-L3",
@@ -57,7 +54,6 @@ LOCAL_FRAMER_IDS: dict[str, str] = {
     "collate": "LX-01c",
     "specialist": "LX-01d",
 }
-
 
 def _entry(
     *,
@@ -93,7 +89,6 @@ def _entry(
         "model_tier": model_tier,
     }
 
-
 def _build_registry() -> dict[str, dict[str, Any]]:
     reg: dict[str, dict[str, Any]] = {}
 
@@ -128,18 +123,14 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         )
 
     _OF_META = {
-        "topic_coverage_audit": ("analysis_flow1_extended.run_topic_coverage", "selection/topic-coverage-audit", "full/shard/collate"),
-        "narrative_arc_plan": ("analysis_flow1_extended.run_narrative_arc", "selection/narrative-arc-plan", "full"),
-        "full_master_ranking": ("selection_flow1.run_full_master_ranking", "selection/full-master-ranking", "full/shard/collate"),
-        "transitions": ("selection_flow1.run_transitions", "assembly/transitions", "full"),
-        "sound_design_plan_flow1": ("sound_design_stages.run_sound_design_plan_flow1", "sound_design/plan-flow1", "full"),
+        "topic_coverage_audit": ("analysis_extended.run_topic_coverage", "selection/topic-coverage-audit", "full/shard/collate"),
+        "narrative_arc_plan": ("analysis_extended.run_narrative_arc", "selection/narrative-arc-plan", "full"),
+        "full_master_ranking": ("selection.run_full_master_ranking", "selection/full-master-ranking", "full/shard/collate"),
+        "transitions": ("selection.run_transitions", "assembly/transitions", "full"),
+        "sound_design_plan": ("sound_design_stages.run_sound_design_plan", "sound_design/plan-flow1", "full"),
         "edl_narrative_audit": ("edl_narrative_audit.run_edl_narrative_audit", "selection/edl-narrative-audit", "full"),
         "sfx_prompt_craft": ("sound_design_stages.run_sfx_prompt_craft", "sound_design/sfx-prompt-craft", "full"),
-        "highlight_selection": ("selection_flow2.run_highlight_selection", "selection/highlight-selection", "full/shard/collate"),
-        "sound_design_plan_flow2": ("sound_design_stages.run_sound_design_plan_flow2", "sound_design/plan-flow2", "full"),
-        "podcast_show_description": ("publishing_flow3.run_podcast_show_description", "publishing/podcast-show-description", "full"),
-        "podcast_sfx_brief": ("selection_flow1.run_podcast_sfx_brief", "selection/podcast-sfx-brief", "full"),
-        "sfx_brief": ("selection_flow2.run_sfx_brief", "selection/sfx-brief", "full"),
+        "podcast_sfx_brief": ("selection.run_podcast_sfx_brief", "selection/podcast-sfx-brief", "full"),
         "sfx_prompt_refine": ("sound_design_stages.run_sfx_prompt_refine", "sound_design/sfx-prompt-refine", "full"),
     }
     for sk, (ep, prompt, volley) in _OF_META.items():
@@ -335,7 +326,6 @@ def _build_registry() -> dict[str, dict[str, Any]]:
 
     return reg
 
-
 _OA_GOALS: dict[str, str] = {
     "speaker_roles": "Map diarization IDs → interviewer/interviewee",
     "content_context": "Thesis, topics, key_claims",
@@ -352,12 +342,9 @@ _OF_GOALS: dict[str, str] = {
     "narrative_arc_plan": "Chapter arc",
     "full_master_ranking": "Ordered segment_ids",
     "transitions": "Short bridge VO",
-    "sound_design_plan_flow1": "Cues + assets flow1",
+    "sound_design_plan": "Cues + assets flow1",
     "edl_narrative_audit": "Narrative QC verdict",
     "sfx_prompt_craft": "MMAudio prompt rows",
-    "highlight_selection": "Highlight clips",
-    "sound_design_plan_flow2": "Montage SDP",
-    "podcast_show_description": "Show blurb",
     "podcast_sfx_brief": "v1 SFX brief (legacy)",
     "sfx_brief": "Montage brief (legacy)",
     "sfx_prompt_refine": "Patch failed asset prompts",
@@ -370,7 +357,6 @@ _OS_GOALS: dict[str, str] = {
 }
 
 LLM_INTERACTION_REGISTRY: dict[str, dict[str, Any]] = _build_registry()
-
 
 def resolve_interaction_id(
     *,
@@ -404,20 +390,16 @@ def resolve_interaction_id(
         return STAGE_PRIMARY_IDS[parent]
     return "OM-01"
 
-
 def resolve_specialist_key_from_stage(stage_key: str) -> str | None:
     if "__" not in stage_key:
         return None
     return stage_key.split("__", 1)[1]
 
-
 def all_openai_stage_keys() -> frozenset[str]:
     return frozenset(STAGE_ARTIFACT_SCHEMAS.keys())
 
-
 def registry_ids() -> frozenset[str]:
     return frozenset(LLM_INTERACTION_REGISTRY.keys())
-
 
 def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
     """Call-site patterns enforced by CI (module.function)."""

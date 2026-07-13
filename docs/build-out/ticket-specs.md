@@ -158,7 +158,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-029–030 — Topic coverage + narrative arc
 
-- [x] JSON artifacts under `flow_1_master/`
+- [x] JSON artifacts under `master/`
 - [x] BUILD-081: warn/block if `operator_verified` false
 
 ### BUILD-031–032 — Ranking + transitions
@@ -211,20 +211,20 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-045 — Podcast show description
 
-- [x] `publishing_flow3.py` runs `podcast_show_description` stage
+- [x] `REMOVED_publishing_flow3.py` runs `REMOVED_podcast_show_description` stage
 - [x] Output validates against show description schema
 - [x] Third person; 150–250 words; grounded in content brief
 - [x] Prompt: [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt)
 
 ### BUILD-046 — Show description export
 
-- [x] `export_show_description` writes `show_description.md` from JSON (no LLM)
+- [x] `REMOVED_export_show_description` writes `show_description.md` from JSON (no LLM)
 - [x] Plain text suitable for podcast directories
 
 ### BUILD-080 — Flow 3 wire-up
 
-- [x] `FLOW3_ORDER` in `pipeline.py`; `run_flow3()`; `run_single_stage` branch
-- [x] `tools/run_flow.py --flow flow3`
+- [x] `REMOVED_FLOW3_ORDER` in `pipeline.py`; `REMOVED_run_flow3()`; `run_single_stage` branch
+- [x] `tools/run_delivery.py --flow flow3`
 - [x] `cli.flow_cmd` accepts flow3
 - [x] `web/runner.py` execute `mode: flow3`
 - [x] `server.py` `FlowBody` regex includes flow3
@@ -277,17 +277,17 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-062 — Flow 1 sound design plan
 
-- [x] `sound_design_plan_flow1` in `FLOW1_ORDER` after `transitions` (post G2 flow1 selection inputs)
-- [x] Requires `run_meta.selected_flow` = `flow1`
-- [x] LLM artifacts merge `assets[]` and `flow_plans.flow1` into `understanding/sound_design_plan.json`
+- [x] `sound_design_plan` in `DELIVERY_ORDER` after `transitions` (post G2 flow1 selection inputs)
+- [x] Requires `run_meta.REMOVED_selected_flow` = `flow1`
+- [x] LLM artifacts merge `assets[]` and `flow_plans.podcast` into `understanding/sound_design_plan.json`
 - [x] Persist validates full SDP schema; cues must reference known `asset_id` values
 - [x] Prompt: [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt)
 
 ### BUILD-063 — Flow 2 sound design plan
 
-- [x] `sound_design_plan_flow2` in `FLOW2_ORDER` after `highlight_selection` (post G2 flow2 selection inputs)
-- [x] Requires `run_meta.selected_flow` = `flow2`
-- [x] LLM artifacts merge `assets[]` and `flow_plans.flow2` into `understanding/sound_design_plan.json`
+- [x] `REMOVED_sdp_flow2` in `REMOVED_FLOW2_ORDER` after `REMOVED_highlight_selection` (post G2 flow2 selection inputs)
+- [x] Requires `run_meta.REMOVED_selected_flow` = `flow2`
+- [x] LLM artifacts merge `assets[]` and `REMOVED_flow_plans_flow2` into `understanding/sound_design_plan.json`
 - [x] Persist validates full SDP schema; cues must reference known `asset_id` values
 - [x] Prompt: [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt)
 
@@ -299,13 +299,13 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-065 — Mix engine
 
-- [x] `mix_flow1` / `mix_flow2` replace v1 speech-only mux (`sound_design.py` + canonical pipeline ids — BUILD-066)
+- [x] `mix` / `REMOVED_mix_flow2` replace v1 speech-only mux (`sound_design.py` + canonical pipeline ids — BUILD-066)
 - [x] VO + beds + stingers + ducking per [sound-design.md](../cross-cutting/sound-design.md)
 - [x] `master.wav` audibly includes SFX (via `assembly.wav` → `master_flow*`)
 
 ### BUILD-066 — Pipeline + GUI wire-up
 
-- [x] Stage order updated in `pipeline.py` and `web/stages.py` (`mix_flow1` / `mix_flow2` canonical; `mux_flow*` legacy aliases)
+- [x] Stage order updated in `pipeline.py` and `web/stages.py` (`mix` / `REMOVED_mix_flow2` canonical; `mux_flow*` legacy aliases)
 - [x] Optional G1.5 SFX prompt review panel (`sfx_prompt_craft` + `/api/runs/{id}/sfx-prompts*`; `g1_5_require_prompt_approval`)
 - [x] v1 brief stages aliased or removed from default path (`podcast_sfx_brief` / `sfx_brief` single-stage only)
 
@@ -327,7 +327,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 ### BUILD-067 — Gap report → EDL
 
-- [x] `edl_flow1` includes `vo_pickup` placements and gap-driven ordering
+- [x] `edl` includes `vo_pickup` placements and gap-driven ordering
 - [x] Transitions and ranking respect gap report (ranking/transitions LLM inputs; EDL weaves `transitions.json` + `gap_report` placements)
 
 ### BUILD-068 — NLE → selection/EDL
@@ -349,7 +349,7 @@ Per-ticket **definition of done** for the entire repository. Status lives in [RE
 
 - [x] `pyloudnorm` integrated LUFS on `assembly.wav` before final limiter (`mastering_bus.py`)
 - [x] Targets and true-peak ceiling from BUILD-070 `TARGETS`; gain offset drives ffmpeg `loudnorm` pass
-- [x] `gui_log.jsonl` records assembly-bus measurement on `master_flow1` / `master_flow2`
+- [x] `gui_log.jsonl` records assembly-bus measurement on `master_finalize` / `REMOVED_master_flow2`
 
 ### BUILD-072 — Pre-clean quality offers
 
@@ -446,7 +446,7 @@ Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-pro
 - [x] P0 stages: expanded system prompts + full runtime examples (`analysis.prompt_examples.mode: full`)
 - [x] P1 narrative stages: examples + arbiter rubrics shipped in scorecard
 - [x] P2 sound stages: SDP prompts + cross-validate hooks
-- [x] P3 polish stages: `transitions`, `highlight_selection`, `podcast_show_description` scorecard `shipped`
+- [x] P3 polish stages: `transitions`, `REMOVED_highlight_selection`, `REMOVED_podcast_show_description` scorecard `shipped`
 - [x] Example packs under `docs/prompts/_shared/examples/` match stage keys
 
 ### GUIDE-061–070 — Cross-validate, preflight, spend gates
@@ -475,8 +475,8 @@ Stub acceptance for the [LLM guidance program](../cross-cutting/llm-guidance-pro
 | Any stage | [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) rows |
 | Wave 1 | `./tools/check_prerequisites.sh` |
 | Wave 2 | `python tools/run_analysis.py` |
-| Wave 3a/b | `python tools/run_flow.py --flow flow1\|flow2` |
-| Wave 3c | `python tools/run_flow.py --flow flow3` |
+| Wave 3a/b | `python tools/run_delivery.py --flow flow1\|flow2` |
+| Wave 3c | `python tools/run_delivery.py --flow flow3` |
 | Wave 4+ audio | `python tools/verify_master.py <master.wav>` |
 | Full repo | [smoke-test.md](../workflows/smoke-test.md) + [testing-and-verification.md](./testing-and-verification.md) |
 

@@ -123,33 +123,24 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "understanding/gap_report.json",
         "understanding/interviewer_script.txt",
     ),
+    "delivery_brief_build": ("understanding/delivery_brief.json",),
     "vo_ingest": (),
-    "topic_coverage_audit": ("flow_1_master/coverage_audit.json",),
-    "narrative_arc_plan": ("flow_1_master/narrative_plan.json",),
-    "full_master_ranking": ("flow_1_master/selection.json",),
-    "transitions": ("flow_1_master/transitions.json",),
-    "sound_design_plan_flow1": ("understanding/sound_design_plan.json",),
+    "topic_coverage_audit": ("master/coverage_audit.json",),
+    "narrative_arc_plan": ("master/narrative_plan.json",),
+    "full_master_ranking": ("master/selection.json",),
+    "transitions": ("master/transitions.json",),
+    "sound_design_plan": ("understanding/sound_design_plan.json",),
     "sound_design_vo_finalize": ("understanding/sound_design_plan.json",),
-    "edl_narrative_audit": ("flow_1_master/edl_narrative_audit.json",),
-    "edl_flow1": ("flow_1_master/edl.json",),
-    "assembly_preview": ("flow_1_master/assembly_preview.wav",),
+    "edl_narrative_audit": ("master/edl_narrative_audit.json",),
+    "edl": ("master/edl.json",),
+    "assembly_preview": ("master/assembly_preview.wav",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
-    "mmaudio_sfx_flow1": (
+    "mmaudio_sfx": (
         "glob:sound_design/assets/*.wav",
-        "glob:flow_1_master/sfx/*.wav",
+        "glob:master/sfx/*.wav",
     ),
-    "mix_flow1": ("flow_1_master/assembly.wav",),
-    "master_flow1": ("flow_1_master/master.wav",),
-    "highlight_selection": ("flow_2_highlights/selection.json",),
-    "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
-    "mmaudio_sfx_flow2": (
-        "glob:sound_design/assets/*.wav",
-        "glob:flow_2_highlights/sfx/*.wav",
-    ),
-    "mix_flow2": ("flow_2_highlights/assembly.wav",),
-    "master_flow2": ("flow_2_highlights/master.wav",),
-    "podcast_show_description": ("flow_3_description/show_description.json",),
-    "export_show_description": ("flow_3_description/show_description.md",),
+    "mix": ("master/assembly.wav",),
+    "master_finalize": ("master/master.wav",),
     "transcript_review": (
         "transcript/corrections.json",
         "transcript/full.json",
@@ -167,9 +158,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "glob:vo_pickup/clean/*.wav",
         "glob:vo_pickup/normalized/*.wav",
     ),
-    "g2_flow_select": ("operator/flow_selection.json",),
-    "mux_flow1": ("flow_1_master/assembly.wav",),
-    "mux_flow2": ("flow_2_highlights/assembly.wav",),
+    "mux_flow1": ("master/assembly.wav",),
     "sonic_context_build": ("understanding/sonic_context.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
 }
@@ -205,6 +194,17 @@ def stage_reuse_offers_enabled() -> bool:
     if not isinstance(cfg, dict):
         return True
     return bool(cfg.get("enable_stage_reuse_offers", True))
+
+
+def stage_reuse_blocks_execute() -> bool:
+    """Under first_try, reuse offers are soft (listed) unless operator already decided."""
+    if not stage_reuse_offers_enabled():
+        return False
+    from interview_mux.first_try import first_try_mode_enabled
+
+    if first_try_mode_enabled():
+        return False
+    return True
 
 
 def _stored_source_audio_hash(ctx: RunContext) -> str | None:
@@ -395,8 +395,7 @@ def prior_run_has_file(ctx: RunContext, rel: str) -> bool:
 _SDP_REUSE_STAGES = frozenset(
     {
         "sound_design_palettes",
-        "sound_design_plan_flow1",
-        "sound_design_plan_flow2",
+        "sound_design_plan",
         "sound_design_vo_finalize",
     }
 )
@@ -490,12 +489,6 @@ def _reuse_dest(ctx: RunContext, rel: str, *, use_staging: bool, stage_id: str) 
 
 def _apply_gate_meta_reuse(ctx: RunContext, source: RunContext, stage_id: str) -> None:
     src_meta = read_run_meta(source)
-    if stage_id == "g2_flow_select":
-        flow = src_meta.get("selected_flow")
-        if flow in ("flow1", "flow2", "flow3"):
-            from interview_mux.gates import set_selected_flow
-
-            set_selected_flow(ctx, str(flow))
     if stage_id == "analysis_profile":
         verified = src_meta.get("profile_verified_at")
         if verified:
@@ -677,7 +670,7 @@ def reuse_offer_payload(ctx: RunContext, stage_id: str) -> dict[str, Any]:
     return {
         "stage_id": stage_id,
         "eligible": bool(candidates),
-        "blocking": bool(candidates) and stage_reuse_offers_enabled(),
+        "blocking": bool(candidates) and stage_reuse_blocks_execute(),
         "candidates": [c.to_dict() for c in candidates],
         "pending_decision": decision,
         "current_source_audio_hash_short": (
@@ -743,7 +736,7 @@ def check_stage_reuse_before_execute(
     stage_ids: list[str],
 ) -> StageReuseOfferPending | None:
     """Return pending offer for the first stage in execute order that needs a decision."""
-    if not stage_reuse_offers_enabled():
+    if not stage_reuse_blocks_execute():
         return None
     for sid in stage_ids:
         candidates = reuse_candidates_if_undecided(ctx, sid)

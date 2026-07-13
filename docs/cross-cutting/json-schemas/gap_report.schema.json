@@ -21,7 +21,20 @@
           "voice_speaker_id": { "type": "string" },
           "act_context": { "type": "integer", "minimum": 1, "maximum": 5 },
           "suggested_tone": { "type": "string", "enum": ["analytical", "consumer", "neutral"] },
-          "trim_hint_ms": { "type": "number" }
+          "trim_hint_ms": { "type": "number" },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "description": "G1 blocking uses high|critical when delivery=record; missing severity on record defaults to high at gate time."
+          },
+          "blocking": {
+            "type": "boolean",
+            "description": "When true, force VO required; when false, never block G1 even if severity is high."
+          },
+          "skipped_optional": {
+            "type": "boolean",
+            "description": "Operator skipped optional (non-blocking) VO via gui.g1.skip_optional."
+          }
         }
       }
     }

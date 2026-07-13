@@ -154,12 +154,12 @@ Read first:
 @docs/prompts/publishing/podcast-show-description.system.txt
 @docs/cross-cutting/json-schemas/ (show description schema)
 @src/interview_mux/pipeline.py
-@tools/run_flow.py
+@tools/run_delivery.py
 
 Constraints: .cursor/rules/interview-helper-mux.mdc.
-- publishing_flow3.py: podcast_show_description + export_show_description
-- FLOW3_ORDER, run_flow3(), run_single_stage branch in pipeline.py
-- tools/run_flow.py --flow flow3; cli.flow_cmd accepts flow3
+- REMOVED_publishing_flow3.py: REMOVED_podcast_show_description + REMOVED_export_show_description
+- REMOVED_FLOW3_ORDER, REMOVED_run_flow3(), run_single_stage branch in pipeline.py
+- tools/run_delivery.py --flow flow3; cli.flow_cmd accepts flow3
 - web/runner.py mode flow3; server.py FlowBody includes flow3
 - web/stages.py FLOW3_STAGES + all_stages_for_run branch
 - ctx.log() for operator milestones; no master.wav for flow3
@@ -175,10 +175,10 @@ When done, run Verify below (use an existing exec_* with analysis_complete.json 
 source .venv/bin/activate
 # Replace EXEC_ID with a run that finished shared analysis:
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow3 --run-id "$EXEC_ID"
-test -f "ASSETS/executions/${EXEC_ID}/flow_3_description/show_description.json"
-test -f "ASSETS/executions/${EXEC_ID}/flow_3_description/show_description.md"
-! test -f "ASSETS/executions/${EXEC_ID}/flow_3_description/master.wav"
+python tools/run_delivery.py --flow flow3 --run-id "$EXEC_ID"
+test -f "ASSETS/executions/${EXEC_ID}/show_notes/show_description.json"
+test -f "ASSETS/executions/${EXEC_ID}/show_notes/show_description.md"
+! test -f "ASSETS/executions/${EXEC_ID}/show_notes/master.wav"
 pytest tests/
 ```
 
@@ -200,7 +200,7 @@ Read first:
 @src/interview_mux/web/stages.py
 @docs/build-out/repository-map.md
 
-Update api-reference.md and gui-surface-map.md so flow3 execute, G2 selected_flow, and stage lists match server.py and web/stages.py.
+Update api-reference.md and gui-surface-map.md so flow3 execute, G2 REMOVED_selected_flow, and stage lists match server.py and web/stages.py.
 Mark flow3 as shipped in build-out/README.md only if BUILD-080 verification passes.
 Do not claim VO+SFX mix or other planned gaps from repository-map.
 
@@ -235,7 +235,7 @@ Constraints: .cursor/rules/interview-helper-mux.mdc.
 - Block or warn before topic_coverage_audit when meta.operator_verified is false in analysis_state.json
 - ctx.log() explains required operator action
 - GUI gate panel if applicable
-- Do not run Flow 1 extended unless selected_flow is flow1
+- Do not run Flow 1 extended unless REMOVED_selected_flow is flow1
 
 Update operator-gates.md and operator-stage-checklists.md per doc-maintenance.md.
 
@@ -272,7 +272,7 @@ Add Pass / If fail rows for each new or changed stage id. Link to artifact-layou
 **Verify:**
 
 ```bash
-grep -l "topic_coverage_audit\|podcast_show_description\|sound_design" docs/workflows/operator-stage-checklists.md || true
+grep -l "topic_coverage_audit\|REMOVED_podcast_show_description\|sound_design" docs/workflows/operator-stage-checklists.md || true
 # Expect rows for whatever stages this PR added
 ```
 
@@ -301,10 +301,10 @@ Read first:
 @docs/build-out/ticket-specs.md (BUILD-067)
 @docs/cross-cutting/podcast-quality-roadmap.md
 @docs/pipeline/assembly_and_mux/README.md
-@src/interview_mux/stages/assembly_flow1.py
+@src/interview_mux/stages/assembly.py
 @docs/cross-cutting/artifact-layout.md
 
-Deliver: edl_flow1 includes vo_pickup placements and gap-driven ordering; transitions/ranking respect gap_report.json.
+Deliver: edl includes vo_pickup placements and gap-driven ordering; transitions/ranking respect gap_report.json.
 v1 honesty: document what is still speech-only vs full mix in repository-map if mix not in scope.
 
 Update stage-registry, operator-stage-checklists, doc-maintenance.
@@ -317,8 +317,8 @@ When done, run Verify below on a flow1 run with vo_pickup WAVs.
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage edl_flow1
-python -c "import json; p='ASSETS/executions/${EXEC_ID}/flow_1_master/edl.json'; d=json.load(open(p)); print('vo' in str(d).lower(), len(d))"
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID" --from-stage edl
+python -c "import json; p='ASSETS/executions/${EXEC_ID}/master/edl.json'; d=json.load(open(p)); print('vo' in str(d).lower(), len(d))"
 ```
 
 ---
@@ -334,9 +334,9 @@ Read first:
 @docs/build-out/ticket-specs.md (BUILD-068)
 @docs/pipeline/audio_editing/README.md
 @src/interview_mux/nle_state.py
-@src/interview_mux/stages/selection_flow1.py
+@src/interview_mux/stages/selection.py
 
-Deliver: segments/nle_edits.json exclude/split/reorder reflected in selection.json or edl_flow1 before full_master_ranking.
+Deliver: segments/nle_edits.json exclude/split/reorder reflected in selection.json or edl before full_master_ranking.
 Wire GUI NLE API consumption; ctx.log() on apply.
 
 Update gui-surface-map if new operator actions. doc-maintenance.
@@ -350,7 +350,7 @@ When done, run Verify below.
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
 test -f "ASSETS/executions/${EXEC_ID}/segments/nle_edits.json" || echo "Create nle_edits via GUI/API first"
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage full_master_ranking
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID" --from-stage full_master_ranking
 ```
 
 ---
@@ -365,9 +365,9 @@ Implement BUILD-069 only — assembly_preview.wav (speech + VO, no SFX).
 Read first:
 @docs/build-out/ticket-specs.md (BUILD-069)
 @docs/cross-cutting/podcast-quality-roadmap.md
-@src/interview_mux/stages/assembly_flow1.py
+@src/interview_mux/stages/assembly.py
 
-Deliver: flow_1_master/assembly_preview.wav before MMAudio SFX generation; GUI listen action; ctx.log() when ready.
+Deliver: master/assembly_preview.wav before MMAudio SFX generation; GUI listen action; ctx.log() when ready.
 
 Update gui-surface-map, api-reference if routes added. doc-maintenance.
 
@@ -379,9 +379,9 @@ When done, run Verify below.
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage mux_flow1
-test -f "ASSETS/executions/${EXEC_ID}/flow_1_master/assembly_preview.wav"
-ffprobe -hide_banner "ASSETS/executions/${EXEC_ID}/flow_1_master/assembly_preview.wav" 2>&1 | head -3
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID" --from-stage mux_flow1
+test -f "ASSETS/executions/${EXEC_ID}/master/assembly_preview.wav"
+ffprobe -hide_banner "ASSETS/executions/${EXEC_ID}/master/assembly_preview.wav" 2>&1 | head -3
 ```
 
 ---
@@ -461,18 +461,18 @@ Use **three agent sessions** unless you explicitly want one combined PR.
 **Agent prompt — BUILD-062:**
 
 ```text
-Implement BUILD-062 only — sound_design_plan_flow1 after G2 flow1 selection.
+Implement BUILD-062 only — sound_design_plan after G2 flow1 selection.
 
-Read: @docs/build-out/ticket-specs.md @docs/cross-cutting/sound-design.md @src/interview_mux/pipeline.py (FLOW1_ORDER)
-Cues must reference reusable asset_ids. Requires run_meta.selected_flow flow1.
+Read: @docs/build-out/ticket-specs.md @docs/cross-cutting/sound-design.md @src/interview_mux/pipeline.py (DELIVERY_ORDER)
+Cues must reference reusable asset_ids. Requires run_meta.REMOVED_selected_flow flow1.
 ```
 
 **Agent prompt — BUILD-063:**
 
 ```text
-Implement BUILD-063 only — sound_design_plan_flow2 after G2 flow2 selection.
+Implement BUILD-063 only — REMOVED_sdp_flow2 after G2 flow2 selection.
 
-Read: @docs/build-out/ticket-specs.md @docs/cross-cutting/sound-design.md @src/interview_mux/pipeline.py (FLOW2_ORDER)
+Read: @docs/build-out/ticket-specs.md @docs/cross-cutting/sound-design.md @src/interview_mux/pipeline.py (REMOVED_FLOW2_ORDER)
 ```
 
 **Agent prompt — BUILD-064:**
@@ -494,8 +494,8 @@ REST via maudio_runner only (no SDK). OpenAI craft → sfx_prompts.json; respect
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage sound_design_plan_flow1
-ls "ASSETS/executions/${EXEC_ID}/flow_1_master/sfx/" 2>/dev/null || ls "ASSETS/executions/${EXEC_ID}/flow_1_master/" 
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID" --from-stage sound_design_plan
+ls "ASSETS/executions/${EXEC_ID}/master/sfx/" 2>/dev/null || ls "ASSETS/executions/${EXEC_ID}/master/" 
 ```
 
 ---
@@ -505,13 +505,13 @@ ls "ASSETS/executions/${EXEC_ID}/flow_1_master/sfx/" 2>/dev/null || ls "ASSETS/e
 **Agent prompt — BUILD-065:**
 
 ```text
-Implement BUILD-065 only — mix_flow1 / mix_flow2 replacing v1 speech-only mux.
+Implement BUILD-065 only — mix / REMOVED_mix_flow2 replacing v1 speech-only mux.
 
 Read:
 @docs/build-out/ticket-specs.md (BUILD-065)
 @docs/cross-cutting/sound-design.md
-@src/interview_mux/stages/assembly_flow1.py
-@src/interview_mux/stages/assembly_flow2.py
+@src/interview_mux/stages/assembly.py
+@src/interview_mux/stages/REMOVED_assembly_flow2.py
 
 Deliver: VO + beds + stingers + ducking; master.wav audibly includes SFX. ctx.log() milestones.
 ```
@@ -535,8 +535,8 @@ Update stage order; optional G1.5 SFX prompt review panel; alias or remove v1 br
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID"
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID"
+python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/master/master.wav"
 # Manual listen: SFX + VO audible (not speech-only concat)
 ```
 
@@ -599,7 +599,7 @@ Update smoke-test and testing-and-verification.md. doc-maintenance.
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
+python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/master/master.wav"
 echo exit_code=$?
 ```
 
@@ -625,8 +625,8 @@ Deliver: two-pass or pyloudnorm on assembly bus per spec. Integrate with BUILD-0
 ```bash
 source .venv/bin/activate
 export EXEC_ID=exec_001_20260523T120000Z
-python tools/run_flow.py --flow flow1 --run-id "$EXEC_ID" --from-stage master_flow1
-python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/flow_1_master/master.wav"
+python tools/run_delivery.py --flow flow1 --run-id "$EXEC_ID" --from-stage master_finalize
+python tools/verify_master.py "ASSETS/executions/${EXEC_ID}/master/master.wav"
 ```
 
 ---

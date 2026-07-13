@@ -59,7 +59,7 @@ Each rubric is a single JSON object:
 
 | Severity | Stages |
 |----------|--------|
-| **high** | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `highlight_selection`, `sound_design_plan_flow1`, `sound_design_plan_flow2`, `podcast_show_description` |
+| **high** | `content_context`, `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit`, `REMOVED_highlight_selection`, `sound_design_plan`, `REMOVED_sdp_flow2`, `REMOVED_podcast_show_description` |
 | **medium** | `boundary_detection`, `segment_classification`, `content_brief_reanchor` |
 | **low** | `speaker_roles`, `sound_design_palettes`, `transitions`, `sfx_prompt_craft`, `podcast_sfx_brief`, `sfx_brief` |
 
@@ -67,7 +67,7 @@ Each rubric is a single JSON object:
 
 `decompose_eligible: true` only for:
 
-`content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `highlight_selection`
+`content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor`, `missing_framing`, `topic_coverage_audit`, `full_master_ranking`, `REMOVED_highlight_selection`
 
 All other stages must set `decompose_eligible: false`. When `true` and `truncation_flags` indicate tail blind spots, prefer `decompose` over `accept`.
 
@@ -98,7 +98,7 @@ Stage rubrics list the subset that applies to that stage. The runner may add com
    `envelope_status_complete`, `schema_errors_empty`, `producer_artifact_complete`, `confidence_gte_min`, `upstream_artifacts_complete`, `cross_artifact_refs_valid`, `segment_coverage_ratio`, `min_row_count_met`, `truncation_requires_decompose`, `truncation_flags_absent`.
    Error strings are prefixed with the key (e.g. `confidence_gte_min: 0.6 < 0.75`, `segment_coverage_ratio: 0.1 < 0.85`).
 
-2. **Stage-specific** — handlers in `_LINTERS` (e.g. `_lint_transitions`, `_lint_sound_design_plan_flow1`) for semantic rules that need stage artifact shape.
+2. **Stage-specific** — handlers in `_LINTERS` (e.g. `_lint_transitions`, `_lint_sound_design_plan`) for semantic rules that need stage artifact shape.
 
 Rubrics should list generic keys that apply to every stage plus any stage-only ids documented in [stage-quality-scorecard.md](../../../cross-cutting/stage-quality-scorecard.md). Do not duplicate stage-specific rules as generic keys.
 

@@ -15,7 +15,7 @@ from run_fixtures import isolated_run_ctx, minimal_manifest, patch_merged_config
     [
         ("full_master_ranking", "selection/full-master-ranking.system.txt"),
         ("transitions", "assembly/transitions.system.txt"),
-        ("sound_design_plan_flow1", "sound_design/plan-flow1.system.txt"),
+        ("sound_design_plan", "sound_design/plan-flow1.system.txt"),
     ],
 )
 def test_flow_stage_preflight_lint_hooks(tmp_path, monkeypatch, stage_key, prompt_rel):
@@ -25,7 +25,7 @@ def test_flow_stage_preflight_lint_hooks(tmp_path, monkeypatch, stage_key, promp
     seed_analysis_ready_artifacts(ctx, verified=True)
     ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"), stage_key="segment_classification")
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_001"]},
         skip_handoff=True,
     )

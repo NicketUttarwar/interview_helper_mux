@@ -86,7 +86,7 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
 
-**Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved.
+**Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved. Under **first-try** (`defer_write_approval_until: phase_end`), mid-phase pauses are skipped; use **Save all pending** (`gui.write_approval.batch_save` / `POST …/pending-writes/approve-batch`). See [first-try-reliability.md](./first-try-reliability.md).
 
 **Full autopilot (`journey_ui.full_autopilot`, default on):** After **Run**, the server runs in-run finalize (`stage_finalize.py`) with `gui_job.phase: auto_resolving`. If decisions remain, `StageDecisionWizard` (`operator_decisions` substep) shows one question at a time — `GET/POST …/stages/{id}/decisions`. When the queue is empty, operator lands on **Review and save** (`WriteApprovalPanel`). Fix all, artifact clarification, and standalone propagation wizard are **legacy mode only** (`full_autopilot: false`). See [full-autopilot-operator-model.md](./full-autopilot-operator-model.md).
 
@@ -96,7 +96,7 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Operator feedback (flow hardening):** See [gui-flow-hardening.md](./gui-flow-hardening.md). Summary: `guardBusy` on all primaries; job terminal toasts; `actionBusy` drives sidebar spinners; locked sub-tabs toast on click; `completeAnalysisProfile` unifies profile verify paths.
 
-**Flow intent:** Optional at Start (`flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
+**Flow intent:** Optional at Start (`REMOVED_flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
 
 ---
 
@@ -144,7 +144,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Component | APIs | Artifacts |
 |-----------|------|-----------|
-| `SonicContextPanel` | `GET /api/runs/{run_id}/artifact?path=understanding/sonic_context.json` | `understanding/sonic_context.json` |
+| `FlowAdaptationCard` / `DeliveryBriefCard` | Story board — topology adaptation + adaptive delivery soft targets (`GET/PATCH …/delivery-brief`) | `understanding/flow_adaptation.json`, `understanding/delivery_brief.json` |
 
 Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_palettes` stage detail as a compact scenario/tag provenance view.
 
@@ -164,7 +164,7 @@ Inline on `StageDetail` when `transcript_review` is `action_required`; also in `
 |-----------|------|-----------|
 | `DisfluencyReviewPanel` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
 
-Inline when `disfluency_review` is `action_required` (skipped when `disfluency_extract.enabled` is false). `DisfluencyRestorePanel` on `edl_flow1` / `assembly_preview` toggles per-run restore.
+Inline when `disfluency_review` is `action_required` (skipped when `disfluency_extract.enabled` is false). `DisfluencyRestorePanel` on `edl` / `assembly_preview` toggles per-run restore.
 
 ---
 
@@ -214,7 +214,7 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 |--------------------------------------------------|------------|--------------|----------|----------------------------------|
 | Run overview + stage list + embedded log tail | *(all)* | `GET /api/runs/{id}`, `GET /api/runs/{id}/job` | `gui_log.jsonl`, `gui_job.json` | `run_meta.json`, `.stage_done/*`; `profile_ready_for_review`; per-stage `handoff_paths` (complete artifacts only) |
 | Append user or script note to log | *(optional)* | `POST /api/runs/{id}/log` | `gui_log.jsonl` | — |
-| Timeline (source + assembly views, waveform, trim, transcript strip) | *(view)* | `GET /api/runs/{id}/timeline`, `GET …/assembly-timeline`, `GET …/waveform`, `GET …/transcript` | — | `segments/manifest.json`, `segments/nle_edits.json`, `flow_1_master/edl.json`, `ingest/waveform_peaks.json`, `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
+| Timeline (source + assembly views, waveform, trim, transcript strip) | *(view)* | `GET /api/runs/{id}/timeline`, `GET …/assembly-timeline`, `GET …/waveform`, `GET …/transcript` | — | `segments/manifest.json`, `segments/nle_edits.json`, `master/edl.json`, `ingest/waveform_peaks.json`, `understanding/gap_report.json`, `vo_pickup/*.wav`, `ingest/normalized.wav` |
 | NLE editor state | `nle` | `GET/PUT /api/runs/{id}/nle`, `PATCH …/nle/segment`, `POST …/nle/batch`, `POST …/nle/split`, `POST …/nle/snap-boundary` | `gui_log.jsonl` (`stage: nle`, cascade on **Apply timeline edits**) | `segments/nle_edits.json`; **`POST …/execute` `mode: nle_apply`** with optional `nle_apply_mode` (`trim_only` \| `structural` \| `full_refresh`) rebuilds selection (when structural), EDL, and `assembly_preview.wav` |
 | JSON artifact editor | *(per path)* | `GET/PUT /api/runs/{id}/artifact?path=…` | `gui_log.jsonl` | Editable JSON; Zod pre-save + server `validate_artifact_write`; optional `invalidate_from` — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
 | Fill artifact gaps | *(partial checklist row)* | `POST /api/runs/{id}/fill-artifact-gaps` `{path}` | `gui_log.jsonl` | Re-runs producing LLM stage when artifact is partial |
@@ -250,7 +250,7 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | **Disfluency review** (G0.5) | `disfluency_review` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `gui_log.jsonl` (`disfluency_review`) | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
 | **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify`, `GET …/story-board`, `PATCH …/investigation-queue/{id}` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
-| **Choose output (G2)** | `g2_flow_select` | `POST …/flow` body `{ "flow": "flow1" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`g2_flow_select`) | `run_meta.json` (`selected_flow`) |
+| **Choose output (G2)** | `REMOVED_g2_flow_select` | `POST …/flow` body `{ "flow": "podcast" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`REMOVED_g2_flow_select`) | `run_meta.json` (`REMOVED_selected_flow`) |
 
 ---
 
@@ -280,34 +280,34 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 
 ## Flow 1 / Flow 2 / Flow 3 stages (after G2)
 
-Shown only when `run_meta.selected_flow` matches. Same execute endpoint: `mode: "flow1"` \| `"flow2"` \| `"flow3"` runs the full selected flow (or pass `from_stage`), or use `mode: "stage"` with a single stage id.
+Shown only when `run_meta.REMOVED_selected_flow` matches. Same execute endpoint: `mode: "podcast"` \| `"flow2"` \| `"flow3"` runs the full selected flow (or pass `from_stage`), or use `mode: "stage"` with a single stage id.
 
-**Flow 3** is text-only publishing copy (`flow_3_description/show_description.json` + `.md`); no audio mux or `master.wav`. Prerequisites: shared analysis complete (`require_analysis_artifacts_complete`), G1 clear; preflight for `podcast_show_description` uses `content_brief`, `speakers`, `manifest` (not Flow 1 ranking).
+**Flow 3** is text-only publishing copy (`show_notes/show_description.json` + `.md`); no audio mux or `master.wav`. Prerequisites: shared analysis complete (`require_analysis_artifacts_complete`), G1 clear; preflight for `REMOVED_podcast_show_description` uses `content_brief`, `speakers`, `manifest` (not Flow 1 ranking).
 
 | Flow | Title | `id` | Main artifacts |
 |------|-------|------|------------------|
-| 1 | Topic coverage | `topic_coverage_audit` | `flow_1_master/coverage_audit.json` |
-| 1 | Narrative arc | `narrative_arc_plan` | `flow_1_master/narrative_plan.json` |
-| 1 | Segment ordering | `full_master_ranking` | `flow_1_master/selection.json` |
-| 1 | EDL narrative audit | `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` |
-| 1 | Transitions | `transitions` | `flow_1_master/transitions.json` |
-| 1 | Sound design plan | `sound_design_plan_flow1` | `understanding/sound_design_plan.json` |
+| 1 | Topic coverage | `topic_coverage_audit` | `master/coverage_audit.json` |
+| 1 | Narrative arc | `narrative_arc_plan` | `master/narrative_plan.json` |
+| 1 | Segment ordering | `full_master_ranking` | `master/selection.json` |
+| 1 | EDL narrative audit | `edl_narrative_audit` | `master/edl_narrative_audit.json` |
+| 1 | Transitions | `transitions` | `master/transitions.json` |
+| 1 | Sound design plan | `sound_design_plan` | `understanding/sound_design_plan.json` |
 | 1 | VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
-| 1 | EDL | `edl_flow1` | `flow_1_master/edl.json` |
-| 1 | Assembly preview | `assembly_preview` | `flow_1_master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
+| 1 | EDL | `edl` | `master/edl.json` |
+| 1 | Assembly preview | `assembly_preview` | `master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
 | 1 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
-| 1 | Generate SFX | `mmaudio_sfx_flow1` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_1_master/sfx/`) |
-| 1 | Mix assembly | `mix_flow1` | `flow_1_master/assembly.wav` |
-| 1 | Master export | `master_flow1` | `flow_1_master/master.wav` |
-| 2 | Highlight selection | `highlight_selection` | `flow_2_highlights/selection.json` |
-| 2 | Sound design plan | `sound_design_plan_flow2` | `understanding/sound_design_plan.json` |
+| 1 | Generate SFX | `mmaudio_sfx` | `sound_design/assets/{asset_id}.wav` (+ mirror `master/sfx/`) |
+| 1 | Mix assembly | `mix` | `master/assembly.wav` |
+| 1 | Master export | `master_finalize` | `master/master.wav` |
+| 2 | Highlight selection | `REMOVED_highlight_selection` | `REMOVED_flow2/selection.json` |
+| 2 | Sound design plan | `REMOVED_sdp_flow2` | `understanding/sound_design_plan.json` |
 | 2 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
-| 2 | Generate SFX | `mmaudio_sfx_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `flow_2_highlights/sfx/`) |
-| 2 | Mix assembly | `mix_flow2` | `flow_2_highlights/assembly.wav` |
-| 2 | Master export | `master_flow2` | `flow_2_highlights/master.wav` |
+| 2 | Generate SFX | `REMOVED_mmaudio_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `REMOVED_flow2/sfx/`) |
+| 2 | Mix assembly | `REMOVED_mix_flow2` | `REMOVED_flow2/assembly.wav` |
+| 2 | Master export | `REMOVED_master_flow2` | `REMOVED_flow2/master.wav` |
 | 1 / 2 | Master QA (post-flow, automatic) | `verify_master` | `gui_log.jsonl` (`stage: verify_master`); validates `flow_*_*/master.wav` LUFS + true peak |
-| 3 | Show description | `podcast_show_description` | `flow_3_description/show_description.json` |
-| 3 | Export blurb | `export_show_description` | `flow_3_description/show_description.md` |
+| 3 | Show description | `REMOVED_podcast_show_description` | `show_notes/show_description.json` |
+| 3 | Export blurb | `REMOVED_export_show_description` | `show_notes/show_description.md` |
 
 ### TBiy production profile gates
 
@@ -329,9 +329,9 @@ Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [local-audi
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **G1.5 prompt review** (optional) | `sfx_prompt_craft` | `GET/PUT …/sfx-prompts`, `POST …/sfx-prompts/approve` | `gui_log.jsonl` (`sfx_prompt_craft`) | `sound_design/sfx_prompts.json`, `run_meta.json` → `sfx_prompt_review` |
-| **Post-listen QA** (advisory; **block_mix** when configured) | `sfx_prompt_craft`, `mmaudio_sfx_flow1`, `mmaudio_sfx_flow2`, **`mix_flow1`**, **`mix_flow2`** | `POST …/sfx-prompts/listen-result` (`mode`: `post_listen` \| `under_speech`); `GET …/sfx-prompts` → `mmaudio_qa`, `listen_results` | `sfx_post_listen_pass` / `sfx_post_listen_fail`; under-speech → `speech_under_listen_result_recorded` | `run_meta.json` → `sfx_listen_results[]` or `speech_under_listen_results[]` |
+| **Post-listen QA** (advisory; **block_mix** when configured) | `sfx_prompt_craft`, `mmaudio_sfx`, `REMOVED_mmaudio_flow2`, **`mix`**, **`REMOVED_mix_flow2`** | `POST …/sfx-prompts/listen-result` (`mode`: `post_listen` \| `under_speech`); `GET …/sfx-prompts` → `mmaudio_qa`, `listen_results` | `sfx_post_listen_pass` / `sfx_post_listen_fail`; under-speech → `speech_under_listen_result_recorded` | `run_meta.json` → `sfx_listen_results[]` or `speech_under_listen_results[]` |
 | **Auto-refine / regen** (optional) | `sfx_prompt_craft`, `mmaudio_sfx_flow*` | `POST …/sfx-prompts/refine`, `POST …/sfx-prompts/regenerate`, `GET …/sfx-qa` | `sfx_prompts_refined`, `sfx_regen_requested` | updated `sfx_prompts.json`, `sound_design/mmaudio_qa.json` |
-| **Generate SFX** blocked when G1.5 required | `mmaudio_sfx_flow1` / `mmaudio_sfx_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+| **Generate SFX** blocked when G1.5 required | `mmaudio_sfx` / `REMOVED_mmaudio_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
 
 `SfxPostListenPanel` per asset shows: `verdict`, `theme_fit_score`, `semantic_qa_verdict`, `semantic_similarity`, `recommended_action`, `spectral_bucket_match` (from `mmaudio_qa`). When `post_listen_gate_mode` is `block`, failed listen/QA shows a blocking banner on mix stages.
 
@@ -343,10 +343,10 @@ When `run_meta.qc_summaries` is populated by narrative/EDL/show QC gates:
 
 | Stage panel | Card key | Source |
 |-------------|----------|--------|
-| `full_master_ranking`, `edl_flow1` | `narrative_qc` | `gates.check_narrative_qc` |
-| `edl_narrative_audit`, `edl_flow1` | `edl_narrative_qc` | `gates.check_edl_narrative_qc` |
-| `podcast_show_description` | `show_description_qc` | `gates.check_show_description_qc` |
-| `mix_flow1`, `mix_flow2`, `master_flow1`, `master_flow2` | `mix_intelligibility` | `run_meta.qc_summaries.mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
+| `full_master_ranking`, `edl` | `narrative_qc` | `gates.check_narrative_qc` |
+| `edl_narrative_audit`, `edl` | `edl_narrative_qc` | `gates.check_edl_narrative_qc` |
+| `REMOVED_podcast_show_description` | `show_notes_qc` | `gates.check_show_notes_qc` |
+| `mix`, `REMOVED_mix_flow2`, `master_finalize`, `REMOVED_master_flow2` | `mix_intelligibility` | `run_meta.qc_summaries.mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
 
 ### Source acoustic profile
 

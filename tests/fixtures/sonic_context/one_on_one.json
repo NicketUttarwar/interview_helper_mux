@@ -36,7 +36,7 @@
       "kind": "chapter_boundary",
       "segment_id": "seg_010",
       "confidence": 0.85,
-      "provenance": ["flow_1_master/narrative_plan.json"]
+      "provenance": ["master/narrative_plan.json"]
     }
   ],
   "mix_policy": {

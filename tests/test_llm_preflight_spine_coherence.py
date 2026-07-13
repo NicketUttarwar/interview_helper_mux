@@ -34,7 +34,7 @@ def test_preflight_narrative_arc_requires_coherence_report_for_long_interview(
             ],
         },
     )
-    audit_path = ctx.path("flow_1_master", "coverage_audit.json")
+    audit_path = ctx.path("master", "coverage_audit.json")
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     audit_path.write_text(
         json.dumps({"topic_mappings": [], "coverage_score": 0.5}),

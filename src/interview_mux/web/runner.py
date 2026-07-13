@@ -19,18 +19,13 @@ from interview_mux.api_providers import (
 )
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents
 from interview_mux.sfx_prompt_review import can_run_sfx_generation
-from interview_mux.gates import get_selected_flow, set_selected_flow
 from interview_mux.master_qc import FlowName, verify_master
 from interview_mux.nle_state import load_nle, nle_edit_categories
 from interview_mux.pipeline import (
     ANALYSIS_ORDER,
-    FLOW1_ORDER,
-    FLOW2_ORDER,
-    FLOW3_ORDER,
+    DELIVERY_ORDER,
     run_analysis,
-    run_flow1,
-    run_flow2,
-    run_flow3,
+    run_delivery,
     run_single_stage,
 )
 from interview_mux.stages import transcript_review
@@ -413,13 +408,13 @@ class JobRunner:
         if not cats["has_any"]:
             return []
         if apply_mode == "trim_only":
-            return ["edl_flow1", "assembly_preview"]
+            return ["edl", "assembly_preview"]
         stages: list[str] = []
         if cats["structural"] or full_refresh:
             stages.append("full_master_ranking")
         if full_refresh or apply_mode == "full_refresh":
             stages.extend(["transitions", "edl_narrative_audit"])
-        stages.extend(["edl_flow1", "assembly_preview"])
+        stages.extend(["edl", "assembly_preview"])
         return stages
 
     def _stages_for_execute(
@@ -454,23 +449,21 @@ class JobRunner:
                     order = order[: order.index("transcript_review_build") + 1]
             pending = [s for s in order if not ctx.is_done(s)]
             return pending
-        flow_orders = {
-            "flow1": FLOW1_ORDER,
-            "flow2": FLOW2_ORDER,
-            "flow3": FLOW3_ORDER,
-            "flow1_until_preview": FLOW1_ORDER,
-            "flow1_polish": FLOW1_ORDER,
+        delivery_orders = {
+            "delivery": DELIVERY_ORDER,
+            "delivery_until_preview": DELIVERY_ORDER,
+            "delivery_polish": DELIVERY_ORDER,
         }
-        if mode in flow_orders:
-            order = list(flow_orders[mode])
+        if mode in delivery_orders:
+            order = list(delivery_orders[mode])
             start = from_stage or stage
             if start and start in order:
                 order = order[order.index(start) :]
             if until_stage and until_stage in order:
                 order = order[: order.index(until_stage) + 1]
-            elif mode == "flow1_until_preview" and "assembly_preview" in order:
+            elif mode == "delivery_until_preview" and "assembly_preview" in order:
                 order = order[: order.index("assembly_preview") + 1]
-            elif mode == "flow1_polish" and "sfx_prompt_craft" in order:
+            elif mode == "delivery_polish" and "sfx_prompt_craft" in order:
                 order = order[order.index("sfx_prompt_craft") :]
             return [s for s in order if not ctx.is_done(s)]
         return []
@@ -679,51 +672,25 @@ class JobRunner:
                         us = "transcript_review_build"
                     run_analysis(ctx, from_stage=from_stage or stage, until_stage=us)
                     refresh_journey_meta(ctx)
-                elif mode in ("flow1", "flow1_until_preview", "flow1_polish"):
-                    set_selected_flow(ctx, "flow1")
-                    if mode == "flow1_polish":
-                        self._preflight_flow1_polish(ctx, job_base)
-                    ctx.log("Running Flow 1 — full master podcast pipeline…", level="info", stage="flow1")
+                elif mode in ("delivery", "delivery_until_preview", "delivery_polish"):
+                    if mode == "delivery_polish":
+                        self._preflight_delivery_polish(ctx, job_base)
+                    ctx.log("Running delivery pipeline…", level="info", stage="delivery")
                     us = until_stage
                     fs = from_stage or stage
-                    if mode == "flow1_until_preview" and not us:
+                    if mode == "delivery_until_preview" and not us:
                         us = "assembly_preview"
-                    if mode == "flow1_polish" and not fs:
+                    if mode == "delivery_polish" and not fs:
                         fs = "sfx_prompt_craft"
-                    run_flow1(
+                    run_delivery(
                         ctx,
                         from_stage=fs,
                         until_stage=us,
                     )
                     refresh_journey_meta(ctx)
-                    if mode == "flow1" and not us:
-                        self._run_master_qa(ctx, flow="flow1", rel_path="flow_1_master/master.wav")
-                elif mode == "flow2":
-                    set_selected_flow(ctx, "flow2")
-                    ctx.log("Running Flow 2 — highlight reel pipeline…", level="info", stage="flow2")
-                    run_flow2(
-                        ctx,
-                        from_stage=from_stage or stage,
-                        until_stage=until_stage,
-                    )
-                    refresh_journey_meta(ctx)
-                    if not until_stage:
-                        self._run_master_qa(ctx, flow="flow2", rel_path="flow_2_highlights/master.wav")
-                elif mode == "flow3":
-                    set_selected_flow(ctx, "flow3")
-                    ctx.log(
-                        "Running Flow 3 — podcast show description (text only)…",
-                        level="info",
-                        stage="flow3",
-                    )
-                    run_flow3(
-                        ctx,
-                        from_stage=from_stage or stage,
-                        until_stage=until_stage,
-                    )
-                    refresh_journey_meta(ctx)
+                    if mode == "delivery" and not us:
+                        self._run_master_qa(ctx, flow="podcast", rel_path="master/master.wav")
                 elif mode == "nle_apply":
-                    set_selected_flow(ctx, "flow1")
                     mode_arg = "full_refresh" if nle_full_refresh else nle_apply_mode
                     stages = self._nle_apply_stages(
                         ctx,
@@ -734,7 +701,7 @@ class JobRunner:
                         raise ValueError("No NLE edits to apply.")
                     if "full_master_ranking" in stages:
                         self.invalidate_from(run_id, "full_master_ranking")
-                    self.invalidate_from(run_id, "edl_flow1")
+                    self.invalidate_from(run_id, "edl")
                     ctx.log(
                         f"Applying NLE edits: {', '.join(stages)}",
                         level="info",
@@ -1343,22 +1310,35 @@ class JobRunner:
             self._clear_pipeline_start_reservation(run_id)
             raise
 
-    def _preflight_flow1_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
-        """Block flow1_polish when post-listen or mmaudio QA gates are not clear."""
+    def _preflight_delivery_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
+        """Block delivery_polish when post-listen or mmaudio QA gates are not clear."""
         from interview_mux.gates import check_post_listen_gate_pending, require_post_listen_clear
         from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
+        from interview_mux.first_try import first_try_mode_enabled
+        from interview_mux.config import merged_config
 
         failed_listen = check_post_listen_gate_pending(ctx)
+        sound_cfg = merged_config().get("sound_design") or {}
+        post_mode = str(sound_cfg.get("post_listen_gate_mode", "warn")).lower()
+        soft_listen = first_try_mode_enabled() and post_mode in {"warn", "soft"}
         if failed_listen:
             msg = (
-                f"Flow 1 polish blocked: post_listen failures for {', '.join(failed_listen[:6])}. "
+                f"Delivery polish blocked: post_listen failures for {', '.join(failed_listen[:6])}. "
                 "Mark Pass in the post-listen panel before continuing."
             )
-            ctx.log(msg, level="error", stage="flow1_polish")
-            self._write_job(ctx, {**job_base, "status": "gate", "message": msg, "stage": "flow1_polish"})
-            raise SystemExit(msg)
-        require_post_listen_clear(ctx, stage="flow1_polish")
-        require_spend_artifacts_complete(ctx, "mix_flow1")
+            if soft_listen:
+                ctx.log(
+                    msg.replace("blocked", "soft warning (first_try)"),
+                    level="warning",
+                    stage="delivery_polish",
+                )
+            else:
+                ctx.log(msg, level="error", stage="delivery_polish")
+                self._write_job(ctx, {**job_base, "status": "gate", "message": msg, "stage": "delivery_polish"})
+                raise SystemExit(msg)
+        if not soft_listen:
+            require_post_listen_clear(ctx, stage="delivery_polish")
+        require_spend_artifacts_complete(ctx, "mix")
 
     def _stage_worker_cmd(self, run_id: str, stage_id: str) -> list[str]:
         return [sys.executable, "-m", "interview_mux.stage_worker", run_id, stage_id]
@@ -1377,7 +1357,7 @@ class JobRunner:
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
-        if stage in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+        if stage == "mmaudio_sfx":
             ok, message = can_run_sfx_generation(ctx)
             if not ok:
                 ctx.log(message, level="warning", stage=stage)
@@ -1420,7 +1400,7 @@ class JobRunner:
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
-        if stage in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+        if stage == "mmaudio_sfx":
             ok, message = can_run_sfx_generation(ctx)
             if not ok:
                 ctx.log(message, level="warning", stage=stage)
@@ -1462,16 +1442,9 @@ class JobRunner:
             orders.append(ANALYSIS_ORDER)
         if stage_id in {"disfluency_extract", "disfluency_review"}:
             _invalidate_disfluency_review_gate(ctx)
-        flow = get_selected_flow(ctx)
-        if flow == "flow1" and stage_id in FLOW1_ORDER:
-            ctx.clear_from(stage_id, FLOW1_ORDER)
-            orders.append(FLOW1_ORDER)
-        if flow == "flow2" and stage_id in FLOW2_ORDER:
-            ctx.clear_from(stage_id, FLOW2_ORDER)
-            orders.append(FLOW2_ORDER)
-        if flow == "flow3" and stage_id in FLOW3_ORDER:
-            ctx.clear_from(stage_id, FLOW3_ORDER)
-            orders.append(FLOW3_ORDER)
+        if stage_id in DELIVERY_ORDER:
+            ctx.clear_from(stage_id, DELIVERY_ORDER)
+            orders.append(DELIVERY_ORDER)
         seen: set[tuple[str, ...]] = set()
         for order in orders:
             key = tuple(order)

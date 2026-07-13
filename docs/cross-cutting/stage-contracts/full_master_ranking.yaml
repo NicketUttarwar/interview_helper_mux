@@ -9,12 +9,12 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_1_master/selection.json
+- path: master/selection.json
   schema: master_selection_artifact.schema.json
   staging: true
 inputs:
   hard:
-  - path: flow_1_master/narrative_plan.json
+  - path: master/narrative_plan.json
     producer: narrative_arc_plan
   soft: []
 sufficiency:
@@ -24,8 +24,8 @@ sufficiency:
 propagation:
   invalidates_stages:
   - transitions
-  - sound_design_plan_flow1
-  - edl_flow1
+  - sound_design_plan
+  - edl
 consumers:
 - full_master_ranking
 remediation:

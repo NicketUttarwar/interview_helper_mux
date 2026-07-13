@@ -292,14 +292,14 @@ Speech impediment, stutter, heavy accent, quiet delivery, and high disfluency ar
 | **G0.5** disfluency | `DisfluencyReviewPanel` | same | `disfluency_review` events |
 | **Profile BUILD-081** | Story / Profile sub-tabs | `gate` | `stage=analysis_profile` · `level=action` |
 | **G1** VO pickup | `g1_vo_pickup` gate | `needs_operator` | `stage=g1_vo_pickup` |
-| **G2** flow select | `FlowSelectPanel` | `needs_operator` | `stage=g2_flow_select` |
+| **G2** flow select | `FlowSelectPanel` | `needs_operator` | `stage=REMOVED_g2_flow_select` |
 | **LLM flow hardening** | Action modal / gate inset | `gate` | `LLM stage gate ({stage})` or `Stage {stage} failed hardening` |
 | **Cross-artifact** | Action modal | `gate` | `Cross-artifact validation failed ({checkpoint})` |
 | **Investigation** | Story Board investigations | `info` / `action` | `investigation_queue` patch lines |
 | **Coherence ORC-03** | Story Board **Coherence risks** | `info` | `coherence_report` recompute lines |
 | **Quality offer BUILD-072** | Non-blocking Quality offer card | — | `stage=audio_preclean` · Accept/Dismiss |
 | **G1.5** prompt approval | Craft MMAudio prompts panel | `action_required` when blocked | `stage=sfx_prompt_craft` |
-| **QC summaries** | Gate panel QC block | `gate` on strict fail | `narrative_qc`, `edl_narrative_qc`, `show_description_qc`, `verify_master` |
+| **QC summaries** | Gate panel QC block | `gate` on strict fail | `narrative_qc`, `edl_narrative_qc`, `show_notes_qc`, `verify_master` |
 
 Panel map: [gui-surface-map.md](../../workflows/gui-surface-map.md).
 
@@ -374,7 +374,7 @@ pipeline.py run stage
 **Critical stages** (`ALL_CRITICAL_LLM_STAGES` in `llm_flow_hardening.py`):
 
 - Analysis: `speaker_roles`, `content_context`, `boundary_detection`, `segment_classification`, `content_brief_reanchor`, `missing_framing`, `optimal_questions`
-- Flow: `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `highlight_selection`, `podcast_show_description`
+- Flow: `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `REMOVED_highlight_selection`, `REMOVED_podcast_show_description`
 
 ### 7.3 Preflight
 
@@ -402,8 +402,8 @@ Failure → no OpenAI call; `gui_log` error; job `gate` when executed via GUI.
 | `post_sound_palettes` | `sound_design_palettes` | Palette segment_ids |
 | `post_sound_plan_flow1/2` | SDP flow plans | Cue anchors vs selection |
 | `pre_sfx_generation` | `sfx_prompt_craft` | Craft vs SDP assets |
-| `pre_mix_flow1/2` | `mmaudio_sfx_flow*` | Generated WAV presence |
-| `pre_master_flow1/2` | `master_flow*` | Pre-master cross-check |
+| `pre_mix/2` | `mmaudio_sfx_flow*` | Generated WAV presence |
+| `pre_master_finalize/2` | `master_flow*` | Pre-master cross-check |
 | `post_ranking` | `full_master_ranking` | Selection constraints |
 | `post_edl_audit_fail` | `edl_narrative_audit` | EDL narrative verdict |
 
@@ -433,9 +433,9 @@ Full copy: [operator-gates.md](../../workflows/operator-gates.md). Implementatio
 | **G0.5** disfluency | — | `disfluency_extract.enabled` + events + missing `.stage_done/disfluency_review` | `source_acoustic_profile`+ | Confirm/reject fillers → complete review |
 | **LLM hardening** | — | Critical envelope / cross-artifact fail | Executing stage | `--from-stage <stage>` after artifact fix |
 | **Analysis artifacts** | — | `require_analysis_artifacts_complete` at flow start | `run_flow.py` | Complete analysis through `optimal_questions` |
-| **Profile** | BUILD-081 | `selected_flow: flow1` + `!meta.operator_verified` before `topic_coverage_audit` | Flow 1 extended stages | **Mark profile verified** → re-run from `topic_coverage_audit` |
+| **Profile** | BUILD-081 | `REMOVED_selected_flow: flow1` + `!meta.operator_verified` before `topic_coverage_audit` | Flow 1 extended stages | **Mark profile verified** → re-run from `topic_coverage_audit` |
 | **G1** VO | BUILD-028 | `gap_report` `delivery: record` without `vo_pickup/*.wav` | Flow entry | Record WAVs → `--from-stage vo_ingest` |
-| **G2** ship | BUILD-080 | Missing `run_meta.selected_flow` | Flow pipelines | `POST …/flow` or edit `run_meta.json` |
+| **G2** ship | BUILD-080 | Missing `run_meta.REMOVED_selected_flow` | Flow pipelines | `POST …/flow` or edit `run_meta.json` |
 | **G1.5** prompts | — | `g1_5_require_prompt_approval: true` + unapproved `sfx_prompts.json` | `mmaudio_sfx_flow*` | Approve prompts in GUI |
 | **Quality offer** | BUILD-072 | Checkpoint card shown | **Nothing** until Accept | Accept → `audio_preclean` + invalidation; Dismiss → continue |
 
@@ -469,7 +469,7 @@ Persisted in `understanding/analysis_state.json` → `style` and `understanding/
 
 ### 9.2 `sonic_context`: atlas_bucket → sound_posture → sound_design plans
 
-Pipeline: `sonic_context_build` → `sound_design_palettes` → `sound_design_plan_flow1|flow2` → `sfx_prompt_craft` → `mmaudio_sfx_flow*` → `mix_flow*`.
+Pipeline: `sonic_context_build` → `sound_design_palettes` → `sound_design_plan|flow2` → `sfx_prompt_craft` → `mmaudio_sfx_flow*` → `mix_flow*`.
 
 | `atlas_bucket` | `sound_posture` fields | SDP effect |
 |----------------|------------------------|------------|
@@ -507,11 +507,11 @@ Applied at mix time via `placement_qa.apply_placement_adjustments` in `sound_des
 | QC step | When runs | Module / tool | Operator sees on fail | Strict config |
 |---------|-----------|---------------|----------------------|---------------|
 | **narrative_qc** | After `full_master_ranking`; before EDL persist | `gates.check_narrative_qc` → `tools/validate_narrative.py` | Gate panel errors in `run_meta.qc_summaries`; **Redo from selected stage** | `narrative_qc.strict` in config |
-| **edl_narrative_qc** | After `edl_narrative_audit` / `edl_flow1` | `gates.check_edl_narrative_qc` | EDL audit findings + narrative constraint violations | `narrative_qc.strict` + `--include-edl` |
-| **validate_edl** | During `edl_flow1` persist | `prompt_validation.validate_edl_flow1` | Schema/timeline errors in gate panel | Always on invalid shape |
-| **verify_master** | Post `master_flow1` / `master_flow2` in `web/runner.py` | `master_qc.verify_master` / `tools/verify_master.py` | `gui_log` `stage=verify_master`; LUFS/peak lines | Hard fail on ship path |
+| **edl_narrative_qc** | After `edl_narrative_audit` / `edl` | `gates.check_edl_narrative_qc` | EDL audit findings + narrative constraint violations | `narrative_qc.strict` + `--include-edl` |
+| **validate_edl** | During `edl` persist | `prompt_validation.validate_edl` | Schema/timeline errors in gate panel | Always on invalid shape |
+| **verify_master** | Post `master_finalize` / `REMOVED_master_flow2` in `web/runner.py` | `master_qc.verify_master` / `tools/verify_master.py` | `gui_log` `stage=verify_master`; LUFS/peak lines | Hard fail on ship path |
 | **placement_qa** | After SDP plan stages + post `mmaudio_sfx_flow*` | `placement_qa.maybe_run_placement_qa` | Hints in `placement_adjustments.json` + `gui_log` — **non-blocking** | `sound_design.placement_qa_enabled` |
-| **show_description_qc** | After `podcast_show_description` | `show_description_qc.validate_show_description` / `gates.check_show_description_qc` | Word count / person / hype violations | `show_description_qc.strict` |
+| **show_notes_qc** | After `REMOVED_podcast_show_description` | `show_notes_qc.validate_show_description` / `gates.check_show_notes_qc` | Word count / person / hype violations | `show_notes_qc.strict` |
 
 **Operator recovery recipes:**
 
@@ -519,7 +519,7 @@ Applied at mix time via `placement_qa.apply_placement_adjustments` in `sound_des
 python tools/validate_narrative.py --run-id <exec_id>
 python tools/validate_narrative.py --run-id <exec_id> --include-edl
 python tools/validate_edl.py --run-id <exec_id>
-python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
+python tools/verify_master.py ASSETS/executions/<exec_id>/master/master.wav
 python tools/validate_show_description.py --run-id <exec_id>
 ```
 
@@ -546,7 +546,7 @@ When `analysis.flow_hardening.cross_validate_enabled: true`, `maybe_cross_valida
 
 **Soft failures:** non-hard checkpoints enqueue `cross_artifact_invalid` investigations (non-blocking).
 
-**Analysis-ready gate:** `require_analysis_artifacts_complete` in `gates.py` calls `validate_cross_artifacts(ctx, "pre_flow1")` before Flow 1/2/3.
+**Analysis-ready gate:** `require_analysis_artifacts_complete` in `gates.py` calls `validate_cross_artifacts(ctx, "pre_delivery")` before Flow 1/2/3.
 
 ---
 
@@ -633,7 +633,7 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 - [x] **TS-03** Map `coherence` blocking contradiction → troubleshooting row
 - [x] **TS-04** Map `placement_qa` hints → § Cross-validate SDP (exists — verify accuracy)
 - [x] **TS-05** Map `verify_master` GUI auto-run → § Audio / mix
-- [x] **TS-06** Map `show_description_qc` strict fail → § Flow 3
+- [x] **TS-06** Map `show_notes_qc` strict fail → § Flow 3
 - [x] **TS-07** Map `disfluency_review` pending → operator-gates + troubleshooting
 - [x] **TS-08** Map `investigation_queue` drain stuck → § LLM flow hardening
 - [x] **TS-09** Map `semantic_audio_qa` skip → local-audio-stack or troubleshooting appendix
@@ -662,7 +662,7 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 - [x] **OB-02** G0.5 complete emits `stage=disfluency_review` log
 - [x] **OB-03** Profile verify emits `stage=analysis_profile` + `meta.operator_verified: true`
 - [x] **OB-04** G1 pickup save emits `stage=g1_vo_pickup` log per file
-- [x] **OB-05** G2 selection emits `stage=g2_flow_select` log
+- [x] **OB-05** G2 selection emits `stage=REMOVED_g2_flow_select` log
 - [x] **OB-06** LLM gate sets `gui_job.json` status `gate` (GUI test or manual)
 - [x] **OB-07** Quality offer Accept/Dismiss logged with `stage=audio_preclean`
 - [x] **OB-08** `sonic_context_build` detail includes `atlas_bucket` in `gui_log` JSON detail
@@ -677,7 +677,7 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 - [x] **LH-02** Add `audit_stage_plans_doc.py` to [testing-and-verification.md](../testing-and-verification.md) Wave 0 row
 - [x] **LH-03** `analysis.flow_hardening.enabled: true` in shipped `app.defaults.json` verified
 - [x] **LH-04** Preflight blocks `speaker_roles` when G0 pending — manual or `tests/test_llm_preflight.py`
-- [x] **LH-05** `spend_block_stages` blocks `mix_flow1` without SFX when `block_mix_without_sfx_when_enabled: true`
+- [x] **LH-05** `spend_block_stages` blocks `mix` without SFX when `block_mix_without_sfx_when_enabled: true`
 - [x] **LH-06** `attempt_budget` stuck signature stops retries — `tests/test_flow_llm_integration.py` or equivalent
 - [x] **LH-07** Cross-artifact `post_segmentation` fail message matches troubleshooting template
 - [x] **LH-08** `require_analysis_artifacts_complete` blocks flow start with actionable log
@@ -687,11 +687,11 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 ### 14.6 Deterministic QC chain
 
 - [x] **QC-01** `validate_narrative.py` wired at `full_master_ranking` — `gates.check_narrative_qc`
-- [x] **QC-02** `validate_narrative.py --include-edl` wired at `edl_flow1`
+- [x] **QC-02** `validate_narrative.py --include-edl` wired at `edl`
 - [x] **QC-03** `validate_edl.py` CLI documented in smoke-test Flow 1 section
 - [x] **QC-04** `verify_master.py` runs post-master in `web/runner.py`
 - [x] **QC-05** `placement_qa_enabled` default documented in config-keys
-- [x] **QC-06** `show_description_qc.strict` behavior verified for Flow 3
+- [x] **QC-06** `show_notes_qc.strict` behavior verified for Flow 3
 - [x] **QC-07** `run_meta.qc_summaries` populated on QC fail for GUI panel
 - [x] **QC-08** Nine-scenario listen matrix procedure linked from definition-of-done §6
 
@@ -736,7 +736,7 @@ Minimum 80 checkboxes. Mark `[x]` only with evidence (test, manual sign-off, or 
 ### 14.10 Cross-artifact + orchestration
 
 - [x] **CA-01** `post_sonic_context` validate path tested (`tests/test_sdp_cross_validate.py`)
-- [x] **CA-02** `pre_flow1` gate tested at flow entry
+- [x] **CA-02** `pre_delivery` gate tested at flow entry
 - [x] **CA-03** `post_coherence` runs only when coherence active
 - [x] **CA-04** Investigation dedupe when `investigation_dedupe: true`
 - [x] **CA-05** `journey_orchestrator.py` respects `placement_qa_ready` milestone

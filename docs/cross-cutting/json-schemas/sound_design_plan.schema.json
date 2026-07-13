@@ -97,30 +97,9 @@
     },
     "flow_plans": {
       "type": "object",
-      "required": ["flow1", "flow2"],
+      "required": ["podcast"],
       "properties": {
-        "flow1": {
-          "type": "object",
-          "required": ["profile", "cues"],
-          "properties": {
-            "profile": { "type": "string" },
-            "cues": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["cue_id", "asset_id", "placement"],
-                "properties": {
-                  "cue_id": { "type": "string" },
-                  "asset_id": { "type": "string" },
-                  "placement": { "type": "string" }
-                },
-                "additionalProperties": true
-              }
-            }
-          },
-          "additionalProperties": true
-        },
-        "flow2": {
+        "podcast": {
           "type": "object",
           "required": ["profile", "cues"],
           "properties": {
@@ -142,7 +121,7 @@
           "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "generated": {
       "type": "object",

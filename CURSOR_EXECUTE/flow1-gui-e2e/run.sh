@@ -417,7 +417,7 @@ _phase_finish() {
     _log_blocker "No run_id in driver/state.json — skip verify"
     return 0
   fi
-  local master="${REPO_ROOT}/ASSETS/executions/${run_id}/flow_1_master/master.wav"
+  local master="${REPO_ROOT}/ASSETS/executions/${run_id}/master/master.wav"
   if [[ ! -f "${master}" ]]; then
     _log_blocker "master.wav not found: ${master}"
     return 1

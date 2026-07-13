@@ -32,9 +32,9 @@ def _chapters_from_narrative_plan(
     *,
     speech_clips: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    if not ctx.artifact_exists("flow_1_master/narrative_plan.json"):
+    if not ctx.artifact_exists("master/narrative_plan.json"):
         return []
-    plan = ctx.read_json("flow_1_master/narrative_plan.json")
+    plan = ctx.read_json("master/narrative_plan.json")
     seg_to_timeline = {
         c["segment_id"]: int(c.get("timeline_start_ms", 0))
         for c in speech_clips
@@ -58,10 +58,10 @@ def _chapters_from_narrative_plan(
 
 
 def build_assembly_timeline(ctx: RunContext) -> dict[str, Any]:
-    if not ctx.artifact_exists("flow_1_master/edl.json"):
-        return {"ready": False, "reason": "EDL not built — run edl_flow1 first."}
+    if not ctx.artifact_exists("master/edl.json"):
+        return {"ready": False, "reason": "EDL not built — run edl first."}
 
-    edl = ctx.read_json("flow_1_master/edl.json")
+    edl = ctx.read_json("master/edl.json")
     seg_lookup = _segment_text_lookup(ctx)
     clips_out: list[dict[str, Any]] = []
 
@@ -128,8 +128,8 @@ def build_assembly_timeline(ctx: RunContext) -> dict[str, Any]:
 
     speech_clips = [c for c in clips_out if c.get("type") == "speech"]
     preview = (
-        "flow_1_master/assembly_preview.wav"
-        if ctx.artifact_exists("flow_1_master/assembly_preview.wav")
+        "master/assembly_preview.wav"
+        if ctx.artifact_exists("master/assembly_preview.wav")
         else None
     )
     return {

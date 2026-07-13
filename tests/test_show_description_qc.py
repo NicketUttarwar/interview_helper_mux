@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from interview_mux.show_description_qc import validate_show_description
+from interview_mux.show_notes_qc import validate_show_description
 from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manifest, minimal_manifest_segment
 
 
-def test_show_description_qc_requires_evidence_ids(tmp_path):
+def test_show_notes_qc_requires_evidence_ids(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_sdqc")
     ctx.write_json(
         "segments/manifest.json",
@@ -26,7 +26,7 @@ def test_show_description_qc_requires_evidence_ids(tmp_path):
     assert any("evidence_segment_ids" in e for e in errors)
 
 
-def test_show_description_qc_passes_with_valid_evidence(tmp_path):
+def test_show_notes_qc_passes_with_valid_evidence(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_sdqc_ok")
     body = "Hook here. " + ("word " * 148)
     ctx.write_json(

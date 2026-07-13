@@ -13,7 +13,6 @@ from interview_mux.llm_flow_hardening import (
 )
 from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready
 
-
 def _minimal_speakers(**extra: object) -> dict:
     base = {
         "speakers": [
@@ -27,7 +26,6 @@ def _minimal_speakers(**extra: object) -> dict:
     }
     base.update(extra)
     return base
-
 
 def _cfg(*, enabled: bool = True, strict: bool = True, degraded: bool = False) -> dict:
     base = {
@@ -51,7 +49,6 @@ def _cfg(*, enabled: bool = True, strict: bool = True, degraded: bool = False) -
         }
     return base
 
-
 def test_llm_stage_progress_ok_requires_complete_status(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "fh_ok")
@@ -63,7 +60,6 @@ def test_llm_stage_progress_ok_requires_complete_status(tmp_path, monkeypatch):
         lambda _rel, _ctx: "complete",
     )
     assert llm_stage_progress_ok(ctx, "transitions", envelope, cfg=_cfg()) is True
-
 
 def test_llm_stage_progress_ok_rejects_schema_errors_with_accept(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -81,7 +77,6 @@ def test_llm_stage_progress_ok_rejects_schema_errors_with_accept(tmp_path, monke
         is False
     )
 
-
 def test_complete_llm_stage_or_halt_critical_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
@@ -95,25 +90,26 @@ def test_complete_llm_stage_or_halt_critical_raises(tmp_path, monkeypatch):
         )
     assert not ctx.is_done("content_context")
 
-
 def test_complete_llm_stage_or_halt_soft_logs_without_halt(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_soft")
-    ok = complete_llm_stage_or_halt(
-        ctx,
-        "transitions",
-        {"status": "blocked", "needs": []},
-        cfg=_cfg(),
-    )
-    assert ok is False
+    with pytest.raises(SystemExit, match="LLM stage gate"):
+        complete_llm_stage_or_halt(
+            ctx,
+            "transitions",
+            {"status": "blocked", "needs": []},
+            cfg=_cfg(),
+        )
     assert not ctx.is_done("transitions")
-
 
 def test_complete_llm_stage_or_halt_legacy_marks_done_on_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg(enabled=False))
     ctx = isolated_run_ctx(tmp_path, "fh_legacy")
+    from run_fixtures import minimal_content_brief
+
+    ctx.write_json("understanding/content_brief.json", minimal_content_brief(), skip_handoff=True)
     assert flow_hardening_enabled(_cfg(enabled=False)) is False
     ok = complete_llm_stage_or_halt(
         ctx,
@@ -124,7 +120,6 @@ def test_complete_llm_stage_or_halt_legacy_marks_done_on_failure(tmp_path, monke
     assert ok is True
     assert ctx.is_done("content_context")
 
-
 def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
@@ -132,20 +127,18 @@ def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="Prerequisite stage speaker_roles"):
         require_llm_stage_progress(ctx, "speaker_roles")
 
-
 def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_partial")
-    ctx.mark_done("speaker_roles")
+    ctx.mark_done("speaker_roles", force=True)
     ctx.write_json(
         "understanding/speakers.json",
         _minimal_speakers(_meta={"resilience": {"partial": True}}),
         skip_handoff=True,
     )
-    with pytest.raises(SystemExit, match="incomplete"):
+    with pytest.raises(SystemExit, match="Prerequisite artifact"):
         require_llm_stage_progress(ctx, "speaker_roles")
-
 
 def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -153,11 +146,9 @@ def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkey
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_off")
     maybe_require_upstream_llm_progress(ctx, "content_context")
 
-
 def test_llm_upstream_stage_maps_content_context(tmp_path):
     assert LLM_UPSTREAM_STAGE["content_context"] == "speaker_roles"
     assert LLM_UPSTREAM_STAGE["topic_coverage_audit"] == "optimal_questions"
-
 
 def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -170,10 +161,8 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
                     "block_mix_without_sfx_when_enabled": True,
                     "spend_block_stages": [
                         "sfx_prompt_craft",
-                        "mmaudio_sfx_flow1",
-                        "mmaudio_sfx_flow2",
-                        "mix_flow1",
-                        "mix_flow2",
+                        "mmaudio_sfx",
+                        "mix",
                     ],
                 }
             }
@@ -183,4 +172,4 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
     seed_flow1_sound_spend_ready(ctx)
     (ctx.path("sound_design", "assets") / "bed_01.wav").unlink()
     with pytest.raises(SystemExit, match="Mix gate"):
-        require_spend_artifacts_complete(ctx, "mix_flow1")
+        require_spend_artifacts_complete(ctx, "mix")

@@ -1,5 +1,4 @@
 {
-  "stage_key": "highlight_selection",
   "expected_substring": "highlight clips",
   "artifacts": {
     "clips": [

@@ -26,6 +26,10 @@ During a real run (not `--dry-run`), full-page PNG captures are saved under `ASS
 
 ## Sequence
 
+Includes analysis through `delivery_brief_build` (adaptive soft targets) then delivery through `master_finalize`. No G2 flow picker.
+
+**First-try reliability** (default on): green G0/G0.5 may auto-complete; G1 only high/critical VO; write approval may use **batch Save** (`gui.write_approval.batch_save`) instead of every stage. See [first-try-reliability.md](../../docs/workflows/first-try-reliability.md).
+
 | Step | File | What | Status |
 |------|------|------|--------|
 | **00** | [00-INDEX.md](./00-INDEX.md) | This index | — |
@@ -40,7 +44,7 @@ During a real run (not `--dry-run`), full-page PNG captures are saved under `ASS
 
 ## Success criteria
 
-- [ ] `./CURSOR_EXECUTE/flow1-gui-e2e/run.sh` completes with `flow_1_master/master.wav` verified
+- [ ] `./CURSOR_EXECUTE/flow1-gui-e2e/run.sh` completes with `master/master.wav` verified
 - [ ] Pipeline progressed via GUI clicks only (driver never calls `POST /execute`)
 - [ ] Terminal showed continuous STEP/ACTION/WAIT/GATE lines; Ctrl+C saves resume state
 - [ ] Blockers in [blockers/](./blockers/) have fix comments when encountered

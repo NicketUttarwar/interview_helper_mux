@@ -63,7 +63,7 @@ Capped by `coherence.max_investigations_per_run`; deduped by `(kind, stage, wind
 - `narrative_arc_plan`
 - `content_brief_reanchor`
 - `missing_framing`
-- `podcast_show_description` (blocking contradictions only)
+- `REMOVED_podcast_show_description` (blocking contradictions only)
 
 See [context-padding.md](./context-padding.md) for per-stage caps.
 

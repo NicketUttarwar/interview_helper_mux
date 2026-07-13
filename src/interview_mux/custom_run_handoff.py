@@ -46,51 +46,46 @@ active_pipeline_stage: ContextVar[str | None] = ContextVar("active_pipeline_stag
 
 _PIPELINE_STAGE_ORDER: list[str] | None = None
 
-
 def _pipeline_stage_order() -> list[str]:
     global _PIPELINE_STAGE_ORDER
     if _PIPELINE_STAGE_ORDER is not None:
         return _PIPELINE_STAGE_ORDER
-    from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 
     order: list[str] = []
+    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
+
     for sid in (
         *ANALYSIS_ORDER,
         "transcript_review",
         "topic_coverage_audit",
-        *FLOW1_ORDER,
-        *FLOW2_ORDER,
-        *FLOW3_ORDER,
+        *DELIVERY_ORDER,
     ):
         if sid not in order:
             order.append(sid)
     _PIPELINE_STAGE_ORDER = order
     return order
 
-
 def handoff_between_stages_enabled() -> bool:
     cfg = merged_config().get("journey_ui") or {}
     if not isinstance(cfg, dict):
         return True
     from interview_mux.full_autopilot import full_autopilot_enabled
+    from interview_mux.first_try import first_try_mode_enabled
 
-    if full_autopilot_enabled():
+    # First-try and full autopilot both skip mid-stage handoff pauses.
+    if full_autopilot_enabled() or first_try_mode_enabled():
         return False
     return bool(cfg.get("require_handoff_between_stages", True))
-
 
 def is_custom_run_artifact(rel_path: str) -> bool:
     return rel_path in CUSTOM_RUN_ARTIFACT_PATHS
 
-
 def stage_for_custom_run_path(rel_path: str) -> str | None:
     return _PATH_TO_STAGE.get(rel_path)
-
 
 def handoff_acknowledged(ctx: RunContext, stage_id: str) -> bool:
     ack = read_run_meta(ctx).get("handoff_ack") or {}
     return bool(ack.get(stage_id))
-
 
 def record_custom_run_write(
     ctx: RunContext,
@@ -121,7 +116,6 @@ def record_custom_run_write(
 
     ctx.mutate_run_meta(_patch)
 
-
 def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     """Union of registry artifacts, pending writes, and on-disk custom-run files for a stage."""
     from interview_mux.web.stages import STAGE_BY_ID
@@ -146,13 +140,11 @@ def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     present = [p for p in paths if ctx.artifact_exists(p)]
     return present or paths
 
-
 def handoff_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     """Custom-run paths for a stage that are complete and ready for operator review."""
     from interview_mux.artifact_completeness import artifact_ready_for_review
 
     return [p for p in custom_run_paths_for_stage(ctx, stage_id) if artifact_ready_for_review(p, ctx)]
-
 
 def pending_handoff_stage(ctx: RunContext) -> str | None:
     """Earliest completed stage (pipeline order) with unacknowledged custom-run handoff."""
@@ -170,7 +162,6 @@ def pending_handoff_stage(ctx: RunContext) -> str | None:
             return sid
     return None
 
-
 def handoff_review_message(ctx: RunContext, stage_id: str) -> str:
     from interview_mux.web.stages import STAGE_BY_ID
 
@@ -185,7 +176,6 @@ def handoff_review_message(ctx: RunContext, stage_id: str) -> str:
         "Review in the GUI, then acknowledge before the next stage."
     )
 
-
 def require_handoff_clear(ctx: RunContext) -> None:
     """Raise SystemExit when an unacknowledged custom-run handoff blocks continuation."""
     sid = pending_handoff_stage(ctx)
@@ -199,7 +189,6 @@ def require_handoff_clear(ctx: RunContext) -> None:
         detail={"handoff": handoff_paths_for_stage(ctx, sid)},
     )
     raise SystemExit(msg)
-
 
 def pause_after_stage_if_needed(ctx: RunContext, stage_name: str) -> None:
     """Stop batch pipeline execution until the operator acknowledges this stage's handoff."""
@@ -223,14 +212,12 @@ def pause_after_stage_if_needed(ctx: RunContext, stage_name: str) -> None:
         return
     require_handoff_clear(ctx)
 
-
 def check_handoff_before_execute(ctx: RunContext) -> str | None:
     """Return an error message when execution must wait for handoff review."""
     sid = pending_handoff_stage(ctx)
     if not sid:
         return None
     return handoff_review_message(ctx, sid)
-
 
 def handoff_state_for_run(ctx: RunContext) -> dict[str, Any]:
     """Canonical handoff snapshot for journey orchestrator and frontend types."""
@@ -245,7 +232,6 @@ def handoff_state_for_run(ctx: RunContext) -> dict[str, Any]:
         if pending_stage
         else [],
     }
-
 
 def filter_custom_run_handoff_paths(paths: list[str]) -> list[str]:
     return [p for p in paths if is_custom_run_artifact(p)]

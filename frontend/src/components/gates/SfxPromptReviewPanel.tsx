@@ -101,7 +101,9 @@ export function SfxPromptReviewPanel({ stage }: { stage: StageInfo }) {
         <p className="muted">
           Approval status:{" "}
           {approved
-            ? `approved by ${escapeHtml(data.review?.approved_by || "operator")} at ${formatTs(data.review?.approved_at)}`
+            ? data.review?.approved_by === "auto_qa_green"
+              ? `auto-approved (prompt QA green) at ${formatTs(data.review?.approved_at)}`
+              : `approved by ${escapeHtml(data.review?.approved_by || "operator")} at ${formatTs(data.review?.approved_at)}`
             : "pending approval"}
           {reviewRequired ? " (required before generate)" : " (optional)"}.
         </p>

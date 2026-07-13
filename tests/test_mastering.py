@@ -17,6 +17,7 @@ class _Proc:
 class _Ctx:
     def __init__(self, run_dir: Path) -> None:
         self._run_dir = run_dir
+        self.run_dir = run_dir
         self.done: list[str] = []
         self.logs: list[tuple[str, str | None]] = []
 
@@ -33,17 +34,21 @@ class _Ctx:
         level: str = "info",
         stage: str | None = None,
         detail: str | dict | None = None,
+        **_: object,
     ) -> None:
         self.logs.append((message, stage))
 
     def artifact_exists(self, rel: str) -> bool:
         return (self._run_dir / rel).is_file()
 
+    def read_path(self, rel: str) -> Path:
+        return self._run_dir / rel
+
 
 def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    assembly_rel = "flow_1_master/assembly.wav"
+    assembly_rel = "master/assembly.wav"
     assembly_path = run_dir / assembly_rel
     assembly_path.parent.mkdir(parents=True)
     assembly_path.write_bytes(b"fake wav")
@@ -100,10 +105,10 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     monkeypatch.setattr(mastering, "merged_config", lambda: {"flow1_target_lufs": -16.0})
     monkeypatch.setattr(mastering, "validate_pre_master", lambda *_a, **_k: [])
 
-    output = mastering.master_wav(ctx, assembly_rel, "flow_1_master/master.wav", flow="flow1")
+    output = mastering.master_wav(ctx, assembly_rel, "master/master.wav", flow="podcast")
 
-    assert output == run_dir / "flow_1_master/master.wav"
-    assert ctx.done == ["master_flow1"]
+    assert output == run_dir / "master/master.wav"
+    assert ctx.done == ["master_finalize"]
     assert len(calls) == 2
     assert calls[0][0] == "ffmpeg"
     assert "print_format=json" in calls[0][calls[0].index("-af") + 1]
@@ -118,7 +123,7 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
 def test_master_wav_blocks_on_pre_master_errors(monkeypatch, tmp_path) -> None:
     run_dir = tmp_path / "run_pre_fail"
     run_dir.mkdir()
-    assembly_rel = "flow_1_master/assembly.wav"
+    assembly_rel = "master/assembly.wav"
     assembly_path = run_dir / assembly_rel
     assembly_path.parent.mkdir(parents=True, exist_ok=True)
     assembly_path.write_bytes(b"fake wav")
@@ -132,7 +137,7 @@ def test_master_wav_blocks_on_pre_master_errors(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(mastering, "record_qc_summary", lambda *_a, **_k: None)
 
     try:
-        mastering.master_wav(ctx, assembly_rel, "flow_1_master/master.wav", flow="flow1")
+        mastering.master_wav(ctx, assembly_rel, "master/master.wav", flow="podcast")
     except RuntimeError as exc:
         assert "pre_master validation failed" in str(exc)
     else:

@@ -4,14 +4,12 @@ from pathlib import Path
 
 from interview_mux import master_qc
 
-
 class _Proc:
     returncode = 0
 
     def __init__(self, *, stdout: str = "", stderr: str = "") -> None:
         self.stdout = stdout
         self.stderr = stderr
-
 
 def test_verify_master_pass(monkeypatch) -> None:
     def _fake_run(cmd, **kwargs):  # noqa: ANN001
@@ -32,10 +30,9 @@ def test_verify_master_pass(monkeypatch) -> None:
         raise AssertionError(f"Unexpected command: {cmd}")
 
     monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
-    result = master_qc.verify_master(Path("/tmp/flow_1_master/master.wav"), flow="flow1")
+    result = master_qc.verify_master(Path("/tmp/master/master.wav"), flow="podcast")
     assert result.ok is True
     assert result.failures == []
-
 
 def test_verify_master_failures(monkeypatch) -> None:
     def _fake_run(cmd, **kwargs):  # noqa: ANN001
@@ -55,7 +52,7 @@ def test_verify_master_failures(monkeypatch) -> None:
         raise AssertionError(f"Unexpected command: {cmd}")
 
     monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
-    result = master_qc.verify_master(Path("/tmp/flow_2_highlights/master.wav"), flow="flow2")
+    result = master_qc.verify_master(Path("/tmp/master/master.wav"), flow="podcast")
     assert result.ok is False
     assert any("Integrated LUFS" in line for line in result.failures)
     assert any("True peak" in line for line in result.failures)

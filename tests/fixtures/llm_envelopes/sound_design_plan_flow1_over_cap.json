@@ -1,5 +1,5 @@
 {
-  "stage_key": "sound_design_plan_flow1",
+  "stage_key": "sound_design_plan",
   "status": "complete",
   "confidence": 0.9,
   "artifacts": {
@@ -14,7 +14,7 @@
       {"asset_id": "a7", "role": "chapter_stinger"}
     ],
     "flow_plans": {
-      "flow1": {
+      "podcast": {
         "cues": []
       }
     }

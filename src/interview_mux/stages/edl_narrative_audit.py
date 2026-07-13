@@ -20,10 +20,10 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
-            "coverage_audit": c.read_json("flow_1_master/coverage_audit.json"),
-            "narrative_plan": c.read_json("flow_1_master/narrative_plan.json"),
-            "selection": c.read_json("flow_1_master/selection.json"),
-            "transitions": _optional_json(c, "flow_1_master/transitions.json"),
+            "coverage_audit": c.read_json("master/coverage_audit.json"),
+            "narrative_plan": c.read_json("master/narrative_plan.json"),
+            "selection": c.read_json("master/selection.json"),
+            "transitions": _optional_json(c, "master/transitions.json"),
             "gap_report": _optional_json(c, "understanding/gap_report.json"),
             "nle_edits": _optional_json(c, "segments/nle_edits.json"),
             "sound_design_plan": _optional_json(c, "understanding/sound_design_plan.json"),
@@ -44,9 +44,14 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
-        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+        return attach_disfluency_context(
+            __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
+                c, attach_adaptation_to_payload(c, payload)
+            ),
+            c,
+        )
 
-    persist = make_stage_persist("flow_1_master/edl_narrative_audit.json", "edl_narrative_audit")
+    persist = make_stage_persist("master/edl_narrative_audit.json", "edl_narrative_audit")
 
     ctx.log(
         "Running EDL narrative audit with local volley framing before flagship review.",

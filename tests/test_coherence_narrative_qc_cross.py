@@ -12,7 +12,7 @@ def test_narrative_qc_cross_missing_callback(tmp_path, monkeypatch):
         {"thesis": "t", "topics": [{"name": "Vision", "summary": "Future"}]},
     )
     ctx.write_json(
-        "flow_1_master/coverage_audit.json",
+        "master/coverage_audit.json",
         {"coverage_score": 0.5, "topic_mappings": [], "missing_coverage": []},
     )
     duration = 31 * 60 * 1000

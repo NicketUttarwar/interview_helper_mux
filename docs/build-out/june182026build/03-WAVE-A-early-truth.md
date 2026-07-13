@@ -326,7 +326,7 @@ Wave A signals feed the **transcript → content_brief → master** chain:
 | H-ING-03 trust dips | `value_features.json`, spine boundaries | `sonic_context` `comprehension_risk`, `sound_design` emphasis hints | Listener-trust-aware mix beds; fewer false cold-open peaks |
 | H-G0-01 salience queue | `review_queue.json` | Operator G0 throughput | Faster correction of idea-breaking errors → cleaner `content_brief` |
 | H-G0-02 stress | chunk `acoustic_stress_score` | Salience sort, operator clip review | Surfaces mishears operators hear, not only low ASR confidence |
-| H-GAP-01 comprehension risks | specialist JSON → volley | `missing_framing`, `gap_report.json`, VO script | Retell COM uplift via targeted interviewer lines → G1 pickup → `mix_flow1` |
+| H-GAP-01 comprehension risks | specialist JSON → volley | `missing_framing`, `gap_report.json`, VO script | Retell COM uplift via targeted interviewer lines → G1 pickup → `mix` |
 
 **Validators:** `tools/validate_narrative.py` (gap coverage in Flow 1), `tools/validate_show_description.py` (Flow 3), `tools/verify_master.py` (post-mix LUFS/peak). Wave A does not directly touch mix — but G0/gap quality determines ranking inputs to `full_master_ranking`.
 
@@ -1045,7 +1045,7 @@ A specialist pass blind to vendor-specific error patterns produces segment-level
 ## D. Downstream consumers
 
 - `missing_framing` primary LLM → `gap_evaluations.json`
-- `optimal_questions` → `gap_report.json` → G1 VO → `mix_flow1`
+- `optimal_questions` → `gap_report.json` → G1 VO → `mix`
 - `full_master_ranking` post-stage specialist (same key) — Wave A focus pre-stage only
 
 ## E. Evidence

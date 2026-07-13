@@ -28,14 +28,14 @@ Python validates LLM **`artifacts`** per stage using `interview_mux.prompt_valid
 | `topic_coverage_audit` | `artifacts/coverage_audit_artifact.schema.json` | |
 | `narrative_arc_plan` | `artifacts/narrative_plan_artifact.schema.json` | |
 | `full_master_ranking` | `artifacts/master_selection_artifact.schema.json` | |
-| `highlight_selection` | `artifacts/highlights_artifact.schema.json` | |
+| `REMOVED_highlight_selection` | `artifacts/highlights_artifact.schema.json` | |
 | `transitions` | `artifacts/transitions_artifact.schema.json` | |
 | `podcast_sfx_brief` | `artifacts/podcast_sfx_artifact.schema.json` | |
-| `sound_design_plan_flow1` | `artifacts/sound_design_plan_flow1_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
-| `sound_design_plan_flow2` | `artifacts/sound_design_plan_flow2_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
+| `sound_design_plan` | `artifacts/sound_design_plan_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
+| `REMOVED_sdp_flow2` | `artifacts/REMOVED_sdp_flow2_artifact.schema.json` | Merged into `understanding/sound_design_plan.json`; full SDP validated on persist |
 | `sfx_prompt_craft` | `artifacts/sfx_prompts_artifact.schema.json` | Writes `sound_design/sfx_prompts.json` |
 | `sfx_brief` | `artifacts/sfx_montage_artifact.schema.json` | |
-| `podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3 |
+| `REMOVED_podcast_show_description` | `artifacts/show_description_artifact.schema.json` | Flow 3 |
 
 **Guard:** Any new LLM stage that writes structured JSON should register in `src/interview_mux/prompt_validation.py` → `STAGE_ARTIFACT_SCHEMAS` **and** add or extend a schema file. Missing registration = **silent** non-validation (worst case).
 
@@ -58,14 +58,14 @@ These support docs, optional tooling, or future gates; they are **not** automati
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
-**On-disk artifact validation (BUILD-067 + artifact generation):** `prompt_validation.validate_artifact_write` runs from `RunContext.write_json`, `write_validated_artifact`, and GUI `PUT /artifact` / analysis-profile. All LLM JSON paths in `STAGE_ARTIFACT_DISK_PATHS` are registered — see [artifact-generation-and-validation.md](./artifact-generation-and-validation.md). `edl_flow1` also validates before write. CLI: `python tools/verify_edl.py --run-id <exec_id>`.
+**On-disk artifact validation (BUILD-067 + artifact generation):** `prompt_validation.validate_artifact_write` runs from `RunContext.write_json`, `write_validated_artifact`, and GUI `PUT /artifact` / analysis-profile. All LLM JSON paths in `STAGE_ARTIFACT_DISK_PATHS` are registered — see [artifact-generation-and-validation.md](./artifact-generation-and-validation.md). `edl` also validates before write. CLI: `python tools/verify_edl.py --run-id <exec_id>`.
 
 **Frontend Zod (GUI):** JSON Schema remains canonical in this folder. `python tools/codegen_zod_schemas.py` emits `frontend/src/schemas/generated/*.ts`; `validateArtifactWrite()` mirrors `ARTIFACT_WRITE_VALIDATORS` for pre-save UX. Regenerate after schema edits, then `cd frontend && npm run build`.
 
 | Validator | Artifact path | Wired on write? |
 |-----------|---------------|-----------------|
-| `validate_edl_flow1` | `flow_1_master/edl.json` | Yes (`edl_flow1` + `write_json`) |
-| `validate_edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
+| `validate_edl` | `master/edl.json` | Yes (`edl` + `write_json`) |
+| `validate_edl_narrative_audit` | `master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
 | `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
 | `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
 | `validate_context_index` | `understanding/context_index.json` | Yes |
@@ -75,13 +75,13 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_manifest` | `segments/manifest.json` | Yes |
 | `validate_gap_evaluations` | `understanding/gap_evaluations.json` | Yes |
 | `validate_gap_report` | `understanding/gap_report.json` | Yes |
-| `validate_coverage_audit` | `flow_1_master/coverage_audit.json` | Yes |
-| `validate_narrative_plan` | `flow_1_master/narrative_plan.json` | Yes |
-| `validate_transitions` | `flow_1_master/transitions.json` | Yes |
-| `validate_podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json` | Yes |
-| `validate_highlights_selection` | `flow_2_highlights/selection.json` | Yes |
-| `validate_sfx_montage_brief` | `flow_2_highlights/sfx_brief.json` | Yes |
-| `validate_show_description` | `flow_3_description/show_description.json` | Yes |
+| `validate_coverage_audit` | `master/coverage_audit.json` | Yes |
+| `validate_narrative_plan` | `master/narrative_plan.json` | Yes |
+| `validate_transitions` | `master/transitions.json` | Yes |
+| `validate_podcast_sfx_brief` | `master/podcast_sfx_brief.json` | Yes |
+| `validate_highlights_selection` | `REMOVED_flow2/selection.json` | Yes |
+| `validate_sfx_montage_brief` | `REMOVED_flow2/sfx_brief.json` | Yes |
+| `validate_show_description` | `show_notes/show_description.json` | Yes |
 | `validate_sfx_prompts` | `sound_design/sfx_prompts.json` | Yes |
 | `validate_sonic_context` | `understanding/sonic_context.json` | Yes (BUILD-SFX-01) |
 | `validate_mmaudio_qa` | `sound_design/mmaudio_qa.json` | Yes (BUILD-SFX-01) |
@@ -99,7 +99,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 
 | Path | Why a schema matters | Status |
 |------|----------------------|--------|
-| `flow_1_master/edl.json` | Mux depends on timeline events | **Schema yes** — `artifacts/edl_flow1.schema.json`; **validator wired** (`validate_edl_flow1`, `tools/verify_edl.py`) |
+| `master/edl.json` | Mux depends on timeline events | **Schema yes** — `artifacts/edl.schema.json`; **validator wired** (`validate_edl`, `tools/verify_edl.py`) |
 | `segments/nle_edits.json` | Overrides selection / EDL | **Schema yes** — `nle_edits.schema.json`; validator on `save_nle` + `write_json` |
 | `transcript/full.json` | AWS Transcribe export shape | Optional: external-shape schema |
 | `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | `source_acoustic_profile.schema.json` · validator wired |
@@ -133,10 +133,10 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |
 | `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
-| `flow_1_master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
-| `flow_1_master/edl_narrative_audit.json` | `edl_narrative_audit_artifact.schema.json` | Yes (`edl_narrative_audit`) |
-| `flow_1_master/edl.json` | `edl_flow1.schema.json` (BUILD-067) | Yes (`edl_flow1` + `tools/verify_edl.py`) |
-| `flow_3_description/show_description.json` | Via `show_description_artifact` | Flow 3 LLM stage |
+| `master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
+| `master/edl_narrative_audit.json` | `edl_narrative_audit_artifact.schema.json` | Yes (`edl_narrative_audit`) |
+| `master/edl.json` | `edl.schema.json` (BUILD-067) | Yes (`edl` + `tools/verify_edl.py`) |
+| `show_notes/show_description.json` | Via `show_description_artifact` | Flow 3 LLM stage |
 | `segments/nle_edits.json` | `nle_edits.schema.json` | Yes (`save_nle` + `write_json`) |
 | `transcript/review_queue.json` | `transcript_review.schema.json` | Yes (`write_json`) |
 

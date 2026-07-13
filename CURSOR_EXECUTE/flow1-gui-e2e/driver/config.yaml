@@ -7,7 +7,7 @@ api_request_timeout_s: 30
 api_poll_max_consecutive_failures: 3
 stage_timeouts_s:
   transcribe: 1800
-  mmaudio_sfx_flow1: 3600
+  mmaudio_sfx: 3600
   default: 900
 screenshot_on:
   - gate
@@ -17,3 +17,6 @@ execution_screenshots_dir: ASSETS/flow1-gui-e2e-screenshots
 execution_screenshot_min_interval_s: 120
 headed: false
 verbose: false
+# First-try: gate_handlers prefer batch Save (gui.write_approval.batch_save) when deferred.
+# Clean STT: expect G0 auto-complete; G1 only when high/critical VO missing.
+first_try_mode: true

@@ -2,6 +2,8 @@
 
 How to verify each build-out wave before marking tickets **done**. Complements [smoke-test.md](../workflows/smoke-test.md) (operator greenfield checklist).
 
+**First-try:** `pytest tests/test_first_try.py` covers G0 auto, G1 severity, deferred write, batch/preclean, G1.5 auto-approve, mix hard/soft. E2E: [CURSOR_EXECUTE/flow1-gui-e2e/00-INDEX.md](../../CURSOR_EXECUTE/flow1-gui-e2e/00-INDEX.md).
+
 ---
 
 ## Layers
@@ -128,9 +130,9 @@ python tools/audit_stage_plans_doc.py
 ./tools/check_prerequisites.sh
 python -c "
 import sys; sys.path.insert(0, 'src')
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, REMOVED_FLOW2_ORDER, REMOVED_FLOW3_ORDER
 from interview_mux.web.stages import EXECUTABLE_ORDER
-for name, pipe in [('analysis', ANALYSIS_ORDER), ('flow1', FLOW1_ORDER), ('flow2', FLOW2_ORDER), ('flow3', FLOW3_ORDER)]:
+for name, pipe in [('analysis', ANALYSIS_ORDER), ('podcast', DELIVERY_ORDER), ('flow2', REMOVED_FLOW2_ORDER), ('flow3', REMOVED_FLOW3_ORDER)]:
     assert list(pipe) == list(EXECUTABLE_ORDER[name])
 print('parity OK')
 "
@@ -186,7 +188,7 @@ cd frontend && npm run build          # Zod validators must compile
 | `test_source_acoustic_profile.py` | SAP stage output shape |
 | `test_ingest_preclean.py` | Ingest path when preclean isolated exists |
 | **Phase 6 (GC-Q1–Q13)** | |
-| `test_selection_flow2_sap.py` | Flow 2 SAP in `sfx_brief` build_input |
+| `test_REMOVED_selection_flow2_sap.py` | Flow 2 SAP in `sfx_brief` build_input |
 | `test_recompute_acoustic_profile.py` | Recompute invalidates downstream on pace change |
 | `test_stinger_pause_alignment.py` | Pause-aligned stinger placement |
 | `test_mix_intelligibility_qc.py` | Post-mix intelligibility QC + `qc_summaries` |
@@ -253,9 +255,9 @@ python tools/run_analysis.py --run-id <id>
 ## Wave 3a — Flow 1
 
 ```bash
-# run_meta.selected_flow must be flow1
-python tools/run_flow.py --flow flow1 --run-id <id>
-python tools/verify_master.py <run>/flow_1_master/master.wav
+# run_meta.REMOVED_selected_flow must be flow1
+python tools/run_delivery.py --flow flow1 --run-id <id>
+python tools/verify_master.py <run>/master/master.wav
 ```
 
 | Criterion | v1 | Target (Wave 5–6) |
@@ -273,8 +275,8 @@ python tools/verify_master.py <run>/flow_1_master/master.wav
 ## Wave 3b — Flow 2
 
 ```bash
-python tools/run_flow.py --flow flow2 --run-id <id>
-python tools/verify_master.py <run>/flow_2_highlights/master.wav
+python tools/run_delivery.py --flow flow2 --run-id <id>
+python tools/verify_master.py <run>/REMOVED_flow2/master.wav
 ```
 
 **Pass:** ≤5 clips worth of content; montage SFX present in v1; target: shared transition asset (BUILD-065).
@@ -284,12 +286,12 @@ python tools/verify_master.py <run>/flow_2_highlights/master.wav
 ## Wave 3c — Flow 3 (shipped, BUILD-080)
 
 ```bash
-python tools/run_flow.py --flow flow3 --run-id <id>
+python tools/run_delivery.py --flow flow3 --run-id <id>
 ```
 
 **Pass:**
 
-- `flow_3_description/show_description.json` validates
+- `show_notes/show_description.json` validates
 - `show_description.md` exists (BUILD-046)
 - Third person; ~150–250 words
 - No `master.wav` under flow_3_description

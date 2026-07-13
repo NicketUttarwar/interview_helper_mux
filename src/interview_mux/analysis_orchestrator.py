@@ -34,17 +34,13 @@ FLOW_LLM_STAGES = frozenset(
         "narrative_arc_plan",
         "full_master_ranking",
         "transitions",
-        "sound_design_plan_flow1",
-        "sound_design_plan_flow2",
+        "sound_design_plan",
         "sfx_prompt_craft",
         "edl_narrative_audit",
-        "highlight_selection",
-        "podcast_show_description",
     }
 )
 
 ALL_LLM_STAGES = ANALYSIS_LLM_STAGES | FLOW_LLM_STAGES
-
 
 def max_iterations_for_stage(ctx: RunContext) -> int:
     if ctx.artifact_exists(ORCHESTRATION_PATH):
@@ -52,19 +48,16 @@ def max_iterations_for_stage(ctx: RunContext) -> int:
         return int(orch.get("max_iterations_per_stage", 3))
     return 3
 
-
 def max_queue_drains(ctx: RunContext) -> int:
     if ctx.artifact_exists(ORCHESTRATION_PATH):
         orch = ctx.read_json(ORCHESTRATION_PATH)
         return int(orch.get("max_queue_drains_per_stage", 5))
     return 5
 
-
 def max_investigation_reruns_per_kind(cfg: dict[str, Any] | None = None) -> int:
     from interview_mux.llm_flow_hardening import flow_hardening_cfg
 
     return int(flow_hardening_cfg(cfg).get("max_investigation_reruns_per_kind", 2))
-
 
 def _investigation_rerun_counts(ctx: RunContext) -> dict[str, int]:
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
@@ -73,7 +66,6 @@ def _investigation_rerun_counts(ctx: RunContext) -> dict[str, int]:
     raw = orch.get("investigation_rerun_counts") or {}
     return {str(k): int(v) for k, v in raw.items()}
 
-
 def _record_investigation_rerun(ctx: RunContext, kind: str) -> None:
     ensure_analysis_workspace(ctx)
     orch = ctx.read_json(ORCHESTRATION_PATH) if ctx.artifact_exists(ORCHESTRATION_PATH) else {}
@@ -81,7 +73,6 @@ def _record_investigation_rerun(ctx: RunContext, kind: str) -> None:
     counts[kind] = int(counts.get(kind, 0)) + 1
     orch["investigation_rerun_counts"] = counts
     ctx.write_json(ORCHESTRATION_PATH, orch, skip_handoff=True)
-
 
 def process_needs_after_stage(ctx: RunContext, stage_key: str, envelope: dict[str, Any]) -> list[str]:
     """Apply non-blocking needs; return stage ids suggested for rerun."""
@@ -98,31 +89,21 @@ def process_needs_after_stage(ctx: RunContext, stage_key: str, envelope: dict[st
             )
     return list(dict.fromkeys(reruns))
 
-
 def llm_stage_runners(ctx: RunContext) -> dict[str, Callable[[], None]]:
-    """Lazy-built map of rerunnable LLM stage functions (analysis + flow)."""
+    """Lazy-built map of rerunnable LLM stage functions (analysis + delivery)."""
     from interview_mux.pipeline import (
         _analysis_stage_fns,
-        _flow1_stage_fns,
-        _flow2_stage_fns,
-        _flow3_stage_fns,
+        _delivery_stage_fns,
     )
 
     runners: dict[str, Callable[[], None]] = {}
     for name, fn in _analysis_stage_fns(ctx).items():
         if name in ANALYSIS_LLM_STAGES:
             runners[name] = fn
-    for name, fn in _flow1_stage_fns(ctx).items():
-        if name in FLOW_LLM_STAGES:
-            runners[name] = fn
-    for name, fn in _flow2_stage_fns(ctx).items():
-        if name in FLOW_LLM_STAGES:
-            runners[name] = fn
-    for name, fn in _flow3_stage_fns(ctx).items():
+    for name, fn in _delivery_stage_fns(ctx).items():
         if name in FLOW_LLM_STAGES:
             runners[name] = fn
     return runners
-
 
 def default_specialist_input(ctx: RunContext, parent_stage: str) -> dict[str, Any]:
     """Minimal stage input for specialist passes triggered by the investigation queue."""
@@ -135,16 +116,13 @@ def default_specialist_input(ctx: RunContext, parent_stage: str) -> dict[str, An
         if ctx.artifact_exists("understanding/gap_evaluations.json"):
             payload["gap_evaluations"] = ctx.read_json("understanding/gap_evaluations.json")
     if parent_stage in {"topic_coverage_audit", "full_master_ranking", "narrative_arc_plan"}:
-        if ctx.artifact_exists("flow_1_master/coverage_audit.json"):
-            payload["coverage_audit"] = ctx.read_json("flow_1_master/coverage_audit.json")
-        if ctx.artifact_exists("flow_1_master/narrative_plan.json"):
-            payload["narrative_plan"] = ctx.read_json("flow_1_master/narrative_plan.json")
-    if parent_stage == "full_master_ranking" and ctx.artifact_exists("flow_1_master/selection.json"):
-        payload["selection"] = ctx.read_json("flow_1_master/selection.json")
-    if parent_stage == "highlight_selection" and ctx.artifact_exists("flow_2_highlights/selection.json"):
-        payload["selection"] = ctx.read_json("flow_2_highlights/selection.json")
+        if ctx.artifact_exists("master/coverage_audit.json"):
+            payload["coverage_audit"] = ctx.read_json("master/coverage_audit.json")
+        if ctx.artifact_exists("master/narrative_plan.json"):
+            payload["narrative_plan"] = ctx.read_json("master/narrative_plan.json")
+    if parent_stage == "full_master_ranking" and ctx.artifact_exists("master/selection.json"):
+        payload["selection"] = ctx.read_json("master/selection.json")
     return payload
-
 
 def apply_needs_reruns(
     ctx: RunContext,
@@ -172,7 +150,6 @@ def apply_needs_reruns(
             stage="orchestrator",
         )
         runner()
-
 
 def drain_investigation_queue(
     ctx: RunContext,
@@ -270,7 +247,6 @@ def drain_investigation_queue(
                     stage="orchestrator",
                 )
 
-
 def pre_analysis_init(ctx: RunContext) -> None:
     ensure_analysis_workspace(ctx)
     if ctx.artifact_exists("understanding/analysis_state.json"):
@@ -280,7 +256,6 @@ def pre_analysis_init(ctx: RunContext) -> None:
             ident["source_audio_note"] = str(ctx.input_audio())
             state["interview_identity"] = ident
             ctx.write_json("understanding/analysis_state.json", state)
-
 
 def post_analysis_finalize(ctx: RunContext) -> dict[str, Any]:
     completion = update_completion_from_analysis(ctx)

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from interview_mux.config import merged_config, repo_root  # noqa: E402
 from interview_mux.run_context import RunContext  # noqa: E402
-from interview_mux.show_description_qc import validate_show_description  # noqa: E402
+from interview_mux.show_notes_qc import validate_show_description  # noqa: E402
 
 
 def _resolve_run_dir(run_id: str) -> Path:
@@ -36,12 +36,12 @@ def main() -> None:
         sys.exit(1)
 
     ctx = RunContext(args.run_id, create=False)
-    json_path = ctx.path("flow_3_description/show_description.json")
+    json_path = ctx.path("show_notes/show_description.json")
     if not json_path.is_file():
         print(f"Missing: {json_path}")
         sys.exit(1)
 
-    doc = ctx.read_json("flow_3_description/show_description.json")
+    doc = ctx.read_json("show_notes/show_description.json")
     errors = validate_show_description(ctx, doc if isinstance(doc, dict) else {})
     if errors:
         print(f"FAIL: {run_dir}")

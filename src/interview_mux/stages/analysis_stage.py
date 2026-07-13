@@ -294,6 +294,36 @@ def _run_llm_stage_loop(
             if itr_hint:
                 strategy = dict(strategy)
                 strategy["itr_repair_hint"] = itr_hint
+            # First-try: one brief-constrained recovery for duration/budget soft fails
+            if stage_key in {
+                "narrative_arc_plan",
+                "full_master_ranking",
+                "sound_design_plan",
+            }:
+                from interview_mux.first_try import first_try_mode_enabled, first_try_triage_overrides
+                from interview_mux.delivery_brief import load_delivery_brief
+
+                joined = " ".join(str(x) for x in lint_errors).lower()
+                if first_try_mode_enabled() and any(
+                    tok in joined for tok in ("duration", "budget", "too long", "over max", "sfx_density")
+                ):
+                    overrides = first_try_triage_overrides()
+                    if overrides.get("brief_constrained_extra_attempt", True):
+                        strategy = dict(strategy)
+                        brief = load_delivery_brief(ctx) or {}
+                        strategy["itr_repair_hint"] = (
+                            (strategy.get("itr_repair_hint") or "")
+                            + " Respect delivery_brief target_duration_sec and sfx_density caps: "
+                            + str(
+                                {
+                                    "target_duration_sec": brief.get("target_duration_sec"),
+                                    "sfx_density": brief.get("sfx_density"),
+                                    "question_budget": brief.get("question_budget"),
+                                }
+                            )
+                        )
+                        strategy["strategy_key"] = "brief_constrained_retry"
+                        strategy["enrich_input"] = True
             strategy_key = str(strategy.get("strategy_key") or "lint_retry")
             if not guard.record_strategy(
                 strategy_key,

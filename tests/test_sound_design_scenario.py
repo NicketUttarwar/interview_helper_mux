@@ -52,7 +52,7 @@ def test_panel_overlap_high_skips_bed_overlay(tmp_path, monkeypatch):
                 }
             ],
             flow_plans={
-                "flow1": {
+                "podcast": {
                     "cues": [
                         {
                             "cue_id": "c1",
@@ -93,7 +93,7 @@ def test_trauma_adjacent_stinger_cap_skips_stinger_overlay(tmp_path, monkeypatch
                 }
             ],
             flow_plans={
-                "flow1": {
+                "podcast": {
                     "cues": [
                         {
                             "cue_id": "s1",

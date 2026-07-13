@@ -344,29 +344,29 @@ Legacy `podcast_sfx_brief` / `sfx_brief` / `mux_flow*` are rerun aliases only. D
 flowchart LR
     SAP[source_acoustic_profile] --> PAL[sound_design_palettes]
     BRIEF[content_brief_reanchor] --> PAL
-    PAL --> PLAN1[sound_design_plan_flow1]
-    PAL --> PLAN2[sound_design_plan_flow2]
+    PAL --> PLAN1[sound_design_plan]
+    PAL --> PLAN2[REMOVED_sdp_flow2]
     RANK[full_master_ranking] --> PLAN1
     TRANS[transitions] --> PLAN1
-    HL[highlight_selection] --> PLAN2
+    HL[REMOVED_highlight_selection] --> PLAN2
     PLAN1 --> AUDIT[edl_narrative_audit]
-    AUDIT --> EDL[edl_flow1]
+    AUDIT --> EDL[edl]
     EDL --> PREV[assembly_preview]
     PREV --> CRAFT[sfx_prompt_craft]
     PLAN2 --> CRAFT
-    CRAFT --> GEN1[mmaudio_sfx_flow1]
-    CRAFT --> GEN2[mmaudio_sfx_flow2]
-    GEN1 --> MIX1[mix_flow1]
-    GEN2 --> MIX2[mix_flow2]
-    MIX1 --> MAST1[master_flow1]
-    MIX2 --> MAST2[master_flow2]
+    CRAFT --> GEN1[mmaudio_sfx]
+    CRAFT --> GEN2[REMOVED_mmaudio_flow2]
+    GEN1 --> MIX1[mix]
+    GEN2 --> MIX2[REMOVED_mix_flow2]
+    MIX1 --> MAST1[master_finalize]
+    MIX2 --> MAST2[REMOVED_master_flow2]
 ```
 
 | Stage | Input gist | Output gist |
 |-------|------------|-------------|
 | `sound_design_palettes` | Brief themes + manifest + SAP | `sound_design_plan.json` coherence + theme palettes |
-| `sound_design_plan_flow1` | Ranking + transitions + palettes | Reusable `asset_id`s + Flow 1 cue placements |
-| `sound_design_plan_flow2` | Highlight selection + palettes | Montage assets + transition cues |
+| `sound_design_plan` | Ranking + transitions + palettes | Reusable `asset_id`s + Flow 1 cue placements |
+| `REMOVED_sdp_flow2` | Highlight selection + palettes | Montage assets + transition cues |
 | `sfx_prompt_craft` | SDP assets | `sfx_prompts.json` (one prompt per `asset_id`) |
 | `mmaudio_sfx_flow*` | Approved prompts | `sound_design/assets/*.wav` |
 | `mix_flow*` | EDL/selection + speech + VO + SFX | `assembly.wav` → `master.wav` |

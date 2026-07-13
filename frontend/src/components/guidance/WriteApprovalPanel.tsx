@@ -45,6 +45,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
     appendClientLog,
     actionBusy,
     activateSubstep,
+    approveBatchWrites,
   } = useApp();
   const [apiPaths, setApiPaths] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -382,6 +383,22 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
             Preview each file below. Edits are kept while you switch files and are included when you use{" "}
             <strong>Save all files &amp; continue</strong> at the bottom of this step.
           </p>
+          {run?.journey?.first_try?.write_approval_deferred ||
+          config?.journey_ui?.defer_write_approval_until === "phase_end" ? (
+            <p className="hint">
+              <button
+                type="button"
+                className="btn primary sm"
+                data-action-id="gui.write_approval.batch_save"
+                data-testid="write-approval-batch-save"
+                disabled={actionBusy || !(run?.journey?.pending_write_stages || []).length}
+                onClick={() => void approveBatchWrites()}
+              >
+                Save all pending stages
+              </button>{" "}
+              First-try mode defers mid-phase Save — commit everything when ready.
+            </p>
+          ) : null}
           {run?.working_dir ? (
             <p className="hint sm write-approval-wd" title={run.working_dir}>
               Working directory:{" "}

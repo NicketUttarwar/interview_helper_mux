@@ -160,19 +160,19 @@ def validate_flow1_narrative(
     brief = ctx.read_json("understanding/content_brief.json")
     brief_topics = brief.get("topics") or []
 
-    if not ctx.artifact_exists("flow_1_master/coverage_audit.json"):
-        errors.append("Missing flow_1_master/coverage_audit.json")
+    if not ctx.artifact_exists("master/coverage_audit.json"):
+        errors.append("Missing master/coverage_audit.json")
     else:
-        audit = ctx.read_json("flow_1_master/coverage_audit.json")
+        audit = ctx.read_json("master/coverage_audit.json")
         errors.extend(_validate_topic_coverage(brief_topics, audit))
         errors.extend(_validate_claim_mappings(brief, audit))
         errors.extend(_cross_check_coherence_missing_callback(ctx, brief_topics, audit))
 
-    has_selection = ctx.artifact_exists("flow_1_master/selection.json")
+    has_selection = ctx.artifact_exists("master/selection.json")
     if require_selection and not has_selection:
-        errors.append("Missing flow_1_master/selection.json")
+        errors.append("Missing master/selection.json")
     elif has_selection:
-        selection = ctx.read_json("flow_1_master/selection.json")
+        selection = ctx.read_json("master/selection.json")
         if isinstance(selection, dict):
             errors.extend(_validate_chapters(selection))
 

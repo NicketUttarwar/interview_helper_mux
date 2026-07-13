@@ -27,7 +27,7 @@ PRODUCTION_STYLE=tbiy_narrative ./CURSOR_EXECUTE/flow1-gui-e2e/run.sh
 2. **Story lock** — Set `production_style: tbiy_narrative` + strategic moat → Lock story
 3. **G1 pickup** — Record least-spoken speaker lines (`dummy_vo.wav` in E2E)
 4. **Preview listen** — After `assembly_preview` → mark listened
-5. **G1.5 re-record** — Post-preview reaction lines only (gate before `mmaudio_sfx_flow1`)
+5. **G1.5 re-record** — Post-preview reaction lines only (gate before `mmaudio_sfx`)
 6. **SFX** — Approve prompts → generate → post-listen pass → mix
 
 ## API smoke (no GUI)

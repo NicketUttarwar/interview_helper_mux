@@ -13,7 +13,7 @@ from interview_mux.acoustic_profile import (
 )
 from interview_mux.session_log import read_log
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_server_ctx
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx, log_detail_matches, patch_server_ctx
 
 
 def _write_profile(ctx, *, pace_class: str = "conversational", underscore_policy: str = "normal") -> None:
@@ -102,7 +102,7 @@ def test_patch_overrides_api_and_log(tmp_path, monkeypatch) -> None:
     profile = load_profile(ctx)
     assert profile["pacing"]["pace_class"] == "brisk"
 
-    logs = [e for e in read_log(ctx.run_dir) if e.get("detail") == "acoustic_profile_override_saved"]
+    logs = [e for e in read_log(ctx.run_dir) if log_detail_matches(e, "acoustic_profile_override_saved")]
     assert len(logs) == 1
 
 

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from interview_mux.run_context import RunContext
 from interview_mux.web.runner import JobRunner
 from interview_mux.write_staging import enter_stage_staging, exit_stage_staging, list_pending_paths
+from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -57,8 +58,8 @@ def test_continue_after_checkpoint_flushes_and_starts_ingest(
     iso = ctx.path("preclean/isolated.wav")
     iso.parent.mkdir(parents=True, exist_ok=True)
     iso.write_bytes(b"wav")
-    ctx.path("preclean/lineage.json").write_text("{}", encoding="utf-8")
-    ctx.path("preclean/provider.json").write_text("{}", encoding="utf-8")
+    ctx.write_json("preclean/lineage.json", minimal_preclean_lineage())
+    ctx.write_json("preclean/provider.json", minimal_preclean_provider())
     exit_stage_staging()
     assert list_pending_paths(ctx, "audio_preclean")
 

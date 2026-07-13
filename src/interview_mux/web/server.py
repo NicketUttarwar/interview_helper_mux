@@ -39,9 +39,7 @@ from interview_mux.gates import (
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
-    get_selected_flow,
     is_operator_profile_verified,
-    set_selected_flow,
 )
 from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
@@ -69,16 +67,15 @@ from interview_mux.nle_state import (
     split_segment_at,
 )
 from interview_mux.waveform_peaks import load_or_generate_peaks
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log, read_log
 from interview_mux.journey_orchestrator import (
     build_journey_snapshot,
     mark_preview_listened,
     refresh_journey_meta,
-    set_flow_intent,
 )
-from interview_mux.journey_state import get_flow_intent, stage_operator_phase
+from interview_mux.journey_state import stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import RunBusyError, runner
 from interview_mux.web.session_routes import ActiveBody, register_session_routes
@@ -91,7 +88,6 @@ from interview_mux.operator_snapshots import (
     persist_operator_analysis_profile,
     persist_operator_sfx_listen_results,
     persist_operator_sfx_prompts,
-    persist_operator_flow_selection,
     persist_operator_investigation_queue,
     persist_operator_preclean,
 )
@@ -153,11 +149,6 @@ def _append_api_error_log(
 class CreateRunBody(BaseModel):
     input_audio_path: str
     run_id: str | None = None
-    flow_intent: str | None = Field(default=None, pattern="^(flow1|flow2|flow3)$")
-
-
-class FlowBody(BaseModel):
-    flow: str = Field(pattern="^(flow1|flow2|flow3)$")
 
 
 class InvestigationPatchBody(BaseModel):
@@ -167,8 +158,8 @@ class InvestigationPatchBody(BaseModel):
 class ExecuteBody(BaseModel):
     mode: str = Field(
         description=(
-            "stage | analysis | analysis_until_g0 | flow1 | flow1_until_preview | "
-            "flow1_polish | flow2 | flow3 | nle_apply"
+            "stage | analysis | analysis_until_g0 | delivery | delivery_until_preview | "
+            "delivery_polish | nle_apply"
         )
     )
     stage: str | None = None
@@ -484,10 +475,8 @@ def create_app() -> FastAPI:
             for r in runs[: max(enrich_limit, 0)]:
                 try:
                     ctx = RunContext(r["run_id"], create=False)
-                    flow = get_selected_flow(ctx)
                     stages = _build_stage_list(
                         ctx,
-                        flow,
                         check_g1_vo(ctx),
                         check_transcript_review_pending(ctx),
                         is_operator_profile_verified(ctx),
@@ -554,8 +543,6 @@ def create_app() -> FastAPI:
             source_audio_hash=full_hash,
             source_audio_hash_short=short_hash,
         )
-        if body.flow_intent:
-            set_flow_intent(ctx, body.flow_intent)
         ensure_analysis_workspace(ctx)
         refresh_journey_meta(ctx)
         from interview_mux.session_lineage import record_immediate_previous_on_create
@@ -580,10 +567,8 @@ def create_app() -> FastAPI:
     def get_run_summary(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
         summary = RunContext.summarize_run(run_id)
-        flow = get_selected_flow(ctx)
         stages = _build_stage_list(
             ctx,
-            flow,
             check_g1_vo(ctx),
             check_transcript_review_pending(ctx),
             is_operator_profile_verified(ctx),
@@ -610,7 +595,6 @@ def create_app() -> FastAPI:
         from interview_mux.source_topology import check_pickup_speaker_pending
 
         pickup_speaker_pending = check_pickup_speaker_pending(ctx)
-        flow = get_selected_flow(ctx)
         tr_pending = check_transcript_review_pending(ctx)
         profile_verified = is_operator_profile_verified(ctx)
         profile_gate_pending = check_profile_gate_pending(ctx)
@@ -625,7 +609,7 @@ def create_app() -> FastAPI:
         story_board_ready = story_board_ready_for_gui(ctx)
         timeline_ready = timeline_ready_for_gui(ctx)
         stages = _build_stage_list(
-            ctx, flow, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
+            ctx, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
         )
         handoff_ack = meta.get("handoff_ack") or {}
         job = runner.get_job(run_id)
@@ -649,8 +633,6 @@ def create_app() -> FastAPI:
                 },
             }
         journey = build_journey_snapshot(ctx, job=job, stages=stages)
-        intent = get_flow_intent(ctx)
-        display_flow = flow or intent
         from interview_mux.legacy_stage_warnings import legacy_sfx_warnings
 
         llm_verification_alerts: list[dict[str, Any]] = []
@@ -671,11 +653,14 @@ def create_app() -> FastAPI:
             "handoff_ack": handoff_ack,
             "sfx_generated_assets": _discover_generated_sfx_assets(ctx),
             "legacy_migration_warnings": legacy_sfx_warnings(ctx),
-            "selected_flow": flow,
-            "flow_intent": intent,
             "flow_adaptation": (
                 ctx.read_json("understanding/flow_adaptation.json")
                 if ctx.artifact_exists("understanding/flow_adaptation.json")
+                else None
+            ),
+            "delivery_brief": (
+                ctx.read_json("understanding/delivery_brief.json")
+                if ctx.artifact_exists("understanding/delivery_brief.json")
                 else None
             ),
             "source_topology": (
@@ -703,25 +688,24 @@ def create_app() -> FastAPI:
             "blocking": journey.get("blocking"),
             "stages": stages,
             "log_tail": read_log(ctx.run_dir, tail=100),
-            "display_flow": display_flow,
             "llm_verification_alerts": llm_verification_alerts,
         }
 
-    @app.get("/api/runs/{run_id}/flow1-readiness")
-    def get_flow1_readiness(
+    @app.get("/api/runs/{run_id}/delivery-readiness")
+    def get_delivery_readiness(
         run_id: str,
         target_stage: str = "topic_coverage_audit",
-        scope: str = "flow1",
+        scope: str = "delivery",
     ) -> dict[str, Any]:
         ctx = _ctx(run_id)
         from interview_mux.progression_readiness import (
-            build_flow1_readiness_report,
+            build_delivery_readiness_report,
             build_pre_audio_readiness_report,
         )
 
         if scope == "pre_audio":
             return build_pre_audio_readiness_report(ctx)
-        return build_flow1_readiness_report(
+        return build_delivery_readiness_report(
             ctx,
             target_stage=target_stage or None,
             include_flow1_spine=target_stage not in (None, "", "topic_coverage_audit"),
@@ -1296,16 +1280,6 @@ def create_app() -> FastAPI:
                 runner.invalidate_from(run_id, body.invalidate_from)
             return {"ok": True, "path": body.path}
 
-    @app.post("/api/runs/{run_id}/flow")
-    def set_flow(run_id: str, body: FlowBody) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            set_selected_flow(ctx, body.flow)
-            persist_operator_flow_selection(ctx, body.flow, source="g2_flow_select")
-            ctx.log(f"Output flow selected: {body.flow}", level="success", stage="g2_flow_select")
-            refresh_journey_meta(ctx)
-            return {"ok": True, "selected_flow": body.flow}
-
     @app.post("/api/runs/{run_id}/preclean-offer")
     def preclean_offer(run_id: str, body: PrecleanOfferBody) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -1464,6 +1438,106 @@ def create_app() -> FastAPI:
             )
             refresh_journey_meta(ctx)
             return {"ok": True, "flushed": flushed, "stage_id": stage_id}
+
+    @app.post("/api/runs/{run_id}/pending-writes/approve-batch")
+    async def approve_pending_writes_batch(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Batch Save — approve all (or phase-filtered) pending stage writes."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            body = body or {}
+            phases = body.get("phases")
+            stage_ids = body.get("stage_ids")
+            from interview_mux.first_try import ANALYSIS_PHASE_STAGES, DELIVERY_PHASE_STAGES, batch_save_phases
+            from interview_mux.write_staging import all_pending_stages, approve_batch_stage_writes
+
+            pending = all_pending_stages(ctx)
+            selected: list[str] | None = None
+            if isinstance(stage_ids, list) and stage_ids:
+                selected = [str(s) for s in stage_ids]
+            elif isinstance(phases, list) and phases:
+                wanted = {str(p) for p in phases} or set(batch_save_phases())
+                selected = []
+                for sid in pending:
+                    if "analysis" in wanted and sid in ANALYSIS_PHASE_STAGES:
+                        selected.append(sid)
+                    elif "delivery" in wanted and sid in DELIVERY_PHASE_STAGES:
+                        selected.append(sid)
+                    elif sid not in ANALYSIS_PHASE_STAGES and sid not in DELIVERY_PHASE_STAGES:
+                        selected.append(sid)
+
+            def _batch() -> dict[str, Any]:
+                return approve_batch_stage_writes(ctx, selected)
+
+            try:
+                result = await run_in_threadpool(_batch)
+            except RunBusyError as exc:
+                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
+            for sid in list((result.get("approved") or {}).keys()):
+                title = STAGE_BY_ID.get(sid)
+                stage_label = title.title if title else sid.replace("_", " ")
+                runner.clear_operator_pause(
+                    ctx,
+                    sid,
+                    message=f"{stage_label}: batch-saved — advancing pipeline.",
+                )
+            refresh_journey_meta(ctx)
+            ctx.log(
+                f"Batch write approval complete ({len(result.get('approved') or {})} stage(s)).",
+                level="success",
+                stage="write_approval",
+                action_id="api.write_approval.batch_approve",
+                origin="api",
+                detail={"event": "write_approval_batch"},
+            )
+            return {"ok": True, **result}
+
+    @app.post("/api/runs/{run_id}/g1/skip-optional")
+    def g1_skip_optional(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Mark non-blocking delivery:record gaps as skipped_optional and rebuild delivery_brief."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            body = body or {}
+            line_ids = body.get("line_ids")
+            from interview_mux.first_try import line_requires_vo, line_severity
+            from interview_mux.delivery_brief import rebuild_delivery_brief
+
+            if not ctx.artifact_exists("understanding/gap_report.json"):
+                raise HTTPException(404, "gap_report.json not found")
+            report = ctx.read_json("understanding/gap_report.json")
+            lines = report.get("interviewer_lines") if isinstance(report, dict) else []
+            if not isinstance(lines, list):
+                raise HTTPException(400, "Invalid gap_report")
+            wanted = {str(x) for x in line_ids} if isinstance(line_ids, list) else None
+            skipped: list[str] = []
+            for line in lines:
+                if not isinstance(line, dict):
+                    continue
+                if str(line.get("delivery") or "").lower() != "record":
+                    continue
+                lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
+                if wanted is not None and lid not in wanted:
+                    continue
+                if line.get("blocking") is True or line_severity(line) in {"high", "critical"}:
+                    if wanted is None:
+                        continue
+                    # Explicit id list can skip medium/low only — never high/critical without override
+                    if line_requires_vo(line):
+                        continue
+                line["skipped_optional"] = True
+                line["blocking"] = False
+                if not line.get("severity"):
+                    line["severity"] = "medium"
+                skipped.append(lid)
+            ctx.write_json("understanding/gap_report.json", report)
+            rebuild_delivery_brief(ctx, reason="g1_skip_optional")
+            ctx.log(
+                f"G1 skip-optional: marked {len(skipped)} line(s)",
+                level="success",
+                stage="g1_vo_pickup",
+                action_id="gui.g1.skip_optional",
+                detail={"event": "g1_skip_optional", "line_ids": skipped},
+            )
+            return {"ok": True, "skipped": skipped, "g1_missing": check_g1_vo(ctx)}
 
     @app.post("/api/runs/{run_id}/continue-after-checkpoint")
     async def continue_after_checkpoint(
@@ -2085,7 +2159,7 @@ def create_app() -> FastAPI:
                 ctx.log(
                     "speech_under_listen_result_recorded",
                     level="info",
-                    stage="mix_flow1",
+                    stage="mix",
                     detail=entry,
                 )
                 return {"ok": True, "entry": entry, "speech_under_listen_results": results}
@@ -2116,8 +2190,7 @@ def create_app() -> FastAPI:
             gate_state = sync_post_listen_gate_state(ctx)
             auto_refined: list[str] = []
             if body.result == "fail":
-                flow = get_selected_flow(ctx)
-                stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
+                stage = "mmaudio_sfx"
                 auto_refined = maybe_auto_refine(ctx, stage)
             return {
                 "ok": True,
@@ -2163,8 +2236,7 @@ def create_app() -> FastAPI:
                 m["sfx_regen_asset_ids"] = sorted(set(asset_ids))
 
             ctx.mutate_run_meta(patch)
-            flow = get_selected_flow(ctx)
-            stage = "mmaudio_sfx_flow1" if flow == "flow1" else "mmaudio_sfx_flow2"
+            stage = "mmaudio_sfx"
             marker = ctx.final_path(".stage_done", stage)
             if marker.is_file():
                 marker.unlink()
@@ -2227,12 +2299,12 @@ def create_app() -> FastAPI:
                 stage=stage or "gui",
             )
             set_active_execution(run_id)
-        flow_modes = ("flow1", "flow2", "flow3", "flow1_until_preview", "flow1_polish")
+        delivery_modes = ("delivery", "delivery_until_preview", "delivery_polish")
         return runner.start(
             run_id,
             mode=body.mode,
             stage=body.stage,
-            flow=body.mode if body.mode in flow_modes else None,
+            flow=body.mode if body.mode in delivery_modes else None,
             from_stage=body.from_stage or body.stage,
             until_stage=body.until_stage,
             nle_full_refresh=body.nle_full_refresh,
@@ -2374,6 +2446,12 @@ def create_app() -> FastAPI:
             mark_operator_verified(ctx, True)
             persist_operator_analysis_profile(ctx, source="analysis_profile_verify")
             ctx.log("Interview profile marked verified.", level="success", stage="analysis_profile")
+            try:
+                from interview_mux.delivery_brief import rebuild_delivery_brief
+
+                rebuild_delivery_brief(ctx, reason="analysis_profile_verify")
+            except Exception:
+                pass
             refresh_journey_meta(ctx)
             return {"ok": True, "operator_verified": True}
 
@@ -2393,8 +2471,8 @@ def create_app() -> FastAPI:
             else {}
         )
         narrative = (
-            ctx.read_json("flow_1_master/narrative_plan.json")
-            if ctx.artifact_exists("flow_1_master/narrative_plan.json")
+            ctx.read_json("master/narrative_plan.json")
+            if ctx.artifact_exists("master/narrative_plan.json")
             else None
         )
         sap = (
@@ -2605,6 +2683,43 @@ def create_app() -> FastAPI:
             )
             return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
 
+    @app.get("/api/runs/{run_id}/delivery-brief")
+    def get_delivery_brief(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        if not ctx.artifact_exists("understanding/delivery_brief.json"):
+            return {"brief": None}
+        return {"brief": ctx.read_json("understanding/delivery_brief.json")}
+
+    @app.patch("/api/runs/{run_id}/delivery-brief")
+    def patch_delivery_brief(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.delivery_brief import apply_delivery_brief_patch
+
+            ctx = _ctx(run_id)
+            brief = apply_delivery_brief_patch(ctx, body or {})
+            ctx.log(
+                "delivery_brief patched by operator",
+                level="action",
+                stage="delivery_brief_build",
+                detail={"kind": "delivery_brief", "action_id": "gui.delivery_brief.save"},
+            )
+            return {"ok": True, "brief": brief}
+
+    @app.post("/api/runs/{run_id}/delivery-brief/rebuild")
+    def rebuild_delivery_brief_endpoint(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.delivery_brief import rebuild_delivery_brief
+
+            ctx = _ctx(run_id)
+            brief = rebuild_delivery_brief(ctx, reason="operator_rebuild")
+            ctx.log(
+                "delivery_brief rebuilt by operator",
+                level="action",
+                stage="delivery_brief_build",
+                detail={"kind": "delivery_brief", "action_id": "gui.delivery_brief.reset"},
+            )
+            return {"ok": True, "brief": brief}
+
     @app.get("/api/runs/{run_id}/source-topology")
     def get_source_topology(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -2622,6 +2737,12 @@ def create_app() -> FastAPI:
 
             ctx = _ctx(run_id)
             adapt = apply_flow_adaptation_patch(ctx, body)
+            try:
+                from interview_mux.delivery_brief import rebuild_delivery_brief
+
+                rebuild_delivery_brief(ctx, reason="flow_adaptation_patch")
+            except Exception:
+                pass
             return {"ok": True, "adaptation": adapt}
 
     @app.post("/api/runs/{run_id}/flow-adaptation/confirm")
@@ -2633,6 +2754,12 @@ def create_app() -> FastAPI:
             adapt = apply_flow_adaptation_patch(
                 ctx, {"operator_overrides": {"topology_confirmed": True}}
             )
+            try:
+                from interview_mux.delivery_brief import rebuild_delivery_brief
+
+                rebuild_delivery_brief(ctx, reason="flow_adaptation_confirm")
+            except Exception:
+                pass
             ctx.log(
                 "Topology confirmed by operator",
                 level="action",
@@ -2704,6 +2831,12 @@ def create_app() -> FastAPI:
                 stage="optimal_questions",
                 detail={"kind": "gap_report", "action_id": "gui.gap_report.add_line", "line_id": line.get("line_id")},
             )
+            try:
+                from interview_mux.delivery_brief import rebuild_delivery_brief
+
+                rebuild_delivery_brief(ctx, reason="gap_report_add_line")
+            except Exception:
+                pass
             return {"ok": True, "line": line}
 
     @app.patch("/api/runs/{run_id}/gap-report/lines/{line_id}")
@@ -2734,6 +2867,12 @@ def create_app() -> FastAPI:
                 stage="optimal_questions",
                 detail={"kind": "gap_report", "action_id": "gui.gap_report.remove_line", "line_id": line_id},
             )
+            try:
+                from interview_mux.delivery_brief import rebuild_delivery_brief
+
+                rebuild_delivery_brief(ctx, reason="gap_report_remove_line")
+            except Exception:
+                pass
             return {"ok": True}
 
     @app.get("/api/runs/{run_id}/vo/{line_id}/boundary-suggest")
@@ -2773,7 +2912,7 @@ def create_app() -> FastAPI:
                     raise HTTPException(404, f"Audio file not found: {body.new_input_audio_path}")
                 _assert_asset_input_path(body.new_input_audio_path)
                 ctx.init_run_meta(body.new_input_audio_path)
-                for order in (ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER):
+                for order in (ANALYSIS_ORDER, DELIVERY_ORDER):
                     if order:
                         ctx.clear_from(order[0], order)
             elif body.from_stage:
@@ -2881,19 +3020,12 @@ def _done_markers_from(ctx: RunContext, order: list[str], from_stage: str) -> li
 
 
 def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
-    """Clear analysis + flow sound-design markers after pace_class change."""
+    """Clear analysis + delivery sound-design markers after pace_class change."""
     from_stage = "sound_design_palettes"
     cleared = _done_markers_from(ctx, ANALYSIS_ORDER, from_stage)
-    flow = get_selected_flow(ctx)
-    if flow == "flow1":
-        cleared.extend(_done_markers_from(ctx, FLOW1_ORDER, "sound_design_plan_flow1"))
-    elif flow == "flow2":
-        cleared.extend(_done_markers_from(ctx, FLOW2_ORDER, "sound_design_plan_flow2"))
+    cleared.extend(_done_markers_from(ctx, DELIVERY_ORDER, "sound_design_plan"))
     ctx.clear_from(from_stage, ANALYSIS_ORDER)
-    if flow == "flow1":
-        ctx.clear_from("sound_design_plan_flow1", FLOW1_ORDER)
-    elif flow == "flow2":
-        ctx.clear_from("sound_design_plan_flow2", FLOW2_ORDER)
+    ctx.clear_from("sound_design_plan", DELIVERY_ORDER)
     from interview_mux.analysis_memory import invalidate_sonic_context
 
     invalidate_sonic_context(ctx, reason="pace_class_changed", stage="source_acoustic_profile")
@@ -3097,7 +3229,6 @@ def _disfluency_locked_analysis_stages() -> frozenset[str]:
 
 def _build_stage_list(
     ctx: RunContext,
-    flow: str | None,
     g1_missing: list[str],
     transcript_review_pending: bool,
     profile_verified: bool,
@@ -3111,7 +3242,7 @@ def _build_stage_list(
         if disfluency_review_pending is not None
         else check_disfluency_review_pending(ctx)
     )
-    stages = all_stages_for_run(flow)
+    stages = all_stages_for_run(None)
     pending_write_stages = set(all_pending_stages(ctx))
     from interview_mux.stage_completion import reconcile_stage_done_marker
 
@@ -3172,7 +3303,7 @@ def _build_stage_list(
             g1_5_pending = check_g1_5_preview_pickup_pending(ctx)
             if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
                 s["status"] = "done"
-            elif not ctx.artifact_exists("flow_1_master/assembly_preview.wav"):
+            elif not ctx.artifact_exists("master/assembly_preview.wav"):
                 s["status"] = "locked"
             elif not meta.get("preview_listened_at"):
                 s["status"] = "locked"
@@ -3180,21 +3311,10 @@ def _build_stage_list(
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"
-        elif sid == "g2_flow_select":
-            if g1_missing:
+        elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase == "delivery":
+            if g1_missing or not ctx.artifact_exists("analysis_complete.json"):
                 s["status"] = "locked"
-            elif flow:
-                s["status"] = "done"
-            elif ctx.artifact_exists("analysis_complete.json"):
-                s["status"] = "action_required"
-            elif get_flow_intent(ctx):
-                s["status"] = "pending"
-            else:
-                s["status"] = "locked"
-        elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase in ("flow1", "flow2", "flow3"):
-            if not flow:
-                s["status"] = "locked"
-            elif profile_gate_pending and STAGE_BY_ID[sid].phase == "flow1":
+            elif profile_gate_pending:
                 s["status"] = "locked"
             else:
                 s["status"] = "done" if ctx.is_done(sid) else "pending"
@@ -3240,6 +3360,10 @@ def _build_stage_list(
                     if a and not a.endswith("/"):
                         s["artifacts_lifecycle"][a] = "n_a"
                         s["artifacts_status"][a] = "complete"
+                for row in s.get("outputs_view") or []:
+                    if isinstance(row, dict):
+                        row["status"] = "complete"
+                        row["phase"] = "n_a"
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
             if ctx.is_done(sid):
                 handoff = handoff_paths_for_stage(ctx, sid)
@@ -3249,40 +3373,18 @@ def _build_stage_list(
 
             reconcile_stage_status(s)
         s["operator_phase"] = stage_operator_phase(sid)
-    filtered = _filter_stages_for_intent(ctx, stages, flow or get_flow_intent(ctx))
     from interview_mux.stage_guidance import attach_guidance_to_stages
 
     attach_guidance_to_stages(
         ctx,
-        filtered,
-        flow=flow,
+        stages,
+        flow=None,
         g1_missing=g1_missing,
         transcript_review_pending=transcript_review_pending,
         profile_gate_pending=profile_gate_pending,
         profile_verified=profile_verified,
     )
-    return filtered
-
-
-def _filter_stages_for_intent(
-    ctx: RunContext,
-    stages: list[dict[str, Any]],
-    flow: str | None,
-) -> list[dict[str, Any]]:
-    """Collapse irrelevant flow stages when flow_intent is set early."""
-    if not flow:
-        return stages
-    if flow != "flow3":
-        return stages
-    hide_phases = {"flow1", "flow2"}
-    out: list[dict[str, Any]] = []
-    for s in stages:
-        sid = s.get("id") or ""
-        info = STAGE_BY_ID.get(sid)
-        if info and info.phase in hide_phases:
-            continue
-        out.append(s)
-    return out
+    return stages
 
 
 def _record_preclean_offer(

@@ -25,11 +25,8 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
     "topic_coverage_audit": frozenset({"coverage_score"}),
     "narrative_arc_plan": frozenset({"chapters"}),
     "full_master_ranking": frozenset({"ordered_segment_ids"}),
-    "highlight_selection": frozenset({"highlights"}),
     "transitions": frozenset({"transitions"}),
-    "podcast_show_description": frozenset({"description"}),
-    "sound_design_plan_flow1": frozenset({"assets", "flow_plans"}),
-    "sound_design_plan_flow2": frozenset({"assets", "flow_plans"}),
+    "sound_design_plan": frozenset({"assets", "flow_plans"}),
     "sfx_prompt_craft": frozenset({"prompts"}),
     "sound_design_palettes": frozenset({"palettes"}),
 }
@@ -73,15 +70,11 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
     "topic_coverage_audit": frozenset({"gaps", "notes"}),
     "narrative_arc_plan": frozenset({"ordering_constraints", "notes"}),
     "full_master_ranking": frozenset({"excluded_segment_ids", "notes"}),
-    "highlight_selection": frozenset({"notes"}),
     "transitions": frozenset({"transitions[].notes"}),
-    "podcast_show_description": frozenset({"subtitle", "keywords"}),
-    "sound_design_plan_flow1": frozenset({"notes"}),
-    "sound_design_plan_flow2": frozenset({"notes"}),
+    "sound_design_plan": frozenset({"notes"}),
     "sfx_prompt_craft": frozenset({"notes"}),
     "sound_design_palettes": frozenset({"notes"}),
 }
-
 
 def null_policy_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     base = (cfg or merged_config()).get("analysis") or {}
@@ -99,18 +92,14 @@ def null_policy_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = base.get("llm_null_policy") or {}
     return {**defaults, **raw}
 
-
 def null_policy_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(null_policy_cfg(cfg).get("enabled", True))
-
 
 def critical_fields_for_stage(stage_key: str) -> frozenset[str]:
     return CRITICAL_FIELDS.get(stage_key, frozenset())
 
-
 def nullable_fields_for_stage(stage_key: str) -> frozenset[str]:
     return NULLABLE_FIELDS.get(stage_key, frozenset())
-
 
 def _walk_null_paths(
     obj: Any,
@@ -148,7 +137,6 @@ def _walk_null_paths(
                         out.append(leaf.replace(f"[{i}]", "[]"))
     return out
 
-
 def find_null_fields(stage_key: str, artifacts: dict[str, Any] | None) -> list[str]:
     if not artifacts or not isinstance(artifacts, dict):
         return []
@@ -163,7 +151,6 @@ def find_null_fields(stage_key: str, artifacts: dict[str, Any] | None) -> list[s
             normalized.append(norm)
     return normalized
 
-
 def _is_critical_null(stage_key: str, path: str) -> bool:
     critical = critical_fields_for_stage(stage_key)
     for pat in critical:
@@ -171,14 +158,12 @@ def _is_critical_null(stage_key: str, path: str) -> bool:
             return True
     return False
 
-
 def _is_nullable_path(stage_key: str, path: str) -> bool:
     nullable = nullable_fields_for_stage(stage_key)
     for pat in nullable:
         if path_matches_pattern(path, pat):
             return True
     return False
-
 
 def partition_nulls(
     stage_key: str,
@@ -196,7 +181,6 @@ def partition_nulls(
             acknowledged.append(path)
     return critical, acknowledged
 
-
 def null_acknowledged_paths(artifacts: dict[str, Any] | None) -> list[str]:
     if not isinstance(artifacts, dict):
         return []
@@ -204,7 +188,6 @@ def null_acknowledged_paths(artifacts: dict[str, Any] | None) -> list[str]:
     ack = meta.get("null_acknowledged") or {}
     paths = ack.get("paths") or []
     return [str(p) for p in paths if p]
-
 
 def acknowledge_null_fields(
     ctx: Any,
@@ -252,7 +235,6 @@ def acknowledge_null_fields(
 
     return out, critical, acknowledged
 
-
 def log_critical_null_blocked(
     ctx: Any,
     stage_key: str,
@@ -290,7 +272,6 @@ def log_critical_null_blocked(
         },
         origin="pipeline",
     )
-
 
 def strip_null_leaves_for_volley(obj: Any, *, acknowledged_paths: frozenset[str] | None = None) -> Any:
     """Replace null leaves with compact unavailable markers for downstream volley shaping."""

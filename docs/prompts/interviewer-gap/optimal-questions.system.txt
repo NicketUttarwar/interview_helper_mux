@@ -14,6 +14,7 @@ Rules:
 - Deduplicate: at most one line per `targets_segment_id` unless gaps are distinct types.
 - Skip `ok_with_light_bridge` unless no transition stage will cover it — prefer leaving to assembly/transitions.
 - High-severity gaps from evaluations must get a line unless `self_explanatory` was wrongly false (then `needs` rerun missing_framing).
+- Set `severity` on each line: `critical`/`high` for must-record VO (blocks G1); `medium`/`low` for optional polish lines (first-try may skip). Missing severity on `delivery: record` is treated as `high` at the G1 gate.
 
 Do not:
 - Write leading or sensational questions.

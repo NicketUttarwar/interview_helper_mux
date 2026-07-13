@@ -27,16 +27,14 @@ from run_fixtures import (
 
 _FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "tbiy" / "one_on_one_asymmetric"
 
-
 def _load_fixture(name: str) -> dict:
     return json.loads((_FIXTURE_ROOT / name).read_text(encoding="utf-8"))
-
 
 def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
     """Seed a run at post-analyze / pre-ship with TBIY profile artifacts."""
     ctx.path("understanding").mkdir(parents=True, exist_ok=True)
     ctx.path("segments").mkdir(parents=True, exist_ok=True)
-    ctx.path("flow_1_master").mkdir(parents=True, exist_ok=True)
+    ctx.path("master").mkdir(parents=True, exist_ok=True)
     ctx.path("vo_pickup").mkdir(parents=True, exist_ok=True)
 
     topo = _load_fixture("topology.json")
@@ -79,15 +77,12 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
 
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     meta["production_style"] = TBIY_STYLE
-    meta["selected_flow"] = "flow1"
-    meta["flow_intent"] = "flow1"
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
 
     seed_flow1_sound_spend_ready(ctx)
     ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
-    (ctx.path("flow_1_master") / "assembly_preview.wav").write_bytes(MINIMAL_WAV_BYTES)
+    (ctx.path("master") / "assembly_preview.wav").write_bytes(MINIMAL_WAV_BYTES)
     ctx.mark_done("assembly_preview")
-
 
 def _client_with_tbiy_run(tmp_path: Path, monkeypatch) -> tuple[TestClient, RunContext]:
     patch_executions_root(monkeypatch, tmp_path)
@@ -95,7 +90,6 @@ def _client_with_tbiy_run(tmp_path: Path, monkeypatch) -> tuple[TestClient, RunC
     init_run_meta_for_test(ctx)
     seed_tbiy_journey_ctx(ctx)
     return TestClient(create_app()), ctx
-
 
 def test_tbiy_topology_confirm_and_story_lock(tmp_path: Path, monkeypatch) -> None:
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
@@ -125,7 +119,6 @@ def test_tbiy_topology_confirm_and_story_lock(tmp_path: Path, monkeypatch) -> No
     assert brief.get("strategic_moat_concept") == "Regulatory capture + scale"
     assert is_tbiy(ctx)
 
-
 def test_tbiy_g1_pickup_and_preview_g1_5_gate(tmp_path: Path, monkeypatch) -> None:
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
     run_id = ctx.run_id
@@ -143,7 +136,7 @@ def test_tbiy_g1_pickup_and_preview_g1_5_gate(tmp_path: Path, monkeypatch) -> No
     assert set(pending) == {"line_001", "line_002"}
 
     with pytest.raises(SystemExit):
-        require_g1_5_preview_pickup_clear(ctx, stage="mmaudio_sfx_flow1")
+        require_g1_5_preview_pickup_clear(ctx, stage="mmaudio_sfx")
 
     for line_id in pending:
         res = client.post(
@@ -153,8 +146,7 @@ def test_tbiy_g1_pickup_and_preview_g1_5_gate(tmp_path: Path, monkeypatch) -> No
         assert res.status_code == 200
 
     assert check_g1_5_preview_pickup_pending(ctx) == []
-    require_g1_5_preview_pickup_clear(ctx, stage="mmaudio_sfx_flow1")
-
+    require_g1_5_preview_pickup_clear(ctx, stage="mmaudio_sfx")
 
 def test_tbiy_g1_5_stage_action_required(tmp_path: Path, monkeypatch) -> None:
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
@@ -170,7 +162,6 @@ def test_tbiy_g1_5_stage_action_required(tmp_path: Path, monkeypatch) -> None:
     g15 = next(s for s in body["stages"] if s["id"] == "g1_5_preview_pickup")
     assert g15["status"] == "action_required"
     assert body["journey"]["blocking"]["reason"] == "g1_5_preview_pickup"
-
 
 def test_tbiy_gap_report_studio_crud(tmp_path: Path, monkeypatch) -> None:
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
@@ -190,7 +181,6 @@ def test_tbiy_gap_report_studio_crud(tmp_path: Path, monkeypatch) -> None:
 
     delete = client.delete(f"/api/runs/{run_id}/gap-report/lines/{line_id}")
     assert delete.status_code == 200
-
 
 def test_tbiy_prompt_variants_active(tmp_path: Path, monkeypatch) -> None:
     _, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)

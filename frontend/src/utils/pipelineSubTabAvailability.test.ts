@@ -55,9 +55,7 @@ describe("pipelineSubTabAvailability", () => {
 
   it("flow 2/3 runs use same timeline gating", () => {
     for (const flow of ["flow_2", "flow_3"] as const) {
-      const run = baseRun({ selected_flow: flow, timeline_ready: false });
       expect(pipelineSubTabAvailability("timeline", run, null).available).toBe(false);
-      const ready = baseRun({ selected_flow: flow, timeline_ready: true });
       expect(pipelineSubTabAvailability("timeline", ready, null).available).toBe(true);
     }
   });

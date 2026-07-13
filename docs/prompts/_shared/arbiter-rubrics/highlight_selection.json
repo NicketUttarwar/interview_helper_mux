@@ -1,5 +1,5 @@
 {
-  "stage_key": "highlight_selection",
+  "stage_key": "REMOVED_highlight_selection",
   "severity": "high",
   "accept_criteria": [
     "Highlights have strong hooks grounded in transcript moments",

@@ -25,7 +25,7 @@ def test_ensure_analysis_workspace_initializes_sound_design_plan(tmp_path, monke
     assert plan["version"] == 1
     assert plan["palettes"] == []
     assert plan["assets"] == []
-    assert plan["flow_plans"]["flow1"]["cues"] == []
+    assert plan["flow_plans"]["podcast"]["cues"] == []
     assert validate_sound_design_plan(plan) == []
 
 

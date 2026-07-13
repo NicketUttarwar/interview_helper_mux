@@ -83,6 +83,7 @@ export function FlowAdaptationCard() {
           className="btn sm primary"
           disabled={busy}
           data-testid="confirm-topology"
+          data-action-id="gui.adaptation.confirm"
           onClick={() => void confirm()}
         >
           Confirm topology

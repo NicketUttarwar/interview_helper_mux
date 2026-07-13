@@ -57,13 +57,13 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `narrative_arc_plan` | flagship | high |
 | `full_master_ranking` | flagship | high |
 | `edl_narrative_audit` | flagship | high |
-| `highlight_selection` | flagship | high |
-| `podcast_show_description` | flagship | high |
+| `REMOVED_highlight_selection` | flagship | high |
+| `REMOVED_podcast_show_description` | flagship | high |
 | `transitions` | flagship | low |
 | `podcast_sfx_brief` | flagship | low |
 | `sfx_brief` | flagship | low |
-| `sound_design_plan_flow1` | flagship | high |
-| `sound_design_plan_flow2` | flagship | high |
+| `sound_design_plan` | flagship | high |
+| `REMOVED_sdp_flow2` | flagship | high |
 | `sfx_prompt_craft` | flagship | low |
 
 Sound-design stage details: [sound-design.md](./sound-design.md).
@@ -122,8 +122,8 @@ Default **flagship** on first pass for:
 - Flow 1 coverage audit, narrative plan, full master ranking
 - Flow 1 EDL narrative audit (`edl_narrative_audit`)
 - Flow 2 highlight selection
-- Flow 3 podcast show description (`podcast_show_description`)
-- Sound-design plan stages (`sound_design_plan_flow1`, `sound_design_plan_flow2`)
+- Flow 3 podcast show description (`REMOVED_podcast_show_description`)
+- Sound-design plan stages (`sound_design_plan`, `REMOVED_sdp_flow2`)
 
 Keep **economy** for speaker/content pass, transitions, SFX briefs, MMAudio SFX prompt craft, and all **arbiter** / **shard** sub-calls.
 

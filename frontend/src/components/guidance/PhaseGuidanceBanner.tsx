@@ -16,7 +16,6 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
   const { setActiveTab, selectStage, setActiveStepId } = useApp();
   const phase = run.journey?.phase ?? "prepare";
   const phaseGuidance = run.journey?.phase_guidance?.[phase];
-  const flowNote = run.display_flow || run.selected_flow || run.journey?.flow_intent;
   const blocking = run.journey?.blocking ?? run.blocking;
 
   const goal =

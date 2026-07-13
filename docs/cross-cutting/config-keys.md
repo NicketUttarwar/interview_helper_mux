@@ -43,6 +43,8 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `executions_root` | New runs under `ASSETS/executions/...` | Runs created outside expected tree; resume breaks |
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
+| `target_lufs` | Preferred alias for podcast master LUFS (falls back to `flow1_target_lufs`) | Wrong loudness |
+| `gui_job` | Background job stall thresholds (`stall_threshold_sec`, `subprocess_stall_threshold_sec`) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel | When `enabled`, blocks SFX until post-preview VO re-recorded |
 | `production_profiles` | `production_profile.py`, TBiy profile selection | Wrong profile → incorrect gate and lint behavior |
@@ -51,7 +53,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
 | `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
-| `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `flow_intent` | Early planning before G2 |
+| `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `REMOVED_flow_intent` | Early planning before G2 |
 | `journey_ui.phase_sidebar` | `PipelineStepList` phase grouping | When `false`, flat numbered step list |
 | `journey_ui.story_board` | `StoryBoardPanel` tab | When `false`, hides story-board tool tab |
 
@@ -64,11 +66,24 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
 | `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `false` (shipped default), after save/checkpoint the GUI **focuses** the next runnable stage and shows *Ready for … — use Run when you want to start*; operator runs each stage explicitly. Set `true` for unattended auto-run between stages. |
 | `journey_ui.full_autopilot` | `stage_finalize`, GUI stage steps, ITR gates | When `true` (default), in-run `finalize_stage_outputs()` replaces operator Fix all; **Stage Decision Wizard** for unresolved choices; `needs_clarification` not surfaced. Set `false` for legacy Fix all + artifact clarification UI. See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md). |
+| `journey_ui.first_try_mode` | `first_try`, gates, write staging, GUI autopilot | Cold-start friction collapse (default **true**). See [first-try-reliability.md](../workflows/first-try-reliability.md). |
+| `journey_ui.defer_write_approval_until` | `write_staging`, journey `_blocking` | `phase_end` (default under first_try): keep `.pending_writes/` without mid-phase pause; batch Save at phase end. `off` restores per-stage pause. |
+| `journey_ui.preclean_auto_dismiss_when_green` | `source_readiness` | When true, auto-dismiss preclean offer on green readiness (never auto-accept). |
+| `journey_ui.batch_save_phases` | batch Save API/GUI | Default `["analysis","delivery"]`. |
+| `transcript_review.auto_complete_when_clean` | `transcript_review` | Auto-complete G0 when zero `needs_review` chunks. |
+| `transcript_review.low_confidence_threshold` | `transcript_review` | Chunks below this confidence get `needs_review` (default `0.85`). |
+| `analysis.g1.blocking_severities` | `gates.check_g1_vo` | Severities that require VO WAV (default `high`,`critical`). |
+| `analysis.first_try.artifact_issue_triage.*` | ITR / attempt budget | Optional first_try overrides (extra attempt, lower confidence). |
+| `sound_design.one_regen_on_fail` | `sfx_mmaudio` | One regen before placeholder under first_try. |
+| `sound_design.first_try_allow_placeholder_mix` | mix / mmaudio | Allow silent SFX placeholders instead of hard-fail. |
+| `mix.completeness_gate.hard_fail_missing_blocking_vo` | `mix_completeness` | Hard-fail missing blocking VO (default true). |
+| `mix.completeness_gate.hard_fail_empty_speech` | `mix_completeness` | Hard-fail empty speech (default true). |
+| `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
-| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection_flow1`, `assembly_flow1` | When `true`, blocks `full_master_ranking` / `edl_flow1` on topic/chapter failures (production default `true`) |
-| `edl_qc.strict` | `gates.check_edl_qc`, `assembly_flow1`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
-| `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly_flow1`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl_flow1` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
-| `show_description_qc.strict` | `publishing_flow3`, `gates.check_show_description_qc` | When `true` (shipped default), blocks persisting invalid show description; when `false`, warn only |
+| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
+| `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
+| `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
+| `show_notes_qc.strict` | `REMOVED_publishing_flow3`, `gates.check_show_notes_qc` | When `true` (shipped default), blocks persisting invalid show description; when `false`, warn only |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
@@ -379,7 +394,7 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 
 When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
 
-**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx_flow1`, `mmaudio_sfx_flow2`, `mix_flow1`, `mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
+**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx`, `REMOVED_mmaudio_flow2`, `mix`, `REMOVED_mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
 
 **Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
 
@@ -506,9 +521,24 @@ Optional compact keys in shaped `stage_input` (when artifacts exist):
 |-----|--------|--------|
 | `pause_ladder_hints` | `boundary_detection` | Transcript word gaps |
 | `emphasis_regions` | `topic_coverage_audit`, `narrative_arc_plan` | `source_acoustic_profile` + segments |
-| `quotability_signals` | `highlight_selection` | RMS peaks + text heuristics |
+| `quotability_signals` | `REMOVED_highlight_selection` | RMS peaks + text heuristics |
 | `value_features_summary` | Flow + boundary stages | `understanding/value_features.json` (opt-in extract) |
 | `comprehension_risks` | `missing_framing` | Specialist pass output (when enabled) |
+
+---
+
+## `analysis.delivery_brief`
+
+Deterministic adaptive soft targets after `optimal_questions` — [delivery-quality-preservation-matrix.md](./delivery-quality-preservation-matrix.md).
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `enabled` | `true` | `delivery_brief_build` | No brief → delivery preflight fails when hardening on |
+| `ideal_fraction_of_source` | `0.85` | duration band derivation | Episode ideal too short/long vs source |
+| `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
+| `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
+| `question_budget_max` | `6` | clamp record gaps | Too many VO pickups or none |
+| `enforce_duration` | `false` | ranking cross-validate | When `true`, soft duration band becomes hard fail |
 
 ---
 
@@ -527,7 +557,7 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 | `content_context_topic_anchor_min_duration_ms` | `900000` (15m) | Medium+ interviews require topic evidence anchors in `content_context` lint |
 | `show_description_min_words` / `show_description_max_words` | Flow 3 JSON schema band (150–250) | Blurb too short/long for hosts |
 | `show_description_target_words` | Editorial target (~200) in `app.defaults.json` | Copy drifts from product spec |
-| `models.podcast_show_description` | OpenAI model for Flow 3 blurb (flagship tier) | Weak or generic show copy |
+| `models.REMOVED_podcast_show_description` | OpenAI model for Flow 3 blurb (flagship tier) | Weak or generic show copy |
 
 ---
 
@@ -562,8 +592,9 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
-| `max_assets_flow1` | `6` | `sound_design.py` Flow 1 plan | Too many cues → API cost; too few → thin master |
-| `max_assets_flow2` | `4` | `sound_design.py` Flow 2 plan | Montage under-designed or over-spent |
+| `max_assets` | `6` | SDP plan + `sdp_cross_validate` | Primary asset cap (prefers this over legacy keys) |
+| `max_assets_flow1` | `6` | legacy fallback for `max_assets` | Prefer `max_assets` |
+| `max_assets_flow2` | `4` | unused in single-delivery path | Kept for old runs only |
 | `max_palettes` | `3` | `sound_design_palettes` planning bounds | Over-broad palette spread or constrained thematic coverage |
 | `use_adaptive_caps` | `true` | `sound_design` planners + sonic context posture | Ignores scenario-based cap tuning when false |
 | `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
@@ -577,8 +608,9 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 
 | Key | Used by | If wrong |
 |-----|---------|----------|
-| `mix.crossfade_ms_flow1` / `mix.crossfade_ms_flow2` | `sound_design.py` speech/overlay concat | Harsh or overly long crossfades (base ms before adaptive scaling) |
-| `mix.crossfade_ms_assembly_preview` | `assembly_flow1.run_preview`, `audio_preclean.py` chunk merge | Preview clip seams audible or mushy |
+| `mix.crossfade_ms` / `mix.crossfade_ms_flow1` | `sound_design.py` speech/overlay concat | Prefer `crossfade_ms`; `crossfade_ms_flow1` is legacy alias |
+| `mix.crossfade_ms_flow2` | unused in single-delivery | Kept for old runs |
+| `mix.crossfade_ms_assembly_preview` | `assembly.run_preview`, `audio_preclean.py` chunk merge | Preview clip seams audible or mushy |
 | `mix.adaptive_crossfade` | `audio_timeline.append_with_crossfade` via `sound_design.py` | When `true` (default), crossfade length scales 80–200 ms from tail/head energy |
 | `mix.adaptive_level_from_sap` | `sound_design.py` mix level defaults from source acoustic profile | Missed speech-first level adaptation by pace/policy |
 | `mix.scenario_overlay_rules` | `sound_design.py` scenario-specific overlay behavior | Overlay cadence ignores scenario posture constraints |

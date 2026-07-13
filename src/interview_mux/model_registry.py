@@ -28,8 +28,6 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
     "narrative_arc_plan": "flagship",
     "full_master_ranking": "flagship",
     "edl_narrative_audit": "flagship",
-    "highlight_selection": "flagship",
-    "podcast_show_description": "flagship",
     "transitions": "economy",
     "podcast_sfx_brief": "economy",
     "sfx_brief": "economy",
@@ -43,10 +41,7 @@ HIGH_SEVERITY_STAGES = {
     "narrative_arc_plan",
     "full_master_ranking",
     "edl_narrative_audit",
-    "highlight_selection",
-    "podcast_show_description",
-    "sound_design_plan_flow1",
-    "sound_design_plan_flow2",
+    "sound_design_plan",
 }
 
 LOW_SEVERITY_STAGES = {
@@ -59,7 +54,6 @@ LOW_SEVERITY_STAGES = {
     "sfx_prompt_refine",
 }
 
-
 def stage_severity(stage_key: str) -> str:
     """Editorial impact tier for local LLM escalation (low | medium | high)."""
     if stage_key in HIGH_SEVERITY_STAGES:
@@ -68,7 +62,6 @@ def stage_severity(stage_key: str) -> str:
         return "low"
     return "medium"
 
-
 @dataclass(frozen=True)
 class ResolvedModel:
     stage_key: str
@@ -76,12 +69,10 @@ class ResolvedModel:
     tier: str
     model_id: str
 
-
 def supports_custom_temperature(model_id: str) -> bool:
     """Whether chat.completions accepts an explicit temperature for this model."""
     mid = model_id.lower().strip()
     return not any(mid.startswith(prefix) for prefix in _REASONING_MODEL_PREFIXES)
-
 
 def temperature_for_chat(model_id: str, task_kind: str) -> float | None:
     """Temperature for chat.completions, or None to omit (reasoning models use API default)."""
@@ -89,14 +80,12 @@ def temperature_for_chat(model_id: str, task_kind: str) -> float | None:
         return None
     return 0.0 if task_kind == "arbiter" else 0.2
 
-
 def next_tier(tier: str) -> str:
     try:
         idx = TIER_ORDER.index(tier)
     except ValueError:
         return "standard"
     return TIER_ORDER[min(idx + 1, len(TIER_ORDER) - 1)]
-
 
 def resolve_model(
     stage_key: str,
@@ -124,7 +113,6 @@ def resolve_model(
     tier_model = _resolve_tier_model(models, secrets, tier)
     return ResolvedModel(stage_key=stage_key, task_kind=task_kind, tier=tier, model_id=tier_model)
 
-
 def _tier_for_task(stage_key: str, task_kind: str, cfg: dict[str, Any]) -> str:
     models = cfg.get("models") or {}
     if task_kind in ("arbiter", "shard", "specialist"):
@@ -136,7 +124,6 @@ def _tier_for_task(stage_key: str, task_kind: str, cfg: dict[str, Any]) -> str:
         return stage_tier
     return stage_tier
 
-
 def _stage_default_tier(models: dict[str, Any], stage_key: str) -> str:
     stages = models.get("stages") or {}
     if isinstance(stages.get(stage_key), dict):
@@ -144,7 +131,6 @@ def _stage_default_tier(models: dict[str, Any], stage_key: str) -> str:
         if tier in TIER_ORDER:
             return tier
     return DEFAULT_STAGE_TIERS.get(stage_key, "economy")
-
 
 def _resolve_tier_model(models: dict[str, Any], secrets: dict[str, str], tier: str) -> str:
     tiers = models.get("tiers") or {}

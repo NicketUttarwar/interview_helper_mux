@@ -1,38 +1,32 @@
 stage_id: source_topology_build
-tier: deterministic
+tier: process
 lifecycle:
   phases:
   - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
   - committed
-outputs:
-- path: understanding/source_topology.json
-  schema: source_topology.schema.json
-  staging: false
-- path: understanding/flow_adaptation.json
-  schema: flow_adaptation.schema.json
-  staging: false
+  - post_commit_validate
+outputs: []
 inputs:
-  hard:
-  - path: understanding/speakers.json
-    producer: speaker_roles
-  - path: transcript/full.json
-    producer: transcribe
-sufficiency:
-- path: topology_class
-  rule: non_empty_string
-  min_length: 3
-  blocking: progression
-  when:
-    production_style: tbiy_narrative
-- path: pickup_eligible_speaker_id
-  rule: non_empty_string
-  min_length: 1
-  blocking: progression
+  hard: []
+  soft: []
+sufficiency: []
 propagation:
   invalidates_stages:
   - content_context
   - boundary_detection
-consumers:
-- content_context
-- boundary_detection
-- optimal_questions
+  - segment_classification
+  - missing_framing
+  - optimal_questions
+  - narrative_arc_plan
+  - full_master_ranking
+  - sound_design_plan
+consumers: []
+remediation:
+  strategies:
+  - micro_gap_fill
+  - patch_volley
+  - volley_retry
+  - full_stage_rerun

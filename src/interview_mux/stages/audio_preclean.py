@@ -150,18 +150,12 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
 
 def invalidate_after_preclean_accept(ctx: RunContext, scope: str) -> None:
     """Clear stage markers so re-run picks up new cleaned audio."""
-    from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER
+    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 
     if scope == "vo_pickup":
         for stage in ("audio_preclean", "vo_ingest"):
             ctx.path(".stage_done", stage).unlink(missing_ok=True)
-        flow = (ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}).get(
-            "selected_flow"
-        )
-        if flow == "flow1":
-            ctx.clear_from("edl_flow1", FLOW1_ORDER)
-        elif flow == "flow2":
-            ctx.clear_from("mix_flow2", FLOW2_ORDER)
+        ctx.clear_from("edl", DELIVERY_ORDER)
         ctx.log(
             "Invalidated vo_ingest and downstream flow stages after pickup pre-clean accept.",
             level="warning",
@@ -170,13 +164,7 @@ def invalidate_after_preclean_accept(ctx: RunContext, scope: str) -> None:
         return
 
     ctx.clear_from("audio_preclean", ANALYSIS_ORDER)
-    flow = (ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}).get(
-        "selected_flow"
-    )
-    if flow == "flow1":
-        ctx.clear_from("topic_coverage_audit", FLOW1_ORDER)
-    elif flow == "flow2":
-        ctx.clear_from("highlight_selection", FLOW2_ORDER)
+    ctx.clear_from("topic_coverage_audit", DELIVERY_ORDER)
 
 
 def _run_vo_pickup_preclean(ctx: RunContext) -> None:
@@ -246,6 +234,12 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
         stage="audio_preclean",
     )
     ctx.mark_done("audio_preclean")
+    try:
+        from interview_mux.source_readiness import write_source_readiness
+
+        write_source_readiness(ctx, stage="audio_preclean")
+    except Exception as exc:  # noqa: BLE001
+        ctx.log(f"source_readiness after preclean failed: {exc}", level="warning", stage="audio_preclean")
     return None
 
 

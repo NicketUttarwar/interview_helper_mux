@@ -67,9 +67,9 @@ def test_discard_on_invalidate_unblocks_execute(
 ) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")
-    note = ctx.path("ingest/note.txt")
+    note = ctx.path("ingest/checksums.json")
     note.parent.mkdir(parents=True, exist_ok=True)
-    note.write_text("x", encoding="utf-8")
+    note.write_text("{}", encoding="utf-8")
     exit_stage_staging()
     assert check_write_approval_before_execute(ctx) is not None
     ctx.clear_from("ingest", ANALYSIS_ORDER)

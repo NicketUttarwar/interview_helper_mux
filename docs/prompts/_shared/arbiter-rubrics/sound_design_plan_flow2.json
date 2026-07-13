@@ -1,5 +1,5 @@
 {
-  "stage_key": "sound_design_plan_flow2",
+  "stage_key": "REMOVED_sdp_flow2",
   "severity": "high",
   "accept_criteria": [
     "Flow2 plan aligns with highlight selection beats and palettes",
@@ -9,7 +9,7 @@
     "Transition/cold-open choices align with sonic_context scenario posture and tag provenance"
   ],
   "reject_patterns": [
-    "Plan omits highlights present in flow_2_highlights/selection.json",
+    "Plan omits highlights present in REMOVED_flow2/selection.json",
     "Palette or theme ids inconsistent with upstream plan",
     "Sonic choices that clash with highlight hook intent",
     "Schema errors on required flow2 plan fields",

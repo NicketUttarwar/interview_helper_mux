@@ -73,7 +73,7 @@ Baseline before starting (2026-05-29). After all commands complete, the final ve
 | Command | Code / artifacts to create |
 |---------|---------------------------|
 | 1 (GC-Q1) | `tests/fixtures/runs/gap_closure_smoke/`, `tests/test_gap_closure_smoke.py`, chunk test in `test_audio_preclean.py` |
-| 2 (GC-Q2) | `selection_flow2.py` imports `acoustic_profile`; flow2 SAP in `sfx_brief` build_input |
+| 2 (GC-Q2) | `REMOVED_selection_flow2.py` imports `acoustic_profile`; flow2 SAP in `sfx_brief` build_input |
 | 3 (GC-Q3) | `pace_class` / `underscore_policy` in plan-flow1 + podcast-sfx-brief prompts |
 | 4 (GC-Q4) | `recompute-acoustic-profile` calls `clear_from` / `invalidate_from` on pace change |
 | 5 (GC-Q6) | Extended `ARTIFACT_WRITE_VALIDATORS` for high-risk paths |
@@ -103,7 +103,7 @@ flowchart TB
 
   subgraph audio [Phase3_Audio_GC-A1_A2_A3]
     SD[sound_design.py]
-    AF1[assembly_flow1.py]
+    AF1[assembly.py]
     VF[sound_design_vo_finalize.py]
   end
 
@@ -160,7 +160,7 @@ Phases 0–5 (GC-00 through GC-D1) are the **original 16-command program** (ship
 | 1 Schema | **GC-F3** | Production defaults + gates qc_summaries | GC-F1 | [x] | Production `app.defaults.json` + gate wiring |
 | 2 Audio | **GC-A1** | Speech crossfades | GC-F1 | [x] | Crossfade in mix + assembly preview |
 | 2 Audio | **GC-A2** | SAP-driven mix engine | GC-F1, GC-A1 | [x] | SAP duck/stinger policy in mix |
-| 2 Audio | **GC-A3** | vo_finalize stage | GC-F1, GC-A2 | [x] | `sound_design_vo_finalize` in FLOW1_ORDER |
+| 2 Audio | **GC-A3** | vo_finalize stage | GC-F1, GC-A2 | [x] | `sound_design_vo_finalize` in DELIVERY_ORDER |
 | 3 Analysis | **GC-A4** | SAP volley wiring | GC-F1 | [x] | SAP in volley build_input |
 | 3 Analysis | **GC-B1** | Value pipeline wiring | GC-F3, GC-A4 | [x] | Value extract + gap volley wiring |
 | 4 Operator | **GC-C1** | Recompute SAP API + runner preclean gate | GC-F1, GC-F3, OQ | [x] | Recompute API + runner gate |
@@ -205,7 +205,7 @@ Single authoritative **[config/app.defaults.json](config/app.defaults.json)** wi
 "_comment_paths": "ASSETS, executions, sample_rate",
 "_comment_models": "OpenAI tier routing per stage",
 "_comment_mix_engine": "crossfade_ms_*, duck defaults",
-"_comment_quality_gates": "G1.5, narrative_qc, show_description_qc, nle_edits.strict, preclean ack",
+"_comment_quality_gates": "G1.5, narrative_qc, show_notes_qc, nle_edits.strict, preclean ack",
 "_comment_value_analysis": "deterministic extract flags — no SSL",
 "_comment_mmaudio_legacy_removed": "upload limits, timeouts, chunk policy",
 "_comment_analysis": "volley caps, thresholds",
@@ -287,7 +287,7 @@ Read:
 @src/interview_mux/sound_design.py (load_audio, pydub usage)
 @src/interview_mux/stages/understanding.py (source_acoustic_profile shape, _derive_mix_contract)
 @src/interview_mux/context_volley.py (_compact_source_acoustic_profile — migrate logic to acoustic_profile.py)
-@src/interview_mux/stages/assembly_flow1.py (_wav_duration_ms duplicate)
+@src/interview_mux/stages/assembly.py (_wav_duration_ms duplicate)
 @src/interview_mux/web/server.py (_record_preclean_offer checkpoint ids)
 @src/interview_mux/gates.py
 @config/app.defaults.json
@@ -334,7 +334,7 @@ Add _comment_* headers and new keys with SAFE defaults (strict false):
 
 Update docs/cross-cutting/config-keys.md with new keys (skeleton section).
 
-Do NOT modify mix_flow1 behavior yet. Do NOT enable strict QC yet (GC-F3).
+Do NOT modify mix behavior yet. Do NOT enable strict QC yet (GC-F3).
 ```
 
 **Done when:** Three new modules exist and import; `tests/test_gap_foundation.py` written per deliverable. *(pytest deferred to final verification.)*
@@ -379,23 +379,23 @@ Flip app.defaults.json to production-quality values and wire qc_summaries persis
 Read:
 @config/app.defaults.json (skeleton from GC-F1)
 @src/interview_mux/operator_quality.py (record_qc_summary)
-@src/interview_mux/gates.py (check_narrative_qc, check_show_description_qc)
+@src/interview_mux/gates.py (check_narrative_qc, check_show_notes_qc)
 @src/interview_mux/narrative_qc.py
-@src/interview_mux/show_description_qc.py
+@src/interview_mux/show_notes_qc.py
 @docs/cross-cutting/config-keys.md
 
 Deliver:
 1. In _comment_quality_gates section set:
    g1_5_require_prompt_approval: true
    narrative_qc.strict: true
-   show_description_qc.strict: true
+   show_notes_qc.strict: true
 2. In _comment_value_analysis section set:
    value_analysis.enabled: true
    transcript_features: true
    audio_features: true
    auto_extract_after_content_context: true
 3. analysis.specialists.enabled: false (explicit comment: excluded — inference)
-4. gates.py: after check_narrative_qc / check_show_description_qc, call record_qc_summary(ctx, "narrative_qc"|"show_description_qc", {passed, errors, strict, at_stage})
+4. gates.py: after check_narrative_qc / check_show_notes_qc, call record_qc_summary(ctx, "narrative_qc"|"show_notes_qc", {passed, errors, strict, at_stage})
 5. Extend tests/test_gates.py: strict true blocks with qc_summaries written
 
 Mirror config/templates/app.defaults.json. Update config-keys.md with sectional map and production default rationale.
@@ -414,15 +414,15 @@ Integrate crossfades into mix and assembly preview — import ONLY from audio_ti
 
 Read:
 @src/interview_mux/audio_timeline.py (append_with_crossfade, concat_clips_with_crossfade)
-@src/interview_mux/sound_design.py (mix_flow1 EDL loop line ~29-56, mix_flow2 line ~129-137)
-@src/interview_mux/stages/assembly_flow1.py (assembly_preview ffmpeg concat ~404-428)
+@src/interview_mux/sound_design.py (mix EDL loop line ~29-56, REMOVED_mix_flow2 line ~129-137)
+@src/interview_mux/stages/assembly.py (assembly_preview ffmpeg concat ~404-428)
 @config/app.defaults.json mix.crossfade_ms_*
 @docs/pipeline/audio_editing/README.md
 
 Deliver:
-1. sound_design.py mix_flow1: replace `base += audio` with append_with_crossfade(base, audio, cfg mix.crossfade_ms_flow1); first clip unchanged
-2. mix_flow2: crossfade highlight speech segments (between source slices), keep transition SFX as separate append
-3. assembly_flow1 assembly_preview: build clip list then concat_clips_with_crossfade(clips, mix.crossfade_ms_assembly_preview) export via pydub; remove ffmpeg concat-only path OR keep ffmpeg fallback behind flag
+1. sound_design.py mix: replace `base += audio` with append_with_crossfade(base, audio, cfg mix.crossfade_ms_flow1); first clip unchanged
+2. REMOVED_mix_flow2: crossfade highlight speech segments (between source slices), keep transition SFX as separate append
+3. assembly assembly_preview: build clip list then concat_clips_with_crossfade(clips, mix.crossfade_ms_assembly_preview) export via pydub; remove ffmpeg concat-only path OR keep ffmpeg fallback behind flag
 4. ctx.log per stage: crossfade_ms=<n> clips=<count>
 5. tests/test_sound_design_crossfade.py — re-export or import from test_gap_foundation; add integration test with silent clips
 
@@ -440,16 +440,16 @@ Wire mix engine to source acoustic profile — import from acoustic_profile.py o
 
 Read:
 @src/interview_mux/acoustic_profile.py (mix_contract, load_profile)
-@src/interview_mux/sound_design.py (build_flow1_overlays, MIN_DUCK_DB, flow1_overlays_from_sdp, mix_flow2 cold open)
+@src/interview_mux/sound_design.py (build_flow1_overlays, MIN_DUCK_DB, flow1_overlays_from_sdp, REMOVED_mix_flow2 cold open)
 @docs/cross-cutting/source-derived-sonic-mix-profile.md
 
 Deliver:
-1. mix_flow1 start: contract = mix_contract(ctx); log pace_class, underscore_policy, duck db
+1. mix start: contract = mix_contract(ctx); log pace_class, underscore_policy, duck db
 2. build_flow1_overlays / flow1_overlays_from_sdp:
    - duck_under_speech_db from contract (not hardcoded 16)
    - if underscore_policy == "skip": skip all under_segment bed cues; ctx.log underscore_skipped
    - stinger_max_per_minute: count stinger overlays per timeline minute; drop excess with ctx.log warn
-3. mix_flow2: if underscore_policy skip, reduce/suppress cold_open bed levels (document behavior in log)
+3. REMOVED_mix_flow2: if underscore_policy skip, reduce/suppress cold_open bed levels (document behavior in log)
 4. tests/test_mix_acoustic_profile.py with fixture SAP JSON (dense vs calm vs skip)
 
 Update source-derived-sonic-mix-profile.md mux row → shipped.
@@ -469,15 +469,15 @@ New deterministic pipeline stage — uses audio_timeline.wav_duration_ms + acous
 Read:
 @docs/build-out/stage-registry.md (planned sound_design_vo_finalize)
 @docs/cross-cutting/sound-design.md Phase C
-@src/interview_mux/pipeline.py FLOW1_ORDER (insert after sound_design_plan_flow1, before edl_flow1)
-@src/interview_mux/stages/assembly_flow1.py resolve_vo_pickup_path
+@src/interview_mux/pipeline.py DELIVERY_ORDER (insert after sound_design_plan, before edl)
+@src/interview_mux/stages/assembly.py resolve_vo_pickup_path
 @src/interview_mux/stages/sound_design_stages.py _validate_sound_design_plan
 @src/interview_mux/audio_timeline.py
 @src/interview_mux/web/stages.py EXECUTABLE_ORDER
 
 Deliver:
 1. stages/sound_design_vo_finalize.py:
-   - Load SDP; iterate flow_plans.flow1.cues where asset role vo_bridge OR cue ties to gap line_id
+   - Load SDP; iterate flow_plans.podcast.cues where asset role vo_bridge OR cue ties to gap line_id
    - Resolve vo_pickup path via resolve_vo_pickup_path pattern
    - wav_duration_ms → write cue.measured_duration_ms; adjust pre_roll_ms/post_roll_ms heuristics from acoustic_profile placement_hints if present
    - validate_sound_design_plan; write SDP back
@@ -488,7 +488,7 @@ Deliver:
 
 No LLM. Skip gracefully (mark done) when no vo_pickup files.
 
-Position in FLOW1_ORDER after EDL narrative QC shipped: ... sound_design_plan_flow1 → sound_design_vo_finalize → edl_narrative_audit → edl_flow1 ...
+Position in DELIVERY_ORDER after EDL narrative QC shipped: ... sound_design_plan → sound_design_vo_finalize → edl_narrative_audit → edl ...
 ```
 
 **Done when:** Stage registered in `pipeline.py` + `web/stages.py`; test file written. *(pytest deferred to final verification.)*
@@ -505,7 +505,7 @@ Read:
 @src/interview_mux/context_volley.py (_slim_flow_input — replace inline SAP compact)
 @src/interview_mux/stages/understanding.py run_content_context build_input
 @src/interview_mux/stages/sound_design_stages.py plan build_input
-@src/interview_mux/stages/selection_flow1.py podcast_sfx_brief
+@src/interview_mux/stages/selection.py podcast_sfx_brief
 @docs/cross-cutting/source-derived-sonic-mix-profile.md LLM table
 
 Deliver:
@@ -540,7 +540,7 @@ Read:
 Deliver:
 1. content_context: after success, if value_analysis.enabled call maybe_auto_extract (existing); if sub-flag off log skip reason
 2. extract.py maybe_enqueue_orchestration_investigations: ADD fallback when value_features.json missing — call quality_trajectory_flags(ctx) from stage_enrichment directly, enqueue acoustic_anomaly investigations (same shape as existing)
-3. gaps.py missing_framing + optimal_questions build_input: include compact_value_features_summary when value_features.json exists (pattern from selection_flow2 quotability_signals)
+3. gaps.py missing_framing + optimal_questions build_input: include compact_value_features_summary when value_features.json exists (pattern from REMOVED_selection_flow2 quotability_signals)
 4. context_volley: ensure value_features_summary reaches gap stages in _slim_flow_input
 5. app.js: extend value-features card on content_context when profiles present (read-only)
 6. future-proofing.md + value-analysis/README.md shipped table rows
@@ -575,8 +575,8 @@ Deliver:
 ### Runner gate
 4. operator_quality.py: stage_requires_preclean_ack(stage_id) -> checkpoint | None mapping:
    - assembly_preview → before_sfx_spend
-   - mix_flow1/2/mux_* → before_flow_mix
-   - master_flow1/2 → before_master_export
+   - mix/2/mux_* → before_flow_mix
+   - master_finalize/2 → before_master_export
 5. runner.py before executing gated stage: if mix.require_preclean_acknowledgment and mode is stage/single-step: load run_meta; if not preclean_acknowledged → write gui_job {status: needs_operator, message: ...}; return WITHOUT running stage
 6. Full-flow mode (run entire flow): log warn once and continue (document in config-keys)
 
@@ -608,12 +608,12 @@ Deliver:
 
 ### NLE (GC-F2 strict errors surfaced)
 3. save NLE failure → toast with errors[0]; excluded segments CSS .nle-excluded strikethrough
-4. Banner when nle_has_operator_edits: CTA buttons run full_master_ranking / edl_flow1
+4. Banner when nle_has_operator_edits: CTA buttons run full_master_ranking / edl
 5. Show split_at_ms in segment override tooltip
 
 ### QC panels (reads run_meta.qc_summaries from GC-F3)
-6. full_master_ranking + edl_flow1 panels: render narrative_qc pass/fail card from qc_summaries.narrative_qc
-7. podcast_show_description panel: show_description_qc card
+6. full_master_ranking + edl panels: render narrative_qc pass/fail card from qc_summaries.narrative_qc
+7. REMOVED_podcast_show_description panel: show_notes_qc card
 8. mmaudio_sfx_flow* / craft panel: G1.5 banner when g1_5_require_prompt_approval && !can_generate
 
 ### Recompute button
@@ -847,21 +847,21 @@ No live MMAudio GPU tests in CI (mocked subprocess).
 ```text
 Code only — do not run pytest. Continue to Command 3 when deliverables are implemented.
 
-Mirror selection_flow1 podcast_sfx_brief SAP wiring for Flow 2 legacy sfx_brief stage.
+Mirror selection podcast_sfx_brief SAP wiring for Flow 2 legacy sfx_brief stage.
 
 Read:
-@src/interview_mux/stages/selection_flow1.py (run_podcast_sfx_brief build_input)
-@src/interview_mux/stages/selection_flow2.py (run_sfx_brief)
+@src/interview_mux/stages/selection.py (run_podcast_sfx_brief build_input)
+@src/interview_mux/stages/REMOVED_selection_flow2.py (run_sfx_brief)
 @src/interview_mux/acoustic_profile.py
 
 Deliver:
-1. selection_flow2.run_sfx_brief build_input: load_profile + compact_for_volley + pace_class + underscore_policy in payload (same pattern as flow1)
-2. tests/test_selection_flow2_sap.py or extend test_sound_design_stages.py with flow2 volley shape assertion
+1. REMOVED_selection_flow2.run_sfx_brief build_input: load_profile + compact_for_volley + pace_class + underscore_policy in payload (same pattern as flow1)
+2. tests/test_REMOVED_selection_flow2_sap.py or extend test_sound_design_stages.py with flow2 volley shape assertion
 
 Do not add docs/ changes in this command (use GC-Q-DOC).
 ```
 
-**Done when:** `selection_flow2.py` wires SAP in `sfx_brief` build_input. **Continue to Command 3.**
+**Done when:** `REMOVED_selection_flow2.py` wires SAP in `sfx_brief` build_input. **Continue to Command 3.**
 
 ---
 
@@ -943,7 +943,7 @@ Read:
 Deliver:
 1. Register validators for any high-risk paths still write-unvalidated:
    - understanding/sound_design_plan.json (validate_sound_design_plan)
-   - flow_1_master/selection.json if schema exists
+   - master/selection.json if schema exists
 2. Stage persist hooks call validate before write where missing
 3. tests: invalid sound_design_plan rejected on write_json
 
@@ -999,7 +999,7 @@ Read:
 Deliver:
 1. Helper: resolve_stinger_position_ms(segment, transcript, profile) → int
 2. Use in overlay build instead of fixed pos-40 heuristic when pause tail detectable
-3. ctx.log mix_flow1: stinger_aligned pause_tail when applied
+3. ctx.log mix: stinger_aligned pause_tail when applied
 4. tests/test_stinger_pause_alignment.py with synthetic transcript gaps
 
 Import acoustic_profile.placement_hints — no duplicate SAP reads.
@@ -1024,7 +1024,7 @@ Read:
 @docs/cross-cutting/evaluation-metrics.md
 
 Deliver:
-1. After mix_flow1/2: optional analyze assembly.wav — compare speech-band energy vs bed-heavy regions (pydub/numpy only, no ML)
+1. After mix/2: optional analyze assembly.wav — compare speech-band energy vs bed-heavy regions (pydub/numpy only, no ML)
 2. On fail: ctx.log intelligibility_warn with segment_ids; record_qc_summary mix_intelligibility
 3. config mix.intelligibility_qc.enabled default false for pytest; true in production optional
 4. tests/test_mix_intelligibility_qc.py with silent+tone fixture
@@ -1103,12 +1103,12 @@ Validate EDL timeline coherence beyond topic/chapter narrative_qc.
 
 Read:
 @src/interview_mux/narrative_qc.py
-@src/interview_mux/stages/assembly_flow1.py (build_flow1_edl, run_edl)
-@flow_1_master/edl.json schema
+@src/interview_mux/stages/assembly.py (build_flow1_edl, run_edl)
+@master/edl.json schema
 
 Deliver:
 1. tools/validate_edl.py or extend validate_narrative: VO clips reference valid line_ids; no overlapping speech; timeline monotonic
-2. check_edl_qc(ctx) called before mix_flow1 (warn) and edl_flow1 (strict already has narrative_qc)
+2. check_edl_qc(ctx) called before mix (warn) and edl (strict already has narrative_qc)
 3. record_qc_summary edl_qc key
 4. tests/test_edl_qc.py
 
@@ -1155,7 +1155,7 @@ Skip docs/ unless one line in gui_log message only.
 Doc-only sweep for gap-closure + Phase 6 operator truth. No production code. No pytest.
 
 Read:
-@docs/build-out/stage-registry.md (FLOW1_ORDER line ~66)
+@docs/build-out/stage-registry.md (DELIVERY_ORDER line ~66)
 @docs/workflows/operator-stage-checklists.md
 @docs/workflows/operator-gates.md
 @docs/cross-cutting/local-audio-stack.md (chunk policy TBD)
@@ -1163,7 +1163,7 @@ Read:
 @docs/cross-cutting/source-derived-sonic-mix-profile.md (Recompute GUI future → shipped)
 
 Deliver:
-1. stage-registry FLOW1_ORDER: insert sound_design_vo_finalize after sound_design_plan_flow1
+1. stage-registry DELIVERY_ORDER: insert sound_design_vo_finalize after sound_design_plan
 2. operator-stage-checklists: vo_finalize, QC cards, before_sfx_spend, recompute button, strict-gate recovery steps
 3. operator-gates: before_sfx_spend row
 4. mmaudio-prompt-tuning.md: chunk policy table (max_upload_bytes, chunk+concat, no SFX chunk)

@@ -43,7 +43,7 @@ def load_config(path: Path) -> dict:
 
 
 def master_path(repo_root: Path, run_id: str) -> Path:
-    return repo_root / "ASSETS" / "executions" / run_id / "flow_1_master" / "master.wav"
+    return repo_root / "ASSETS" / "executions" / run_id / "master" / "master.wav"
 
 
 def write_blocker(
@@ -206,7 +206,7 @@ def dry_run_journey(log: EventLogger, config: dict | None = None) -> None:
             "BUILD: topic_coverage_audit through assembly_preview",
             "TBIY: preview listen → G1.5 post-preview re-record",
             "SOUND: sfx_prompt_craft + mmaudio + mix",
-            "SHIP: master_flow1",
+            "SHIP: master_finalize",
         ]
     )
     for p in phases:
@@ -357,13 +357,13 @@ def run_driver(args: argparse.Namespace) -> int:
                             run = {
                                 "stages": [],
                                 "g1_missing": [],
-                                "selected_flow": job.get("selected_flow"),
+                                "REMOVED_selected_flow": job.get("REMOVED_selected_flow"),
                             }
                         elif status == "awaiting_write_approval":
                             run = {
                                 "stages": [],
                                 "g1_missing": [],
-                                "selected_flow": job.get("selected_flow"),
+                                "REMOVED_selected_flow": job.get("REMOVED_selected_flow"),
                             }
                         else:
                             run = api.run(run_id)

@@ -8,7 +8,6 @@ from interview_mux.prompt_validation import (
     validate_sound_design_plan as _sdp_schema_errors,
     validate_stage_artifacts,
 )
-from interview_mux.gates import require_selected_flow_flow1, require_selected_flow_flow2
 from interview_mux.operator_trace import logged_step
 from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
@@ -19,7 +18,6 @@ from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
-
 
 def run_sound_design_palettes(ctx: RunContext) -> None:
     if not _sound_design_enabled():
@@ -75,19 +73,17 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             persist,
         )
 
-
-def run_sound_design_plan_flow1(ctx: RunContext) -> None:
-    require_selected_flow_flow1(ctx)
+def run_sound_design_plan(ctx: RunContext) -> None:
     if not _sound_design_enabled():
-        _mark_skipped(ctx, "sound_design_plan_flow1")
+        _mark_skipped(ctx, "sound_design_plan")
         return
 
     def build_input(c: RunContext) -> dict:
         payload = {
             "sound_design_plan": _load_sound_design_plan(c),
-            "selection": c.read_json("flow_1_master/selection.json"),
-            "narrative_plan": c.read_json("flow_1_master/narrative_plan.json"),
-            "transitions": c.read_json("flow_1_master/transitions.json"),
+            "selection": c.read_json("master/selection.json"),
+            "narrative_plan": c.read_json("master/narrative_plan.json"),
+            "transitions": c.read_json("master/transitions.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
             "segments": c.read_json("segments/manifest.json"),
         }
@@ -97,7 +93,12 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
-        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+        return attach_disfluency_context(
+            __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
+                c, attach_adaptation_to_payload(c, payload)
+            ),
+            c,
+        )
 
     def persist(c: RunContext, artifacts: dict) -> None:
         sdp = _load_sound_design_plan(c)
@@ -107,69 +108,24 @@ def run_sound_design_plan_flow1(ctx: RunContext) -> None:
             sdp["assets"] = assets
         if isinstance(flow_plans, dict):
             existing = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
-            merged = {"flow1": (existing or {}).get("flow1"), "flow2": (existing or {}).get("flow2")}
+            merged = dict(existing or {})
             merged.update(flow_plans)
-            sdp["flow_plans"] = merged
+            # Prefer podcast; drop empty flow2 scaffold
+            if not merged.get("podcast") and merged.get("flow1"):
+                merged["podcast"] = merged["flow1"]
+            sdp["flow_plans"] = {k: v for k, v in merged.items() if k != "flow2" or v}
 
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
         write_validated_artifact(
-            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow1"
+            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan"
         )
 
-    with logged_step("sound_design_plan_flow1/llm_stage", ctx=ctx, stage="sound_design_plan_flow1"):
+    with logged_step("sound_design_plan/llm_stage", ctx=ctx, stage="sound_design_plan"):
         run_flow_llm_stage(
             ctx,
-            "sound_design_plan_flow1",
+            "sound_design_plan",
             prompt_variant("sound_design/plan-flow1.system.txt", ctx),
-            build_input,
-            persist,
-        )
-
-
-def run_sound_design_plan_flow2(ctx: RunContext) -> None:
-    require_selected_flow_flow2(ctx)
-    if not _sound_design_enabled():
-        _mark_skipped(ctx, "sound_design_plan_flow2")
-        return
-
-    def build_input(c: RunContext) -> dict:
-        payload = {
-            "sound_design_plan": _load_sound_design_plan(c),
-            "selection": c.read_json("flow_2_highlights/selection.json"),
-            "content_brief": c.read_json("understanding/content_brief.json"),
-        }
-        profile = load_profile(c)
-        if profile:
-            payload["source_acoustic_profile"] = acoustic_compact_for_volley(profile)
-        sonic_context = load_sonic_context(c)
-        if sonic_context:
-            payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
-        return payload
-
-    def persist(c: RunContext, artifacts: dict) -> None:
-        sdp = _load_sound_design_plan(c)
-        assets = artifacts.get("assets")
-        flow_plans = artifacts.get("flow_plans")
-        if isinstance(assets, list):
-            sdp["assets"] = assets
-        if isinstance(flow_plans, dict):
-            existing = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
-            merged = {"flow1": (existing or {}).get("flow1"), "flow2": (existing or {}).get("flow2")}
-            merged.update(flow_plans)
-            sdp["flow_plans"] = merged
-
-        _validate_sound_design_plan(sdp)
-        _validate_flow2_asset_links(sdp)
-        write_validated_artifact(
-            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan_flow2"
-        )
-
-    with logged_step("sound_design_plan_flow2/llm_stage", ctx=ctx, stage="sound_design_plan_flow2"):
-        run_flow_llm_stage(
-            ctx,
-            "sound_design_plan_flow2",
-            "sound_design/plan-flow2.system.txt",
             build_input,
             persist,
         )
@@ -197,7 +153,9 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             style = state.get("style") if isinstance(state, dict) else None
             if isinstance(style, dict) and style.get("sound_design_notes"):
                 payload["operator_style_sound_design_notes"] = style["sound_design_notes"]
-        return attach_adaptation_to_payload(c, payload)
+        return __import__(
+            "interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]
+        ).attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload))
 
     def persist(c: RunContext, artifacts: dict) -> None:
         prompts = artifacts.get("prompts")
@@ -216,6 +174,9 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="sfx_prompt_craft",
         )
+        from interview_mux.sfx_prompt_review import maybe_auto_approve_prompt_review
+
+        maybe_auto_approve_prompt_review(c)
 
     with logged_step("sfx_prompt_craft/llm_stage", ctx=ctx, stage="sfx_prompt_craft"):
         run_flow_llm_stage(
@@ -225,7 +186,6 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             build_input,
             persist,
         )
-
 
 def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -> None:
     """LLM refine pass for failed MMAudio assets — not in default FLOW order."""
@@ -339,7 +299,6 @@ def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -
             persist,
         )
 
-
 def _increment_refine_attempts(ctx: RunContext, asset_ids: list[str]) -> None:
     def patch(m: dict) -> None:
         attempts = dict(m.get("sfx_refine_attempts") or {})
@@ -349,7 +308,6 @@ def _increment_refine_attempts(ctx: RunContext, asset_ids: list[str]) -> None:
 
     ctx.mutate_run_meta(patch)
 
-
 def _load_sound_design_plan(ctx: RunContext) -> dict:
     if ctx.artifact_exists(_SOUND_DESIGN_PLAN_REL):
         doc = ctx.read_json(_SOUND_DESIGN_PLAN_REL)
@@ -357,10 +315,8 @@ def _load_sound_design_plan(ctx: RunContext) -> dict:
             return doc
     return default_sound_design_plan()
 
-
 def _sound_design_enabled() -> bool:
     return bool((merged_config().get("sound_design") or {}).get("enabled", True))
-
 
 def _mark_skipped(ctx: RunContext, stage_key: str) -> None:
     ctx.log(
@@ -368,8 +324,7 @@ def _mark_skipped(ctx: RunContext, stage_key: str) -> None:
         level="info",
         stage=stage_key,
     )
-    ctx.mark_done(stage_key)
-
+    ctx.mark_done(stage_key, force=True)
 
 def _attach_palette_provenance(ctx: RunContext, palettes: list[dict]) -> list[dict]:
     sonic = load_sonic_context(ctx) or {}
@@ -392,20 +347,18 @@ def _attach_palette_provenance(ctx: RunContext, palettes: list[dict]) -> list[di
         out.append(merged)
     return out
 
-
 def _validate_sound_design_plan(plan: dict) -> None:
     errors = _sdp_schema_errors(plan)
     if not errors:
         return
     raise ValueError(f"Invalid sound design plan: {errors[0]}")
 
-
 def _validate_flow1_asset_links(plan: dict) -> None:
     assets = plan.get("assets")
     flow_plans = plan.get("flow_plans")
     if not isinstance(assets, list) or not isinstance(flow_plans, dict):
         return
-    flow1 = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
+    flow1 = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = flow1.get("cues") if isinstance(flow1.get("cues"), list) else []
     asset_ids = {str(item.get("asset_id")) for item in assets if isinstance(item, dict) and item.get("asset_id")}
     missing = [
@@ -419,14 +372,12 @@ def _validate_flow1_asset_links(plan: dict) -> None:
             f"cue_id(s) {missing}"
         )
 
-
 def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
     """One crafted row per SDP asset; duration_seconds always from the plan asset."""
     assets = plan.get("assets")
     if not isinstance(assets, list) or not assets:
         raise ValueError(
             "sfx_prompt_craft requires assets in understanding/sound_design_plan.json; "
-            "run sound_design_plan_flow1 or sound_design_plan_flow2 first"
         )
     assets_by_id: dict[str, dict] = {
         str(item["asset_id"]): item
@@ -462,7 +413,6 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
             + ", ".join(extra)
         )
     return [by_id[aid] for aid in sorted(by_id)]
-
 
 def _validate_flow2_asset_links(plan: dict) -> None:
     assets = plan.get("assets")

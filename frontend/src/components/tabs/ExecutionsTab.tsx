@@ -110,7 +110,6 @@ function RunRow({
         <div className="asset-meta">
           {formatTs(r.updated_at || r.created_at)}
           {prog ? ` · ${prog} stages` : ""}
-          {r.selected_flow ? ` · ${r.selected_flow}` : ""}
         </div>
         {total > 0 ? (
           <div

@@ -47,14 +47,10 @@ ITR_STAGE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "narrative_arc_plan": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
     "full_master_ranking": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
     "transitions": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
-    "sound_design_plan_flow1": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
-    "sound_design_plan_flow2": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
+    "sound_design_plan": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
     "sfx_prompt_craft": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
     "edl_narrative_audit": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
-    "highlight_selection": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
-    "podcast_show_description": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
 }
-
 
 class AutoResolveOutcome(str, Enum):
     SUCCESS = "success"
@@ -67,7 +63,6 @@ class AutoResolveOutcome(str, Enum):
     STAGING_CORRUPT = "staging_corrupt"
     DESTRUCTIVE_BUDGET_EXCEEDED = "destructive_budget_exceeded"
     JOB_INTERRUPTED = "job_interrupted"
-
 
 @dataclass
 class AutoResolveResult:
@@ -104,14 +99,11 @@ class AutoResolveResult:
             "propagation_plan": self.propagation_plan,
         }
 
-
 def stage_capabilities(stage_key: str) -> dict[str, Any]:
     return ITR_STAGE_CAPABILITIES.get(stage_key, {"tier": "manual", "step_label": "Review issues"})
 
-
 def _orch_path() -> str:
     return "understanding/analysis_orchestration.json"
-
 
 def _read_orch(ctx: Any) -> dict[str, Any]:
     if not ctx.artifact_exists(_orch_path()):
@@ -119,18 +111,14 @@ def _read_orch(ctx: Any) -> dict[str, Any]:
     doc = ctx.read_json(_orch_path())
     return doc if isinstance(doc, dict) else {}
 
-
 def _write_orch(ctx: Any, doc: dict[str, Any]) -> None:
     ctx.write_json(_orch_path(), doc, skip_handoff=True)
-
 
 def _attempt_key(stage_key: str) -> str:
     return f"itr_auto_resolve_attempts_{stage_key}"
 
-
 def _signature_key(stage_key: str) -> str:
     return f"itr_auto_resolve_signature_{stage_key}"
-
 
 def _issue_signature(items: list[dict[str, Any]]) -> str:
     open_items = [
@@ -140,7 +128,6 @@ def _issue_signature(items: list[dict[str, Any]]) -> str:
     ]
     payload = json.dumps(sorted(open_items), sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
-
 
 def _record_attempt(ctx: Any, stage_key: str, signature: str) -> tuple[int, bool]:
     cfg = triage_cfg()
@@ -158,13 +145,11 @@ def _record_attempt(ctx: Any, stage_key: str, signature: str) -> tuple[int, bool
         return attempts, True
     return attempts, False
 
-
 def _reset_attempt_on_success(ctx: Any, stage_key: str) -> None:
     doc = _read_orch(ctx)
     doc.pop(_attempt_key(stage_key), None)
     doc.pop(_signature_key(stage_key), None)
     _write_orch(ctx, doc)
-
 
 def pick_recommended_choice(item: dict[str, Any], *, cfg: dict[str, Any] | None = None) -> Any | None:
     cfg = cfg or triage_cfg()
@@ -204,7 +189,6 @@ def pick_recommended_choice(item: dict[str, Any], *, cfg: dict[str, Any] | None 
         return None
     return best_choice
 
-
 def can_auto_resolve_issue(item: dict[str, Any], *, cfg: dict[str, Any] | None = None) -> bool:
     if item.get("status") != "open" or item.get("blocking") is False:
         return False
@@ -212,7 +196,6 @@ def can_auto_resolve_issue(item: dict[str, Any], *, cfg: dict[str, Any] | None =
         return False
     choice = pick_recommended_choice(item, cfg=cfg)
     return choice is not None
-
 
 def can_auto_resolve_all(ctx: Any, stage_key: str) -> bool:
     if not triage_enabled():
@@ -226,7 +209,6 @@ def can_auto_resolve_all(ctx: Any, stage_key: str) -> bool:
         return True
     cfg = triage_cfg()
     return all(can_auto_resolve_issue(it, cfg=cfg) for it in items)
-
 
 def build_resolution_preview(ctx: Any, stage_key: str) -> list[dict[str, Any]]:
     cfg = triage_cfg()
@@ -249,7 +231,6 @@ def build_resolution_preview(ctx: Any, stage_key: str) -> list[dict[str, Any]]:
             break
     return preview
 
-
 def _snapshot_staging(ctx: Any, stage_key: str) -> dict[str, Any] | None:
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
     if not rel:
@@ -263,12 +244,10 @@ def _snapshot_staging(ctx: Any, stage_key: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
-
 def _restore_staging(ctx: Any, stage_key: str, snapshot: dict[str, Any]) -> None:
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
     if rel:
         write_pending_content(ctx, stage_key, rel, data=snapshot)
-
 
 def _segment_count(ctx: Any, stage_key: str) -> int:
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
@@ -291,12 +270,10 @@ def _segment_count(ctx: Any, stage_key: str) -> int:
         return 0
     return 0
 
-
 def _destructive_choice(choice: Any) -> bool:
     if choice == "delete_segment":
         return True
     return isinstance(choice, dict) and choice.get("action") == "delete"
-
 
 def _clear_propagation_investigations(ctx: Any, stage_key: str) -> None:
     from interview_mux.analysis_memory import mark_investigation_done
@@ -319,7 +296,6 @@ def _clear_propagation_investigations(ctx: Any, stage_key: str) -> None:
         if inv_id:
             mark_investigation_done(ctx, inv_id)
 
-
 def revalidate_for_itr_gate(
     ctx: Any,
     stage_key: str,
@@ -333,7 +309,6 @@ def revalidate_for_itr_gate(
     if not staged and stage_key in ("segment_classification", "boundary_detection"):
         downstream = revalidate_downstream_on_segment_fix(ctx, stage_key)
     return ok and not downstream, errors, downstream
-
 
 def _segment_ids_in_artifact(artifact: dict[str, Any], rel: str | None) -> set[str]:
     if not rel or not isinstance(artifact, dict):
@@ -353,7 +328,6 @@ def _segment_ids_in_artifact(artifact: dict[str, Any], rel: str | None) -> set[s
             if isinstance(r, dict) and r.get("segment_id")
         }
     return set()
-
 
 def _close_stale_segment_issues(ctx: Any, stage_key: str) -> int:
     """Resolve open blocking issues whose segment_id is no longer in the staged artifact."""
@@ -377,7 +351,6 @@ def _close_stale_segment_issues(ctx: Any, stage_key: str) -> int:
                 closed += 1
     return closed
 
-
 def _segment_ids_from_issues(items: list[dict[str, Any]]) -> list[str]:
     from interview_mux.issue_severity_rules import _extract_segment_id
 
@@ -389,7 +362,6 @@ def _segment_ids_from_issues(items: list[dict[str, Any]]) -> list[str]:
             seen.add(seg_id)
             ordered.append(seg_id)
     return ordered
-
 
 def _finalize_auto_resolve_success(
     ctx: Any,
@@ -439,7 +411,6 @@ def _finalize_auto_resolve_success(
         detail={"resolved_count": resolved},
     )
     return result
-
 
 def risk_based_force_advance(
     ctx: Any,
@@ -530,7 +501,6 @@ def risk_based_force_advance(
     )
     return warnings
 
-
 def _apply_loop_escape_hatch(
     ctx: Any,
     stage_key: str,
@@ -604,12 +574,10 @@ def _apply_loop_escape_hatch(
     )
     return deleted, warnings
 
-
 def _read_stage_artifact(ctx: Any, stage_key: str, *, staged: bool = True) -> tuple[str | None, dict[str, Any] | None]:
     from interview_mux.artifact_issue_triage import _read_stage_artifact as _read
 
     return _read(ctx, stage_key, staged=staged)
-
 
 def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
     from interview_mux.lint_repair_bridge import lint_errors_structurally_repairable
@@ -637,7 +605,6 @@ def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
         "lifecycle_phase": "staged_validate" if open_blocking else "committed",
     }
 
-
 def _autopilot_aggressive_choice(item: dict[str, Any], *, cfg: dict[str, Any]) -> Any:
     """Pick a repair action when normal confidence gates would defer to the operator."""
     choice = pick_recommended_choice(item, cfg=cfg)
@@ -663,7 +630,6 @@ def _autopilot_aggressive_choice(item: dict[str, Any], *, cfg: dict[str, Any]) -
         return "delete_segment"
     return "accept_auto_repair"
 
-
 def _prepare_autopilot_propagation(
     ctx: Any,
     stage_key: str,
@@ -684,7 +650,6 @@ def _prepare_autopilot_propagation(
     invalidate_stale_downstream(ctx, stage_key)
     _clear_propagation_investigations(ctx, stage_key)
 
-
 def _dismiss_open_blocking_issues(ctx: Any, stage_key: str, *, reason: str = "autopilot_dismiss") -> int:
     closed = 0
     for item in items_for_stage(ctx, stage_key):
@@ -696,7 +661,6 @@ def _dismiss_open_blocking_issues(ctx: Any, stage_key: str, *, reason: str = "au
         mark_resolved(ctx, iid, chosen=reason, auto_applied=True)
         closed += 1
     return closed
-
 
 def _autopilot_force_complete(
     ctx: Any,
@@ -855,7 +819,6 @@ def _autopilot_force_complete(
     result.open_blocking = blocking_issues_remaining(ctx, stage_key)
     result.preview = build_resolution_preview(ctx, stage_key)
     return result
-
 
 def auto_resolve_stage(
     ctx: Any,

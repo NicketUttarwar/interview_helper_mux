@@ -5,7 +5,6 @@ import json
 from interview_mux.stage_guidance import build_stage_guidance
 from run_fixtures import isolated_run_ctx, patch_merged_config
 
-
 def test_guidance_shows_budget_exhaustion(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
@@ -22,7 +21,6 @@ def test_guidance_shows_budget_exhaustion(tmp_path, monkeypatch):
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "llm_budget" in ids
 
-
 def test_guidance_shows_lint_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "guidance_lint")
@@ -36,7 +34,6 @@ def test_guidance_shows_lint_failure(tmp_path, monkeypatch):
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "llm_lint" in ids
 
-
 def test_guidance_shows_placement_qa_on_mix(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "guidance_pq")
@@ -45,10 +42,9 @@ def test_guidance_shows_placement_qa_on_mix(tmp_path, monkeypatch):
         {"version": 1, "adjustments": []},
         skip_handoff=True,
     )
-    guidance = build_stage_guidance(ctx, "mix_flow1", status="pending")
+    guidance = build_stage_guidance(ctx, "mix", status="pending")
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "placement_qa" in ids
-
 
 def test_guidance_shows_stage_reuse_offer(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -62,14 +58,12 @@ def test_guidance_shows_stage_reuse_offer(tmp_path, monkeypatch):
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "stage_reuse" in ids
 
-
 def test_guidance_shows_post_listen_on_sfx(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "guidance_listen")
-    guidance = build_stage_guidance(ctx, "mmaudio_sfx_flow1", status="pending")
+    guidance = build_stage_guidance(ctx, "mmaudio_sfx", status="pending")
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "post_listen" in ids
-
 
 def test_guidance_shows_qc_card_on_ranking(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -78,7 +72,6 @@ def test_guidance_shows_qc_card_on_ranking(tmp_path, monkeypatch):
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "qc_card" in ids
 
-
 def test_guidance_sfx_handoff_upstream(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
@@ -86,7 +79,6 @@ def test_guidance_sfx_handoff_upstream(tmp_path, monkeypatch):
         {"analysis": {"flow_hardening": {"enabled": True}}},
     )
     ctx = isolated_run_ctx(tmp_path, "guidance_el")
-    ctx.write_json("run_meta.json", {"selected_flow": "flow1"}, skip_handoff=True)
     guidance = build_stage_guidance(ctx, "sfx_prompt_craft", status="pending")
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "upstream_artifact" in ids

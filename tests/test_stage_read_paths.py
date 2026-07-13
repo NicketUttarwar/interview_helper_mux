@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from interview_mux.interview_spine.lineage import build_derived_from
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import emphasis_regions_for_segments
 from interview_mux.stages.ingest import _ingest_source
@@ -17,7 +17,7 @@ from interview_mux.stages.interview_spine_stage import run_interview_spine_build
 from interview_mux.value_analysis.features_audio import extract_audio_features
 from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
 
-from tests.test_write_staging import _ctx
+from test_write_staging import _ctx
 
 
 def _write_tone_wav(path: Path, *, duration_sec: float = 1.0, rate: int = 16000) -> None:
@@ -81,8 +81,8 @@ def _minimal_sap() -> dict:
         ("interview_spine_build", "ingest/normalized.wav"),
         ("content_context", "ingest/normalized.wav"),
         ("assembly_preview", "ingest/normalized.wav"),
-        ("mix_flow1", "ingest/normalized.wav"),
-        ("master_flow1", "flow_1_master/assembly.wav"),
+        ("mix", "ingest/normalized.wav"),
+        ("master_finalize", "master/assembly.wav"),
     ],
 )
 def test_read_path_finds_final_artifact_during_stage_staging(
@@ -214,7 +214,7 @@ def test_value_analysis_audio_reads_normalized_during_staging(
     ctx = _ctx(tmp_path, monkeypatch)
     _write_tone_wav(ctx.final_path("ingest", "normalized.wav"))
     monkeypatch.setattr(
-        "interview_mux.value_analysis.config.require_value_analysis_flag",
+        "interview_mux.value_analysis.features_audio.require_value_analysis_flag",
         lambda cfg, flag: None,
     )
     enter_stage_staging("content_context")
@@ -229,12 +229,12 @@ def test_mastering_reads_assembly_during_staging(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
-    assembly = ctx.final_path("flow_1_master", "assembly.wav")
+    assembly = ctx.final_path("master", "assembly.wav")
     _write_tone_wav(assembly)
-    enter_stage_staging("master_flow1")
+    enter_stage_staging("master_finalize")
     try:
-        assert not ctx.path("flow_1_master", "assembly.wav").is_file()
-        assert ctx.read_path("flow_1_master", "assembly.wav").is_file()
+        assert not ctx.path("master", "assembly.wav").is_file()
+        assert ctx.read_path("master", "assembly.wav").is_file()
     finally:
         exit_stage_staging()
 
@@ -250,8 +250,8 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
         "interview_spine_build",
         "content_context",
         "assembly_preview",
-        "mix_flow1",
-        "master_flow1",
+        "mix",
+        "master_finalize",
     }
     analysis_with_inputs = {
         s
@@ -264,6 +264,7 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
             "segment_classification",
             "content_brief_reanchor",
             "sonic_context_build",
+            "source_topology_build",
             "sound_design_palettes",
             "missing_framing",
             "optimal_questions",
@@ -271,21 +272,21 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
     }
     flow_with_inputs = {
         s
-        for s in FLOW1_ORDER
+        for s in DELIVERY_ORDER
         if s
         not in {
             "topic_coverage_audit",
             "narrative_arc_plan",
             "full_master_ranking",
             "transitions",
-            "sound_design_plan_flow1",
+            "sound_design_plan",
             "sound_design_vo_finalize",
             "edl_narrative_audit",
-            "edl_flow1",
+            "edl",
             "sfx_prompt_craft",
-            "mmaudio_sfx_flow1",
+            "mmaudio_sfx",
         }
     }
     assert analysis_with_inputs <= covered
-    assert {"assembly_preview", "mix_flow1", "master_flow1"} <= covered
-    assert flow_with_inputs <= covered | {"assembly_preview", "mix_flow1", "master_flow1"}
+    assert {"assembly_preview", "mix", "master_finalize"} <= covered
+    assert flow_with_inputs <= covered | {"assembly_preview", "mix", "master_finalize"}

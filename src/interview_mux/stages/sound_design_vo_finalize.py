@@ -9,7 +9,7 @@ from interview_mux.audio_timeline import wav_duration_ms
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.stages.assembly_flow1 import resolve_vo_pickup_path
+from interview_mux.stages.assembly import resolve_vo_pickup_path
 from interview_mux.stages.sound_design_stages import _validate_sound_design_plan
 
 
@@ -22,7 +22,7 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
 
     plan = ctx.read_json(sdp_path)
     flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    flow1 = flow_plans.get("flow1") if isinstance(flow_plans.get("flow1"), dict) else {}
+    flow1 = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = flow1.get("cues") if isinstance(flow1.get("cues"), list) else []
     assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
     assets_by_id = {
@@ -102,7 +102,7 @@ def _patch_sonic_context_vo_bridges(ctx: RunContext, plan: dict[str, Any]) -> No
     doc = ctx.read_json(rel)
     if not isinstance(doc, dict):
         return
-    flow1 = ((plan.get("flow_plans") or {}).get("flow1") or {})
+    flow1 = ((plan.get("flow_plans") or {}).get("podcast") or {})
     cues = flow1.get("cues") if isinstance(flow1.get("cues"), list) else []
     assets_by_id = {
         str(a.get("asset_id")): a

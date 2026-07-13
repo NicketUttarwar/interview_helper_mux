@@ -21,18 +21,18 @@ Minimal envelope JSON files used by `tests/test_llm_envelope_fixtures.py` to ass
 | `edl_narrative_audit_bad_verdict.json` | `edl_narrative_audit` | Bad QC verdict |
 | `sfx_prompt_craft_short.json` | `sfx_prompt_craft` | Short prompt |
 | `full_master_ranking_orphan.json` | `full_master_ranking` | Orphan selection id |
-| `highlight_selection_over_cap.json` | `highlight_selection` | Over cap |
+| `REMOVED_highlight_selection_over_cap.json` | `REMOVED_highlight_selection` | Over cap |
 | `missing_framing_low_coverage.json` | `missing_framing` | `segment_coverage_ratio` (full-stack) |
 | `missing_framing_no_evals.json` | `missing_framing` | No evaluations |
 | `narrative_arc_empty_chapter.json` | `narrative_arc_plan` | Empty chapter |
 | `optimal_questions_high_gap.json` | `optimal_questions` | High gap severity |
-| `podcast_show_description_word_count.json` | `podcast_show_description` | Word count |
+| `REMOVED_podcast_show_description_word_count.json` | `REMOVED_podcast_show_description` | Word count |
 | `podcast_sfx_brief_legacy.json` | `podcast_sfx_brief` | Legacy brief |
 | `segment_classification_mono_type.json` | `segment_classification` | Mono type |
 | `sfx_brief_over_cap.json` | `sfx_brief` | Over cap |
 | `sound_design_palettes_no_identity.json` | `sound_design_palettes` | No sonic identity |
-| `sound_design_plan_flow1_over_cap.json` | `sound_design_plan_flow1` | Over cap |
-| `sound_design_plan_flow2_over_cap.json` | `sound_design_plan_flow2` | Over cap |
+| `sound_design_plan_over_cap.json` | `sound_design_plan` | Over cap |
+| `REMOVED_sdp_flow2_over_cap.json` | `REMOVED_sdp_flow2` | Over cap |
 | `speaker_roles_all_unknown.json` | `speaker_roles` | All unknown roles |
 | `topic_coverage_audit_no_score.json` | `topic_coverage_audit` | No score |
 | `transitions_too_long.json` | `transitions` | Too long transition |

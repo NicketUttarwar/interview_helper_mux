@@ -62,7 +62,7 @@ Canonical reference for **how every operator click and background job must behav
 | `DisfluencyReviewPanel` | G0.5 `disfluency_review` |
 | `AnalysisProfileGate` + Story/Profile | `analysis_profile` |
 | `VoPickupPanel` | G1 `g1_vo_pickup` |
-| `FlowSelectPanel` | G2 `g2_flow_select` |
+| `FlowSelectPanel` | G2 `REMOVED_g2_flow_select` |
 | `SfxPromptReviewPanel` | `sfx_prompt_craft` |
 | `SfxPostListenPanel` | MMAudio post-listen |
 | `StageReuseOfferCard` | Stage reuse |

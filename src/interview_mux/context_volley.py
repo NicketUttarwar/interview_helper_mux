@@ -110,6 +110,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "segment_classification",
             "missing_framing",
             "optimal_questions",
+            "delivery_brief_build",
         ),
         profile_keys=("themes", "narrative", "major_questions"),
         investigation_kinds=frozenset({"theme_unmapped", "missing_callback", "topic_drift"}),
@@ -122,6 +123,7 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "optimal_questions",
             "missing_framing",
             "content_context",
+            "delivery_brief_build",
         ),
         profile_keys=("themes", "narrative", "style", "major_questions", "hypotheses"),
         investigation_kinds=frozenset({"topic_drift", "missing_callback"}),
@@ -134,62 +136,52 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
             "topic_coverage_audit",
             "optimal_questions",
             "missing_framing",
+            "delivery_brief_build",
         ),
         profile_keys=("themes", "narrative", "style"),
         max_investigations=0,
     ),
-    "highlight_selection": StageContextPlan(
-        task_line="Select up to five standalone highlight clips.",
-        prior_stages=("content_context", "missing_framing"),
-        profile_keys=("themes", "narrative", "style", "major_questions"),
-        max_investigations=1,
-    ),
     "transitions": StageContextPlan(
         task_line="Write short interviewer transitions between ordered segments.",
-        prior_stages=("full_master_ranking", "optimal_questions"),
+        prior_stages=("full_master_ranking", "optimal_questions", "delivery_brief_build"),
         profile_keys=("style", "narrative"),
         max_investigations=0,
     ),
     "podcast_sfx_brief": StageContextPlan(
         task_line="Specify subtle podcast sound design between chapters/segments.",
-        prior_stages=("full_master_ranking", "narrative_arc_plan"),
+        prior_stages=("full_master_ranking", "narrative_arc_plan", "delivery_brief_build"),
         profile_keys=("style",),
         max_investigations=0,
     ),
-    "sound_design_plan_flow1": StageContextPlan(
-        task_line="Plan reusable Flow 1 sound design assets and cue placements.",
-        prior_stages=("full_master_ranking", "narrative_arc_plan", "transitions", "optimal_questions"),
+    "sound_design_plan": StageContextPlan(
+        task_line="Plan reusable podcast sound design assets and cue placements.",
+        prior_stages=(
+            "full_master_ranking",
+            "narrative_arc_plan",
+            "transitions",
+            "optimal_questions",
+            "delivery_brief_build",
+        ),
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
     ),
     "edl_narrative_audit": StageContextPlan(
-        task_line="Audit whether the planned Flow 1 EDL preserves narrative arc, coverage, transitions, and VO gap clarity.",
+        task_line="Audit whether the planned EDL preserves narrative arc, coverage, transitions, and VO gap clarity.",
         prior_stages=(
             "full_master_ranking",
             "narrative_arc_plan",
             "topic_coverage_audit",
             "transitions",
             "missing_framing",
-            "sound_design_plan_flow1",
+            "sound_design_plan",
+            "delivery_brief_build",
         ),
         profile_keys=("style", "themes", "narrative", "major_questions"),
         max_investigations=1,
     ),
-    "sound_design_plan_flow2": StageContextPlan(
-        task_line="Plan reusable Flow 2 montage assets and cue placements between highlights.",
-        prior_stages=("highlight_selection",),
-        profile_keys=("style", "themes", "narrative"),
-        max_investigations=0,
-    ),
-    "sfx_brief": StageContextPlan(
-        task_line="Specify montage SFX between highlight clips.",
-        prior_stages=("highlight_selection",),
-        profile_keys=("style", "narrative"),
-        max_investigations=0,
-    ),
     "sfx_prompt_craft": StageContextPlan(
         task_line="Craft one MMAudio text-to-audio prompt per asset_id (positive + negative + mix role).",
-        prior_stages=("sound_design_plan_flow1", "sound_design_plan_flow2"),
+        prior_stages=("sound_design_plan", "delivery_brief_build"),
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
     ),
@@ -198,21 +190,6 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
         prior_stages=("sfx_prompt_craft",),
         profile_keys=("style", "themes", "narrative"),
         max_investigations=0,
-    ),
-    "podcast_show_description": StageContextPlan(
-        task_line=(
-            "Write a third-person podcast show description (~200 words) grounded in the content brief."
-        ),
-        prior_stages=(
-            "speaker_roles",
-            "content_context",
-            "segment_classification",
-            "missing_framing",
-            "optimal_questions",
-        ),
-        profile_keys=("themes", "narrative", "style", "major_questions", "entities"),
-        investigation_kinds=frozenset({"show_description_thin_evidence"}),
-        max_investigations=2,
     ),
 }
 
@@ -596,20 +573,20 @@ def _artifact_digest(ctx: RunContext, stage: str) -> str:
             evals = ev.get("evaluations") or []
             bad = sum(1 for e in evals if not e.get("self_explanatory"))
             return f"{bad}/{len(evals)} segments need framing."
-        if stage == "topic_coverage_audit" and ctx.artifact_exists("flow_1_master/coverage_audit.json"):
-            c = ctx.read_json("flow_1_master/coverage_audit.json")
+        if stage == "topic_coverage_audit" and ctx.artifact_exists("master/coverage_audit.json"):
+            c = ctx.read_json("master/coverage_audit.json")
             missing = len(c.get("missing_coverage") or [])
             return f"Coverage score {c.get('coverage_score', '?')}; {missing} gaps."
-        if stage == "narrative_arc_plan" and ctx.artifact_exists("flow_1_master/narrative_plan.json"):
-            p = ctx.read_json("flow_1_master/narrative_plan.json")
+        if stage == "narrative_arc_plan" and ctx.artifact_exists("master/narrative_plan.json"):
+            p = ctx.read_json("master/narrative_plan.json")
             return (p.get("arc_summary") or "")[:300]
         if stage == "optimal_questions" and ctx.artifact_exists("understanding/gap_report.json"):
             rep = ctx.read_json("understanding/gap_report.json")
             lines = rep.get("interviewer_lines") or []
             record = sum(1 for ln in lines if ln.get("delivery") == "record")
             return f"{len(lines)} interviewer VO lines ({record} to record)."
-        if stage == "full_master_ranking" and ctx.artifact_exists("flow_1_master/selection.json"):
-            sel = ctx.read_json("flow_1_master/selection.json")
+        if stage == "full_master_ranking" and ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
             ordered = sel.get("ordered_segment_ids") or []
             excluded = len(sel.get("excluded_segment_ids") or [])
             return f"Master order: {len(ordered)} segments, {excluded} excluded."
@@ -898,7 +875,7 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         "full_master_ranking",
         "highlight_selection",
         "transitions",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "sound_design_plan_flow2",
         "podcast_sfx_brief",
         "sfx_brief",
@@ -922,15 +899,21 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["narrative_plan"] = raw["narrative_plan"]
     if "gap_report" in raw:
         out["gap_report"] = _compact_gap_report(raw["gap_report"])
+    if "delivery_brief" in raw:
+        from interview_mux.delivery_brief import compact_delivery_brief_for_volley
+
+        compact = compact_delivery_brief_for_volley(raw.get("delivery_brief"))
+        if compact:
+            out["delivery_brief"] = compact
     if "selection" in raw:
         out["selection"] = _compact_selection(raw["selection"], stage_key)
-    if "sound_design_plan" in raw and stage_key in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+    if "sound_design_plan" in raw and stage_key in ("sound_design_plan", "sound_design_plan_flow2"):
         out["sound_design_plan"] = _compact_sound_design_plan_for_flow(raw["sound_design_plan"])
         if "sonic_context" in raw and isinstance(raw["sonic_context"], dict):
             compact = compact_sonic_context(raw["sonic_context"])
             if compact:
                 out["sonic_context"] = compact
-    if "transitions" in raw and stage_key in ("podcast_sfx_brief", "sound_design_plan_flow1"):
+    if "transitions" in raw and stage_key in ("podcast_sfx_brief", "sound_design_plan"):
         out["transitions"] = raw["transitions"]
     if "interviewer_sample_lines" in raw and stage_key == "transitions":
         out["interviewer_sample_lines"] = raw["interviewer_sample_lines"]
@@ -953,7 +936,7 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
         out["value_features_summary"] = vf
     if stage_key in ("missing_framing", "optimal_questions") and raw.get("value_features_summary"):
         out["value_features_summary"] = raw["value_features_summary"]
-    if stage_key in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+    if stage_key in ("sound_design_plan", "sound_design_plan_flow2"):
         sap = raw.get("source_acoustic_profile")
         if isinstance(sap, dict):
             out["source_acoustic_profile"] = sap

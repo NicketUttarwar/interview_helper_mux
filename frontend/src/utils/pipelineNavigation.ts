@@ -155,7 +155,7 @@ export function resolvePipelineNav(
     statusLine = "Pipeline idle — all visible steps complete or locked.";
     nextLine = run.journey?.deliverable?.kind
       ? "Your deliverable may be ready in Export."
-      : "Check locked stages or choose a flow at G2.";
+      : "Check locked stages or upstream gates.";
   }
 
   return {

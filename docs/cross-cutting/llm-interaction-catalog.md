@@ -46,12 +46,12 @@ Post-hooks: OA-04 → OS-02; OA-07 / OF-03 → OS-01.
 | OF-02 | `narrative_arc_plan` | Chapter arc |
 | OF-03 | `full_master_ranking` | Ordered segment_ids |
 | OF-04 | `transitions` | Short bridge VO |
-| OF-05 | `sound_design_plan_flow1` | Cues + assets flow1 |
+| OF-05 | `sound_design_plan` | Cues + assets flow1 |
 | OF-06 | `edl_narrative_audit` | Narrative QC verdict |
 | OF-07 | `sfx_prompt_craft` | MMAudio prompt rows |
-| OF-08 | `highlight_selection` | Highlight clips |
-| OF-09 | `sound_design_plan_flow2` | Montage SDP |
-| OF-10 | `podcast_show_description` | Show blurb |
+| OF-08 | `REMOVED_highlight_selection` | Highlight clips |
+| OF-09 | `REMOVED_sdp_flow2` | Montage SDP |
+| OF-10 | `REMOVED_podcast_show_description` | Show blurb |
 | OF-L1 | `podcast_sfx_brief` | Legacy v1 SFX brief |
 | OF-L2 | `sfx_brief` | Legacy montage brief |
 | OF-L3 | `sfx_prompt_refine` | Patch failed asset prompts |

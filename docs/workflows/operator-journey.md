@@ -114,7 +114,7 @@ Go deeper: [analysis-memory.md](../cross-cutting/analysis-memory.md).
 2. Optional: clean **pickup VO only** at G1.
 3. **G2:** **Confirm output** — pick flow1 / flow2 / flow3, or click **Use planned choice** if you set intent on the Start tab.
 
-`flow_intent` (Start) is planning only; `selected_flow` (G2) commits execution.
+`REMOVED_flow_intent` (Start) is planning only; `REMOVED_selected_flow` (G2) commits execution.
 
 Go deeper: [interviewer-gap README](../pipeline/interviewer-gap/README.md).
 
@@ -146,7 +146,7 @@ Go deeper: [operator-sound-and-mix.md](./operator-sound-and-mix.md) · [local-au
 ## Phase: Ship
 
 - **flow1/2:** `master.wav` — verify LUFS in Logs (`verify_master`).
-- **flow3:** Copy `flow_3_description/show_description.md`.
+- **flow3:** Copy `show_notes/show_description.md`.
 
 Go deeper: [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md).
 

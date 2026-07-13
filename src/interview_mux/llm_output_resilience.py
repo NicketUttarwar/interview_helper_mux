@@ -452,6 +452,7 @@ def apply_resilience_and_persist(
         null_policy_cfg,
     )
 
+    caller_envelope = envelope
     norm = normalize_envelope_for_stage(
         ctx,
         envelope,
@@ -459,6 +460,10 @@ def apply_resilience_and_persist(
         volley=volley,
     )
     envelope = norm.normalized
+
+    def _sync_caller_envelope() -> None:
+        caller_envelope.clear()
+        caller_envelope.update(envelope)
 
     artifacts = envelope.get("artifacts") or {}
     if artifacts:
@@ -495,6 +500,7 @@ def apply_resilience_and_persist(
             routing = envelope.setdefault("_routing_meta", {})
             routing["persist_action"] = "none"
             routing["critical_null_paths"] = critical_nulls
+            _sync_caller_envelope()
             return PersistPlan("none", {}, empty)
 
     plan = resolve_persist_plan(
@@ -512,6 +518,7 @@ def apply_resilience_and_persist(
         routing["envelope_blocked"] = True
 
     if plan.action == "none":
+        _sync_caller_envelope()
         return plan
 
     if plan.action in ("partial", "full") and plan.report.stripped:
@@ -547,6 +554,7 @@ def apply_resilience_and_persist(
                 stage=stage_key,
             )
             plan.action = "none"
+            _sync_caller_envelope()
             return plan
         sidecar = write_resilience_sidecar(ctx, stage_key, attempt, plan.report)
         log_resilience_event(
@@ -565,6 +573,7 @@ def apply_resilience_and_persist(
     routing = envelope.setdefault("_routing_meta", {})
     routing["resilience_report"] = plan.report.to_dict()
     routing["persist_action"] = plan.action
+    _sync_caller_envelope()
     return plan
 
 

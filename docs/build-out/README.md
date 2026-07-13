@@ -97,13 +97,13 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module | Status |
 |--------|-------|--------|--------|
-| BUILD-029 | Topic coverage | `analysis_flow1_extended.py` | done |
-| BUILD-030 | Narrative arc | `analysis_flow1_extended.py` | done |
-| BUILD-031 | Full master ranking | `selection_flow1.py` | done |
-| BUILD-032 | Transitions | `selection_flow1.py` | done |
-| BUILD-033 | Podcast SFX brief | `selection_flow1.py` | done (v1 brief; superseded by BUILD-060+) |
+| BUILD-029 | Topic coverage | `analysis_extended.py` | done |
+| BUILD-030 | Narrative arc | `analysis_extended.py` | done |
+| BUILD-031 | Full master ranking | `selection.py` | done |
+| BUILD-032 | Transitions | `selection.py` | done |
+| BUILD-033 | Podcast SFX brief | `selection.py` | done (v1 brief; superseded by BUILD-060+) |
 | BUILD-034 | MMAudio SFX | `sfx_mmaudio.py`, `maudio_runner.py` | done (v1 per-cue REST) |
-| BUILD-035 | Mux assembly | `assembly_flow1.py` | done (superseded by `mix_flow1`, BUILD-065) |
+| BUILD-035 | Mux assembly | `assembly.py` | done (superseded by `mix`, BUILD-065) |
 | BUILD-036 | Master export | `mastering.py` | done |
 
 ---
@@ -112,13 +112,13 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module | Status |
 |--------|-------|--------|--------|
-| BUILD-040 | Highlight selection | `selection_flow2.py` | done |
-| BUILD-041 | SFX brief | `selection_flow2.py` | done (v1 brief) |
+| BUILD-040 | Highlight selection | `REMOVED_selection_flow2.py` | done |
+| BUILD-041 | SFX brief | `REMOVED_selection_flow2.py` | done (v1 brief) |
 | BUILD-042 | MMAudio SFX | `sfx_mmaudio.py` | done |
-| BUILD-043 | Micro-assembly | `assembly_flow2.py` | done |
+| BUILD-043 | Micro-assembly | `REMOVED_assembly_flow2.py` | done |
 | BUILD-044 | Master export | `mastering.py` | done |
 
-**Gate G2** before Wave 3 — `selected_flow` in `run_meta.json` (`flow1` \| `flow2` \| `flow3`)
+**Gate G2** before Wave 3 — `REMOVED_selected_flow` in `run_meta.json` (`flow1` \| `flow2` \| `flow3`)
 
 ---
 
@@ -126,7 +126,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 
 | Ticket | Title | Module | Status |
 |--------|-------|-------------|--------|
-| BUILD-045 | Podcast show description | `publishing_flow3.py` | done |
+| BUILD-045 | Podcast show description | `REMOVED_publishing_flow3.py` | done |
 | BUILD-046 | Show description export | JSON → `show_description.md` | done |
 | BUILD-080 | Flow 3 wire-up | `pipeline.py`, `cli.py`, `web/runner.py`, `web/server.py`, `web/stages.py` | done |
 
@@ -139,7 +139,7 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 | Ticket | Title | Module | Status |
 |--------|-------|--------|--------|
 | BUILD-050 | Mastering module | `mastering.py` | done |
-| BUILD-051 | Flow CLI | `tools/run_flow.py`, `cli.flow_cmd` | done (flow1 \| flow2 \| flow3) |
+| BUILD-051 | Flow CLI | `tools/run_delivery.py`, `cli.flow_cmd` | done (flow1 \| flow2 \| flow3) |
 | BUILD-052 | verify_master | `tools/verify_master.py`, `master_qc.py` | done |
 | BUILD-053 | Smoke test doc | `docs/workflows/smoke-test.md` | done |
 | BUILD-054 | Prompt validation tests | `tests/test_prompt_validation.py` | done |
@@ -155,11 +155,11 @@ North star for mix quality: [podcast-quality-roadmap.md](../cross-cutting/podcas
 |--------|-------|--------|
 | BUILD-060 | SDP schema + empty plan init | done — `sound_design_plan.schema.json`, init in `ensure_analysis_workspace` |
 | BUILD-061 | Theme palettes stage | done — `sound_design_palettes` after `segment_classification` |
-| BUILD-062 | Flow 1 plan stage | done — `sound_design_plan_flow1` after `transitions`; merges `assets` + `flow_plans.flow1` into SDP; cue `asset_id` link validation |
-| BUILD-063 | Flow 2 plan stage | done — `sound_design_plan_flow2` after `highlight_selection`; merges `assets` + `flow_plans.flow2` into SDP; cue `asset_id` link validation |
+| BUILD-062 | Flow 1 plan stage | done — `sound_design_plan` after `transitions`; merges `assets` + `flow_plans.podcast` into SDP; cue `asset_id` link validation |
+| BUILD-063 | Flow 2 plan stage | done — `REMOVED_sdp_flow2` after `REMOVED_highlight_selection`; merges `assets` + `REMOVED_flow_plans_flow2` into SDP; cue `asset_id` link validation |
 | BUILD-064 | MMAudio SFX prompt craft + generate | done — craft → `sfx_prompts.json`; REST one WAV per `asset_id` in `sound_design/assets/` |
-| BUILD-065 | Mix engine | **done** — `sound_design.py`; `mix_flow1` / `mix_flow2`; VO + beds + stingers + ducking |
-| BUILD-066 | Pipeline + GUI wire-up | **done** — `mix_flow1`/`mix_flow2` in pipeline + GUI; v1 briefs legacy-only; G1.5 prompt review panel |
+| BUILD-065 | Mix engine | **done** — `sound_design.py`; `mix` / `REMOVED_mix_flow2`; VO + beds + stingers + ducking |
+| BUILD-066 | Pipeline + GUI wire-up | **done** — `mix`/`REMOVED_mix_flow2` in pipeline + GUI; v1 briefs legacy-only; G1.5 prompt review panel |
 
 Acceptance details: see historical BUILD-060–066 notes in git history or [sound-design.md](../cross-cutting/sound-design.md).
 
@@ -171,9 +171,9 @@ Acceptance details: see historical BUILD-060–066 notes in git history or [soun
 
 | Ticket | Title | Status |
 |--------|-------|--------|
-| BUILD-067 | Gap report → EDL | done — `edl_flow1` includes `vo_pickup` + gap placements |
-| BUILD-068 | NLE → selection/EDL | done — `nle_edits.json` applied in `full_master_ranking` + `edl_flow1` (`selection.json`, EDL bounds) |
-| BUILD-069 | Assembly preview | done — `flow_1_master/assembly_preview.wav` (speech + VO) + GUI listen action before MMAudio SFX generation |
+| BUILD-067 | Gap report → EDL | done — `edl` includes `vo_pickup` + gap placements |
+| BUILD-068 | NLE → selection/EDL | done — `nle_edits.json` applied in `full_master_ranking` + `edl` (`selection.json`, EDL bounds) |
+| BUILD-069 | Assembly preview | done — `master/assembly_preview.wav` (speech + VO) + GUI listen action before MMAudio SFX generation |
 | BUILD-070 | verify_master LUFS/peak | done — `master_qc.py`; ffmpeg loudnorm measurement; CLI + post-flow GUI log |
 | BUILD-071 | Mastering measurement | done — `mastering_bus.py` pyloudnorm on assembly; ffmpeg limiter uses BUILD-070 targets |
 | BUILD-072 | Pre-clean quality offers | done — GUI prompts at roadmap checkpoints; `run_meta.json` scope + `gui_log.jsonl` |

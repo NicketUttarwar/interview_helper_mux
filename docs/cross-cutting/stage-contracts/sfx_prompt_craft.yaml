@@ -29,3 +29,7 @@ remediation:
   - patch_volley
   - volley_retry
   - full_stage_rerun
+critical_fields:
+- prompts
+nullable_fields:
+- notes

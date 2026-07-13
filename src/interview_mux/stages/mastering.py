@@ -12,9 +12,9 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.sdp_cross_validate import validate_pre_master
 
-
 def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str) -> Path:
-    flow_name: FlowName = flow if flow in TARGETS else "flow1"
+    stage = "master_finalize"
+    flow_name: FlowName = flow if flow in TARGETS else "podcast"
     thresholds = TARGETS[flow_name]
     cfg = merged_config()
     target = target_lufs_for_flow(flow_name, config=cfg)
@@ -23,8 +23,12 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
     master = ctx.path(master_rel)
     if not assembly.is_file():
         raise FileNotFoundError(assembly)
+    if assembly.stat().st_size < 1024:
+        raise RuntimeError(
+            f"{stage}: assembly speech path is empty/corrupt ({assembly_rel}). "
+            "Refuse master finalize — fix mix/speech stems before export."
+        )
 
-    stage = "master_flow1" if flow == "flow1" else "master_flow2"
     with logged_step(f"{stage}/pre_master_validation", ctx=ctx, stage=stage):
         pre_errors = validate_pre_master(ctx, flow_name)
         if pre_errors:
@@ -100,7 +104,6 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
     )
     return master
 
-
 def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -> dict[str, str]:
     from interview_mux.operator_subprocess import run_command
 
@@ -123,7 +126,6 @@ def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -
     )
     return _extract_loudnorm_json(measure.stderr or "")
 
-
 def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
     start = stderr.rfind("{")
     end = stderr.rfind("}")
@@ -137,10 +139,6 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
         raise RuntimeError(f"Incomplete loudnorm output from ffmpeg (missing {missing_keys}).")
     return data
 
+def run_master_finalize(ctx: RunContext) -> Path:
+    return master_wav(ctx, "master/assembly.wav", "master/master.wav", flow="podcast")
 
-def run_master_flow1(ctx: RunContext) -> Path:
-    return master_wav(ctx, "flow_1_master/assembly.wav", "flow_1_master/master.wav", flow="flow1")
-
-
-def run_master_flow2(ctx: RunContext) -> Path:
-    return master_wav(ctx, "flow_2_highlights/assembly.wav", "flow_2_highlights/master.wav", flow="flow2")

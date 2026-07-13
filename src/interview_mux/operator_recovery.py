@@ -19,7 +19,7 @@ def format_recovery_command(
     run_id = ctx.run_id
     if tool == "run_flow" and flow:
         return (
-            f"python tools/run_flow.py --run-id {run_id} --flow {flow} "
+            f"python tools/run_delivery.py --run-id {run_id} --flow {flow} "
             f"--from-stage {from_stage}"
         )
     return f"python tools/run_analysis.py --run-id {run_id} --from-stage {from_stage}"

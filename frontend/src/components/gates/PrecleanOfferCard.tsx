@@ -95,6 +95,14 @@ export function PrecleanOfferCard({
         {isBeforeIngest ? "Audio pre-clean" : "Optional pickup cleaning"}
       </h4>
       <p className="hint">{offer.prompt}</p>
+      {run?.journey?.source_readiness?.band ? (
+        <p className="muted sm">
+          Source readiness: <strong>{run.journey.source_readiness.band}</strong>
+          {typeof run.journey.source_readiness.score === "number"
+            ? ` (${run.journey.source_readiness.score.toFixed(2)})`
+            : ""}
+        </p>
+      ) : null}
       {isBeforeIngest ? (
         <p className="muted">Required before ingest — reduces background noise on the source recording.</p>
       ) : (

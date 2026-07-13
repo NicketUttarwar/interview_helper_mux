@@ -88,17 +88,17 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 | `sound_design_palettes` | `understanding/sound_design_plan.json` |
 | `missing_framing` | `understanding/gap_evaluations.json` |
 | `optimal_questions` | `understanding/gap_report.json` |
-| `topic_coverage_audit` | `flow_1_master/coverage_audit.json` |
-| `narrative_arc_plan` | `flow_1_master/narrative_plan.json` |
-| `full_master_ranking` | `flow_1_master/selection.json` |
-| `transitions` | `flow_1_master/transitions.json` |
-| `podcast_sfx_brief` | `flow_1_master/podcast_sfx_brief.json` |
-| `sound_design_plan_flow1` / `flow2` | `understanding/sound_design_plan.json` |
+| `topic_coverage_audit` | `master/coverage_audit.json` |
+| `narrative_arc_plan` | `master/narrative_plan.json` |
+| `full_master_ranking` | `master/selection.json` |
+| `transitions` | `master/transitions.json` |
+| `podcast_sfx_brief` | `master/podcast_sfx_brief.json` |
+| `sound_design_plan` / `flow2` | `understanding/sound_design_plan.json` |
 | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
-| `sfx_brief` | `flow_2_highlights/sfx_brief.json` |
-| `podcast_show_description` | `flow_3_description/show_description.json` |
-| `edl_narrative_audit` | `flow_1_master/edl_narrative_audit.json` |
-| `highlight_selection` | `flow_2_highlights/selection.json` |
+| `sfx_brief` | `REMOVED_flow2/sfx_brief.json` |
+| `REMOVED_podcast_show_description` | `show_notes/show_description.json` |
+| `edl_narrative_audit` | `master/edl_narrative_audit.json` |
+| `REMOVED_highlight_selection` | `REMOVED_flow2/selection.json` |
 
 `analysis_state.json` is updated via `memory_updates` on the envelope (not a direct stage artifact file), but is validated on every `write_json` and included in completeness rules for themes/thesis.
 

@@ -19,7 +19,7 @@ ASSETS/
 
 ```
 ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
-  run_meta.json                 # execution_number, input path, source_audio_hash, selected_flow, stage_reuse, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
+  run_meta.json                 # execution_number, input path, source_audio_hash, REMOVED_selected_flow, stage_reuse, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
   gui_log.jsonl                 # centralized operator log (policy: .cursor/rules/interview-helper-mux.mdc)
   gui_job.json                  # last background execute job status (GUI job panel)
   segments/nle_edits.json       # non-linear editor state
@@ -35,9 +35,9 @@ ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
   transcript/
   understanding/
   segments/
-  flow_1_master/                # only when flow1 selected
-  flow_2_highlights/            # only when flow2 selected
-  flow_3_description/           # only when flow3 selected
+  master/                # only when flow1 selected
+  REMOVED_flow2/            # only when flow2 selected
+  show_notes/           # only when flow3 selected
 ```
 
 ## Shared analysis (Wave 2)
@@ -76,7 +76,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript/disfluencies.json` | disfluency_extract |
 | `transcript/disfluency_clips/*.wav` | disfluency_extract |
 | `transcript/disfluency_review.json` | disfluency_review (gate) |
-| `flow_1_master/disfluency_restore_plan.json` | edl_flow1 |
+| `master/disfluency_restore_plan.json` | edl |
 | `transcript/corrections.json` | transcript_review (operator) ([transcript_corrections.schema.json](./json-schemas/transcript_corrections.schema.json)) |
 | `operator/manifest.json` | Index of operator-authored snapshots (GUI edits, settings) |
 | `operator/transcript_corrected.json` | Independent operator-corrected transcript per execution; refreshed on each dock word edit (`source: dock_edit`) and chunk save / G0 complete |
@@ -104,6 +104,8 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/source_acoustic_profile.json` | source_acoustic_profile |
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
+| `understanding/delivery_brief.json` | adaptive soft targets (duration, question/chapter budgets, SFX density) |
+| `understanding/source_readiness.json` | first-try source readiness band (`green`/`yellow`/`red`) for preclean decisions |
 | `understanding/interviewer_script.txt` | human-readable VO script |
 | `understanding/value_features.json` | optional; value-analysis extractor (`tools/extract_value_features.py` or auto after `content_context`) |
 | `segments/boundaries.json` | boundary detection |
@@ -118,7 +120,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `sound_design/placement_adjustments.json` | post-SFX placement QA hints; applied at mix via `apply_placement_adjustments` — [placement_adjustments.schema.json](./json-schemas/placement_adjustments.schema.json) |
 | `sound_design/assets/{asset_id}.wav` | MMAudio generated beds/stingers (canonical SDP path) |
 
-## Flow 1 — `flow_1_master/`
+## Flow 1 — `master/`
 
 | Path | Stage |
 |------|-------|
@@ -129,23 +131,23 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `edl_narrative_audit.json` | flagship semantic audit before final EDL ([edl_narrative_audit_artifact.schema.json](./json-schemas/artifacts/edl_narrative_audit_artifact.schema.json)) |
 | `podcast_sfx_brief.json` | subtle SFX spec (v1 legacy brief) |
 | `sfx/*.wav` | legacy per-flow SFX folder when SDP assets absent (copies from run-root `sound_design/assets/` when present) |
-| `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline ([edl_flow1.schema.json](./json-schemas/artifacts/edl_flow1.schema.json)); consumed by `mix_flow1` |
+| `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline ([edl.schema.json](./json-schemas/artifacts/edl.schema.json)); consumed by `mix` |
 | `assembly_preview.wav` | speech + VO preview before SFX (BUILD-069, shipped) |
-| `assembly.wav` | pre-master mix (`mix_flow1`) |
+| `assembly.wav` | pre-master mix (`mix`) |
 | `master.wav` | final export |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
 
-## Flow 2 — `flow_2_highlights/`
+## Flow 2 — `REMOVED_flow2/`
 
 | Path | Stage |
 |------|-------|
 | `selection.json` | ≤5 clips |
 | `sfx_brief.json` | montage SFX spec |
 | `sfx/*.wav` | MMAudio generated |
-| `assembly.wav` | pre-master mix (`mix_flow2`) |
+| `assembly.wav` | pre-master mix (`REMOVED_mix_flow2`) |
 | `master.wav` | final export |
 
-## Flow 3 — `flow_3_description/`
+## Flow 3 — `show_notes/`
 
 | Path | Stage |
 |------|-------|

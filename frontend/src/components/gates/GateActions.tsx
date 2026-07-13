@@ -11,7 +11,6 @@ import { VoPickupPanel } from "./VoPickupPanel";
 import { PreviewPickupPanel } from "./PreviewPickupPanel";
 import { ConversationStudioPanel } from "./ConversationStudioPanel";
 import { PickupSpeakerPanel } from "./PickupSpeakerPanel";
-import { FlowSelectPanel } from "./FlowSelectPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
 import { InterviewSpinePanel } from "../workspace/InterviewSpinePanel";
@@ -33,16 +32,10 @@ interface Props {
 const SONIC_CONTEXT_STAGES = new Set([
   "source_acoustic_profile",
   "sound_design_palettes",
-  "sound_design_plan_flow1",
-  "sound_design_plan_flow2",
+  "sound_design_plan",
 ]);
 
-const MIX_INTELLIGIBILITY_STAGES = new Set([
-  "mix_flow1",
-  "mix_flow2",
-  "master_flow1",
-  "master_flow2",
-]);
+const MIX_INTELLIGIBILITY_STAGES = new Set(["mix", "master_finalize"]);
 
 function wrapDoneGate(stage: StageInfo, children: ReactNode, title?: string) {
   if (stage.status !== "done") return children;
@@ -66,8 +59,8 @@ export function GateActions({ stage }: Props) {
     return (
       <div className="gate-actions">
         <p className="hint">
-          Verify the interview profile before Flow 1 extended stages — edit themes in
-          Story Board, then <strong>Mark profile verified</strong>.
+          Verify the interview profile before delivery stages — edit themes in Story Board,
+          then <strong>Mark profile verified</strong>.
         </p>
         <div className="flow-choice">
           <button
@@ -114,93 +107,83 @@ export function GateActions({ stage }: Props) {
     );
   }
 
-  if (stage.id === "mmaudio_sfx_flow1" || stage.id === "mmaudio_sfx_flow2") {
+  if (stage.id === "mmaudio_sfx") {
     return <SfxGatePanel stage={stage} />;
   }
 
   return wrapDoneGate(
     stage,
     (
-    <div className="gate-actions">
-      <div className="attention-required-wrap">
-      <StageAudioActions stage={stage} />
+      <div className="gate-actions">
+        <div className="attention-required-wrap">
+          <StageAudioActions stage={stage} />
 
-      {stage.id === "analysis_profile" ? (
-        <AnalysisProfileGate stage={stage} />
-      ) : null}
+          {stage.id === "analysis_profile" ? <AnalysisProfileGate stage={stage} /> : null}
 
-      {stage.id === "missing_framing" && stage.status === "action_required" ? (
-        <PickupSpeakerPanel stage={stage} />
-      ) : null}
-
-      {stage.id === "optimal_questions" && stage.status === "done" ? (
-        <ConversationStudioPanel />
-      ) : null}
-
-      {stage.id === "g1_vo_pickup" && stage.status === "done" ? (
-        <p className="hint">
-          All pickup lines recorded. Optional: clean new VO files before ingest, or
-          continue to flow selection.
-        </p>
-      ) : null}
-
-      {stage.id === "g1_vo_pickup" && stage.status === "action_required" ? (
-        <VoPickupPanel voLines={timeline?.vo_lines || []} />
-      ) : null}
-
-      {stage.id === "g1_5_preview_pickup" && stage.status === "action_required" ? (
-        <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
-      ) : null}
-
-      {(stage.id === "assembly_preview" || stage.id === "mmaudio_sfx_flow1") &&
-      (run.g1_5_preview_pickup_pending || []).length > 0 ? (
-        <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
-      ) : null}
-
-      {stage.id === "g2_flow_select" && stage.status === "action_required" ? (
-        <FlowSelectPanel />
-      ) : null}
-
-      {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
-      {stage.id === "interview_spine_build" ? <InterviewSpinePanel /> : null}
-      {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
-
-      {stage.id === "edl_flow1" || stage.id === "assembly_preview" ? (
-        <DisfluencyRestorePanel stageId={stage.id} />
-      ) : null}
-
-      {run.journey?.phase === "ship" ? (
-        <>
-          {stage.id === "full_master_ranking" || stage.id === "edl_flow1" ? (
-            <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />
+          {stage.id === "missing_framing" && stage.status === "action_required" ? (
+            <PickupSpeakerPanel stage={stage} />
           ) : null}
 
-          {stage.id === "edl_flow1" || stage.id === "edl_narrative_audit" ? (
-            <QcSummaryCard qcKey="edl_narrative_qc" stageId={stage.id} />
+          {stage.id === "optimal_questions" && stage.status === "done" ? (
+            <ConversationStudioPanel />
           ) : null}
 
-          {stage.id === "podcast_show_description" ? (
-            <QcSummaryCard qcKey="show_description_qc" stageId={stage.id} />
+          {stage.id === "g1_vo_pickup" && stage.status === "done" ? (
+            <p className="hint">
+              All pickup lines recorded. Optional: clean new VO files before ingest, or continue
+              to delivery.
+            </p>
           ) : null}
 
-          {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
-            <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+          {stage.id === "g1_vo_pickup" && stage.status === "action_required" ? (
+            <VoPickupPanel voLines={timeline?.vo_lines || []} />
           ) : null}
-        </>
-      ) : null}
 
-      {stage.id === "mix_flow1" || stage.id === "mix_flow2" ? (
-        <SfxPostListenPanel stage={stage} />
-      ) : null}
+          {stage.id === "g1_5_preview_pickup" && stage.status === "action_required" ? (
+            <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
+          ) : null}
 
-      {stage.id === "content_context" &&
-      (config?.value_analysis_enabled || run.meta?.qc_summaries) ? (
-        <ValueFeaturesPanel />
-      ) : null}
+          {(stage.id === "assembly_preview" || stage.id === "mmaudio_sfx") &&
+          (run.g1_5_preview_pickup_pending || []).length > 0 ? (
+            <PreviewPickupPanel voLines={timeline?.vo_lines || []} />
+          ) : null}
 
-      <PlacementAdjustmentsPanel stage={stage} />
+          {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
+          {stage.id === "interview_spine_build" ? <InterviewSpinePanel /> : null}
+          {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
+
+          {stage.id === "edl" || stage.id === "assembly_preview" ? (
+            <DisfluencyRestorePanel stageId={stage.id} />
+          ) : null}
+
+          {run.journey?.phase === "ship" ? (
+            <>
+              {stage.id === "full_master_ranking" || stage.id === "edl" ? (
+                <QcSummaryCard qcKey="narrative_qc" stageId={stage.id} />
+              ) : null}
+
+              {stage.id === "edl" || stage.id === "edl_narrative_audit" ? (
+                <QcSummaryCard qcKey="edl_narrative_qc" stageId={stage.id} />
+              ) : null}
+
+              {stage.id === "master_finalize" ? (
+                <QcSummaryCard qcKey="show_notes_qc" stageId={stage.id} />
+              ) : null}
+
+              {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
+                <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+              ) : null}
+            </>
+          ) : null}
+
+          {stage.id === "content_context" &&
+          (config?.value_analysis_enabled || run.meta?.qc_summaries) ? (
+            <ValueFeaturesPanel />
+          ) : null}
+
+          <PlacementAdjustmentsPanel stage={stage} />
+        </div>
       </div>
-    </div>
     ),
   );
 }
@@ -223,7 +206,7 @@ function SfxGatePanel({ stage }: { stage: StageInfo }) {
         setBlocked(false);
         setBlockReasons([]);
       });
-  }, [run, stage.id]);
+  }, [run, stage.id, showToast]);
 
   if (blocked === null) {
     return (

@@ -1,11 +1,13 @@
+"""Tests for stage contract YAML parity with STAGE_ARTIFACT_SCHEMAS."""
+
 from __future__ import annotations
 
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, STAGE_ARTIFACT_SCHEMAS
-from interview_mux.stage_contract import all_contract_stage_ids, load_contract
+from interview_mux.stage_contract import load_contract
 
 
 def test_all_llm_stages_have_contracts():
-    missing = [s for s in STAGE_ARTIFACT_SCHEMAS if s not in all_contract_stage_ids()]
+    missing = [s for s in STAGE_ARTIFACT_SCHEMAS if load_contract(s) is None]
     assert not missing, f"missing contracts: {missing}"
 
 

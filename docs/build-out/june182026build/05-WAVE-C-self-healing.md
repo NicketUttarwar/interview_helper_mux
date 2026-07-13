@@ -385,7 +385,7 @@ flowchart TB
 **Hook sites (code):**
 
 - `src/interview_mux/stages/understanding.py` — after `content_context`, `content_brief_reanchor`
-- `src/interview_mux/stages/analysis_flow1_extended.py` — after `topic_coverage_audit` (`post_coverage`)
+- `src/interview_mux/stages/analysis_extended.py` — after `topic_coverage_audit` (`post_coverage`)
 
 ---
 
@@ -829,7 +829,7 @@ Interviews **≥30 minutes** accumulate narrative risks: topic drift without aco
 - [x] **ORC03-S09** Volley truncation spot-check 35m reanchor with coherence_summary
 - [x] **ORC03-S10** topic_coverage_audit volley includes summary post-coverage hook
 - [x] **ORC03-S11** narrative_arc_plan receives compact summary
-- [x] **ORC03-S12** podcast_show_description blocking contradictions only in volley
+- [x] **ORC03-S12** REMOVED_podcast_show_description blocking contradictions only in volley
 
 ---
 

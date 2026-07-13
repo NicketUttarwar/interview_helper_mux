@@ -6,6 +6,7 @@
   "executions_root": "ASSETS/executions",
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
+  "target_lufs": -16.0,
   "flow2_target_lufs": -14.0,
   "show_description_min_words": 150,
   "show_description_max_words": 250,
@@ -30,12 +31,9 @@
       "narrative_arc_plan": { "tier": "flagship" },
       "full_master_ranking": { "tier": "flagship" },
       "edl_narrative_audit": { "tier": "flagship" },
-      "highlight_selection": { "tier": "flagship" },
-      "podcast_show_description": { "tier": "flagship" },
       "transitions": { "tier": "flagship" },
       "podcast_sfx_brief": { "tier": "flagship" },
-      "sound_design_plan_flow1": { "tier": "flagship" },
-      "sound_design_plan_flow2": { "tier": "flagship" },
+      "sound_design_plan": { "tier": "flagship" },
       "sfx_prompt_craft": { "tier": "flagship" },
       "sfx_prompt_refine": { "tier": "flagship" },
       "sfx_brief": { "tier": "flagship" }
@@ -43,6 +41,7 @@
   },
   "_comment_mix_engine": "crossfade_ms_* and preclean acknowledgment for step-through runner",
   "mix": {
+    "crossfade_ms": 100,
     "crossfade_ms_flow1": 100,
     "crossfade_ms_flow2": 120,
     "crossfade_ms_assembly_preview": 80,
@@ -65,7 +64,10 @@
     },
     "completeness_gate": {
       "enabled": true,
-      "mode": "warn"
+      "mode": "warn",
+      "hard_fail_missing_blocking_vo": true,
+      "hard_fail_empty_speech": true,
+      "soft_fail_sfx_placeholder": true
     },
     "intelligibility_qc": {
       "enabled": false,
@@ -89,11 +91,14 @@
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "warn",
     "max_palettes": 3,
+    "max_assets": 6,
     "max_assets_flow1": 6,
     "max_assets_flow2": 4,
     "use_adaptive_caps": true,
     "placement_qa_enabled": true,
-    "block_mix_on_mmaudio_qa_fail": false
+    "block_mix_on_mmaudio_qa_fail": false,
+    "one_regen_on_fail": true,
+    "first_try_allow_placeholder_mix": true
   },
   "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict — production values applied in gap-closure GC-F3",
   "production_style": "documentary_interview",
@@ -147,7 +152,7 @@
   "edl_narrative_qc": {
     "strict": true
   },
-  "show_description_qc": {
+  "show_notes_qc": {
     "strict": true
   },
   "nle_edits": {
@@ -164,7 +169,9 @@
   },
   "_comment_transcript_review": "G0 queue — salience default (H-G0-01); confidence fallback for A/B",
   "transcript_review": {
-    "sort_mode": "salience"
+    "sort_mode": "salience",
+    "auto_complete_when_clean": true,
+    "low_confidence_threshold": 0.85
   },
   "_comment_coherence": "H-ORC-03 long-run coherence — 30m gate, composite drift/contradiction/callback",
   "coherence": {
@@ -272,7 +279,11 @@
     "enable_stage_reuse_offers": true,
     "require_write_approval_per_stage": true,
     "auto_advance_pipeline": false,
-    "full_autopilot": true
+    "full_autopilot": true,
+    "first_try_mode": true,
+    "defer_write_approval_until": "phase_end",
+    "preclean_auto_dismiss_when_green": true,
+    "batch_save_phases": ["analysis", "delivery"]
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; enabled by default on macOS bootstrap",
   "local_llm": {
@@ -406,6 +417,25 @@
       "max_highlight_clips": 5,
       "content_context_topic_anchor_min_duration_ms": 900000
     },
+    "delivery_brief": {
+      "enabled": true,
+      "ideal_fraction_of_source": 0.85,
+      "min_duration_sec": 600,
+      "max_duration_sec": 7200,
+      "question_budget_max": 6,
+      "enforce_duration": false
+    },
+    "g1": {
+      "blocking_severities": ["high", "critical"]
+    },
+    "first_try": {
+      "artifact_issue_triage": {
+        "auto_resolve_min_confidence": 0.65,
+        "max_auto_resolve_attempts_per_stage": 3,
+        "risk_based_force_advance": true,
+        "brief_constrained_extra_attempt": true
+      }
+    },
     "flow_hardening": {
       "enabled": true,
       "strict_critical_stages": true,
@@ -423,10 +453,8 @@
       "clarification_before_halt": true,
       "spend_block_stages": [
         "sfx_prompt_craft",
-        "mmaudio_sfx_flow1",
-        "mmaudio_sfx_flow2",
-        "mix_flow1",
-        "mix_flow2"
+        "mmaudio_sfx",
+        "mix"
       ],
       "block_mix_without_sfx_when_enabled": true
     },

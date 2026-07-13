@@ -15,18 +15,14 @@ DECOMPOSE_ELIGIBLE = frozenset(
         "missing_framing",
         "topic_coverage_audit",
         "full_master_ranking",
-        "highlight_selection",
     }
 )
-
 
 def _context_cfg() -> dict[str, Any]:
     return (merged_config().get("analysis") or {}).get("context") or {}
 
-
 def _max_transcript_shards() -> int:
     return int(_context_cfg().get("max_transcript_shards", 12))
-
 
 def build_deterministic_shard_plan(
     stage_key: str,
@@ -47,7 +43,6 @@ def build_deterministic_shard_plan(
         "content_brief_reanchor",
         "topic_coverage_audit",
         "full_master_ranking",
-        "highlight_selection",
     ):
         return [], "empty"
 
@@ -59,7 +54,6 @@ def build_deterministic_shard_plan(
         "segment_classification",
         "content_brief_reanchor",
         "topic_coverage_audit",
-        "highlight_selection",
     ):
         if "lint_retry_force_decompose" in (truncation_flags or []) or "proactive_per_segment" in (
             truncation_flags or []
@@ -73,7 +67,6 @@ def build_deterministic_shard_plan(
     if stage_key == "full_master_ranking":
         return _ranking_batches(stage_input), "deterministic"
     return [], "empty"
-
 
 def _transcript_chunks(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     tr = stage_input.get("transcript")
@@ -93,7 +86,6 @@ def _transcript_chunks(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         chunks.append({"label": f"transcript_{i + 1}", "text_start": start, "text_end": end})
     return chunks[:max_shards]
 
-
 def _per_segment_shards(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = _all_segments(stage_input)
     if not segs:
@@ -107,7 +99,6 @@ def _per_segment_shards(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     max_shards = _max_transcript_shards()
     return plans[:max_shards]
 
-
 def should_proactive_decompose_segment_classification(stage_input: dict[str, Any]) -> bool:
     from interview_mux.classification_obligation import classification_context_cfg
 
@@ -115,7 +106,6 @@ def should_proactive_decompose_segment_classification(stage_input: dict[str, Any
     if threshold <= 0:
         return False
     return len(_all_segments(stage_input)) <= threshold
-
 
 def _segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = _all_segments(stage_input)
@@ -130,7 +120,6 @@ def _segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
             batches.append({"label": f"segments_{i // batch_size + 1}", "segment_ids": ids})
     return batches[:_max_transcript_shards()]
 
-
 def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = _all_segments(stage_input)
     cap = int(_context_cfg().get("max_gap_evaluations", 50)) // 2 or 25
@@ -143,7 +132,6 @@ def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         if ids:
             batches.append({"label": f"gaps_{i // cap + 1}", "segment_ids": ids})
     return batches[:_max_transcript_shards()]
-
 
 def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     tr = stage_input.get("transcript")
@@ -174,7 +162,6 @@ def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         plans.append({"label": f"time_{i // batch + 1}", "start_ms": start_ms, "end_ms": end_ms})
     return plans[:_max_transcript_shards()]
 
-
 def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     plan = stage_input.get("narrative_plan") or {}
     chapters = plan.get("chapters") or []
@@ -195,7 +182,6 @@ def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
             return batches
     return _segment_batches(stage_input)
 
-
 def _all_segments(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     segs = stage_input.get("segments")
     if isinstance(segs, dict):
@@ -211,7 +197,6 @@ def _all_segments(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         return [b for b in (boundaries.get("boundaries") or []) if isinstance(b, dict)]
     return []
 
-
 def _canonical_segment_ids(stage_key: str, stage_input: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for row in _all_segments(stage_input):
@@ -219,7 +204,6 @@ def _canonical_segment_ids(stage_key: str, stage_input: dict[str, Any]) -> list[
         if sid is not None and str(sid).strip():
             ids.append(str(sid))
     return ids
-
 
 def _resolve_shard_segment_id(raw: Any, id_universe: list[str]) -> str | None:
     if raw is None:
@@ -239,7 +223,6 @@ def _resolve_shard_segment_id(raw: Any, id_universe: list[str]) -> str | None:
         if 0 <= raw < len(id_universe):
             return id_universe[raw]
     return str(raw)
-
 
 def normalize_shard_plan(
     stage_key: str,
@@ -270,7 +253,6 @@ def normalize_shard_plan(
         normalized.append(entry)
     return normalized
 
-
 def transcript_length_for_stage_input(stage_input: dict[str, Any]) -> int:
     """Return character length of transcript text in stage input."""
     tr = stage_input.get("transcript")
@@ -280,12 +262,10 @@ def transcript_length_for_stage_input(stage_input: dict[str, Any]) -> int:
         return len(tr)
     return 0
 
-
 def should_proactive_decompose_content_context(stage_input: dict[str, Any]) -> bool:
     cfg = _context_cfg()
     threshold = int(cfg.get("proactive_decompose_chars", cfg.get("transcript_full_chars", 72000)))
     return transcript_length_for_stage_input(stage_input) > threshold
-
 
 def should_proactive_decompose_boundary_detection(
     stage_input: dict[str, Any],

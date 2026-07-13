@@ -7,8 +7,8 @@ Stage prompts for Wave 5 sound design. Full logic: [sound-design.md](../../cross
 | File | Stage |
 |------|--------|
 | [theme-palettes.system.txt](./theme-palettes.system.txt) | `sound_design_palettes` |
-| [plan-flow1.system.txt](./plan-flow1.system.txt) | `sound_design_plan_flow1` |
-| [plan-flow2.system.txt](./plan-flow2.system.txt) | `sound_design_plan_flow2` |
+| [plan-flow1.system.txt](./plan-flow1.system.txt) | `sound_design_plan` |
+| [plan-flow2.system.txt](./plan-flow2.system.txt) | `REMOVED_sdp_flow2` |
 | [sfx-prompt-craft.system.txt](./sfx-prompt-craft.system.txt) | `sfx_prompt_craft` |
 | [sfx-prompt-refine.system.txt](./sfx-prompt-refine.system.txt) | `sfx_prompt_refine` |
 

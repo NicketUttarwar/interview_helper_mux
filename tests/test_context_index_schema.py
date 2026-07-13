@@ -26,7 +26,7 @@ RUN_ID = "exec_001_a1b2c3d4e5f6_20260601T120000Z"
 def minimal_ctx(tmp_path):
     import shutil
 
-    from tests.run_fixtures import isolated_run_ctx
+    from run_fixtures import isolated_run_ctx
 
     ctx = isolated_run_ctx(tmp_path, RUN_ID)
     shutil.copytree(FIXTURE, ctx.run_dir, dirs_exist_ok=True)
@@ -157,6 +157,14 @@ def test_backfill_dry_run(minimal_ctx):
 
 def test_apply_envelope_writes_volley_entry(minimal_ctx):
     from interview_mux.analysis_memory import apply_envelope_to_memory
+    from run_fixtures import minimal_content_brief
+
+    minimal_ctx.write_json(
+        "understanding/content_brief.json",
+        minimal_content_brief(),
+        skip_handoff=True,
+    )
+    minimal_ctx.mark_done("content_context", force=True)
 
     apply_envelope_to_memory(
         minimal_ctx,

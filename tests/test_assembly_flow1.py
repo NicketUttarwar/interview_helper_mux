@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from interview_mux.run_context import RunContext
-from interview_mux.stages import assembly_flow1
-from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from interview_mux.stages import assembly
+from interview_mux.stages.assembly import build_flow1_edl
 from run_fixtures import minimal_manifest, minimal_manifest_segment
 
 
@@ -90,9 +90,9 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
 
 
 def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
-    monkeypatch.setattr(assembly_flow1, "check_narrative_qc", lambda *_a, **_k: None)
-    monkeypatch.setattr(assembly_flow1, "check_edl_qc", lambda *_a, **_k: None)
-    monkeypatch.setattr(assembly_flow1, "check_edl_narrative_qc", lambda *_a, **_k: None)
+    monkeypatch.setattr(assembly, "check_narrative_qc", lambda *_a, **_k: None)
+    monkeypatch.setattr(assembly, "check_edl_qc", lambda *_a, **_k: None)
+    monkeypatch.setattr(assembly, "check_edl_narrative_qc", lambda *_a, **_k: None)
     ctx = RunContext("run_206", create=True)
     ctx.write_json(
         "segments/manifest.json",
@@ -103,7 +103,7 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
         ),
     )
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"], "excluded_segment_ids": []},
     )
     ctx.write_json(
@@ -114,20 +114,20 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
         },
     )
 
-    assembly_flow1.run_edl(ctx)
+    assembly.run_edl(ctx)
 
-    selection = ctx.read_json("flow_1_master/selection.json")
+    selection = ctx.read_json("master/selection.json")
     assert selection["ordered_segment_ids"] == ["seg_c", "seg_a"]
     assert selection.get("nle_applied") is True
     assert any(
         e.get("segment_id") == "seg_b" for e in selection.get("excluded_segment_ids") or []
     )
 
-    edl = ctx.read_json("flow_1_master/edl.json")
+    edl = ctx.read_json("master/edl.json")
     speech_ids = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]
     assert "seg_b" not in speech_ids
     assert speech_ids == ["seg_c", "seg_a"]
-    assert ctx.is_done("edl_flow1")
+    assert ctx.is_done("edl")
 
 
 def test_edl_skips_non_record_delivery() -> None:
@@ -168,7 +168,7 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
     run_dir = tmp_path / "run_001"
     (run_dir / "ingest").mkdir(parents=True, exist_ok=True)
     (run_dir / "vo_pickup").mkdir(parents=True, exist_ok=True)
-    (run_dir / "flow_1_master").mkdir(parents=True, exist_ok=True)
+    (run_dir / "master").mkdir(parents=True, exist_ok=True)
     (run_dir / "ingest" / "normalized.wav").write_bytes(b"\x00")
     (run_dir / "vo_pickup" / "line_001.wav").write_bytes(b"\x00")
 
@@ -191,7 +191,7 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
             self.done: list[str] = []
 
         def read_json(self, rel: str) -> dict:
-            assert rel == "flow_1_master/edl.json"
+            assert rel == "master/edl.json"
             return edl
 
         def path(self, *parts: str) -> Path:
@@ -220,9 +220,9 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", fake_run)
 
     ctx = FakeCtx()
-    preview = assembly_flow1.run_preview(ctx)
+    preview = assembly.run_preview(ctx)
 
-    assert preview == run_dir / "flow_1_master" / "assembly_preview.wav"
+    assert preview == run_dir / "master" / "assembly_preview.wav"
     assert preview.is_file()
     assert ctx.done == ["assembly_preview"]
     assert any(stage == "assembly_preview" and level == "success" for level, stage, _ in ctx.logs)
@@ -232,7 +232,7 @@ def test_run_preview_renders_speech_and_vo(tmp_path: Path, monkeypatch) -> None:
 def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
     run_dir = tmp_path / "run_002"
     (run_dir / "ingest").mkdir(parents=True, exist_ok=True)
-    (run_dir / "flow_1_master").mkdir(parents=True, exist_ok=True)
+    (run_dir / "master").mkdir(parents=True, exist_ok=True)
     (run_dir / "ingest" / "normalized.wav").write_bytes(b"\x00")
 
     edl = {
@@ -277,4 +277,4 @@ def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
     )
 
     with pytest.raises(FileNotFoundError, match="line_missing"):
-        assembly_flow1.run_preview(FakeCtx())
+        assembly.run_preview(FakeCtx())

@@ -14,6 +14,7 @@ from interview_mux.write_staging import (
     exit_stage_staging,
     list_pending_paths,
 )
+from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -49,7 +50,8 @@ def test_approve_write_and_continue_flushes_without_auto_starting_next(
     iso = ctx.path("preclean/isolated.wav")
     iso.parent.mkdir(parents=True, exist_ok=True)
     iso.write_bytes(b"wav")
-    ctx.path("preclean/lineage.json").write_text("{}", encoding="utf-8")
+    ctx.write_json("preclean/lineage.json", minimal_preclean_lineage())
+    ctx.write_json("preclean/provider.json", minimal_preclean_provider())
     exit_stage_staging()
 
     spawned: list[str] = []

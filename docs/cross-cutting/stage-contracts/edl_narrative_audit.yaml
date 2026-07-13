@@ -9,13 +9,13 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_1_master/edl_narrative_audit.json
+- path: master/edl_narrative_audit.json
   schema: edl_narrative_audit_artifact.schema.json
   staging: true
 inputs:
   hard:
   - path: understanding/sound_design_plan.json
-    producer: sound_design_plan_flow1
+    producer: sound_design_plan
   soft: []
 sufficiency:
 - path: findings

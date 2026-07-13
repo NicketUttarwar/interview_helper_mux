@@ -11,15 +11,11 @@ flowchart LR
   topic_coverage_audit -->|C| topic_coverage_audit
   narrative_arc_plan -->|C| narrative_arc_plan
   full_master_ranking -->|C| full_master_ranking
-  highlight_selection -->|C| highlight_selection
   transitions -->|C| transitions
   podcast_sfx_brief -->|C| podcast_sfx_brief
-  sound_design_plan_flow1 -->|C| sound_design_palettes
-  sound_design_plan_flow2 -->|C| sound_design_palettes
+  sound_design_plan -->|C| sound_design_palettes
   edl_narrative_audit -->|C| edl_narrative_audit
   sfx_prompt_craft -->|C| sfx_prompt_craft
-  sfx_brief -->|C| sfx_brief
-  podcast_show_description -->|C| podcast_show_description
   boundary_detection -->|I| segment_classification
   boundary_detection -->|I| content_brief_reanchor
   boundary_detection -->|I| sonic_context_build
@@ -34,9 +30,21 @@ flowchart LR
   speaker_roles -->|I| content_context
   speaker_roles -->|I| boundary_detection
   speaker_roles -->|I| segment_classification
+  speaker_roles -->|I| source_topology_build
+  source_topology_build -->|I| content_context
+  source_topology_build -->|I| boundary_detection
+  source_topology_build -->|I| segment_classification
+  source_topology_build -->|I| missing_framing
+  source_topology_build -->|I| optimal_questions
+  source_topology_build -->|I| narrative_arc_plan
+  source_topology_build -->|I| full_master_ranking
+  source_topology_build -->|I| sound_design_plan
   content_context -->|I| boundary_detection
   content_context -->|I| segment_classification
   content_context -->|I| content_brief_reanchor
+  content_context -->|I| narrative_arc_plan
+  content_context -->|I| full_master_ranking
+  content_context -->|I| topic_coverage_audit
   content_brief_reanchor -->|I| sonic_context_build
   content_brief_reanchor -->|I| sound_design_palettes
   content_brief_reanchor -->|I| missing_framing
@@ -49,27 +57,41 @@ flowchart LR
   narrative_arc_plan -->|I| full_master_ranking
   narrative_arc_plan -->|I| transitions
   full_master_ranking -->|I| transitions
-  full_master_ranking -->|I| sound_design_plan_flow1
-  full_master_ranking -->|I| edl_flow1
-  transitions -->|I| sound_design_plan_flow1
-  transitions -->|I| edl_flow1
-  sound_design_plan_flow1 -->|I| sfx_prompt_craft
-  sound_design_plan_flow1 -->|I| edl_flow1
+  full_master_ranking -->|I| sound_design_plan
+  full_master_ranking -->|I| edl
+  transitions -->|I| sound_design_plan
+  transitions -->|I| edl
+  sound_design_plan -->|I| sfx_prompt_craft
+  sound_design_plan -->|I| edl
   sound_design_plan_flow2 -->|I| sfx_prompt_craft
   highlight_selection -->|I| sound_design_plan_flow2
+  analysis_profile -->|I| content_context
+  analysis_profile -->|I| narrative_arc_plan
+  analysis_profile -->|I| full_master_ranking
+  analysis_profile -->|I| topic_coverage_audit
+  analysis_profile -->|I| sound_design_plan
+  g1_vo_pickup -->|I| sound_design_vo_finalize
+  g1_vo_pickup -->|I| edl
+  g1_vo_pickup -->|I| assembly_preview
+  g1_vo_pickup -->|I| mix
+  g1_vo_pickup -->|I| master_finalize
   boundary_detection -->|R| content_context
   content_brief_reanchor -->|R| segment_classification
   content_context -->|R| speaker_roles
-  edl_narrative_audit -->|R| sound_design_plan_flow1
+  edl_narrative_audit -->|R| sound_design_plan
   full_master_ranking -->|R| narrative_arc_plan
+  highlight_selection -->|I| REMOVED_sdp_flow2
   highlight_selection -->|R| optimal_questions
   missing_framing -->|R| content_brief_reanchor
   narrative_arc_plan -->|R| topic_coverage_audit
   optimal_questions -->|R| missing_framing
   segment_classification -->|R| boundary_detection
   sound_design_palettes -->|R| content_brief_reanchor
+  sound_design_plan -->|R| full_master_ranking
+  sound_design_plan_flow1 -->|I| sfx_prompt_craft
+  sound_design_plan_flow1 -->|I| edl
   sound_design_plan_flow1 -->|R| full_master_ranking
-  sound_design_plan_flow2 -->|R| highlight_selection
+  sound_design_plan_flow2 -->|R| REMOVED_highlight_selection
   topic_coverage_audit -->|R| optimal_questions
   transitions -->|R| full_master_ranking
 ```

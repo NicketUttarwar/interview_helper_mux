@@ -10,7 +10,7 @@ How your interview’s pacing drives cohesive SFX — without reading the full S
 4. **Assembly preview** — speech + VO only — **listen before MMAudio SFX generation**.
 5. **Craft + generate** — one WAV per `asset_id` via local MMAudio (`mmaudio_sfx_flow*`).
 6. **Optional QA loop** — post-listen pass/fail, `POST …/sfx-prompts/refine`, per-asset `regenerate`, `GET …/sfx-qa` ([mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md)).
-7. **Mix + master** — `mix_flow1` / `mix_flow2` → LUFS target.
+7. **Mix + master** — `mix` / `REMOVED_mix_flow2` → LUFS target.
 
 ## Operator rules
 

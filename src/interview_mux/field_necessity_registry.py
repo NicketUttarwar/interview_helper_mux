@@ -102,24 +102,19 @@ FABRICATABLE_FIELDS: dict[str, frozenset[str]] = {
     "topic_coverage_audit": frozenset({"notes", "gaps"}),
     "narrative_arc_plan": frozenset({"notes", "ordering_constraints"}),
     "full_master_ranking": frozenset({"notes", "excluded_segment_ids"}),
-    "highlight_selection": frozenset({"notes"}),
     "transitions": frozenset({"transitions[].notes"}),
-    "podcast_show_description": frozenset({"subtitle", "keywords"}),
     "podcast_sfx_brief": frozenset({"notes"}),
     "sfx_brief": frozenset({"notes"}),
     "sfx_prompt_craft": frozenset({"notes"}),
     "sound_design_palettes": frozenset({"notes"}),
-    "sound_design_plan_flow1": frozenset({"notes"}),
-    "sound_design_plan_flow2": frozenset({"notes"}),
+    "sound_design_plan": frozenset({"notes"}),
     "edl_narrative_audit": frozenset({"notes"}),
 }
-
 
 class FieldAction(str, Enum):
     OMIT = "omit"
     FABRICATE = "fabricate"
     BLOCK = "block"
-
 
 def _is_never_fabricate(path: str) -> bool:
     norm = normalize_field_path(path)
@@ -128,13 +123,11 @@ def _is_never_fabricate(path: str) -> bool:
             return True
     return False
 
-
 def _is_critical(stage_key: str, path: str) -> bool:
     for pat in critical_fields_for_stage(stage_key):
         if path_matches_pattern(path, pat):
             return True
     return False
-
 
 def _is_nullable(stage_key: str, path: str) -> bool:
     for pat in nullable_fields_for_stage(stage_key):
@@ -146,7 +139,6 @@ def _is_nullable(stage_key: str, path: str) -> bool:
             return True
     return False
 
-
 def _is_fabricatable(stage_key: str, path: str) -> bool:
     for pat in FABRICATABLE_FIELDS.get(stage_key, frozenset()):
         if path_matches_pattern(path, pat):
@@ -156,7 +148,6 @@ def _is_fabricatable(stage_key: str, path: str) -> bool:
     if leaf in GLOBAL_FABRICATABLE_LEAVES:
         return True
     return False
-
 
 def classify_field_path(
     stage_key: str | None,
@@ -187,7 +178,6 @@ def classify_field_path(
         return FieldAction.FABRICATE
 
     return FieldAction.BLOCK
-
 
 def parse_verification_error_path(error: str) -> str | None:
     """Extract artifact field path from jsonschema error message."""

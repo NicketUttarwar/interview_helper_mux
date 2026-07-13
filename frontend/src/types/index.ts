@@ -46,6 +46,11 @@ export interface AppConfig {
     auto_advance_pipeline?: boolean;
     /** When true (default), in-run finalize + decision wizard replace Fix all / clarification UI. */
     full_autopilot?: boolean;
+    /** Cold-start friction collapse — see docs/workflows/first-try-reliability.md */
+    first_try_mode?: boolean;
+    defer_write_approval_until?: "phase_end" | "off" | "never";
+    preclean_auto_dismiss_when_green?: boolean;
+    batch_save_phases?: string[];
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
@@ -66,7 +71,6 @@ export interface RunSummary {
   source_audio_hash_short?: string;
   updated_at?: string;
   created_at?: string;
-  selected_flow?: string;
   progress?: { done: number; total: number };
   last_log?: LogEntry;
   job_status?: string;
@@ -110,7 +114,6 @@ export type JourneyBlockingReason =
   | "disfluency_review"
   | "g1_vo_pickup"
   | "g1_5_preview_pickup"
-  | "g2_flow_select"
   | "analysis_profile"
   | "handoff_review"
   | (string & {});
@@ -135,10 +138,12 @@ export interface JourneyExecuteHint {
 export interface JourneyState {
   phase: OperatorPhase;
   milestones: Record<string, boolean>;
-  flow_intent?: string | null;
-  selected_flow?: string | null;
   next_action: string;
   blocking: JourneyBlocking;
+  delivery_readiness?: {
+    ready?: boolean;
+    blockers?: Array<{ layer?: string; message?: string }>;
+  };
   recommended_preclean?: string | null;
   preclean_checkpoints?: string[];
   execute_hint?: JourneyExecuteHint | null;
@@ -157,6 +162,18 @@ export interface JourneyState {
   active_substep_id?: string | null;
   active_substep_label?: string | null;
   active_operator_action?: import("./operatorAction").ServerOperatorAction;
+  first_try?: {
+    enabled?: boolean;
+    write_approval_deferred?: boolean;
+    batch_save_phases?: string[];
+  };
+  source_readiness?: {
+    band?: string;
+    score?: number;
+    reasons?: string[];
+    recommended?: { preclean?: boolean };
+  } | null;
+  pending_write_stages?: string[];
 }
 
 export type GuidanceItemStatus = "todo" | "done" | "waiting";
@@ -355,9 +372,6 @@ export interface RunData {
   meta?: RunMeta;
   handoff_ack?: Record<string, string>;
   sfx_generated_assets?: Array<{ asset_id: string; path: string }>;
-  selected_flow?: string;
-  flow_intent?: string;
-  display_flow?: string;
   journey?: JourneyState;
   blocking?: JourneyBlocking;
   transcript_review_pending?: boolean;
@@ -395,8 +409,6 @@ export interface RunMeta {
   source_audio_hash?: string;
   source_audio_hash_short?: string;
   updated_at?: string;
-  selected_flow?: string;
-  flow_intent?: string;
   operator_phase?: OperatorPhase;
   journey_milestones?: Record<string, boolean>;
   preview_listened_at?: string;
@@ -826,11 +838,9 @@ export interface ExecuteBody {
     | "stage"
     | "analysis"
     | "analysis_until_g0"
-    | "flow1"
-    | "flow1_until_preview"
-    | "flow1_polish"
-    | "flow2"
-    | "flow3"
+    | "delivery"
+    | "delivery_until_preview"
+    | "delivery_polish"
     | "nle_apply";
   stage?: string;
   from_stage?: string;

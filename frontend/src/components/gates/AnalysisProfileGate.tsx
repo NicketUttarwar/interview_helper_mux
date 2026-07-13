@@ -8,8 +8,7 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
   const [verifying, setVerifying] = useState(false);
   const ready = Boolean(run?.profile_ready_for_review);
   const verified = stage.status === "done" || Boolean(run?.profile_verified);
-  const flow1Block =
-    run?.selected_flow === "flow1" && run?.profile_gate_pending;
+  const showDeliveryBlockHint = !verified;
 
   const verifyProfile = async () => {
     if (!runId || verifying) return;
@@ -55,9 +54,9 @@ export function AnalysisProfileGate({ stage }: { stage: StageInfo }) {
           ? "Profile marked verified."
           : "Not verified yet — you can still edit before verifying."}
       </p>
-      {flow1Block ? (
+      {showDeliveryBlockHint ? (
         <p className="hint">
-          <strong>Flow 1 extended</strong> (topic coverage and later) is blocked until
+          <strong>Podcast delivery</strong> (topic coverage and later) is blocked until
           you mark the profile verified.
         </p>
       ) : null}

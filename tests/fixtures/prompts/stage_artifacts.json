@@ -186,31 +186,6 @@
     "recommended_actions": [],
     "reasoning_summary": "The selected order preserves the planned setup-to-payoff arc."
   },
-  "highlight_selection": {
-    "highlights": [
-      {
-        "rank": 1,
-        "segment_id": "seg_001",
-        "start_ms": 0,
-        "end_ms": 10000,
-        "headline": "Founding decision point",
-        "scores": {
-          "salience": 8,
-          "clarity": 8,
-          "emotion": 7,
-          "quotability": 7,
-          "diversity_bonus": 1
-        }
-      }
-    ],
-    "rejected_candidates": [
-      {
-        "segment_id": "seg_002",
-        "reason": "redundant topic"
-      }
-    ],
-    "reel_thesis": "A founder explains the early path to product-market fit."
-  },
   "transitions": {
     "transitions": [
       {
@@ -225,43 +200,7 @@
     "profile": "podcast",
     "chapter_stingers": []
   },
-  "sound_design_plan_flow2": {
-    "assets": [
-      {
-        "asset_id": "montage_transition_glue",
-        "role": "transition_stinger",
-        "description": "Short forward-motion whoosh with no vocals, reusable between clips.",
-        "duration_seconds": 1.4,
-        "reuse_note": "Shared between all between_clips cues."
-      },
-      {
-        "asset_id": "cold_open_pulse",
-        "role": "cold_open",
-        "description": "Tight tonal rise before the first highlight.",
-        "duration_seconds": 2.0
-      }
-    ],
-    "flow_plans": {
-      "flow2": {
-        "profile": "montage",
-        "cues": [
-          {
-            "cue_id": "open_001",
-            "asset_id": "cold_open_pulse",
-            "placement": "before_timeline"
-          },
-          {
-            "cue_id": "cut_1_2",
-            "asset_id": "montage_transition_glue",
-            "placement": "between_clips",
-            "from_clip_rank": 1,
-            "to_clip_rank": 2
-          }
-        ]
-      }
-    }
-  },
-  "sound_design_plan_flow1": {
+  "sound_design_plan": {
     "assets": [
       {
         "asset_id": "chapter_stinger_warm",
@@ -271,7 +210,7 @@
       }
     ],
     "flow_plans": {
-      "flow1": {
+      "podcast": {
         "profile": "podcast",
         "cues": [
           {
@@ -307,19 +246,5 @@
   },
   "sfx_brief": {
     "transitions": []
-  },
-  "podcast_show_description": {
-    "description_markdown": "This episode follows a product leader as they unpack the earliest strategic constraints, explain how those pressures shaped customer discovery, and show how a clearer point of view emerged through iteration and feedback loops. The conversation stays grounded in decisions that teams can apply immediately: where to focus, what to defer, and how to maintain editorial clarity while shipping quickly. Listeners hear practical examples, reflective moments, and specific operating principles that connect story to execution.",
-    "word_count": 180,
-    "hook_sentence": "A candid walkthrough of how early product bets became a repeatable strategy.",
-    "themes_highlighted": [
-      "product strategy"
-    ],
-    "audience_pitch": "Useful for product leaders and founders building editorially strong interview content.",
-    "evidence_segment_ids": [
-      "seg_001"
-    ],
-    "tone": "conversational",
-    "confidence": 0.84
   }
 }

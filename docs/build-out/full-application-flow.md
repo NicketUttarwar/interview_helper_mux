@@ -43,14 +43,14 @@ flowchart TB
   end
 
   subgraph f2 [Flow 2 — highlights]
-    F2a[highlight_selection → sfx]
+    F2a[REMOVED_highlight_selection → sfx]
     F2b[mux → master]
     F2a --> F2b
   end
 
   subgraph f3 [Flow 3 — publishing]
-    F3a[podcast_show_description]
-    F3b[export_show_description]
+    F3a[REMOVED_podcast_show_description]
+    F3b[REMOVED_export_show_description]
     F3a --> F3b
   end
 
@@ -82,7 +82,7 @@ flowchart TB
 | 8 | Continue analysis if paused at G0 | Remaining analysis stages | `analysis_complete.json` |
 | 9 | **G1:** Record pickup lines | `vo_ingest` when re-run | `vo_pickup/*.wav` |
 | 10 | Optional: clean new VO only | pickup-scoped pre-clean (`vo_pickup` scope, BUILD-019 + BUILD-072) | `vo_pickup/clean/*.wav` |
-| 11 | **G2:** Choose flow1, flow2, or flow3 | `set_selected_flow` | `run_meta.selected_flow` |
+| 11 | **G2:** Choose flow1, flow2, or flow3 | `set_REMOVED_selected_flow` | `run_meta.REMOVED_selected_flow` |
 | 12 | Execute flow | Flow-specific stages | `flow_*/*` outputs |
 | 13 | Listen / export | — | `master.wav` or `show_description.md` |
 | 14 | QA | `verify_master.py`, `validate_narrative.py --include-edl`, `verify_edl.py` *(Flow 1 schema)* | pass/fail in log |
@@ -124,7 +124,7 @@ flowchart LR
 | `./scripts/bootstrap_venv.sh` | First setup | [SETUP.md](../../SETUP.md) |
 | `./tools/check_prerequisites.sh` | After env change | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) |
 | `python tools/run_analysis.py [--run-id] [--from-stage]` | Shared analysis | [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md) |
-| `python tools/run_flow.py --flow flow1\|flow2\|flow3` | After G2 | [smoke-test.md](../workflows/smoke-test.md) |
+| `python tools/run_delivery.py --flow flow1\|flow2\|flow3` | After G2 | [smoke-test.md](../workflows/smoke-test.md) |
 | `python tools/verify_master.py <wav>` | After flow1/2 master | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 | `python tools/validate_narrative.py --run-id <id> --include-edl` | Flow 1 upstream + EDL narrative QC | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
 | `python tools/validate_edl.py --run-id <id>` | Flow 1 EDL timeline validation | [evaluation-metrics.md](../cross-cutting/evaluation-metrics.md) |
@@ -164,39 +164,39 @@ Matches `ANALYSIS_ORDER` in `src/interview_mux/pipeline.py`:
 2. `narrative_arc_plan`
 3. `full_master_ranking`
 4. `transitions`
-5. `sound_design_plan_flow1`
+5. `sound_design_plan`
 6. `sound_design_vo_finalize`
 7. `edl_narrative_audit`
-8. `edl_flow1`
+8. `edl`
 9. `assembly_preview`
 10. `sfx_prompt_craft`
-11. `mmaudio_sfx_flow1`
-12. `mix_flow1`
-13. `master_flow1`
+11. `mmaudio_sfx`
+12. `mix`
+13. `master_finalize`
 
-**v1 legacy:** `podcast_sfx_brief` and `mux_flow1` remain available as single-stage reruns but are not in `FLOW1_ORDER`.
+**v1 legacy:** `podcast_sfx_brief` and `mux_flow1` remain available as single-stage reruns but are not in `DELIVERY_ORDER`.
 
 ---
 
 ## Flow 2 stage order (after G2 = flow2)
 
-1. `highlight_selection`
-2. `sound_design_plan_flow2`
+1. `REMOVED_highlight_selection`
+2. `REMOVED_sdp_flow2`
 3. `sfx_prompt_craft`
-4. `mmaudio_sfx_flow2`
-5. `mix_flow2` *(legacy alias: `mux_flow2` for single-stage rerun)*
-6. `master_flow2`
+4. `REMOVED_mmaudio_flow2`
+5. `REMOVED_mix_flow2` *(legacy alias: `mux_flow2` for single-stage rerun)*
+6. `REMOVED_master_flow2`
 
-**v1 legacy:** `sfx_brief` remains available as a single-stage rerun (`run_single_stage`) but is not in `FLOW2_ORDER`.
+**v1 legacy:** `sfx_brief` remains available as a single-stage rerun (`run_single_stage`) but is not in `REMOVED_FLOW2_ORDER`.
 
 ---
 
 ## Flow 3 stage order (after G2 = flow3) — **shipped**
 
-1. `podcast_show_description`
-2. `export_show_description`
+1. `REMOVED_podcast_show_description`
+2. `REMOVED_export_show_description`
 
-No mastering. Output: `flow_3_description/show_description.json` + `.md`.
+No mastering. Output: `show_notes/show_description.json` + `.md`.
 
 ---
 
@@ -212,7 +212,7 @@ Per run under `ASSETS/executions/exec_*` (or legacy `data/run_*`). Full ASSETS c
 | `.stage_done/<stage>` | Each completed stage |
 | `ingest/`, `transcript/`, `understanding/`, `segments/` | Shared analysis |
 | `vo_pickup/` | Operator + G1 |
-| `flow_1_master/`, `flow_2_highlights/`, `flow_3_description/` | After G2 |
+| `master/`, `REMOVED_flow2/`, `show_notes/` | After G2 |
 
 Full tree: [artifact-layout.md](../cross-cutting/artifact-layout.md).
 
@@ -224,7 +224,7 @@ Full tree: [artifact-layout.md](../cross-cutting/artifact-layout.md).
 |-----------|--------|-----|
 | Stage failed mid-pipeline | `--from-stage <id>` | [idempotent-runs.md](../workflows/idempotent-runs.md) |
 | Wrong STT after analysis | Re-open G0, rerun from `speaker_roles` | [feedback-loops-and-reruns.md](../workflows/feedback-loops-and-reruns.md) |
-| Switched flow at G2 | New `selected_flow`; avoid mixing flow dirs | [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
+| Switched flow at G2 | New `REMOVED_selected_flow`; avoid mixing flow dirs | [operator-stage-checklists.md](../workflows/operator-stage-checklists.md) |
 | Symptom unknown | [troubleshooting.md](../workflows/troubleshooting.md) | — |
 
 ---
@@ -233,10 +233,10 @@ Full tree: [artifact-layout.md](../cross-cutting/artifact-layout.md).
 
 | Capability | Shipped | Optional follow-ups |
 |------------|---------|---------------------|
-| Three flows runnable | flow1, flow2, flow3 (`run_flow1/2/3`, BUILD-080) | — |
+| Three flows runnable | flow1, flow2, flow3 (`run_delivery/2/3`, BUILD-080) | — |
 | G2 API | flow1 \| flow2 \| flow3 (`gates.py`, `server.py`) | — |
-| Flow 1 master | VO + SFX mix via `mix_flow1` (BUILD-065–067) plus extended EDL narrative validators | — |
-| Flow 2 montage | `mix_flow2` + SDP transitions (BUILD-065–066) | Cold-open polish |
+| Flow 1 master | VO + SFX mix via `mix` (BUILD-065–067) plus extended EDL narrative validators | — |
+| Flow 2 montage | `REMOVED_mix_flow2` + SDP transitions (BUILD-065–066) | Cold-open polish |
 | Master QA | LUFS + true peak (`verify_master`, BUILD-070–071) | — |
 | Narrative QC | Topic + chapter checks plus final EDL semantics (`validate_narrative --include-edl`) | — |
 | LLM routing | Tier registry + arbiter + shard/collate (BUILD-073) | — |

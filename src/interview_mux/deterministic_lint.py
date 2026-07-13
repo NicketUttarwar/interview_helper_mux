@@ -146,8 +146,8 @@ def collect_segment_ids_from_artifacts(stage_key: str, artifacts: dict[str, Any]
 
 def _reference_id_universe(ctx: RunContext, stage_key: str) -> set[str]:
     if stage_key in ("full_master_ranking", "edl_narrative_audit", "transitions"):
-        if ctx.artifact_exists("flow_1_master/selection.json"):
-            sel = ctx.read_json("flow_1_master/selection.json")
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
             return {str(x) for x in (sel.get("ordered_segment_ids") or [])}
         return set()
     return _manifest_ids(ctx)
@@ -313,18 +313,29 @@ def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> l
     return errors
 
 
-def _lint_sound_design_plan_flow1(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
+def _lint_sound_design_plan(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
     cfg = merged_config()
-    cap = int((cfg.get("sound_design") or {}).get("max_assets_flow1", 6))
+    cap = int((cfg.get("sound_design") or {}).get("max_assets", (cfg.get("sound_design") or {}).get("max_assets_flow1", 6)))
+    if ctx.artifact_exists("understanding/delivery_brief.json"):
+        brief = ctx.read_json("understanding/delivery_brief.json")
+        dens = brief.get("sfx_density") if isinstance(brief, dict) else {}
+        if isinstance(dens, dict):
+            brief_cap = sum(int(dens.get(k) or 0) for k in ("max_beds", "max_punctuators", "max_foley"))
+            if brief_cap > 0:
+                cap = min(cap, brief_cap)
     assets = artifacts.get("assets") or []
     asset_ids = {str(a.get("asset_id")) for a in assets if isinstance(a, dict) and a.get("asset_id")}
     if len(asset_ids) > cap:
         errors.append(f"asset count {len(asset_ids)} exceeds cap {cap}")
-    cues = ((artifacts.get("flow_plans") or {}).get("flow1") or {}).get("cues") or []
+    flow_plans = artifacts.get("flow_plans") if isinstance(artifacts.get("flow_plans"), dict) else {}
+    flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    if not flow and isinstance(flow_plans.get("flow1"), dict):
+        flow = flow_plans["flow1"]
+    cues = (flow.get("cues") or []) if isinstance(flow.get("cues"), list) else []
     selection_ids: set[str] = set()
-    if ctx.artifact_exists("flow_1_master/selection.json"):
-        sel = ctx.read_json("flow_1_master/selection.json")
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
         selection_ids = set(sel.get("ordered_segment_ids") or [])
     palette_seg_ids: set[str] = set()
     sdp = ctx.read_json("understanding/sound_design_plan.json") if ctx.artifact_exists(
@@ -598,6 +609,14 @@ def _lint_narrative_arc_plan(artifacts: dict[str, Any], ctx: RunContext) -> list
     errors: list[str] = []
     cfg = merged_config()
     max_ch = int((cfg.get("analysis") or {}).get("prompt_thresholds", {}).get("max_chapters", 8))
+    if ctx.artifact_exists("understanding/delivery_brief.json"):
+        brief = ctx.read_json("understanding/delivery_brief.json")
+        budget = brief.get("chapter_budget") if isinstance(brief, dict) else {}
+        if isinstance(budget, dict) and budget.get("max") is not None:
+            try:
+                max_ch = min(max_ch, int(budget["max"]))
+            except (TypeError, ValueError):
+                pass
     chapters = artifacts.get("chapters") or []
     if len(chapters) > max_ch:
         errors.append(f"chapter count {len(chapters)} exceeds max {max_ch}")
@@ -628,8 +647,8 @@ def _lint_edl_narrative_audit(artifacts: dict[str, Any], ctx: RunContext) -> lis
     if verdict not in ("pass", "warn", "fail"):
         errors.append(f"invalid verdict {verdict!r}")
     selection_ids: set[str] = set()
-    if ctx.artifact_exists("flow_1_master/selection.json"):
-        sel = ctx.read_json("flow_1_master/selection.json")
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
         selection_ids = {str(x) for x in (sel.get("ordered_segment_ids") or [])}
     for issue in artifacts.get("blocking_issues") or artifacts.get("issues") or []:
         if not isinstance(issue, dict):
@@ -809,7 +828,7 @@ _LINTERS: dict[str, Any] = {
     "content_brief_reanchor": _lint_content_brief_reanchor,
     "missing_framing": _lint_missing_framing,
     "sound_design_palettes": _lint_sound_design_palettes,
-    "sound_design_plan_flow1": _lint_sound_design_plan_flow1,
+    "sound_design_plan": _lint_sound_design_plan,
     "sound_design_plan_flow2": _lint_sound_design_plan_flow2,
     "sfx_prompt_craft": _lint_sfx_prompt_craft,
     "sfx_prompt_refine": _lint_sfx_prompt_craft,

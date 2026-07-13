@@ -19,7 +19,7 @@ flowchart LR
   Review --> Save[Save all files and continue]
 ```
 
-**Manual gates are unchanged:** G0 transcript review, G0.5 disfluency, analysis profile, G1 VO pickup, G2 flow select.
+**Manual gates are unchanged under legacy mode.** With [first-try reliability](./first-try-reliability.md) (`journey_ui.first_try_mode`), clean G0/G0.5, non-blocking G1, profile, and G1.5 may auto-clear; write approval uses **batch Save** when deferred — never silent auto-approve. Handoff remains disabled under full autopilot.
 
 ## In-run finalize (server)
 

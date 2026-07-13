@@ -55,13 +55,13 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
 |-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
 | `sound_design_palettes` | P2 | shipped | shipped | shipped | `post_sound_palettes` | shipped | full | shipped | shipped |
-| `sound_design_plan_flow1` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped | shipped |
-| `sound_design_plan_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped | shipped |
+| `sound_design_plan` | P2 | shipped | shipped | shipped | `post_sound_plan_flow1` | shipped | full | shipped | shipped |
+| `REMOVED_sdp_flow2` | P2 | shipped | shipped | shipped | `post_sound_plan_flow2` | shipped | full | shipped | shipped |
 | `sfx_prompt_craft` | P2 | shipped | shipped | shipped | `pre_sfx_generation` | shipped | compact | shipped | shipped |
-| `mmaudio_sfx_flow1` | P2 | — | — | — | `pre_mix_flow1` | partial | doc_only | — | shipped |
-| `mmaudio_sfx_flow2` | P2 | — | — | — | `pre_mix_flow2` | partial | doc_only | — | shipped |
-| `mix_flow1` | P2 | — | — | placement_apply | `pre_mix_flow1` | — | doc_only | — | shipped |
-| `mix_flow2` | P2 | — | — | placement_apply | `pre_mix_flow2` | — | doc_only | — | shipped |
+| `mmaudio_sfx` | P2 | — | — | — | `pre_mix` | partial | doc_only | — | shipped |
+| `REMOVED_mmaudio_flow2` | P2 | — | — | — | `pre_REMOVED_mix_flow2` | partial | doc_only | — | shipped |
+| `mix` | P2 | — | — | placement_apply | `pre_mix` | — | doc_only | — | shipped |
+| `REMOVED_mix_flow2` | P2 | — | — | placement_apply | `pre_REMOVED_mix_flow2` | — | doc_only | — | shipped |
 | `podcast_sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped | shipped |
 | `sfx_brief` | P2 (legacy) | shipped | shipped | shipped | — | shipped | compact | shipped | shipped |
 
@@ -72,10 +72,10 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | Stage | Tier | Prompt | Arbiter | Lint | Crossval | Preflight | Examples | Loop budget | Status |
 |-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
 | `transitions` | P3 | shipped | shipped | shipped | `post_transitions` | shipped | full | shipped | shipped |
-| `highlight_selection` | P3 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
-| `podcast_show_description` | P3 | shipped | shipped | shipped | — | shipped (flow3-aware)[^flow3-preflight] | full | shipped | shipped |
+| `REMOVED_highlight_selection` | P3 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `REMOVED_podcast_show_description` | P3 | shipped | shipped | shipped | — | shipped (flow3-aware)[^flow3-preflight] | full | shipped | shipped |
 
-[^flow3-preflight]: When `selected_flow: flow3`, preflight checks `understanding/content_brief.json`, `understanding/speakers.json`, `segments/manifest.json` (analysis-only — no Flow 1 `selection.json`). Flow 1 path still requires `flow_1_master/selection.json`.
+[^flow3-preflight]: When `REMOVED_selected_flow: flow3`, preflight checks `understanding/content_brief.json`, `understanding/speakers.json`, `segments/manifest.json` (analysis-only — no Flow 1 `selection.json`). Flow 1 path still requires `master/selection.json`.
 
 ---
 

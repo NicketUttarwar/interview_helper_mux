@@ -98,11 +98,11 @@ Orchestrator: inner retries per stage + investigation queue drain. Target: + arb
 
 Flow stages use the same envelope; read memory but single pass (no inner loop).
 
-**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_narrative_audit` → `edl_flow1` → assembly preview → `sfx_prompt_craft` → generate → **`mix_flow1`** → master
+**Flow 1:** topic-coverage → narrative-arc → full-master-ranking → transitions → `sound_design/plan-flow1` → `edl_narrative_audit` → `edl` → assembly preview → `sfx_prompt_craft` → generate → **`mix`** → master
 
-**Flow 2:** highlight-selection → `sound_design/plan-flow2` → `sfx_prompt_craft` → generate → **`mix_flow2`** → master
+**Flow 2:** highlight-selection → `sound_design/plan-flow2` → `sfx_prompt_craft` → generate → **`REMOVED_mix_flow2`** → master
 
-**Flow 3:** `publishing/podcast-show-description` → `export_show_description`
+**Flow 3:** `publishing/podcast-show-description` → `REMOVED_export_show_description`
 
 Legacy v1 brief stages (`podcast-sfx-brief`, `sfx-brief`) and `mux_flow*` remain for single-stage rerun only. Default path: [sound-design.md](../cross-cutting/sound-design.md) · [stage-registry.md](../build-out/stage-registry.md).
 

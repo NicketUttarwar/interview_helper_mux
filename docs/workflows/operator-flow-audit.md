@@ -8,7 +8,7 @@ Companion to [operator-journey.md](./operator-journey.md) (happy path), [gui-sur
 
 | Tab | Purpose |
 |-----|---------|
-| **Start** | Pick source WAV, optional `flow_intent`, **New execution** |
+| **Start** | Pick source WAV, optional `REMOVED_flow_intent`, **New execution** |
 | **Executions** | Resume any `exec_*` |
 | **Pipeline** | Pipeline step list + `StageDetail` (stage panel, redo, gates) + sub-tabs (Story, Timeline, Profile, Files, Debug) |
 | **Logs** | Full `gui_log.jsonl` viewer |
@@ -48,8 +48,8 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 
 | Decision | Where | Commits? |
 |----------|-------|----------|
-| `flow_intent` | Start tab (optional) | Planning only — stored in `run_meta` |
-| `selected_flow` | G2 `g2_flow_select` | Yes — `POST /api/runs/{id}/flow`; GUI **Use planned choice** applies intent in one click |
+| `REMOVED_flow_intent` | Start tab (optional) | Planning only — stored in `run_meta` |
+| `REMOVED_selected_flow` | G2 `REMOVED_g2_flow_select` | Yes — `POST /api/runs/{id}/flow`; GUI **Use planned choice** applies intent in one click |
 | Stage reuse | `StageReuseSection` on Stage detail + action modal | `GET …/reuse-offers` then `POST …/stages/{id}/reuse` — accept copies outputs (through write staging when enabled); decline runs fresh |
 | Write approval | `WriteApprovalPanel` in action modal + Stage detail | `GET/PUT …/pending-writes/{stage}/…` then `POST …/approve` or `…/discard` |
 | Source audio hash | Status header + Executions tab | `run_meta.source_audio_hash_short`; **Same audio** pill when hashes match active session |
@@ -70,7 +70,7 @@ Dock saves immediately via `PATCH …/transcript/words`. Chunk saves update `tra
 | 6 | Mic errors swallowed | Toast on `getUserMedia` failure |
 | 7 | Disabled Continue unclear | Per-gate hints in modal |
 | 8 | Reuse accept felt stalled | Auto `runNextStage` after accept |
-| 9 | flow_intent vs G2 confusing | **Use planned choice** at G2 |
+| 9 | REMOVED_flow_intent vs G2 confusing | **Use planned choice** at G2 |
 | 10–20 | Medium/low polish | Reuse config flag, value-features API, QC hints, Pipeline resume, 409 handling, docs — see [gui-surface-map.md](./gui-surface-map.md) |
 | 21 | Resume / refresh silent failures | `openRun` error toasts, `sessionReady` gate, stale job reconcile, UI chrome in `active_execution.json` |
 | 22 | Half-loaded session stuck | Start/Pipeline **Retry load** + **Clear session** recovery panels |

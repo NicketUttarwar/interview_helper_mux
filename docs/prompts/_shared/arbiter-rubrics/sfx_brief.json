@@ -8,7 +8,7 @@
     "Brief is actionable for assembly without missing clip coverage"
   ],
   "reject_patterns": [
-    "SFX cues on highlights not in flow_2_highlights/selection.json",
+    "SFX cues on highlights not in REMOVED_flow2/selection.json",
     "Empty brief when highlights exist",
     "Contradictory timing vs highlight in/out points",
     "Schema errors on required montage brief fields"

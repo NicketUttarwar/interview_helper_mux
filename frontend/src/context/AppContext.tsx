@@ -161,7 +161,7 @@ interface AppContextValue {
   closeActionModalAfterSuccess: () => void;
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
-  startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
+  startRun: (inputPath: string) => Promise<void>;
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
@@ -177,6 +177,7 @@ interface AppContextValue {
   startJobPoll: () => void;
   acknowledgeHandoff: () => Promise<void>;
   approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
+  approveBatchWrites: (phases?: string[]) => Promise<boolean>;
   fixAllAndContinueStage: (stageId: string) => Promise<boolean>;
   revalidateArtifactIssues: (stageId: string) => Promise<void>;
   discardPendingWrites: (stageId: string) => Promise<void>;
@@ -1457,7 +1458,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [runId, serverActiveRunId, openRun]);
 
   const startRun = useCallback(
-    async (inputPath: string, flowIntent?: string) => {
+    async (inputPath: string) => {
       if (!sessionReady) {
         showToast("Session is still loading — try again in a moment.");
         return;
@@ -1469,7 +1470,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       try {
         const body: Record<string, string> = { input_audio_path: inputPath };
-        if (flowIntent) body.flow_intent = flowIntent;
         showToast("Creating execution…", "info");
         const res = await api<{ run_id: string }>("/api/runs", {
           method: "POST",
@@ -1615,8 +1615,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     if (
       next.id === "transcript_review" ||
-      next.id === "g1_vo_pickup" ||
-      next.id === "g2_flow_select"
+      next.id === "g1_vo_pickup"
     ) {
       await focusStageWorkbench({
         run: current,
@@ -2007,7 +2006,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           if (
             isPipelineAutopilotEnabled(config) &&
-            canAutoRunStage(nextStageId, run)
+            canAutoRunStage(nextStageId, run, config)
           ) {
             await executeJob(executeBodyForStage(nextStageId), {
               source: "checkpoint_continue",
@@ -2096,6 +2095,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveSubstepIdState,
       config,
     ],
+  );
+
+  const approveBatchWrites = useCallback(
+    async (phases?: string[]): Promise<boolean> => {
+      if (!runId) return false;
+      if (approveInFlightRef.current) return false;
+      approveInFlightRef.current = true;
+      setActionBusy(true);
+      actionBusyRef.current = true;
+      try {
+        const body =
+          phases && phases.length
+            ? { phases }
+            : { phases: run?.journey?.first_try?.batch_save_phases || ["analysis", "delivery"] };
+        await api(`/api/runs/${runId}/pending-writes/approve-batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        appendClientLog("Batch saved pending stage outputs", "success", undefined, "gui.write_approval.batch_save");
+        showToast("All pending outputs saved.", "success");
+        await refreshRun();
+        await pollLog(true);
+        return true;
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Batch save failed";
+        appendClientLog(msg, "warning", undefined, "gui.write_approval.error");
+        showToast(msg, "error");
+        return false;
+      } finally {
+        approveInFlightRef.current = false;
+        setActionBusy(false);
+        actionBusyRef.current = false;
+      }
+    },
+    [runId, run, showToast, appendClientLog, refreshRun, pollLog],
   );
 
   const revalidateArtifactIssues = useCallback(
@@ -2351,7 +2386,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (selectedStage.id === "g1_vo_pickup" && current.g1_clear) {
-      await selectStage("g2_flow_select");
       setPipelineSubTabWrapped("stage");
       return;
     }
@@ -2734,6 +2768,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startJobPoll,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    approveBatchWrites,
     fixAllAndContinueStage,
     revalidateArtifactIssues,
     discardPendingWrites,

@@ -89,7 +89,7 @@ Update so docs match code today:
 - steps-forward: strike #0, #2, #4, #6–#17 appendix duplicates; point "what's next" to remaining-build-commands.md
 - podcast-quality-roadmap: v1 table reflects mix_flow*, assembly_preview, pre-clean offers (not "until Wave 5")
 - full-application-flow: pickup-scoped pre-clean → shipped (vo_pickup scope in audio_preclean.py)
-- json-schema-coverage: edl_flow1.schema.json exists — note "schema yes, validator wiring" per Command 3
+- json-schema-coverage: edl.schema.json exists — note "schema yes, validator wiring" per Command 3
 - g15 guide: listen-result API, value_features panel, and post-listen GUI shipped
 
 Follow @docs/build-out/doc-maintenance.md. No operator-facing strings outside gui_log policy.
@@ -126,19 +126,19 @@ Read (grep each for: speech-only, until Wave 5, until BUILD-065, until BUILD-067
 @docs/pipeline/audio_editing/README.md
 @docs/prompts/README.md
 @docs/prompts/analysis-stage-matrix.md
-@src/interview_mux/pipeline.py (FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER, ANALYSIS_ORDER)
+@src/interview_mux/pipeline.py (DELIVERY_ORDER, REMOVED_FLOW2_ORDER, REMOVED_FLOW3_ORDER, ANALYSIS_ORDER)
 @docs/build-out/stage-registry.md
 
 Update so docs match code today:
-- pipeline.md: mix_flow1/mix_flow2 canonical; assembly_preview shipped; Flow 3 shipped; remove "v1 gap" speech-only mux
+- pipeline.md: mix/REMOVED_mix_flow2 canonical; assembly_preview shipped; Flow 3 shipped; remove "v1 gap" speech-only mux
 - docs/README.md + INDEX.md: implementation status reflects shipped mix + flow3; source_acoustic_profile shipped (082)
 - operator-stage-checklists.md: mix_flow* reality (VO + SFX in master.wav); assembly_preview + SDP path; remove "until BUILD-065/069"
 - troubleshooting.md: replace speech-only expected rows with mix-path diagnostics (missing VO/SFX assets, edl, SDP cues)
 - sound-design.md: title/status → shipped; link Wave 5 section to README#wave-5--coherent-sound-design-done; source_acoustic_profile shipped
 - anchored-toolchain.md: pydub/mix engine → shipped (BUILD-065)
 - artifact-layout.md: show_description.md export shipped (BUILD-046)
-- scoring_and_selection/README.md: assembly_preview + publishing_flow3 shipped
-- assembly_and_mux/README.md: canonical stage ids mix_flow1/mix_flow2; mux_flow* legacy alias only
+- scoring_and_selection/README.md: assembly_preview + REMOVED_publishing_flow3 shipped
+- assembly_and_mux/README.md: canonical stage ids mix/REMOVED_mix_flow2; mux_flow* legacy alias only
 - prompts/README.md + analysis-stage-matrix.md: sound_design/theme-palettes and flow plan stages shipped
 - audio_editing/README.md: NLE → ranking/EDL shipped (068); keep crossfade notes as target if not in code
 
@@ -164,16 +164,16 @@ Implement artifact schema validation at consume/save boundaries only.
 Read:
 @docs/cross-cutting/json-schema-coverage.md
 @docs/cross-cutting/artifact-layout.md
-@docs/cross-cutting/json-schemas/artifacts/edl_flow1.schema.json
+@docs/cross-cutting/json-schemas/artifacts/edl.schema.json
 @docs/cross-cutting/json-schemas/source_acoustic_profile.schema.json
 @docs/cross-cutting/json-schemas/analysis_state.schema.json
 @src/interview_mux/prompt_validation.py
-@src/interview_mux/stages/assembly_flow1.py (edl_flow1, mix_flow1)
+@src/interview_mux/stages/assembly.py (edl, mix)
 @src/interview_mux/web/server.py (artifact PUT paths)
 
 Deliver:
-1. prompt_validation: validate_edl_flow1(), validate_source_acoustic_profile(), validate_analysis_state() (or reuse pattern from validate_sound_design_plan)
-2. Call validate_edl_flow1 after edl_flow1 writes edl.json; fail stage with ctx.log() path errors (no silent continue)
+1. prompt_validation: validate_edl(), validate_source_acoustic_profile(), validate_analysis_state() (or reuse pattern from validate_sound_design_plan)
+2. Call validate_edl after edl writes edl.json; fail stage with ctx.log() path errors (no silent continue)
 3. GUI artifact save: validate analysis_state + source_acoustic_profile when paths match
 4. Add minimal schemas if missing: run_meta.schema.json, transcript/corrections.schema.json, ingest/checksums.schema.json — validate on write only
 5. Optional CLI: tools/verify_edl.py --run-id <exec_id> (non-zero on fail; no pytest in this command)
@@ -184,7 +184,7 @@ Update stage-registry.md drift watchlist — close EDL validator row when wired.
 Do not add default pipeline stages.
 ```
 
-**Done when:** Invalid `edl.json` fails `edl_flow1` with operator-visible log; coverage doc lists validator wiring; optional `tools/verify_edl.py` runs on a fixture exec.
+**Done when:** Invalid `edl.json` fails `edl` with operator-visible log; coverage doc lists validator wiring; optional `tools/verify_edl.py` runs on a fixture exec.
 
 ---
 
@@ -204,15 +204,15 @@ Read:
 @docs/build-out/stage-registry.md (topic_coverage_audit, narrative_arc_plan, full_master_ranking)
 @docs/pipeline/scoring_and_selection/README.md
 @src/interview_mux/gates.py
-@src/interview_mux/stages/analysis_flow1_extended.py
-@src/interview_mux/stages/selection_flow1.py
+@src/interview_mux/stages/analysis_extended.py
+@src/interview_mux/stages/selection.py
 @docs/cross-cutting/artifact-layout.md (narrative_plan.json, selection.json shapes)
 
 Deliver:
 - New module e.g. interview_mux/narrative_qc.py with validate_flow1_narrative(ctx) -> list[str] errors
 - Rules: every content_brief.topics[] mapped in coverage_audit or documented exclude; no chapter with zero segments in selection.json
 - tools/validate_narrative.py --run-id <exec_id> prints errors, exit 1 on fail
-- Optional: gates.py warns (or blocks when config narrative_qc.strict: true) before full_master_ranking or edl_flow1
+- Optional: gates.py warns (or blocks when config narrative_qc.strict: true) before full_master_ranking or edl
 - ctx.log() summary event narrative_qc_pass / narrative_qc_fail
 - Document in operator-stage-checklists.md, evaluation-metrics.md, scoring_and_selection/README.md
 - podcast-quality-roadmap.md: narrative validators row → partial/shipped as appropriate
@@ -235,7 +235,7 @@ G1.5 post-listen GUI only — wire existing listen-result API.
 
 Read:
 @src/interview_mux/web/server.py (post_sfx_listen_result, run_meta.sfx_listen_results)
-@src/interview_mux/web/static/app.js (mmaudio_sfx_flow1/2 panels, G1.5 craft panel)
+@src/interview_mux/web/static/app.js (mmaudio_sfx/2 panels, G1.5 craft panel)
 @docs/cross-cutting/local-audio-stack.md
 @docs/workflows/gui-surface-map.md
 @docs/workflows/api-reference.md

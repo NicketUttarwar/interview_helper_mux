@@ -10,8 +10,8 @@ def test_enforce_mix_completeness_warn_mode(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_mix_warn")
     enforce_mix_completeness(
         ctx,
-        flow="flow1",
-        stage="mix_flow1",
+        flow="podcast",
+        stage="mix",
         missing_vo=["line_001"],
     )
 
@@ -30,7 +30,7 @@ def test_enforce_mix_completeness_block_mode(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="missing mix assets"):
         enforce_mix_completeness(
             ctx,
-            flow="flow1",
-            stage="mix_flow1",
+            flow="podcast",
+            stage="mix",
             missing_sfx=["stinger_intro"],
         )

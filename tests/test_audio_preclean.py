@@ -108,7 +108,7 @@ def test_audio_preclean_chunk_path_for_oversized_wav(tmp_path, monkeypatch) -> N
 
     monkeypatch.setattr(audio_preclean, "_chunk_max_bytes", lambda: 500)
 
-    def fake_chunk(source, max_bytes, *, work_dir):
+    def fake_chunk(source, max_bytes, *, work_dir, **kwargs):
         work_dir.mkdir(parents=True, exist_ok=True)
         chunks = []
         for i in range(3):

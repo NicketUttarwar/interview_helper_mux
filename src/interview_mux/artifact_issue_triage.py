@@ -71,7 +71,17 @@ def triage_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "auto_resolve_max_issues_per_pass": 50,
     }
     raw = base.get("artifact_issue_triage") or {}
-    return {**defaults, **raw}
+    merged = {**defaults, **raw}
+    # First-try may lower confidence / raise attempts via analysis.first_try.artifact_issue_triage
+    try:
+        from interview_mux.first_try import first_try_triage_overrides
+
+        overrides = first_try_triage_overrides(cfg if isinstance(cfg, dict) else None)
+        if overrides:
+            merged.update(overrides)
+    except Exception:
+        pass
+    return merged
 
 
 def triage_enabled(cfg: dict[str, Any] | None = None) -> bool:

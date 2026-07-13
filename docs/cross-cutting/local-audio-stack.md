@@ -7,7 +7,7 @@ Interview MUX runs **noise reduction** and **SFX generation** locally via isolat
 | Stack | Upstream | Purpose | Venv |
 |-------|----------|---------|------|
 | DeepFilterNet | [rikorose/deepfilternet](https://github.com/rikorose/deepfilternet) | Optional `audio_preclean` noise reduction | `ASSETS/local_deepfilter/venv` |
-| MMAudio | [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio) | `mmaudio_sfx_flow1` / `mmaudio_sfx_flow2` text-to-audio | `ASSETS/local_mmaudio/venv` |
+| MMAudio | [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio) | `mmaudio_sfx` / `REMOVED_mmaudio_flow2` text-to-audio | `ASSETS/local_mmaudio/venv` |
 
 Weights for MMAudio are downloaded by the upstream package on first generation (HF; CC-BY-NC 4.0).
 
@@ -55,7 +55,7 @@ Runs that completed under old stage ids (`mmaudio_sfx_flow*`) are **not** auto-m
 | Stage | Output | Consumed by |
 |-------|--------|-------------|
 | `sound_design_palettes` | coherence, palettes | plan stages |
-| `sound_design_plan_flow1/2` | `assets[]`, cues, optional `generation_notes` | `sfx_prompt_craft` |
+| `sound_design_plan/2` | `assets[]`, cues, optional `generation_notes` | `sfx_prompt_craft` |
 | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` (positive + negative + optional CFG) | `mmaudio_sfx_flow*` |
 | `sfx_prompt_refine` | merged prompt rows for failed assets (optional) | regen via `mmaudio_sfx_flow*` |
 | `mmaudio_sfx_flow*` | WAVs + `mmaudio_qa.json` | mix via `placement_adjustments` |

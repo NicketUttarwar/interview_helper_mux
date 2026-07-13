@@ -124,7 +124,15 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
         staged = staged_path(ctx, rel, stage_id=pending)
         if staged.is_file():
             return staged
-    return ctx.run_dir.joinpath(*rel.split("/"))
+    resolved = ctx.run_dir.joinpath(*rel.split("/"))
+    if resolved.is_file():
+        return resolved
+    # Legacy three-flow runs: master/ reads fall back to flow_1_master/
+    if rel.startswith("master/"):
+        legacy = ctx.run_dir.joinpath("flow_1_master", *rel.split("/")[1:])
+        if legacy.is_file():
+            return legacy
+    return resolved
 
 
 def artifact_exists_resolved(ctx: RunContext, rel: str) -> bool:
@@ -465,7 +473,18 @@ def assert_write_approval_allowed(ctx: RunContext, stage_id: str) -> None:
 
 def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
     if write_approval_enabled() and has_pending_writes(ctx, stage_id):
+        from interview_mux.first_try import should_pause_for_write_approval, write_approval_deferred
+
         record_pending_approval(ctx, stage_id)
+        if write_approval_deferred() and not should_pause_for_write_approval(stage_id):
+            ctx.log(
+                f"Write approval deferred (phase_end) for {stage_id} — "
+                f"{len(list_pending_paths(ctx, stage_id))} file(s) staged; use batch Save.",
+                level="info",
+                stage=stage_id,
+                detail={"event": "write_approval_deferred", "stage_id": stage_id},
+            )
+            return
         raise WriteApprovalPending(stage_id, list_pending_paths(ctx, stage_id))
 
     if not write_approval_enabled():
@@ -539,6 +558,15 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
 
 
 def check_write_approval_before_execute(ctx: RunContext) -> WriteApprovalPending | None:
+    """Block execute only when an undeferred pending write requires pause.
+
+    Under ``defer_write_approval_until=phase_end``, prior stages may keep
+    staged files without pausing every subsequent execute.
+    """
+    from interview_mux.first_try import write_approval_deferred
+
+    if write_approval_deferred():
+        return None
     stages = all_pending_stages(ctx)
     if not stages:
         return None
@@ -550,6 +578,50 @@ def check_write_approval_before_execute(ctx: RunContext) -> WriteApprovalPending
         if isinstance(pending, dict) and sid in pending:
             paths = list(pending[sid].get("paths") or [])
     return WriteApprovalPending(sid, paths)
+
+
+def approve_batch_stage_writes(ctx: RunContext, stages: list[str] | None = None) -> dict[str, Any]:
+    """Approve pending writes for multiple stages (phase-end batch Save)."""
+    from interview_mux.first_try import ANALYSIS_PHASE_STAGES, DELIVERY_PHASE_STAGES, batch_save_phases, stage_phase
+
+    pending = all_pending_stages(ctx)
+    if stages is None:
+        stages = list(pending)
+    else:
+        stages = [s for s in stages if s in pending or has_pending_writes(ctx, s)]
+    # Prefer listed order preserving pipeline phase grouping
+    ordered: list[str] = []
+    for phase in batch_save_phases():
+        bucket = ANALYSIS_PHASE_STAGES if phase == "analysis" else DELIVERY_PHASE_STAGES
+        for sid in stages:
+            if sid in bucket and sid not in ordered:
+                ordered.append(sid)
+    for sid in stages:
+        if sid not in ordered:
+            ordered.append(sid)
+
+    results: dict[str, Any] = {"approved": {}, "errors": {}, "phases": {}}
+    for sid in ordered:
+        try:
+            flushed = approve_stage_writes(ctx, sid)
+            results["approved"][sid] = flushed
+            phase = stage_phase(sid) or "other"
+            results["phases"].setdefault(phase, []).append(sid)
+        except Exception as exc:
+            results["errors"][sid] = str(exc)
+    ctx.log(
+        f"Batch write approval: {len(results['approved'])} stage(s) saved"
+        + (f", {len(results['errors'])} error(s)" if results["errors"] else ""),
+        level="success" if not results["errors"] else "warning",
+        stage="write_approval",
+        action_id="write_approval.batch_approve",
+        detail={
+            "event": "write_approval_batch",
+            "approved_stages": list(results["approved"].keys()),
+            "error_stages": list(results["errors"].keys()),
+        },
+    )
+    return results
 
 
 def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:

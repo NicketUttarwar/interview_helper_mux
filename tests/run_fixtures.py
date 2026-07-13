@@ -43,6 +43,93 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.llm_output_normalizer",
 )
 
+def parse_log_detail(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return inner detail dict from gui_log.jsonl entry (handles operator_log envelope)."""
+    raw = entry.get("detail")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {"detail": raw}
+        return parsed if isinstance(parsed, dict) else {"detail": raw}
+    return {}
+
+
+def log_detail_matches(entry: dict[str, Any], token: str) -> bool:
+    """Match operator_log detail whether stored as plain text or JSON envelope."""
+    raw = entry.get("detail")
+    if raw is None:
+        return False
+    if isinstance(raw, dict):
+        return token in str(raw.get("detail", "")) or token in json.dumps(raw)
+    if isinstance(raw, str):
+        if token in raw:
+            return True
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return token == raw
+        if isinstance(parsed, dict):
+            return token in str(parsed.get("detail", "")) or token in json.dumps(parsed)
+        return token == raw
+    return token == str(raw)
+
+
+def minimal_preclean_lineage(**patch: Any) -> dict[str, Any]:
+    doc = {
+        "provider": "deepfilternet",
+        "scope": "full_source",
+        "source_path": "ASSETS/input/interview.wav",
+        "source_sha256": "0" * 64,
+        "output_path": "preclean/isolated.wav",
+        "isolated_sha256": "1" * 64,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    doc.update(patch)
+    return doc
+
+
+def minimal_preclean_provider(**patch: Any) -> dict[str, Any]:
+    doc = {
+        "provider": "deepfilternet",
+        "scope": "full_source",
+        "model": "DeepFilterNet3",
+    }
+    doc.update(patch)
+    return doc
+
+
+def minimal_coherence_report(**patch: Any) -> dict[str, Any]:
+    doc: dict[str, Any] = {
+        "schema_version": 1,
+        "derived_from": {
+            "computed_at": "2026-01-01T00:00:00+00:00",
+            "phase": "post_content_context",
+            "duration_ms": 1_800_000,
+        },
+        "gate": {"min_duration_ms": 1_200_000, "activated": True, "duration_ms": 1_800_000},
+        "scores": [],
+        "risks": [
+            {
+                "risk_id": "r1",
+                "kind": "topic_drift",
+                "time_ms": 60_000,
+                "confidence": 0.8,
+                "evidence": {},
+                "status": "open",
+            }
+        ],
+        "summary": {
+            "topic_drift_count": 1,
+            "claim_contradiction_count": 0,
+            "missing_callback_count": 0,
+        },
+    }
+    doc.update(patch)
+    return doc
+
 
 def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
     """Patch merged_config in every imported module that binds it at load time."""
@@ -56,13 +143,11 @@ def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
         if hasattr(mod, "merged_config"):
             monkeypatch.setattr(mod, "merged_config", lambda c=cfg: c)
 
-
 def _execution_number_from_run_id(run_id: str) -> int | None:
     if not run_id.startswith("exec_"):
         return None
     part = run_id.split("_")[1]
     return int(part) if part.isdigit() else None
-
 
 def ensure_test_wav(
     root: Path,
@@ -75,7 +160,6 @@ def ensure_test_wav(
     wav.parent.mkdir(parents=True, exist_ok=True)
     wav.write_bytes(content)
     return wav
-
 
 def populated_analysis_state(run_id: str, *, verified: bool = False) -> dict[str, Any]:
     """Minimal complete analysis_state for gate / handoff tests."""
@@ -97,7 +181,6 @@ def populated_analysis_state(run_id: str, *, verified: bool = False) -> dict[str
     state["meta"]["operator_verified"] = verified
     state["completion"] = {"analysis_ready": True, "blockers": []}
     return state
-
 
 def init_run_meta_for_test(
     ctx: RunContext,
@@ -122,7 +205,6 @@ def init_run_meta_for_test(
         meta["source_audio_hash_short"] = source_audio_hash_short
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
 
-
 def isolated_run_ctx(tmp_path: Path, run_id: str) -> RunContext:
     """Run under tmp_path only — avoids collisions with data/run_* in the repo."""
     ctx = RunContext(run_id, create=True)
@@ -131,7 +213,6 @@ def isolated_run_ctx(tmp_path: Path, run_id: str) -> RunContext:
     (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)
     (ctx.run_dir / "vo_pickup").mkdir(exist_ok=True)
     return ctx
-
 
 def ctx_from_fixture(tmp_path: Path, *, run_id: str = "exec_smoke_fixture") -> RunContext:
     """Copy tests/fixtures/runs/base_smoke into tmp_path for pipeline/gate smokes."""
@@ -143,7 +224,6 @@ def ctx_from_fixture(tmp_path: Path, *, run_id: str = "exec_smoke_fixture") -> R
     ctx = RunContext(run_id, create=False)
     ctx.run_dir = run_dir
     return ctx
-
 
 def minimal_source_acoustic_profile(**patch: Any) -> dict[str, Any]:
     """Schema-valid SAP for tests that write via RunContext.write_json."""
@@ -183,7 +263,6 @@ def minimal_source_acoustic_profile(**patch: Any) -> dict[str, Any]:
             base[key] = value
     return base
 
-
 def sound_design_plan_with(**patch: Any) -> dict[str, Any]:
     """Schema-valid sound_design_plan.json starting from defaults."""
     from interview_mux.analysis_memory import default_sound_design_plan
@@ -205,7 +284,6 @@ def sound_design_plan_with(**patch: Any) -> dict[str, Any]:
         else:
             plan[key] = value
     return plan
-
 
 def minimal_manifest_segment(
     segment_id: str = "seg_001",
@@ -229,7 +307,6 @@ def minimal_manifest_segment(
     base.update(patch)
     return base
 
-
 def minimal_manifest(*segments: dict[str, Any] | str) -> dict[str, Any]:
     """Schema-valid segments/manifest.json payload."""
     if not segments:
@@ -242,9 +319,8 @@ def minimal_manifest(*segments: dict[str, Any] | str) -> dict[str, Any]:
             out.append(seg)
     return {"segments": out}
 
-
 def minimal_narrative_plan(**patch: Any) -> dict[str, Any]:
-    """Schema-valid flow_1_master/narrative_plan.json."""
+    """Schema-valid master/narrative_plan.json."""
     base: dict[str, Any] = {
         "arc_summary": "Test narrative arc for pytest.",
         "chapters": [
@@ -260,7 +336,6 @@ def minimal_narrative_plan(**patch: Any) -> dict[str, Any]:
         base[key] = value
     return base
 
-
 def minimal_gap_line(**patch: Any) -> dict[str, Any]:
     """Schema-valid gap_report interviewer line."""
     base: dict[str, Any] = {
@@ -274,13 +349,11 @@ def minimal_gap_line(**patch: Any) -> dict[str, Any]:
     base.update(patch)
     return base
 
-
 def minimal_gap_report(*lines: dict[str, Any]) -> dict[str, Any]:
     """Schema-valid understanding/gap_report.json."""
     if not lines:
         return {"interviewer_lines": []}
     return {"interviewer_lines": list(lines)}
-
 
 def minimal_gap_evaluations(*evaluations: dict[str, Any]) -> dict[str, Any]:
     """Schema-valid understanding/gap_evaluations.json."""
@@ -295,7 +368,6 @@ def minimal_gap_evaluations(*evaluations: dict[str, Any]) -> dict[str, Any]:
             },
         )
     return {"evaluations": list(evaluations)}
-
 
 def minimal_speakers() -> dict[str, Any]:
     return {
@@ -315,17 +387,32 @@ def minimal_speakers() -> dict[str, Any]:
         ]
     }
 
+def minimal_master_selection(**patch: Any) -> dict[str, Any]:
+    """Schema-valid master/selection.json."""
+    base: dict[str, Any] = {
+        "ordered_segment_ids": ["seg_001"],
+        "chapters": [
+            {
+                "chapter_id": "ch_01",
+                "title": "Opening",
+                "segment_ids": ["seg_001"],
+            }
+        ],
+    }
+    base.update(patch)
+    return base
+
 
 def seed_flow1_full_sound_path(ctx: RunContext) -> None:
     """Flow 1 sound path with ranking, transitions, and narrative plan stubs for cross-validate."""
     seed_flow1_sound_spend_ready(ctx)
     ctx.write_json(
-        "flow_1_master/selection.json",
-        {"ordered_segment_ids": ["seg_001"], "chapters": [{"chapter_id": "ch1", "segment_ids": ["seg_001"]}]},
+        "master/selection.json",
+        minimal_master_selection(),
         skip_handoff=True,
     )
     ctx.write_json(
-        "flow_1_master/transitions.json",
+        "master/transitions.json",
         {
             "transitions": [
                 {
@@ -345,13 +432,12 @@ def seed_flow1_full_sound_path(ctx: RunContext) -> None:
         skip_handoff=True,
     )
 
-
 def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     """Minimal Flow 1 sound path artifacts for cross-validate spend/mix regression tests."""
     seed_analysis_ready_artifacts(ctx, verified=True)
     ctx.write_json(
-        "flow_1_master/selection.json",
-        {"ordered_segment_ids": ["seg_001"], "chapters": []},
+        "master/selection.json",
+        minimal_master_selection(chapters=[]),
         skip_handoff=True,
     )
     ctx.write_json(
@@ -367,7 +453,7 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
                 }
             ],
             flow_plans={
-                "flow1": {
+                "podcast": {
                     "cues": [
                         {
                             "cue_id": "c1",
@@ -399,7 +485,6 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "bed_01.wav").write_bytes(MINIMAL_WAV_BYTES)
 
-
 def seed_from_sonic_fixture(
     ctx: RunContext,
     fixture_name: str,
@@ -419,7 +504,6 @@ def seed_from_sonic_fixture(
             ctx.write_json("segments/manifest.json", minimal_manifest(), skip_handoff=True)
     ctx.write_json("understanding/sonic_context.json", doc, skip_handoff=True)
     return doc
-
 
 def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) -> None:
     """Write minimal complete analysis artifacts for gate / hardening tests."""
@@ -462,6 +546,26 @@ def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) ->
         merge_from_disk=False,
         stage_key="optimal_questions",
     )
+    brief = {
+        "version": 1,
+        "source_duration_ms": 60_000,
+        "target_duration_sec": {"min": 30, "ideal": 45, "max": 60},
+        "question_budget": {"min": 0, "ideal": 1, "max": 2},
+        "chapter_budget": {"min": 1, "ideal": 2, "max": 4},
+        "selection_mode": "coverage_first",
+        "sfx_density": {"max_beds": 1, "max_punctuators": 1, "max_foley": 0},
+        "ranking_weights": {},
+        "rationale": ["fixture"],
+        "operator_overrides": {},
+        "generated": {"at": "1970-01-01T00:00:00+00:00", "by": "test_fixture"},
+    }
+    write_validated_artifact(
+        ctx,
+        "understanding/delivery_brief.json",
+        brief,
+        merge_from_disk=False,
+        stage_key="delivery_brief_build",
+    )
     state = populated_analysis_state(ctx.run_id, verified=verified)
     state["completion"] = {"analysis_ready": True, "blockers": []}
     write_validated_artifact(
@@ -473,9 +577,7 @@ def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) ->
     )
     ctx.mark_done("optimal_questions")
 
-
 def minimal_flow2_selection(**patch: Any) -> dict[str, Any]:
-    """Schema-valid flow_2_highlights/selection.json."""
     base: dict[str, Any] = {
         "reel_thesis": "Highlight reel thesis for pytest.",
         "highlights": [
@@ -498,7 +600,6 @@ def minimal_flow2_selection(**patch: Any) -> dict[str, Any]:
     for key, value in patch.items():
         base[key] = value
     return base
-
 
 def minimal_content_brief(**patch: Any) -> dict[str, Any]:
     """Schema-valid understanding/content_brief.json."""
@@ -530,7 +631,6 @@ def minimal_content_brief(**patch: Any) -> dict[str, Any]:
     base.update(patch)
     return base
 
-
 def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
     """Route FastAPI handlers to an isolated RunContext."""
     from fastapi import HTTPException
@@ -543,7 +643,6 @@ def patch_server_ctx(monkeypatch, ctx: RunContext) -> None:
         return ctx
 
     monkeypatch.setattr(server, "_ctx", _ctx)
-
 
 def patch_executions_root(monkeypatch, tmp_path: Path, **cfg_overrides: Any) -> Path:
     """Point executions_root at tmp_path so JobRunner threads resolve the same run dir."""
@@ -559,7 +658,6 @@ def patch_executions_root(monkeypatch, tmp_path: Path, **cfg_overrides: Any) -> 
     }
     patch_merged_config(monkeypatch, cfg)
     return root
-
 
 def seed_analysis_complete(ctx: RunContext) -> None:
     """Mark shared analysis done and satisfy G0/G1 gates for flow execution."""

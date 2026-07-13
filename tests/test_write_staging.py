@@ -24,18 +24,12 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     executions = root / "ASSETS" / "executions"
     executions.mkdir(parents=True)
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: root)
-    monkeypatch.setattr(
-        "interview_mux.run_context.merged_config",
-        lambda: {
+    patch_merged_config(
+        monkeypatch,
+        {
             "assets_root": "ASSETS",
             "executions_root": "ASSETS/executions",
             "data_root": "data",
-            "journey_ui": {"require_write_approval_per_stage": True},
-        },
-    )
-    monkeypatch.setattr(
-        "interview_mux.write_staging.merged_config",
-        lambda: {
             "journey_ui": {"require_write_approval_per_stage": True},
         },
     )
@@ -49,22 +43,22 @@ def test_staging_redirect_and_flush(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")
     try:
-        note = ctx.path("ingest/staging_note.txt")
+        note = ctx.path("ingest/checksums.json")
         note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text("staged", encoding="utf-8")
     finally:
         exit_stage_staging()
     assert has_pending_writes(ctx, "ingest")
-    assert not ctx.final_path("ingest", "staging_note.txt").is_file()
+    assert not ctx.final_path("ingest", "checksums.json").is_file()
     flushed = flush_stage_writes(ctx, "ingest")
-    assert "ingest/staging_note.txt" in flushed
-    assert ctx.final_path("ingest", "staging_note.txt").is_file()
+    assert "ingest/checksums.json" in flushed
+    assert ctx.final_path("ingest", "checksums.json").is_file()
 
 
 def test_approve_marks_stage_done(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")
-    note = ctx.path("ingest/staging_note.txt")
+    note = ctx.path("ingest/checksums.json")
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("staged", encoding="utf-8")
     exit_stage_staging()
@@ -257,7 +251,7 @@ def test_source_acoustic_profile_reads_prior_stage_artifacts(
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("ingest")
-    note = ctx.path("ingest/staging_note.txt")
+    note = ctx.path("ingest/checksums.json")
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("staged", encoding="utf-8")
     exit_stage_staging()

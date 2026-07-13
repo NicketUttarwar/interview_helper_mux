@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_1_master/podcast_sfx_brief.json
+- path: master/podcast_sfx_brief.json
   schema: podcast_sfx_artifact.schema.json
   staging: true
 inputs:

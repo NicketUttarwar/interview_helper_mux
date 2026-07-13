@@ -243,18 +243,18 @@ def _check_vo_ingest(ctx: RunContext) -> list[StageInputIssue]:
 def _check_assembly_preview(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_require_audio(ctx))
-    issue = _require_artifact(ctx, "flow_1_master/edl.json", remediation="Run edl_flow1.")
+    issue = _require_artifact(ctx, "master/edl.json", remediation="Run edl.")
     if issue:
         issues.append(issue)
     return issues
 
 
-def _check_mix_flow1(ctx: RunContext) -> list[StageInputIssue]:
+def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_require_audio(ctx))
     for rel, remediation in (
-        ("flow_1_master/edl.json", "Run edl_flow1."),
-        ("understanding/sound_design_plan.json", "Run sound_design_plan_flow1."),
+        ("master/edl.json", "Run edl."),
+        ("understanding/sound_design_plan.json", "Run sound_design_plan."),
     ):
         issue = _require_artifact(ctx, rel, remediation=remediation)
         if issue:
@@ -262,19 +262,19 @@ def _check_mix_flow1(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
-def _check_master_flow1(ctx: RunContext) -> list[StageInputIssue]:
+def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
     issue = _require_artifact(
         ctx,
-        "flow_1_master/assembly.wav",
-        remediation="Run mix_flow1 and approve assembly.wav.",
+        "master/assembly.wav",
+        remediation="Run mix and approve assembly.wav.",
     )
     return [issue] if issue else []
 
 
-def _check_mmaudio_sfx_flow1(ctx: RunContext) -> list[StageInputIssue]:
+def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
-        ("understanding/sound_design_plan.json", "Run sound_design_plan_flow1."),
+        ("understanding/sound_design_plan.json", "Run sound_design_plan."),
         ("sound_design/sfx_prompts.json", "Run sfx_prompt_craft and approve prompts."),
     ):
         issue = _require_artifact(ctx, rel, remediation=remediation)
@@ -282,7 +282,7 @@ def _check_mmaudio_sfx_flow1(ctx: RunContext) -> list[StageInputIssue]:
             issues.append(issue)
     issue = _require_artifact(
         ctx,
-        "flow_1_master/assembly_preview.wav",
+        "master/assembly_preview.wav",
         label="assembly preview WAV",
         remediation="Run assembly_preview and listen before SFX spend.",
     )
@@ -304,11 +304,11 @@ def _check_mmaudio_sfx_flow2(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
-def _check_edl_flow1(ctx: RunContext) -> list[StageInputIssue]:
+def _check_edl(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
-        ("flow_1_master/selection.json", "Run full_master_ranking."),
-        ("flow_1_master/transitions.json", "Run transitions."),
+        ("master/selection.json", "Run full_master_ranking."),
+        ("master/transitions.json", "Run transitions."),
         ("understanding/gap_report.json", "Run optimal_questions."),
     ):
         issue = _require_artifact(ctx, rel, remediation=remediation)
@@ -326,8 +326,6 @@ def _check_edl_flow1(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def _check_flow1_profile_gate(ctx: RunContext) -> list[StageInputIssue]:
-    if get_selected_flow(ctx) != "flow1":
-        return []
     if not ctx.artifact_exists("understanding/analysis_state.json"):
         return [
             StageInputIssue(
@@ -349,9 +347,9 @@ def _check_flow1_profile_gate(ctx: RunContext) -> list[StageInputIssue]:
 
 def _check_topic_coverage_audit(ctx: RunContext) -> list[StageInputIssue]:
     issues = _check_flow1_profile_gate(ctx)
-    from interview_mux.progression_readiness import build_flow1_readiness_report
+    from interview_mux.progression_readiness import build_delivery_readiness_report
 
-    report = build_flow1_readiness_report(ctx, target_stage="topic_coverage_audit")
+    report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
     for row in report.get("blockers") or []:
         if isinstance(row, dict):
             issues.append(
@@ -367,7 +365,7 @@ def _check_narrative_arc_plan(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_check_flow1_profile_gate(ctx))
     for rel, remediation in (
-        ("flow_1_master/coverage_audit.json", "Run topic_coverage_audit."),
+        ("master/coverage_audit.json", "Run topic_coverage_audit."),
         ("understanding/content_brief.json", "Run content_context and content_brief_reanchor."),
     ):
         issue = _require_artifact(ctx, rel, remediation=remediation)
@@ -380,7 +378,7 @@ def _check_full_master_ranking(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_check_flow1_profile_gate(ctx))
     for rel, remediation in (
-        ("flow_1_master/narrative_plan.json", "Run narrative_arc_plan."),
+        ("master/narrative_plan.json", "Run narrative_arc_plan."),
         ("segments/manifest.json", "Run segment_classification."),
         ("understanding/gap_report.json", "Run optimal_questions."),
     ):
@@ -390,11 +388,11 @@ def _check_full_master_ranking(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
-def _check_sound_design_plan_flow1(ctx: RunContext) -> list[StageInputIssue]:
+def _check_sound_design_plan(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
-        ("flow_1_master/selection.json", "Run full_master_ranking."),
-        ("flow_1_master/transitions.json", "Run transitions."),
+        ("master/selection.json", "Run full_master_ranking."),
+        ("master/transitions.json", "Run transitions."),
         ("understanding/gap_report.json", "Run optimal_questions."),
     ):
         issue = _require_artifact(ctx, rel, remediation=remediation)
@@ -501,7 +499,7 @@ _LLM_STAGES = frozenset(
         "full_master_ranking",
         "highlight_selection",
         "transitions",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "sound_design_plan_flow2",
         "sfx_prompt_craft",
         "edl_narrative_audit",
@@ -519,11 +517,11 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "topic_coverage_audit": _check_topic_coverage_audit,
     "narrative_arc_plan": _check_narrative_arc_plan,
     "full_master_ranking": _check_full_master_ranking,
-    "sound_design_plan_flow1": _check_sound_design_plan_flow1,
+    "sound_design_plan": _check_sound_design_plan,
     "assembly_preview": _check_assembly_preview,
-    "mix_flow1": _check_mix_flow1,
-    "master_flow1": _check_master_flow1,
-    "mmaudio_sfx_flow1": _check_mmaudio_sfx_flow1,
+    "mix": _check_mix,
+    "master_finalize": _check_master_finalize,
+    "mmaudio_sfx": _check_mmaudio_sfx,
     "mmaudio_sfx_flow2": _check_mmaudio_sfx_flow2,
-    "edl_flow1": _check_edl_flow1,
+    "edl": _check_edl,
 }

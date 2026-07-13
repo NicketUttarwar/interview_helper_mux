@@ -4,7 +4,7 @@
 
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
-**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. Flow 1/2 mix via `mix_flow1` / `mix_flow2` (speech + VO + SDP overlays in `master.wav`). Flow 3 ships show-description copy via `publishing_flow3.py` (no audio mux). Stage ids and status: [stage-registry.md](./build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. Flow 1/2 mix via `mix` / `REMOVED_mix_flow2` (speech + VO + SDP overlays in `master.wav`). Flow 3 ships show-description copy via `REMOVED_publishing_flow3.py` (no audio mux). Stage ids and status: [stage-registry.md](./build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
 
 ```mermaid
 flowchart TB
@@ -72,13 +72,13 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 2. **Narrative arc plan** — setup → payoff, chapters, ordering constraints
 3. **Full master ranking** — optimal segment order (not chronological default)
 4. **Transitions** — interviewer bridges
-5. **Sound design plan (Flow 1)** — SDP `assets` + `flow_plans.flow1.cues` — [sound-design.md](./cross-cutting/sound-design.md)
+5. **Sound design plan (Flow 1)** — SDP `assets` + `flow_plans.podcast.cues` — [sound-design.md](./cross-cutting/sound-design.md)
 6. **EDL narrative audit** — local-volley + flagship review of final timeline readiness (`edl_narrative_audit`)
-7. **EDL** — speech + VO + gap placements with extended narrative QC (`edl_flow1`)
+7. **EDL** — speech + VO + gap placements with extended narrative QC (`edl`)
 8. **Assembly preview** — speech + VO listen before MMAudio SFX generation (`assembly_preview.wav`)
 9. **MMAudio SFX prompt craft + SFX** — one WAV per `asset_id` under `sound_design/assets/`
-10. **Mix** — `mix_flow1` → `assembly.wav` (speech + VO + beds + stingers)
-11. **Master** — `master_flow1` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
+10. **Mix** — `mix` → `assembly.wav` (speech + VO + beds + stingers)
+11. **Master** — `master_finalize` → −16 LUFS — [evaluation-metrics](./cross-cutting/evaluation-metrics.md)
 
 ### Success criteria
 
@@ -95,10 +95,10 @@ Analysis uses a **memory-backed orchestrator**: each LLM stage can retry, merge 
 ### Stage sequence (after G2)
 
 1. **Highlight selection**
-2. **Sound design plan (Flow 2)** — SDP `assets` + `flow_plans.flow2.cues`
+2. **Sound design plan (Flow 2)** — SDP `assets` + `REMOVED_flow_plans_flow2.cues`
 3. **MMAudio SFX prompt craft + SFX** — montage assets
-4. **Mix** — `mix_flow2` → `assembly.wav` (cold open + shared between-clip transition)
-5. **Master** — `master_flow2` → −14 LUFS
+4. **Mix** — `REMOVED_mix_flow2` → `assembly.wav` (cold open + shared between-clip transition)
+5. **Master** — `REMOVED_master_flow2` → −14 LUFS
 
 ---
 
@@ -131,7 +131,7 @@ See [pipeline/publishing/README.md](./pipeline/publishing/README.md) and [podcas
 | Ordering | Optimal podcast narrative | Hook → kicker | N/A |
 | SFX / mux | Yes | Yes | No |
 | Length | Long episode | ≤ ~3 min | ~200 words |
-| Model tier (key stage) | Flagship (ranking) | Flagship (selection) | **Flagship** (`podcast_show_description`) |
+| Model tier (key stage) | Flagship (ranking) | Flagship (selection) | **Flagship** (`REMOVED_podcast_show_description`) |
 
 ---
 

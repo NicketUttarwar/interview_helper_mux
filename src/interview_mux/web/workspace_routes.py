@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_lineage import resolve_immediate_previous_run_id
 from interview_mux.stage_execution_reuse import (
@@ -18,11 +17,9 @@ from interview_mux.stage_execution_reuse import (
     record_reuse_decision,
 )
 
-
 class BulkReuseBody(BaseModel):
     stage_ids: list[str] | None = None
     accept_all: bool = False
-
 
 def register_workspace_routes(
     router: APIRouter,
@@ -55,7 +52,6 @@ def register_workspace_routes(
         prev_id = resolve_immediate_previous_run_id(ctx)
         if not prev_id:
             raise HTTPException(400, "No immediate previous execution.")
-        orders = list(ANALYSIS_ORDER) + list(FLOW1_ORDER) + list(FLOW2_ORDER) + list(FLOW3_ORDER)
         stage_ids = body.stage_ids or []
         if body.accept_all:
             stage_ids = [

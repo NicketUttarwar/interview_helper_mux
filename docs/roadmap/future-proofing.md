@@ -53,7 +53,7 @@ Rubrics, moonshot model families, templates, per-stage notes: [pipeline/value-an
 | Stage enrichment signals in LLM context | Yes — `stage_enrichment.py` → `pause_ladder_hints`, `emphasis_regions`, `quotability_signals`, `value_features_summary` |
 | Specialist orchestration loop | Yes — `analysis.specialists.enabled` (shipped default **on**) |
 | Flow hardening (`analysis.flow_hardening`) | Yes — shipped default **on** (`llm_flow_hardening.py`, preflight, cross-validate) |
-| Show description evidence QC | Yes — `show_description_qc.py`, `tools/validate_show_description.py`, `show_description_qc.strict` |
+| Show description evidence QC | Yes — `show_notes_qc.py`, `tools/validate_show_description.py`, `show_notes_qc.strict` |
 | Primary LLM `json_object` response format | Yes — all primary/shard/collate/specialist calls in `llm_runner.py` |
 
 Update this table when a future-proofed capability lands in the app.

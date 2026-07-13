@@ -10,7 +10,7 @@ from interview_mux.edl_qc import validate_flow1_edl
 from interview_mux.narrative_qc import validate_flow1_narrative
 from interview_mux.operator_quality import record_qc_summary
 from interview_mux.run_context import RunContext
-from interview_mux.show_description_qc import validate_show_description
+from interview_mux.show_notes_qc import validate_show_description
 
 
 def _gate_exit(ctx: RunContext, message: str, *, stage: str, level: str = "error") -> None:
@@ -123,14 +123,16 @@ def require_disfluency_review_clear(ctx: RunContext) -> None:
 
 
 def check_g1_vo(ctx: RunContext) -> list[str]:
-    """Return list of missing line_ids for delivery=record."""
+    """Return missing line_ids for blocking delivery=record VO (first_try severity filter)."""
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
+    from interview_mux.first_try import line_requires_vo
+
     report = ctx.read_json("understanding/gap_report.json")
     pickup = ctx.final_path("vo_pickup")
     missing: list[str] = []
     for line in report.get("interviewer_lines") or []:
-        if line.get("delivery") != "record":
+        if not isinstance(line, dict) or not line_requires_vo(line):
             continue
         lid = line.get("line_id", "")
         seg = line.get("targets_segment_id", "")
@@ -152,25 +154,6 @@ def require_g1_clear(ctx: RunContext) -> None:
         )
 
 
-def set_selected_flow(ctx: RunContext, flow: str) -> None:
-    if flow not in ("flow1", "flow2", "flow3"):
-        raise ValueError("flow must be flow1, flow2, or flow3")
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    meta.update(
-        {
-            "selected_flow": flow,
-            "selected_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-    ctx.write_json("run_meta.json", meta)
-
-
-def get_selected_flow(ctx: RunContext) -> str | None:
-    if not ctx.artifact_exists("run_meta.json"):
-        return None
-    return ctx.read_json("run_meta.json").get("selected_flow")
-
-
 def is_operator_profile_verified(ctx: RunContext) -> bool:
     """True when analysis_state.meta.operator_verified is set."""
     if not ctx.artifact_exists("understanding/analysis_state.json"):
@@ -180,9 +163,7 @@ def is_operator_profile_verified(ctx: RunContext) -> bool:
 
 
 def check_profile_gate_pending(ctx: RunContext) -> bool:
-    """True when Flow 1 is selected but profile is not verified before extended analysis."""
-    if get_selected_flow(ctx) != "flow1":
-        return False
+    """True when profile is not verified before delivery extended analysis."""
     if is_operator_profile_verified(ctx):
         return False
     from interview_mux.artifact_completeness import analysis_profile_ready_for_review
@@ -192,66 +173,55 @@ def check_profile_gate_pending(ctx: RunContext) -> bool:
     return not ctx.is_done("topic_coverage_audit")
 
 
-_FLOW1_ORDER = (
+_DELIVERY_ORDER = (
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
     "transitions",
-    "sound_design_plan_flow1",
+    "sound_design_plan",
     "sound_design_vo_finalize",
     "edl_narrative_audit",
-    "edl_flow1",
+    "edl",
     "assembly_preview",
     "sfx_prompt_craft",
-    "mmaudio_sfx_flow1",
-    "mix_flow1",
-    "master_flow1",
+    "mmaudio_sfx",
+    "mix",
+    "master_finalize",
 )
 
 
-def _flow1_will_run_topic_coverage(ctx: RunContext, from_stage: str | None) -> bool:
-    """Whether the next flow1 run would execute topic_coverage_audit."""
-    if from_stage and from_stage != "topic_coverage_audit":
-        if from_stage not in _FLOW1_ORDER:
-            return False
-        return _FLOW1_ORDER.index(from_stage) <= _FLOW1_ORDER.index("topic_coverage_audit")
+_LEGACY_DELIVERY_STAGE_ALIASES = {
+    "sound_design_plan_flow1": "sound_design_plan",
+    "edl_flow1": "edl",
+    "mmaudio_sfx_flow1": "mmaudio_sfx",
+    "mix_flow1": "mix",
+    "master_flow1": "master_finalize",
+}
+
+
+def _delivery_will_run_topic_coverage(ctx: RunContext, from_stage: str | None) -> bool:
+    """Whether the next delivery run would execute topic_coverage_audit."""
+    if from_stage:
+        from_stage = _LEGACY_DELIVERY_STAGE_ALIASES.get(from_stage, from_stage)
+        if from_stage != "topic_coverage_audit":
+            if from_stage not in _DELIVERY_ORDER:
+                return False
+            return _DELIVERY_ORDER.index(from_stage) <= _DELIVERY_ORDER.index("topic_coverage_audit")
     return not ctx.is_done("topic_coverage_audit") or from_stage == "topic_coverage_audit"
 
 
-def require_selected_flow_flow1(ctx: RunContext) -> None:
-    flow = get_selected_flow(ctx)
-    if flow != "flow1":
-        _gate_exit(
-            ctx,
-            f"Flow 1 stages require selected_flow=flow1 in run_meta.json (current: {flow!r}). "
-            "Choose Flow 1 in the GUI (G2) or: python tools/run_flow.py --flow flow1",
-            stage="g2_flow_select",
-        )
-
-
-def require_selected_flow_flow2(ctx: RunContext) -> None:
-    flow = get_selected_flow(ctx)
-    if flow != "flow2":
-        _gate_exit(
-            ctx,
-            f"Flow 2 stages require selected_flow=flow2 in run_meta.json (current: {flow!r}). "
-            "Choose Flow 2 in the GUI (G2) or: python tools/run_flow.py --flow flow2",
-            stage="g2_flow_select",
-        )
-
-
-def require_profile_verified_for_flow1_extended(ctx: RunContext) -> None:
+def require_profile_verified_for_delivery(ctx: RunContext) -> None:
     if is_operator_profile_verified(ctx):
         return
     ctx.log(
         "Profile gate: open Interview profile in the GUI, confirm themes, major questions, "
-        "and style, then click Mark profile verified before topic coverage (Flow 1 extended).",
+        "and style, then click Mark profile verified before topic coverage (delivery).",
         level="action",
         stage="analysis_profile",
         detail=str(ctx.path("understanding/analysis_state.json")),
     )
     raise SystemExit(
-        "Profile gate: mark the interview profile verified before Flow 1 extended stages "
+        "Profile gate: mark the interview profile verified before delivery extended stages "
         f"(topic_coverage_audit). → {ctx.path('understanding/analysis_state.json')}"
     )
 
@@ -267,20 +237,20 @@ def check_analysis_artifacts_gate_pending(ctx: RunContext) -> bool:
 
 
 def require_analysis_artifacts_complete(ctx: RunContext) -> None:
-    """Require analysis critical artifacts complete before flow entry (flow hardening)."""
+    """Require analysis critical artifacts complete before delivery entry (flow hardening)."""
     from interview_mux.artifact_completeness import analysis_profile_ready_for_review
     from interview_mux.artifact_cross_validate import validate_cross_artifacts
     from interview_mux.llm_flow_hardening import flow_hardening_enabled
 
     if not flow_hardening_enabled():
         return
-    errors = validate_cross_artifacts(ctx, "pre_flow1")
+    errors = validate_cross_artifacts(ctx, "pre_delivery")
     if errors:
         summary = "; ".join(errors[:4])
         _gate_exit(
             ctx,
             f"Analysis artifacts gate: {summary}. "
-            "Complete analysis stages and Fill gaps before starting flows.",
+            "Complete analysis stages and Fill gaps before starting delivery.",
             stage="analysis_profile",
         )
     if not analysis_profile_ready_for_review(ctx):
@@ -292,15 +262,35 @@ def require_analysis_artifacts_complete(ctx: RunContext) -> None:
         )
 
 
-def require_flow1_extended_gates(ctx: RunContext, *, from_stage: str | None = None) -> None:
-    """Enforce G2 flow1 selection and profile verification before topic_coverage_audit."""
+def require_delivery_gates(ctx: RunContext, *, from_stage: str | None = None) -> None:
+    """Enforce profile verification before topic_coverage_audit."""
     from interview_mux.llm_flow_hardening import flow_hardening_enabled
 
-    require_selected_flow_flow1(ctx)
-    if _flow1_will_run_topic_coverage(ctx, from_stage):
-        require_profile_verified_for_flow1_extended(ctx)
+    if _delivery_will_run_topic_coverage(ctx, from_stage):
+        require_profile_verified_for_delivery(ctx)
         if flow_hardening_enabled():
             require_analysis_artifacts_complete(ctx)
+
+
+# Backward-compat aliases
+require_profile_verified_for_flow1_extended = require_profile_verified_for_delivery
+require_flow1_extended_gates = require_delivery_gates
+
+
+def get_selected_flow(ctx: RunContext) -> str:
+    return "podcast"
+
+
+def set_selected_flow(ctx: RunContext, flow: str) -> None:
+    _ = (ctx, flow)
+
+
+def require_selected_flow_flow1(ctx: RunContext) -> None:
+    return
+
+
+def require_selected_flow_flow2(ctx: RunContext) -> None:
+    raise RuntimeError("Flow 2 removed")
 
 
 def narrative_qc_strict_enabled() -> bool:
@@ -314,12 +304,12 @@ def check_narrative_qc(
     stage: str,
     require_selection: bool = False,
 ) -> None:
-    """Warn or block on Flow 1 narrative QC before ranking or EDL (BUILD narrative validators)."""
+    """Warn or block on narrative QC before ranking or EDL."""
     errors = validate_flow1_narrative(ctx, require_selection=require_selection)
     strict = narrative_qc_strict_enabled()
     if not errors:
         ctx.log(
-            "Flow 1 narrative QC passed",
+            "Narrative QC passed",
             level="success",
             stage=stage,
             detail="narrative_qc_pass",
@@ -335,7 +325,7 @@ def check_narrative_qc(
     if len(errors) > 6:
         summary += f" (+{len(errors) - 6} more)"
     ctx.log(
-        f"Flow 1 narrative QC failed ({len(errors)} issue(s)): {summary}",
+        f"Narrative QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if strict else "warn",
         stage=stage,
         detail="narrative_qc_fail",
@@ -385,12 +375,12 @@ def check_edl_qc(
     edl: dict | None = None,
     strict: bool | None = None,
 ) -> None:
-    """Warn or block on Flow 1 EDL timeline QC before mix or after EDL build."""
+    """Warn or block on EDL timeline QC before mix or after EDL build."""
     errors = validate_flow1_edl(ctx, edl)
     use_strict = edl_qc_strict_enabled() if strict is None else strict
     if not errors:
         ctx.log(
-            "Flow 1 EDL QC passed",
+            "EDL QC passed",
             level="success",
             stage=stage,
             detail="edl_qc_pass",
@@ -406,7 +396,7 @@ def check_edl_qc(
     if len(errors) > 6:
         summary += f" (+{len(errors) - 6} more)"
     ctx.log(
-        f"Flow 1 EDL QC failed ({len(errors)} issue(s)): {summary}",
+        f"EDL QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if use_strict else "warn",
         stage=stage,
         detail="edl_qc_fail",
@@ -419,7 +409,7 @@ def check_edl_qc(
     if use_strict:
         raise SystemExit(
             f"edl_qc strict: {len(errors)} issue(s) before {stage}. "
-            f"Fix flow_1_master/edl.json or re-run edl_flow1. "
+            f"Fix master/edl.json or re-run edl. "
             f"Run: python tools/validate_edl.py --run-id {ctx.run_id}"
         )
 
@@ -431,12 +421,12 @@ def check_edl_narrative_qc(
     edl: dict | None = None,
     strict: bool | None = None,
 ) -> None:
-    """Warn or block when final Flow 1 EDL violates narrative intent."""
+    """Warn or block when final EDL violates narrative intent."""
     errors = validate_flow1_edl_narrative(ctx, edl)
     use_strict = edl_narrative_qc_strict_enabled() if strict is None else strict
     if not errors:
         ctx.log(
-            "Flow 1 EDL narrative QC passed",
+            "EDL narrative QC passed",
             level="success",
             stage=stage,
             detail="edl_narrative_qc_pass",
@@ -452,7 +442,7 @@ def check_edl_narrative_qc(
     if len(errors) > 6:
         summary += f" (+{len(errors) - 6} more)"
     ctx.log(
-        f"Flow 1 EDL narrative QC failed ({len(errors)} issue(s)): {summary}",
+        f"EDL narrative QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if use_strict else "warn",
         stage=stage,
         detail="edl_narrative_qc_fail",
@@ -465,50 +455,60 @@ def check_edl_narrative_qc(
     if use_strict:
         raise SystemExit(
             f"edl_narrative_qc strict: {len(errors)} issue(s) before {stage}. "
-            "Fix final Flow 1 ordering, transitions, coverage, gaps, or audit findings. "
+            "Fix final ordering, transitions, coverage, gaps, or audit findings. "
             f"Run: python tools/validate_narrative.py --run-id {ctx.run_id} --include-edl"
         )
 
 
-def show_description_qc_strict_enabled() -> bool:
-    sqc = merged_config().get("show_description_qc") or {}
+def show_notes_qc_strict_enabled() -> bool:
+    sqc = merged_config().get("show_notes_qc") or merged_config().get("show_notes_qc") or {}
     return bool(sqc.get("strict"))
 
 
-def check_show_description_qc(ctx: RunContext, *, stage: str = "podcast_show_description") -> None:
-    """Warn or block when show description JSON fails evidence QC."""
-    if not ctx.artifact_exists("flow_3_description/show_description.json"):
-        return
-    doc = ctx.read_json("flow_3_description/show_description.json")
-    errors = validate_show_description(ctx, doc if isinstance(doc, dict) else {})
-    strict = show_description_qc_strict_enabled()
-    if not errors:
+# Backward-compat alias
+show_notes_qc_strict_enabled = show_notes_qc_strict_enabled
+
+
+def check_show_notes_qc(ctx: RunContext, *, stage: str = "show_notes") -> None:
+    """Warn or block when show notes JSON fails evidence QC."""
+    for path in ("show_notes/show_notes.json", "show_notes/show_description.json"):
+        if not ctx.artifact_exists(path):
+            continue
+        doc = ctx.read_json(path)
+        errors = validate_show_description(ctx, doc if isinstance(doc, dict) else {})
+        strict = show_notes_qc_strict_enabled()
+        if not errors:
+            ctx.log(
+                "Show notes QC passed",
+                level="success",
+                stage=stage,
+                detail="show_notes_qc_pass",
+            )
+            record_qc_summary(
+                ctx,
+                "show_notes_qc",
+                {"passed": True, "errors": [], "strict": strict, "at_stage": stage},
+            )
+            return
+        summary = "; ".join(errors[:6])
         ctx.log(
-            "Show description QC passed",
-            level="success",
+            f"Show notes QC failed ({len(errors)} issue(s)): {summary}",
+            level="error" if strict else "warn",
             stage=stage,
-            detail="show_description_qc_pass",
+            detail="show_notes_qc_fail",
         )
         record_qc_summary(
             ctx,
-            "show_description_qc",
-            {"passed": True, "errors": [], "strict": strict, "at_stage": stage},
+            "show_notes_qc",
+            {"passed": False, "errors": errors[:12], "strict": strict, "at_stage": stage},
         )
+        if strict:
+            raise SystemExit(
+                f"show_notes_qc strict: {len(errors)} issue(s). "
+                f"Run: python tools/validate_show_description.py --run-id {ctx.run_id}"
+            )
         return
-    summary = "; ".join(errors[:6])
-    ctx.log(
-        f"Show description QC failed ({len(errors)} issue(s)): {summary}",
-        level="error" if strict else "warn",
-        stage=stage,
-        detail="show_description_qc_fail",
-    )
-    record_qc_summary(
-        ctx,
-        "show_description_qc",
-        {"passed": False, "errors": errors[:12], "strict": strict, "at_stage": stage},
-    )
-    if strict:
-        raise SystemExit(
-            f"show_description_qc strict: {len(errors)} issue(s). "
-            f"Run: python tools/validate_show_description.py --run-id {ctx.run_id}"
-        )
+
+
+# Backward-compat alias
+check_show_notes_qc = check_show_notes_qc

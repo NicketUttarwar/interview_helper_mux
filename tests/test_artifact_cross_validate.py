@@ -20,16 +20,16 @@ from run_fixtures import (
 )
 
 
-def test_pre_master_flow1_with_seeded_assets(tmp_path, monkeypatch):
+def test_pre_master_finalize_with_seeded_assets(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_pre_master")
     seed_flow1_sound_spend_ready(ctx)
     from interview_mux.sdp_cross_validate import validate_pre_master
 
-    assert validate_pre_master(ctx, "flow1") == []
+    assert validate_pre_master(ctx, "podcast") == []
 
 
-def test_pre_master_flow1_flags_post_listen_fail(tmp_path, monkeypatch):
+def test_pre_master_finalize_flags_post_listen_fail(tmp_path, monkeypatch):
     from interview_mux.sdp_cross_validate import validate_pre_master
     from run_fixtures import patch_merged_config
 
@@ -43,7 +43,7 @@ def test_pre_master_flow1_flags_post_listen_fail(tmp_path, monkeypatch):
     meta = ctx.read_json("run_meta.json")
     meta["sfx_listen_results"] = [{"asset_id": "bed_01", "result": "fail"}]
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
-    errors = validate_pre_master(ctx, "flow1")
+    errors = validate_pre_master(ctx, "podcast")
     assert any("post_listen failed" in e for e in errors)
 
 
@@ -51,7 +51,7 @@ def test_validate_cross_artifacts_pre_master_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_pre_master_x")
     seed_flow1_sound_spend_ready(ctx)
-    errors = validate_cross_artifacts(ctx, "pre_master_flow1")
+    errors = validate_cross_artifacts(ctx, "pre_master_finalize")
     assert errors == []
 
 
@@ -123,22 +123,22 @@ def test_pre_sfx_generation_passes_with_seeded_sound_path(tmp_path, monkeypatch)
     assert errors == []
 
 
-def test_pre_mix_flow1_passes_with_seeded_assets(tmp_path, monkeypatch):
+def test_pre_mix_passes_with_seeded_assets(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_mix_ok")
     seed_flow1_sound_spend_ready(ctx)
-    errors = validate_cross_artifacts(ctx, "pre_mix_flow1")
+    errors = validate_cross_artifacts(ctx, "pre_mix")
     assert errors == []
 
 
-def test_pre_mix_flow1_full_sound_path(tmp_path, monkeypatch):
+def test_pre_mix_full_sound_path(tmp_path, monkeypatch):
     from run_fixtures import seed_flow1_full_sound_path
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_mix_full")
     seed_flow1_full_sound_path(ctx)
     assert validate_cross_artifacts(ctx, "post_ranking") == []
-    assert validate_cross_artifacts(ctx, "pre_mix_flow1") == []
+    assert validate_cross_artifacts(ctx, "pre_mix") == []
 
 
 def test_post_ranking_orphan_segment_raises(tmp_path, monkeypatch):
@@ -146,7 +146,7 @@ def test_post_ranking_orphan_segment_raises(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "cv_rank_hard")
     ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"), stage_key="segment_classification")
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_999"]},
         skip_handoff=True,
     )
@@ -160,7 +160,7 @@ def test_post_transitions_invalid_id_hard_soft_split(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_tr_split")
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_001"]},
         skip_handoff=True,
     )
@@ -171,7 +171,7 @@ def test_post_transitions_invalid_id_hard_soft_split(tmp_path, monkeypatch):
         skip_handoff=True,
     )
     ctx.write_json(
-        "flow_1_master/transitions.json",
+        "master/transitions.json",
         {
             "transitions": [
                 {
@@ -208,7 +208,7 @@ def test_maybe_cross_validate_transitions_soft_enqueues_investigation(tmp_path, 
     )
     ctx = isolated_run_ctx(tmp_path, "cv_tr_soft")
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_001"]},
         skip_handoff=True,
     )
@@ -219,7 +219,7 @@ def test_maybe_cross_validate_transitions_soft_enqueues_investigation(tmp_path, 
         skip_handoff=True,
     )
     ctx.write_json(
-        "flow_1_master/transitions.json",
+        "master/transitions.json",
         {
             "transitions": [
                 {
@@ -256,7 +256,7 @@ def test_maybe_cross_validate_ranking_raises_system_exit(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     ctx.write_json(
-        "flow_1_master/selection.json",
+        "master/selection.json",
         {"ordered_segment_ids": ["seg_999"]},
         skip_handoff=True,
     )

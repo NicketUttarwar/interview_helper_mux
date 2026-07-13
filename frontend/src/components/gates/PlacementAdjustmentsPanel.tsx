@@ -21,10 +21,8 @@ type PlacementAdjustment = {
 };
 
 const PLACEMENT_STAGES = new Set([
-  "mix_flow1",
-  "mix_flow2",
-  "mmaudio_sfx_flow1",
-  "mmaudio_sfx_flow2",
+  "mix",
+  "mmaudio_sfx",
 ]);
 
 export function PlacementAdjustmentsPanel({ stage }: { stage: StageInfo }) {

@@ -1,6 +1,6 @@
 # sound-design-plan-flow2 examples (reference)
 
-Flow 2 SDP patch: montage `assets[]` + `flow_plans.flow2.cues[]` for highlight reel transitions and cold open.
+Flow 2 SDP patch: montage `assets[]` + `REMOVED_flow_plans_flow2.cues[]` for highlight reel transitions and cold open.
 
 Pair with: `sound_design/plan-flow2.system.txt` · [sound-design.examples.md](./sound-design.examples.md)
 
@@ -59,7 +59,7 @@ Pair with: `sound_design/plan-flow2.system.txt` · [sound-design.examples.md](./
 }
 ```
 
-**Why:** ≤4 assets; shared `transition_stinger`; ranks match `highlight_selection` clips.
+**Why:** ≤4 assets; shared `transition_stinger`; ranks match `REMOVED_highlight_selection` clips.
 
 ---
 
@@ -95,7 +95,7 @@ Pair with: `sound_design/plan-flow2.system.txt` · [sound-design.examples.md](./
 
 ## Bad — invalid clip ranks
 
-- `from_clip_rank: 5` when `flow_2_highlights/selection.json` has ranks 1–4 only.
+- `from_clip_rank: 5` when `REMOVED_flow2/selection.json` has ranks 1–4 only.
 
 **Why:** Lint `cue rank not in highlight selection`.
 

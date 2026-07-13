@@ -1,6 +1,6 @@
 # Coherent sound design (shipped)
 
-**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix_flow1` / `mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
+**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix` / `REMOVED_mix_flow2` (BUILD-060–066). Legacy v1 brief stages (`podcast_sfx_brief`, `sfx_brief`) remain for single-stage rerun only; default pipeline uses SDP + mix. Stage ids: [stage-registry.md](../build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./podcast-quality-roadmap.md).
 
 **Build tickets:** [Wave 5 — done](../build-out/README.md#wave-5--coherent-sound-design-done)
 
@@ -53,8 +53,8 @@ Supporting:
 |------|---------|
 | `sound_design/assets/{asset_id}.wav` | One generated file per reusable asset |
 | `sound_design/sfx_prompts.json` | Crafted prompts per asset (audit) |
-| `flow_1_master/podcast_sfx_brief.json` | Legacy export (optional compat) |
-| `flow_2_highlights/sfx_brief.json` | Legacy export (optional compat) |
+| `master/podcast_sfx_brief.json` | Legacy export (optional compat) |
+| `REMOVED_flow2/sfx_brief.json` | Legacy export (optional compat) |
 
 ### Document shape
 
@@ -94,7 +94,7 @@ Supporting:
     }
   ],
   "flow_plans": {
-    "flow1": {
+    "podcast": {
       "profile": "podcast",
       "cues": [
         {
@@ -168,13 +168,13 @@ flowchart TB
   FPLAN --> SDP
   SDP --> CRAFT[sfx_prompt_craft]
   CRAFT --> GEN[generate per asset_id]
-  GEN --> MIX[mix_flow1 / mix_flow2]
+  GEN --> MIX[mix / REMOVED_mix_flow2]
 ```
 
 | Phase | Stage key | Inputs | Writes |
 |-------|-----------|--------|--------|
 | A | `sound_design_palettes` | `content_brief`, `segments`, `analysis_state`, `source_acoustic_profile` | `palettes`, `coherence` |
-| B | `sound_design_plan_flow1` or `_flow2` | SDP, selection, narrative, gaps, transitions | `assets`, `flow_plans.*.cues` |
+| B | `sound_design_plan` or `_flow2` | SDP, selection, narrative, gaps, transitions | `assets`, `flow_plans.*.cues` |
 | C | *(optional)* `sound_design_vo_finalize` | SDP + `vo_pickup` durations | Adjust VO bridge cues |
 | D | `sound_design_generate_flow*` | SDP assets | `sound_design/assets/*.wav` |
 | E | `mux_flow*` | SDP + EDL/selection + VO | `assembly.wav` |
@@ -188,8 +188,8 @@ flowchart TB
 | Stage | Model tier (shipped default) | Prompt file |
 |-------|------------------------------|-------------|
 | `sound_design_palettes` | flagship | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
-| `sound_design_plan_flow1` | flagship | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
-| `sound_design_plan_flow2` | flagship | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
+| `sound_design_plan` | flagship | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
+| `REMOVED_sdp_flow2` | flagship | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
 | `sfx_prompt_craft` | flagship | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
 | `sfx_prompt_refine` | flagship | [sfx-prompt-refine.system.txt](../prompts/sound_design/sfx-prompt-refine.system.txt) |
 
@@ -282,7 +282,7 @@ Craft prompts must **verbalize** these constraints in prose even when `musical_i
 
 ## Post-generation analysis and adaptive placement
 
-**Status:** Operator workflow (post-listen QA). Mix placement and ducking ship in `sound_design.py` (`mix_flow1`, `mix_flow2`).
+**Status:** Operator workflow (post-listen QA). Mix placement and ducking ship in `sound_design.py` (`mix`, `REMOVED_mix_flow2`).
 
 Initial MMAudio output is a **candidate**. Final timeline placement uses analysis **after** generation against interview themes, keywords, operator notes (`style.sound_design_notes`), and the speech stem.
 
@@ -334,9 +334,9 @@ Full playbook: [local-audio-stack.md § Post-generation](./local-audio-stack.md#
 
 ## Mix logic
 
-Module: `src/interview_mux/sound_design.py` (`mix_flow1`, `mix_flow2`).
+Module: `src/interview_mux/sound_design.py` (`mix`, `REMOVED_mix_flow2`).
 
-### Flow 1 (`mix_flow1`)
+### Flow 1 (`mix`)
 
 Timeline order per `ordered_segment_ids`:
 
@@ -347,7 +347,7 @@ Timeline order per `ordered_segment_ids`:
 5. Chapter stinger (`after_segment`) — **same WAV each time**.
 6. VO after segment if `placement: after`.
 
-### Flow 2 (`mix_flow2`)
+### Flow 2 (`REMOVED_mix_flow2`)
 
 1. Cold open asset (`before_timeline`).
 2. For each highlight (by `rank`): clip WAV → **same** transition asset (`between_clips`).
@@ -379,8 +379,8 @@ Use `from_clip_rank` / `to_clip_rank` on cues — not concat index.
 | Reuse | Per-cue `sfx/*.wav` | `asset_id` → one WAV |
 | Thematic beds | Prompt only | `under_segment` + palette map |
 | Legacy brief | Raw `description`, 2s fixed | Crafted prompt + variable duration |
-| Flow 1 mix | `mux_flow1` alias / legacy concat | `mix_flow1` — speech + VO + beds + stingers |
-| Flow 2 mix | Index-based `sfx_i` | `mix_flow2` — cold open + shared transition |
+| Flow 1 mix | `mux_flow1` alias / legacy concat | `mix` — speech + VO + beds + stingers |
+| Flow 2 mix | Index-based `sfx_i` | `REMOVED_mix_flow2` — cold open + shared transition |
 
 ---
 
@@ -405,6 +405,6 @@ Add `style.sound_design_notes` to `analysis_state.json` for operator overrides (
 - [local-audio-stack.md](./local-audio-stack.md) — canonical MMAudio local stack + [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md)
 - [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md) — worked prompts
 - v1 prompts: `docs/prompts/assembly/podcast-sfx-brief.system.txt`, `sfx-brief.system.txt`
-- v1 code: `sfx_mmaudio.py`, `selection_flow1.py`, `assembly_flow1.py`, `assembly_flow2.py`
+- v1 code: `sfx_mmaudio.py`, `selection.py`, `assembly.py`, `REMOVED_assembly_flow2.py`
 - [analysis-memory.md](./analysis-memory.md) — profile feeds all LLM stages
 - [artifact-layout.md](./artifact-layout.md) — run folder layout (SDP path + schema link)

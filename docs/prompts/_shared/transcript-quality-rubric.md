@@ -107,7 +107,7 @@ Preflight enforces G0 before `speaker_roles` and `content_context` (`llm_preflig
 | `missing_framing` | No | Fillers don't create comprehension gaps |
 | `sound_design_palettes` | Yes | Dense filler segments → sparser beds (SAP density hint) |
 | `full_master_ranking` | Optional | Don't penalize authentic speech disfluency unless operator requests polish |
-| `mix_flow1` / restore | Yes | [disfluency-restore.md](../../pipeline/assembly_and_mux/disfluency-restore.md) splices confirmed fillers post-ranking |
+| `mix` / restore | Yes | [disfluency-restore.md](../../pipeline/assembly_and_mux/disfluency-restore.md) splices confirmed fillers post-ranking |
 
 ### Good pattern — boundary merge
 

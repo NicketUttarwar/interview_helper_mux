@@ -17,7 +17,6 @@ _cross_validate_overlay_stage: ContextVar[str | None] = ContextVar(
     default=None,
 )
 
-
 @contextmanager
 def cross_validate_pending_overlay(ctx: RunContext, stage_id: str | None) -> Iterator[None]:
     """Treat pending writes for ``stage_id`` as committed during cross-validation."""
@@ -35,10 +34,8 @@ def cross_validate_pending_overlay(ctx: RunContext, stage_id: str | None) -> Ite
     finally:
         _cross_validate_overlay_stage.reset(token)
 
-
 def _overlay_stage_id() -> str | None:
     return _cross_validate_overlay_stage.get()
-
 
 def _overlay_pending_path(ctx: RunContext, rel: str) -> Any | None:
     """Return staged path for ``rel`` when write-approval overlay is active."""
@@ -52,7 +49,6 @@ def _overlay_pending_path(ctx: RunContext, rel: str) -> Any | None:
     candidate = staged_path(ctx, rel, stage_id=overlay)
     return candidate if candidate.is_file() else None
 
-
 def _committed_json(ctx: RunContext, rel: str) -> Any | None:
     """Read committed artifact JSON; overlay pending writes during write approval."""
     from interview_mux.file_store import read_json as fs_read_json
@@ -65,7 +61,6 @@ def _committed_json(ctx: RunContext, rel: str) -> Any | None:
         return fs_read_json(overlay)
     return None
 
-
 def _committed_exists(ctx: RunContext, rel: str) -> bool:
     if ctx.final_path(*rel.split("/")).is_file():
         return True
@@ -77,16 +72,16 @@ HARD_CHECKPOINTS = frozenset(
         "post_segmentation",
         "post_reanchor",
         "post_gaps",
-        "pre_flow1",
-        "post_sound_plan_flow1",
-        "post_sound_plan_flow2",
+        "pre_delivery",
+        "post_optimal_questions",
+        "post_delivery_brief",
+        "post_narrative",
+        "post_sound_plan",
         "post_sonic_context",
         "pre_sfx_generation",
         "post_mmaudio_qa",
-        "pre_mix_flow1",
-        "pre_mix_flow2",
-        "pre_master_flow1",
-        "pre_master_flow2",
+        "pre_mix",
+        "pre_master_finalize",
         "post_ranking",
         "post_edl_audit_fail",
     }
@@ -97,22 +92,21 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "segment_classification": "post_segmentation",
     "content_brief_reanchor": "post_reanchor",
     "missing_framing": "post_gaps",
+    "optimal_questions": "post_optimal_questions",
+    "delivery_brief_build": "post_delivery_brief",
     "sonic_context_build": "post_sonic_context",
     "interview_spine_build": "post_interview_spine",
     "sound_design_palettes": "post_sound_palettes",
+    "narrative_arc_plan": "post_narrative",
     "full_master_ranking": "post_ranking",
     "transitions": "post_transitions",
-    "sound_design_plan_flow1": "post_sound_plan_flow1",
-    "sound_design_plan_flow2": "post_sound_plan_flow2",
+    "sound_design_plan": "post_sound_plan",
     "sfx_prompt_craft": "pre_sfx_generation",
     "edl_narrative_audit": "post_edl_audit",
     "topic_coverage_audit": "post_coherence",
-    "mmaudio_sfx_flow1": "pre_mix_flow1",
-    "mmaudio_sfx_flow2": "pre_mix_flow2",
-    "master_flow1": "pre_master_flow1",
-    "master_flow2": "pre_master_flow2",
+    "mmaudio_sfx": "pre_mix",
+    "master_finalize": "pre_master_finalize",
 }
-
 
 def _validate_boundary_document(doc: dict[str, Any]) -> list[str]:
     """Validate a boundaries.json document (staged or committed)."""
@@ -132,7 +126,6 @@ def _validate_boundary_document(doc: dict[str, Any]) -> list[str]:
         require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
         allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
     )
-
 
 def validate_cross_artifacts_for_stage(
     ctx: RunContext,
@@ -157,7 +150,6 @@ def validate_cross_artifacts_for_stage(
         return _validate_post_segmentation_staged(ctx)
     return validate_cross_artifacts(ctx, checkpoint)
 
-
 def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
     """Return human-readable cross-validation errors (empty = pass)."""
     if checkpoint == "post_boundary_detection":
@@ -168,8 +160,8 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         return _validate_post_reanchor(ctx)
     if checkpoint == "post_gaps":
         return _validate_post_gaps(ctx)
-    if checkpoint == "pre_flow1":
-        return _validate_pre_flow1(ctx)
+    if checkpoint == "pre_delivery":
+        return _validate_pre_delivery(ctx)
     if checkpoint == "post_sound_palettes":
         from interview_mux.sdp_cross_validate import validate_post_sound_palettes
 
@@ -182,14 +174,16 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         return _validate_post_interview_spine(ctx)
     if checkpoint == "post_coherence":
         return _validate_post_coherence(ctx)
-    if checkpoint == "post_sound_plan_flow1":
-        from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow1
+    if checkpoint == "post_sound_plan" or checkpoint == "post_sound_plan_flow1":
+        from interview_mux.sdp_cross_validate import validate_post_sound_plan
 
-        return validate_post_sound_plan_flow1(ctx)
-    if checkpoint == "post_sound_plan_flow2":
-        from interview_mux.sdp_cross_validate import validate_post_sound_plan_flow2
-
-        return validate_post_sound_plan_flow2(ctx)
+        return validate_post_sound_plan(ctx)
+    if checkpoint == "post_optimal_questions":
+        return _validate_post_optimal_questions(ctx)
+    if checkpoint == "post_delivery_brief":
+        return _validate_post_delivery_brief(ctx)
+    if checkpoint == "post_narrative":
+        return _validate_post_narrative(ctx)
     if checkpoint == "pre_sfx_generation":
         from interview_mux.sdp_cross_validate import validate_pre_sfx_generation
 
@@ -198,22 +192,14 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         from interview_mux.sdp_cross_validate import validate_post_mmaudio_qa
 
         return validate_post_mmaudio_qa(ctx)
-    if checkpoint == "pre_mix_flow1":
+    if checkpoint == "pre_mix":
         from interview_mux.sdp_cross_validate import validate_pre_mix
 
-        return validate_pre_mix(ctx, "flow1")
-    if checkpoint == "pre_mix_flow2":
-        from interview_mux.sdp_cross_validate import validate_pre_mix
-
-        return validate_pre_mix(ctx, "flow2")
-    if checkpoint == "pre_master_flow1":
+        return validate_pre_mix(ctx, "podcast")
+    if checkpoint == "pre_master_finalize":
         from interview_mux.sdp_cross_validate import validate_pre_master
 
-        return validate_pre_master(ctx, "flow1")
-    if checkpoint == "pre_master_flow2":
-        from interview_mux.sdp_cross_validate import validate_pre_master
-
-        return validate_pre_master(ctx, "flow2")
+        return validate_pre_master(ctx, "podcast")
     if checkpoint == "post_ranking":
         return _validate_post_ranking(ctx)
     if checkpoint == "post_transitions":
@@ -222,7 +208,6 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
     if checkpoint == "post_edl_audit":
         return _validate_post_edl_audit(ctx)
     return [f"Unknown cross-validate checkpoint: {checkpoint}"]
-
 
 def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
     """Run checkpoint validation after an LLM stage when flow hardening is enabled."""
@@ -338,7 +323,6 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
             created_by_stage=stage_key,
         )
 
-
 def _manifest_segment_ids(ctx: RunContext) -> set[str]:
     manifest = _committed_json(ctx, "segments/manifest.json")
     if not isinstance(manifest, dict):
@@ -346,13 +330,11 @@ def _manifest_segment_ids(ctx: RunContext) -> set[str]:
     segs = manifest.get("segments") or []
     return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
 
-
 def _validate_post_boundary(ctx: RunContext) -> list[str]:
     if not _committed_exists(ctx, "segments/boundaries.json"):
         return ["segments/boundaries.json missing"]
     doc = _committed_json(ctx, "segments/boundaries.json")
     return _validate_boundary_document(doc)
-
 
 def _read_boundaries_for_cross_validate(ctx: RunContext) -> dict[str, Any] | None:
     from interview_mux.artifact_issue_triage import _read_stage_artifact
@@ -362,7 +344,6 @@ def _read_boundaries_for_cross_validate(ctx: RunContext) -> dict[str, Any] | Non
         return staged
     doc = _committed_json(ctx, "segments/boundaries.json")
     return doc if isinstance(doc, dict) else None
-
 
 def _validate_post_segmentation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
@@ -405,7 +386,6 @@ def _validate_post_segmentation(ctx: RunContext) -> list[str]:
                     errors.append(f"content_brief topics[{i}] segment_id {seg_id} not in manifest")
 
     return errors
-
 
 def _validate_post_segmentation_staged(ctx: RunContext) -> list[str]:
     """post_segmentation cross-check using staged manifest when present."""
@@ -452,7 +432,6 @@ def _validate_post_segmentation_staged(ctx: RunContext) -> list[str]:
 
     return errors
 
-
 def _validate_post_reanchor(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/content_brief.json"):
         return ["understanding/content_brief.json missing"]
@@ -462,7 +441,6 @@ def _validate_post_reanchor(ctx: RunContext) -> list[str]:
         return []
     paths = [g.path if hasattr(g, "path") else str(g) for g in gap_objs]
     return [f"content_brief reanchor incomplete: {', '.join(paths[:6])}"]
-
 
 def _validate_post_gaps(ctx: RunContext) -> list[str]:
     manifest_ids = _manifest_segment_ids(ctx)
@@ -481,24 +459,151 @@ def _validate_post_gaps(ctx: RunContext) -> list[str]:
             errors.append(f"gap_evaluation segment_id {seg_id} not in manifest")
     return errors
 
-
 def _edl_audit_verdict(ctx: RunContext) -> str:
-    if not ctx.artifact_exists("flow_1_master/edl_narrative_audit.json"):
+    if not ctx.artifact_exists("master/edl_narrative_audit.json"):
         return ""
-    doc = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+    doc = ctx.read_json("master/edl_narrative_audit.json")
     return str(doc.get("verdict", "")).strip().lower() if isinstance(doc, dict) else ""
-
 
 def _validate_post_ranking(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     manifest_ids = _manifest_segment_ids(ctx)
-    sel = _committed_json(ctx, "flow_1_master/selection.json")
+    sel = _committed_json(ctx, "master/selection.json")
     if not isinstance(sel, dict):
-        return ["flow_1_master/selection.json missing"]
+        return ["master/selection.json missing"]
     ordered = sel.get("ordered_segment_ids") or []
     for sid in ordered:
         if str(sid) not in manifest_ids:
             errors.append(f"selection segment {sid} not in manifest")
+    # Honor narrative ordering constraints when present
+    plan = _committed_json(ctx, "master/narrative_plan.json")
+    if isinstance(plan, dict):
+        chapters = plan.get("chapters") or []
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            for sid in ch.get("segment_ids") or []:
+                if ordered and str(sid) not in {str(x) for x in ordered}:
+                    errors.append(f"narrative chapter segment {sid} missing from selection")
+    from interview_mux.delivery_brief import delivery_brief_cfg, estimated_selection_duration_sec, load_delivery_brief
+
+    brief = load_delivery_brief(ctx)
+    est = estimated_selection_duration_sec(ctx)
+    if brief and est is not None:
+        band = brief.get("target_duration_sec") or {}
+        try:
+            bmin = int(band.get("min") or 0)
+            bmax = int(band.get("max") or 0)
+        except (TypeError, ValueError):
+            bmin, bmax = 0, 0
+        if bmax and est > bmax * 1.05:
+            msg = f"selection duration ~{est:.0f}s above brief max {bmax}s"
+            if bool(delivery_brief_cfg().get("enforce_duration")):
+                errors.append(msg)
+            else:
+                ctx.log(msg, level="warning", stage="full_master_ranking")
+        if bmin and est < bmin * 0.85 and ordered:
+            msg = f"selection duration ~{est:.0f}s below brief min {bmin}s"
+            if bool(delivery_brief_cfg().get("enforce_duration")):
+                errors.append(msg)
+            else:
+                ctx.log(msg, level="warning", stage="full_master_ranking")
+    return errors
+
+
+def _validate_post_optimal_questions(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return ["understanding/gap_report.json missing"]
+    report = ctx.read_json("understanding/gap_report.json")
+    lines = report.get("lines") or report.get("gaps") or [] if isinstance(report, dict) else []
+    eval_ids: set[str] = set()
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        evals = ctx.read_json("understanding/gap_evaluations.json")
+        for row in (evals.get("evaluations") or []) if isinstance(evals, dict) else []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                eval_ids.add(str(row["segment_id"]))
+    from interview_mux.config import merged_config
+
+    thresholds = (merged_config().get("analysis") or {}).get("prompt_thresholds") or {}
+    q_max = int(thresholds.get("interviewer_question_max_words", 15))
+    setup_max = int(thresholds.get("interviewer_setup_max_words", 20))
+    for i, row in enumerate(lines):
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        if sid and eval_ids and sid not in eval_ids:
+            errors.append(f"gap_report lines[{i}] segment_id {sid} not in gap_evaluations")
+        script = str(row.get("script") or row.get("suggested_line") or row.get("text") or "")
+        words = len(script.split()) if script else 0
+        kind = str(row.get("kind") or row.get("role") or "").lower()
+        lim = setup_max if "setup" in kind else q_max
+        if words > lim + 5:
+            errors.append(f"gap_report lines[{i}] word count {words} exceeds cap {lim}")
+    return errors
+
+
+def _validate_post_delivery_brief(ctx: RunContext) -> list[str]:
+    from interview_mux.prompt_validation import validate_delivery_brief
+
+    if not ctx.artifact_exists("understanding/delivery_brief.json"):
+        return ["understanding/delivery_brief.json missing"]
+    doc = ctx.read_json("understanding/delivery_brief.json")
+    if not isinstance(doc, dict):
+        return ["delivery_brief is not an object"]
+    errors = validate_delivery_brief(doc)
+    dens = doc.get("sfx_density") if isinstance(doc.get("sfx_density"), dict) else {}
+    from interview_mux.config import merged_config
+
+    sd = merged_config().get("sound_design") or {}
+    max_assets = int(sd.get("max_assets", sd.get("max_assets_flow1", 6)))
+    brief_sum = sum(int(dens.get(k) or 0) for k in ("max_beds", "max_punctuators", "max_foley"))
+    if brief_sum > max_assets * 2:
+        errors.append(f"sfx_density sum {brief_sum} exceeds 2x max_assets {max_assets}")
+    band = doc.get("target_duration_sec") or {}
+    if isinstance(band, dict):
+        try:
+            if int(band.get("min") or 0) > int(band.get("ideal") or 0):
+                errors.append("target_duration_sec.min > ideal")
+            if int(band.get("ideal") or 0) > int(band.get("max") or 0) and int(band.get("max") or 0) > 0:
+                errors.append("target_duration_sec.ideal > max")
+        except (TypeError, ValueError):
+            errors.append("target_duration_sec values must be integers")
+    return errors
+
+
+def _validate_post_narrative(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    plan = _committed_json(ctx, "master/narrative_plan.json")
+    if not isinstance(plan, dict):
+        return ["master/narrative_plan.json missing"]
+    chapters = plan.get("chapters") or []
+    manifest_ids = _manifest_segment_ids(ctx)
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        for sid in ch.get("segment_ids") or []:
+            if manifest_ids and str(sid) not in manifest_ids:
+                errors.append(f"narrative segment {sid} not in manifest")
+    from interview_mux.delivery_brief import load_delivery_brief
+
+    brief = load_delivery_brief(ctx)
+    if brief:
+        budget = brief.get("chapter_budget") or {}
+        try:
+            cmax = int(budget.get("max") or 0)
+        except (TypeError, ValueError):
+            cmax = 0
+        if cmax and len(chapters) > cmax:
+            errors.append(f"chapter count {len(chapters)} exceeds brief max {cmax}")
+    return errors
+
+
+def _validate_pre_delivery(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    for rel in ANALYSIS_READY_ARTIFACT_PATHS:
+        if artifact_status(rel, ctx) != "complete":
+            errors.append(f"{rel} is {artifact_status(rel, ctx)}")
     return errors
 
 
@@ -508,13 +613,13 @@ def _validate_post_transitions_split(ctx: RunContext) -> tuple[list[str], list[s
 
     hard: list[str] = []
     soft: list[str] = []
-    if not ctx.artifact_exists("flow_1_master/transitions.json"):
+    if not ctx.artifact_exists("master/transitions.json"):
         return hard, soft
-    if not ctx.artifact_exists("flow_1_master/selection.json"):
+    if not ctx.artifact_exists("master/selection.json"):
         return ["selection.json missing for transition validation"], soft
-    sel = ctx.read_json("flow_1_master/selection.json")
+    sel = ctx.read_json("master/selection.json")
     selection_ids = {str(x) for x in (sel.get("ordered_segment_ids") or [])}
-    tr_doc = ctx.read_json("flow_1_master/transitions.json")
+    tr_doc = ctx.read_json("master/transitions.json")
     transitions = tr_doc.get("transitions") or []
     for tr in transitions:
         if not isinstance(tr, dict):
@@ -530,20 +635,12 @@ def _validate_post_transitions_split(ctx: RunContext) -> tuple[list[str], list[s
 def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
     verdict = _edl_audit_verdict(ctx)
     if verdict == "fail":
-        doc = ctx.read_json("flow_1_master/edl_narrative_audit.json")
+        doc = ctx.read_json("master/edl_narrative_audit.json")
         issues = doc.get("blocking_issues") or [] if isinstance(doc, dict) else []
         if issues and isinstance(issues[0], dict):
             return [str(issues[0].get("issue", "edl narrative audit fail"))]
         return ["edl_narrative_audit verdict is fail"]
     return []
-
-
-def _validate_pre_flow1(ctx: RunContext) -> list[str]:
-    errors: list[str] = []
-    for rel in ANALYSIS_READY_ARTIFACT_PATHS:
-        if artifact_status(rel, ctx) != "complete":
-            errors.append(f"{rel} is {artifact_status(rel, ctx)}")
-    return errors
 
 
 def _validate_post_interview_spine(ctx: RunContext) -> list[str]:
@@ -561,7 +658,6 @@ def _validate_post_interview_spine(ctx: RunContext) -> list[str]:
     schema_errors = validate_interview_spine(doc)
     return schema_errors[:4]
 
-
 def _validate_post_coherence(ctx: RunContext) -> list[str]:
     from interview_mux.coherence.config import coherence_active
     from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
@@ -575,7 +671,6 @@ def _validate_post_coherence(ctx: RunContext) -> list[str]:
     if not (report.get("gate") or {}).get("activated"):
         return []
     return validate_coherence_report(report)[:4]
-
 
 def invalidate_stage_summaries(ctx: RunContext, stage_keys: tuple[str, ...]) -> None:
     """Remove stale stage summaries after manifest mutation."""

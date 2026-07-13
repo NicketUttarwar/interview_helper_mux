@@ -69,8 +69,8 @@ python tools/audit_stage_plans_doc.py
 ./tools/check_prerequisites.sh
 # Optional on real exec_* fixture:
 # python tools/run_analysis.py --run-id <exec_*>
-# python tools/run_flow.py --flow flow1 --run-id <exec_*>
-# python tools/verify_master.py <run>/flow_1_master/master.wav
+# python tools/run_delivery.py --flow flow1 --run-id <exec_*>
+# python tools/verify_master.py <run>/master/master.wav
 ```
 
 ### Definition of done

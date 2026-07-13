@@ -68,8 +68,8 @@ def test_record_qc_summary_merge_on_fixture_run_meta(tmp_path):
     assert meta["execution_id"] == "gap_closure_smoke"
     assert qc_summary(meta, "narrative_qc")["passed"] is True
 
-    record_qc_summary(ctx, "show_description_qc", {"passed": False, "errors": ["too short"]})
+    record_qc_summary(ctx, "show_notes_qc", {"passed": False, "errors": ["too short"]})
     updated = ctx.read_json("run_meta.json")
     assert updated["qc_summaries"]["narrative_qc"]["passed"] is True
-    assert updated["qc_summaries"]["show_description_qc"]["passed"] is False
-    assert "recorded_at" in updated["qc_summaries"]["show_description_qc"]
+    assert updated["qc_summaries"]["show_notes_qc"]["passed"] is False
+    assert "recorded_at" in updated["qc_summaries"]["show_notes_qc"]

@@ -110,7 +110,7 @@ Relaunching the app must be sufficient to resume without re-copying audio or re-
 
 | Category | On-disk |
 |----------|---------|
-| Identity | `run_meta.json` (`execution_id`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `selected_flow`, `stage_reuse`, timestamps) |
+| Identity | `run_meta.json` (`execution_id`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `REMOVED_selected_flow`, `stage_reuse`, timestamps) |
 | Progress | `.stage_done/<stage_id>` markers |
 | Operator visibility | `gui_log.jsonl`, `gui_job.json` |
 | Pipeline artifacts | `ingest/`, `transcript/`, `understanding/`, `segments/`, `flow_*`, `vo_pickup/`, … |

@@ -1,5 +1,5 @@
 {
-  "stage_key": "podcast_show_description",
+  "stage_key": "REMOVED_podcast_show_description",
   "severity": "high",
   "accept_criteria": [
     "Description grounded in content_brief thesis and master selection evidence",

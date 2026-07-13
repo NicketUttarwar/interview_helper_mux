@@ -9,7 +9,7 @@ from typing import Any
 from interview_mux.artifact_completeness import artifact_status
 from interview_mux.artifact_cross_validate import validate_cross_artifacts_for_stage
 from interview_mux.artifact_repairs import is_manifest_segment_id, sync_content_brief_topic_segment_ids
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import stage_artifact_incompleteness
@@ -33,11 +33,8 @@ PROGRESSION_FLOW_STAGES = [
     "narrative_arc_plan",
     "full_master_ranking",
     "transitions",
-    "sound_design_plan_flow1",
+    "sound_design_plan",
     "edl_narrative_audit",
-    "highlight_selection",
-    "sound_design_plan_flow2",
-    "podcast_show_description",
 ]
 
 FULL_PROGRESSION_CHAIN = [*PROGRESSION_ANALYSIS_STAGES, *PROGRESSION_FLOW_STAGES]
@@ -166,18 +163,6 @@ def build_manifest_from_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
 def _sound_design_plan_patch(stage_id: str, fixtures: dict[str, Any]) -> dict[str, Any]:
     """Return only keys this stage owns — avoid empty default coherence clobbering palettes."""
     partial = dict(fixtures.get(stage_id) or {})
-    if stage_id == "sound_design_plan_flow2":
-        flow_plans = dict(partial.get("flow_plans") or {})
-        flow2 = dict(flow_plans.get("flow2") or {})
-        cues = [
-            dict(cue)
-            for cue in (flow2.get("cues") or [])
-            if isinstance(cue, dict) and cue.get("placement") != "between_clips"
-        ]
-        if cues:
-            flow2["cues"] = cues
-            flow_plans["flow2"] = flow2
-            partial["flow_plans"] = flow_plans
     return {k: v for k, v in partial.items() if k in ("assets", "flow_plans", "generated", "coherence", "palettes")}
 
 
@@ -190,7 +175,7 @@ def _sound_design_plan_doc(stage_id: str, fixtures: dict[str, Any]) -> dict[str,
             palettes=partial.get("palettes") or [],
             coherence=partial.get("coherence") or {},
         )
-    if stage_id in ("sound_design_plan_flow1", "sound_design_plan_flow2"):
+    if stage_id == "sound_design_plan":
         return _sound_design_plan_patch(stage_id, fixtures)
     return sound_design_plan_with()
 
@@ -216,7 +201,7 @@ def write_stage_producer_artifact(
     elif stage_id == "sonic_context_build":
         sonic_path = Path(__file__).parent / "fixtures" / "sonic_context" / "fireside.json"
         doc = json.loads(sonic_path.read_text(encoding="utf-8"))
-    elif stage_id in ("sound_design_palettes", "sound_design_plan_flow1", "sound_design_plan_flow2"):
+    elif stage_id in ("sound_design_palettes", "sound_design_plan"):
         doc = _sound_design_plan_doc(stage_id, fixtures)
     elif stage_id == "transitions":
         doc = dict(fixtures.get("transitions") or {})
@@ -232,7 +217,7 @@ def write_stage_producer_artifact(
         ctx,
         rel,
         doc,
-        merge_from_disk=stage_id in ("sound_design_plan_flow1", "sound_design_plan_flow2"),
+        merge_from_disk=stage_id == "sound_design_plan",
         stage_key=stage_id,
     )
     return rel
@@ -258,7 +243,7 @@ def validate_stage_committed(ctx: RunContext, stage_id: str) -> list[str]:
 
 def validate_downstream_inputs(ctx: RunContext, next_stage_id: str) -> list[str]:
     """Check stage-input readiness; ignore flow-selection gates in fixture chain tests."""
-    skip_gate_stages = frozenset({"g2_flow_select", "analysis_profile", "g1_vo_pickup"})
+    skip_gate_stages = frozenset({"analysis_profile", "g1_vo_pickup"})
     if next_stage_id in skip_gate_stages:
         return []
     issues = collect_stage_input_issues(ctx, next_stage_id)
@@ -308,11 +293,9 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if not isinstance(meta, dict):
         meta = {}
-    meta["selected_flow"] = "flow1"
     meta.setdefault("handoff_ack", {})
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
     ctx.mark_done("analysis_profile", force=True)
-    ctx.mark_done("g2_flow_select", force=True)
     ctx.mark_done("g1_vo_pickup", force=True)
     ctx.mark_done("vo_ingest", force=True)
     state = ctx.read_json("understanding/analysis_state.json")

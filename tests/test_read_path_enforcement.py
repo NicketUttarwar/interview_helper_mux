@@ -69,7 +69,7 @@ def test_sfx_mmaudio_loads_crafted_prompts_via_read_json(
         '{"prompts":[{"asset_id":"a1","sfx_prompt":"whoosh","duration_seconds":2,"negative_prompt":""}]}',
         encoding="utf-8",
     )
-    enter_stage_staging("mmaudio_sfx_flow1")
+    enter_stage_staging("mmaudio_sfx")
     try:
         rows = _load_crafted_prompts(ctx)
         assert "a1" in rows

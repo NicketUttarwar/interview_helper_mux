@@ -14,7 +14,7 @@ from interview_mux.gates import (
     is_operator_profile_verified,
 )
 from interview_mux.journey_state import OPERATOR_PHASES, stage_operator_phase
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 from interview_mux.web.stages import STAGE_BY_ID, operator_linear_stage_ids
@@ -44,7 +44,7 @@ LLM_HANDOFF_STAGES = frozenset(
         "narrative_arc_plan",
         "full_master_ranking",
         "transitions",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
         "sound_design_plan_flow2",
         "highlight_selection",
         "edl_narrative_audit",
@@ -102,18 +102,18 @@ STAGE_UNLOCKS: dict[str, str] = {
     "narrative_arc_plan": "Segment ordering (full master ranking)",
     "full_master_ranking": "Transitions between segments",
     "transitions": "Flow 1 sound design plan",
-    "sound_design_plan_flow1": "VO bridge finalize",
+    "sound_design_plan": "VO bridge finalize",
     "sound_design_vo_finalize": "EDL narrative audit",
     "edl_narrative_audit": "Edit decision list (EDL)",
-    "edl_flow1": "Assembly preview (speech + VO, no SFX)",
+    "edl": "Assembly preview (speech + VO, no SFX)",
     "assembly_preview": "Post-preview pickup (G1.5 TBiy) or sound phase — listen before MMAudio",
     "g1_5_preview_pickup": "Craft MMAudio prompts after post-preview VO",
     "sfx_prompt_craft": "MMAudio SFX generation",
-    "mmaudio_sfx_flow1": "Mix assembly",
+    "mmaudio_sfx": "Mix assembly",
     "mmaudio_sfx_flow2": "Mix assembly",
-    "mix_flow1": "Master export",
+    "mix": "Master export",
     "mix_flow2": "Master export",
-    "master_flow1": "Deliverable ready — listen or export",
+    "master_finalize": "Deliverable ready — listen or export",
     "master_flow2": "Deliverable ready — listen or export",
     "highlight_selection": "Flow 2 sound design plan",
     "sound_design_plan_flow2": "Sound phase — prompt craft and SFX",
@@ -327,7 +327,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                 "done" if ctx.is_done(stage_id) else "waiting",
             )
         )
-    if stage_id in ("mix_flow1", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):
+    if stage_id in ("mix", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):
         items.append(
             _guidance_item(
                 "placement_qa",
@@ -358,7 +358,7 @@ def _stage_reuse_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str
 
 
 def _post_listen_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
-    if stage_id not in ("sfx_prompt_craft", "mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+    if stage_id not in ("sfx_prompt_craft", "mmaudio_sfx", "mmaudio_sfx_flow2"):
         return []
     if not ctx.artifact_exists("run_meta.json"):
         return [
@@ -515,7 +515,7 @@ def _flow_prereqs(
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     info = STAGE_BY_ID.get(stage_id)
-    if not info or info.phase not in ("flow1", "flow2", "flow3"):
+    if not info or info.phase != "delivery":
         return items
     if g1_missing:
         items.append(
@@ -538,18 +538,9 @@ def _flow_prereqs(
                 kind="run",
             )
         )
-    if not flow:
-        items.append(
-            _guidance_item(
-                "g2",
-                "Confirm output type at G2",
-                "todo",
-                stage_id="g2_flow_select",
-                action="checkpoint",
-                kind="checkpoint",
-            )
-        )
-    if profile_gate_pending and info.phase == "flow1":
+    if not flow or flow not in ("podcast", "flow1", "flow2", "flow3"):
+        return items
+    if profile_gate_pending and info.phase == "delivery":
         items.append(
             _guidance_item(
                 "profile",
@@ -763,7 +754,7 @@ def _stage_actions(
             )
         return actions
 
-    if stage_id in ("mmaudio_sfx_flow1", "mmaudio_sfx_flow2"):
+    if stage_id in ("mmaudio_sfx", "mmaudio_sfx_flow2"):
         if status == "pending" and not blocked:
             actions.append(
                 _guidance_item("run", "Run this step", "todo", action="run", kind="run")
@@ -964,7 +955,7 @@ def build_stage_guidance(
         prerequisites.extend(
             _flow_prereqs(ctx, stage_id, flow_sel, g1, profile_pending)
         )
-    if stage_id in {"sound_design_palettes", "sound_design_plan_flow1", "sound_design_plan_flow2", "sfx_prompt_craft"}:
+    if stage_id in {"sound_design_palettes", "sound_design_plan", "sound_design_plan_flow2", "sfx_prompt_craft"}:
         sonic = load_sonic_context(ctx)
         status = "done" if isinstance(sonic, dict) else "todo"
         label = "Sonic context built from latest analysis"
@@ -983,7 +974,7 @@ def build_stage_guidance(
         )
 
     info = STAGE_BY_ID.get(stage_id)
-    if info and info.phase in ("flow1", "flow2", "flow3"):
+    if info and info.phase == "delivery":
         prerequisites.extend(_analysis_artifacts_gate_prereqs(ctx))
     from interview_mux.write_staging import has_pending_writes, write_approval_enabled
 
@@ -1004,7 +995,7 @@ def build_stage_guidance(
     prerequisites.extend(_stage_reuse_guidance_items(ctx, stage_id))
     prerequisites.extend(_post_listen_guidance_items(ctx, stage_id))
     prerequisites.extend(_llm_hardening_guidance_items(ctx, stage_id))
-    if stage_id in ("full_master_ranking", "edl_flow1", "edl_narrative_audit", "podcast_show_description"):
+    if stage_id in ("full_master_ranking", "edl", "edl_narrative_audit", "podcast_show_description"):
         prerequisites.append(
             _guidance_item(
                 "qc_card",

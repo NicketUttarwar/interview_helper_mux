@@ -28,7 +28,7 @@ export function DisfluencyRestorePanel({ stageId }: Props) {
       </div>
     ) : null;
   }
-  if (stageId !== "edl_flow1" && stageId !== "assembly_preview") return null;
+  if (stageId !== "edl" && stageId !== "assembly_preview") return null;
 
   const toggle = async () => {
     if (!run || saving) return;

@@ -4,7 +4,7 @@
   "accept_criteria": [
     "SFX cues align with master selection chapter beats",
     "Cue density appropriate for podcast format without over-design",
-    "References valid segment or chapter ids from flow_1_master",
+    "References valid segment or chapter ids from master",
     "Brief is actionable for downstream assembly without ambiguity"
   ],
   "reject_patterns": [

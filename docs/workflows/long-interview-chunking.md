@@ -43,7 +43,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 | `missing_framing` | Gap segment batches |
 | `topic_coverage_audit` | Segment batches |
 | `full_master_ranking` | Chapter or segment batches |
-| `highlight_selection` | Candidate segment batches |
+| `REMOVED_highlight_selection` | Candidate segment batches |
 
 ---
 

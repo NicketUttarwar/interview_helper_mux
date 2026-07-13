@@ -121,7 +121,7 @@ def test_validate_sound_design_plan_optional_sonic_fields():
             }
         ],
         "flow_plans": {
-            "flow1": {"profile": "podcast", "cues": []},
+            "podcast": {"profile": "podcast", "cues": []},
             "flow2": {"profile": "montage", "cues": []},
         },
         "generated": {},

@@ -34,7 +34,6 @@ export function checkpointPrimaryLabel(
       return opts?.pickupCount
         ? `Record ${opts.pickupCount} pickup line${opts.pickupCount === 1 ? "" : "s"}`
         : "Record pickup lines";
-    case "g2_flow_select":
       return "Confirm output type";
     case "missing_framing":
       return "Confirm gap pickup speaker";

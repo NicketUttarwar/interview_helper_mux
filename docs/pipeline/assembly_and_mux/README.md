@@ -6,17 +6,17 @@ Combine speech, interviewer VO pickup, transitions, and MMAudio SFX into `assemb
 
 ## Mix engine (BUILD-065, shipped)
 
-Module: `src/interview_mux/sound_design.py` — `mix_flow1` / `mix_flow2`.
+Module: `src/interview_mux/sound_design.py` — `mix` / `REMOVED_mix_flow2`.
 
 | Stage | Pipeline id | Output |
 |-------|-------------|--------|
-| Flow 1 mix | **`mix_flow1`** (canonical) | `flow_1_master/assembly.wav` — EDL speech + VO + SDP overlays (beds, stingers, ducking) |
-| Flow 2 mix | **`mix_flow2`** (canonical) | `flow_2_highlights/assembly.wav` — highlights + cold open + shared `between_clips` transition |
-| Legacy alias | `mux_flow1` / `mux_flow2` | Same artifact; **single-stage rerun only** — not in `FLOW1_ORDER` / `FLOW2_ORDER` |
+| Flow 1 mix | **`mix`** (canonical) | `master/assembly.wav` — EDL speech + VO + SDP overlays (beds, stingers, ducking) |
+| Flow 2 mix | **`REMOVED_mix_flow2`** (canonical) | `REMOVED_flow2/assembly.wav` — highlights + cold open + shared `between_clips` transition |
+| Legacy alias | `mux_flow1` / `mux_flow2` | Same artifact; **single-stage rerun only** — not in `DELIVERY_ORDER` / `REMOVED_FLOW2_ORDER` |
 
 `master_flow*` loudness-normalizes `assembly.wav` → `master.wav` (SFX remain audible).
 
-**Listen check:** After `mix_flow1` / `master_flow1`, confirm beds/stingers in `master.wav`.
+**Listen check:** After `mix` / `master_finalize`, confirm beds/stingers in `master.wav`.
 
 ## Assembly wiring (BUILD-067–069)
 
@@ -44,7 +44,7 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 | Ticket | Artifact |
 |--------|----------|
 | BUILD-033 | `podcast_sfx_brief.json` (v1 legacy) |
-| BUILD-062 | SDP `flow_plans.flow1` |
+| BUILD-062 | SDP `flow_plans.podcast` |
 | BUILD-034 / BUILD-064 | generated assets |
 | BUILD-035 / BUILD-065 | `assembly.wav` with VO + beds + stingers |
 | BUILD-069 | `assembly_preview.wav` |
@@ -54,7 +54,7 @@ See [sound-design.md](../../cross-cutting/sound-design.md).
 | Ticket | Artifact |
 |--------|----------|
 | BUILD-041 | `sfx_brief.json` (v1 legacy) |
-| BUILD-063 | SDP `flow_plans.flow2` |
+| BUILD-063 | SDP `REMOVED_flow_plans_flow2` |
 | BUILD-042 / BUILD-064 | generated assets |
 | BUILD-043 / BUILD-065 | `assembly.wav` — cold open, shared `between_clips` transition |
 
@@ -72,11 +72,11 @@ python tools/validate_narrative.py --run-id <exec_id> --include-edl   # upstream
 
 ## Modules
 
-- `sound_design.py` — mix engine (`mix_flow1`, `mix_flow2`)
-- `assembly_flow1.py` — `edl_flow1`, `run_mux` → `mix_flow1`, `assembly_preview`
+- `sound_design.py` — mix engine (`mix`, `REMOVED_mix_flow2`)
+- `assembly.py` — `edl`, `run_mux` → `mix`, `assembly_preview`
 - `edl_narrative_qc.py` — final EDL narrative semantics
 - `stages/edl_narrative_audit.py` — local-volley + flagship semantic audit before EDL
-- `assembly_flow2.py` — `run_micro_assembly` → `mix_flow2`
+- `REMOVED_assembly_flow2.py` — `run_micro_assembly` → `REMOVED_mix_flow2`
 - `sfx_mmaudio.py`, `sound_design_stages.py`
 
 ---

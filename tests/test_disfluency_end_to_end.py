@@ -4,8 +4,8 @@ from pathlib import Path
 
 from interview_mux.disfluency.extract import confirmed_events
 from interview_mux.disfluency.restore import build_restore_plan
-from interview_mux.prompt_validation import validate_edl_flow1
-from interview_mux.stages.assembly_flow1 import build_flow1_edl
+from interview_mux.prompt_validation import validate_edl
+from interview_mux.stages.assembly import build_flow1_edl
 from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment
 
 
@@ -40,7 +40,7 @@ def test_restore_plan_and_edl_schema_with_disfluency() -> None:
         restore_enabled=True,
     )
     assert edl["disfluency_clip_count"] >= 1
-    assert validate_edl_flow1(edl) == []
+    assert validate_edl(edl) == []
 
 
 def test_end_to_end_artifacts_chain(tmp_path: Path) -> None:
@@ -65,7 +65,7 @@ def test_end_to_end_artifacts_chain(tmp_path: Path) -> None:
             "stats": {"total": 1, "confirmed": 1, "pending": 0, "rejected": 0},
         },
     )
-    ctx.write_json("flow_1_master/selection.json", {"ordered_segment_ids": ["seg_a"]})
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_a"]})
     ctx.write_json(
         "segments/manifest.json",
         minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=8000)),
@@ -82,15 +82,15 @@ def test_end_to_end_artifacts_chain(tmp_path: Path) -> None:
         disfluencies=doc,
         settings=restore_settings(),
     )
-    ctx.write_json("flow_1_master/disfluency_restore_plan.json", plan)
+    ctx.write_json("master/disfluency_restore_plan.json", plan)
 
     edl = build_flow1_edl(
-        selection=ctx.read_json("flow_1_master/selection.json"),
+        selection=ctx.read_json("master/selection.json"),
         segments_by_id={"seg_a": {"segment_id": "seg_a", "start_ms": 0, "end_ms": 8000}},
         disfluency_events=confirmed,
         restore_enabled=True,
     )
-    ctx.write_json("flow_1_master/edl.json", edl)
+    ctx.write_json("master/edl.json", edl)
 
     assert any(c.get("type") == "disfluency" for c in edl.get("clips") or [])
-    assert ctx.artifact_exists("flow_1_master/disfluency_restore_plan.json")
+    assert ctx.artifact_exists("master/disfluency_restore_plan.json")

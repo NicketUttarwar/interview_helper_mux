@@ -8,7 +8,7 @@ from typing import Any
 
 from interview_mux.context_resolver import ARTIFACTS_REGISTRY
 from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE, resolve_llm_upstream_stage
-from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, FLOW3_ORDER
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.stage_contract import all_contract_stage_ids, load_contract
 
@@ -38,7 +38,7 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "optimal_questions",
         "narrative_arc_plan",
         "full_master_ranking",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
     ),
     "content_context": (
         "boundary_detection",
@@ -57,9 +57,9 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
     "sound_design_palettes": ("missing_framing", "optimal_questions"),
     "topic_coverage_audit": ("narrative_arc_plan", "full_master_ranking", "transitions"),
     "narrative_arc_plan": ("full_master_ranking", "transitions"),
-    "full_master_ranking": ("transitions", "sound_design_plan_flow1", "edl_flow1"),
-    "transitions": ("sound_design_plan_flow1", "edl_flow1"),
-    "sound_design_plan_flow1": ("sfx_prompt_craft", "edl_flow1"),
+    "full_master_ranking": ("transitions", "sound_design_plan", "edl"),
+    "transitions": ("sound_design_plan", "edl"),
+    "sound_design_plan": ("sfx_prompt_craft", "edl"),
     "sound_design_plan_flow2": ("sfx_prompt_craft",),
     "highlight_selection": ("sound_design_plan_flow2",),
     "analysis_profile": (
@@ -67,14 +67,14 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "narrative_arc_plan",
         "full_master_ranking",
         "topic_coverage_audit",
-        "sound_design_plan_flow1",
+        "sound_design_plan",
     ),
     "g1_vo_pickup": (
         "sound_design_vo_finalize",
-        "edl_flow1",
+        "edl",
         "assembly_preview",
-        "mix_flow1",
-        "master_flow1",
+        "mix",
+        "master_finalize",
     ),
 }
 
@@ -88,7 +88,7 @@ class DepEdge:
 
 
 def _pipeline_orders() -> list[list[str]]:
-    return [list(ANALYSIS_ORDER), list(FLOW1_ORDER), list(FLOW2_ORDER), list(FLOW3_ORDER)]
+    return [list(ANALYSIS_ORDER), list(DELIVERY_ORDER)]
 
 
 def _downstream_in_order(order: list[str], from_stage: str) -> list[str]:

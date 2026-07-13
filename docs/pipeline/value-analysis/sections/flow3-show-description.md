@@ -6,7 +6,7 @@ Turn shared interview understanding into **distribution copy** that increases li
 
 ## 2. Signals used today (context only)
 
-LLM `podcast_show_description` with flagship tier; rich user/assistant volley per [context-padding.md](../../../cross-cutting/context-padding.md). Prompt: [podcast-show-description.system.txt](../../../prompts/publishing/podcast-show-description.system.txt).
+LLM `REMOVED_podcast_show_description` with flagship tier; rich user/assistant volley per [context-padding.md](../../../cross-cutting/context-padding.md). Prompt: [podcast-show-description.system.txt](../../../prompts/publishing/podcast-show-description.system.txt).
 
 ## 3. Value hypotheses
 

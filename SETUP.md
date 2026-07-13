@@ -225,7 +225,7 @@ Merged config: `config/app.defaults.json` + `config/secrets/secrets.env`. Notabl
 | `journey_ui.enabled` | `true` | Phase sidebar, story board, unified preclean drawer |
 | `value_analysis.enabled` | `true` | GUI panel + tools; set `false` to disable |
 | `value_analysis.auto_extract_after_content_context` | `true` | Writes `understanding/value_features.json` after `content_context` |
-| `narrative_qc.strict` / `edl_qc.strict` / `edl_narrative_qc.strict` / `show_description_qc.strict` | `true` | Block or warn per stage validators |
+| `narrative_qc.strict` / `edl_qc.strict` / `edl_narrative_qc.strict` / `show_notes_qc.strict` | `true` | Block or warn per stage validators |
 
 ---
 
@@ -248,7 +248,7 @@ STRICT_LOCAL_STT=1 ./scripts/verify_local_models.sh
 |-------|-----------------|--------------|--------------|
 | **MLX LLM** | `bootstrap_venv.sh` (macOS) | `ASSETS/local_llm/models/<slug>/` | Local volley framing before OpenAI (fail-open to OpenAI) |
 | **DeepFilterNet** | Bootstrap builds venv + clone; weights bundled in upstream | `ASSETS/local_deepfilter/` | Optional preclean (`audio_preclean`); needs **Rust** |
-| **MMAudio** | Bootstrap builds venv + clone; **HF weights on first SFX generation** | `ASSETS/local_mmaudio/` | `mmaudio_sfx_flow1` / `flow2` |
+| **MMAudio** | Bootstrap builds venv + clone; **HF weights on first SFX generation** | `ASSETS/local_mmaudio/` | `mmaudio_sfx` / `flow2` |
 | **CLAP (semantic QA)** | First MMAudio QA run when `mmaudio.semantic_qa_enabled: true` | Hugging Face cache in MMAudio venv | Tier-2 SFX semantic QA (fail-open) |
 | **faster-whisper** | Bootstrap prefetch (optional) | `ASSETS/local_stt/models/` | `disfluency_extract` gap clips (lexicon works without) |
 
@@ -362,7 +362,7 @@ ASSETS/local_mmaudio/venv/bin/python scripts/download_mmaudio.py --verify
 ASSETS/local_mmaudio/venv/bin/python scripts/download_mmaudio.py --verify --smoke-generate
 ```
 
-**Manual MMAudio SFX smoke:** approve prompts on `sfx_prompt_craft` → run `mmaudio_sfx_flow1` → check `sound_design/mmaudio_qa.json` → post-listen in GUI (solo + under-speech preview via `GET …/audio/sfx-under-speech`). Tier-2 CLAP QA is **on by default** (`mmaudio.semantic_qa_enabled: true`); re-bootstrap the MMAudio venv so `transformers` + `librosa` are installed (first run downloads `laion/clap-htsat-fused`). CLAP fail-open: missing deps/timeouts set `semantic_qa_verdict=skipped`. See [sfx-prompt-regression.md](docs/prompts/_shared/examples/sfx-prompt-regression.md).
+**Manual MMAudio SFX smoke:** approve prompts on `sfx_prompt_craft` → run `mmaudio_sfx` → check `sound_design/mmaudio_qa.json` → post-listen in GUI (solo + under-speech preview via `GET …/audio/sfx-under-speech`). Tier-2 CLAP QA is **on by default** (`mmaudio.semantic_qa_enabled: true`); re-bootstrap the MMAudio venv so `transformers` + `librosa` are installed (first run downloads `laion/clap-htsat-fused`). CLAP fail-open: missing deps/timeouts set `semantic_qa_verdict=skipped`. See [sfx-prompt-regression.md](docs/prompts/_shared/examples/sfx-prompt-regression.md).
 
 | Path | Purpose |
 |------|---------|
@@ -462,10 +462,10 @@ Create or resume a run via GUI first, or allocate with `interview-mux` / tools. 
 # Shared analysis (ingest → transcribe → … → optimal_questions)
 python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 
-# After G0/G1/G2 in GUI (or set selected_flow via API/CLI):
-python tools/run_flow.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
-python tools/run_flow.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
-python tools/run_flow.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+# After G0/G1/G2 in GUI (or set REMOVED_selected_flow via API/CLI):
+python tools/run_delivery.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_delivery.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_delivery.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 
 # Full pipeline in one shot (needs --flow after analysis):
 interview-mux run --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --flow flow1
@@ -477,14 +477,14 @@ interview-mux analysis --run-id exec_002_… --reuse-from exec_001_…
 
 Subcommands: `interview-mux analysis`, `flow`, `serve`, `run` (see `interview-mux --help`).
 
-Flow 3 produces text only. Flow 1/2 produce `master.wav` under `flow_1_master/` or `flow_2_highlights/`.
+Flow 3 produces text only. Flow 1/2 produce `master.wav` under `master/` or `REMOVED_flow2/`.
 
 ---
 
 ## 5. Quality checks (before sign-off)
 
 ```bash
-python tools/verify_master.py ASSETS/executions/<exec_id>/flow_1_master/master.wav
+python tools/verify_master.py ASSETS/executions/<exec_id>/master/master.wav
 python tools/validate_narrative.py --run-id <exec_id> --include-edl
 python tools/verify_edl.py --run-id <exec_id>   # schema-only EDL diagnostic
 python tools/validate_nle.py --run-id <exec_id>

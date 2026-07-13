@@ -110,8 +110,8 @@ def test_require_stage_inputs_raises_with_remediation(
 ) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     with pytest.raises(StageInputError) as exc:
-        require_stage_inputs(ctx, "master_flow1")
-    assert exc.value.stage_id == "master_flow1"
+        require_stage_inputs(ctx, "master_finalize")
+    assert exc.value.stage_id == "master_finalize"
     assert any(issue.remediation for issue in exc.value.issues)
 
 

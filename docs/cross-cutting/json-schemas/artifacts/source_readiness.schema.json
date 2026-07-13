@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourceReadiness",
+  "type": "object",
+  "required": ["version", "band", "score", "reasons", "recommended", "updated_at"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "band": { "type": "string", "enum": ["green", "yellow", "red"] },
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reasons": { "type": "array", "items": { "type": "string" } },
+    "recommended": {
+      "type": "object",
+      "properties": {
+        "preclean": { "type": "boolean" }
+      }
+    },
+    "updated_at": { "type": "string" },
+    "stats": { "type": "object" },
+    "sap_hints": { "type": "object" },
+    "wav_rel": { "type": "string" }
+  }
+}

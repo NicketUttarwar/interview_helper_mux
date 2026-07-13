@@ -11,14 +11,12 @@ from interview_mux.gates import (
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
-    get_selected_flow,
 )
 from interview_mux.journey_log import log_journey
 from interview_mux.journey_state import (
     OPERATOR_PHASES,
     compute_milestones,
     compute_operator_phase,
-    get_flow_intent,
     read_run_meta,
     stage_operator_phase,
 )
@@ -38,10 +36,7 @@ NEXT_ACTION_UNDERSTAND_RUN = "Run understanding analysis"
 NEXT_ACTION_UNDERSTAND_PROFILE = "Review AI story profile"
 NEXT_ACTION_UNDERSTAND_INVESTIGATIONS = "Resolve open questions in Story Board"
 NEXT_ACTION_COMPLETE_G1 = "Record pickup lines"
-NEXT_ACTION_COMPLETE_G2 = "Confirm output type"
-NEXT_ACTION_CREATE_FLOW1 = "Build episode order → preview"
-NEXT_ACTION_CREATE_FLOW2 = "Select highlight clips"
-NEXT_ACTION_CREATE_FLOW3 = "Generate show description"
+NEXT_ACTION_CREATE_DELIVERY = "Build episode order → preview"
 NEXT_ACTION_POLISH_PREVIEW = "Listen to preview, then approve sound"
 NEXT_ACTION_G1_5_PREVIEW_PICKUP = "Re-record post-preview pickup lines"
 NEXT_ACTION_POLISH_CRAFT = "Review and approve SFX prompts"
@@ -50,7 +45,6 @@ NEXT_ACTION_POLISH_LISTEN = "Complete post-listen QA"
 NEXT_ACTION_POLISH_PLACEMENT = "Review placement adjustments"
 NEXT_ACTION_POLISH_SFX = "Add sound and mix"
 NEXT_ACTION_SHIP_MASTER = "Export master"
-NEXT_ACTION_SHIP_DESC = "Export show description"
 NEXT_ACTION_DONE = "Deliverable ready — listen or export"
 
 SOUND_LABELS = ("pace_class", "bed_density", "stinger_policy")
@@ -159,6 +153,7 @@ def _blocking_coherence_contradiction_count(ctx: RunContext) -> int:
 
 def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, bool]) -> str | None:
     from interview_mux.operator_quality import preclean_checkpoint_decision
+    from interview_mux.source_readiness import load_source_readiness
 
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if phase == "prepare" and not ctx.is_done("ingest"):
@@ -166,6 +161,12 @@ def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, boo
             return None
         if preclean_checkpoint_decision(meta, "before_ingest") == "dismiss":
             return None
+        ready = load_source_readiness(ctx)
+        if isinstance(ready, dict):
+            if str(ready.get("band")) == "green":
+                return None
+            if ready.get("recommended", {}).get("preclean") is False:
+                return None
         return "before_ingest"
     if phase == "complete" and not milestones.get("g1_complete"):
         g1_missing = check_g1_vo(ctx)
@@ -177,17 +178,11 @@ def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, boo
 
 
 def _next_pending_stage_ids(ctx: RunContext) -> list[str]:
-    from interview_mux.pipeline import ANALYSIS_ORDER, FLOW1_ORDER, FLOW2_ORDER, FLOW3_ORDER
-    from interview_mux.gates import get_selected_flow
+    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 
     order: list[str] = list(ANALYSIS_ORDER)
-    flow = get_selected_flow(ctx)
-    if flow == "flow1":
-        order.extend(FLOW1_ORDER)
-    elif flow == "flow2":
-        order.extend(FLOW2_ORDER)
-    elif flow == "flow3":
-        order.extend(FLOW3_ORDER)
+    if ctx.artifact_exists("analysis_complete.json"):
+        order.extend(DELIVERY_ORDER)
     return [sid for sid in order if not ctx.is_done(sid)]
 
 
@@ -209,31 +204,37 @@ def _blocking(
         "awaiting_write_approval",
         "needs_clarification",
     ):
-        blocked = True
-        stage_id = job.get("pending_write_stage") or job.get("stage")
-        gate_msg_early = str(job.get("message") or "")
-        if job.get("status") == "gate":
-            from interview_mux.gate_focus import gate_focus_stage
+        from interview_mux.first_try import write_approval_deferred
 
-            focused = gate_focus_stage(gate_msg_early, job_stage=str(stage_id or ""))
-            if focused:
-                stage_id = focused
-        if job.get("status") == "awaiting_write_approval":
-            reason = "write_approval"
-            message = "Awaiting your review"
-        elif job.get("status") == "needs_clarification":
-            reason = "artifact_clarification"
-            message = str(job.get("message") or "Resolve artifact issues before saving")
-        elif job.get("needs_stage_reuse"):
-            reason = "stage_reuse"
-            message = "Choose reuse or run fresh"
-        else:
-            gate_msg = str(job.get("message") or "Operator action required")
-            if job.get("status") == "gate" and _is_llm_gate_message(gate_msg):
-                reason = "llm_gate"
+        skip_write_block = (
+            job.get("status") == "awaiting_write_approval" and write_approval_deferred()
+        )
+        if not skip_write_block:
+            blocked = True
+            stage_id = job.get("pending_write_stage") or job.get("stage")
+            gate_msg_early = str(job.get("message") or "")
+            if job.get("status") == "gate":
+                from interview_mux.gate_focus import gate_focus_stage
+
+                focused = gate_focus_stage(gate_msg_early, job_stage=str(stage_id or ""))
+                if focused:
+                    stage_id = focused
+            if job.get("status") == "awaiting_write_approval":
+                reason = "write_approval"
+                message = "Awaiting your review"
+            elif job.get("status") == "needs_clarification":
+                reason = "artifact_clarification"
+                message = str(job.get("message") or "Resolve artifact issues before saving")
+            elif job.get("needs_stage_reuse"):
+                reason = "stage_reuse"
+                message = "Choose reuse or run fresh"
             else:
-                reason = str(stage_id or job.get("status"))
-            message = gate_msg
+                gate_msg = str(job.get("message") or "Operator action required")
+                if job.get("status") == "gate" and _is_llm_gate_message(gate_msg):
+                    reason = "llm_gate"
+                else:
+                    reason = str(stage_id or job.get("status"))
+                message = gate_msg
 
     if check_transcript_review_pending(ctx):
         blocked = True
@@ -324,8 +325,7 @@ def _blocking(
         if p0:
             pending = _next_pending_stage_ids(ctx)
             if pending:
-                flow = get_selected_flow(ctx)
-                order = operator_linear_stage_ids(flow)
+                order = operator_linear_stage_ids()
                 try:
                     p0_idx = order.index(p0)
                     pend_idx = order.index(pending[0])
@@ -345,8 +345,6 @@ def _blocking(
 
         if stage_reuse_offers_enabled():
             pending = _next_pending_stage_ids(ctx)
-            # Only the next pipeline stage can block on reuse; scanning every
-            # pending stage re-reads hundreds of prior executions per poll.
             if pending:
                 sid = pending[0]
                 candidates = reuse_candidates_if_undecided(ctx, sid)
@@ -364,22 +362,6 @@ def _blocking(
             reason = "handoff_review"
             stage_id = handoff_sid
             message = "Review AI outputs before continuing"
-
-    flow = get_selected_flow(ctx)
-    if (
-        not blocked
-        and ctx.artifact_exists("analysis_complete.json")
-        and not flow
-        and not milestones.get("g2_complete")
-    ):
-        intent = get_flow_intent(ctx)
-        if intent:
-            message = NEXT_ACTION_COMPLETE_G2
-        elif not g1_missing:
-            blocked = True
-            reason = "g2_flow_select"
-            stage_id = "g2_flow_select"
-            message = NEXT_ACTION_COMPLETE_G2
 
     out: dict[str, Any] = {
         "blocked": blocked,
@@ -420,8 +402,6 @@ def _gate_headline(stage_id: str, reason: str | None) -> str:
         return "Record pickup lines"
     if stage_id == "g1_5_preview_pickup":
         return "Re-record post-preview pickup lines"
-    if stage_id == "g2_flow_select":
-        return "Choose output flow"
     if stage_id == "analysis_profile":
         return "Verify interview profile"
     if reason == "handoff_review":
@@ -448,8 +428,6 @@ def _gate_primary_label(stage_id: str, reason: str | None) -> str:
         return "Record pickup lines"
     if stage_id == "g1_5_preview_pickup":
         return "Re-record post-preview lines"
-    if stage_id == "g2_flow_select":
-        return "Confirm output type"
     if stage_id == "analysis_profile":
         return "Review AI story profile"
     if stage_id == "sfx_prompt_craft":
@@ -601,13 +579,9 @@ def _active_operator_action(
 
 def execute_hint(
     phase: str,
-    flow_intent: str | None,
-    selected_flow: str | None,
     milestones: dict[str, bool],
 ) -> dict[str, Any] | None:
     """Primary CTA for GUI command bar. action=checkpoint opens operator modal."""
-    flow = selected_flow or flow_intent or "flow1"
-
     if phase == "prepare":
         if not milestones.get("g0_complete"):
             return {
@@ -642,60 +616,27 @@ def execute_hint(
                 "stage_id": "g1_vo_pickup",
                 "label": NEXT_ACTION_COMPLETE_G1,
             }
-        if not milestones.get("g2_complete"):
-            return {
-                "action": "checkpoint",
-                "stage_id": "g2_flow_select",
-                "label": NEXT_ACTION_COMPLETE_G2,
-            }
         return None
 
     if phase == "create":
-        if flow == "flow3":
-            return {"action": "execute", "mode": "flow3", "label": NEXT_ACTION_CREATE_FLOW3}
-        if flow == "flow2":
+        if (
+            milestones.get("preview_ready")
+            and not milestones.get("preview_listened")
+            and _require_preview_listen()
+        ):
             return {
-                "action": "execute",
-                "mode": "flow2",
-                "until_stage": "highlight_selection",
-                "label": NEXT_ACTION_CREATE_FLOW2,
+                "action": "checkpoint",
+                "stage_id": "assembly_preview",
+                "label": NEXT_ACTION_POLISH_PREVIEW,
             }
         return {
             "action": "execute",
-            "mode": "flow1",
+            "mode": "delivery",
             "until_stage": "assembly_preview",
-            "label": NEXT_ACTION_CREATE_FLOW1,
+            "label": NEXT_ACTION_CREATE_DELIVERY,
         }
 
     if phase == "polish":
-        if flow == "flow3":
-            return None
-        if flow == "flow2":
-            if not milestones.get("sfx_approved"):
-                return {
-                    "action": "checkpoint",
-                    "stage_id": "sfx_prompt_craft",
-                    "label": NEXT_ACTION_POLISH_CRAFT,
-                }
-            if not milestones.get("sfx_generated"):
-                return {
-                    "action": "execute",
-                    "mode": "flow2",
-                    "from_stage": "mmaudio_sfx_flow2",
-                    "label": NEXT_ACTION_POLISH_GENERATE,
-                }
-            if not milestones.get("sfx_listen_complete"):
-                return {
-                    "action": "checkpoint",
-                    "stage_id": "mmaudio_sfx_flow2",
-                    "label": NEXT_ACTION_POLISH_LISTEN,
-                }
-            return {
-                "action": "execute",
-                "mode": "flow2",
-                "from_stage": "sfx_prompt_craft",
-                "label": NEXT_ACTION_POLISH_SFX,
-            }
         if milestones.get("preview_ready") and not milestones.get("preview_listened") and _require_preview_listen():
             return {
                 "action": "checkpoint",
@@ -717,48 +658,34 @@ def execute_hint(
         if not milestones.get("sfx_generated"):
             return {
                 "action": "execute",
-                "mode": "flow1",
-                "from_stage": "mmaudio_sfx_flow1",
+                "mode": "delivery",
+                "from_stage": "mmaudio_sfx",
                 "label": NEXT_ACTION_POLISH_GENERATE,
             }
         if not milestones.get("sfx_listen_complete"):
             return {
                 "action": "checkpoint",
-                "stage_id": "mmaudio_sfx_flow1",
+                "stage_id": "mmaudio_sfx",
                 "label": NEXT_ACTION_POLISH_LISTEN,
             }
         if not milestones.get("placement_qa_ready"):
             return {
                 "action": "checkpoint",
-                "stage_id": "mix_flow1",
+                "stage_id": "mix",
                 "label": NEXT_ACTION_POLISH_PLACEMENT,
             }
         return {
             "action": "execute",
-            "mode": "flow1",
+            "mode": "delivery",
             "from_stage": "sfx_prompt_craft",
             "label": NEXT_ACTION_POLISH_SFX,
         }
 
     if phase == "ship":
-        if flow == "flow3":
-            return {
-                "action": "execute",
-                "mode": "flow3",
-                "from_stage": "export_show_description",
-                "label": NEXT_ACTION_SHIP_DESC,
-            }
-        if flow == "flow2":
-            return {
-                "action": "execute",
-                "mode": "flow2",
-                "from_stage": "master_flow2",
-                "label": NEXT_ACTION_SHIP_MASTER,
-            }
         return {
             "action": "execute",
-            "mode": "flow1",
-            "from_stage": "master_flow1",
+            "mode": "delivery",
+            "from_stage": "master_finalize",
             "label": NEXT_ACTION_SHIP_MASTER,
         }
 
@@ -767,7 +694,6 @@ def execute_hint(
 
 def _next_action(
     phase: str,
-    flow_intent: str | None,
     milestones: dict[str, bool],
     ctx: RunContext,
 ) -> str:
@@ -782,22 +708,15 @@ def _next_action(
             return NEXT_ACTION_UNDERSTAND_INVESTIGATIONS
         return NEXT_ACTION_UNDERSTAND_RUN
     if phase == "complete":
-        if not milestones.get("g1_complete"):
-            return NEXT_ACTION_COMPLETE_G1
-        return NEXT_ACTION_COMPLETE_G2
+        return NEXT_ACTION_COMPLETE_G1
     if phase == "create":
-        if flow_intent == "flow3":
-            return NEXT_ACTION_CREATE_FLOW3
-        if flow_intent == "flow2":
-            return NEXT_ACTION_CREATE_FLOW2
         if (
-            flow_intent == "flow1"
-            and milestones.get("preview_ready")
+            milestones.get("preview_ready")
             and not milestones.get("preview_listened")
             and _require_preview_listen()
         ):
             return NEXT_ACTION_POLISH_PREVIEW
-        return NEXT_ACTION_CREATE_FLOW1
+        return NEXT_ACTION_CREATE_DELIVERY
     if phase == "polish":
         if not milestones.get("sfx_approved"):
             return NEXT_ACTION_POLISH_CRAFT
@@ -805,7 +724,7 @@ def _next_action(
             return NEXT_ACTION_POLISH_GENERATE
         if not milestones.get("sfx_listen_complete"):
             return NEXT_ACTION_POLISH_LISTEN
-        if flow_intent == "flow1" and milestones.get("preview_ready") and not milestones.get("preview_listened"):
+        if milestones.get("preview_ready") and not milestones.get("preview_listened"):
             if _require_preview_listen():
                 return NEXT_ACTION_POLISH_PREVIEW
         from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending
@@ -816,30 +735,22 @@ def _next_action(
             return NEXT_ACTION_POLISH_PLACEMENT
         return NEXT_ACTION_POLISH_SFX
     if phase == "ship":
-        if flow_intent == "flow3":
-            return NEXT_ACTION_SHIP_DESC
         return NEXT_ACTION_SHIP_MASTER
     return NEXT_ACTION_DONE
 
 
-def _deliverable_preview(ctx: RunContext, flow: str | None) -> dict[str, Any]:
+def _deliverable_preview(ctx: RunContext) -> dict[str, Any]:
     kind = "none"
     paths: dict[str, str] = {}
     qc_passed: bool | None = None
     lufs: float | None = None
 
-    if flow in ("flow1", None) and ctx.artifact_exists("flow_1_master/assembly_preview.wav"):
-        paths["preview"] = "flow_1_master/assembly_preview.wav"
+    if ctx.artifact_exists("master/assembly_preview.wav"):
+        paths["preview"] = "master/assembly_preview.wav"
         kind = "preview"
-    if flow in ("flow1", None) and ctx.artifact_exists("flow_1_master/master.wav"):
-        paths["master"] = "flow_1_master/master.wav"
+    if ctx.artifact_exists("master/master.wav"):
+        paths["master"] = "master/master.wav"
         kind = "master"
-    if flow == "flow2" and ctx.artifact_exists("flow_2_highlights/master.wav"):
-        paths["master"] = "flow_2_highlights/master.wav"
-        kind = "master"
-    if flow == "flow3" and ctx.artifact_exists("flow_3_description/show_description.md"):
-        paths["description"] = "flow_3_description/show_description.md"
-        kind = "description"
 
     meta = read_run_meta(ctx)
     summaries = meta.get("qc_summaries") or {}
@@ -863,10 +774,7 @@ def phase_progress(ctx: RunContext, stages: list[dict[str, Any]] | None = None) 
         return progress
     for s in stages:
         sid = s.get("id") or ""
-        if sid in ("g2_flow_select",):
-            op = "complete"
-        else:
-            op = stage_operator_phase(sid)
+        op = stage_operator_phase(sid)
         if op not in progress:
             continue
         progress[op]["total"] += 1
@@ -883,10 +791,8 @@ def build_journey_snapshot(
 ) -> dict[str, Any]:
     milestones = compute_milestones(ctx)
     phase = compute_operator_phase(ctx, milestones)
-    flow_intent = get_flow_intent(ctx)
-    selected_flow = get_selected_flow(ctx)
     blocking = _blocking(ctx, job=job, milestones=milestones)
-    hint = execute_hint(phase, flow_intent, selected_flow, milestones)
+    hint = execute_hint(phase, milestones)
     active_operator_action = _active_operator_action(
         ctx, job=job, blocking=blocking, milestones=milestones
     )
@@ -897,35 +803,50 @@ def build_journey_snapshot(
     elif hint and hint.get("label"):
         next_action = str(hint["label"])
     else:
-        next_action = _next_action(phase, flow_intent, milestones, ctx)
+        next_action = _next_action(phase, milestones, ctx)
     from interview_mux.custom_run_handoff import handoff_state_for_run
 
     handoff = handoff_state_for_run(ctx)
-    flow1_readiness: dict[str, Any] | None = None
-    if (selected_flow or flow_intent) == "flow1" and phase in ("understand", "shape", "produce"):
-        from interview_mux.progression_readiness import build_flow1_readiness_report
+    delivery_readiness: dict[str, Any] | None = None
+    if phase in ("understand", "complete", "create", "polish"):
+        from interview_mux.progression_readiness import build_delivery_readiness_report
 
-        flow1_readiness = build_flow1_readiness_report(ctx, target_stage="topic_coverage_audit")
+        delivery_readiness = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
     return {
         "phase": phase,
         "milestones": milestones,
-        "flow_intent": flow_intent,
-        "selected_flow": selected_flow,
         "next_action": next_action,
         "blocking": blocking,
-        "flow1_readiness": flow1_readiness,
+        "delivery_readiness": delivery_readiness,
         "active_operator_action": active_operator_action,
         "handoff": handoff,
         "recommended_preclean": _recommended_preclean(ctx, phase, milestones),
         "preclean_checkpoints": sorted(PRECLEAN_CHECKPOINTS),
         "execute_hint": hint,
-        "deliverable": _deliverable_preview(ctx, selected_flow or flow_intent),
+        "deliverable": _deliverable_preview(ctx),
         "phase_progress": phase_progress(ctx, stages),
         "open_investigations": _open_investigation_count(ctx),
         "open_coherence_risks": _open_coherence_risk_count(ctx),
         "blocking_coherence_contradictions": _blocking_coherence_contradiction_count(ctx),
         "sound_labels": _sound_labels(ctx),
         "phase_guidance": _build_phase_guidance(ctx, stages),
+        "first_try": {
+            "enabled": __import__("interview_mux.first_try", fromlist=["first_try_mode_enabled"]).first_try_mode_enabled(),
+            "write_approval_deferred": __import__(
+                "interview_mux.first_try", fromlist=["write_approval_deferred"]
+            ).write_approval_deferred(),
+            "batch_save_phases": __import__(
+                "interview_mux.first_try", fromlist=["batch_save_phases"]
+            ).batch_save_phases(),
+        },
+        "source_readiness": (
+            __import__("interview_mux.source_readiness", fromlist=["load_source_readiness"]).load_source_readiness(
+                ctx
+            )
+        ),
+        "pending_write_stages": __import__(
+            "interview_mux.write_staging", fromlist=["all_pending_stages"]
+        ).all_pending_stages(ctx),
         **_active_substep(ctx, job=job, blocking=blocking, hint=hint),
     }
 
@@ -976,7 +897,6 @@ def _active_substep(
             "transcript_review",
             "disfluency_review",
             "g1_vo_pickup",
-            "g2_flow_select",
             "analysis_profile",
             "llm_gate",
         ) and sid:
@@ -1043,16 +963,6 @@ def _build_phase_guidance(
     from interview_mux.stage_guidance import build_phase_guidance
 
     return build_phase_guidance(ctx, stages)
-
-
-def set_flow_intent(ctx: RunContext, flow: str) -> None:
-    if flow not in ("flow1", "flow2", "flow3"):
-        raise ValueError(f"Invalid flow_intent: {flow}")
-    meta = read_run_meta(ctx)
-    meta["flow_intent"] = flow
-    meta["flow_intent_at"] = datetime.now(timezone.utc).isoformat()
-    ctx.write_json("run_meta.json", meta)
-    log_journey(ctx, "milestone", f"Output intent set: {flow}", stage="g2_flow_select")
 
 
 def mark_preview_listened(ctx: RunContext) -> None:

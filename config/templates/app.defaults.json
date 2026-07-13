@@ -28,8 +28,6 @@
       "narrative_arc_plan": { "tier": "flagship" },
       "full_master_ranking": { "tier": "flagship" },
       "edl_narrative_audit": { "tier": "flagship" },
-      "highlight_selection": { "tier": "flagship" },
-      "podcast_show_description": { "tier": "flagship" },
       "transitions": { "tier": "economy" },
       "podcast_sfx_brief": { "tier": "economy" },
       "sfx_brief": { "tier": "economy" }
@@ -40,11 +38,14 @@
     "enabled": true,
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "warn",
+    "max_assets": 6,
     "max_assets_flow1": 6,
     "max_assets_flow2": 4,
     "use_adaptive_caps": true,
     "placement_qa_enabled": true,
-    "block_mix_on_mmaudio_qa_fail": false
+    "block_mix_on_mmaudio_qa_fail": false,
+    "one_regen_on_fail": true,
+    "first_try_allow_placeholder_mix": true
   },
   "_comment_mix_engine": "crossfade_ms_* and preclean acknowledgment for step-through runner",
   "mix": {
@@ -79,7 +80,7 @@
   "edl_narrative_qc": {
     "strict": true
   },
-  "show_description_qc": {
+  "show_notes_qc": {
     "strict": true
   },
   "nle_edits": {
@@ -236,6 +237,14 @@
       "max_chapters": 8,
       "max_highlight_clips": 5
     },
+    "delivery_brief": {
+      "enabled": true,
+      "ideal_fraction_of_source": 0.85,
+      "min_duration_sec": 600,
+      "max_duration_sec": 7200,
+      "question_budget_max": 6,
+      "enforce_duration": false
+    },
     "flow_hardening": {
       "enabled": true,
       "strict_critical_stages": true,
@@ -247,10 +256,8 @@
       "stuck_signature_threshold": 2,
       "spend_block_stages": [
         "sfx_prompt_craft",
-        "mmaudio_sfx_flow1",
-        "mmaudio_sfx_flow2",
-        "mix_flow1",
-        "mix_flow2"
+        "mmaudio_sfx",
+        "mix",
       ],
       "block_mix_without_sfx_when_enabled": true
     }

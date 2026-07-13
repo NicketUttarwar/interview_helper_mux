@@ -401,7 +401,7 @@ def build_tag_registry(ctx: RunContext) -> list[dict[str, Any]]:
 
 
 def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
-    narrative = _read_if_dict(ctx, "flow_1_master/narrative_plan.json") or {}
+    narrative = _read_if_dict(ctx, "master/narrative_plan.json") or {}
     gap_report = _read_if_dict(ctx, "understanding/gap_report.json") or {}
     value_features = _read_if_dict(ctx, "understanding/value_features.json") or {}
     brief = _read_if_dict(ctx, "understanding/content_brief.json") or {}
@@ -430,7 +430,7 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
                 "segment_id": sid or None,
                 "beat": str(chapter.get("title") or chapter.get("chapter_id") or f"chapter_{idx + 1}"),
                 "confidence": 0.78,
-                "provenance": ["flow_1_master/narrative_plan.json"],
+                "provenance": ["master/narrative_plan.json"],
             }
         )
     if chapters:
@@ -763,7 +763,7 @@ def build_sonic_context(ctx: RunContext) -> dict[str, Any]:
             "understanding/analysis_state.json",
             "understanding/source_acoustic_profile.json",
             "segments/manifest.json",
-            "flow_1_master/narrative_plan.json",
+            "master/narrative_plan.json",
             "understanding/gap_report.json",
             "understanding/value_features.json",
             "transcript/disfluencies.json",

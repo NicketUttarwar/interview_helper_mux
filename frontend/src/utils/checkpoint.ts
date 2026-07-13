@@ -76,7 +76,6 @@ export function findPendingFocusStage(
       reason === "disfluency_review" ||
       reason === "g1_vo_pickup" ||
       reason === "g1_5_preview_pickup" ||
-      reason === "g2_flow_select" ||
       reason === "analysis_profile" ||
       reason === "write_approval" ||
       reason === "operator_decisions" ||
@@ -146,16 +145,13 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
       return run?.profile_verified
         ? "Profile verified — continue when ready."
         : "Review the AI-generated profile above, then mark verified when it matches your intent.";
-    case "g2_flow_select":
-      return "Select your deliverable flow below (or use your planned choice).";
     case "assembly_preview":
       return "Listen to the speech + VO preview before sound spend.";
     case "sonic_context_build":
       return "Review sonic context tags and scenario policy in the panel above.";
     case "sfx_prompt_craft":
       return "Approve MMAudio prompts and complete listen checks above.";
-    case "mmaudio_sfx_flow1":
-    case "mmaudio_sfx_flow2":
+    case "mmaudio_sfx":
       return "Listen to outputs and pass or fail the sound check above.";
     default:
       if (stageId === "ingest" || stageId.endsWith("_ingest")) {

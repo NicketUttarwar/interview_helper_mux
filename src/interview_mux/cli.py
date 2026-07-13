@@ -6,8 +6,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from interview_mux.gates import check_g1_vo, set_selected_flow
-from interview_mux.pipeline import run_analysis, run_flow1, run_flow2, run_flow3
+from interview_mux.gates import check_g1_vo
+from interview_mux.pipeline import run_analysis, run_delivery
 from interview_mux.config import merged_config, repo_root
 from interview_mux.run_context import EXEC_ID_RE, LEGACY_RUN_RE, RunContext
 from interview_mux.run_lock import run_directory_lock
@@ -36,21 +36,21 @@ def _emit(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    flow: str | None = typer.Option(None, "--flow", help="flow1, flow2, or flow3 (G2)"),
     run_id: str | None = typer.Option(None, "--run-id"),
     analysis_only: bool = typer.Option(False, "--analysis-only", help="Stop after analysis"),
     skip_analysis: bool = typer.Option(False, "--skip-analysis", help="Skip if analysis_complete.json exists"),
     from_stage: str | None = typer.Option(None, "--from-stage", help="Analysis stage to restart from"),
+    delivery_from_stage: str | None = typer.Option(None, "--delivery-from-stage", help="Delivery stage to restart from"),
 ) -> None:
-    """Default: run analysis, then flow (unless --analysis-only)."""
+    """Default: run analysis, then delivery (unless --analysis-only)."""
     if ctx.invoked_subcommand is not None:
         return
     run_pipeline(
-        flow=flow,
         run_id=run_id,
         analysis_only=analysis_only,
         skip_analysis=skip_analysis,
         from_stage=from_stage,
+        delivery_from_stage=delivery_from_stage,
     )
     raise typer.Exit()
 
@@ -118,12 +118,11 @@ def _cli_write_approval_gate(ctx: RunContext) -> None:
 
 def run_pipeline(
     *,
-    flow: str | None = None,
     run_id: str | None = None,
     analysis_only: bool = False,
     skip_analysis: bool = False,
     from_stage: str | None = None,
-    flow_from_stage: str | None = None,
+    delivery_from_stage: str | None = None,
     reuse_from: str | None = None,
     no_reuse_offers: bool | None = None,
 ) -> RunContext:
@@ -161,38 +160,17 @@ def run_pipeline(
             raise typer.Exit(1)
 
         if analysis_only:
-            _emit(ctx, "--analysis-only: stopping before flow.", level="info", stage="cli", console_markup="[dim]--analysis-only: stopping before flow.[/dim]")
+            _emit(ctx, "--analysis-only: stopping before delivery.", level="info", stage="cli", console_markup="[dim]--analysis-only: stopping before delivery.[/dim]")
             return ctx
 
-        chosen = flow
-        if not chosen:
-            console.print(
-                "Choose output flow: [bold]flow1[/bold] (full podcast), "
-                "[bold]flow2[/bold] (highlight reel), or [bold]flow3[/bold] (show description)"
-            )
-            try:
-                chosen = typer.prompt("flow", default="flow1").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                _emit(ctx, "Aborted.", level="warning", stage="cli", console_markup="\n[red]Aborted.[/red]")
-                raise typer.Exit(1) from None
-
-        if chosen not in ("flow1", "flow2", "flow3"):
-            msg = f"Invalid flow: {chosen} (use flow1, flow2, or flow3)"
-            _emit(ctx, msg, level="error", stage="g2_flow_select", console_markup=f"[red]{msg}[/red]")
-            raise typer.Exit(1)
-
-        set_selected_flow(ctx, chosen)
-        _emit(ctx, f"Flow {chosen}", level="info", stage="g2_flow_select", console_markup=f"[bold]Flow[/bold] {chosen}")
-        if chosen == "flow1":
-            run_flow1(ctx, from_stage=flow_from_stage)
-            _emit(ctx, f"Master: {ctx.path('flow_1_master/master.wav')}", level="success", stage="flow1", console_markup=f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
-        elif chosen == "flow2":
-            run_flow2(ctx, from_stage=flow_from_stage)
-            _emit(ctx, f"Master: {ctx.path('flow_2_highlights/master.wav')}", level="success", stage="flow2", console_markup=f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
-        else:
-            run_flow3(ctx, from_stage=flow_from_stage)
-            desc = str(ctx.path("flow_3_description/show_description.md"))
-            _emit(ctx, f"Show description: {desc}", level="success", stage="flow3", console_markup=f"[green]Show description:[/green] {desc}")
+        run_delivery(ctx, from_stage=delivery_from_stage)
+        _emit(
+            ctx,
+            f"Master: {ctx.path('master/master.wav')}",
+            level="success",
+            stage="delivery",
+            console_markup=f"[green]Master:[/green] {ctx.path('master/master.wav')}",
+        )
     return ctx
 
 
@@ -221,12 +199,17 @@ def analysis_cmd(
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
         run_analysis(ctx, from_stage=from_stage)
-    _emit(ctx, "Analysis complete. Resolve G1 if needed, then run flow.", level="success", stage="cli", console_markup="[green]Analysis complete.[/green] Resolve G1 if needed, then run flow.")
+    _emit(
+        ctx,
+        "Analysis complete. Resolve G1 if needed, then run delivery.",
+        level="success",
+        stage="cli",
+        console_markup="[green]Analysis complete.[/green] Resolve G1 if needed, then run delivery.",
+    )
 
 
-@app.command("flow")
-def flow_cmd(
-    flow: str = typer.Option(..., "--flow", help="flow1, flow2, or flow3"),
+@app.command("delivery")
+def delivery_cmd(
     run_id: str | None = typer.Option(None, "--run-id"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
     reuse_from: str | None = typer.Option(
@@ -240,22 +223,34 @@ def flow_cmd(
 ) -> None:
     _apply_cli_reuse_options(reuse_from=reuse_from, no_reuse_offers=no_reuse_offers or None)
     ctx = _open_run(run_id)
-    set_selected_flow(ctx, flow)
-    _emit(ctx, f"Flow {flow} on {ctx.run_id}", level="info", stage="g2_flow_select", console_markup=f"[bold]Flow[/bold] {flow} on {ctx.run_id}")
+    _emit(ctx, f"Delivery on {ctx.run_id}", level="info", stage="delivery", console_markup=f"[bold]Delivery[/bold] on {ctx.run_id}")
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
-        if flow == "flow1":
-            run_flow1(ctx, from_stage=from_stage)
-            _emit(ctx, f"Master: {ctx.path('flow_1_master/master.wav')}", level="success", stage="flow1", console_markup=f"[green]Master:[/green] {ctx.path('flow_1_master/master.wav')}")
-        elif flow == "flow2":
-            run_flow2(ctx, from_stage=from_stage)
-            _emit(ctx, f"Master: {ctx.path('flow_2_highlights/master.wav')}", level="success", stage="flow2", console_markup=f"[green]Master:[/green] {ctx.path('flow_2_highlights/master.wav')}")
-        elif flow == "flow3":
-            run_flow3(ctx, from_stage=from_stage)
-            desc = str(ctx.path("flow_3_description/show_description.md"))
-            _emit(ctx, f"Show description: {desc}", level="success", stage="flow3", console_markup=f"[green]Show description:[/green] {desc}")
-        else:
-            raise typer.BadParameter("flow must be flow1, flow2, or flow3")
+        run_delivery(ctx, from_stage=from_stage)
+        _emit(
+            ctx,
+            f"Master: {ctx.path('master/master.wav')}",
+            level="success",
+            stage="delivery",
+            console_markup=f"[green]Master:[/green] {ctx.path('master/master.wav')}",
+        )
+
+
+# Backward-compat alias
+@app.command("flow", hidden=True)
+def flow_cmd(
+    run_id: str | None = typer.Option(None, "--run-id"),
+    from_stage: str | None = typer.Option(None, "--from-stage"),
+    flow: str | None = typer.Option(None, "--flow", help="Ignored — single delivery path"),
+    reuse_from: str | None = typer.Option(None, "--reuse-from"),
+    no_reuse_offers: bool = typer.Option(False, "--no-reuse-offers"),
+) -> None:
+    delivery_cmd(
+        run_id=run_id,
+        from_stage=from_stage,
+        reuse_from=reuse_from,
+        no_reuse_offers=no_reuse_offers,
+    )
 
 
 @app.command("serve")
@@ -316,21 +311,20 @@ def serve_cmd(
 
 @app.command("run")
 def run_cmd(
-    flow: str | None = typer.Option(None, "--flow"),
     run_id: str | None = typer.Option(None, "--run-id"),
     analysis_only: bool = typer.Option(False, "--analysis-only"),
     skip_analysis: bool = typer.Option(False, "--skip-analysis"),
     from_stage: str | None = typer.Option(None, "--from-stage"),
-    flow_from_stage: str | None = typer.Option(None, "--flow-from-stage"),
+    delivery_from_stage: str | None = typer.Option(None, "--delivery-from-stage"),
+    flow_from_stage: str | None = typer.Option(None, "--flow-from-stage", hidden=True),
 ) -> None:
-    """Run analysis then flow (same as default with no subcommand)."""
+    """Run analysis then delivery (same as default with no subcommand)."""
     run_pipeline(
-        flow=flow,
         run_id=run_id,
         analysis_only=analysis_only,
         skip_analysis=skip_analysis,
         from_stage=from_stage,
-        flow_from_stage=flow_from_stage,
+        delivery_from_stage=delivery_from_stage or flow_from_stage,
     )
 
 
@@ -340,5 +334,5 @@ def analysis_main() -> None:
 
 
 def flow_main() -> None:
-    sys.argv = ["interview-mux", "flow", *sys.argv[1:]]
+    sys.argv = ["interview-mux", "delivery", *sys.argv[1:]]
     app()

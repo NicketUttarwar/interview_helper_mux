@@ -190,6 +190,14 @@ def run_source_acoustic_profile(ctx: RunContext) -> None:
         stage="source_acoustic_profile",
     )
     ctx.mark_done("source_acoustic_profile")
+    try:
+        from interview_mux.source_readiness import maybe_auto_dismiss_preclean, write_source_readiness
+
+        write_source_readiness(ctx, stage="source_acoustic_profile")
+        maybe_auto_dismiss_preclean(ctx, checkpoint="before_ingest")
+    except Exception as exc:  # noqa: BLE001
+        ctx.log(f"source_readiness refresh failed: {exc}", level="warning", stage="source_acoustic_profile")
+
 
 
 def _derived_from(transcript: dict[str, Any], normalized_wav: Path, preclean_wav: Path | None) -> dict[str, Any]:

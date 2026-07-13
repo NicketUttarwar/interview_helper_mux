@@ -11,7 +11,7 @@ export interface RunContextValue {
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
   selectStage: (stageId: string) => Promise<void>;
-  startRun: (inputPath: string, flowIntent?: string) => Promise<void>;
+  startRun: (inputPath: string) => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
 }
 

@@ -7,7 +7,7 @@ import pytest
 
 from interview_mux.disfluency.context import attach_disfluency_context, disfluency_summary_for_ctx
 from interview_mux.run_context import RunContext
-from interview_mux.sound_design import _disfluency_excluded_windows, _overlaps_excluded, mix_flow1
+from interview_mux.sound_design import _disfluency_excluded_windows, _overlaps_excluded, mix
 from run_fixtures import isolated_run_ctx, patch_merged_config
 
 
@@ -75,7 +75,7 @@ def test_attach_disfluency_context_injects_key(tmp_path: Path, monkeypatch) -> N
     assert out["foo"] == 1
 
 
-def test_mix_flow1_skips_overlay_on_disfluency_window(tmp_path: Path, monkeypatch) -> None:
+def test_mix_skips_overlay_on_disfluency_window(tmp_path: Path, monkeypatch) -> None:
     cfg = {
         "disfluency_extract": {"enabled": True},
         "disfluency_restore": {"enabled": True, "crossfade_ms": 20},
@@ -96,7 +96,7 @@ def test_mix_flow1_skips_overlay_on_disfluency_window(tmp_path: Path, monkeypatc
     AudioSegment.silent(duration=300, frame_rate=48000).export(str(clip_path), format="wav")
 
     ctx.write_json(
-        "flow_1_master/edl.json",
+        "master/edl.json",
         {
             "version": 1,
             "ordered_segment_ids": ["seg_a"],
@@ -151,6 +151,6 @@ def test_mix_flow1_skips_overlay_on_disfluency_window(tmp_path: Path, monkeypatc
                 with patch("interview_mux.sound_design.maybe_check_mix_intelligibility"):
                     with patch("interview_mux.sound_design.build_flow1_overlays", side_effect=fake_overlays):
                         with patch("pydub.audio_segment.AudioSegment.overlay", counting_overlay):
-                            mix_flow1(ctx)
+                            mix(ctx)
 
     assert 5100 not in overlay_calls, f"SFX overlay at disfluency window should be skipped, got positions {overlay_calls}"

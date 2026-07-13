@@ -35,7 +35,7 @@ def main() -> None:
     parser.add_argument(
         "--require-selection",
         action="store_true",
-        help="Fail when flow_1_master/selection.json is missing",
+        help="Fail when master/selection.json is missing",
     )
     parser.add_argument(
         "--include-edl",

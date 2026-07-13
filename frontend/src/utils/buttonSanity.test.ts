@@ -194,10 +194,7 @@ describe("buttonSanity — operator primary actions are actionable", () => {
     {
       name: "g2 flow select",
       run: baseRun({
-        stages: [stage("g2_flow_select", "action_required", "Flow select")],
-        job: { status: "gate", stage: "g2_flow_select" },
       }),
-      stageId: "g2_flow_select",
       expectKind: "open_modal",
     },
     {

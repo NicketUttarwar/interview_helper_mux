@@ -9,12 +9,12 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: flow_1_master/narrative_plan.json
+- path: master/narrative_plan.json
   schema: narrative_plan_artifact.schema.json
   staging: true
 inputs:
   hard:
-  - path: flow_1_master/coverage_audit.json
+  - path: master/coverage_audit.json
     producer: topic_coverage_audit
   soft: []
 sufficiency:

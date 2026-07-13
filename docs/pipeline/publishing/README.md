@@ -10,7 +10,7 @@ Produce a **~200-word, third-person show description** that hooks listeners and 
 
 ## When it runs
 
-After shared analysis and **gate G2** when `run_meta.json` has `selected_flow: flow3`. Does not require Flow 1 ranking or Flow 2 highlight selection.
+After shared analysis and **gate G2** when `run_meta.json` has `REMOVED_selected_flow: flow3`. Does not require Flow 1 ranking or Flow 2 highlight selection.
 
 **Recommended:** `understanding/analysis_state.json` with `meta.operator_verified: true` so themes and audience match operator intent — same guard as Flow 1 extended analysis.
 
@@ -18,16 +18,16 @@ After shared analysis and **gate G2** when `run_meta.json` has `selected_flow: f
 
 | Order | Stage key | Model tier | Output |
 |-------|-----------|------------|--------|
-| 1 | `podcast_show_description` | **flagship** | `flow_3_description/show_description.json` |
-| 2 | `export_show_description` | — | `flow_3_description/show_description.md` (plain text export) |
+| 1 | `REMOVED_podcast_show_description` | **flagship** | `show_notes/show_description.json` |
+| 2 | `REMOVED_export_show_description` | — | `show_notes/show_description.md` (plain text export) |
 
 Single LLM stage; export mirrors JSON → plain text on disk without a model call. `show_description.json` is validated on write and supports gap-fill when re-run — [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
 
 ## Module
 
-- `src/interview_mux/stages/publishing_flow3.py` — `podcast_show_description` + `export_show_description`
-- `FLOW3_ORDER` in `pipeline.py`; `run_flow3` / `run_single_stage` branches
-- CLI/GUI: `tools/run_flow.py --flow flow3`, `cli.flow_cmd`, `web/runner.py` (`mode: flow3`), `web/server.py` `FlowBody`, `web/stages.py` `FLOW3_STAGES`
+- `src/interview_mux/stages/REMOVED_publishing_flow3.py` — `REMOVED_podcast_show_description` + `REMOVED_export_show_description`
+- `REMOVED_FLOW3_ORDER` in `pipeline.py`; `REMOVED_run_flow3` / `run_single_stage` branches
+- CLI/GUI: `tools/run_delivery.py --flow flow3`, `cli.flow_cmd`, `web/runner.py` (`mode: flow3`), `web/server.py` `FlowBody`, `web/stages.py` `FLOW3_STAGES`
 
 ## Context volley
 
@@ -54,8 +54,8 @@ Full table: [operator-stage-checklists.md](../../workflows/operator-stage-checkl
 ## Related
 
 - [pipeline.md](../../pipeline.md) — three flows overview
-- [artifact-layout.md](../../cross-cutting/artifact-layout.md) — `flow_3_description/`
-- [model-routing.md](../../cross-cutting/model-routing.md) — flagship for `podcast_show_description`
+- [artifact-layout.md](../../cross-cutting/artifact-layout.md) — `show_notes/`
+- [model-routing.md](../../cross-cutting/model-routing.md) — flagship for `REMOVED_podcast_show_description`
 
 ---
 

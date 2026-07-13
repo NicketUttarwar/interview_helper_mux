@@ -29,6 +29,7 @@ export function LiveStatusBar() {
     openActionModal,
     acknowledgeHandoff,
     approveWriteAndContinue,
+    approveBatchWrites,
     selectStage,
     setActiveSubstepId,
     setActiveTab,
@@ -219,6 +220,19 @@ export function LiveStatusBar() {
                 title={operatorAction.subline ?? operatorAction.headline}
               >
                 Open step in Pipeline ({pendingActionCount})
+              </button>
+            ) : null}
+            {(run?.journey?.pending_write_stages || []).length > 0 &&
+            run?.journey?.first_try?.write_approval_deferred ? (
+              <button
+                type="button"
+                className="btn primary sm"
+                data-action-id="gui.write_approval.batch_save"
+                data-testid="live-status-batch-save"
+                disabled={!sessionReady || jobRunning || actionBusy}
+                onClick={() => void approveBatchWrites()}
+              >
+                Save all pending ({run.journey.pending_write_stages.length})
               </button>
             ) : null}
             {live.primaryLabel && live.onPrimary && !statusOnlyOnPipeline ? (

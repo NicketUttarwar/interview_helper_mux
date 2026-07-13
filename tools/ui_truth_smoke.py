@@ -13,6 +13,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from interview_mux.config import merged_config, repo_root  # noqa: E402
 from interview_mux.run_context import RunContext  # noqa: E402
 from interview_mux.ui_truth import validate_run_snapshot  # noqa: E402
+from interview_mux.gates import (  # noqa: E402
+    check_g1_vo,
+    check_profile_gate_pending,
+    check_transcript_review_pending,
+    is_operator_profile_verified,
+)
 from interview_mux.web.server import _build_stage_list  # noqa: E402
 
 
@@ -25,7 +31,13 @@ def audit_run(run_id: str) -> list[str]:
     if not RunContext.exists(run_id):
         return [f"{run_id}: not found"]
     ctx = RunContext(run_id, create=False)
-    stages = _build_stage_list(ctx)
+    stages = _build_stage_list(
+        ctx,
+        check_g1_vo(ctx),
+        check_transcript_review_pending(ctx),
+        is_operator_profile_verified(ctx),
+        check_profile_gate_pending(ctx),
+    )
     journey = None
     try:
         from interview_mux.journey import build_journey_snapshot

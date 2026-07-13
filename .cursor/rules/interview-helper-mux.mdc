@@ -300,6 +300,7 @@ Full gate copy: **`docs/workflows/operator-gates.md`**.
 
 - Autopilot may auto-run `fix_all` for ITR/LLM gate issues; **`write_approval` never auto-approves**.
 - Full autopilot hides review gates except `operator_decisions`.
+- **First-try** (`journey_ui.first_try_mode`, default on): deferred **batch Save**, clean G0/G0.5 auto-complete, severity-filtered G1, soft-fail SFX — [first-try-reliability.md](../../docs/workflows/first-try-reliability.md).
 
 ---
 
