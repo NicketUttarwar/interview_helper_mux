@@ -43,14 +43,6 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "placement": z.string(),
 })),
 }),
-  "flow2": z.object({
-  "profile": z.string(),
-  "cues": z.array(z.object({
-  "cue_id": z.string(),
-  "asset_id": z.string(),
-  "placement": z.string(),
-})),
-}),
 }),
   "generated": z.record(z.string(), z.unknown()),
 });

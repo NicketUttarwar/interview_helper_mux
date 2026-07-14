@@ -30,6 +30,7 @@ ANALYSIS_PHASE_STAGES = frozenset(
         "missing_framing",
         "optimal_questions",
         "delivery_brief_build",
+        "soundscape_policy_build",
     }
 )
 

@@ -4,6 +4,8 @@ import type { z } from "zod";
 const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
   "master/coverage_audit.json": async () =>
     (await import("./master_coverage_audit_jsonSchema")).master_coverage_audit_jsonSchema,
+  "master/edl.json": async () =>
+    (await import("./master_edl_jsonSchema")).master_edl_jsonSchema,
   "master/edl_narrative_audit.json": async () =>
     (await import("./master_edl_narrative_audit_jsonSchema")).master_edl_narrative_audit_jsonSchema,
   "master/narrative_plan.json": async () =>

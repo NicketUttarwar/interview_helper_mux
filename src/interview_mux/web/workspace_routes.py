@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_lineage import resolve_immediate_previous_run_id
 from interview_mux.stage_execution_reuse import (
@@ -54,6 +55,7 @@ def register_workspace_routes(
             raise HTTPException(400, "No immediate previous execution.")
         stage_ids = body.stage_ids or []
         if body.accept_all:
+            orders = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
             stage_ids = [
                 sid
                 for sid in orders

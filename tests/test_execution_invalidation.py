@@ -23,13 +23,25 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
             "assets_root": "ASSETS",
             "executions_root": "ASSETS/executions",
             "data_root": "data",
-            "journey_ui": {"require_write_approval_per_stage": True},
+            "journey_ui": {
+                "require_write_approval_per_stage": True,
+                "first_try_mode": False,
+                "defer_write_approval_until": "off",
+            },
         },
     )
     monkeypatch.setattr(
         "interview_mux.write_staging.merged_config",
-        lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
+        lambda: {
+            "journey_ui": {
+                "require_write_approval_per_stage": True,
+                "first_try_mode": False,
+                "defer_write_approval_until": "off",
+            }
+        },
     )
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: False)
     rid = "exec_001_20260101T000000Z"
     ctx = RunContext(rid, create=True)
     ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)

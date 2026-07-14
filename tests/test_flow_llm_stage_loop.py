@@ -31,6 +31,7 @@ def test_flow_stage_budget_exhaustion_sets_gate(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "flow_budget")
     ensure_analysis_workspace(ctx)
     _patch_flow_hardening(monkeypatch)
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     for _ in range(3):
         record_primary_attempt(ctx, "full_master_ranking")
     monkeypatch.setattr("interview_mux.llm_stage_routing.run_preflight", lambda *_a, **_k: [])

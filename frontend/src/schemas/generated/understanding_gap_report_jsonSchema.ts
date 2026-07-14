@@ -14,5 +14,8 @@ export const understanding_gap_report_jsonSchema = z.object({
   "act_context": z.number().optional(),
   "suggested_tone": z.enum(["analytical", "consumer", "neutral"]).optional(),
   "trim_hint_ms": z.number().optional(),
+  "severity": z.enum(["low", "medium", "high", "critical"]).optional(),
+  "blocking": z.boolean().optional(),
+  "skipped_optional": z.boolean().optional(),
 })),
 });

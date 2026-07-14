@@ -9,8 +9,12 @@ def test_guidance_shows_budget_exhaustion(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(
         monkeypatch,
-        {"analysis": {"flow_hardening": {"enabled": True, "max_primary_attempts_per_stage": 2}}},
+        {
+            "analysis": {"flow_hardening": {"enabled": True, "max_primary_attempts_per_stage": 2}},
+            "journey_ui": {"first_try_mode": False},
+        },
     )
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = isolated_run_ctx(tmp_path, "guidance_budget")
     ctx.write_json(
         "understanding/analysis_orchestration.json",

@@ -59,6 +59,7 @@ def test_pending_handoff_not_triggered_for_empty_artifact(tmp_path, monkeypatch)
 def test_pending_handoff_after_mark_done_with_complete_artifact(tmp_path, monkeypatch) -> None:
     patch_executions_root(monkeypatch, tmp_path)
     monkeypatch.setattr("interview_mux.full_autopilot.full_autopilot_enabled", lambda cfg=None: False)
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = RunContext(create=True)
     ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")
@@ -68,6 +69,7 @@ def test_pending_handoff_after_mark_done_with_complete_artifact(tmp_path, monkey
 def test_require_handoff_clear_raises(tmp_path, monkeypatch) -> None:
     patch_executions_root(monkeypatch, tmp_path)
     monkeypatch.setattr("interview_mux.full_autopilot.full_autopilot_enabled", lambda cfg=None: False)
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = RunContext(create=True)
     ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")

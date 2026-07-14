@@ -216,7 +216,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             contract=contract,
             excluded_windows=excluded_windows,
         )
-        mix = base
+        mixed = base
         skipped_on_disfluency = 0
         for cue in overlays:
             clip_audio = cue["audio"]
@@ -226,7 +226,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             if excluded_windows and _overlaps_excluded(pos, len(clip_audio), excluded_windows):
                 skipped_on_disfluency += 1
                 continue
-            mix = mix.overlay(clip_audio, position=pos)
+            mixed = mixed.overlay(clip_audio, position=pos)
 
         if skipped_on_disfluency:
             ctx.log(
@@ -247,9 +247,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
 
     assembly = ctx.path("master", "assembly.wav")
     with logged_step("mix/export_assembly", ctx=ctx, stage="mix"):
-        mix.export(str(assembly), format="wav")
+        mixed.export(str(assembly), format="wav")
         ctx.log(
-            f"mix: assembly.wav ready ({len(mix)} ms, VO + beds + stingers)",
+            f"mix: assembly.wav ready ({len(mixed)} ms, VO + beds + stingers)",
             level="success",
             stage="mix",
             detail=str(assembly),

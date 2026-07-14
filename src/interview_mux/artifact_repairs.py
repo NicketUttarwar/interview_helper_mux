@@ -79,15 +79,6 @@ def _sanitize_topic_segment_ids(seg_ids: list[Any], manifest_ids: set[str]) -> l
     return [str(s) for s in seg_ids if is_manifest_segment_id(str(s))]
 
 
-    ta = set(a.lower().split())
-    tb = set(b.lower().split())
-    if not ta and not tb:
-        return 1.0
-    if not ta or not tb:
-        return 0.0
-    return len(ta & tb) / len(ta | tb)
-
-
 def _speakers_by_id(ctx: Any) -> dict[str, str]:
     if not ctx.artifact_exists("understanding/speakers.json"):
         return {}

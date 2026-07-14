@@ -70,14 +70,6 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             c,
         )
 
-        write_validated_artifact(
-            c,
-            "master/selection.json",
-            artifacts,
-            merge_from_disk=True,
-            stage_key="full_master_ranking",
-        )
-
     def persist(c: RunContext, artifacts: dict) -> None:
         nle = load_nle(c)
         if nle_has_operator_edits(nle):

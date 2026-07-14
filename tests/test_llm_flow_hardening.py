@@ -148,7 +148,7 @@ def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkey
 
 def test_llm_upstream_stage_maps_content_context(tmp_path):
     assert LLM_UPSTREAM_STAGE["content_context"] == "speaker_roles"
-    assert LLM_UPSTREAM_STAGE["topic_coverage_audit"] == "optimal_questions"
+    assert LLM_UPSTREAM_STAGE["topic_coverage_audit"] == "delivery_brief_build"
 
 def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))

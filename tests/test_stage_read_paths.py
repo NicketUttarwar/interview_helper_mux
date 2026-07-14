@@ -268,6 +268,8 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
             "sound_design_palettes",
             "missing_framing",
             "optimal_questions",
+            "delivery_brief_build",
+            "soundscape_policy_build",
         }
     }
     flow_with_inputs = {

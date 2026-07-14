@@ -142,12 +142,14 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
     from run_fixtures import init_run_meta_for_test, isolated_run_ctx
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: False)
     monkeypatch.setattr(
         "interview_mux.config.merged_config",
         lambda: {
             "assets_root": str(tmp_path / "ASSETS"),
             "executions_root": str(tmp_path / "ASSETS" / "executions"),
             "data_root": str(tmp_path / "data"),
+            "journey_ui": {"first_try_mode": False, "defer_write_approval_until": "off"},
         },
     )
     monkeypatch.setattr(
@@ -156,6 +158,7 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
             "assets_root": str(tmp_path / "ASSETS"),
             "executions_root": str(tmp_path / "ASSETS" / "executions"),
             "data_root": str(tmp_path / "data"),
+            "journey_ui": {"first_try_mode": False, "defer_write_approval_until": "off"},
         },
     )
     ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")

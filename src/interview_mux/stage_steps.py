@@ -74,6 +74,14 @@ STAGE_REVIEW: dict[str, list[str]] = {
         "gap_report.json is complete",
         "Interviewer script is readable",
     ],
+    "delivery_brief_build": [
+        "Duration and SFX density match interview length",
+        "Mix contract levels look reasonable",
+    ],
+    "soundscape_policy_build": [
+        "Cue slots cover selected segments",
+        "Underscore policy matches interview pace",
+    ],
     "assembly_preview": [
         "Listen to assembly_preview.wav — speech and VO are audible",
         "No obvious clipping or silence gaps",

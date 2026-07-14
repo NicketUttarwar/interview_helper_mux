@@ -51,7 +51,7 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     assembly_rel = "master/assembly.wav"
     assembly_path = run_dir / assembly_rel
     assembly_path.parent.mkdir(parents=True)
-    assembly_path.write_bytes(b"fake wav")
+    assembly_path.write_bytes(b"fake wav" + b"\0" * 2048)
     ctx = _Ctx(run_dir)
     calls: list[list[str]] = []
 
@@ -126,7 +126,7 @@ def test_master_wav_blocks_on_pre_master_errors(monkeypatch, tmp_path) -> None:
     assembly_rel = "master/assembly.wav"
     assembly_path = run_dir / assembly_rel
     assembly_path.parent.mkdir(parents=True, exist_ok=True)
-    assembly_path.write_bytes(b"fake wav")
+    assembly_path.write_bytes(b"fake wav" + b"\0" * 2048)
     ctx = _Ctx(run_dir)
 
     monkeypatch.setattr(

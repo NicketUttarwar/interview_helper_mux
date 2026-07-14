@@ -91,6 +91,7 @@ def test_empty_speakers_json_does_not_trigger_handoff(tmp_path, monkeypatch) -> 
 def test_complete_speakers_triggers_handoff(tmp_path, monkeypatch) -> None:
     patch_executions_root(monkeypatch, tmp_path)
     monkeypatch.setattr("interview_mux.full_autopilot.full_autopilot_enabled", lambda cfg=None: False)
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = RunContext(create=True)
     ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")
