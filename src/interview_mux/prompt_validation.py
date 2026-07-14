@@ -257,6 +257,11 @@ def validate_soundscape_policy(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("soundscape_policy.schema.json"))
 
 
+def validate_episode_structure(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/episode_structure.json` (root schema, not STAGE_ARTIFACT_SCHEMAS)."""
+    return _validate_dict(data, _load_root_schema("episode_structure.schema.json"))
+
+
 def validate_source_readiness(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("source_readiness.schema.json", data)
 
@@ -295,6 +300,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/gap_report.json": validate_gap_report,
     "understanding/delivery_brief.json": validate_delivery_brief,
     "understanding/soundscape_policy.json": validate_soundscape_policy,
+    "understanding/episode_structure.json": validate_episode_structure,
     "understanding/source_readiness.json": validate_source_readiness,
     "segments/boundaries.json": validate_boundaries,
     "segments/manifest.json": validate_manifest,

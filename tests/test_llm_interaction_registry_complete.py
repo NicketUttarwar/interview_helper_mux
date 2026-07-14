@@ -38,6 +38,7 @@ def test_registry_has_all_catalog_ids():
         "OS-01", "OS-02", "OS-03",
         "LX-01", "LX-01a", "LX-01b", "LX-01c", "LX-01d",
         "LX-02", "LX-02a",
+        "LX-03", "LX-04", "LX-05", "OM-LX-P",
     }
     assert expected.issubset(registry_ids())
 

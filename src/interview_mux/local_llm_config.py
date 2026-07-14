@@ -10,13 +10,86 @@ from interview_mux.config import merged_config, repo_root
 
 DEFAULT_MODEL_ID = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 LOCAL_FRAMER_PROMPT = "_shared/local-volley-framer.system.txt"
+LOCAL_COMPRESSOR_PROMPT = "_shared/local-digest-compressor.system.txt"
+LOCAL_ESCALATE_ADVISORY_PROMPT = "_shared/local-escalate-advisory.system.txt"
+LOCAL_SHARD_PREP_PROMPT = "_shared/local-shard-packet-prep.system.txt"
 DEFAULT_MODELS_DIR_REL = "ASSETS/local_llm/models"
+
+# Quality-defining schema LLM stages only (P0–P2 + critical transitions).
+# Housekeeping / compute / deterministic substrate must stay off this set.
+QUALITY_LOCAL_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # W1 P0
+        "speaker_roles",
+        "content_context",
+        "boundary_detection",
+        "segment_classification",
+        "content_brief_reanchor",
+        # W2 P1
+        "missing_framing",
+        "optimal_questions",
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "full_master_ranking",
+        "edl_narrative_audit",
+        # W3 P2 + critical polish
+        "sound_design_palettes",
+        "sound_design_plan",
+        "sfx_prompt_craft",
+        "transitions",
+    }
+)
 
 def local_llm_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return (cfg or merged_config()).get("local_llm") or {}
 
 def local_llm_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("enabled", True))
+
+def capability_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    return dict(local_llm_cfg(cfg).get("capability") or {})
+
+def capability_router_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return bool(capability_cfg(cfg).get("enabled", True))
+
+def quality_local_allowlist(cfg: dict[str, Any] | None = None) -> frozenset[str]:
+    """Allowlist SoT: code constant unless config override list is non-empty."""
+    override = capability_cfg(cfg).get("allowlist") or []
+    if isinstance(override, list) and override:
+        return frozenset(str(x).strip() for x in override if str(x).strip())
+    return QUALITY_LOCAL_ALLOWLIST
+
+def stage_on_quality_allowlist(stage_key: str, cfg: dict[str, Any] | None = None) -> bool:
+    return stage_key in quality_local_allowlist(cfg)
+
+def max_local_steps(cfg: dict[str, Any] | None = None) -> int:
+    return max(1, int(capability_cfg(cfg).get("max_local_steps", 3)))
+
+def max_local_retries_per_cap(cfg: dict[str, Any] | None = None) -> int:
+    # Plan locks retries at 0; clamp any misconfig to zero.
+    _ = cfg
+    return 0
+
+def planner_fanout_k(cfg: dict[str, Any] | None = None) -> int:
+    return max(1, int(capability_cfg(cfg).get("planner_fanout_k", 3)))
+
+def max_enabled_caps(cfg: dict[str, Any] | None = None) -> int:
+    return max(1, int(capability_cfg(cfg).get("max_enabled_caps", 4)))
+
+def lx03_min_verify_rate(cfg: dict[str, Any] | None = None) -> float:
+    return float(capability_cfg(cfg).get("lx03_min_verify_rate", 0.85))
+
+def lx04_min_agreement(cfg: dict[str, Any] | None = None) -> float:
+    return float(capability_cfg(cfg).get("lx04_min_agreement", 0.95))
+
+def lx05_min_verify_rate(cfg: dict[str, Any] | None = None) -> float:
+    return float(capability_cfg(cfg).get("lx05_min_verify_rate", 0.85))
+
+def capability_manifest_path() -> Path:
+    return repo_root() / "ASSETS" / "local_llm" / "capability_manifest.json"
+
+def overlays_dir() -> Path:
+    return repo_root() / "ASSETS" / "local_llm" / "overlays"
 
 def repo_slug(repo_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", repo_id)
@@ -96,7 +169,8 @@ def apply_to_shards(cfg: dict[str, Any] | None = None) -> bool:
 def apply_to_collate(cfg: dict[str, Any] | None = None) -> bool:
     return bool(local_llm_cfg(cfg).get("apply_to_collate", True))
 
-# P0–P2 stages always escalate to OpenAI (quality-first; see llm-guidance-program.md).
+# P0–P2 + critical polish always escalate to OpenAI (quality-first).
+# Includes transitions to match ALL_CRITICAL_LLM_STAGES / flow hardening.
 ALWAYS_ESCALATE_STAGES = frozenset(
     {
         "speaker_roles",
@@ -113,6 +187,7 @@ ALWAYS_ESCALATE_STAGES = frozenset(
         "sound_design_palettes",
         "sound_design_plan",
         "sfx_prompt_craft",
+        "transitions",
     }
 )
 

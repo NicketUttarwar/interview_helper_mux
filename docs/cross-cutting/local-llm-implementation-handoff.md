@@ -11,12 +11,15 @@
 | Spec concept | Module | Notes |
 |--------------|--------|-------|
 | Download / verify weights | `scripts/download_local_llm.py`, `scripts/select_local_llm.py` | Weights under `ASSETS/local_llm/models/` |
+| Stage-1 calibrate | `scripts/calibrate_local_llm.py` | Writes `capability_manifest.json` |
+| Capability router | `src/interview_mux/local_capability_router.py` | Allowlist + fail-fast LX-01/03/04/05 |
+| Manifest I/O | `src/interview_mux/local_capability_manifest.py` | Load/validate/degraded |
 | `load_local_model()` cache | `src/interview_mux/local_llm_runner.py` | Singleton `load()` per process |
 | `prepare_volley_for_llm(...)` | `src/interview_mux/local_volley_framer.py` | Builds local messages; parses JSON contract |
 | Inject framed turns | `src/interview_mux/context_volley.py` | `local_framing` optional param |
-| Escalation before OpenAI | `src/interview_mux/llm_stage_routing.py` | After volley build, before `run_prompt_envelope` |
-| Config | `config/app.defaults.json` `local_llm.*` | Documented in config-keys.md |
-| Prompt | `docs/prompts/_shared/local-volley-framer.system.txt` | Loaded like other system prompts |
+| Escalation before OpenAI | `src/interview_mux/llm_stage_routing.py` | Router then OpenAI primary |
+| Config | `config/app.defaults.json` `local_llm.*` / `capability.*` | Documented in config-keys.md |
+| Prompts | `docs/prompts/_shared/local-*.system.txt` | Framer, compressor, advisory, shard-prep, planner |
 
 ---
 
@@ -80,11 +83,22 @@ Invalid JSON → treat as `escalate: true`, log warning.
 
 ---
 
+### Phase F — quality capability ladder
+
+- [x] `QUALITY_LOCAL_ALLOWLIST` + `transitions` in `ALWAYS_ESCALATE_STAGES`
+- [x] `local_llm.capability.*` config + calibrate script + bootstrap hook
+- [x] Router fail-fast (`retries=0`); LX-03..05 + economy planner OM-LX-P
+- [x] LX-03 reserved `episode_structure` section; `extra_digest_paths` hook
+- [x] Tests: `test_local_capability_router.py`, `test_calibrate_local_llm.py`
+
+**Handoff → Episode Structure Catalog:** router stable; inject compact structure via `extra_digest_paths` / LX-03 section only on allowlisted stages.
+
 ## Verify
 
 ```bash
 source .venv/bin/activate
 python scripts/select_local_llm.py --download
 python scripts/download_local_llm.py --verify
-pytest tests/test_local_volley_framer.py
+python scripts/calibrate_local_llm.py --dry-run
+pytest tests/test_local_volley_framer.py tests/test_local_capability_router.py tests/test_calibrate_local_llm.py
 ```

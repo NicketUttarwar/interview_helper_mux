@@ -82,6 +82,10 @@ STAGE_REVIEW: dict[str, list[str]] = {
         "Cue slots cover selected segments",
         "Underscore policy matches interview pace",
     ],
+    "episode_structure_compose": [
+        "Slot plan covers selected segments without forced outro",
+        "Compact digest is short enough for local LLM volleys",
+    ],
     "assembly_preview": [
         "Listen to assembly_preview.wav — speech and VO are audible",
         "No obvious clipping or silence gaps",

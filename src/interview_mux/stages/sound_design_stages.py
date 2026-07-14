@@ -95,6 +95,21 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                     level="warning",
                     stage="sound_design_plan",
                 )
+        from interview_mux.episode_structure import (
+            attach_episode_structure_to_payload,
+            refresh_episode_structure,
+            structure_enabled,
+        )
+
+        if structure_enabled():
+            try:
+                refresh_episode_structure(c)
+            except Exception as exc:
+                c.log(
+                    f"episode_structure refresh skipped: {exc}",
+                    level="warning",
+                    stage="sound_design_plan",
+                )
         payload = {
             "sound_design_plan": _load_sound_design_plan(c),
             "selection": c.read_json("master/selection.json"),
@@ -113,8 +128,11 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         if policy:
             payload["soundscape_policy"] = soundscape_compact(policy)
         return attach_disfluency_context(
-            __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
-                c, attach_adaptation_to_payload(c, payload)
+            attach_episode_structure_to_payload(
+                c,
+                __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
+                    c, attach_adaptation_to_payload(c, payload)
+                ),
             ),
             c,
         )

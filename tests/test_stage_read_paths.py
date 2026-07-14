@@ -270,6 +270,7 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
             "optimal_questions",
             "delivery_brief_build",
             "soundscape_policy_build",
+            "episode_structure_compose",
         }
     }
     flow_with_inputs = {

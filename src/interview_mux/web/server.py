@@ -2076,6 +2076,24 @@ def create_app() -> FastAPI:
             "report": report,
         }
 
+    @app.get("/api/runs/{run_id}/episode-structure")
+    def get_episode_structure(run_id: str) -> dict[str, Any]:
+        from interview_mux.episode_structure import (
+            STRUCTURE_PATH,
+            compact_for_volley,
+            load_episode_structure,
+        )
+
+        ctx = _ctx(run_id)
+        doc = load_episode_structure(ctx)
+        if not doc:
+            raise HTTPException(404, f"Artifact not found: {STRUCTURE_PATH}")
+        return {
+            "path": STRUCTURE_PATH,
+            "structure": doc,
+            "summary": compact_for_volley(doc),
+        }
+
     @app.patch("/api/runs/{run_id}/soundscape-policy/overrides")
     def patch_soundscape_policy_overrides(run_id: str, body: AcousticProfileOverridesBody) -> dict[str, Any]:
         from interview_mux.soundscape_policy import POLICY_PATH, save_operator_overrides

@@ -42,6 +42,7 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "optimal_questions": ["test_gates.py", "test_prompt_validation.py", "test_pipeline.py"],
     "delivery_brief_build": ["test_delivery_brief.py", "test_pipeline.py"],
     "soundscape_policy_build": ["test_soundscape_policy.py", "test_pipeline.py"],
+    "episode_structure_compose": ["test_episode_structure.py", "test_pipeline.py"],
     "topic_coverage_audit": ["test_analysis_orchestrator.py", "test_pipeline.py"],
     "narrative_arc_plan": ["test_pipeline.py"],
     "full_master_ranking": ["test_llm_specialists.py", "test_nle_state.py", "test_pipeline.py"],

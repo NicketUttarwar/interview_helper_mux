@@ -74,9 +74,14 @@ def run_narrative_arc(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "narrative_arc_plan")
+        from interview_mux.episode_structure import attach_episode_structure_to_payload
+
         return attach_disfluency_context(
-            __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
-                c, attach_adaptation_to_payload(c, payload)
+            attach_episode_structure_to_payload(
+                c,
+                __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
+                    c, attach_adaptation_to_payload(c, payload)
+                ),
             ),
             c,
         )

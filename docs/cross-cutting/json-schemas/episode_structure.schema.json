@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EpisodeStructure",
+  "type": "object",
+  "required": ["schema_version", "policy_hash", "axes", "slot_plan", "segment_order", "hook_reel", "omit_reasons", "rationale", "integrity", "occupancy"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "policy_hash": { "type": "string" },
+    "axes": {
+      "type": "object",
+      "properties": {
+        "format_class": { "type": "string" },
+        "tone_class": { "type": "string" },
+        "atlas_bucket": { "type": "string" },
+        "production_style": { "type": "string" }
+      }
+    },
+    "slot_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slot_id", "component_id", "class", "gate"],
+        "properties": {
+          "slot_id": { "type": "string" },
+          "component_id": { "type": "string" },
+          "class": { "type": "string", "enum": ["standard", "dynamic"] },
+          "gate": { "type": "string", "enum": ["must", "prefer", "allow", "forbid"] },
+          "speech_job": { "type": "string" },
+          "music_transition": { "type": "string" },
+          "asset_role": { "type": "string" },
+          "placement": { "type": "string" },
+          "priority": { "type": "number" },
+          "bound_segment_ids": { "type": "array", "items": { "type": "string" } },
+          "repeat_allowed": { "type": "boolean" }
+        }
+      }
+    },
+    "segment_order": { "type": "array", "items": { "type": "string" } },
+    "hook_reel": {
+      "type": "object",
+      "required": ["segment_id", "repeat_allowed"],
+      "properties": {
+        "segment_id": { "type": ["string", "null"] },
+        "repeat_allowed": { "type": "boolean" }
+      }
+    },
+    "omit_reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["component_id", "reason"],
+        "properties": {
+          "component_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "rationale": { "type": "array", "items": { "type": "string" } },
+    "integrity": {
+      "type": "object",
+      "required": ["ok", "flags"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "flags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "occupancy": {
+      "type": "object",
+      "required": ["violations"],
+      "properties": {
+        "violations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "compact_digest": { "type": "string" }
+  }
+}

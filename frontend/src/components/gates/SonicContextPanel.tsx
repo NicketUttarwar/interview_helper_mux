@@ -18,11 +18,20 @@ type SoundscapeSummary = {
   verify_verdict?: string;
 };
 
+type EpisodeStructureSummary = {
+  axes?: { atlas_bucket?: string; format_class?: string };
+  slot_plan?: { component_id?: string; gate?: string }[];
+  omit_high_profile?: string[];
+  hook_reel?: { segment_id?: string | null; repeat_allowed?: boolean };
+  integrity_ok?: boolean;
+};
+
 export function SonicContextPanel() {
   const { run, showToast } = useApp();
   const [loading, setLoading] = useState(false);
   const [doc, setDoc] = useState<SonicContextData | null>(null);
   const [soundscape, setSoundscape] = useState<SoundscapeSummary | null>(null);
+  const [episodeStructure, setEpisodeStructure] = useState<EpisodeStructureSummary | null>(null);
 
   useEffect(() => {
     if (!run) return;
@@ -47,6 +56,11 @@ export function SonicContextPanel() {
         setSoundscape(summary);
       })
       .catch(() => setSoundscape(null));
+    void api<{ summary?: EpisodeStructureSummary }>(
+      `/api/runs/${run.run_id}/episode-structure`,
+    )
+      .then((body) => setEpisodeStructure(body.summary || null))
+      .catch(() => setEpisodeStructure(null));
   }, [run, showToast]);
 
   if (!run) return null;
@@ -92,6 +106,20 @@ export function SonicContextPanel() {
           {soundscape.verify_verdict
             ? `, verify ${soundscape.verify_verdict}`
             : ""}
+        </p>
+      ) : null}
+      {episodeStructure ? (
+        <p className="muted sm" data-action-id="gui.episode_structure.view">
+          Episode structure: atlas{" "}
+          <strong>{episodeStructure.axes?.atlas_bucket || "—"}</strong>, slots{" "}
+          <strong>{episodeStructure.slot_plan?.length ?? 0}</strong>
+          {(episodeStructure.omit_high_profile || []).length
+            ? `, omitted ${episodeStructure.omit_high_profile.join(", ")}`
+            : ""}
+          {episodeStructure.hook_reel?.repeat_allowed
+            ? `, hook reel ${episodeStructure.hook_reel.segment_id || "on"}`
+            : ""}
+          {episodeStructure.integrity_ok === false ? ", integrity warn" : ""}
         </p>
       ) : null}
       <table className="placement-qa-table">

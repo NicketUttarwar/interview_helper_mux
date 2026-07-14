@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocalShardPacketPrepResponse",
+  "type": "object",
+  "required": ["packets", "confidence", "reason"],
+  "properties": {
+    "packets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["shard_id", "summary"],
+        "properties": {
+          "shard_id": { "type": "string" },
+          "summary": { "type": "string" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": { "type": "string" }
+  }
+}

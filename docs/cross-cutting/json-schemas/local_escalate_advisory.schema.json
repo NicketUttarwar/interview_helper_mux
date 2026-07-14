@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocalEscalateAdvisoryResponse",
+  "type": "object",
+  "required": ["advise_escalate", "confidence", "reason"],
+  "properties": {
+    "advise_escalate": { "type": "boolean" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": { "type": "string" },
+    "signals": { "type": "array", "items": { "type": "string" } }
+  }
+}

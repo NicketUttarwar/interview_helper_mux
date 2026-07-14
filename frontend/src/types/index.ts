@@ -945,6 +945,8 @@ export interface OpenRunOptions {
   quiet?: boolean;
   force?: boolean;
   selectedStageId?: string | null;
+  /** After run.sh restart, land on stage 1 before the one-time needs-you redirect. */
+  preferFirstStage?: boolean;
   activeTab?: AppTab;
   pipelineSubTab?: PipelineSubTab;
 }

@@ -1,0 +1,14 @@
+pack_id: noisy_room
+atlas_bucket: noisy_room
+description: Format/style reweights for episode structure assembler
+default_gates:
+  STD_cold_open_slot: prefer
+  STD_orientation: prefer
+  STD_act_body: prefer
+  STD_chapter_hinge: allow
+  STD_comprehension_bridge: allow
+  STD_payoff_close: allow
+  STD_outro_button: allow
+unlock_dynamic: []
+forbid: []
+prefer: []

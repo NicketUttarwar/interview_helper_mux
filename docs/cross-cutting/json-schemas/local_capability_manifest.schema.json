@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocalCapabilityManifest",
+  "type": "object",
+  "required": ["schema_version", "model_id", "calibrate_status", "enabled_caps", "updated_at"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "model_id": { "type": "string" },
+    "calibrate_status": { "type": "string", "enum": ["ok", "warn", "skipped"] },
+    "context_length": { "type": "integer", "minimum": 0 },
+    "enabled_caps": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["LX-01", "LX-02", "LX-03", "LX-04", "LX-05", "LX-06"] }
+    },
+    "budgets": { "type": "object", "additionalProperties": { "type": "integer" } },
+    "bench": { "type": "object", "additionalProperties": true },
+    "updated_at": { "type": "string" }
+  }
+}

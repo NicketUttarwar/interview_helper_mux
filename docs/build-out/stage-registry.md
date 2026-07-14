@@ -30,7 +30,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 
 ## Shared analysis
 
-**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `interview_spine_build` → `speaker_roles` → ... → `content_brief_reanchor` → `sonic_context_build` → `sound_design_palettes` → `missing_framing` → `optimal_questions` → `delivery_brief_build` → `soundscape_policy_build`
+**Default order (`ANALYSIS_ORDER`):** `audio_preclean` → `ingest` → `transcribe` → `transcript_review_build` → `disfluency_extract` → `source_acoustic_profile` → `interview_spine_build` → `speaker_roles` → ... → `content_brief_reanchor` → `sonic_context_build` → `sound_design_palettes` → `missing_framing` → `optimal_questions` → `delivery_brief_build` → `soundscape_policy_build` → `episode_structure_compose`
 
 | Stage id | Status | Module | Ticket | Primary outputs | Prompt |
 |----------|--------|--------|--------|-----------------|--------|
@@ -50,6 +50,7 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
 | `delivery_brief_build` | shipped | `delivery_brief.py` | adaptive policy | `understanding/delivery_brief.json` | [delivery-quality-preservation-matrix.md](../cross-cutting/delivery-quality-preservation-matrix.md) |
 | `soundscape_policy_build` | shipped | `soundscape_policy.py` | BUILD-SS-01 | `understanding/soundscape_policy.json` | [soundscape-policy.md](../cross-cutting/soundscape-policy.md) |
+| `episode_structure_compose` | shipped | `episode_structure.py` | Plan 2 | `understanding/episode_structure.json` | [episode-structure-catalog.md](../cross-cutting/episode-structure-catalog.md) |
 
 **First-try:** after ingest, also writes `understanding/source_readiness.json` (see [first-try-reliability.md](../workflows/first-try-reliability.md)).
 | `vo_ingest` | shipped (on-demand) | `gaps.py` | BUILD-027 | Merges `vo_pickup/*.wav` into timeline; **not in `ANALYSIS_ORDER`** — triggered by next batch execute after G1 or `mode: stage` | — |

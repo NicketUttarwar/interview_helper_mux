@@ -1,0 +1,18 @@
+pack_id: trauma_adjacent
+atlas_bucket: trauma_adjacent
+description: Trauma-adjacent — content warning; forbid uplift after high severity
+default_gates:
+  STD_cold_open_slot: forbid
+  STD_orientation: prefer
+  STD_act_body: prefer
+  STD_chapter_hinge: allow
+  STD_comprehension_bridge: prefer
+  STD_payoff_close: allow
+  STD_outro_button: allow
+unlock_dynamic:
+  - DYN_content_warning_pad
+prefer:
+  - DYN_content_warning_pad
+forbid:
+  - DYN_triumph_sting
+  - DYN_teaser_montage

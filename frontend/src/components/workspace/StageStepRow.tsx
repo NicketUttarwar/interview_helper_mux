@@ -40,7 +40,7 @@ export function StageStepRow({ step, stage, isActive, onActivate }: Props) {
           {autoGuided ? (
             <span
               className="stage-step-auto-guided-badge"
-              title="Auto-guided once this session — browse freely without being sent back here"
+              title="Auto-opened once this server session — browse freely without being sent back"
             >
               guided
             </span>

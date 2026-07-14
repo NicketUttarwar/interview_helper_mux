@@ -18,6 +18,10 @@ from interview_mux.local_llm_config import skip_openai_when_local_satisfied
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.llm_preflight import run_preflight
 from interview_mux.model_registry import stage_severity
+from interview_mux.local_capability_router import (
+    attach_router_meta,
+    prepare_volley_via_router,
+)
 from interview_mux.local_volley_framer import LocalFramingResult, prepare_volley_for_llm
 from interview_mux.arbiter_expectations import build_stage_expectations
 from interview_mux.attempt_budget import (
@@ -605,6 +609,7 @@ def run_llm_stage_with_routing(
     """
     obligation = stage_input_obligation or stage_input.get("classification_obligation")
     record_primary_attempt(ctx, stage_key)
+    router_outcome = None
     with logged_step(f"{stage_key}/preflight", ctx=ctx, stage=stage_key):
         arb_budget_msg = check_arbiter_budget(ctx, stage_key)
         if arb_budget_msg:
@@ -848,9 +853,10 @@ def run_llm_stage_with_routing(
             return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
     with logged_step(f"{stage_key}/prepare_volley", ctx=ctx, stage=stage_key):
-        volley, local_framing = prepare_volley_for_llm(
+        router_outcome = prepare_volley_via_router(
             ctx, stage_key, stage_input, profile="full", task_kind="primary"
         )
+        volley, local_framing = router_outcome.volley, router_outcome.framing
         truncation_flags = truncation_flags_for_volley(volley)
     if (
         flow_hardening_enabled()
@@ -935,9 +941,10 @@ def run_llm_stage_with_routing(
     with logged_step(f"{stage_key}/post_arbiter", ctx=ctx, stage=stage_key):
         if verdict == "retry_uptier" and uptier_budget_remaining(ctx, stage_key) > 0:
             record_uptier_retry(ctx, stage_key)
-            volley, local_framing = prepare_volley_for_llm(
+            router_outcome = prepare_volley_via_router(
                 ctx, stage_key, stage_input, profile="full", task_kind="primary"
             )
+            volley, local_framing = router_outcome.volley, router_outcome.framing
             envelope, volley, schema_errors = _run_primary_with_openai_fallback(
                 ctx,
                 stage_key,
@@ -1058,6 +1065,8 @@ def run_llm_stage_with_routing(
             "local_llm": local_framing.to_attempt_meta() if local_framing else None,
             "deterministic_lint_errors": lint_errors,
         }
+        if router_outcome is not None:
+            attach_router_meta(envelope, router_outcome)
     return envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source
 
 

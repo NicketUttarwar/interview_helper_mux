@@ -21,7 +21,7 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Tabs | **Start \| Executions \| Pipeline \| Logs** | Tab switch does **not** stop polling or clear `runId` |
 | **Start** | Input audio list | Pick source WAV, start new execution → switches to Pipeline |
 | **Executions** | Previous runs list | Resume any `exec_*`; active run highlighted; **Same audio** pill when hash matches active session; hash badge per run; refresh on tab focus |
-| **Pipeline** | **`PipelineStepList`** | Navigation spine — numbered steps + substeps; **Needs you only** filter; `sidebar-step--focus` highlights resolver focus stage |
+| **Pipeline** | **`PipelineStepList`** | Navigation spine — numbered steps + substeps; **Needs you only** filter; `sidebar-step--focus` highlights resolver focus stage. **Auto-surface:** when a stage needs input, the GUI redirects there **once per source stage per `run.sh` session** (`autoNavigationLedger`); after that the operator can browse earlier stages freely without being yanked back. New runs and server restarts land on stage 1 first, then apply that one-time redirect. |
 | **Pipeline** | **`StepActionHeader`** | Top of **`StageDetail`**: mode badge, headline, single primary (`data-testid="step-action-primary"`) |
 | **Pipeline** | 2-column + global dock | **`PipelineStepList`** \| main pane (tool row + **`StageDetail`** / tools); **`GlobalActivityDock`** on all tabs when run active (Live / This step / All + **Dump last step**) |
 | **Pipeline** | **`PipelineCommandCenter`** | Removed — step context in **`StepActionHeader`** + sidebar |
@@ -141,6 +141,8 @@ Browsing executions while another run is active does **not** stop job/log pollin
 **Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required` / handoff pending; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. Blocking G0/G0.5 gates show inline first; modal is optional via **Review in full-screen panel**.
 
 ### Sonic context panel (`SonicContextPanel`)
+
+Also shows an **Episode structure** summary strip when `understanding/episode_structure.json` exists (`GET /api/runs/{id}/episode-structure`, `data-action-id="gui.episode_structure.view"`): atlas, slot count, high-profile omits, hook-reel badge. Omits are informational — not failure.
 
 | Component | APIs | Artifacts |
 |-----------|------|-----------|

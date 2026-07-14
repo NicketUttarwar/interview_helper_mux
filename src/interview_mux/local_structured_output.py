@@ -27,12 +27,21 @@ def local_structured_outputs_enabled(cfg: dict[str, Any] | None = None) -> bool:
 LOCAL_SCHEMA_FILES: dict[str, str] = {
     "local_framer": "local_framer_response.schema.json",
     "itr_clarification": "itr_clarification_options.schema.json",
+    "local_digest_compress": "local_digest_compressor.schema.json",
+    "local_escalate_advisory": "local_escalate_advisory.schema.json",
+    "local_shard_prep": "local_shard_packet_prep.schema.json",
 }
 
 
 def resolve_local_interaction(stage_key: str, task_kind: str | None = None) -> str:
     if stage_key.endswith("__itr"):
         return "itr_clarification"
+    if task_kind == "local_digest_compress":
+        return "local_digest_compress"
+    if task_kind == "local_escalate_advisory":
+        return "local_escalate_advisory"
+    if task_kind == "local_shard_prep":
+        return "local_shard_prep"
     if task_kind and task_kind.startswith("local_"):
         return "local_framer"
     if stage_key == "_local_framer" or task_kind in (

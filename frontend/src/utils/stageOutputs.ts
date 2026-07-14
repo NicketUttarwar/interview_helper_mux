@@ -67,7 +67,6 @@ export function upstreamArtifactsReady(
   if (idx <= 0) return true;
   for (let i = 0; i < idx; i++) {
     const s = stages[i];
-    if (s.status === "skipped") continue;
     if (s.status === "incomplete") return false;
     if (s.status !== "done") return false;
     if (!stageArtifactsFullyComplete(s)) return false;
@@ -84,7 +83,6 @@ export function firstUpstreamBlocker(
   if (idx <= 0) return null;
   for (let i = 0; i < idx; i++) {
     const s = stages[i];
-    if (s.status === "skipped") continue;
     if (s.status === "incomplete") return s;
     if (s.status !== "done") return s;
     if (!stageArtifactsFullyComplete(s)) return s;

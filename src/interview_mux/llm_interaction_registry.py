@@ -288,6 +288,71 @@ def _build_registry() -> dict[str, dict[str, Any]]:
     )
     reg["LX-02a"] = {**reg["LX-02"], "id": "LX-02a", "trigger": "collect_issues → options empty"}
 
+    reg["LX-03"] = _entry(
+        id="LX-03",
+        provider="local_mlx",
+        interaction="local_digest_compress",
+        stage_key="(allowlist)",
+        task_kind="local_digest_compress",
+        trigger="capability_manifest LX-03 + truncated/large digest",
+        entrypoint="local_capability_router._run_lx03",
+        prompt_rel="_shared/local-digest-compressor.system.txt",
+        volley_profile="digest compress",
+        response_schema="local_digest_compressor.schema.json",
+        verify="local_digest_compressor schema",
+        on_verify_fail="abort_branch",
+        goal="Compress stage digest before LX-01",
+        model_tier="local",
+    )
+    reg["LX-04"] = _entry(
+        id="LX-04",
+        provider="local_mlx",
+        interaction="local_escalate_advisory",
+        stage_key="(allowlist)",
+        task_kind="local_escalate_advisory",
+        trigger="capability_manifest LX-04",
+        entrypoint="local_capability_router._run_lx04",
+        prompt_rel="_shared/local-escalate-advisory.system.txt",
+        volley_profile="advisory",
+        response_schema="local_escalate_advisory.schema.json",
+        verify="advisory schema",
+        on_verify_fail="ignore",
+        goal="Advise escalate; code remains source of truth",
+        model_tier="local",
+    )
+    reg["LX-05"] = _entry(
+        id="LX-05",
+        provider="local_mlx",
+        interaction="local_shard_prep",
+        stage_key="(allowlist)",
+        task_kind="local_shard_prep",
+        trigger="capability_manifest LX-05 + fanout>=K",
+        entrypoint="local_capability_router._run_lx05",
+        prompt_rel="_shared/local-shard-packet-prep.system.txt",
+        volley_profile="shard packets",
+        response_schema="local_shard_packet_prep.schema.json",
+        verify="local_shard_packet_prep schema",
+        on_verify_fail="abort_branch",
+        goal="Prepare shard packet briefs for decompose",
+        model_tier="local",
+    )
+    reg["OM-LX-P"] = _entry(
+        id="OM-LX-P",
+        provider="openai",
+        interaction="local_capability_planner",
+        stage_key="(allowlist)",
+        task_kind="arbiter",
+        trigger="fanout>=planner_fanout_k + LX-05 enabled",
+        entrypoint="local_capability_router._run_economy_planner",
+        prompt_rel="_shared/local-capability-planner.system.txt",
+        volley_profile="single user plan",
+        response_schema="envelope+local_capability_planner.schema.json",
+        verify="envelope artifacts.steps",
+        on_verify_fail="skip_planner",
+        goal="One-shot economy plan of local caps",
+        model_tier="economy",
+    )
+
     reg["OM-F01"] = _entry(
         id="OM-F01",
         provider="openai",
@@ -370,8 +435,17 @@ def resolve_interaction_id(
     if provider == "local_mlx":
         if stage_key.endswith("__itr"):
             return "LX-02"
+        if task_kind == "local_digest_compress":
+            return "LX-03"
+        if task_kind == "local_escalate_advisory":
+            return "LX-04"
+        if task_kind == "local_shard_prep":
+            return "LX-05"
         tk = task_kind.removeprefix("local_") if task_kind.startswith("local_") else task_kind
         return LOCAL_FRAMER_IDS.get(tk, "LX-01")
+
+    if stage_key.endswith("__local_planner") or task_kind == "local_planner":
+        return "OM-LX-P"
 
     if task_kind == "arbiter":
         return "OM-02"
@@ -410,10 +484,12 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "llm_arbiter",
             "llm_specialists",
             "llm_runner",
+            "local_capability_router",
         ),
         "generate_local_chat": (
             "local_volley_framer",
             "artifact_clarification_llm",
             "local_llm_runner",
+            "local_capability_router",
         ),
     }

@@ -116,6 +116,11 @@ def infer_options_local_llm(
     if not tc.get("local_llm_for_important", True):
         return _rule_based_options(issue, artifacts)
 
+    from interview_mux.local_llm_config import stage_on_quality_allowlist
+
+    if not stage_on_quality_allowlist(stage_key, cfg):
+        return _rule_based_options(issue, artifacts)
+
     context_snippet = ""
     if issue.segment_id and isinstance(artifacts.get("segments"), list):
         for row in artifacts["segments"]:

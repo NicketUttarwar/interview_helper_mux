@@ -73,6 +73,8 @@ How **docs**, **code**, **config**, **tools**, and **operator media** fit togeth
 | `llm_flow_hardening.py` | Spend gates, `complete_llm_stage_or_halt`, mix block | LLM guidance |
 | `prompt_examples.py` | Shared example-pack injection for system prompts | LLM guidance |
 | `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) | LLM guidance |
+| `local_capability_router.py` / `local_capability_manifest.py` | Quality-allowlist fail-fast ladder + Stage-1 manifest | LLM guidance |
+| `episode_structure.py` | Deterministic sparse episode slot_plan + segment_order | Structure / SDP |
 | `local_llm_config.py` / `local_llm_runner.py` | Local MLX framer config + chat runner | LLM guidance |
 | `llm_call_record.py` | Per-call OpenAI audit under `understanding/llm_calls/` | BUILD-013 |
 | `llm_calls_gui.py` | GUI helpers for LLM call index | BUILD-014 |

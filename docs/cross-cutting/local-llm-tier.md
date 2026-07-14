@@ -162,6 +162,29 @@ Recommended follow-up when editing the local prompt/code:
 
 **Note:** Local MLX no longer runs post-persist gap-fill (`local_gap_filler` removed). Volley framing (Role A) remains.
 
+## Quality capability ladder (Stage 0 + Stage 1)
+
+**Stage 0:** `scripts/select_local_llm.py` → `ASSETS/local_llm/selection.json` + weights (unchanged).
+
+**Stage 1:** `scripts/calibrate_local_llm.py` → `ASSETS/local_llm/capability_manifest.json` (bootstrap after select; **non-fatal WARN** on failure). Offline microbench vs fixtures under `tests/fixtures/local_llm/`; selects enabled caps (ceiling `local_llm.capability.max_enabled_caps`).
+
+**Runtime:** `local_capability_router.prepare_volley_via_router` wraps allowlisted quality stages only (`QUALITY_LOCAL_ALLOWLIST` in `local_llm_config.py`). Housekeeping / compute / arbiter spend **zero** extra local caps. Fail-fast: `max_local_retries_per_cap=0`; hard fail aborts remaining caps then existing OpenAI escalate.
+
+| Cap | Role |
+|-----|------|
+| LX-01 | Volley framer (always when local enabled) |
+| LX-02 | ITR options (allowlisted stages only) |
+| LX-03 | Digest compressor (manifest + large/truncated digest) |
+| LX-04 | Escalate advisory (code remains SoT) |
+| LX-05 | Shard packet prep when fanout ≥ `planner_fanout_k` |
+| OM-LX-P | ≤1 economy OpenAI planner when fanout ≥ K + LX-05 enabled |
+
+Schema primaries stay `force_openai`; `skip_openai_primary_when_local_satisfied` remains `false`. LX-03 `## episode_structure (compact)` is filled at runtime from `understanding/episode_structure_compact.txt` when [episode-structure-catalog.md](./episode-structure-catalog.md) compose/refresh has run (`extra_digest_paths`).
+
+Router accepts `extra_digest_paths` / `stage_input["_extra_digest_paths"]` without requiring those artifacts.
+
+Manifest schema: [local_capability_manifest.schema.json](./json-schemas/local_capability_manifest.schema.json).
+
 ## Config keys
 
 Shipped under `local_llm` in `config/app.defaults.json` — see [config-keys.md](./config-keys.md#local_llm).
@@ -174,6 +197,7 @@ Shipped under `local_llm` in `config/app.defaults.json` — see [config-keys.md]
 | `local_llm.max_volley_turns` | `2` | Hard cap on injected turns |
 | `local_llm.max_tokens` | `768` | Generation cap |
 | `local_llm.escalate_on_parse_error` | `true` | Fail-safe to OpenAI |
+| `local_llm.capability.*` | see config-keys | Quality router + Stage-1 gates |
 
 Secrets: none required for local inference.
 
@@ -208,6 +232,8 @@ Extend `understanding/stage_runs/<stage>/attempt_NNN.json`:
 | `local_llm.volley_turn_count` | int |
 | `local_llm.latency_ms` | int |
 | `local_llm.tokens_approx` | int |
+| `local_llm.router.plan` / `caps_run` / `abort_reason` | Capability plan telemetry |
+| `local_llm.planner.used` / `fanout` | Economy planner once-per-attempt |
 
 Log operator-facing summary via `ctx.log()` only on escalation or local failure — not every token.
 

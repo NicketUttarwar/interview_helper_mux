@@ -321,6 +321,9 @@ def prepare_volley_for_llm(
 def _build_framer_digest(stage_input: dict[str, Any], stage_key: str, *, cfg: dict[str, Any]) -> tuple[str, bool]:
     from interview_mux.truncation_policy import build_framer_digest
 
+    override = str(stage_input.get("_local_compressed_digest") or "").strip()
+    if override:
+        return override, False
     return build_framer_digest(stage_input, stage_key, cfg=cfg)
 
 

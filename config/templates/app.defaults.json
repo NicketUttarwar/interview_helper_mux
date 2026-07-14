@@ -214,7 +214,18 @@
     "skip_openai_primary_when_local_satisfied": false,
     "apply_to_specialists": true,
     "apply_to_shards": true,
-    "apply_to_collate": true
+    "apply_to_collate": true,
+    "capability": {
+      "enabled": true,
+      "max_local_steps": 3,
+      "max_local_retries_per_cap": 0,
+      "planner_fanout_k": 3,
+      "max_enabled_caps": 4,
+      "lx03_min_verify_rate": 0.85,
+      "lx04_min_agreement": 0.95,
+      "lx05_min_verify_rate": 0.85,
+      "allowlist": []
+    }
   },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists run on mapped stages when enabled",
   "analysis": {
@@ -272,5 +283,13 @@
       ],
       "block_mix_without_sfx_when_enabled": true
     }
+  },
+  "structure": {
+    "enabled": true,
+    "strict_slots": false,
+    "max_dynamic_slots": 24,
+    "hook_reel_enabled": true,
+    "require_payoff": false,
+    "require_outro": false
   }
 }

@@ -1,0 +1,18 @@
+pack_id: debate
+atlas_bucket: debate
+description: Debate — lock rebuttal pairs; no triumph beds under rebuttal
+default_gates:
+  STD_cold_open_slot: allow
+  STD_orientation: prefer
+  STD_act_body: prefer
+  STD_chapter_hinge: prefer
+  STD_comprehension_bridge: prefer
+  STD_payoff_close: allow
+  STD_outro_button: allow
+unlock_dynamic:
+  - DYN_rebuttal_pair_lock
+  - DYN_topic_shift_spoken
+prefer:
+  - DYN_rebuttal_pair_lock
+forbid:
+  - DYN_triumph_sting

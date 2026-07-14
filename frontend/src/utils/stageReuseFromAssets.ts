@@ -17,7 +17,7 @@ function pickBestCandidate(candidates: ReuseCandidate[]): ReuseCandidate | null 
 export async function tryAcceptStageReuseFromAssets(
   runId: string,
   stageId: string,
-  apiConsents: Record<string, boolean> = ALL_API_CONSENTS,
+  _apiConsents: Record<string, boolean> = ALL_API_CONSENTS,
 ): Promise<StageReuseFromAssetsResult> {
   let offers: { candidates?: ReuseCandidate[]; eligible?: boolean };
   try {

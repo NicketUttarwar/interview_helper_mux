@@ -1,0 +1,1 @@
+{"packets": [{"shard_id": "s0", "summary": "Opening segment batch", "segment_ids": ["seg_1", "seg_2"]}], "confidence": 0.9, "reason": "split by timeline"}

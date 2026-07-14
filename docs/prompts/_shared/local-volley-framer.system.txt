@@ -31,7 +31,7 @@ Always set **`escalate: true`** for pipeline stages that require editorial judgm
 
 **P0 — understanding & segmentation:** `speaker_roles`, `content_context`, `content_brief_reanchor`, `boundary_detection`, `segment_classification`
 
-**P1 — gaps, selection, assembly:** `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `REMOVED_highlight_selection`, `transitions`, `edl_narrative_audit`
+**P1 — gaps, selection, assembly:** `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `transitions`, `edl_narrative_audit`
 
 **P2 — sound design & publish:** `theme_palettes`, `plan_flow1`, `plan_flow2`, `sfx_prompt_craft`, `REMOVED_podcast_show_description`
 

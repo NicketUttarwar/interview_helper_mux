@@ -267,7 +267,7 @@ python scripts/download_local_stt.py --verify
 
 ## Local LLM (Apple Silicon, default on)
 
-**Default:** `local_llm.enabled: true` in `config/app.defaults.json`. On **macOS**, bootstrap installs `mlx-lm` and uses [llmfit](https://github.com/AlexsJones/llmfit) to pick the **largest context-window** `mlx-community/*` model that fits your hardware with **good+** fit and **medium+** quality, then downloads weights. Every LLM stage can run local volley framing before OpenAI. If MLX, llmfit, or weights are missing, the pipeline **falls back to the full OpenAI volley** (no hard failure).
+**Default:** `local_llm.enabled: true` in `config/app.defaults.json`. On **macOS**, bootstrap installs `mlx-lm` and uses [llmfit](https://github.com/AlexsJones/llmfit) to pick the **largest context-window** `mlx-community/*` model that fits your hardware with **good+** fit and **medium+** quality, then downloads weights and runs Stage-1 `calibrate_local_llm.py` (capability manifest). Quality-allowlisted LLM stages may run a fail-fast local capability ladder (framer / digest / shard prep) before OpenAI; housekeeping stages do not. If MLX, llmfit, weights, or calibrate fail, the pipeline **falls back to the OpenAI volley** (non-fatal WARN).
 
 On **Linux**, MLX is unavailable — OpenAI volleys are used regardless of `local_llm.enabled`.
 
@@ -307,6 +307,7 @@ python scripts/select_local_llm.py --refresh --download --verify
 | Path | Purpose |
 |------|---------|
 | `ASSETS/local_llm/selection.json` | llmfit choice + metadata |
+| `ASSETS/local_llm/capability_manifest.json` | Stage-1 enabled caps + budgets |
 | `ASSETS/local_llm/models/<slug>/` | MLX weights |
 | `ASSETS/local_llm/hf_cache/` | Hugging Face hub cache |
 
@@ -328,6 +329,7 @@ Or edit `local_llm.model_id` in `config/app.defaults.json`. Priority: `LOCAL_LLM
 | No eligible mlx-community models | Falls back to `mlx-community/Llama-3.2-3B-Instruct-4bit` |
 | `mlx-lm` missing | `./scripts/bootstrap_venv.sh` or `pip install mlx-lm huggingface_hub` |
 | Weights missing | `python scripts/select_local_llm.py --download` |
+| Capability calibrate failed | WARN only; degraded LX-01 path — re-run `python scripts/calibrate_local_llm.py --refresh` |
 | Note on first `run.sh` | Warns if weights missing when `local_llm` enabled |
 
 Direct download (skip llmfit):

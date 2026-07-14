@@ -85,15 +85,19 @@ Arbiter: `arbiter_verdict.schema.json`.
 
 ---
 
-## Local MLX (LX)
+## Local MLX (LX) + economy planner
 
 | ID | interaction | When | Schema |
 |----|-------------|------|--------|
-| LX-01 | `local_framer` | Before OpenAI when `local_llm.enabled` | `local_framer_response.schema.json` |
+| LX-01 | `local_framer` | Quality allowlist / framing path | `local_framer_response.schema.json` |
 | LX-01a–d | `local_{primary,shard,collate,specialist}` | Per task_kind | same |
-| LX-02 | `itr_clarification` | Blocking ITR + `local_llm_for_important` | `itr_clarification_options.schema.json` |
+| LX-02 | `itr_clarification` | Blocking ITR on allowlisted stages + `local_llm_for_important` | `itr_clarification_options.schema.json` |
+| LX-03 | `local_digest_compress` | Manifest + large/truncated digest | `local_digest_compressor.schema.json` |
+| LX-04 | `local_escalate_advisory` | Manifest (advisory only) | `local_escalate_advisory.schema.json` |
+| LX-05 | `local_shard_prep` | Manifest + fanout ≥ K | `local_shard_packet_prep.schema.json` |
+| OM-LX-P | `local_capability_planner` | ≤1 economy OpenAI plan when fanout ≥ K | envelope + planner artifacts |
 
-ITR fail-open on verify failure (`local_llm.structured_outputs.fail_open_on_verify`).
+Capability router: `local_capability_router.py`. ITR fail-open on verify (`local_llm.structured_outputs.fail_open_on_verify`).
 
 ---
 

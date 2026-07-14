@@ -158,6 +158,23 @@ Tier guidance: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID 
 
 ---
 
+## `structure`
+
+Deterministic episode structure composer — [episode-structure-catalog.md](./episode-structure-catalog.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `structure.enabled` | `true` | Compose/refresh skipped; consumers see empty plan |
+| `structure.strict_slots` | `false` | When `true`, SDP cues must map to emitted slots only |
+| `structure.max_dynamic_slots` | `24` | Density safety for pack-unlocked DYN components |
+| `structure.hook_reel_enabled` | `true` | Cold-open may `repeat_allowed` once |
+| `structure.require_payoff` | `false` | **Locked false** — do not force payoff |
+| `structure.require_outro` | `false` | **Locked false** — do not force outro |
+
+Artifact: `understanding/episode_structure.json`. Stage: `episode_structure_compose` (off local quality allowlist).
+
+---
+
 ## `local_llm`
 
 On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md). Shipped in `config/app.defaults.json` (`enabled: true` by default on macOS).
@@ -175,6 +192,17 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 | `local_llm.apply_to_specialists` | `true` | Local volley before economy specialist passes |
 | `local_llm.apply_to_shards` | `true` | Local volley before shard calls |
 | `local_llm.apply_to_collate` | `true` | Local volley before collate calls |
+| `local_llm.capability.enabled` | `true` | Quality capability router (allowlisted stages only) |
+| `local_llm.capability.max_local_steps` | `3` | Hard cap local steps per stage attempt |
+| `local_llm.capability.max_local_retries_per_cap` | `0` | Locked zero — fail-fast; no retry storms |
+| `local_llm.capability.planner_fanout_k` | `3` | Economy planner runs only when predicted fanout ≥ K |
+| `local_llm.capability.max_enabled_caps` | `4` | Stage-1 calibration ceiling |
+| `local_llm.capability.lx03_min_verify_rate` | `0.85` | Gate LX-03 digest compressor enable |
+| `local_llm.capability.lx04_min_agreement` | `0.95` | Gate LX-04 escalate advisory enable |
+| `local_llm.capability.lx05_min_verify_rate` | `0.85` | Gate LX-05 shard packet prep enable |
+| `local_llm.capability.allowlist` | `[]` | Empty → code `QUALITY_LOCAL_ALLOWLIST`; non-empty overrides |
+
+Capability calibration writes `ASSETS/local_llm/capability_manifest.json` via `scripts/calibrate_local_llm.py` (bootstrap after model select). See [local-llm-tier.md](./local-llm-tier.md).
 
 **Secrets (optional):**
 

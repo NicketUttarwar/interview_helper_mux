@@ -57,6 +57,9 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
       echo "WARN: MLX venv missing — re-run install after fixing errors above."
     fi
   fi
+  echo "=== Local LLM capability calibration (Stage 1) ==="
+  python "$ROOT/scripts/calibrate_local_llm.py" --refresh \
+    || echo "WARN: local LLM calibrate failed — degraded LX-01-only capability path remains available."
 fi
 
 echo "Local STT (optional): prefetch faster-whisper weights for disfluency_extract …"

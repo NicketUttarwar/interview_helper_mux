@@ -120,6 +120,7 @@ export function attentionItemToSubstep(item: AttentionItem): StageSubstep {
     blocked: "blocked",
     milestone: "milestone",
     optional: "optional",
+    llm_verification_failed: "blocked",
   };
   const kind = kindMap[item.kind] ?? "guidance";
   const targets = targetForKind(kind, item.subTab);

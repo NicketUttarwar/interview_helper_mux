@@ -158,6 +158,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `missing_framing` | Pre-stage `comprehension_risk_blind` fail-open; risks in volley when present | Re-run `--from-stage missing_framing` |
 | `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
 | `delivery_brief_build` | `understanding/delivery_brief.json` has duration + question + chapter budgets | `--from-stage delivery_brief_build`; edit overrides on Story board |
+| `episode_structure_compose` | `understanding/episode_structure.json` present; sparse `slot_plan` OK without payoff/outro; `integrity.ok` true; occupancy clean | `--from-stage episode_structure_compose`; omitted STD phases are valid (not a failure) |
 | Flow LLM stages | Analysis-ready artifacts all `complete` | Finish analysis; **Fill gaps** |
 
 **Note:** `gap_report.json` with `"interviewer_lines": []` is valid when no VO lines are needed — the report is still `complete`.

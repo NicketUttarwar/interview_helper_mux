@@ -64,9 +64,12 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         attach_spine_to_payload(c, payload, "full_master_ranking")
         from interview_mux.source_topology import attach_adaptation_to_payload
         from interview_mux.delivery_brief import attach_delivery_brief_to_payload
+        from interview_mux.episode_structure import attach_episode_structure_to_payload
 
         return attach_disfluency_context(
-            attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload)),
+            attach_episode_structure_to_payload(
+                c, attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload))
+            ),
             c,
         )
 

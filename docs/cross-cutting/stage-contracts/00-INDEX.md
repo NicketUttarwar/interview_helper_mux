@@ -12,6 +12,7 @@
 | `disfluency_review` | gate | — |
 | `edl` | process | — |
 | `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
+| `episode_structure_compose` | process | — |
 | `export_show_description` | process | — |
 | `full_master_ranking` | llm_full | master/selection.json |
 | `g1_vo_pickup` | gate | — |

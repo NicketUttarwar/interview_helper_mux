@@ -320,6 +320,75 @@ describe("syncPipelineStageFocus", () => {
     expect(second).toBe(false);
     expect(selectStage).toHaveBeenCalledTimes(1);
   });
+
+  it("does not yank back when the user browses an earlier stage after one guide", async () => {
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      stages: [
+        {
+          id: "ingest",
+          title: "Ingest",
+          status: "done",
+          phase: "prepare",
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      journey: {
+        phase: "understand",
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    const opts = {
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "ingest",
+      executeJob: vi.fn(),
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { enabled: true } },
+    };
+    expect(await syncPipelineStageFocus(opts)).toBe(true);
+    expect(selectStage).toHaveBeenCalledTimes(1);
+
+    // Operator clicked back to ingest — auto-surface must not pull them again,
+    // even if a different substep would resolve for the same source stage.
+    const afterBrowse = await syncPipelineStageFocus({
+      ...opts,
+      selectedStageId: "ingest",
+      run: {
+        ...run,
+        journey: {
+          ...run.journey!,
+          active_substep_id: "write_approval:interview_spine_build",
+        },
+      },
+      refreshRun: vi.fn().mockResolvedValue({
+        ...run,
+        journey: {
+          ...run.journey!,
+          active_substep_id: "write_approval:interview_spine_build",
+        },
+      }),
+    });
+    expect(afterBrowse).toBe(false);
+    expect(selectStage).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("tryAutoContinuePipeline", () => {

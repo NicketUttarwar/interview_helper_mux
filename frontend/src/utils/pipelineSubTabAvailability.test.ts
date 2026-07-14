@@ -53,10 +53,10 @@ describe("pipelineSubTabAvailability", () => {
     expect(clampPipelineSubTab("stage", run, null)).toBe("stage");
   });
 
-  it("flow 2/3 runs use same timeline gating", () => {
-    for (const flow of ["flow_2", "flow_3"] as const) {
-      expect(pipelineSubTabAvailability("timeline", run, null).available).toBe(false);
-      expect(pipelineSubTabAvailability("timeline", ready, null).available).toBe(true);
-    }
+  it("timeline gating is identical for single-flow podcast runs", () => {
+    const locked = baseRun({ timeline_ready: false });
+    const ready = baseRun({ timeline_ready: true });
+    expect(pipelineSubTabAvailability("timeline", locked, null).available).toBe(false);
+    expect(pipelineSubTabAvailability("timeline", ready, null).available).toBe(true);
   });
 });

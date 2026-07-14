@@ -48,4 +48,14 @@ describe("autoNavigationLedger", () => {
       isAutoNavConsumed({ stageId: "disfluency_review", stepId: "review_fillers" }),
     ).toBe(true);
   });
+
+  it("treats any step on a stage as consumed for stageHadAutoNavigation", () => {
+    resetAutoNavLedgerIfServerChanged("server-a");
+    markAutoNavConsumed({ stageId: "disfluency_review", stepId: "review_fillers" });
+    expect(stageHadAutoNavigation("disfluency_review")).toBe(true);
+    // A different step on the same source stage still counts as guided.
+    expect(isAutoNavConsumed({ stageId: "disfluency_review", stepId: "complete_g05" })).toBe(
+      false,
+    );
+  });
 });

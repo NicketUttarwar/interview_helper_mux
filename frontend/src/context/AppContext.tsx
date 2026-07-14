@@ -79,7 +79,10 @@ import {
   readyForStageMessage,
 } from "../utils/stageAdvance";
 import { recordAutoContinue, shouldSkipDuplicateAutoContinue } from "../utils/autoContinueDedupe";
-import { resetAutoNavLedgerIfServerChanged } from "../utils/autoNavigationLedger";
+import {
+  resetAutoNavLedgerIfServerChanged,
+  stageHadAutoNavigation,
+} from "../utils/autoNavigationLedger";
 import { shouldSuppressJobPollTerminalToast } from "../utils/jobPollToasts";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
 import {
@@ -873,6 +876,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const focusId = resolveOperatorFocusStageId(run, mergedApiGrants());
     const currentId = selectedStageIdRef.current;
     if (!focusId || focusId === currentId) return;
+    // Already guided this source stage once this run.sh session — never yank back.
+    if (stageHadAutoNavigation(focusId)) return;
     void navigateToOperatorFocus();
   }, [pipelineFocusKey, jobRunning, run, sessionStale, navigateToOperatorFocus]);
 
@@ -1397,11 +1402,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
         renderLogWithAlerts(runData.log_tail || []);
-        const resolvedStage =
-          stageId ||
-          findActiveStage(runData.stages, runData.meta)?.id ||
-          runData.stages[0]?.id ||
-          null;
+        const resolvedStage = opts.preferFirstStage
+          ? runData.stages[0]?.id ?? null
+          : stageId ||
+            findActiveStage(runData.stages, runData.meta)?.id ||
+            runData.stages[0]?.id ||
+            null;
         if (resolvedStage) {
           setSelectedStageId(resolvedStage);
           selectedStageIdRef.current = resolvedStage;
@@ -1429,6 +1435,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch {
           /* session leader optional during boot */
         }
+        // One-time redirect to the stage that needs input (skipped if already guided).
         void navigateToOperatorFocus(runData);
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Failed to open execution";
@@ -1477,7 +1484,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(body),
         });
         appendClientLog(`Created execution ${res.run_id}`, "success");
-        await openRun(res.run_id);
+        await openRun(res.run_id, { preferFirstStage: true });
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Failed to start run", "error");
       }
@@ -2500,21 +2507,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await refreshHome({ enrichRuns: true });
           if (gen !== bootGenRef.current) return;
           if (!restoreRunId) return;
-          const stageId = active?.selected_stage_id ?? null;
+          const stageId = serverRestarted ? null : (active?.selected_stage_id ?? null);
           selectedStageIdRef.current = stageId;
           setSelectedStageId(stageId);
-          if (active?.active_step_id) {
+          if (!serverRestarted && active?.active_step_id) {
             activeStepIdRef.current = active.active_step_id;
             setActiveStepIdState(active.active_step_id);
+          } else if (serverRestarted) {
+            activeStepIdRef.current = null;
+            setActiveStepIdState(null);
           }
-          const restoreTab = active?.active_tab ?? "pipeline";
+          const restoreTab = serverRestarted ? "pipeline" : (active?.active_tab ?? "pipeline");
           prefetchTab(restoreTab);
           await openRun(restoreRunId, {
             quiet: true,
             selectedStageId: stageId,
+            preferFirstStage: serverRestarted,
             activeTab: restoreTab,
-            pipelineSubTab: active?.pipeline_sub_tab ?? "stage",
-            force: Boolean(runQuery),
+            pipelineSubTab: serverRestarted ? "stage" : (active?.pipeline_sub_tab ?? "stage"),
+            force: Boolean(runQuery) || serverRestarted,
           });
           if (active?.activity_log_tab) {
             setActivityLogTabState(active.activity_log_tab as LogStreamTab);

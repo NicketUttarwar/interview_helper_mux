@@ -105,7 +105,7 @@ function buildErrorAction(run: RunData): OperatorAction {
   };
 }
 
-function buildRunningAction(run: RunData, jobRunning: boolean): OperatorAction {
+function buildRunningAction(run: RunData, _jobRunning: boolean): OperatorAction {
   const job = run.job;
   const stageId = job?.current_stage || job?.stage || null;
   const title = stageTitle(run, stageId);
@@ -160,7 +160,7 @@ function buildRunningAction(run: RunData, jobRunning: boolean): OperatorAction {
   };
 }
 
-function buildOperatorDecisionsAction(run: RunData, stageId: string, count: number): OperatorAction {
+function buildOperatorDecisionsAction(_run: RunData, stageId: string, count: number): OperatorAction {
   const headline = count === 1 ? "Your input needed" : `Your input needed (${count} decisions)`;
   return {
     mode: "needs_you",
@@ -236,7 +236,7 @@ function buildPrecleanAction(stage: StageInfo): OperatorAction {
   };
 }
 
-function buildHandoffAction(run: RunData, stage: StageInfo): OperatorAction {
+function buildHandoffAction(_run: RunData, stage: StageInfo): OperatorAction {
   return {
     mode: "needs_you",
     stageId: stage.id,
@@ -347,7 +347,7 @@ function buildIdleAction(run: RunData, stage: StageInfo): OperatorAction {
 }
 
 function buildDoneAction(
-  run: RunData,
+  _run: RunData,
   stage: StageInfo,
   nextStage: StageInfo | null,
   nextNumber: number | null,
@@ -475,7 +475,7 @@ export function resolveOperatorAction(
       return buildGateAction(
         run,
         focusStageId,
-        blocking?.reason ?? stage.id,
+        blocking?.reason ?? stage?.id ?? focusStageId,
         job?.message || blocking?.message,
       );
     }
@@ -554,7 +554,6 @@ export function resolveOperatorActionForStage(
     apiGrants: ctx.apiGrants ?? {},
   });
   const numbered = buildNumberedStages(run.stages);
-  const entry = numbered.find((n) => n.stage.id === stageId);
   const nextEntry = nav.nextStage
     ? numbered.find((n) => n.stage.id === nav.nextStage!.id)
     : null;
@@ -636,11 +635,13 @@ export function resolveOperatorActionForStage(
 
   if (stage.status === "done") {
     const next =
-      nav.nextStage?.id === stageId ? null : nav.nextStage;
+      nav.nextStage?.id === stageId
+        ? null
+        : (nav.nextStage ?? findNextRunnableStage(run.stages, run.meta) ?? null);
     return buildDoneAction(
       run,
       stage,
-      next ?? findNextRunnableStage(run.stages, run.meta),
+      next,
       nextEntry?.number ?? nav.nextNumber,
     );
   }

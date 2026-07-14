@@ -1,4 +1,8 @@
-/** Tracks operator auto-navigation targets for one GUI server session (run.sh lifetime). */
+/** Tracks operator auto-navigation targets for one GUI server session (run.sh lifetime).
+
+Auto-surface redirects each source stage at most once. Step ids are recorded for UI
+"guided" badges; stageHadAutoNavigation blocks further yankbacks to that stage.
+*/
 
 const STORAGE_PREFIX = "ihm_auto_nav_";
 

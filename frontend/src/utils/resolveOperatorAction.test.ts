@@ -632,22 +632,22 @@ describe("copy templates", () => {
     expect(a.primaryLabel).toMatch(/Continue to Transcribe/);
   });
 
-  it("T1-like: blocks continue when done without committed outputs", () => {
+  it("T1-like: incomplete stage with missing outputs offers rerun", () => {
     const run = baseRun({
       stages: [
         {
-          ...stage("boundary_detection", "done", "Boundaries"),
-          stage_output_mode: "awaiting_approval",
-          outputs_view: [{ path: "segments/boundaries.json", phase: "staged", status: "pending" }],
+          ...stage("boundary_detection", "incomplete", "Boundaries"),
+          outputs_view: [{ path: "segments/boundaries.json", phase: "missing", status: "pending" }],
         },
         stage("segment_classification", "locked", "Classification"),
       ],
       selected_stage_id: "boundary_detection",
     });
     const a = resolveOperatorActionForStage(run, "boundary_detection", {});
-    expect(a.kind).toBe("checkpoint");
+    expect(a.mode).toBe("error");
     expect(a.headline).toMatch(/incomplete/i);
-    expect(a.primaryLabel).toMatch(/Continue/);
+    expect(a.primaryKind).toBe("run_stage");
+    expect(a.primaryLabel).toMatch(/Rerun/);
   });
 
   it("server action with modal_auto_open false", () => {

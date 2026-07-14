@@ -513,6 +513,15 @@ def flow1_overlays_from_sdp(
     atlas_bucket = str(scenario.get("atlas_bucket") or "")
     segment_flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (segment_flags.get("overlap_high") or [])}
+    # Soft map episode_structure music_transition verbs → duck / level nudge
+    _verb_duck = {
+        "under_speech": duck_default,
+        "into_speech": max(duck_default, 18.0),
+        "around_vo": max(duck_default, 20.0),
+        "silence_as_transition": 99.0,
+        "resolve_swell": max(8.0, duck_default - 4.0),
+        "tension_hold": duck_default + 2.0,
+    }
 
     for cue in cues:
         if not isinstance(cue, dict):
@@ -551,7 +560,11 @@ def flow1_overlays_from_sdp(
                 continue
             if bool((_mix_cfg()).get("adaptive_level_from_sap", True)):
                 level_db = _adaptive_bed_level_db(ctx, default_level_db=level_db)
-            duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_default))
+            verb = str(cue.get("music_transition") or "").strip()
+            duck_for_cue = float(_verb_duck.get(verb, duck_default))
+            if verb == "silence_as_transition":
+                continue
+            duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
             fade_in = int(cue.get("crossfade_ms") or 120)
             fade_out = int(cue.get("crossfade_ms") or 150)
             bed = loop_to_duration(base, dur)

@@ -1,0 +1,17 @@
+pack_id: media_profile
+atlas_bucket: media_profile
+description: Media profile — mid-quote cold open + montage energy OK
+default_gates:
+  STD_cold_open_slot: prefer
+  STD_orientation: prefer
+  STD_act_body: prefer
+  STD_chapter_hinge: allow
+  STD_comprehension_bridge: allow
+  STD_payoff_close: allow
+  STD_outro_button: allow
+unlock_dynamic:
+  - DYN_mid_quote_cold_open
+  - DYN_teaser_montage
+prefer:
+  - DYN_mid_quote_cold_open
+forbid: []

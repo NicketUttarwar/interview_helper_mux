@@ -24,12 +24,12 @@ import {
   resolveAutopilotCheckpoint,
 } from "./autopilotResolution";
 import {
-  isAutoNavConsumed,
   markAutoNavConsumed,
+  stageHadAutoNavigation,
   type AutoNavTarget,
 } from "./autoNavigationLedger";
 
-/** Who triggered navigation — auto_surface is once per stage/step per server session. */
+/** Who triggered navigation — auto_surface is once per source stage per run.sh session. */
 export type NavigationIntent = "auto_surface" | "user_continue";
 
 /** Auto fix-all when autopilot is enabled. Returns true if an action ran. */
@@ -179,7 +179,7 @@ export interface AdvancePipelineOpts {
   fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
   /** Autopilot: auto-save staged outputs. */
   approveWriteAndContinue?: (stageId?: string) => Promise<boolean>;
-  /** auto_surface = show operator focus once per stage/step; user_continue = always navigate. */
+  /** auto_surface = show operator focus once per source stage; user_continue = always navigate. */
   navigationIntent?: NavigationIntent;
 }
 
@@ -208,12 +208,17 @@ function resolveFocusTarget(
   return { stageId, stepId };
 }
 
+/**
+ * Auto-surface each source stage at most once per GUI server session (run.sh lifetime).
+ * After the first redirect to a stage that needs input, the operator can browse
+ * freely — including earlier stages — without being yanked back.
+ */
 function shouldSkipAutoSurfaceNavigation(
   intent: NavigationIntent | undefined,
   target: AutoNavTarget,
 ): boolean {
   if (intent !== "auto_surface") return false;
-  return isAutoNavConsumed(target);
+  return stageHadAutoNavigation(target.stageId);
 }
 
 /** Select a stage and land on the correct numbered workbench step. */

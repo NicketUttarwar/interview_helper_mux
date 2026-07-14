@@ -239,7 +239,7 @@ export function PipelineStepList() {
                         {isSelected && isStagePinned ? (
                           <span
                             className="pipeline-step-pin muted"
-                            title="Pinned — auto-focus paused for 30s"
+                            title="Browsing away from the guided stage — auto-redirect will not pull you back"
                             aria-label="Stage pinned"
                           >
                             📌

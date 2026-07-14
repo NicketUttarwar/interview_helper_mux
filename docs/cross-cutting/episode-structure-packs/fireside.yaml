@@ -1,0 +1,16 @@
+pack_id: fireside
+atlas_bucket: fireside
+description: Fireside — warm beds; nostalgia ok; soft stingers
+default_gates:
+  STD_cold_open_slot: allow
+  STD_orientation: prefer
+  STD_act_body: prefer
+  STD_chapter_hinge: allow
+  STD_comprehension_bridge: allow
+  STD_payoff_close: prefer
+  STD_outro_button: prefer
+unlock_dynamic:
+  - DYN_nostalgia_bed
+prefer:
+  - DYN_nostalgia_bed
+forbid: []

@@ -26,7 +26,6 @@ const E2E_CRITICAL_TESTIDS: Array<string | { pattern: RegExp; label: string }> =
   "mark-profile-verified",
   "mark-profile-verified-modal",
   "vo-continue",
-  { pattern: /select-flow-\$\{/, label: "select-flow (dynamic)" },
   "approve-sfx-prompts",
   "sfx-post-listen-pass-all",
   { pattern: /preclean-accept-\$\{/, label: "preclean-accept (dynamic)" },
@@ -188,12 +187,6 @@ describe("buttonSanity — operator primary actions are actionable", () => {
       run: baseRun({
         stages: [stage("transcript_review", "action_required", "Transcript review")],
         job: { status: "gate", stage: "transcript_review" },
-      }),
-      expectKind: "open_modal",
-    },
-    {
-      name: "g2 flow select",
-      run: baseRun({
       }),
       expectKind: "open_modal",
     },

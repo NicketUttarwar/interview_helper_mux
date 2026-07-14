@@ -216,6 +216,14 @@
     "doc_link": "docs/cross-cutting/soundscape-policy.md"
   },
   {
+    "action_id": "gui.episode_structure.view",
+    "description": "View episode structure sparse slot summary (omits are valid)",
+    "implementation": "web/server.py#get_episode_structure",
+    "stage": "episode_structure_compose",
+    "origin": "gui",
+    "doc_link": "docs/cross-cutting/episode-structure-catalog.md"
+  },
+  {
     "action_id": "pipeline.soundscape.verify",
     "description": "Post-mix soundscape verify and capped remux remediation",
     "implementation": "soundscape_verify.py#run_soundscape_verify",

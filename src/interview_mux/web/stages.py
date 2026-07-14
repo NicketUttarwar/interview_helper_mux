@@ -221,6 +221,14 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/soundscape_policy.json",),
         ("understanding/soundscape_policy.json",),
     ),
+    StageInfo(
+        "episode_structure_compose",
+        "Episode structure",
+        "Deterministic sparse slot plan + segment order (optional phases; no forced payoff/outro).",
+        "analysis",
+        ("understanding/episode_structure.json",),
+        ("understanding/episode_structure.json",),
+    ),
 )
 
 ANALYSIS_STAGES = ANALYSIS_STAGES + ANALYSIS_STAGES_CONTINUED
@@ -508,6 +516,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "optimal_questions",
         "delivery_brief_build",
         "soundscape_policy_build",
+        "episode_structure_compose",
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",

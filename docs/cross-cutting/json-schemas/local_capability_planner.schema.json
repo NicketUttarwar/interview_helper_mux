@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocalCapabilityPlannerResponse",
+  "type": "object",
+  "required": ["plan_id", "abort_on_any_hard_fail", "steps", "estimated_local_calls"],
+  "properties": {
+    "plan_id": { "type": "string" },
+    "abort_on_any_hard_fail": { "type": "boolean" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["cap"],
+        "properties": {
+          "cap": { "type": "string", "enum": ["LX-03", "LX-01", "LX-05", "escalate_primary"] },
+          "budget_tokens": { "type": "integer", "minimum": 64 },
+          "depends_on": { "type": "array", "items": { "type": "string" } },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "estimated_local_calls": { "type": "integer", "minimum": 0 },
+    "estimated_openai_followups": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -65,6 +65,7 @@ ANALYSIS_ORDER = [
     "optimal_questions",
     "delivery_brief_build",
     "soundscape_policy_build",
+    "episode_structure_compose",
 ]
 
 DELIVERY_ORDER = [
@@ -114,6 +115,9 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "soundscape_policy_build": lambda: __import__(
             "interview_mux.soundscape_policy", fromlist=["run_soundscape_policy_build"]
         ).run_soundscape_policy_build(ctx),
+        "episode_structure_compose": lambda: __import__(
+            "interview_mux.episode_structure", fromlist=["run_episode_structure_compose"]
+        ).run_episode_structure_compose(ctx),
         "vo_ingest": lambda: gaps.ingest_vo_pickup(ctx),
     }
 
