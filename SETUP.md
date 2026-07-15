@@ -204,7 +204,8 @@ Optional secrets:
 | Variable | Used for |
 |----------|----------|
 | `INPUT_AUDIO_PATH` | CLI/automation default WAV when not using GUI picker |
-| `LOCAL_LLM_MODEL_ID` | Override mlx-community model id |
+
+**Local MLX model:** do **not** put a model id in `secrets.env`. One bootstrap run picks the model via llmfit, writes `ASSETS/local_llm/selection.json`, downloads weights (reused later), and calibrates `capability_manifest.json`. After that, run `./scripts/run.sh` as often as you like.
 
 Key reference: [docs/cross-cutting/config-keys.md](docs/cross-cutting/config-keys.md).
 
@@ -311,15 +312,11 @@ python scripts/select_local_llm.py --refresh --download --verify
 | `ASSETS/local_llm/models/<slug>/` | MLX weights |
 | `ASSETS/local_llm/hf_cache/` | Hugging Face hub cache |
 
-### Manual override
+### Model resolution (no secret required)
 
-In `config/secrets/secrets.env`:
+Priority at runtime: `ASSETS/local_llm/selection.json` (written by bootstrap) → `local_llm.model_id` in `config/app.defaults.json` → built-in default `mlx-community/Llama-3.2-3B-Instruct-4bit`.
 
-```bash
-LOCAL_LLM_MODEL_ID=mlx-community/Qwen2.5-7B-Instruct-4bit
-```
-
-Or edit `local_llm.model_id` in `config/app.defaults.json`. Priority: `LOCAL_LLM_MODEL_ID` → `selection.json` → config default.
+Advanced pin only if needed: set `LOCAL_LLM_MODEL_ID` in secrets (not in the shipped template) or edit `local_llm.model_id`. Prefer bootstrap auto-pick for fewest steps.
 
 ### Troubleshooting
 

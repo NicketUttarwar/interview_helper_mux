@@ -57,9 +57,9 @@ source .venv/bin/activate
 python scripts/select_local_llm.py --download --verify
 ```
 
-Override: `LOCAL_LLM_MODEL_ID` in `config/secrets/secrets.env`, or `python scripts/select_local_llm.py --refresh --download`.
+No model id in `secrets.env` — bootstrap writes `selection.json` and reuses weights on later runs. Force re-pick: `LOCAL_LLM_REFRESH=1 ./scripts/bootstrap_venv.sh` or `python scripts/select_local_llm.py --refresh --download`.
 
-**Fallback** when llmfit has no eligible candidates: `mlx-community/Llama-3.2-3B-Instruct-4bit`.
+**Fallback** when llmfit has no eligible candidates (or llmfit missing): `mlx-community/Llama-3.2-3B-Instruct-4bit` (also written into `selection.json`).
 
 ### Manual model picks (optional)
 

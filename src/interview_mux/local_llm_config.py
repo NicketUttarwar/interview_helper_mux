@@ -117,7 +117,11 @@ def _resolve_models_dir(cfg: dict[str, Any] | None = None) -> Path:
     return default_models_dir()
 
 def resolve_model_id(cfg: dict[str, Any] | None = None) -> str:
-    """Model HF repo id: secrets > selection.json > config > default."""
+    """Model HF repo id: selection.json (bootstrap/llmfit) > config > default.
+
+    Optional advanced override: ``LOCAL_LLM_MODEL_ID`` in secrets (not in the
+    shipped template — prefer bootstrap so operators need not pin a model).
+    """
     secrets = (cfg or merged_config()).get("secrets") or {}
     override = str(secrets.get("LOCAL_LLM_MODEL_ID") or "").strip()
     if override:

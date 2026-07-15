@@ -121,12 +121,21 @@ fi
 _CURRENT_STEP="local_llm_check"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   python - <<'PY' || true
-from interview_mux.local_llm_config import local_llm_enabled, resolve_model_path
-if local_llm_enabled() and not resolve_model_path().is_dir():
+from interview_mux.local_llm_config import local_llm_enabled, resolve_model_id, resolve_model_path
+from interview_mux.local_llm_selection import load_selection_manifest
+if not local_llm_enabled():
+    raise SystemExit(0)
+path = resolve_model_path()
+if not path.is_dir():
     print(
-        "Note: local LLM weights missing — re-run: ./scripts/install.sh",
+        "Note: local LLM weights missing — re-run once: ./scripts/bootstrap_venv.sh",
         flush=True,
     )
+else:
+    sel = load_selection_manifest() or {}
+    mid = resolve_model_id()
+    src = sel.get("source") or ("selection.json" if sel else "config default")
+    print(f"Local LLM: {mid} ({src})", flush=True)
 PY
 fi
 

@@ -182,7 +182,7 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 | Key | Default | If wrong |
 |-----|---------|----------|
 | `local_llm.enabled` | `true` | No local pass when `false`; OpenAI-only volleys |
-| `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Fallback when no `selection.json`; override via secrets |
+| `local_llm.model_id` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Fallback when no `selection.json` (bootstrap writes selection) |
 | `local_llm.models_dir` | `ASSETS/local_llm/models` | Download script and runner disagree on path |
 | `local_llm.max_volley_turns` | `2` | OpenAI volley bloat; higher API cost |
 | `local_llm.max_tokens` | `768` | Truncated framer JSON → forced escalation |
@@ -204,16 +204,17 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 
 Capability calibration writes `ASSETS/local_llm/capability_manifest.json` via `scripts/calibrate_local_llm.py` (bootstrap after model select). See [local-llm-tier.md](./local-llm-tier.md).
 
-**Secrets (optional):**
+**Operator path (recommended):** do **not** set a local model in `secrets.env`. Run `./scripts/bootstrap_venv.sh` once — llmfit writes `ASSETS/local_llm/selection.json`, downloads weights (reused when present), then `calibrate_local_llm.py` writes `capability_manifest.json`. Launch with `./scripts/run.sh` thereafter.
 
-| Key | Effect |
-|-----|--------|
-| `LOCAL_LLM_MODEL_ID` | Highest-priority HF repo id for local tier |
-| `LOCAL_LLM_REFRESH` | Set to `1` during bootstrap to force llmfit re-selection |
+| Key / artifact | Effect |
+|----------------|--------|
+| `ASSETS/local_llm/selection.json` | Canonical picked `model_id` + `context_length` |
+| `LOCAL_LLM_REFRESH=1` | Bootstrap env only — force llmfit re-selection |
+| `LOCAL_LLM_MODEL_ID` | Advanced secret override (not in template); prefer bootstrap |
 
-**llmfit selection:** `ASSETS/local_llm/selection.json` (written by `scripts/select_local_llm.py`). Picks largest context among `mlx-community/*` models with fit `perfect`/`good` and quality ≥ 45 (`MIN_QUALITY_SCORE` in `local_llm_selection.py`).
+**llmfit selection:** `scripts/select_local_llm.py` picks largest context among `mlx-community/*` models with fit `perfect`/`good` and quality ≥ 45 (`MIN_QUALITY_SCORE` in `local_llm_selection.py`).
 
-Setup: `python scripts/select_local_llm.py --download` (see [SETUP.md](../../SETUP.md)).
+Setup: [SETUP.md](../../SETUP.md) § Local LLM.
 
 ---
 
