@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.analysis_memory import record_stage_attempt
+from interview_mux.content_brief_collate import merge_shard_content_brief
 from interview_mux.context_volley import truncation_flags_for_volley
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.local_volley_framer import prepare_volley_for_llm
-from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, normalize_shard_plan
+from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, normalize_shard_plan, shard_batch_cap
 from interview_mux.prompt_validation import validate_envelope, validate_stage_artifacts
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
@@ -31,7 +32,10 @@ def run_shards_then_collate(
     context_cap_boost_round: int = 0,
     clear_field_truncation: bool = False,
 ) -> tuple[dict[str, Any], int]:
-    shard_plan = normalize_shard_plan(stage_key, stage_input, shard_plan[:8])
+    shard_plan = normalize_shard_plan(stage_key, stage_input, shard_plan)
+    cap = shard_batch_cap(len(shard_plan))
+    if cap < len(shard_plan):
+        shard_plan = shard_plan[:cap]
     plan_len = max(len(shard_plan), 1)
 
     # Progressive rebuild: if shards are truncation-blocked, boost caps and re-run all shards.
@@ -374,6 +378,41 @@ def _collate_shard_outputs(
             collate_shards,
             contract_ids=contract_ids,
         )
+    elif stage_key == "content_brief_reanchor":
+        baseline_brief = None
+        valid_ids: set[str] = set()
+        for shard in collate_shards:
+            env = shard.get("envelope") if isinstance(shard, dict) else {}
+            arts = (env.get("artifacts") or {}) if isinstance(env, dict) else {}
+            if isinstance(arts, dict) and arts.get("topics") and baseline_brief is None:
+                baseline_brief = arts
+        try:
+            if ctx.artifact_exists("understanding/content_brief.json"):
+                baseline_brief = ctx.read_json("understanding/content_brief.json")
+            if ctx.artifact_exists("segments/manifest.json"):
+                manifest = ctx.read_json("segments/manifest.json")
+                valid_ids = {
+                    str(s.get("segment_id"))
+                    for s in (manifest.get("segments") or [])
+                    if isinstance(s, dict) and s.get("segment_id")
+                }
+        except Exception:
+            pass
+        collate_env = merge_shard_content_brief(
+            collate_env,
+            collate_shards,
+            baseline_brief=baseline_brief if isinstance(baseline_brief, dict) else None,
+            valid_segment_ids=valid_ids,
+        )
+        routing = collate_env.get("_routing_meta") if isinstance(collate_env.get("_routing_meta"), dict) else {}
+        if routing.get("deterministic_content_brief_collate"):
+            topics = (collate_env.get("artifacts") or {}).get("topics") or []
+            ctx.log(
+                f"Deterministic content brief collate: {len(topics)} topic(s) with union segment_ids",
+                level="info",
+                stage=stage_key,
+                action_id="reanchor.deterministic_collate",
+            )
     elif stage_key == "boundary_detection":
         collate_env = _apply_deterministic_boundary_collate(collate_env, collate_shards)
         routing = collate_env.get("_routing_meta") if isinstance(collate_env.get("_routing_meta"), dict) else {}
@@ -441,7 +480,7 @@ def _apply_deterministic_boundary_collate(
     routing = dict(merged.get("_routing_meta") or {})
     routing["deterministic_boundary_collate"] = True
     if applied:
-        routing["deterministic_boundary_collate_actions"] = applied[:12]
+        routing["deterministic_boundary_collate_actions"] = applied
     merged["_routing_meta"] = routing
     return merged
 

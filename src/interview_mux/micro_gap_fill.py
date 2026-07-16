@@ -7,6 +7,7 @@ from typing import Any
 
 from interview_mux.adaptation_loop_guard import AdaptationLoopGuard
 from interview_mux.artifact_completeness import merge_artifact
+from interview_mux.coverage_limits import gap_fill_cap
 from interview_mux.openai_structured_output import compose_envelope_schema, strictify_schema
 from interview_mux.openai_schema_semantic_lint import assert_openai_semantic_schema
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
@@ -54,7 +55,9 @@ def run_micro_gap_fill(
             "instructions": "Patch only listed paths.",
         }
     else:
-        gfc = {**gfc, "gaps": list({*list(gfc.get("gaps") or []), *paths})[:24]}
+        gap_cap = gap_fill_cap(len(paths) + len(gfc.get("gaps") or []))
+        merged_gaps = list({*list(gfc.get("gaps") or []), *paths})
+        gfc = {**gfc, "gaps": merged_gaps[:gap_cap]}
     # Delegate to gap-fill path in routing — return plan for orchestrator
     guard.mark_micro_gap_fill()
     guard.save(ctx)

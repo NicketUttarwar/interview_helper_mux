@@ -97,6 +97,8 @@ if ! _rollup_ok; then
 fi
 
 echo "Building React GUI ..."
+# Vite emptyOutDir clears static/, but remove assets explicitly so no orphan chunks linger.
+rm -rf "$STATIC/assets"
 if ! npm run build; then
   echo "ERROR: vite build failed. If static/assets/ is missing, rerun ./scripts/build_gui.sh." >&2
   exit 1

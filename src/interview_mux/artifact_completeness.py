@@ -6,6 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from interview_mux.coverage_limits import gap_fill_cap
 from interview_mux.prompt_validation import (
     STAGE_ARTIFACT_DISK_PATHS,
     validate_artifact_write,
@@ -549,7 +550,7 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
     return {
         "artifact_path": rel,
         "existing": existing,
-        "gaps": all_gaps[:24],
+        "gaps": all_gaps[: gap_fill_cap(len(all_gaps))],
         "skip_fields": _filter_protected_skip_fields(skip_fields[:32]),
         "instructions": (
             "Only fill listed gaps. Do not overwrite skip_fields or satisfied keys in existing. "

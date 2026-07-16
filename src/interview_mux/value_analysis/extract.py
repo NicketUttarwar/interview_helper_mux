@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.coverage_limits import spread_sample
 from interview_mux.run_context import RunContext
 from interview_mux.value_analysis.config import value_analysis_flag
 from interview_mux.value_analysis.features_audio import extract_audio_features
@@ -151,9 +152,12 @@ def maybe_enqueue_orchestration_investigations(
             from interview_mux.stage_enrichment import quality_trajectory_flags
 
             flags = quality_trajectory_flags(ctx)
-        for flag in flags[:5]:
-            if not isinstance(flag, dict):
-                continue
+        sampled_flags = spread_sample(
+            [f for f in flags if isinstance(f, dict)],
+            min(5, len(flags)),
+            time_key=lambda f: int(f.get("start_ms") or 0),
+        )
+        for flag in sampled_flags:
             start_ms = int(flag.get("start_ms") or 0)
             from interview_mux.stage_enrichment import trust_dip_corroborated
 
@@ -253,4 +257,4 @@ def _spine_orchestration_investigations(ctx: RunContext) -> list[dict[str, Any]]
                     "suggested_action": {"type": "rerun_stage", "stage": "content_context"},
                 }
             )
-    return items[:6]
+    return spread_sample(items, min(6, len(items)), time_key=lambda i: int((i.get("target") or {}).get("time_ms") or 0))

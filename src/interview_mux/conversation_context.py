@@ -241,9 +241,8 @@ def build_gap_sensitivity(
     if tc:
         notes = f"{notes} Tone overlay: {tc}." if notes else f"Tone overlay: {tc}."
 
-    return {
+    out: dict[str, Any] = {
         "format_class": fc,
-        "tone_class": tc,
         "severity_hints": hints,
         "priority_gap_types": list(dict.fromkeys(priority)),
         "deemphasize_gap_types": list(dict.fromkeys(deemphasize)),
@@ -252,6 +251,9 @@ def build_gap_sensitivity(
         "flow_hints": flow_hints,
         "notes": notes.strip(),
     }
+    if tc:
+        out["tone_class"] = tc
+    return out
 
 
 @dataclass

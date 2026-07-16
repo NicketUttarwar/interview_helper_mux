@@ -98,7 +98,7 @@ def _silence_valley_events(wav_path) -> list[dict[str, Any]]:
                     "window_ids": [],
                 }
             )
-    return out[:40]
+    return out
 
 
 def _trust_dip_events(wav_path) -> list[dict[str, Any]]:
@@ -167,7 +167,7 @@ def _topic_shift_hint_events(words: list[dict[str, Any]]) -> list[dict[str, Any]
                     "window_ids": [],
                 }
             )
-    return out[:20]
+    return out
 
 
 def _merge_nearby_events(events: list[dict[str, Any]], *, min_sources: int = 1) -> list[dict[str, Any]]:
@@ -191,4 +191,18 @@ def _merge_nearby_events(events: list[dict[str, Any]], *, min_sources: int = 1) 
         merged.append(dict(ev))
     if min_sources > 1:
         merged = [e for e in merged if len(e.get("sources") or []) >= min_sources]
-    return merged[:80]
+    return merged
+
+
+def spine_event_timeline_ms(events: list[dict[str, Any]]) -> list[int]:
+    """Sorted boundary event timestamps for coverage observability."""
+    times: list[int] = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        t = ev.get("time_ms")
+        if t is None:
+            t = ev.get("start_ms")
+        if isinstance(t, (int, float)):
+            times.append(int(t))
+    return sorted(set(times))

@@ -9,6 +9,7 @@ from typing import Any
 from interview_mux.config import merged_config
 from interview_mux.file_store import write_json
 from interview_mux.llm_call_record import (
+    INDEX_NAME,
     load_call_record,
     list_calls_for_run,
     messages_to_openai_format,
@@ -17,6 +18,45 @@ from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, 
 from interview_mux.run_context import RunContext
 
 LLM_CALLS_PREFIX = "understanding/llm_calls/"
+
+
+def _iter_llm_call_index_paths(ctx: RunContext) -> list[Path]:
+    """Committed index plus any staged indexes under .pending_writes/."""
+    paths: list[Path] = []
+    committed = ctx.run_dir / "understanding" / "llm_calls" / INDEX_NAME
+    if committed.is_file():
+        paths.append(committed)
+    pending_root = ctx.run_dir / ".pending_writes"
+    if pending_root.is_dir():
+        for stage_dir in sorted(pending_root.iterdir()):
+            if not stage_dir.is_dir():
+                continue
+            staged = stage_dir / "understanding" / "llm_calls" / INDEX_NAME
+            if staged.is_file() and staged not in paths:
+                paths.append(staged)
+    return paths
+
+
+def _list_call_rows(ctx: RunContext) -> list[dict[str, Any]]:
+    """Merge LLM call index rows; staged entries override committed paths."""
+    index_paths = _iter_llm_call_index_paths(ctx)
+    if not index_paths:
+        return list_calls_for_run(ctx.run_dir)
+    by_path: dict[str, dict[str, Any]] = {}
+    for index_path in index_paths:
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            rel = str(row.get("path", "")).replace("\\", "/")
+            if rel:
+                by_path[rel] = row
+    return list(by_path.values())
+
+
+def _resolve_llm_call_path(ctx: RunContext, rel: str) -> Path:
+    return ctx.read_path(*rel.split("/"))
 
 
 def _stage_sort_key(stage_key: str) -> tuple[int, str]:
@@ -65,13 +105,13 @@ def _summarize_record(doc: dict[str, Any], rel_path: str) -> dict[str, Any]:
 
 def list_verification_alerts(ctx: RunContext) -> list[dict[str, Any]]:
     """Recent LLM calls with failed schema verification (for GUI attention)."""
-    rows = list_calls_for_run(ctx.run_dir)
+    rows = _list_call_rows(ctx)
     alerts: list[dict[str, Any]] = []
     for row in reversed(rows[-40:]):
         rel = str(row.get("path", "")).replace("\\", "/")
         if not rel:
             continue
-        full = ctx.path(rel)
+        full = _resolve_llm_call_path(ctx, rel)
         if not full.is_file():
             continue
         try:
@@ -94,11 +134,11 @@ def list_verification_alerts(ctx: RunContext) -> list[dict[str, Any]]:
 
 def list_llm_calls_summary(ctx: RunContext) -> dict[str, Any]:
     """Index rows + nested tree for GUI (summaries only)."""
-    rows = list_calls_for_run(ctx.run_dir)
+    rows = _list_call_rows(ctx)
     calls: list[dict[str, Any]] = []
     for row in rows:
         rel = row.get("path", "").replace("\\", "/")
-        full = ctx.path(rel) if rel else None
+        full = _resolve_llm_call_path(ctx, rel) if rel else None
         if full and full.is_file():
             try:
                 doc = load_call_record(full)
@@ -136,7 +176,7 @@ def list_llm_calls_summary(ctx: RunContext) -> dict[str, Any]:
 
 def get_llm_call_record(ctx: RunContext, path: str) -> dict[str, Any]:
     _assert_llm_call_path(path)
-    full = ctx.path(path)
+    full = _resolve_llm_call_path(ctx, path)
     if not full.is_file():
         raise FileNotFoundError(path)
     doc = load_call_record(full)
@@ -155,7 +195,7 @@ def update_llm_call_record(
     raw_response: str | None = None,
 ) -> dict[str, Any]:
     _assert_llm_call_path(path)
-    full = ctx.path(path)
+    full = _resolve_llm_call_path(ctx, path)
     if not full.is_file():
         raise FileNotFoundError(path)
     doc = load_call_record(full)

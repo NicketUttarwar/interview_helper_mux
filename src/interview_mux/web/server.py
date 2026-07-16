@@ -379,6 +379,21 @@ def create_app() -> FastAPI:
     app.add_middleware(ActionTraceMiddleware)
 
     @app.middleware("http")
+    async def static_cache_control(request: Request, call_next):
+        """Prevent stale index.html from referencing removed Vite chunk hashes after rebuild."""
+        response = await call_next(request)
+        path = request.url.path
+        if path in ("/", "/index.html") or path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        elif path.startswith("/assets/") and (path.endswith(".js") or path.endswith(".css")):
+            if re.search(r"[-.][A-Za-z0-9_-]{6,}\.(js|css)$", path):
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.middleware("http")
     async def gui_client_leader_middleware(request: Request, call_next):
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             path = request.url.path

@@ -368,6 +368,18 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
     rows = out.get("speakers")
     if not isinstance(rows, list):
         return out, applied
+    stats_by_id: dict[str, dict[str, Any]] = {}
+    try:
+        if ctx.artifact_exists("transcript/full.json"):
+            from interview_mux.source_topology import _speaker_talk_stats
+
+            transcript = ctx.read_json("transcript/full.json")
+            stats = _speaker_talk_stats(transcript, out)
+            stats_by_id = {
+                str(s["speaker_id"]): s for s in stats if s.get("speaker_id")
+            }
+    except Exception:
+        stats_by_id = {}
     all_unknown = all(
         isinstance(r, dict) and str(r.get("role") or r.get("speaker_role") or "unknown") == "unknown"
         for r in rows
@@ -375,6 +387,17 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
+        sid = str(row.get("speaker_id") or row.get("id") or "")
+        talk = stats_by_id.get(sid) or {}
+        if row.get("avg_turn_length_ms") is None and talk:
+            row["avg_turn_length_ms"] = round(float(talk.get("avg_turn_ms", 0)), 1)
+            applied.append(
+                {
+                    "action": "default_value",
+                    "path": f"speakers[{i}].avg_turn_length_ms",
+                    "value": row["avg_turn_length_ms"],
+                }
+            )
         if row.get("label") is None and row.get("display_name"):
             row["label"] = row["display_name"]
             applied.append({"action": "default_value", "path": f"speakers[{i}].label"})

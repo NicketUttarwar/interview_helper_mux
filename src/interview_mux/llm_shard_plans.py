@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.coverage_limits import coverage_limits_cfg, max_shard_batches, shard_batch_cap
 
 DECOMPOSE_ELIGIBLE = frozenset(
     {
@@ -23,6 +24,43 @@ def _context_cfg() -> dict[str, Any]:
 
 def _max_transcript_shards() -> int:
     return int(_context_cfg().get("max_transcript_shards", 12))
+
+
+def _max_shard_batches() -> int:
+    return max_shard_batches()
+
+
+def _shard_target_duration_ms() -> int:
+    return int(coverage_limits_cfg().get("shard_target_duration_ms", 120_000))
+
+
+def _duration_balanced_batches(segs: list[dict[str, Any]], max_shards: int) -> list[dict[str, Any]]:
+    """Duration-weighted batches covering full segment timeline."""
+    if not segs:
+        return []
+    target_ms = _shard_target_duration_ms()
+    max_shards = max(1, int(max_shards))
+    batches: list[dict[str, Any]] = []
+    current_ids: list[str] = []
+    current_ms = 0
+    for row in segs:
+        if not isinstance(row, dict) or not row.get("segment_id"):
+            continue
+        sid = str(row["segment_id"])
+        start = int(row.get("start_ms") or 0)
+        end = int(row.get("end_ms") or start)
+        dur = max(0, end - start)
+        if current_ids and current_ms + dur > target_ms and len(batches) < max_shards - 1:
+            batches.append({"label": f"segments_{len(batches) + 1}", "segment_ids": current_ids})
+            current_ids = []
+            current_ms = 0
+        current_ids.append(sid)
+        current_ms += dur
+    if current_ids:
+        batches.append({"label": f"segments_{len(batches) + 1}", "segment_ids": current_ids})
+    if not batches:
+        return _balanced_segment_batches(segs, max_shards)
+    return batches[:max_shards]
 
 def build_deterministic_shard_plan(
     stage_key: str,
@@ -55,7 +93,7 @@ def build_deterministic_shard_plan(
         "content_brief_reanchor",
         "topic_coverage_audit",
     ):
-        # Truncation / field clips: prefer per-segment shards so boost + slice can clear markers.
+        # Truncation / field clips: shard with balanced batches so every segment is covered.
         trunc_ish = any(
             f in (truncation_flags or [])
             for f in (
@@ -67,8 +105,24 @@ def build_deterministic_shard_plan(
                 "proactive_per_segment",
             )
         )
+        segs = _all_segments(stage_input)
+        max_shards = _max_shard_batches()
+        if stage_key == "content_brief_reanchor" and segs:
+            if trunc_ish or len(segs) > max_shards:
+                balanced = _duration_balanced_batches(segs, max_shards)
+                if balanced:
+                    return balanced, "deterministic"
+            if len(segs) <= max_shards:
+                per_seg = _per_segment_shards(stage_input, cap=max_shards)
+                if per_seg:
+                    return per_seg, "deterministic"
+            return _duration_balanced_batches(segs, max_shards), "deterministic"
         if trunc_ish:
-            per_seg = _per_segment_shards(stage_input)
+            if len(segs) > max_shards:
+                balanced = _duration_balanced_batches(segs, max_shards)
+                if balanced:
+                    return balanced, "deterministic"
+            per_seg = _per_segment_shards(stage_input, cap=max_shards)
             if per_seg:
                 return per_seg, "deterministic"
         return _segment_batches(stage_input), "deterministic"
@@ -96,7 +150,22 @@ def _transcript_chunks(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         chunks.append({"label": f"transcript_{i + 1}", "text_start": start, "text_end": end})
     return chunks[:max_shards]
 
-def _per_segment_shards(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
+def _balanced_segment_batches(segs: list[dict[str, Any]], max_shards: int) -> list[dict[str, Any]]:
+    """Split all segments across up to max_shards batches (full timeline coverage)."""
+    if not segs:
+        return []
+    max_shards = max(1, int(max_shards))
+    batch_size = max(1, (len(segs) + max_shards - 1) // max_shards)
+    batches: list[dict[str, Any]] = []
+    for i in range(0, len(segs), batch_size):
+        batch = segs[i : i + batch_size]
+        ids = [str(s.get("segment_id")) for s in batch if isinstance(s, dict) and s.get("segment_id")]
+        if ids:
+            batches.append({"label": f"segments_{len(batches) + 1}", "segment_ids": ids})
+    return batches[:max_shards]
+
+
+def _per_segment_shards(stage_input: dict[str, Any], *, cap: int | None = None) -> list[dict[str, Any]]:
     segs = _all_segments(stage_input)
     if not segs:
         return []
@@ -106,7 +175,7 @@ def _per_segment_shards(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         sid = str(row["segment_id"])
         plans.append({"label": sid, "segment_ids": [sid]})
-    max_shards = _max_transcript_shards()
+    max_shards = max(1, int(cap if cap is not None else _max_shard_batches()))
     return plans[:max_shards]
 
 def should_proactive_decompose_segment_classification(stage_input: dict[str, Any]) -> bool:

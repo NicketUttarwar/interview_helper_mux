@@ -127,6 +127,18 @@ def run_content_context(ctx: RunContext) -> None:
 
 
 def run_content_brief_reanchor(ctx: RunContext) -> None:
+    from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
+
+    with logged_step("content_brief_reanchor/bootstrap_tags", ctx=ctx, stage="content_brief_reanchor"):
+        patched = bootstrap_manifest_topic_tags(ctx)
+        if patched:
+            ctx.log(
+                f"Topic-tag bootstrap applied to {patched} untagged segment(s) before re-anchor.",
+                level="info",
+                stage="content_brief_reanchor",
+                action_id="reanchor.topic_tag_bootstrap",
+            )
+
     def build_input(c: RunContext) -> dict:
         payload: dict[str, Any] = {
             "content_brief": c.read_json("understanding/content_brief.json"),

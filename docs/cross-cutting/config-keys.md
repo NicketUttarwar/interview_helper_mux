@@ -376,6 +376,8 @@ Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (sh
 | `transcript_full_chars` | Early understanding/segmentation blind past cutoff |
 | `speaker_roles_sample_chars` | Speaker role inference sees too little of long interviews |
 | `max_transcript_shards` | Long transcripts split into too few/many shard calls |
+| `max_shard_batches` | Legacy alias — prefer `analysis.coverage_limits.shard_batch_ceiling` |
+| `content_brief_reanchor_min_coverage_ratio` | Legacy alias — prefer `analysis.coverage_limits.reanchor_min_coverage_ratio` |
 | `proactive_decompose_chars` | `content_context` single-pass vs shard/collate threshold |
 | `segment_text_max_chars` | Gap text unreadable / over-truncated |
 | `max_segments_in_context` | Tail segments invisible to ranking-like stages |
@@ -593,6 +595,39 @@ Optional compact keys in shaped `stage_input` (when artifacts exist):
 
 ---
 
+---
+
+## `analysis.coverage_limits.*`
+
+Unified ratio policy for analysis integrity vs delivery compression — `coverage_limits.py`.
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `analysis_timeline_min_coverage_ratio` | `0.85` | boundary/spine lint | Analysis blind to tail of long interviews |
+| `reanchor_min_coverage_ratio` | `0.55` | `content_brief_reanchor` lint | Re-anchor gate too strict/loose |
+| `delivery_output_min_ratio_of_source` | `0.10` | delivery brief / QC | Master shorter than product floor |
+| `delivery_output_ideal_ratio_of_source` | `0.45` | delivery brief | Ideal duration band misaligned |
+| `shard_target_duration_ms` | `120000` | shard planning | Shards too large/small for long interviews |
+| `shard_batch_max_ratio` | `1.0` | collate/decompose | Late timeline segments dropped |
+| `gap_fill_max_ratio` | `0.20` | micro-gap-fill | Over-synthetic remediation |
+| `fabricate_max_ratio_per_call` | `0.20` | fabricate ladder | Too much invented content per attempt |
+| `volley_spread_quartile_min_ratio` | `0.25` | volley compact | Head-biased context padding |
+| `context_selector.enabled` | `false` | `context_selector.py` | Economy select path off (shadow log only) |
+
+---
+
+## `analysis.context_selector.*`
+
+Economy catalog → select → hydrate for volley padding. Default **disabled** with shadow logging.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `enabled` | `false` | Premature select without operator rollout |
+| `shadow_log` | `true` | No visibility into would-be selection |
+| `min_catalog_items` | `4` | Selector skipped on short manifests |
+
+---
+
 ## `analysis.delivery_brief`
 
 Deterministic adaptive soft targets after `optimal_questions` — [delivery-quality-preservation-matrix.md](./delivery-quality-preservation-matrix.md).
@@ -600,7 +635,9 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
 | `enabled` | `true` | `delivery_brief_build` | No brief → delivery preflight fails when hardening on |
-| `ideal_fraction_of_source` | `0.85` | duration band derivation | Episode ideal too short/long vs source |
+| `ideal_fraction_of_source` | `0.45` | duration band derivation | Episode ideal too short/long vs source |
+| `min_ratio_of_source` | `0.10` | duration floor | Master may not compress below 10% without override |
+| `max_ratio_of_source` | `1.0` | duration ceiling | Full-length masters blocked when set lower |
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
 | `question_budget_max` | `6` | clamp record gaps | Too many VO pickups or none |

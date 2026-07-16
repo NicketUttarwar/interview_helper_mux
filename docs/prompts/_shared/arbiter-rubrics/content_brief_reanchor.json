@@ -14,6 +14,7 @@
     "Partial reanchor after truncation without decompose plan"
   ],
   "min_confidence_on_accept": 0.75,
+  "min_segment_coverage_ratio": 0.55,
   "decompose_eligible": true,
   "deterministic_lint_keys": [
     "envelope_status_complete",

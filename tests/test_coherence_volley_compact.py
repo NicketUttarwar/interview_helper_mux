@@ -29,6 +29,8 @@ def test_compact_for_volley_caps(tmp_path, monkeypatch):
     )
     summary = compact_for_volley(ctx, "topic_coverage_audit")
     assert summary is not None
-    assert len(summary["risks"]) <= 5
+    assert len(summary["risks"]) == 10
+    times = [r["time_ms"] for r in summary["risks"]]
+    assert min(times) == 0 and max(times) == 9
     shaped = _compact_coherence_summary(summary, "topic_coverage_audit")
-    assert len(shaped["risks"]) <= 5
+    assert len(shaped["risks"]) == 10

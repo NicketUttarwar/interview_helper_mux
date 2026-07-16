@@ -5,15 +5,7 @@ from typing import Any
 from interview_mux.coherence.config import coherence_active
 from interview_mux.coherence.duration_gate import coherence_activated
 from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
-
-
-_STAGE_CAPS: dict[str, int] = {
-    "topic_coverage_audit": 5,
-    "narrative_arc_plan": 4,
-    "content_brief_reanchor": 4,
-    "missing_framing": 3,
-    "podcast_show_description": 2,
-}
+from interview_mux.coverage_limits import coherence_risk_cap, spread_sample
 
 
 def compact_for_volley(ctx, stage_key: str) -> dict[str, Any] | None:
@@ -25,14 +17,15 @@ def compact_for_volley(ctx, stage_key: str) -> dict[str, Any] | None:
     if not isinstance(report, dict):
         return None
 
-    cap = _STAGE_CAPS.get(stage_key, 3)
     risks = [r for r in report.get("risks") or [] if r.get("status", "open") == "open"]
 
     if stage_key == "podcast_show_description":
         risks = [r for r in risks if r.get("kind") == "claim_contradiction" and r.get("blocking")]
 
+    cap = coherence_risk_cap(len(risks))
+    sampled = spread_sample(risks, cap, time_key=lambda r: int(r.get("time_ms") or 0))
     compact_risks = []
-    for r in risks[:cap]:
+    for r in sampled:
         compact_risks.append(
             {
                 "kind": r.get("kind"),

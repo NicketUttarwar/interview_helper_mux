@@ -6,6 +6,11 @@ import re
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.coverage_limits import (
+    analysis_timeline_min_ratio,
+    reanchor_coverage_denominator as _reanchor_coverage_denominator,
+    reanchor_min_coverage_ratio as _reanchor_min_coverage_ratio,
+)
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 
@@ -139,6 +144,17 @@ def collect_segment_ids_from_artifacts(stage_key: str, artifacts: dict[str, Any]
             if isinstance(row, dict):
                 for sid in row.get("segment_ids") or []:
                     refs.add(str(sid))
+        if stage_key == "content_brief_reanchor":
+            for row in artifacts.get("key_claims") or []:
+                if not isinstance(row, dict):
+                    continue
+                for key in ("segment_ids", "evidence_segment_ids"):
+                    for sid in row.get(key) or []:
+                        refs.add(str(sid))
+            for row in artifacts.get("topic_relationships") or []:
+                if isinstance(row, dict):
+                    for sid in row.get("evidence_segment_ids") or []:
+                        refs.add(str(sid))
     else:
         _walk_segment_id_values(artifacts, refs)
     return refs
@@ -153,8 +169,17 @@ def _reference_id_universe(ctx: RunContext, stage_key: str) -> set[str]:
     return _manifest_ids(ctx)
 
 
-def _coverage_numerator(stage_key: str, artifacts: dict[str, Any]) -> set[str]:
-    return collect_segment_ids_from_artifacts(stage_key, artifacts)
+def _coverage_numerator(stage_key: str, artifacts: dict[str, Any], ctx: RunContext | None = None) -> set[str]:
+    covered = collect_segment_ids_from_artifacts(stage_key, artifacts)
+    if stage_key == "content_brief_reanchor" and ctx is not None and ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        for seg in manifest.get("segments") or []:
+            if not isinstance(seg, dict) or not seg.get("segment_id"):
+                continue
+            tags = seg.get("topic_tags") or []
+            if tags:
+                covered.add(str(seg["segment_id"]))
+    return covered
 
 
 def _transcript_duration_ms(ctx: RunContext) -> int:
@@ -837,14 +862,19 @@ def _lint_generic(
     if "segment_coverage_ratio" in keys:
         manifest_ids = _manifest_ids(ctx)
         if manifest_ids:
-            covered = _coverage_numerator(stage_key, artifacts)
-            ratio = len(covered & manifest_ids) / len(manifest_ids)
-            default_min = 1.0 if len(manifest_ids) < 5 else 0.85
-            min_ratio = float(rubric.get("min_segment_coverage_ratio", default_min) or default_min)
+            covered = _coverage_numerator(stage_key, artifacts, ctx)
+            if stage_key == "content_brief_reanchor":
+                denom_ids = _reanchor_coverage_denominator(manifest_ids, ctx)
+                min_ratio = _reanchor_min_coverage_ratio(manifest_ids, ctx, rubric)
+            else:
+                denom_ids = manifest_ids
+                default_min = 1.0 if len(manifest_ids) < 5 else 0.85
+                min_ratio = float(rubric.get("min_segment_coverage_ratio", default_min) or default_min)
+            ratio = len(covered & denom_ids) / len(denom_ids) if denom_ids else 0.0
             if ratio < min_ratio:
                 errors.append(
                     f"segment_coverage_ratio: {ratio:.2f} < {min_ratio} "
-                    f"({len(covered & manifest_ids)}/{len(manifest_ids)} segments)"
+                    f"({len(covered & denom_ids)}/{len(denom_ids)} segments)"
                 )
 
     if "min_row_count_met" in keys:
@@ -933,7 +963,9 @@ def lint_remediation_hint(error: str) -> str | None:
     if "producer_artifact_complete" in low:
         return "Envelope artifact incomplete — check required fields in the schema."
     if "segment_coverage_ratio" in low:
-        return "Include every required_segment_id from classification_obligation; retry may use per-segment decompose."
+        if "content_brief" in low or "reanchor" in low:
+            return "Map each brief topic to segment_ids; ensure later timeline segments are included in shard batches."
+        return "Include every required_segment_id from classification_obligation; retry may use balanced segment decompose."
     if "all segments typed interviewee_answer" in low:
         return "Vary types (interviewer_question, setup, reaction) per segment-classification taxonomy."
     if "manifest times not monotonic" in low:

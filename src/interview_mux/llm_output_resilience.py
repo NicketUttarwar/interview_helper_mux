@@ -174,6 +174,22 @@ def artifact_mass_score(stage_key: str, artifacts: dict[str, Any], cfg: dict[str
     return _artifact_mass(stage_key, artifacts, cfg or merged_config())
 
 
+def _prepare_stage_artifacts_for_write(
+    ctx: Any,
+    stage_key: str,
+    artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    """Stage-specific enrichment/repair before staging or committing artifacts."""
+    if stage_key == "speaker_roles":
+        from interview_mux.conversation_context import enrich_speakers_artifact
+
+        return enrich_speakers_artifact(ctx, artifacts)
+    from interview_mux.artifact_repairs import apply_repairs_for_stage
+
+    repaired, _applied = apply_repairs_for_stage(ctx, stage_key, artifacts)
+    return repaired
+
+
 def sanitize_artifacts(
     ctx: Any,
     stage_key: str,
@@ -196,7 +212,9 @@ def sanitize_artifacts(
         original_artifacts=original,
     )
 
-    if stage_key == "content_context":
+    if stage_key == "speaker_roles":
+        out = _prepare_stage_artifacts_for_write(ctx, stage_key, out)
+    elif stage_key == "content_context":
         from interview_mux.artifact_repairs import apply_repairs_for_stage
 
         repaired, applied = apply_repairs_for_stage(ctx, stage_key, out)
@@ -560,6 +578,10 @@ def apply_resilience_and_persist(
             _sync_caller_envelope()
             return PersistPlan("none", {}, empty)
 
+    artifacts = envelope.get("artifacts") or {}
+    if artifacts:
+        envelope["artifacts"] = _prepare_stage_artifacts_for_write(ctx, stage_key, artifacts)
+
     plan = resolve_persist_plan(
         ctx,
         stage_key,
@@ -611,7 +633,7 @@ def apply_resilience_and_persist(
             envelope=envelope,
         )
 
-    artifacts = plan.artifacts
+    artifacts = _prepare_stage_artifacts_for_write(ctx, stage_key, plan.artifacts)
 
     if persist_fn and artifacts:
         from interview_mux.artifact_writes import write_partial_artifact

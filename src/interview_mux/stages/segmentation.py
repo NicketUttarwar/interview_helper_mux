@@ -87,3 +87,14 @@ def run_classification(ctx: RunContext) -> None:
         )
     with logged_step("segment_classification/post_specialists", ctx=ctx, stage="segment_classification"):
         maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))
+    with logged_step("segment_classification/topic_bootstrap", ctx=ctx, stage="segment_classification"):
+        from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
+
+        patched = bootstrap_manifest_topic_tags(ctx)
+        if patched:
+            ctx.log(
+                f"Deterministic topic-tag bootstrap patched {patched} segment(s) after classification.",
+                level="info",
+                stage="segment_classification",
+                action_id="classification.topic_tag_bootstrap",
+            )

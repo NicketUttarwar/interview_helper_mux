@@ -12,6 +12,8 @@ from interview_mux.analysis_memory import (
     load_queue,
 )
 from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
+from interview_mux.coverage_limits import spread_sample, volley_spine_event_cap, segments_in_context_cap, coherence_risk_cap
+from interview_mux.context_selector import maybe_select_context_segments
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
@@ -1024,17 +1026,10 @@ def _slim_flow_input(raw: dict[str, Any], stage_key: str) -> dict[str, Any]:
 def _compact_coherence_summary(summary: Any, stage_key: str) -> dict[str, Any]:
     if not isinstance(summary, dict):
         return {}
-    caps = {
-        "topic_coverage_audit": 5,
-        "narrative_arc_plan": 4,
-        "content_brief_reanchor": 4,
-        "missing_framing": 3,
-        "podcast_show_description": 2,
-    }
-    cap = caps.get(stage_key, 3)
     risks = summary.get("risks") or []
     if isinstance(risks, list):
-        risks = risks[:cap]
+        cap = coherence_risk_cap(len(risks))
+        risks = spread_sample(risks, cap, time_key=lambda r: int(r.get("time_ms") or 0) if isinstance(r, dict) else 0)
     return {
         "activated": bool(summary.get("activated")),
         "summary": summary.get("summary") or {},
@@ -1131,26 +1126,41 @@ def _compact_selection(sel: Any, stage_key: str) -> Any:
 def _compact_interview_spine(spine: Any, stage_key: str) -> dict[str, Any]:
     if not isinstance(spine, dict):
         return {}
-    max_events = {
-        "boundary_detection": BOUNDARY_VOLLEY_MAX_SPINE_EVENTS,
+    max_events = volley_spine_event_cap(
+        len(spine.get("top_boundary_events") or spine.get("boundary_events") or []),
+    )
+    stage_caps = {
+        "boundary_detection": max_events,
         "segment_classification": 10,
         "missing_framing": 15,
         "content_context": 8,
         "highlight_selection": 12,
         "full_master_ranking": 10,
-    }.get(stage_key, 8)
+    }
+    max_events = min(max_events, stage_caps.get(stage_key, 8))
     windows = spine.get("windows_sample") or spine.get("windows") or []
     if isinstance(windows, list):
-        windows = windows[:5]
+        windows = spread_sample(
+            windows,
+            min(5, len(windows)),
+            time_key=lambda w: int(w.get("start_ms") or 0) if isinstance(w, dict) else 0,
+        )
     events = spine.get("top_boundary_events") or spine.get("boundary_events") or []
     if isinstance(events, list):
-        events = events[:max_events]
+        events = spread_sample(
+            events,
+            max_events,
+            time_key=lambda e: int(e.get("start_ms") or e.get("time_ms") or 0) if isinstance(e, dict) else 0,
+        )
+    stats = spine.get("speaker_stats") or []
+    if isinstance(stats, list) and len(stats) > 4:
+        stats = stats[:4]
     return {
         "retrieval_enabled": bool(spine.get("retrieval_enabled")),
         "window_count": spine.get("window_count"),
         "windows_sample": windows,
         "top_boundary_events": events,
-        "speaker_stats": (spine.get("speaker_stats") or [])[:4],
+        "speaker_stats": stats,
     }
 
 
@@ -1180,27 +1190,38 @@ def _compact_source_acoustic_profile(profile: Any) -> dict[str, Any] | None:
 def _compact_brief(brief: Any) -> Any:
     if not isinstance(brief, dict):
         return brief
+    claims = brief.get("key_claims") or []
+    rels = brief.get("topic_relationships") or []
+    glossary = brief.get("jargon_glossary") or []
     return {
         "thesis": brief.get("thesis"),
         "audience": brief.get("audience"),
         "topics": brief.get("topics"),
-        "key_claims": (brief.get("key_claims") or [])[:25],
-        "topic_relationships": (brief.get("topic_relationships") or [])[:20],
-        "jargon_glossary": (brief.get("jargon_glossary") or [])[:12],
+        "key_claims": spread_sample(claims, min(25, len(claims))) if isinstance(claims, list) else claims,
+        "topic_relationships": spread_sample(rels, min(20, len(rels))) if isinstance(rels, list) else rels,
+        "jargon_glossary": spread_sample(glossary, min(12, len(glossary))) if isinstance(glossary, list) else glossary,
     }
 
 
-def _compact_segments(segments: Any, *, max_count: int = 60, for_gaps: bool = False) -> Any:
+def _compact_segments(segments: Any, *, max_count: int = 60, for_gaps: bool = False, ctx: RunContext | None = None, stage_key: str | None = None) -> Any:
     if isinstance(segments, dict):
         segs = segments.get("segments") or []
     elif isinstance(segments, list):
         segs = segments
     else:
         return segments
-    max_seg = _char_limit("max_segments_in_context", max_count)
+    max_seg = segments_in_context_cap(len(segs)) if segs else _char_limit("max_segments_in_context", max_count)
+    if ctx is not None and len(segs) > max_seg:
+        segs, _meta = maybe_select_context_segments(ctx, segs, cap=max_seg, stage_key=stage_key)
+    else:
+        segs = spread_sample(
+            segs,
+            max_seg,
+            time_key=lambda s: int(s.get("start_ms") or 0) if isinstance(s, dict) else 0,
+        )
     text_max = _char_limit("segment_text_max_chars", 400, field_clip=True)
     slim = []
-    for s in segs[:max_seg]:
+    for s in segs:
         if not isinstance(s, dict):
             continue
         slim.append(

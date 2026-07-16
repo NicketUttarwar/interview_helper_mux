@@ -12,6 +12,7 @@ from interview_mux.tone_taxonomy import (
     OPERATOR_LOCKABLE_STYLE_FIELDS,
 )
 from interview_mux.config import merged_config
+from interview_mux.coverage_limits import spread_sample
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
 
@@ -590,21 +591,27 @@ def mark_investigation_done(ctx: RunContext, inv_id: str) -> None:
 
 
 def state_summary_for_padding(state: dict[str, Any]) -> dict[str, Any]:
-    """Compact view for LLM context — avoids sending full segment lists."""
+    """Compact view for LLM context — spread-sampled lists, not head-biased."""
+    themes = state.get("themes", []) or []
+    major_q = state.get("major_questions", []) or []
+    key_claims = ((state.get("narrative") or {}).get("key_claims") or [])
+    entities = state.get("entities", []) or []
+    hyps = [h for h in (state.get("hypotheses", []) or []) if h.get("status") != "rejected"]
+    open_q = state.get("open_questions", []) or []
     return {
         "interview_identity": state.get("interview_identity"),
-        "themes": state.get("themes", [])[:20],
-        "major_questions": state.get("major_questions", [])[:15],
+        "themes": spread_sample(themes, min(20, len(themes))),
+        "major_questions": spread_sample(major_q, min(15, len(major_q))),
         "style": state.get("style"),
         "narrative": {
             "thesis": (state.get("narrative") or {}).get("thesis"),
             "audience": (state.get("narrative") or {}).get("audience"),
-            "key_claims": ((state.get("narrative") or {}).get("key_claims") or [])[:12],
+            "key_claims": spread_sample(key_claims, min(12, len(key_claims))),
         },
-        "entities": state.get("entities", [])[:25],
+        "entities": spread_sample(entities, min(25, len(entities))),
         "speakers": state.get("speakers", []),
-        "hypotheses": [h for h in state.get("hypotheses", []) if h.get("status") != "rejected"][:10],
-        "open_questions": state.get("open_questions", [])[:10],
+        "hypotheses": spread_sample(hyps, min(10, len(hyps))),
+        "open_questions": spread_sample(open_q, min(10, len(open_q))),
         "confidence": state.get("confidence"),
         "operator_notes": state.get("operator_notes"),
         "operator_verified": (state.get("meta") or {}).get("operator_verified"),

@@ -248,6 +248,34 @@ def _renumber_segment_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return renumbered
 
 
+def reject_misscoped_shard_boundaries(
+    rows: list[dict[str, Any]],
+    *,
+    parent_start: int,
+    parent_end: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Drop shard rows that claim the full parent span (duplicate collapse across shards)."""
+    if not rows or parent_end <= parent_start:
+        return rows, []
+    parent_span = parent_end - parent_start
+    kept: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    seen_full_span = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        start = int(row.get("start_ms") or 0)
+        end = int(row.get("end_ms") or 0)
+        span = max(0, end - start)
+        if span >= int(parent_span * 0.95) and abs(start - parent_start) <= 1000:
+            if seen_full_span:
+                rejected.append({**row, "_reject_reason": "misscoped_full_parent_span"})
+                continue
+            seen_full_span = True
+        kept.append(row)
+    return kept, rejected
+
+
 def collect_boundary_rows(
     *,
     shard_outputs: list[dict[str, Any]] | None = None,
@@ -290,7 +318,16 @@ def normalize_boundary_timeline(
     if not valid:
         return [], []
 
-    applied: list[dict[str, Any]] = []
+    parent_start = min(int(r["start_ms"]) for r in valid)
+    parent_end = max(int(r["end_ms"]) for r in valid)
+    valid, rejected = reject_misscoped_shard_boundaries(
+        valid,
+        parent_start=parent_start,
+        parent_end=parent_end,
+    )
+    applied: list[dict[str, Any]] = [
+        {"action": "reject_misscoped_shard", "row": r} for r in rejected
+    ]
     deduped, dedupe_actions = _dedupe_rows_within_tolerance(valid, snap_tolerance_ms=snap_tol)
     applied.extend(dedupe_actions)
 

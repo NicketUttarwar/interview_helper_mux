@@ -103,7 +103,7 @@ if [[ "${MUX_SKIP_GUI_BUILD:-0}" != "1" ]]; then
     _bash_fatal "npm is required to build the GUI. Install Node.js 20+ or run ./scripts/install.sh"
     exit 1
   fi
-  echo "Building React GUI ..."
+  echo "Building React GUI (fresh bundle) ..."
   bash "$ROOT/scripts/build_gui.sh"
 else
   echo "MUX_SKIP_GUI_BUILD=1 — using existing GUI bundle"

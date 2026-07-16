@@ -1,5 +1,6 @@
 import type { RunData, StageStep } from "../types";
 import { handoffBetweenStagesEnabled } from "./checkpoint";
+import { isJobActivelyRunning } from "./jobStatus";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { isAutoNavConsumed, markAutoNavConsumed } from "./autoNavigationLedger";
 

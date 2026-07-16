@@ -6,6 +6,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.config import merged_config
+from interview_mux.coverage_limits import (
+    delivery_output_ideal_ratio,
+    delivery_output_min_ratio,
+)
+from interview_mux.run_context import RunContext
 from interview_mux.run_context import RunContext
 
 DELIVERY_BRIEF_PATH = "understanding/delivery_brief.json"
@@ -97,16 +103,18 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     sound = cfg.get("sound_design") or {}
     max_chapters = int(thresholds.get("max_chapters", 8))
     question_max = int(db_cfg.get("question_budget_max", 6))
-    ideal_frac = float(db_cfg.get("ideal_fraction_of_source", 0.85))
+    ideal_frac = float(db_cfg.get("ideal_fraction_of_source", delivery_output_ideal_ratio()))
+    min_ratio = float(db_cfg.get("min_ratio_of_source", delivery_output_min_ratio()))
+    max_ratio = float(db_cfg.get("max_ratio_of_source", 1.0))
     min_sec = int(db_cfg.get("min_duration_sec", 600))
     max_sec = int(db_cfg.get("max_duration_sec", 7200))
 
     source_ms = _source_duration_ms(ctx)
     source_sec = max(0, source_ms // 1000)
     ideal = int(round(source_sec * ideal_frac)) if source_sec else min_sec
-    ideal = max(min_sec, min(max_sec, ideal))
-    target_min = max(min_sec // 2, int(ideal * 0.7))
-    target_max = min(max_sec, int(ideal * 1.25) if ideal else max_sec)
+    ideal = max(int(source_sec * min_ratio) if source_sec else min_sec, min(max_sec, ideal))
+    target_min = max(int(source_sec * min_ratio) if source_sec else min_sec // 2, int(ideal * 0.7))
+    target_max = min(max_sec, max(int(source_sec * max_ratio) if source_sec else max_sec, int(ideal * 1.25) if ideal else max_sec))
 
     high_gaps, all_gaps = _count_record_gaps(ctx)
     q_ideal = min(question_max, high_gaps if high_gaps else all_gaps)
@@ -170,7 +178,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
 
     rationale = [
         f"source_duration_ms={source_ms}",
-        f"ideal_fraction={ideal_frac}",
+        f"delivery_compression_ratio={round(ideal / source_sec, 3) if source_sec else 0}",
         f"high_severity_record_gaps={high_gaps}",
         f"segment_count={segs}",
         f"topology_style={adapt.get('production_style') or 'unknown'}",

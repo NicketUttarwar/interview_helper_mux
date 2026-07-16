@@ -177,6 +177,7 @@ if [[ "${CHECK_OPERATOR_AUDITS:-${CI:-0}}" == "1" ]]; then
   python "$ROOT/tools/audit_operator_action_catalog.py"
   python "$ROOT/tools/audit_stage_reuse_matrix.py"
   python "$ROOT/tools/audit_config_keys.py"
+  python "$ROOT/tools/audit_hard_caps.py"
   python "$ROOT/tools/audit_route_guards.py"
   if [[ -d "$ROOT/ASSETS/executions" ]] && compgen -G "$ROOT/ASSETS/executions/exec_*" >/dev/null; then
     python "$ROOT/tools/ui_truth_smoke.py" || true

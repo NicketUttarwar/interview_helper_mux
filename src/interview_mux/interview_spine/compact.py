@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
+from interview_mux.coverage_limits import volley_spine_event_cap
 from interview_mux.interview_spine.paths import SPINE_PATH
 
 STAGE_SPINE_VOLLEY_KEYS = frozenset(
@@ -57,11 +58,14 @@ def rank_boundary_events(
     *,
     pace_class: str = "conversational",
     oversplit: bool = False,
-    cap: int = BOUNDARY_VOLLEY_MAX_SPINE_EVENTS,
+    cap: int | None = None,
 ) -> list[dict[str, Any]]:
     """Spread-ranked selection of boundary events for volley (not head-biased)."""
-    if len(events) <= cap:
+    effective_cap = cap if cap is not None else BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
+    if len(events) <= effective_cap:
         return list(events)
+    spread_cap = volley_spine_event_cap(len(events))
+    effective_cap = min(effective_cap, spread_cap) if spread_cap > 0 else effective_cap
     prefer_long = pace_class in ("calm", "dense") or oversplit
 
     def _score(ev: dict[str, Any]) -> float:
@@ -86,7 +90,7 @@ def rank_boundary_events(
         return []
 
     max_ms = max(int(e.get("start_ms") or e.get("time_ms") or 0) for e in scored) or 1
-    buckets = max(4, min(12, cap // 3))
+    buckets = max(4, min(12, effective_cap // 3))
     bin_size = max(max_ms // buckets, 1)
     per_bin: dict[int, list[dict[str, Any]]] = {}
     for ev in scored:
@@ -96,7 +100,7 @@ def rank_boundary_events(
 
     picked: list[dict[str, Any]] = []
     seen_starts: set[int] = set()
-    while len(picked) < cap:
+    while len(picked) < effective_cap:
         progressed = False
         for b in sorted(per_bin.keys()):
             if not per_bin[b]:
@@ -108,13 +112,13 @@ def rank_boundary_events(
             seen_starts.add(start)
             picked.append(ev)
             progressed = True
-            if len(picked) >= cap:
+            if len(picked) >= effective_cap:
                 break
         if not progressed:
             break
 
     picked.sort(key=lambda e: int(e.get("start_ms") or e.get("time_ms") or 0))
-    return picked[:cap]
+    return picked[:effective_cap]
 
 def compact_for_boundary(ctx, *, pace_class: str = "conversational", oversplit: bool = False) -> dict[str, Any] | None:
     spine = load_spine(ctx)
