@@ -12,7 +12,7 @@ from interview_mux.analysis_memory import (
     load_queue,
 )
 from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
-from interview_mux.coverage_limits import spread_sample, volley_spine_event_cap, segments_in_context_cap, coherence_risk_cap
+from interview_mux.coverage_limits import ratio_cap_from_context_key, spread_sample, volley_spine_event_cap, segments_in_context_cap, coherence_risk_cap
 from interview_mux.context_selector import maybe_select_context_segments
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.config import merged_config
@@ -1249,7 +1249,13 @@ def _compact_segments_for_gaps(raw: dict[str, Any]) -> Any:
         all_segs = segs or []
     filtered = [s for s in all_segs if isinstance(s, dict) and s.get("segment_id") in need_ids]
     if not filtered:
-        filtered = all_segs[: _char_limit("max_segments_in_gap_pass", 35)]
+        cap = ratio_cap_from_context_key(
+            len(all_segs),
+            "max_segments_in_gap_pass",
+            default_ceiling=50,
+            ratio_key="gap_pass_segments_max_ratio",
+        )
+        filtered = spread_sample(all_segs, cap, time_key=lambda s: int(s.get("start_ms") or 0))
     return _compact_segments({"segments": filtered}, for_gaps=True)
 
 
@@ -1260,7 +1266,12 @@ def _filter_gap_evaluations(ev: Any) -> Any:
     # Prefer non-OK segments; cap list size
     bad = [e for e in evaluations if not e.get("self_explanatory")]
     ok = [e for e in evaluations if e.get("self_explanatory")]
-    cap = _char_limit("max_gap_evaluations", 50)
+    cap = ratio_cap_from_context_key(
+        len(bad) + len(ok),
+        "max_gap_evaluations",
+        default_ceiling=50,
+        ratio_key="gap_evaluations_max_ratio",
+    )
     return {"evaluations": (bad + ok)[:cap]}
 
 

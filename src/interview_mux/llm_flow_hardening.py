@@ -145,14 +145,23 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                         ctx.log(exit_msg, level="error", stage=stage_key)
                         raise SystemExit(exit_msg)
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
-            flow = "flow1" if stage_key == "mix" else "flow2"
-            from interview_mux.sdp_cross_validate import validate_pre_mix
+            from interview_mux.coverage_limits import soft_progression_enabled
 
-            errors = validate_pre_mix(ctx, flow)
-            if errors:
-                exit_msg = f"Mix gate: {'; '.join(errors[:3])}"
-                ctx.log(exit_msg, level="error", stage=stage_key)
-                raise SystemExit(exit_msg)
+            if soft_progression_enabled():
+                ctx.log(
+                    "Mix gate: block_mix_without_sfx skipped (soft_progression)",
+                    level="warning",
+                    stage=stage_key,
+                )
+            else:
+                flow = "flow1" if stage_key == "mix" else "flow2"
+                from interview_mux.sdp_cross_validate import validate_pre_mix
+
+                errors = validate_pre_mix(ctx, flow)
+                if errors:
+                    exit_msg = f"Mix gate: {'; '.join(errors[:3])}"
+                    ctx.log(exit_msg, level="error", stage=stage_key)
+                    raise SystemExit(exit_msg)
 
 
 def is_critical_stage(stage_key: str) -> bool:

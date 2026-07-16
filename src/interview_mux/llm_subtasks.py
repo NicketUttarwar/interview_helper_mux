@@ -5,6 +5,7 @@ from typing import Any
 from interview_mux.analysis_memory import record_stage_attempt
 from interview_mux.content_brief_collate import merge_shard_content_brief
 from interview_mux.context_volley import truncation_flags_for_volley
+from interview_mux.coverage_limits import effective_shard_min_success_ratio
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, flow_hardening_enabled
 from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, normalize_shard_plan, shard_batch_cap
@@ -60,7 +61,7 @@ def run_shards_then_collate(
                 parent_attempt=parent_attempt,
             )
         last_outputs, last_ok, last_failed = shard_outputs, ok_shards, failed_count
-        min_ratio = float(flow_hardening_cfg().get("shard_min_success_ratio", 0.75))
+        min_ratio = effective_shard_min_success_ratio(plan_len)
         success_ratio = len(ok_shards) / plan_len
         if success_ratio >= min_ratio or not flow_hardening_enabled():
             break
@@ -91,35 +92,44 @@ def run_shards_then_collate(
             },
         )
 
-    min_ratio = float(flow_hardening_cfg().get("shard_min_success_ratio", 0.75))
-    if flow_hardening_enabled() and len(last_ok) / plan_len < min_ratio:
-        ctx.log(
-            f"Stage {stage_key}: shard success ratio {len(last_ok)}/{plan_len} "
-            f"below minimum {min_ratio}",
-            level="warning",
-            stage=stage_key,
-        )
-        return (
-            {
-                "status": "blocked",
-                "artifacts": {},
-                "memory_updates": {},
-                "needs": [
-                    {
-                        "type": "rerun_stage",
-                        "stage": stage_key,
-                        "reason": (
-                            f"shard_min_success_ratio: {len(last_ok)}/{plan_len} "
-                            f"shards complete (need {min_ratio})"
-                        ),
-                        "blocking": True,
-                    }
-                ],
-                "follow_up_investigations": [],
-                "reasoning_summary": f"Collate skipped — {last_failed} shard(s) failed.",
-            },
-            len(last_outputs),
-        )
+    min_ratio = effective_shard_min_success_ratio(plan_len)
+    success_ratio = len(last_ok) / plan_len
+    if flow_hardening_enabled() and success_ratio < min_ratio:
+        if last_ok:
+            ctx.log(
+                f"Stage {stage_key}: shard success {len(last_ok)}/{plan_len} below {min_ratio} "
+                f"— collating partial shard set (soft progression)",
+                level="warning",
+                stage=stage_key,
+            )
+        else:
+            ctx.log(
+                f"Stage {stage_key}: shard success ratio {len(last_ok)}/{plan_len} "
+                f"below minimum {min_ratio}",
+                level="warning",
+                stage=stage_key,
+            )
+            return (
+                {
+                    "status": "blocked",
+                    "artifacts": {},
+                    "memory_updates": {},
+                    "needs": [
+                        {
+                            "type": "rerun_stage",
+                            "stage": stage_key,
+                            "reason": (
+                                f"shard_min_success_ratio: {len(last_ok)}/{plan_len} "
+                                f"shards complete (need {min_ratio})"
+                            ),
+                            "blocking": True,
+                        }
+                    ],
+                    "follow_up_investigations": [],
+                    "reasoning_summary": f"Collate skipped — {last_failed} shard(s) failed.",
+                },
+                len(last_outputs),
+            )
 
     collate_shards = last_ok if last_ok else last_outputs
     return _collate_shard_outputs(

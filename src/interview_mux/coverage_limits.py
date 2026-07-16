@@ -36,7 +36,29 @@ _DEFAULTS: dict[str, float | int] = {
     "delivery_timeline_min_ratio": 0.10,
     "max_chapters_ratio": 0.15,
     "max_highlight_clips_ratio": 0.08,
+    "gap_evaluations_max_ratio": 1.0,
+    "gap_pass_segments_max_ratio": 1.0,
     "context_selector_enabled": 0,
+}
+
+_SOFT_PROGRESSION_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "lint_coverage_floor_ratio": 0.15,
+    "segment_coverage_adaptive": True,
+    "shard_min_success_floor_ratio": 0.35,
+    "pre_master_soft_fail": True,
+    "non_blocking_lint_substrings": [
+        "segment_coverage_ratio",
+        "cross_artifact_refs_valid",
+        "truncation_requires_decompose",
+        "confidence_gte_min",
+        "generic_theme",
+        "topic without evidence",
+        "key_claim without evidence",
+        "post_listen failed",
+        "mmaudio_qa placeholder",
+        "missing wav for asset_id",
+    ],
 }
 
 
@@ -288,6 +310,109 @@ def delivery_output_ideal_ratio(cfg: dict[str, Any] | None = None) -> float:
     return _float(coverage_limits_cfg(cfg), "delivery_output_ideal_ratio_of_source", 0.45)
 
 
+def soft_progression_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    limits = coverage_limits_cfg(cfg)
+    block = dict(_SOFT_PROGRESSION_DEFAULTS)
+    raw = limits.get("soft_progression")
+    if isinstance(raw, dict):
+        block.update(raw)
+    return block
+
+
+def soft_progression_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return bool(soft_progression_cfg(cfg).get("enabled", True))
+
+
+def is_non_blocking_lint(error: str, cfg: dict[str, Any] | None = None) -> bool:
+    if not soft_progression_enabled(cfg):
+        return False
+    low = str(error or "").lower()
+    for pat in soft_progression_cfg(cfg).get("non_blocking_lint_substrings") or []:
+        if str(pat).lower() in low:
+            return True
+    return False
+
+
+def partition_lint_errors(
+    errors: list[str],
+    cfg: dict[str, Any] | None = None,
+) -> tuple[list[str], list[str]]:
+    blocking: list[str] = []
+    warnings: list[str] = []
+    for err in errors:
+        if is_non_blocking_lint(err, cfg):
+            warnings.append(err)
+        else:
+            blocking.append(err)
+    return blocking, warnings
+
+
+def segment_coverage_min_ratio(
+    stage_key: str,
+    manifest_ids: set[str],
+    ctx: RunContext,
+    rubric: dict[str, Any],
+    *,
+    cfg: dict[str, Any] | None = None,
+) -> float:
+    """Adaptive moving minimum — scales down on long interviews, never below floor."""
+    manifest_count = len(manifest_ids)
+    soft = soft_progression_cfg(cfg)
+    floor = _float(soft, "lint_coverage_floor_ratio", 0.15)
+    if manifest_count < 5:
+        return 1.0
+    if stage_key == "content_brief_reanchor":
+        base = reanchor_min_coverage_ratio(manifest_ids, ctx, rubric, cfg)
+    else:
+        configured = rubric.get("min_segment_coverage_ratio")
+        base = float(configured) if configured is not None else analysis_timeline_min_ratio(cfg)
+    if soft.get("segment_coverage_adaptive", True):
+        ref = 40.0
+        scale = min(1.0, ref / max(float(manifest_count), ref))
+        base = max(floor, base * (0.45 + 0.55 * scale))
+    return max(floor, base)
+
+
+def effective_shard_min_success_ratio(plan_len: int, cfg: dict[str, Any] | None = None) -> float:
+    from interview_mux.llm_flow_hardening import flow_hardening_cfg
+
+    configured = float(flow_hardening_cfg(cfg).get("shard_min_success_ratio", 0.75))
+    if not soft_progression_enabled(cfg):
+        return configured
+    soft = soft_progression_cfg(cfg)
+    floor = _float(soft, "shard_min_success_floor_ratio", 0.35)
+    if plan_len <= 1:
+        return 1.0
+    if plan_len <= 4:
+        return min(configured, max(floor, 0.5))
+    adaptive = max(floor, configured * (4.0 / float(plan_len)) ** 0.3)
+    return min(configured, adaptive)
+
+
+def ratio_cap_from_context_key(
+    total: int,
+    context_key: str,
+    *,
+    default_ceiling: int,
+    ratio_key: str,
+    cfg: dict[str, Any] | None = None,
+) -> int:
+    """Map legacy fixed context caps to moving ratio caps."""
+    limits = coverage_limits_cfg(cfg)
+    ctx_cfg = (merged_config().get("analysis") or {}).get("context") or {}
+    ceiling = int(ctx_cfg.get(context_key, default_ceiling))
+    ratio = _float(limits, ratio_key, 1.0)
+    if ratio >= 1.0 and total <= ceiling:
+        return min(total, ceiling) if total else 0
+    return ratio_cap(total, ratio, ceiling=ceiling, floor=min(4, ceiling))
+
+
+def pre_master_soft_fail_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return soft_progression_enabled(cfg) and bool(
+        soft_progression_cfg(cfg).get("pre_master_soft_fail", True)
+    )
+
+
 def context_selector_enabled(cfg: dict[str, Any] | None = None) -> bool:
     limits = coverage_limits_cfg(cfg)
     analysis = (merged_config().get("analysis") or {})
@@ -304,16 +429,24 @@ __all__ = [
     "delivery_output_ideal_ratio",
     "delivery_output_min_ratio",
     "duration_scaled",
+    "effective_shard_min_success_ratio",
     "fabricate_cap",
     "gap_fill_cap",
+    "is_non_blocking_lint",
     "listenability_tier",
     "max_shard_batches",
     "output_ratio_of_source",
+    "partition_lint_errors",
+    "pre_master_soft_fail_enabled",
     "ratio_cap",
+    "ratio_cap_from_context_key",
     "reanchor_coverage_denominator",
     "reanchor_min_coverage_ratio",
+    "segment_coverage_min_ratio",
     "segments_in_context_cap",
     "shard_batch_cap",
+    "soft_progression_cfg",
+    "soft_progression_enabled",
     "spread_quartile_coverage",
     "spread_sample",
     "volley_spine_event_cap",

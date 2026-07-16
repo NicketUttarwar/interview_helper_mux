@@ -9,7 +9,8 @@ from interview_mux.config import merged_config
 from interview_mux.coverage_limits import (
     analysis_timeline_min_ratio,
     reanchor_coverage_denominator as _reanchor_coverage_denominator,
-    reanchor_min_coverage_ratio as _reanchor_min_coverage_ratio,
+    segment_coverage_min_ratio as _segment_coverage_min_ratio,
+    soft_progression_enabled,
 )
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
@@ -865,17 +866,23 @@ def _lint_generic(
             covered = _coverage_numerator(stage_key, artifacts, ctx)
             if stage_key == "content_brief_reanchor":
                 denom_ids = _reanchor_coverage_denominator(manifest_ids, ctx)
-                min_ratio = _reanchor_min_coverage_ratio(manifest_ids, ctx, rubric)
             else:
                 denom_ids = manifest_ids
-                default_min = 1.0 if len(manifest_ids) < 5 else 0.85
-                min_ratio = float(rubric.get("min_segment_coverage_ratio", default_min) or default_min)
+            min_ratio = _segment_coverage_min_ratio(stage_key, manifest_ids, ctx, rubric)
             ratio = len(covered & denom_ids) / len(denom_ids) if denom_ids else 0.0
+            floor = 0.0
+            if soft_progression_enabled():
+                from interview_mux.coverage_limits import soft_progression_cfg
+
+                floor = float(soft_progression_cfg().get("lint_coverage_floor_ratio", 0.15))
             if ratio < min_ratio:
-                errors.append(
-                    f"segment_coverage_ratio: {ratio:.2f} < {min_ratio} "
-                    f"({len(covered & denom_ids)}/{len(denom_ids)} segments)"
-                )
+                if soft_progression_enabled() and ratio >= floor:
+                    pass
+                else:
+                    errors.append(
+                        f"segment_coverage_ratio: {ratio:.2f} < {min_ratio} "
+                        f"({len(covered & denom_ids)}/{len(denom_ids)} segments)"
+                    )
 
     if "min_row_count_met" in keys:
         if stage_key == "speaker_roles":

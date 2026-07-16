@@ -612,7 +612,23 @@ Unified ratio policy for analysis integrity vs delivery compression — `coverag
 | `gap_fill_max_ratio` | `0.20` | micro-gap-fill | Over-synthetic remediation |
 | `fabricate_max_ratio_per_call` | `0.20` | fabricate ladder | Too much invented content per attempt |
 | `volley_spread_quartile_min_ratio` | `0.25` | volley compact | Head-biased context padding |
+| `gap_evaluations_max_ratio` | `1.0` | gap volley | Gap pass drops tail segments |
+| `gap_pass_segments_max_ratio` | `1.0` | gap volley | Gap segment sample head-only |
 | `context_selector.enabled` | `false` | `context_selector.py` | Economy select path off (shadow log only) |
+
+### `analysis.coverage_limits.soft_progression.*`
+
+Non-blocking progression policy — soft caps, adaptive coverage floors, partial shard collate. Default **enabled**.
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `enabled` | `true` | lint partition, mix/master gates | Coverage lint blocks long interviews again |
+| `lint_coverage_floor_ratio` | `0.15` | `segment_coverage_ratio` lint | Below-floor coverage still hard-fails |
+| `segment_coverage_adaptive` | `true` | moving min ratio by manifest size | Fixed 0.85 bar on long interviews |
+| `shard_min_success_floor_ratio` | `0.35` | shard collate | Partial shard sets blocked |
+| `pre_master_soft_fail` | `true` | `master_finalize` | Missing SFX/listen blocks export |
+
+Non-blocking lint substrings (coverage, orphan refs, truncation decompose, confidence, post_listen, missing WAV) are logged as warnings and do not block arbiter accept or partial persist when `enabled` is true.
 
 ---
 

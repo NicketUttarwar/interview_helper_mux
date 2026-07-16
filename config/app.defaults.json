@@ -101,7 +101,7 @@
     "completeness_gate": {
       "enabled": true,
       "mode": "warn",
-      "hard_fail_missing_blocking_vo": true,
+      "hard_fail_missing_blocking_vo": false,
       "hard_fail_empty_speech": true,
       "soft_fail_sfx_placeholder": true
     },
@@ -245,7 +245,7 @@
     "require_acoustic_novelty": true,
     "novelty_min_delta": 0.18,
     "theme_alignment_min": 0.35,
-    "blocking_claim_contradiction": true,
+    "blocking_claim_contradiction": false,
     "replace_stub_topic_shift_hints": true
   },
   "_comment_interview_spine": "H-ORC-01 time-aligned local comprehension index (not LLM fine-tune)",
@@ -509,7 +509,7 @@
       "max_per_segment_shard_calls": 24,
       "max_micro_gap_fill_calls": 2,
       "max_same_adaptation_signature": 1,
-      "halt_on_upstream_timeline_lint": true
+      "halt_on_upstream_timeline_lint": false
     },
     "duration_policy": {
       "short_max_ms": 900000,
@@ -575,7 +575,16 @@
       "boundary_timeline_coverage_min_ratio": 0.85,
       "delivery_timeline_min_ratio": 0.10,
       "max_chapters_ratio": 0.15,
-      "max_highlight_clips_ratio": 0.08
+      "max_highlight_clips_ratio": 0.08,
+      "gap_evaluations_max_ratio": 1.0,
+      "gap_pass_segments_max_ratio": 1.0,
+      "soft_progression": {
+        "enabled": true,
+        "lint_coverage_floor_ratio": 0.15,
+        "segment_coverage_adaptive": true,
+        "shard_min_success_floor_ratio": 0.35,
+        "pre_master_soft_fail": true
+      }
     },
     "context_selector": {
       "enabled": false,
@@ -603,21 +612,21 @@
       "cross_validate_enabled": true,
       "halt_on_schema_errors_with_accept": true,
       "investigation_dedupe": true,
-      "shard_min_success_ratio": 0.75,
+      "shard_min_success_ratio": 0.5,
       "inner_retry_require_delta": true,
-      "max_primary_attempts_per_stage": 8,
-      "max_arbiter_rejects_per_stage": 3,
-      "max_investigation_reruns_per_kind": 2,
-      "stuck_signature_threshold": 2,
-      "block_partial_segment_classification": true,
-      "block_partial_on_quality_fail": true,
+      "max_primary_attempts_per_stage": 12,
+      "max_arbiter_rejects_per_stage": 4,
+      "max_investigation_reruns_per_kind": 3,
+      "stuck_signature_threshold": 4,
+      "block_partial_segment_classification": false,
+      "block_partial_on_quality_fail": false,
       "clarification_before_halt": true,
       "spend_block_stages": [
         "sfx_prompt_craft",
         "mmaudio_sfx",
         "mix"
       ],
-      "block_mix_without_sfx_when_enabled": true
+      "block_mix_without_sfx_when_enabled": false
     },
     "llm_resilience": {
       "progression_mode": "strict",

@@ -109,6 +109,11 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
         issue.kind = "coverage"
         issue.severity = "important"
         issue.repair_strategy = "fabricate_missing_segments"
+        from interview_mux.coverage_limits import is_non_blocking_lint
+
+        if is_non_blocking_lint(message):
+            issue.blocking = False
+            issue.severity = "minor"
         return issue
 
     if "all segments typed interviewee_answer" in low:
@@ -127,6 +132,10 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
     if "generic theme" in low or "topic without evidence" in low:
         issue.severity = "minor"
         issue.repair_strategy = "drop_row"
+        from interview_mux.coverage_limits import is_non_blocking_lint
+
+        if is_non_blocking_lint(message):
+            issue.blocking = False
         return issue
 
     if "confidence_gte_min" in low:
@@ -196,6 +205,11 @@ def classify_cross_validate_message(
             issue.upstream_stage = "boundary_detection"
     elif "not in manifest" in low:
         issue.repair_strategy = "drop_orphan_ref"
+        from interview_mux.coverage_limits import is_non_blocking_lint
+
+        if is_non_blocking_lint(message):
+            issue.severity = "minor"
+            issue.blocking = False
         if "boundary" in low:
             issue.upstream_stage = "boundary_detection"
         elif stage_key != "segment_classification":

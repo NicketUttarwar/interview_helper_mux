@@ -32,19 +32,36 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
     with logged_step(f"{stage}/pre_master_validation", ctx=ctx, stage=stage):
         pre_errors = validate_pre_master(ctx, flow_name)
         if pre_errors:
-            summary = "; ".join(pre_errors[:4])
-            ctx.log(
-                f"pre_master validation failed: {summary}",
-                level="error",
-                stage=stage,
-                detail={"pre_master_validation": pre_errors[:12]},
-            )
-            record_qc_summary(
-                ctx,
-                "pre_master",
-                {"passed": False, "errors": pre_errors[:12], "flow": flow_name, "at_stage": stage},
-            )
-            raise RuntimeError(f"pre_master validation failed: {summary}")
+            from interview_mux.coverage_limits import is_non_blocking_lint, pre_master_soft_fail_enabled
+
+            blocking = [e for e in pre_errors if not is_non_blocking_lint(e)]
+            soft_only = [e for e in pre_errors if is_non_blocking_lint(e)]
+            if soft_only and pre_master_soft_fail_enabled():
+                ctx.log(
+                    f"pre_master soft warnings: {'; '.join(soft_only[:4])}",
+                    level="warning",
+                    stage=stage,
+                    detail={"pre_master_soft_warnings": soft_only[:12]},
+                )
+            if blocking or not pre_master_soft_fail_enabled():
+                summary = "; ".join((blocking or pre_errors)[:4])
+                ctx.log(
+                    f"pre_master validation failed: {summary}",
+                    level="error",
+                    stage=stage,
+                    detail={"pre_master_validation": (blocking or pre_errors)[:12]},
+                )
+                record_qc_summary(
+                    ctx,
+                    "pre_master",
+                    {
+                        "passed": False,
+                        "errors": (blocking or pre_errors)[:12],
+                        "flow": flow_name,
+                        "at_stage": stage,
+                    },
+                )
+                raise RuntimeError(f"pre_master validation failed: {summary}")
 
     with logged_step(f"{stage}/measure_bus", ctx=ctx, stage=stage):
         bus = measure_assembly_bus(assembly)

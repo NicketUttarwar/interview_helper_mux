@@ -272,9 +272,13 @@ def extract_schema_valid_artifact(
 def _block_partial_segment_classification(lint_errors: list[str], cfg: dict[str, Any] | None = None) -> bool:
     cfg = cfg or merged_config()
     from interview_mux.artifact_issue_triage import triage_cfg
+    from interview_mux.coverage_limits import partition_lint_errors, soft_progression_enabled
     from interview_mux.segment_timeline_standard import segmentation_cfg
 
-    joined = " ".join(lint_errors).lower()
+    blocking_lint, _soft = partition_lint_errors(lint_errors, cfg)
+    if soft_progression_enabled(cfg) and lint_errors and not blocking_lint:
+        return False
+    joined = " ".join(blocking_lint).lower()
     triggers = (
         "segment_coverage_ratio",
         "all segments typed interviewee_answer",
@@ -304,6 +308,7 @@ def _block_partial_on_quality_fail(
 ) -> str | None:
     """Return a reason when critical stages must not stage write-approvable partials."""
     from interview_mux.analysis_memory import should_merge_envelope
+    from interview_mux.coverage_limits import partition_lint_errors, soft_progression_enabled
     from interview_mux.llm_flow_hardening import ALL_CRITICAL_LLM_STAGES
 
     if stage_key not in ALL_CRITICAL_LLM_STAGES:
@@ -311,10 +316,13 @@ def _block_partial_on_quality_fail(
     fh = flow_hardening_cfg(cfg)
     if not fh.get("block_partial_on_quality_fail", True):
         return None
-    if lint_errors:
+    blocking_lint, _soft = partition_lint_errors(lint_errors, cfg)
+    if soft_progression_enabled(cfg) and lint_errors and not blocking_lint:
+        return None
+    if blocking_lint:
         return (
             f"Critical stage lint failures — no partial persist "
-            f"({'; '.join(lint_errors[:2])})"
+            f"({'; '.join(blocking_lint[:2])})"
         )
     if schema_errors:
         return (

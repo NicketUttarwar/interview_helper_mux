@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.interview_spine.constants import BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
-from interview_mux.coverage_limits import volley_spine_event_cap
+from interview_mux.coverage_limits import spread_sample, volley_spine_event_cap
 from interview_mux.interview_spine.paths import SPINE_PATH
 
 STAGE_SPINE_VOLLEY_KEYS = frozenset(
@@ -159,8 +159,10 @@ def compact_for_volley(ctx, *, max_windows: int = 3, max_chars: int = 120) -> di
                 "text_span": text,
             }
         )
+    events = spine.get("boundary_events") or []
+    cap = volley_spine_event_cap(len(events))
     return {
         "retrieval_enabled": bool((spine.get("retrieval") or {}).get("enabled")),
         "windows_sample": windows,
-        "top_boundary_events": (spine.get("boundary_events") or [])[:8],
+        "top_boundary_events": spread_sample(events, cap, time_key=lambda e: int(e.get("time_ms") or 0)),
     }

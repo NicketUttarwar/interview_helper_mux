@@ -411,7 +411,17 @@ def _apply_lint_accept_hardening(
     lint_errors: list[str],
 ) -> None:
     """Reject arbiter accept when deterministic lint fails."""
-    if not flow_hardening_enabled() or not lint_errors:
+    from interview_mux.coverage_limits import partition_lint_errors
+
+    blocking_lint, soft_warnings = partition_lint_errors(lint_errors)
+    if soft_warnings:
+        ctx.log(
+            f"Stage {stage_key}: soft lint warnings (non-blocking): {'; '.join(soft_warnings[:3])}",
+            level="warning",
+            stage=stage_key,
+            detail={"soft_lint_warnings": soft_warnings[:6]},
+        )
+    if not flow_hardening_enabled() or not blocking_lint:
         return
     if str(arbiter_result.get("verdict", "")).strip() != "accept":
         return
@@ -421,7 +431,7 @@ def _apply_lint_accept_hardening(
         {
             "type": "rerun_stage",
             "stage": stage_key,
-            "reason": f"Deterministic lint: {'; '.join(lint_errors[:3])}",
+            "reason": f"Deterministic lint: {'; '.join(blocking_lint[:3])}",
             "blocking": True,
         }
     )
@@ -431,7 +441,7 @@ def _apply_lint_accept_hardening(
         f"Stage {stage_key}: arbiter accept overridden — lint failures.",
         level="warning",
         stage=stage_key,
-        detail={"lint_errors": lint_errors[:4]},
+        detail={"lint_errors": blocking_lint[:4]},
     )
 
 
