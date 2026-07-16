@@ -177,7 +177,7 @@ export function PipelineStepList() {
             );
 
           const skipped = status === "skipped";
-          const upstreamBlocker = firstUpstreamBlocker(run.stages, entry.stage.id);
+          const upstreamBlocker = firstUpstreamBlocker(run.stages, entry.stage.id, run.meta);
           const metaSuffix = skipped
             ? " · skipped"
             : isError

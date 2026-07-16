@@ -71,6 +71,17 @@ def build_obligation(
     speakers_doc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build classification_obligation from boundaries contract."""
+    from interview_mux.stage_coupling import contract_timeline_valid
+
+    contract = read_segment_contract(boundaries_doc)
+    if not contract_timeline_valid(boundaries_doc):
+        return {
+            "required_segment_ids": [],
+            "required_count": 0,
+            "segments": [],
+            "segment_contract": contract,
+            "timeline_invalid": True,
+        }
     segment_ids = contract_segment_ids(boundaries_doc)
     speakers_by_id: dict[str, str] = {}
     if isinstance(speakers_doc, dict):

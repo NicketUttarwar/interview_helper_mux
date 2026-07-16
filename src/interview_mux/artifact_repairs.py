@@ -95,7 +95,7 @@ def _infer_segment_type(row: dict[str, Any], speakers: dict[str, str]) -> str:
     spk = str(row.get("speaker_id") or "")
     role = str(row.get("speaker_role") or speakers.get(spk, "unknown"))
     text = str(row.get("text") or "")
-    if role == "interviewer":
+    if role == "interviewer" or role in ("moderator", "co_host"):
         if "?" in text[:200]:
             return "interviewer_question"
         return "interviewer_reaction"
@@ -245,7 +245,9 @@ def repair_manifest_segments(
                 )
 
     # Fabricate missing segments from boundaries
-    if ctx.artifact_exists("segments/boundaries.json"):
+    from interview_mux.segment_timeline_standard import segmentation_cfg
+
+    if segmentation_cfg().get("fabricate_missing_segments", True) and ctx.artifact_exists("segments/boundaries.json"):
         boundaries = ctx.read_json("segments/boundaries.json")
         speakers_doc = ctx.read_json("understanding/speakers.json") if ctx.artifact_exists("understanding/speakers.json") else None
         obligation = build_obligation(ctx, boundaries, speakers_doc)
@@ -298,10 +300,10 @@ def repair_manifest_segments(
 
 
 def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    from interview_mux.boundary_collate import normalize_boundary_timeline
+
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
-    itr_cfg = (merged_config().get("analysis") or {}).get("artifact_issue_triage") or {}
-    merge_threshold = int(itr_cfg.get("boundary_merge_threshold_ms") or 500)
     if out.get("warnings") is None:
         out["warnings"] = []
         applied.append({"action": "default_value", "path": "warnings", "value": []})
@@ -316,57 +318,19 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             default_spk = str(sp["speaker_id"])
             break
 
-    kept = []
+    hydrated: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if not row.get("speaker_id") and default_spk:
-            row["speaker_id"] = default_spk
+        normalized = dict(row)
+        if not normalized.get("speaker_id") and default_spk:
+            normalized["speaker_id"] = default_spk
             applied.append({"action": "default_value", "path": "speaker_id", "value": default_spk})
-        s, e = row.get("start_ms"), row.get("end_ms")
-        if s is not None and e is not None and int(e) <= int(s):
-            applied.append({"action": "drop_row", "segment_id": row.get("segment_id")})
-            continue
-        kept.append(row)
+        hydrated.append(normalized)
 
-    sorted_rows = sort_segments_by_start_ms(kept)
-    overlap_policy = str(itr_cfg.get("segment_overlap_policy") or "drop_duplicate_then_llm_pick")
-    if overlap_policy == "drop_duplicate_then_llm_pick":
-        deduped: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for row in sorted_rows:
-            seg_id = str(row.get("segment_id") or "")
-            if seg_id and seg_id in seen_ids:
-                applied.append({"action": "drop_row", "segment_id": seg_id, "reason": "duplicate_segment_id"})
-                continue
-            if seg_id:
-                seen_ids.add(seg_id)
-            deduped.append(row)
-        sorted_rows = deduped
-
-    cfg = segment_timeline_cfg()
-    allow_overlap = int(cfg.get("allow_overlap_ms", 0))
-    prev_end: int | None = None
-    trimmed: list[dict[str, Any]] = []
-    for row in sorted_rows:
-        if row.get("start_ms") is None or row.get("end_ms") is None:
-            trimmed.append(row)
-            continue
-        start = int(row["start_ms"])
-        end = int(row["end_ms"])
-        if prev_end is not None and start < prev_end - allow_overlap:
-            row = dict(row)
-            row["start_ms"] = prev_end
-            applied.append({"action": "trim_overlap", "segment_id": row.get("segment_id")})
-        span = int(row["end_ms"]) - int(row["start_ms"])
-        if span < merge_threshold and trimmed:
-            prev = trimmed[-1]
-            prev["end_ms"] = max(int(prev.get("end_ms", 0)), int(row["end_ms"]))
-            applied.append({"action": "merge_micro_boundary", "segment_id": row.get("segment_id")})
-        else:
-            trimmed.append(row)
-        prev_end = max(prev_end or 0, int(row.get("end_ms", end)))
-    out["boundaries"] = trimmed
+    normalized_rows, timeline_actions = normalize_boundary_timeline(hydrated)
+    applied.extend(timeline_actions)
+    out["boundaries"] = normalized_rows
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -460,7 +424,13 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
             if not isinstance(claim, dict):
                 applied.append({"action": "drop_row", "path": f"key_claims[{i}]"})
                 continue
-            evidence = claim.get("evidence") or claim.get("evidence_anchors") or claim.get("segment_ids")
+            evidence = (
+                claim.get("evidence")
+                or claim.get("evidence_anchors")
+                or claim.get("segment_ids")
+                or claim.get("evidence_segment_ids")
+                or claim.get("approx_time_range")
+            )
             if not evidence and str(claim.get("claim") or claim.get("text") or "").strip():
                 applied.append({"action": "drop_row", "path": f"key_claims[{i}]", "reason": "no_evidence"})
                 continue

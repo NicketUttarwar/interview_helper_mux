@@ -15,10 +15,15 @@ Variant = Literal["full", "compact"]
 
 STAGE_LINT_HINTS: dict[str, str] = {
     "content_context": (
-        "Every topic and key_claim needs segment_ids or approx_time_range unless nullable null."
+        "Pre-segmentation: set non-null approx_time_range (mm:ss-mm:ss) on every topic and "
+        "key_claim. Use JSON null for segment_ids/evidence_segment_ids — never leave empty "
+        "[] arrays without a time range (lint fail)."
     ),
     "content_brief_reanchor": "Every topic needs segment_ids (critical).",
-    "speaker_roles": "Every speaker needs role interviewer|interviewee|unknown (critical).",
+    "speaker_roles": (
+        "Every speaker needs role interviewer|interviewee|moderator|panelist|co_host|off_mic|unknown (critical). "
+        "Panel format needs 2+ content roles. Emit conversation_profile + gap_sensitivity."
+    ),
     "boundary_detection": "Every boundary needs start_ms/end_ms tied to transcript.",
     "segment_classification": (
         "Return one row per required_segment_id in classification_obligation; vary types beyond interviewee_answer."

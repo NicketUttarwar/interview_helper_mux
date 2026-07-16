@@ -2,15 +2,19 @@
 
 **Good — thesis grounded in interviewee**
 
-- `thesis` is one sentence the interviewee could agree with; `topics[].segment_ids` non-empty for major themes.
+- `thesis` is one sentence the interviewee could agree with; topics use non-empty `approx_time_range` (and/or `segment_ids` after reanchor).
 
-**Good — claim anchored**
+**Good — claim anchored (pre-segmentation)**
 
-- `key_claims` entry includes `segment_ids` pointing to where the claim was stated.
+- `key_claims` entry includes `approx_time_range` like `"05:10-06:05"` where the claim is spoken; `segment_ids` is JSON null until reanchor.
 
-**Bad — invented claim**
+**Good — claim anchored (post-reanchor)**
 
-- “Raised Series C in 2024” when transcript only discusses bootstrapping — violates transcript-only rule.
+- `key_claims` entry includes non-empty `segment_ids` pointing to where the claim was stated.
+
+**Bad — empty arrays with no time range**
+
+- `segment_ids: []` and `approx_time_range: null` on a claim — schema-legal empty shape that fails deterministic lint.
 
 **Bad — generic themes**
 

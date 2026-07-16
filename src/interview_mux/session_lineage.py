@@ -1,13 +1,67 @@
-"""Immediate-previous execution resolution for session reuse."""
+"""Execution lineage resolution for session reuse."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from interview_mux.application_session import get_lineage, set_lineage
+from interview_mux.config import merged_config
 from interview_mux.journey_state import read_run_meta
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import source_audio_hashes_match
+
+
+def execution_number_for_run_id(run_id: str) -> int | None:
+    if not run_id.startswith("exec_"):
+        return None
+    part = run_id.split("_")[1]
+    return int(part) if part.isdigit() else None
+
+
+def execution_number_for_run(ctx: RunContext) -> int | None:
+    meta = read_run_meta(ctx)
+    num = meta.get("execution_number")
+    if num is not None:
+        return int(num)
+    return execution_number_for_run_id(ctx.run_id)
+
+
+def stage_reuse_lookback_limit() -> int:
+    cfg = merged_config().get("journey_ui") or {}
+    if isinstance(cfg, dict):
+        raw = cfg.get("stage_reuse_lookback_executions", 5)
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            pass
+    return 5
+
+
+def recent_prior_execution_run_ids(
+    current: RunContext,
+    *,
+    limit: int | None = None,
+) -> list[str]:
+    """Up to *limit* prior execution ids with lower execution_number, newest first."""
+    lookback = limit if limit is not None else stage_reuse_lookback_limit()
+    current_n = execution_number_for_run(current)
+    if current_n is None:
+        return []
+
+    candidates: list[tuple[int, str]] = []
+    for run_id in RunContext.list_runs():
+        if run_id == current.run_id or not RunContext.exists(run_id):
+            continue
+        n = execution_number_for_run_id(run_id)
+        if n is None:
+            ctx = RunContext(run_id, create=False)
+            n = execution_number_for_run(ctx)
+        if n is None or n >= current_n:
+            continue
+        candidates.append((n, run_id))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [run_id for _, run_id in candidates[:lookback]]
 
 
 def find_run_by_execution_number(n: int) -> str | None:
@@ -67,10 +121,11 @@ def resolve_previous_execution(current: RunContext) -> RunContext | None:
 
 
 def hash_match_with_previous(current: RunContext) -> bool:
-    prev = resolve_previous_execution(current)
-    if not prev:
-        return False
-    return source_audio_hashes_match(current, prev)
+    for run_id in recent_prior_execution_run_ids(current):
+        source = RunContext(run_id, create=False)
+        if source_audio_hashes_match(current, source):
+            return True
+    return False
 
 
 def previous_run_summary(run_id: str) -> dict[str, Any] | None:

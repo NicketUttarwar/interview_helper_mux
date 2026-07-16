@@ -30,6 +30,16 @@ This page is the **single alignment reference** for segment data.
 
 **Guard:** Code that **reads** `manifest.json` must tolerate either “full rows” or “merge artifact + boundaries” depending on pipeline version — prefer always writing **full** rows to disk after merge so downstream always sees [segment.schema.json](./json-schemas/segment.schema.json).
 
+### Timeline authority (segmentation hardening)
+
+| Field | Owner | Rule |
+|-------|-------|------|
+| `segment_id`, `start_ms`, `end_ms`, `speaker_id` | `segments/boundaries.json` + `_meta.segment_contract` | Manifest copies on hydrate; classifier must not invent IDs or times |
+| `proposed_split_reason` | boundaries only | Not in manifest |
+| `type`, `speaker_role`, `topic_tags`, `flags`, `text` | `segment_classification` | Required per contract ID; `speaker_role` resolved from `speakers.json` |
+
+Enforcement: `segment_timeline_standard.py`, `segmentation_input_resolver.py`, paired save at unified review (`journey_ui.segmentation_unified_review`).
+
 ---
 
 ## `flags` vocabulary (prompt ↔ schema aligned)

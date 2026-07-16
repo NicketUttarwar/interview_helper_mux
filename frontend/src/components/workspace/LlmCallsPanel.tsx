@@ -253,7 +253,6 @@ export function LlmCallsPanel() {
     } catch (e) {
       setIndex(null);
       const msg = formatApiError(e, "LLM calls");
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setLoading(false);
@@ -340,7 +339,6 @@ export function LlmCallsPanel() {
         await loadRecord(path);
       } catch (e) {
         const msg = formatApiError(e, "Load LLM call");
-        showToast(msg, "error");
         appendClientLog(msg, "error");
         return;
       }
@@ -373,7 +371,6 @@ export function LlmCallsPanel() {
       showToast("LLM call saved");
     } catch (e) {
       const msg = formatApiError(e, "Save LLM call");
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setSavingPath(null);
@@ -398,7 +395,6 @@ export function LlmCallsPanel() {
       await Promise.all([...calls].map((p) => loadRecord(p)));
     } catch {
       const msg = "Some LLM calls failed to load";
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setExpandingAll(false);

@@ -412,17 +412,26 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
     if not isinstance(manifest, dict):
         return manifest
     segs = manifest.get("segments")
-    if not isinstance(segs, list) or not segs:
+    if not isinstance(segs, list):
         return manifest
 
-    boundary_by_id: dict[str, dict[str, Any]] = {}
-    if ctx.artifact_exists("segments/boundaries.json"):
-        doc = ctx.read_json("segments/boundaries.json")
-        if isinstance(doc, dict):
-            for row in doc.get("boundaries") or []:
-                if isinstance(row, dict) and row.get("segment_id"):
-                    boundary_by_id[str(row["segment_id"])] = row
+    from interview_mux.segment_timeline_standard import contract_ordered_segment_ids, segmentation_cfg
 
+    boundary_doc: dict[str, Any] | None = None
+    if ctx.artifact_exists("segments/boundaries.json"):
+        raw = ctx.read_json("segments/boundaries.json")
+        if isinstance(raw, dict):
+            boundary_doc = raw
+
+    boundary_by_id: dict[str, dict[str, Any]] = {}
+    if boundary_doc:
+        for row in boundary_doc.get("boundaries") or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                boundary_by_id[str(row["segment_id"])] = row
+
+    contract_ids = contract_ordered_segment_ids(boundary_doc)
+    if not contract_ids and not segs:
+        return manifest
     if not boundary_by_id:
         return manifest
 
@@ -440,36 +449,48 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
                 if isinstance(sp, dict) and sp.get("speaker_id"):
                     speakers_by_id[str(sp["speaker_id"])] = str(sp.get("role") or "unknown")
 
+    manifest_by_id = {
+        str(seg.get("segment_id")): dict(seg)
+        for seg in segs
+        if isinstance(seg, dict) and seg.get("segment_id")
+    }
+    seg_cfg = segmentation_cfg()
+    order = contract_ids or sorted(manifest_by_id.keys())
     hydrated: list[dict[str, Any]] = []
-    for seg in segs:
-        if not isinstance(seg, dict):
+    for sid in order:
+        out = dict(manifest_by_id.get(sid) or {"segment_id": sid})
+        out["segment_id"] = sid
+        boundary = boundary_by_id.get(sid)
+        if not boundary:
+            hydrated.append(out)
             continue
-        sid = str(seg.get("segment_id") or "")
-        out = dict(seg)
-        boundary = boundary_by_id.get(sid) if sid else None
-        if boundary:
-            if boundary.get("start_ms") is not None:
-                out["start_ms"] = int(boundary["start_ms"])
-            if boundary.get("end_ms") is not None:
-                out["end_ms"] = int(boundary["end_ms"])
-            if not out.get("speaker_id") and boundary.get("speaker_id"):
-                out["speaker_id"] = str(boundary["speaker_id"])
-            if not out.get("speaker_role") and out.get("speaker_id"):
-                out["speaker_role"] = speakers_by_id.get(str(out["speaker_id"]), "unknown")
-            if not out.get("text") and words and out.get("start_ms") is not None and out.get("end_ms") is not None:
-                start_ms = int(out["start_ms"])
-                end_ms = int(out["end_ms"])
-                span = [
-                    w
-                    for w in words
-                    if int(w.get("start_ms", 0)) < end_ms and int(w.get("end_ms", 0)) > start_ms
-                ]
-                text = " ".join(str(w.get("text", "")) for w in span if w.get("text"))
-                if text:
-                    out["text"] = text
+        if boundary.get("start_ms") is not None:
+            out["start_ms"] = int(boundary["start_ms"])
+        if boundary.get("end_ms") is not None:
+            out["end_ms"] = int(boundary["end_ms"])
+        if boundary.get("speaker_id"):
+            out["speaker_id"] = str(boundary["speaker_id"])
+        speaker_id = str(out.get("speaker_id") or "")
+        if speaker_id:
+            out["speaker_role"] = speakers_by_id.get(speaker_id, out.get("speaker_role") or "unknown")
+        if words and out.get("start_ms") is not None and out.get("end_ms") is not None:
+            start_ms = int(out["start_ms"])
+            end_ms = int(out["end_ms"])
+            span = [
+                w
+                for w in words
+                if int(w.get("start_ms", 0)) < end_ms and int(w.get("end_ms", 0)) > start_ms
+            ]
+            text = " ".join(str(w.get("text", "")) for w in span if w.get("text"))
+            if text:
+                out["text"] = text
         hydrated.append(out)
 
     from interview_mux.segment_timeline import sort_segments_by_start_ms
+
+    if seg_cfg.get("drop_orphan_manifest_rows", True) and contract_ids:
+        allowed = set(contract_ids)
+        hydrated = [row for row in hydrated if str(row.get("segment_id")) in allowed]
 
     return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}
 

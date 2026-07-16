@@ -10,6 +10,7 @@ from interview_mux.config import merged_config
 from interview_mux.operator_trace import logged_step
 from interview_mux.production_profile import TBIY_STYLE, get_production_style, is_tbiy
 from interview_mux.run_context import RunContext
+from interview_mux.conversation_context import role_is_content, role_is_frame
 
 
 TOPOLOGY_CLASSES = (
@@ -95,17 +96,40 @@ def _speaker_talk_stats(transcript: dict[str, Any], speakers_doc: dict[str, Any]
 
 
 def _role_is_content(role: str) -> bool:
-    r = (role or "").lower()
-    return r in ("interviewee", "guest", "content", "subject")
+    return role_is_content(role)
 
 
 def _role_is_frame(role: str) -> bool:
-    r = (role or "").lower()
-    return r in ("interviewer", "host", "frame", "moderator")
+    return role_is_frame(role)
+
+
+def _format_class_from_doc(speakers_doc: dict[str, Any]) -> str | None:
+    profile = speakers_doc.get("conversation_profile") or {}
+    if isinstance(profile, dict):
+        fc = profile.get("format_class_candidate")
+        if isinstance(fc, str) and fc:
+            return fc
+    return None
 
 
 def classify_topology(stats: list[dict[str, Any]], speakers_doc: dict[str, Any]) -> str:
     th = _thresholds()
+    format_hint = _format_class_from_doc(speakers_doc)
+    speakers = speakers_doc.get("speakers") or []
+    if format_hint == "panel":
+        panelists = [s for s in speakers if isinstance(s, dict) and str(s.get("role", "")).lower() == "panelist"]
+        content = [s for s in speakers if isinstance(s, dict) and role_is_content(str(s.get("role", "")))]
+        if len(panelists) >= 2 or len(content) >= 2:
+            return "panel_multi_guest"
+    if format_hint == "debate" and len(stats) >= 2:
+        return "one_on_one_balanced"
+    if format_hint in ("fireside", "media_profile") and stats and stats[0].get("talk_ratio", 0) >= float(
+        th.get("monologue_talk_ratio", 0.80) * 0.9
+    ):
+        return "monologue_heavy"
+    if any(isinstance(sp, dict) and str(sp.get("role", "")).lower() == "co_host" for sp in speakers):
+        return "co_host_frame"
+
     mono_ratio = float(th.get("monologue_talk_ratio", 0.80))
     asymmetric_ratio = float(th.get("asymmetric_content_ratio", 0.65))
     balanced_low = float(th.get("balanced_talk_ratio_low", 0.40))
@@ -225,12 +249,14 @@ def build_topology_artifacts(
         seg_policy.update({k: v for k, v in overrides.items() if v is not None})
 
     style = get_production_style(ctx)
+    role_map = _tbiy_role_map(stats, least)
+    topic_count = len(speakers_doc.get("topics") or []) if isinstance(speakers_doc, dict) else 0
     topology = {
         "topology_class": topology_class,
         "speaker_stats": stats,
         "least_spoken_speaker_id": least,
         "pickup_eligible_speaker_id": least,
-        "tbiy_role_map": _tbiy_role_map(stats, least),
+        "tbiy_role_map": role_map,
         "segmentation_policy": seg_policy,
         "classified_at": datetime.now(timezone.utc).isoformat(),
         "production_style": style,
@@ -253,6 +279,26 @@ def build_topology_artifacts(
             f"Gap pickup voice defaults to least-spoken speaker ({least})."
         ),
     }
+    if style == TBIY_STYLE or is_tbiy(ctx):
+        from interview_mux.tbiy_conformance import (
+            apply_conformance_to_adaptation,
+            build_conformance_plan,
+        )
+
+        plan = build_conformance_plan(
+            topology_class=topology_class,
+            stats=stats,
+            role_map=role_map,
+            pickup_id=least,
+            topic_count=topic_count,
+            ctx=ctx,
+        )
+        adaptation = apply_conformance_to_adaptation(
+            adaptation,
+            plan,
+            base_ranking=adaptation.get("ranking_weights"),
+            base_sfx=adaptation.get("sfx_density"),
+        )
     return topology, adaptation
 
 
@@ -334,10 +380,16 @@ def _apply_pickup_speaker(
     adaptation["pickup_eligible_speaker_id"] = speaker_id
     least = str(topology.get("least_spoken_speaker_id") or speaker_id)
     default_note = " (default — least speech)" if speaker_id == least else ""
-    adaptation["summary_plain"] = (
-        f"Classified as {str(topology.get('topology_class', '')).replace('_', ' ')}. "
-        f"Gap pickup voice: {speaker_id}{default_note}."
-    )
+    conf = adaptation.get("tbiy_conformance") if isinstance(adaptation.get("tbiy_conformance"), dict) else None
+    if conf and isinstance(conf.get("summary_plain"), str) and conf["summary_plain"].strip():
+        adaptation["summary_plain"] = (
+            f"{conf['summary_plain'].strip()} Gap pickup voice: {speaker_id}{default_note}."
+        )
+    else:
+        adaptation["summary_plain"] = (
+            f"Classified as {str(topology.get('topology_class', '')).replace('_', ' ')}. "
+            f"Gap pickup voice: {speaker_id}{default_note}."
+        )
 
 
 def _find_speaker_sample_ms(transcript: dict[str, Any], speaker_id: str) -> tuple[int, int] | None:
@@ -463,6 +515,11 @@ def pickup_speaker_payload(ctx: RunContext) -> dict[str, Any]:
 
 
 def attach_adaptation_to_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:
+    from interview_mux.conversation_context import attach_conversation_context
+    from interview_mux.custom_run_handoff import active_pipeline_stage
+
+    stage_id = active_pipeline_stage.get() or ""
+    payload = attach_conversation_context(ctx, payload, stage_id)
     topo = load_topology(ctx)
     adapt = load_flow_adaptation(ctx)
     if topo:
@@ -471,6 +528,9 @@ def attach_adaptation_to_payload(ctx: RunContext, payload: dict[str, Any]) -> di
         payload["flow_adaptation"] = adapt
     if is_tbiy(ctx):
         payload["production_style"] = TBIY_STYLE
+        from interview_mux.tbiy_conformance import attach_conformance_to_payload
+
+        payload = attach_conformance_to_payload(ctx, payload)
     return payload
 
 
@@ -498,8 +558,17 @@ def run_source_topology_build(ctx: RunContext) -> None:
         ctx.write_json("understanding/flow_adaptation.json", adaptation, stage_key="source_topology_build")
         ctx.mark_done("source_topology_build")
         maybe_auto_confirm_pickup_speaker(ctx)
+        conf = adaptation.get("tbiy_conformance") if isinstance(adaptation.get("tbiy_conformance"), dict) else {}
+        score = conf.get("score") if isinstance(conf.get("score"), dict) else {}
+        modes = conf.get("modes") if isinstance(conf.get("modes"), dict) else {}
         ctx.log(
-            f"Source topology: {topology['topology_class']} — pickup voice {topology['pickup_eligible_speaker_id']}",
+            f"Source topology: {topology['topology_class']} — pickup voice {topology['pickup_eligible_speaker_id']}"
+            + (
+                f" — TBIY conformance {int(float(score.get('ratio') or 0) * 100)}%"
+                f" (acts={modes.get('five_act_mode')}, moat={modes.get('moat_mode')})"
+                if conf
+                else ""
+            ),
             level="success",
             stage="source_topology_build",
             detail={
@@ -509,6 +578,10 @@ def run_source_topology_build(ctx: RunContext) -> None:
                 "pickup_eligible_speaker_id": topology["pickup_eligible_speaker_id"],
                 "production_style": topology.get("production_style"),
                 "segmentation_policy": topology.get("segmentation_policy"),
+                "tbiy_conformance_score": score.get("ratio") if conf else None,
+                "five_act_mode": modes.get("five_act_mode"),
+                "moat_mode": modes.get("moat_mode"),
+                "vo_bridge_priority": modes.get("vo_bridge_priority"),
             },
         )
 

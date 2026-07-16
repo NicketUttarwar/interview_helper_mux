@@ -38,9 +38,11 @@ from interview_mux.stage_execution_reuse import (
     check_stage_reuse_before_execute,
     clear_stage_reuse_from,
 )
+from interview_mux.stage_input_checks import StageInputError
 from interview_mux.write_staging import (
     WriteApprovalPending,
     check_write_approval_before_execute,
+    list_pending_paths,
 )
 from interview_mux.web.job_progress import clear_job_progress, register_job_progress
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
@@ -769,6 +771,49 @@ class JobRunner:
                             "awaiting_write_approval": True,
                         },
                     )
+            except StageInputError as exc:
+                # Soft operator/gate pause — warning note only, never ERROR+traceback.
+                gate_msg = str(exc)
+                ctx.log(
+                    gate_msg,
+                    level="warning",
+                    stage=exc.stage_id,
+                    detail={
+                        "event": "stage_input_blocked",
+                        "issues": [issue.message for issue in exc.issues],
+                        "remediation": [
+                            issue.remediation for issue in exc.issues if issue.remediation
+                        ],
+                    },
+                )
+                refresh_journey_meta(ctx)
+                self._release_run_locks(run_id, dir_lock, lock)
+                if exc.write_approval_only:
+                    pending_sid = exc.pending_write_stage or exc.stage_id
+                    paths = list_pending_paths(ctx, pending_sid)
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "awaiting_write_approval",
+                            "mode": mode,
+                            "stage": pending_sid,
+                            "message": "Awaiting your review",
+                            "pending_write_stage": pending_sid,
+                            "pending_write_paths": paths,
+                            "awaiting_write_approval": True,
+                        },
+                    )
+                else:
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "gate",
+                            "mode": mode,
+                            "stage": exc.stage_id,
+                            "message": gate_msg,
+                            "error": gate_msg,
+                        },
+                    )
             except StageReuseOfferPending as exc:
                 gate_msg = str(exc)
                 ctx.log(gate_msg, level="action", stage=exc.stage_id)
@@ -958,7 +1003,7 @@ class JobRunner:
             nle_apply_mode="structural",
             api_consents=api_consents,
         )
-        write_pending = check_write_approval_before_execute(ctx)
+        write_pending = check_write_approval_before_execute(ctx, stage_id=stage_id)
         if write_pending:
             msg = str(write_pending)
             ctx.log(msg, level="action", stage=write_pending.stage_id)
@@ -1088,7 +1133,10 @@ class JobRunner:
             nle_full_refresh=nle_full_refresh,
             nle_apply_mode=nle_apply_mode,
         )
-        write_pending = check_write_approval_before_execute(ctx_pre)
+        write_pending = check_write_approval_before_execute(
+            ctx_pre,
+            stage_id=stage if mode == "stage" else None,
+        )
         if write_pending:
             msg = str(write_pending)
             ctx_pre.log(msg, level="action", stage=write_pending.stage_id)
@@ -1228,7 +1276,15 @@ class JobRunner:
 
             self.mark_write_approval_saving(ctx, stage_id, paths)
             try:
-                flushed = approve_stage_writes(ctx, stage_id)
+                from interview_mux.write_staging import (
+                    approve_segmentation_pair_writes,
+                    segmentation_pair_approve_needed,
+                )
+
+                if segmentation_pair_approve_needed(ctx, stage_id):
+                    flushed = approve_segmentation_pair_writes(ctx)
+                else:
+                    flushed = approve_stage_writes(ctx, stage_id)
             except Exception:
                 if list_pending_paths(ctx, stage_id):
                     self.restore_write_approval_pause(ctx, stage_id, paths)

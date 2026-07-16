@@ -617,24 +617,49 @@ def append_shard_summary(
     shard_label: str,
     reasoning_summary: str,
     segment_ids: list[str],
+    shard: dict[str, Any] | None = None,
+    envelope: dict[str, Any] | None = None,
 ) -> str | None:
+    from interview_mux.segment_timeline_standard import format_shard_identity
+
     summary = (reasoning_summary or "").strip()
     if not summary:
         return None
-    seg = ", ".join(segment_ids[:12]) or "n/a"
-    content = f"segments: {seg}\nSummary: {summary[:500]}"
+    identity = format_shard_identity(shard, stage_key, envelope)
+    seg = ", ".join(segment_ids[:12]) if segment_ids else identity
+    if shard and shard.get("start_ms") is not None and shard.get("end_ms") is not None:
+        content = (
+            f"span: {identity}\n"
+            f"segments: {seg}\n"
+            f"Summary: {summary[:500]}"
+        )
+    else:
+        content = f"segments: {seg}\nSummary: {summary[:500]}"
+    source: dict[str, Any] = {
+        "stage_key": stage_key,
+        "attempt": attempt,
+        "task_kind": "shard",
+        "shard_label": shard_label,
+    }
+    if shard:
+        if shard.get("start_ms") is not None and shard.get("end_ms") is not None:
+            source["shard_span_ms"] = {
+                "start_ms": int(shard["start_ms"]),
+                "end_ms": int(shard["end_ms"]),
+            }
+        if shard.get("shard_span_ms") is not None:
+            source["span_ms"] = int(shard["shard_span_ms"])
+    if envelope:
+        from interview_mux.segment_timeline_standard import boundary_rows_from_envelope
+
+        source["boundary_count"] = len(boundary_rows_from_envelope(envelope))
     return append_volley_entry(
         ctx,
         {
             "kind": "shard_summary",
             "role": "assistant",
             "content": content,
-            "source": {
-                "stage_key": stage_key,
-                "attempt": attempt,
-                "task_kind": "shard",
-                "shard_label": shard_label,
-            },
+            "source": source,
             "tags": ["shard", stage_key],
         },
     )

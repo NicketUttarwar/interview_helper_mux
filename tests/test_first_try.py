@@ -28,6 +28,14 @@ def test_first_try_defaults_enabled():
     assert first_try_mode_enabled() is True
     assert write_approval_deferred() is True
     assert should_pause_for_write_approval("ingest") is False
+
+
+def test_unified_segmentation_review_pause_rules():
+    from interview_mux.first_try import segmentation_unified_review_enabled
+
+    assert segmentation_unified_review_enabled() is True
+    assert should_pause_for_write_approval("boundary_detection") is False
+    assert should_pause_for_write_approval("segment_classification") is True
     assert handoff_between_stages_enabled() is False
     assert stage_reuse_blocks_execute() is False
 

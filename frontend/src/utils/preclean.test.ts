@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findNextRunnableStage, isOptionalStageSkipped, precleanDismissedAtCheckpoint } from "./preclean";
+import {
+  findNextRunnableStage,
+  isActionableIncomplete,
+  isOptionalStageSkipped,
+  precleanDismissedAtCheckpoint,
+} from "./preclean";
 import type { StageInfo } from "../types";
 
 describe("preclean", () => {
@@ -54,5 +59,65 @@ describe("preclean", () => {
       },
     ];
     expect(findNextRunnableStage(stages)?.id).toBe("transcript_review");
+  });
+
+  it("does not teleport to distant incomplete when earlier pending exists", () => {
+    const stages: StageInfo[] = [
+      {
+        id: "source_acoustic_profile",
+        title: "Source acoustic profile",
+        description: "",
+        status: "pending",
+        phase: "analysis",
+      },
+      {
+        id: "interview_spine_build",
+        title: "Interview spine",
+        description: "",
+        status: "locked",
+        phase: "analysis",
+      },
+      {
+        id: "g1_5_preview_pickup",
+        title: "Post-preview pickup (G1.5)",
+        description: "",
+        status: "incomplete",
+        phase: "gate",
+        incomplete_reason: "understanding/gap_report.json is pending",
+      },
+    ];
+    expect(isActionableIncomplete(stages, stages[2])).toBe(false);
+    expect(findNextRunnableStage(stages)?.id).toBe("source_acoustic_profile");
+  });
+
+  it("treats stage_output_mode optional_skipped as skipped", () => {
+    const stage: StageInfo = {
+      id: "g1_5_preview_pickup",
+      title: "Post-preview pickup (G1.5)",
+      description: "",
+      status: "done",
+      stage_output_mode: "optional_skipped",
+    };
+    expect(isOptionalStageSkipped(stage, {})).toBe(true);
+  });
+
+  it("skips unset audio_preclean and lands on ingest for cold start", () => {
+    const stages: StageInfo[] = [
+      {
+        id: "audio_preclean",
+        title: "Audio pre-clean",
+        description: "",
+        status: "pending",
+        phase: "prepare",
+      },
+      {
+        id: "ingest",
+        title: "Ingest",
+        description: "",
+        status: "pending",
+        phase: "prepare",
+      },
+    ];
+    expect(findNextRunnableStage(stages, {})?.id).toBe("ingest");
   });
 });

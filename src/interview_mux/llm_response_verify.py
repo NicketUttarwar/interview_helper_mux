@@ -7,7 +7,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from interview_mux.local_structured_output import verify_local_response
+from interview_mux.local_structured_output import resolve_lx_interaction, verify_local_response
 from interview_mux.openai_structured_output import (
     compose_arbiter_schema,
     compose_envelope_schema,
@@ -61,7 +61,11 @@ def verify_llm_response(
         )
 
     if interaction_id.startswith("LX-"):
-        interaction = "itr_clarification" if interaction_id.startswith("LX-02") else "local_framer"
+        interaction = resolve_lx_interaction(
+            interaction_id,
+            stage_key=stage_key,
+            task_kind=task_kind,
+        )
         errors = verify_local_response(interaction, parsed)
         return VerificationResult(
             ok=not errors,

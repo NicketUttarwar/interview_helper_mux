@@ -12,12 +12,175 @@
         "required": ["speaker_id", "role", "confidence"],
         "properties": {
           "speaker_id": { "type": "string" },
-          "role": { "type": "string", "enum": ["interviewer", "interviewee", "unknown"] },
+          "role": {
+            "type": "string",
+            "enum": [
+              "interviewer",
+              "interviewee",
+              "moderator",
+              "panelist",
+              "co_host",
+              "off_mic",
+              "unknown"
+            ]
+          },
+          "narrative_function": {
+            "type": "string",
+            "enum": ["storyteller", "frame", "reactor", "analytical_lens", "unknown"]
+          },
           "confidence": { "type": "number" },
-          "evidence": { "type": "array", "items": { "type": "string" } }
+          "label": { "type": ["string", "null"] },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "evidence_windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["start_ms", "end_ms", "quote"],
+              "properties": {
+                "start_ms": { "type": "integer" },
+                "end_ms": { "type": "integer" },
+                "quote": { "type": "string" }
+              }
+            }
+          },
+          "question_density": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "avg_turn_length_ms": { "type": "number" }
         }
       }
     },
-    "notes": { "type": ["string", "null"] }
+    "notes": { "type": ["string", "null"] },
+    "conversation_profile": {
+      "type": "object",
+      "properties": {
+        "format_class_candidate": {
+          "type": "string",
+          "enum": [
+            "one_on_one",
+            "panel",
+            "fireside",
+            "technical_deep_dive",
+            "media_profile",
+            "debate"
+          ]
+        },
+        "format_confidence": { "type": "number" },
+        "tone_class_candidate": {
+          "type": "string",
+          "enum": [
+            "journalistic",
+            "conversational",
+            "investor",
+            "technical",
+            "human_interest"
+          ]
+        },
+        "dynamics": {
+          "type": "object",
+          "properties": {
+            "question_density": {
+              "type": "string",
+              "enum": ["low", "medium", "high"]
+            },
+            "turn_asymmetry": {
+              "type": "string",
+              "enum": ["low", "medium", "high"]
+            },
+            "overlap_risk": {
+              "type": "string",
+              "enum": ["low", "medium", "high"]
+            }
+          }
+        }
+      }
+    },
+    "conversation_hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "format_class", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "format_class": {
+            "type": "string",
+            "enum": [
+              "one_on_one",
+              "panel",
+              "fireside",
+              "technical_deep_dive",
+              "media_profile",
+              "debate"
+            ]
+          },
+          "confidence": { "type": "number" },
+          "reason": { "type": "string" },
+          "speaker_role_map": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "blocking": { "type": "boolean" }
+        }
+      }
+    },
+    "confirmed_conversation_hypothesis_id": { "type": ["string", "null"] },
+    "gap_sensitivity": {
+      "type": "object",
+      "properties": {
+        "format_class": { "type": "string" },
+        "tone_class": { "type": "string" },
+        "severity_hints": {
+          "type": "object",
+          "properties": {
+            "missing_question": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            },
+            "missing_setup": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            },
+            "missing_callback": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            },
+            "missing_definition": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            },
+            "missing_followup": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            },
+            "ok_with_light_bridge": {
+              "type": "string",
+              "enum": ["strict", "normal", "relaxed"]
+            }
+          }
+        },
+        "priority_gap_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "deemphasize_gap_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "theme_overlays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "axis": { "type": "string" },
+              "effect": { "type": "string" }
+            }
+          }
+        },
+        "segment_focus": { "type": "string" },
+        "flow_hints": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    }
   }
 }

@@ -36,7 +36,7 @@ From repo root:
 | `src/components/pipeline/PipelineStepList.tsx` | Hierarchical Steps sidebar with context header |
 | `src/utils/jobStatus.ts` | `isJobActivelyRunning()` — sync UI with server job state |
 | `src/components/guidance/` | Reuse (`StageReuseSection`, `StageReuseOfferCard`), write approval, hash badges |
-| `src/components/gates/TranscriptReviewPanel.tsx` | G0 chunk navigator + bulk edit |
+| `src/components/gates/TranscriptReviewPanel.tsx` | G0 clip navigator + synced transcript dock |
 | `src/components/workspace/TranscriptDockViewer.tsx` | Synced karaoke word editor |
 | `src/components/workspace/FuzzyReplacePopover.tsx` | Fix similar words panel (80–100% strictness) |
 | `src/utils/fuzzyMatch.ts` | Client-side fuzzy word scoring for batch replace |

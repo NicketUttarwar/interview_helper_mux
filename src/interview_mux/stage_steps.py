@@ -46,7 +46,9 @@ STAGE_REVIEW: dict[str, list[str]] = {
     ],
     "speaker_roles": [
         "Interviewer vs interviewee roles are correct",
-        "At least one interviewer speaker exists",
+        "At least one frame speaker (interviewer/moderator/co_host)",
+        "Confirm conversation shape if hypotheses are listed",
+        "Panel runs need two or more guest/content speakers",
     ],
     "content_context": [
         "Thesis matches the interview",
@@ -256,40 +258,17 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
     if stage_id == "transcript_review":
         return [
             _step(
-                "listen_clips",
+                "review_transcript",
                 1,
-                "Listen to review clips",
-                instruction="Work through clips from lowest confidence first. Use Previous/Next or the dropdown.",
-                review=["Play each clip audio", "Compare audio to displayed text"],
-                kind="gate",
-                status="todo" if status == "action_required" else "done",
-                embed="transcript_review",
-            ),
-            _step(
-                "fix_errors",
-                2,
-                "Fix transcript errors",
-                instruction="Double-click a word in the transcript dock to edit. Use Fix similar words to batch-correct repeated mishearings.",
-                review=["Dock: click word to seek audio", "Fuzzy replace: set strictness 80–100%"],
-                kind="embed_transcript_dock",
-                status="todo" if status == "action_required" else "done",
-            ),
-            _step(
-                "mark_reviewed",
-                3,
-                "Mark chunks reviewed",
-                instruction="Work through each clip. Edits auto-save when you change clips or complete review.",
-                review=["Progress shows X of Y chunks reviewed"],
-                kind="gate",
-                status="todo" if status == "action_required" else "done",
-                embed="transcript_review",
-            ),
-            _step(
-                "complete_g0",
-                4,
-                "Complete transcript review",
-                instruction="Merges corrections into full.json. Required before any analysis stage.",
-                review=["Correction summary shows edit count"],
+                "Review and correct transcript",
+                instruction=(
+                    "One review surface: play ranked clips, fix words in the transcript dock, "
+                    "then save and complete. Edits auto-save; switching clips keeps your draft."
+                ),
+                review=[
+                    "Play clip audio and compare to the highlighted transcript range",
+                    "Double-click a word to edit; use Fix similar words for repeated mishearings",
+                ],
                 primary_button="Complete transcript review",
                 secondary_button="Accept remaining & complete",
                 kind="gate",

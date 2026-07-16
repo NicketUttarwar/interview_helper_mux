@@ -97,6 +97,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "transcribe": _TRANSCRIPT_REUSE_CORE,
     "transcript_review_build": (
         "transcript/review_queue.json",
+        "transcript/corrections.json",
         "glob:transcript/review_clips/*.wav",
     ),
     "disfluency_extract": (
@@ -176,8 +177,11 @@ _STAGE_REUSE_OPTIONAL: dict[str, frozenset[str]] = {
             "operator/transcript_corrections.json",
         }
     ),
+    "transcript_review_build": frozenset({"transcript/corrections.json"}),
     "transcript_review": frozenset(
         {
+            "operator/transcript_corrected.json",
+            "operator/transcript_corrected.txt",
             "operator/transcript_corrections.json",
         }
     ),
@@ -225,24 +229,38 @@ def _hash_short_for_ctx(ctx: RunContext) -> str | None:
     return parse_hash_from_run_id(ctx.run_id)
 
 
-def _run_id_hash_prefilter(ctx: RunContext) -> str | None:
-    """12-char hash used to skip unrelated executions before meta/file checks."""
-    return parse_hash_from_run_id(ctx.run_id) or _hash_short_for_ctx(ctx)
+def _reuse_lookback_limit() -> int:
+    from interview_mux.session_lineage import stage_reuse_lookback_limit
+
+    return stage_reuse_lookback_limit()
 
 
-def _run_ids_for_reuse_scan(current: RunContext) -> list[str]:
-    """Execution ids that might share source audio with *current* (hash prefilter)."""
-    hash_short = _run_id_hash_prefilter(current)
-    out: list[str] = []
-    for run_id in RunContext.list_runs():
-        if run_id == current.run_id:
-            continue
-        rid_short = parse_hash_from_run_id(run_id)
-        if hash_short and rid_short:
-            if not hashes_match(rid_short, hash_short):
-                continue
-        out.append(run_id)
-    return out
+def _reuse_candidate_for_source(
+    ctx: RunContext,
+    source: RunContext,
+    stage_id: str,
+    source_run_id: str,
+) -> ReuseCandidate:
+    meta = read_run_meta(source)
+    paths = list_copy_paths_for_stage(source, stage_id)
+    src_hash = _stored_source_audio_hash(source)
+    src_short = (
+        meta.get("source_audio_hash_short")
+        or (hash_short_from_full(src_hash) if src_hash else None)
+        or parse_hash_from_run_id(source_run_id)
+    )
+    hash_in_id = parse_hash_from_run_id(source_run_id)
+    return ReuseCandidate(
+        run_id=source_run_id,
+        updated_at=meta.get("updated_at"),
+        execution_number=meta.get("execution_number"),
+        paths=paths,
+        source_audio_hash=str(src_hash) if src_hash else None,
+        source_audio_hash_short=str(src_short) if src_short else None,
+        hash_in_run_id=hash_in_id,
+        same_source_audio=True,
+        match_kind="hash",
+    )
 
 
 def source_audio_hashes_match(current: RunContext, source: RunContext) -> bool:
@@ -424,44 +442,25 @@ def _sdp_source_conflict(ctx: RunContext, source_run_id: str, stage_id: str) -> 
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
-    from interview_mux.session_lineage import resolve_immediate_previous_run_id
+    from interview_mux.session_lineage import recent_prior_execution_run_ids
 
     current_hash = _stored_source_audio_hash(ctx)
     hash_short = _hash_short_for_ctx(ctx)
     if not current_hash and not hash_short:
         return []
-    prev_id = resolve_immediate_previous_run_id(ctx)
-    if not prev_id or not RunContext.exists(prev_id):
-        return []
-    source = RunContext(prev_id, create=False)
-    if not source_audio_hashes_match(ctx, source):
-        return []
-    if not prior_run_has_reusable_stage(source, stage_id):
-        return []
-    if stage_id == "vo_ingest" and not _gap_reports_match(ctx, source):
-        return []
-    meta = read_run_meta(source)
-    paths = list_copy_paths_for_stage(source, stage_id)
-    src_hash = _stored_source_audio_hash(source)
-    src_short = (
-        meta.get("source_audio_hash_short")
-        or (hash_short_from_full(src_hash) if src_hash else None)
-        or parse_hash_from_run_id(prev_id)
-    )
-    hash_in_id = parse_hash_from_run_id(prev_id)
-    return [
-        ReuseCandidate(
-            run_id=prev_id,
-            updated_at=meta.get("updated_at"),
-            execution_number=meta.get("execution_number"),
-            paths=paths,
-            source_audio_hash=str(src_hash) if src_hash else None,
-            source_audio_hash_short=str(src_short) if src_short else None,
-            hash_in_run_id=hash_in_id,
-            same_source_audio=True,
-            match_kind="hash",
-        )
-    ]
+
+    for prior_id in recent_prior_execution_run_ids(ctx, limit=_reuse_lookback_limit()):
+        if not RunContext.exists(prior_id):
+            continue
+        source = RunContext(prior_id, create=False)
+        if not source_audio_hashes_match(ctx, source):
+            continue
+        if not prior_run_has_reusable_stage(source, stage_id):
+            continue
+        if stage_id == "vo_ingest" and not _gap_reports_match(ctx, source):
+            continue
+        return [_reuse_candidate_for_source(ctx, source, stage_id, prior_id)]
+    return []
 
 
 def list_copy_paths_for_stage(source_ctx: RunContext, stage_id: str) -> list[str]:
@@ -577,7 +576,18 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
                     ctx.mark_done("transcript_review_build", force=True)
                 elif stage_id == "transcribe":
                     ctx.mark_done("transcribe", force=True)
-                # transcript_review gate stays open until operator Save and complete
+                # Prefer operator-corrected text over raw STT copy when both landed.
+                from interview_mux.stages.transcript_review import (
+                    prefer_operator_corrected_transcript,
+                    set_transcript_reuse_pending_edit,
+                )
+
+                prefer_operator_corrected_transcript(ctx)
+                # One-time edit interstitial only on initial transcript reuse (transcribe).
+                if stage_id == "transcribe":
+                    set_transcript_reuse_pending_edit(ctx, True)
+                # transcript_review gate stays open until operator Save and continue
+                # (reuse edit interstitial) or Save and complete review.
             else:
                 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 

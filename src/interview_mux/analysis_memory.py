@@ -880,9 +880,9 @@ def sync_content_brief_reanchor_to_state(ctx: RunContext, brief: dict[str, Any])
 
 
 def sync_speakers_to_state(ctx: RunContext, speakers_doc: dict[str, Any]) -> None:
-    state = load_analysis_state(ctx)
-    state["speakers"] = speakers_doc.get("speakers") or []
-    save_analysis_state(ctx, state, stage="speaker_roles")
+    from interview_mux.conversation_context import sync_conversation_to_analysis_state
+
+    sync_conversation_to_analysis_state(ctx, speakers_doc)
 
 
 def sync_gaps_to_state(ctx: RunContext, evaluations: dict[str, Any]) -> None:

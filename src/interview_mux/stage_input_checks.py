@@ -13,13 +13,19 @@ from interview_mux.gates import (
 )
 from interview_mux.llm_preflight import run_preflight
 from interview_mux.run_context import RunContext
-from interview_mux.write_staging import all_pending_stages, staging_approval_hint
+from interview_mux.write_staging import (
+    all_pending_stages,
+    has_pending_writes,
+    staging_approval_hint,
+)
 
 
 @dataclass(frozen=True)
 class StageInputIssue:
     message: str
     remediation: str | None = None
+    kind: str = "prerequisite"
+    related_stage: str | None = None
 
 
 class StageInputError(RuntimeError):
@@ -35,11 +41,22 @@ class StageInputError(RuntimeError):
             msg += "\nRemediation: " + " | ".join(fixes)
         super().__init__(msg)
 
+    @property
+    def write_approval_only(self) -> bool:
+        return bool(self.issues) and all(issue.kind == "write_approval" for issue in self.issues)
+
+    @property
+    def pending_write_stage(self) -> str | None:
+        for issue in self.issues:
+            if issue.kind == "write_approval":
+                return issue.related_stage or self.stage_id
+        return None
+
 
 def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
     """Return actionable issues for a stage (empty list = ready to run)."""
     issues: list[StageInputIssue] = []
-    issues.extend(_pending_write_approval_issues(ctx))
+    issues.extend(_pending_write_approval_issues(ctx, stage_id))
     checker = _STAGE_CHECKERS.get(stage_id)
     if checker is not None:
         issues.extend(checker(ctx))
@@ -56,21 +73,43 @@ def require_stage_inputs(ctx: RunContext, stage_id: str) -> None:
         return
     from interview_mux.operator_trace import log_step
 
+    # Operator/gate pauses — not pipeline crashes. Keep gui_log at warning.
     log_step(
-        f"Stage input check failed: {stage_id}",
+        f"Stage input check blocked: {stage_id}",
         ctx=ctx,
         stage=stage_id,
-        level="error",
+        level="warning",
         detail={
             "event": "stage_input_blocked",
             "issues": [issue.message for issue in issues],
             "remediation": [issue.remediation for issue in issues if issue.remediation],
+            "kinds": [issue.kind for issue in issues],
         },
     )
     raise StageInputError(stage_id, issues)
 
 
-def _pending_write_approval_issues(ctx: RunContext) -> list[StageInputIssue]:
+def _pending_write_approval_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
+    """Block only when write approval must pause execute for this stage.
+
+    Under first-try ``defer_write_approval_until=phase_end``, other stages may
+    keep staged files without blocking subsequent stages. Re-running a stage
+    that still has its own pending writes remains blocked.
+    """
+    from interview_mux.first_try import write_approval_deferred
+
+    if write_approval_deferred():
+        if not has_pending_writes(ctx, stage_id):
+            return []
+        return [
+            StageInputIssue(
+                f"Write approval pending for stage '{stage_id}'",
+                f"Open the write review modal for '{stage_id}' and choose Save & continue or Discard & re-run.",
+                kind="write_approval",
+                related_stage=stage_id,
+            )
+        ]
+
     pending = all_pending_stages(ctx)
     if not pending:
         return []
@@ -79,6 +118,8 @@ def _pending_write_approval_issues(ctx: RunContext) -> list[StageInputIssue]:
         StageInputIssue(
             f"Write approval pending for stage '{sid}'",
             f"Open the write review modal for '{sid}' and choose Save & continue or Discard & re-run.",
+            kind="write_approval",
+            related_stage=sid,
         )
     ]
 

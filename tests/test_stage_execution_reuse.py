@@ -165,6 +165,143 @@ def test_apply_reuse_copies_operator_transcript_when_present(
     assert "operator/transcript_corrected.json" in copied
     assert "operator/transcript_corrected.txt" in copied
     assert current.read_json("operator/transcript_corrected.json")["text"] == "Hello corrected"
+    assert current.read_json("transcript/full.json")["text"] == "Hello corrected"
+    from interview_mux.journey_state import read_run_meta
+
+    assert read_run_meta(current).get("transcript_reuse_pending_edit") is True
+
+
+def test_save_reused_transcript_text_clears_pending_and_persists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.stages.transcript_review import save_reused_transcript_text
+    from interview_mux.journey_state import read_run_meta
+
+    _patch_executions_root(monkeypatch, tmp_path)
+    ctx = _ctx_in_root("exec_014_20260101T000014Z", tmp_path)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "Hello world",
+            "words": [
+                {"text": "Hello", "start_ms": 0, "end_ms": 200},
+                {"text": "world", "start_ms": 200, "end_ms": 400},
+            ],
+        },
+    )
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {
+            "chunks": [
+                {
+                    "chunk_id": "c1",
+                    "start_ms": 0,
+                    "end_ms": 400,
+                    "text": "Hello world",
+                    "confidence": 0.5,
+                    "rank": 1,
+                    "reviewed": False,
+                    "needs_review": True,
+                }
+            ]
+        },
+    )
+    ctx.write_json("transcript/corrections.json", {"corrections": {"c1": {"text": "stale"}}})
+    ctx.mutate_run_meta(lambda m: m.update({"transcript_reuse_pending_edit": True}))
+
+    result = save_reused_transcript_text(ctx, "Hello corrected world")
+    assert "corrected" in result["text"]
+    assert read_run_meta(ctx).get("transcript_reuse_pending_edit") is None
+    assert ctx.is_done("transcript_review")
+    assert ctx.read_json("operator/transcript_corrected.json")["text"]
+    assert ctx.read_json("transcript/corrections.json")["corrections"] == {}
+
+
+def test_dismiss_transcript_reuse_edit_clears_pending_without_completing_g0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.stages.transcript_review import dismiss_transcript_reuse_edit
+    from interview_mux.journey_state import read_run_meta
+
+    _patch_executions_root(monkeypatch, tmp_path)
+    ctx = _ctx_in_root("exec_015_20260101T000015Z", tmp_path)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "Hello world",
+            "words": [
+                {"text": "Hello", "start_ms": 0, "end_ms": 200},
+                {"text": "world", "start_ms": 200, "end_ms": 400},
+            ],
+        },
+    )
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {
+            "chunks": [
+                {
+                    "chunk_id": "c1",
+                    "start_ms": 0,
+                    "end_ms": 400,
+                    "text": "Hello world",
+                    "confidence": 0.5,
+                    "rank": 1,
+                    "reviewed": False,
+                    "needs_review": True,
+                }
+            ]
+        },
+    )
+    ctx.mutate_run_meta(lambda m: m.update({"transcript_reuse_pending_edit": True}))
+
+    result = dismiss_transcript_reuse_edit(ctx)
+    assert result["dismissed"] is True
+    assert read_run_meta(ctx).get("transcript_reuse_pending_edit") is None
+    assert not ctx.is_done("transcript_review")
+
+
+def test_finalize_reused_transcript_from_disk_uses_current_words(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.stages.transcript_review import finalize_reused_transcript_from_disk
+    from interview_mux.journey_state import read_run_meta
+
+    _patch_executions_root(monkeypatch, tmp_path)
+    ctx = _ctx_in_root("exec_016_20260101T000016Z", tmp_path)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "Hello dock world",
+            "words": [
+                {"text": "Hello", "start_ms": 0, "end_ms": 200},
+                {"text": "dock", "start_ms": 200, "end_ms": 300},
+                {"text": "world", "start_ms": 300, "end_ms": 400},
+            ],
+        },
+    )
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {
+            "chunks": [
+                {
+                    "chunk_id": "c1",
+                    "start_ms": 0,
+                    "end_ms": 400,
+                    "text": "Hello dock world",
+                    "confidence": 0.5,
+                    "rank": 1,
+                    "reviewed": False,
+                    "needs_review": True,
+                }
+            ]
+        },
+    )
+    ctx.mutate_run_meta(lambda m: m.update({"transcript_reuse_pending_edit": True}))
+
+    result = finalize_reused_transcript_from_disk(ctx)
+    assert result["text"] == "Hello dock world"
+    assert read_run_meta(ctx).get("transcript_reuse_pending_edit") is None
+    assert ctx.is_done("transcript_review")
 
 
 def test_decline_runs_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,6 +429,30 @@ def test_transcript_review_reuse_does_not_mark_gate_done(
 
     apply_stage_reuse(current, "transcript_review", "exec_070_20260101T000070Z")
     assert not current.is_done("transcript_review")
+    from interview_mux.journey_state import read_run_meta
+
+    assert read_run_meta(current).get("transcript_reuse_pending_edit") is None
+
+
+def test_transcript_review_build_reuse_does_not_set_pending_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    prior = _ctx_in_root("exec_072_20260101T000072Z", tmp_path)
+    current = _ctx_in_root("exec_073_20260101T000073Z", tmp_path)
+
+    prior.write_json("transcript/full.json", {"text": "Hello", "words": []})
+    prior.write_json("transcript/speakers.json", {"speakers": []})
+    prior.write_json(
+        "transcript/review_queue.json",
+        {"version": 1, "chunk_count": 0, "chunks": []},
+    )
+    prior.mark_done("transcript_review_build")
+
+    apply_stage_reuse(current, "transcript_review_build", "exec_072_20260101T000072Z")
+    from interview_mux.journey_state import read_run_meta
+
+    assert read_run_meta(current).get("transcript_reuse_pending_edit") is None
 
 
 def test_disfluency_extract_reuse_auto_completes_review_when_catalog_reviewed(
@@ -379,3 +540,93 @@ def test_find_candidates_prefilter_by_run_id_hash(tmp_path: Path, monkeypatch: p
     candidates = find_reuse_candidates(current, "transcribe")
     assert len(candidates) == 1
     assert candidates[0].run_id == "exec_001_beef00000001_20260101T000000Z"
+
+
+def test_find_candidates_skip_immediate_prior_when_hash_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    reusable = _ctx_in_root("exec_010_20260101T000010Z", tmp_path)
+    _ctx_in_root("exec_011_20260101T000011Z", tmp_path)
+    current = _ctx_in_root("exec_012_20260101T000012Z", tmp_path)
+    init_run_meta_for_test(
+        reusable,
+        source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+        source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+    )
+    init_run_meta_for_test(
+        current,
+        source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+        source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+    )
+    init_run_meta_for_test(
+        RunContext("exec_011_20260101T000011Z", create=False),
+        source_audio_hash="b" * 64,
+        source_audio_hash_short="b" * 12,
+    )
+    reusable.write_json("transcript/full.json", {"segments": []})
+    reusable.write_json("transcript/speakers.json", {"speakers": []})
+    reusable.mark_done("transcribe")
+
+    candidates = find_reuse_candidates(current, "transcribe")
+    assert len(candidates) == 1
+    assert candidates[0].run_id == "exec_010_20260101T000010Z"
+
+
+def test_find_candidates_respect_lookback_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    reusable = _ctx_in_root("exec_001_20260101T000001Z", tmp_path)
+    for n in range(2, 12):
+        _ctx_in_root(f"exec_{n:03d}_20260101T0000{n:02d}Z", tmp_path)
+        init_run_meta_for_test(
+            RunContext(f"exec_{n:03d}_20260101T0000{n:02d}Z", create=False),
+            source_audio_hash="b" * 64,
+            source_audio_hash_short="b" * 12,
+        )
+    current = _ctx_in_root("exec_012_20260101T000012Z", tmp_path)
+    init_run_meta_for_test(
+        reusable,
+        source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+        source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+    )
+    init_run_meta_for_test(
+        current,
+        source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+        source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+    )
+    reusable.write_json("transcript/full.json", {"segments": []})
+    reusable.write_json("transcript/speakers.json", {"speakers": []})
+    reusable.mark_done("transcribe")
+
+    assert find_reuse_candidates(current, "transcribe") == []
+
+
+def test_find_candidates_pick_most_recent_matching_in_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_executions_root(monkeypatch, tmp_path)
+    older = _ctx_in_root("exec_008_20260101T000008Z", tmp_path)
+    newer = _ctx_in_root("exec_010_20260101T000010Z", tmp_path)
+    _ctx_in_root("exec_009_20260101T000009Z", tmp_path)
+    current = _ctx_in_root("exec_012_20260101T000012Z", tmp_path)
+    init_run_meta_for_test(
+        RunContext("exec_009_20260101T000009Z", create=False),
+        source_audio_hash="b" * 64,
+        source_audio_hash_short="b" * 12,
+    )
+    for ctx in (older, newer, current):
+        init_run_meta_for_test(
+            ctx,
+            source_audio_hash=TEST_SOURCE_AUDIO_HASH,
+            source_audio_hash_short=TEST_SOURCE_AUDIO_HASH_SHORT,
+        )
+    for ctx in (older, newer):
+        ctx.write_json("transcript/full.json", {"segments": []})
+        ctx.write_json("transcript/speakers.json", {"speakers": []})
+        ctx.mark_done("transcribe")
+
+    candidates = find_reuse_candidates(current, "transcribe")
+    assert len(candidates) == 1
+    assert candidates[0].run_id == "exec_010_20260101T000010Z"

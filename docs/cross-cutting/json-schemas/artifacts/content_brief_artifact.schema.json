@@ -13,7 +13,12 @@
         "properties": {
           "name": { "type": "string" },
           "summary": { "type": "string" },
-          "approx_time_range": { "type": "string" },
+          "approx_time_range": {
+            "type": "string",
+            "minLength": 1,
+            "description": "mm:ss-mm:ss (or m:ss) span in the source transcript where this topic is discussed. Required before seg_* ids exist.",
+            "examples": ["02:15-04:40"]
+          },
           "segment_ids": { "type": "array", "items": { "type": "string" } },
           "confidence": { "type": "number" }
         }
@@ -49,6 +54,12 @@
             "enum": ["fact", "opinion", "prediction", "anecdote", "definition"]
           },
           "speaker_role": { "type": "string", "enum": ["interviewee", "interviewer"] },
+          "approx_time_range": {
+            "type": "string",
+            "minLength": 1,
+            "description": "mm:ss-mm:ss (or m:ss) span where this claim is stated. Prefer this over empty segment_ids before segmentation; empty arrays alone fail lint.",
+            "examples": ["05:10-06:05"]
+          },
           "segment_ids": { "type": "array", "items": { "type": "string" } },
           "evidence_segment_ids": { "type": "array", "items": { "type": "string" } },
           "depends_on_claim_ids": { "type": "array", "items": { "type": "string" } },

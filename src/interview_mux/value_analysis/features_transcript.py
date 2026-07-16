@@ -9,7 +9,7 @@ from interview_mux.value_analysis.config import require_value_analysis_flag
 
 VALUE_FEATURES_PATH = "understanding/value_features.json"
 
-_INTERVIEWER_ALIASES = frozenset({"interviewer", "host", "moderator"})
+_INTERVIEWER_ALIASES = frozenset({"interviewer", "host", "moderator", "co_host"})
 
 
 def _load_transcript(ctx: RunContext) -> dict[str, Any]:

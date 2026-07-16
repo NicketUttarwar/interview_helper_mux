@@ -21,10 +21,10 @@ Helper: `interview_mux.first_try`.
 | Profile | Auto-verify when ready and no critical investigations |
 | Pickup speaker | Auto-confirm when one eligible speaker |
 | G1.5 prompts | Auto-approve when prompt completeness QA is green |
-| Preclean | Never auto-accept; auto-dismiss when source readiness green |
+| Preclean | Never auto-accept; auto-dismiss when source readiness green; **unset offer does not block ingest** — optional pre-clean stays on its own stage until you open it |
 | SFX / mix | Placeholder SFX warn; missing blocking VO / empty speech hard-fail |
 | Handoff | Disabled under first_try (same as full_autopilot) |
-| Stage reuse | Offers may list; **non-blocking** under first_try |
+| Stage reuse | Offers may list inline on each stage; **non-blocking** under first_try (run fresh without a separate acknowledgement gate) |
 
 ## Still human
 

@@ -91,10 +91,11 @@ export function isPipelineComplete(run: RunData): boolean {
 
   const pending = run.stages.some(
     (s) =>
-      s.status === "pending" ||
-      s.status === "incomplete" ||
-      s.status === "action_required" ||
-      s.status === "awaiting_write_approval",
+      s.stage_output_mode !== "optional_skipped" &&
+      (s.status === "pending" ||
+        s.status === "incomplete" ||
+        s.status === "action_required" ||
+        s.status === "awaiting_write_approval"),
   );
   if (pending) return false;
 
@@ -197,7 +198,7 @@ export function shouldAutoNavigateFromStage(
   if (autopilotBlocksNavigationFromStage(run, stageId)) return false;
 
   const next = findNextRunnableStage(run.stages, run.meta);
-  if (next && firstUpstreamBlocker(run.stages, next.id)) return false;
+  if (next && firstUpstreamBlocker(run.stages, next.id, run.meta)) return false;
   if (next) return true;
 
   const blocking = run.journey?.blocking ?? run.blocking;

@@ -3492,6 +3492,37 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border-color: var(--accent);
 }
 
+.speaker-hypothesis-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.hypothesis-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hypothesis-item {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.hypothesis-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
 .handoff-list {
   list-style: none;
   padding: 0;
@@ -4588,6 +4619,57 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   flex-direction: column;
 }
 
+.transcript-reuse-edit-modal {
+  max-width: min(1100px, 96vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript-reuse-edit-dock {
+  flex: 1 1 auto;
+  min-height: 52vh;
+  max-height: min(68vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-2, #111);
+}
+
+.transcript-reuse-edit-dock .transcript-dock {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+.transcript-reuse-edit-dock .transcript-dock.fill-height {
+  min-height: 0;
+}
+
+.transcript-reuse-edit-stats {
+  margin: var(--space-2) 0 0;
+}
+
+.transcript-reuse-edit-textarea {
+  width: 100%;
+  min-height: 48vh;
+  max-height: 58vh;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-2, #111);
+  color: var(--text);
+  overflow-y: auto;
+}
+
 .modal-head {
   display: flex;
   align-items: flex-start;
@@ -5447,6 +5529,48 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   display: block;
   width: 100%;
   margin-top: 0.35rem;
+}
+
+.segmentation-review-panel {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-subtle, #2a2f3a);
+  border-radius: 8px;
+}
+
+.segmentation-review-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.segmentation-review-badges .badge.ok {
+  color: var(--success, #3dd68c);
+}
+
+.segmentation-review-badges .badge.fail {
+  color: var(--danger, #ff6b6b);
+}
+
+.segmentation-review-tables {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.segmentation-table {
+  width: 100%;
+  font-size: 0.85rem;
+  border-collapse: collapse;
+}
+
+.segmentation-table th,
+.segmentation-table td {
+  border-bottom: 1px solid var(--border-subtle, #2a2f3a);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
 }
 
 .write-approval-actions {

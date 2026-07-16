@@ -33,5 +33,6 @@ def test_repair_boundaries_dedupes_segment_id(tmp_path, monkeypatch: pytest.Monk
     ]
     out, applied = repair_boundaries(ctx, {"boundaries": rows})
     ids = [r["segment_id"] for r in out["boundaries"]]
-    assert ids == ["seg_001", "seg_002"]
-    assert any(a.get("reason") == "duplicate_segment_id" for a in applied)
+    assert ids == ["seg_001", "seg_002", "seg_003"]
+    assert out["boundaries"][1]["start_ms"] == 1000
+    assert any(a.get("action") in {"trim_overlap_to_prev_end", "snap_start_to_prev_end"} for a in applied)

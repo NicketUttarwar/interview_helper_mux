@@ -29,6 +29,15 @@ BUILD-024, BUILD-025
 
 - Prefer splits at pauses ≥ ~700 ms and topic shifts
 - Do not split mid-sentence unless STT recovery
+- **Timeline authority:** `segments/boundaries.json` + `_meta.segment_contract` owns IDs and times; manifest is semantic overlay ([segment-schema.md](../../cross-cutting/segment-schema.md))
+- **Unified review** (`journey_ui.segmentation_unified_review`): boundary stages without Save pause; paired review/save at `segment_classification` ([gui-surface-map.md](../../workflows/gui-surface-map.md))
+
+## Hardening (shipped)
+
+- Per-shard boundary normalize + reject (`segment_timeline_standard.py`)
+- Deterministic collate authority for boundaries and classification
+- Field parity + reference closure via `segmentation_input_resolver.py`
+- Config: `analysis.segmentation.*` — see [config-keys.md](../../cross-cutting/config-keys.md)
 
 ## Prompts
 

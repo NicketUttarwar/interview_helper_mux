@@ -197,13 +197,28 @@ def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str
         errors.append("speakers list empty")
         return errors
     roles = {str(s.get("role", "")).lower() for s in speakers if isinstance(s, dict)}
-    interviewer_roles = {"interviewer", "moderator"}
-    if not (roles & interviewer_roles):
+    frame_roles = {"interviewer", "moderator", "co_host"}
+    content_roles = {"interviewee", "panelist"}
+    if not (roles & frame_roles):
         if all(
             isinstance(s, dict) and str(s.get("role", "")).lower() == "unknown"
             for s in speakers
         ):
             errors.append("all speakers unknown — Q&A may be evident")
+    profile = artifacts.get("conversation_profile") or {}
+    fc = str(profile.get("format_class_candidate") or "").lower()
+    content_count = sum(
+        1 for s in speakers if isinstance(s, dict) and str(s.get("role", "")).lower() in content_roles
+    )
+    if fc == "panel" and content_count < 2:
+        errors.append("panel format requires at least two content speakers (panelist/interviewee)")
+    hypotheses = artifacts.get("conversation_hypotheses") or []
+    if hypotheses and not artifacts.get("confirmed_conversation_hypothesis_id"):
+        if all(
+            isinstance(s, dict) and str(s.get("role", "")).lower() == "unknown"
+            for s in speakers
+        ):
+            errors.append("conversation_hypotheses present but all speakers unknown — confirm hypothesis or assign roles")
     return errors
 
 
@@ -250,6 +265,20 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
             allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
         )
     )
+    if duration_ms > 60_000:
+        last_end = max(
+            (int(b.get("end_ms", 0)) for b in boundaries if isinstance(b, dict)),
+            default=0,
+        )
+        min_ratio = float(
+            (merged_config().get("analysis") or {})
+            .get("boundary_timeline_coverage_min_ratio", 0.85)
+        )
+        if last_end < int(duration_ms * min_ratio):
+            pct = (last_end / duration_ms * 100) if duration_ms else 0
+            errors.append(
+                f"boundary timeline coverage {pct:.0f}% < {min_ratio * 100:.0f}% of interview"
+            )
     if spine_enabled() and not ctx.artifact_exists("understanding/interview_spine.json"):
         errors.append("interview spine missing while interview_spine.enabled")
     return errors
@@ -638,6 +667,44 @@ def _lint_narrative_arc_plan(artifacts: dict[str, Any], ctx: RunContext) -> list
             if manifest_ids and str(sid) not in manifest_ids:
                 errors.append(f"ordering_constraint segment {sid} not in manifest")
                 break
+    errors.extend(_lint_tbiy_narrative_conformance(artifacts, ctx))
+    return errors
+
+
+def _lint_tbiy_narrative_conformance(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
+    """Graduated TBIY checks — hard only when conformance mode says apply/require."""
+    from interview_mux.production_profile import is_tbiy
+    from interview_mux.tbiy_conformance import five_act_mode, moat_mode
+
+    if not is_tbiy(ctx):
+        return []
+    errors: list[str] = []
+    act_mode = five_act_mode(ctx)
+    m_mode = moat_mode(ctx)
+    chapters = artifacts.get("chapters") or []
+    if act_mode == "full":
+        acts = {
+            int(ch.get("act_number"))
+            for ch in chapters
+            if isinstance(ch, dict) and isinstance(ch.get("act_number"), int)
+        }
+        if chapters and len(acts) < 4:
+            errors.append(
+                "tbiy five_act_mode=full expects act_number coverage across ≥4 acts "
+                "(collapse/soft modes allow fewer)"
+            )
+
+    moat = artifacts.get("strategic_moat_concept")
+    moat_ok = isinstance(moat, str) and bool(moat.strip())
+    if m_mode == "require" and not moat_ok:
+        has_moat_chapter = any(
+            isinstance(ch, dict) and ch.get("is_moat_chapter") is True for ch in chapters
+        )
+        if not has_moat_chapter:
+            errors.append(
+                "tbiy moat_mode=require expects strategic_moat_concept or is_moat_chapter "
+                "(soft/defer modes skip this check)"
+            )
     return errors
 
 

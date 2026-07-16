@@ -17,22 +17,37 @@ def _prepare_segment_artifact(
     stage_key: str | None = None,
 ) -> dict[str, Any]:
     if rel_path == "segments/boundaries.json":
-        from interview_mux.segment_timeline import normalize_boundary_document, validate_boundary_rows, segment_timeline_cfg
-        from interview_mux.stage_coupling import publish_boundary_contract
+        from interview_mux.segment_timeline import normalize_boundary_document, segment_timeline_cfg
+        from interview_mux.segment_timeline_standard import (
+            normalize_boundary_rows,
+            segmentation_cfg,
+            validate_boundary_timeline,
+        )
+        from interview_mux.stage_coupling import publish_boundary_contract, read_segment_contract
 
+        boundaries = out.get("boundaries") or []
+        if isinstance(boundaries, list):
+            repaired_rows, _actions = normalize_boundary_rows(
+                [row for row in boundaries if isinstance(row, dict)]
+            )
+            if repaired_rows:
+                out = {**out, "boundaries": repaired_rows}
         normalized = normalize_boundary_document(out)
         boundaries = normalized.get("boundaries") or []
-        st_cfg = segment_timeline_cfg()
-        errors = validate_boundary_rows(
-            [b for b in boundaries if isinstance(b, dict)],
-            require_speaker_id=bool(st_cfg.get("require_speaker_id", True)),
-            allow_overlap_ms=int(st_cfg.get("allow_overlap_ms", 0)),
-        )
-        return publish_boundary_contract(
+        errors = validate_boundary_timeline([b for b in boundaries if isinstance(b, dict)])
+        published = publish_boundary_contract(
             normalized,
             timeline_errors=errors,
             publisher_stage=stage_key or "boundary_detection",
         )
+        if segmentation_cfg().get("block_invalid_boundary_commit", True):
+            contract = read_segment_contract(published) or {}
+            if not contract.get("timeline_valid"):
+                detail = (contract.get("timeline_errors") or errors or ["timeline invalid"])[:2]
+                raise ValueError(
+                    f"segments/boundaries.json: cannot commit invalid timeline — {'; '.join(str(x) for x in detail)}"
+                )
+        return published
 
     if rel_path == "segments/manifest.json":
         from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries

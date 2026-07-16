@@ -49,6 +49,8 @@ export interface AppConfig {
     /** Cold-start friction collapse — see docs/workflows/first-try-reliability.md */
     first_try_mode?: boolean;
     defer_write_approval_until?: "phase_end" | "off" | "never";
+    /** When true (default), defer boundary save until segment_classification unified review. */
+    segmentation_unified_review?: boolean;
     preclean_auto_dismiss_when_green?: boolean;
     batch_save_phases?: string[];
   };
@@ -174,6 +176,10 @@ export interface JourneyState {
     recommended?: { preclean?: boolean };
   } | null;
   pending_write_stages?: string[];
+  handoff?: {
+    handoff_between_stages_enabled?: boolean;
+    pending_handoff_stage?: string | null;
+  };
 }
 
 export type GuidanceItemStatus = "todo" | "done" | "waiting";
@@ -442,6 +448,8 @@ export interface RunMeta {
       at?: string;
     }
   >;
+  /** True after transcript reuse accept until operator saves the edit interstitial. */
+  transcript_reuse_pending_edit?: boolean;
   pending_write_approval?: Record<
     string,
     {
@@ -487,12 +495,43 @@ export interface VoLine {
   recorded_file?: string | null;
 }
 
+export interface TbiyConformanceElement {
+  id?: string;
+  presence?: string;
+  action?: string;
+  rationale?: string;
+}
+
+export interface TbiyConformance {
+  active?: boolean;
+  summary_plain?: string;
+  score?: {
+    ratio?: number;
+    applied?: number;
+    bridged?: number;
+    soft?: number;
+    collapsed?: number;
+    deferred?: number;
+    total?: number;
+  };
+  modes?: {
+    five_act_mode?: "full" | "soft" | "collapsed" | string;
+    moat_mode?: "require" | "soft" | "defer" | string;
+    vo_bridge_priority?: "high" | "normal" | "low" | string;
+  };
+  elements?: TbiyConformanceElement[];
+}
+
 export interface FlowAdaptation {
   topology_class?: string;
   production_style?: string;
   pickup_eligible_speaker_id?: string;
   summary_plain?: string;
   ranking_weights?: Record<string, number>;
+  five_act_mode?: string;
+  moat_mode?: string;
+  vo_bridge_priority?: string;
+  tbiy_conformance?: TbiyConformance;
   operator_overrides?: {
     topology_confirmed?: boolean;
     pickup_speaker_confirmed?: boolean;

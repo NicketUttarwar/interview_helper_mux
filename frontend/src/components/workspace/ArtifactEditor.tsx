@@ -105,7 +105,6 @@ export function ArtifactEditor() {
         setEditorValue("");
         const msg = formatApiError(reason, `Load ${path}`);
         setStatus(msg);
-        showToast(msg, "error");
         appendClientLog(msg, "error", selectedStage?.id);
       }
     },
@@ -188,12 +187,10 @@ export function ArtifactEditor() {
           }),
         });
       }
-      showToast("Saved");
       appendClientLog(`Saved artifact ${selectedPath}`, "success");
       await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, "Save artifact");
-      showToast(msg, "error");
       appendClientLog(msg, "error", selectedStage.id);
     } finally {
       setSaving(false);

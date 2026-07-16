@@ -17,6 +17,7 @@ import {
 } from "../../utils/fuzzyMatch";
 import type { TranscriptState, TranscriptWord } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
+import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
   addCorrectionStats,
   emptyCorrectionStats,
@@ -60,12 +61,17 @@ interface Props {
   compact?: boolean;
   /** Use most of the viewport height (transcript review gate). */
   fillHeight?: boolean;
-  /** Called after word edits persist to the server (e.g. refresh chunk textarea). */
+  /** Called after word edits persist to the server. */
   onWordsSaved?: () => void;
   /** Called when word text changes locally (session draft, before server flush). */
   onLocalWordsChange?: (words: TranscriptWord[]) => void;
   /** Session correction totals for review summary. */
   onCorrectionStatsChange?: (stats: TranscriptCorrectionStats) => void;
+  /**
+   * When false, do not claim the global step-primary flush prep
+   * (use when embedding a second dock, e.g. reuse edit modal over stage detail).
+   */
+  manageFlushPrep?: boolean;
 }
 
 const MAX_UNDO_STACK = 30;
@@ -90,6 +96,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
       onWordsSaved,
       onLocalWordsChange,
       onCorrectionStatsChange,
+      manageFlushPrep = true,
     },
     ref,
   ) {
@@ -201,7 +208,6 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
         } catch (reason) {
           setSaveStatus("idle");
           const msg = formatApiError(reason, "Save transcript words");
-          showToast(msg, "error");
           appendClientLog(msg, "error");
           for (const u of updates) pendingSaves.current.set(u.index, u.text);
           break;
@@ -212,6 +218,24 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     saveFlushChain.current = saveFlushChain.current.then(runFlush).catch(() => runFlush());
     await saveFlushChain.current;
   }, [runId, showToast, appendClientLog, onWordsSaved]);
+
+  // Debounced auto-save so dock edits reach full.json without waiting for G0 complete.
+  useEffect(() => {
+    if (pendingSaves.current.size === 0) return;
+    const timer = window.setTimeout(() => {
+      void flushSaves();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [words, flushSaves]);
+
+  // Flush before any step primary / Save so embeds outside TranscriptReviewPanel also persist.
+  useEffect(() => {
+    if (!manageFlushPrep) return;
+    registerStepPrimaryPrep("transcript_dock_flush", async () => {
+      await flushSaves();
+    });
+    return () => registerStepPrimaryPrep("transcript_dock_flush", null);
+  }, [flushSaves, manageFlushPrep]);
 
   const applyWordUpdates = useCallback(
     (indices: number[], text: string) => {

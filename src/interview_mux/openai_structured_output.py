@@ -442,13 +442,28 @@ def schema_to_min_example(schema: dict[str, Any] | None) -> Any:
                 ptypes = [x for x in raw_type if x != "null"]
             else:
                 ptypes = [raw_type]
-            if "array" in ptypes and prop.get("items"):
+            # Prefer examples on optional leaves (e.g. approx_time_range) so prompt
+            # skeletons teach the persistable shape, not empty evidentiary arrays alone.
+            if prop.get("examples") or prop.get("default") is not None:
+                example_keys.append(key)
+            elif "array" in ptypes and prop.get("items"):
                 example_keys.append(key)
             elif "object" in ptypes and prop.get("properties"):
                 example_keys.append(key)
+        # Pre-seg: teach JSON null for seg id lists when a time-range example is present.
+        evidentiary_id_arrays = frozenset({"segment_ids", "evidence_segment_ids"})
         out: dict[str, Any] = {}
         for key in example_keys:
-            if key in props:
+            if key not in props:
+                continue
+            if (
+                key in evidentiary_id_arrays
+                and key not in required
+                and "approx_time_range" in props
+                and ("approx_time_range" in example_keys or "approx_time_range" in required)
+            ):
+                out[key] = None
+            else:
                 out[key] = schema_to_min_example(props[key])
         return out
 
@@ -457,7 +472,15 @@ def schema_to_min_example(schema: dict[str, Any] | None) -> Any:
         return [schema_to_min_example(items)]
 
     if t == "string":
-        return schema.get("enum", ["string"])[0] if "enum" in schema else "string"
+        if "enum" in schema:
+            return schema["enum"][0]
+        examples = schema.get("examples")
+        if isinstance(examples, list) and examples:
+            return examples[0]
+        default = schema.get("default")
+        if isinstance(default, str) and default:
+            return default
+        return "string"
     if t == "integer":
         return int(schema.get("minimum", 0) or 0)
     if t == "number":

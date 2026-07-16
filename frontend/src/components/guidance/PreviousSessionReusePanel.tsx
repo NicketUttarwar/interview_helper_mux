@@ -7,10 +7,12 @@ interface LineageStage {
   title: string;
   eligible: boolean;
   previous_done: boolean;
+  source_run_id?: string;
 }
 
 interface LineageResponse {
   immediate_previous_run_id?: string | null;
+  recent_prior_run_ids?: string[];
   hash_match_with_previous?: boolean;
   previous_run_summary?: { run_id: string; execution_number?: number };
   stages: LineageStage[];
@@ -40,11 +42,18 @@ export function PreviousSessionReusePanel({ stageId, compact = false }: Props) {
     void load();
   }, [load, runId]);
 
-  if (!lineage?.immediate_previous_run_id) return null;
+  if (!lineage?.hash_match_with_previous) return null;
   if (run?.meta?.stage_reuse?.[stageId]?.action) return null;
 
   const stageEntry = lineage.stages.find((s) => s.stage_id === stageId);
   if (!stageEntry?.eligible) return null;
+
+  const sourceRunId =
+    stageEntry.source_run_id ??
+    lineage.previous_run_summary?.run_id ??
+    lineage.recent_prior_run_ids?.[0] ??
+    lineage.immediate_previous_run_id ??
+    "prior execution";
 
   const bulkReuse = async () => {
     if (!runId || busy) return;
@@ -70,7 +79,7 @@ export function PreviousSessionReusePanel({ stageId, compact = false }: Props) {
     <div className={`previous-session-reuse panel${compact ? " compact" : ""}`}>
       <h3 className={compact ? "hint" : undefined}>Previous session</h3>
       <p className="hint sm">
-        {lineage.previous_run_summary?.run_id}
+        {sourceRunId}
         {lineage.hash_match_with_previous ? " — same source audio" : " — different source audio"}
       </p>
       {!lineage.hash_match_with_previous ? (
@@ -78,7 +87,7 @@ export function PreviousSessionReusePanel({ stageId, compact = false }: Props) {
       ) : (
         <>
           <p className="hint sm">
-            {stageEntry.title} outputs are available from the previous execution.
+            {stageEntry.title} outputs are available from {sourceRunId}.
           </p>
           <button type="button" className="btn primary sm" disabled={busy} onClick={() => void bulkReuse()}>
             {busy ? (

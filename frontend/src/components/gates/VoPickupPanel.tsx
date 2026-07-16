@@ -46,14 +46,12 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(b),
     });
-    showToast(`Trim applied for ${lineId}`);
     appendClientLog(`VO trim applied: ${lineId}`, "action");
   };
 
   const uploadVoFile = async (lineId: string, file: Blob) => {
     if (!runId) return;
     setUploadingLine(lineId);
-    showToast(`Uploading VO for ${lineId}…`);
     appendClientLog(`Uploading VO for line ${lineId}…`, "action");
     try {
       const fd = new FormData();
@@ -126,7 +124,6 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({}),
               });
-              showToast("Optional VO lines skipped.");
               appendClientLog("G1 skip-optional", "action", "g1_vo_pickup", "gui.g1.skip_optional");
               await refreshRun();
             }}

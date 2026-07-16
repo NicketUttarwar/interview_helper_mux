@@ -128,7 +128,7 @@ def run_transcript_review_build(ctx: RunContext) -> None:
 
     corrections_path = ctx.path("transcript/corrections.json")
     if not corrections_path.is_file():
-        ctx.write_json("transcript/corrections.json", {"corrections": {}})
+        _write_transcript_json(ctx, "transcript/corrections.json", {"corrections": {}})
 
     ctx.mark_done("transcript_review_build")
     maybe_auto_complete_transcript_review(ctx)
@@ -139,6 +139,8 @@ def maybe_auto_complete_transcript_review(ctx: RunContext) -> bool:
     from interview_mux.first_try import transcript_auto_complete_when_clean
 
     if not transcript_auto_complete_when_clean():
+        return False
+    if transcript_reuse_pending_edit(ctx):
         return False
     if ctx.is_done("transcript_review"):
         return False
@@ -167,10 +169,25 @@ def check_transcript_review_pending(ctx: RunContext) -> bool:
     return ctx.artifact_exists("transcript/review_queue.json")
 
 
+def _write_transcript_json(ctx: RunContext, rel: str, data: Any) -> Path:
+    """Persist transcript artifacts so deferred staging cannot hide or clobber edits."""
+    from interview_mux.prompt_validation import validate_artifact_write
+    from interview_mux.write_staging import write_mirrored_json
+
+    if isinstance(data, dict):
+        errors = validate_artifact_write(rel, data)
+        if errors:
+            raise ValueError(f"{rel}: schema validation failed — " + "; ".join(errors[:6]))
+    return write_mirrored_json(ctx, rel, data)
+
+
 def mark_transcript_review_complete(ctx: RunContext) -> None:
     """Apply saved corrections to full.json and close the review gate."""
     if not ctx.artifact_exists("transcript/review_queue.json"):
         raise FileNotFoundError("transcript/review_queue.json — run transcript_review_build first.")
+    # G0 UI + reuse expect corrections.json even when the operator saved no text edits.
+    if not ctx.artifact_exists("transcript/corrections.json"):
+        _write_transcript_json(ctx, "transcript/corrections.json", {"corrections": {}})
     materialize_transcript(ctx, source="review_complete")
     if ctx.is_done("speaker_roles"):
         from interview_mux.pipeline import ANALYSIS_ORDER
@@ -179,7 +196,7 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
     queue = ctx.read_json("transcript/review_queue.json")
     for chunk in queue.get("chunks") or []:
         chunk["reviewed"] = True
-    ctx.write_json("transcript/review_queue.json", queue)
+    _write_transcript_json(ctx, "transcript/review_queue.json", queue)
     ctx.mark_done("transcript_review")
     ctx.log("Transcript review complete — corrections applied to full.json.", level="success", stage="transcript_review")
 
@@ -220,7 +237,7 @@ def apply_corrections(ctx: RunContext) -> None:
     full["words"] = words
     full["text"] = " ".join(w["text"] for w in words if w.get("text"))
     full["review_applied_at"] = datetime.now(timezone.utc).isoformat()
-    ctx.write_json("transcript/full.json", full)
+    _write_transcript_json(ctx, "transcript/full.json", full)
 
 
 def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed: bool = True) -> dict[str, Any]:
@@ -236,8 +253,8 @@ def save_chunk_correction(ctx: RunContext, chunk_id: str, text: str, *, reviewed
             chunk["reviewed"] = reviewed
             break
 
-    ctx.write_json("transcript/corrections.json", data)
-    ctx.write_json("transcript/review_queue.json", queue)
+    _write_transcript_json(ctx, "transcript/corrections.json", data)
+    _write_transcript_json(ctx, "transcript/review_queue.json", queue)
     return {"ok": True, "chunk_id": chunk_id}
 
 
@@ -288,8 +305,9 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
     if applied:
         full["words"] = words
         full["text"] = " ".join(w["text"] for w in words if w.get("text"))
-        ctx.write_json("transcript/full.json", full)
+        _write_transcript_json(ctx, "transcript/full.json", full)
         synced_chunks = _sync_review_queue_from_word_edits(ctx, words, edited_indices)
+        persist_operator_transcript(ctx, source="dock_edit", include_corrections=True)
         ctx.log(
             f"Transcript dock: saved {applied} word edit(s).",
             level="info",
@@ -303,6 +321,195 @@ def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> di
             "synced_chunk_ids": synced_chunks,
         }
     return {"ok": True, "updated_count": applied, "words": words, "text": full.get("text") or ""}
+
+
+def transcript_reuse_pending_edit(ctx: RunContext) -> bool:
+    from interview_mux.journey_state import read_run_meta
+
+    return bool(read_run_meta(ctx).get("transcript_reuse_pending_edit"))
+
+
+def set_transcript_reuse_pending_edit(ctx: RunContext, pending: bool) -> None:
+    def _mutate(meta: dict[str, Any]) -> None:
+        if pending:
+            meta["transcript_reuse_pending_edit"] = True
+        else:
+            meta.pop("transcript_reuse_pending_edit", None)
+
+    ctx.mutate_run_meta(_mutate)
+
+
+def _tokenize_transcript_text(text: str) -> list[str]:
+    return [tok for tok in text.replace("\r\n", "\n").replace("\r", "\n").split() if tok]
+
+
+def _remap_words_to_text(
+    prior_words: list[dict[str, Any]],
+    new_text: str,
+) -> list[dict[str, Any]]:
+    """Rebuild word rows for edited plain text while preserving timing span."""
+    tokens = _tokenize_transcript_text(new_text)
+    if not tokens:
+        return []
+    if prior_words and len(prior_words) == len(tokens):
+        out: list[dict[str, Any]] = []
+        for old, tok in zip(prior_words, tokens):
+            row = dict(old) if isinstance(old, dict) else {}
+            row["text"] = tok
+            row["corrected"] = True
+            out.append(row)
+        return out
+
+    start_ms = 0
+    end_ms = max(int(w.get("end_ms") or 0) for w in prior_words) if prior_words else max(50 * len(tokens), 1000)
+    if prior_words:
+        start_ms = int(prior_words[0].get("start_ms") or 0)
+        end_ms = max(end_ms, start_ms + 50)
+    span = max(end_ms - start_ms, 50 * len(tokens))
+    step = span / len(tokens)
+    speaker = None
+    for w in prior_words:
+        if isinstance(w, dict) and w.get("speaker_id"):
+            speaker = w.get("speaker_id")
+            break
+    rebuild: list[dict[str, Any]] = []
+    for i, tok in enumerate(tokens):
+        w_start = int(start_ms + i * step)
+        w_end = int(start_ms + (i + 1) * step)
+        if w_end <= w_start:
+            w_end = w_start + 40
+        row: dict[str, Any] = {
+            "text": tok,
+            "start_ms": w_start,
+            "end_ms": w_end,
+            "corrected": True,
+        }
+        if speaker:
+            row["speaker_id"] = speaker
+        rebuild.append(row)
+    return rebuild
+
+
+def apply_full_transcript_text(
+    ctx: RunContext,
+    text: str,
+    *,
+    source: str = "reuse_edit",
+) -> dict[str, Any]:
+    """Replace transcript plain text (and remapped words), then refresh operator snapshots."""
+    if not ctx.artifact_exists("transcript/full.json"):
+        raise FileNotFoundError("transcript/full.json — run transcribe first.")
+    cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        raise ValueError("Transcript text cannot be empty.")
+    full = ctx.read_json("transcript/full.json")
+    prior_words: list[dict[str, Any]] = list(full.get("words") or [])
+    words = _remap_words_to_text(prior_words, cleaned)
+    full["words"] = words
+    full["text"] = " ".join(w["text"] for w in words if w.get("text"))
+    full["operator_text_edit_at"] = datetime.now(timezone.utc).isoformat()
+    full["operator_text_edit_source"] = source
+    _write_transcript_json(ctx, "transcript/full.json", full)
+    persist_operator_transcript(ctx, source=source, include_corrections=True)
+    ctx.log(
+        f"Transcript full-text edit saved ({len(words)} words, source={source}).",
+        level="success",
+        stage="transcript_review",
+        action_id="gui.transcript_reuse.save_text",
+        detail={"source": source, "word_count": len(words)},
+    )
+    return {"ok": True, "text": full["text"], "word_count": len(words), "words": words}
+
+
+def prefer_operator_corrected_transcript(ctx: RunContext) -> bool:
+    """Overlay operator/transcript_corrected.* onto transcript/full.json when present."""
+    if not ctx.artifact_exists("operator/transcript_corrected.json"):
+        if ctx.artifact_exists("operator/transcript_corrected.txt"):
+            raw = ctx.final_path("operator", "transcript_corrected.txt").read_text(encoding="utf-8")
+            if raw.strip():
+                apply_full_transcript_text(ctx, raw, source="reuse_operator_overlay_txt")
+                return True
+        return False
+    snap = ctx.read_json("operator/transcript_corrected.json")
+    if not isinstance(snap, dict):
+        return False
+    text = str(snap.get("text") or "").strip()
+    if not text:
+        return False
+    snap_words = snap.get("words")
+    if isinstance(snap_words, list) and snap_words:
+        full = ctx.read_json("transcript/full.json") if ctx.artifact_exists("transcript/full.json") else {}
+        if not isinstance(full, dict):
+            full = {}
+        full["words"] = snap_words
+        full["text"] = text
+        if snap.get("review_applied_at"):
+            full["review_applied_at"] = snap.get("review_applied_at")
+        full["operator_text_edit_at"] = datetime.now(timezone.utc).isoformat()
+        full["operator_text_edit_source"] = "reuse_operator_overlay"
+        _write_transcript_json(ctx, "transcript/full.json", full)
+        persist_operator_transcript(ctx, source="reuse_operator_overlay", include_corrections=True)
+        return True
+    apply_full_transcript_text(ctx, text, source="reuse_operator_overlay")
+    return True
+
+
+def _finalize_reuse_edit_gate(ctx: RunContext, *, source: str) -> None:
+    """Clear reuse pending flag and, when a review queue exists, sign off G0."""
+    _write_transcript_json(ctx, "transcript/corrections.json", {"corrections": {}})
+    if ctx.artifact_exists("transcript/review_queue.json"):
+        queue = ctx.read_json("transcript/review_queue.json")
+        for chunk in queue.get("chunks") or []:
+            if isinstance(chunk, dict):
+                chunk["reviewed"] = True
+        _write_transcript_json(ctx, "transcript/review_queue.json", queue)
+        persist_operator_transcript(ctx, source=source, include_corrections=True)
+        if not ctx.is_done("transcript_review"):
+            ctx.mark_done("transcript_review")
+            ctx.log(
+                "Transcript review complete — reuse edit saved as corrected transcript.",
+                level="success",
+                stage="transcript_review",
+                action_id="gui.transcript_reuse.save_and_continue",
+            )
+    set_transcript_reuse_pending_edit(ctx, False)
+
+
+def save_reused_transcript_text(ctx: RunContext, text: str) -> dict[str, Any]:
+    """Persist interstitial full-text edits after transcript reuse, then clear pending gate."""
+    result = apply_full_transcript_text(ctx, text, source="reuse_edit")
+    # Full-text / dock editor is the sign-off source of truth — drop stale chunk patches that
+    # would otherwise overwrite on a later materialize_transcript.
+    _finalize_reuse_edit_gate(ctx, source="reuse_edit")
+    return result
+
+
+def finalize_reused_transcript_from_disk(ctx: RunContext) -> dict[str, Any]:
+    """Complete the reuse interstitial using current on-disk transcript (dock-edited words)."""
+    if not ctx.artifact_exists("transcript/full.json"):
+        raise FileNotFoundError("transcript/full.json — run transcribe first.")
+    full = ctx.read_json("transcript/full.json")
+    text = str(full.get("text") or "").strip()
+    if not text:
+        raise ValueError("Transcript text cannot be empty.")
+    persist_operator_transcript(ctx, source="reuse_edit_dock", include_corrections=True)
+    _finalize_reuse_edit_gate(ctx, source="reuse_edit_dock")
+    words = list(full.get("words") or [])
+    return {"ok": True, "text": text, "word_count": len(words), "words": words}
+
+
+def dismiss_transcript_reuse_edit(ctx: RunContext) -> dict[str, Any]:
+    """Skip the one-time reuse edit interstitial; keep copied transcript for normal G0."""
+    if not transcript_reuse_pending_edit(ctx):
+        return {"ok": True, "pending_edit": False, "dismissed": False}
+    set_transcript_reuse_pending_edit(ctx, False)
+    ctx.log(
+        "Transcript reuse edit skipped — using copied transcript; edit later in STT review.",
+        level="info",
+        stage="transcript_review",
+        action_id="gui.transcript_reuse.dismiss_edit",
+    )
+    return {"ok": True, "pending_edit": False, "dismissed": True}
 
 
 def get_review_state(ctx: RunContext) -> dict[str, Any]:
@@ -527,8 +734,8 @@ def _sync_review_queue_from_word_edits(
         corrections[chunk_id] = entry
 
     queue["chunks"] = chunks
-    ctx.write_json("transcript/review_queue.json", queue)
-    ctx.write_json("transcript/corrections.json", corrections_data)
+    _write_transcript_json(ctx, "transcript/review_queue.json", queue)
+    _write_transcript_json(ctx, "transcript/corrections.json", corrections_data)
     return sorted(affected_chunk_ids)
 
 

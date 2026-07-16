@@ -10,13 +10,7 @@ from pydantic import BaseModel, Field
 
 from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.run_context import RunContext
-from interview_mux.session_lineage import resolve_immediate_previous_run_id
-from interview_mux.stage_execution_reuse import (
-    apply_stage_reuse,
-    find_reuse_candidates,
-    get_reuse_decision,
-    record_reuse_decision,
-)
+from interview_mux.stage_execution_reuse import find_reuse_candidates, get_reuse_decision, record_reuse_decision, apply_stage_reuse
 
 class BulkReuseBody(BaseModel):
     stage_ids: list[str] | None = None
@@ -50,9 +44,6 @@ def register_workspace_routes(
     @router.post("/api/runs/{run_id}/reuse-from-previous")
     def reuse_from_previous(run_id: str, body: BulkReuseBody) -> dict[str, Any]:
         ctx = ctx_factory(run_id)
-        prev_id = resolve_immediate_previous_run_id(ctx)
-        if not prev_id:
-            raise HTTPException(400, "No immediate previous execution.")
         stage_ids = body.stage_ids or []
         if body.accept_all:
             orders = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
@@ -62,6 +53,7 @@ def register_workspace_routes(
                 if find_reuse_candidates(ctx, sid) and not get_reuse_decision(ctx, sid)
             ]
         results: list[dict[str, Any]] = []
+        source_run_ids: set[str] = set()
         with run_guard(run_id):
             for sid in stage_ids:
                 if get_reuse_decision(ctx, sid):
@@ -71,11 +63,18 @@ def register_workspace_routes(
                 if not candidates:
                     results.append({"stage_id": sid, "skipped": "not_eligible"})
                     continue
-                record_reuse_decision(ctx, sid, action="accept", source_run_id=prev_id)
+                source_id = candidates[0].run_id
+                source_run_ids.add(source_id)
+                record_reuse_decision(ctx, sid, action="accept", source_run_id=source_id)
                 try:
-                    apply_stage_reuse(ctx, sid, prev_id)
-                    results.append({"stage_id": sid, "ok": True, "source_run_id": prev_id})
+                    apply_stage_reuse(ctx, sid, source_id)
+                    results.append({"stage_id": sid, "ok": True, "source_run_id": source_id})
                 except Exception as exc:
                     results.append({"stage_id": sid, "error": str(exc)})
         ctx.bump_snapshot_version()
-        return {"ok": True, "source_run_id": prev_id, "results": results}
+        return {
+            "ok": True,
+            "source_run_id": next(iter(source_run_ids)) if len(source_run_ids) == 1 else None,
+            "source_run_ids": sorted(source_run_ids),
+            "results": results,
+        }

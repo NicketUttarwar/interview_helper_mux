@@ -330,6 +330,43 @@ def _manifest_segment_ids(ctx: RunContext) -> set[str]:
     segs = manifest.get("segments") or []
     return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
 
+def _validate_speakers_artifact(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    if not _committed_exists(ctx, "understanding/speakers.json"):
+        return errors
+    doc = _committed_json(ctx, "understanding/speakers.json")
+    if not isinstance(doc, dict):
+        return errors
+    speakers = doc.get("speakers") or []
+    speaker_ids = {
+        str(s.get("speaker_id"))
+        for s in speakers
+        if isinstance(s, dict) and s.get("speaker_id")
+    }
+    profile = doc.get("conversation_profile") or {}
+    fc = str(profile.get("format_class_candidate") or "").lower()
+    from interview_mux.conversation_context import role_is_content
+
+    if fc == "panel":
+        content_count = sum(
+            1
+            for s in speakers
+            if isinstance(s, dict) and role_is_content(str(s.get("role") or ""))
+        )
+        if content_count < 2:
+            errors.append("panel format requires at least two content speakers in speakers.json")
+
+    manifest = _committed_json(ctx, "segments/manifest.json")
+    if isinstance(manifest, dict) and speaker_ids:
+        for i, seg in enumerate(manifest.get("segments") or []):
+            if not isinstance(seg, dict):
+                continue
+            sid = str(seg.get("speaker_id") or "")
+            if sid and sid not in speaker_ids:
+                errors.append(f"manifest segments[{i}] speaker_id {sid} not in speakers.json")
+    return errors
+
+
 def _validate_post_boundary(ctx: RunContext) -> list[str]:
     if not _committed_exists(ctx, "segments/boundaries.json"):
         return ["segments/boundaries.json missing"]
@@ -347,6 +384,7 @@ def _read_boundaries_for_cross_validate(ctx: RunContext) -> dict[str, Any] | Non
 
 def _validate_post_segmentation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
+    errors.extend(_validate_speakers_artifact(ctx))
     manifest = _committed_json(ctx, "segments/manifest.json")
     if not isinstance(manifest, dict):
         return []

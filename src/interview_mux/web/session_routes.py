@@ -23,9 +23,10 @@ from interview_mux.run_context import RunContext
 from interview_mux.session_lineage import (
     hash_match_with_previous,
     previous_run_summary,
+    recent_prior_execution_run_ids,
     resolve_immediate_previous_run_id,
 )
-from interview_mux.stage_execution_reuse import find_reuse_candidates, prior_run_has_reusable_stage
+from interview_mux.stage_execution_reuse import find_reuse_candidates
 from interview_mux.web.stages import STAGE_BY_ID, all_stages_for_run
 
 class ActiveBody(BaseModel):
@@ -109,28 +110,33 @@ def register_session_routes(router: APIRouter, *, ctx_factory: Any) -> None:
             return {"active_run_id": None, "immediate_previous_run_id": None, "stages": []}
         ctx = RunContext(rid, create=False)
         prev_id = resolve_immediate_previous_run_id(ctx)
-        hash_match = hash_match_with_previous(ctx) if prev_id else False
+        recent_ids = recent_prior_execution_run_ids(ctx)
+        hash_match = hash_match_with_previous(ctx) if recent_ids else False
         prev_summary = previous_run_summary(prev_id) if prev_id else None
         stages_out: list[dict[str, Any]] = []
-        if prev_id and hash_match:
-            prev_ctx = RunContext(prev_id, create=False)
+        if recent_ids and hash_match:
             for stage in all_stages_for_run(None):
                 sid = stage["id"]
                 if sid not in STAGE_BY_ID:
                     continue
-                eligible = prior_run_has_reusable_stage(prev_ctx, sid)
-                candidates = find_reuse_candidates(ctx, sid) if eligible else []
+                candidates = find_reuse_candidates(ctx, sid)
+                if not candidates:
+                    continue
+                source_id = candidates[0].run_id
+                source_ctx = RunContext(source_id, create=False)
                 stages_out.append(
                     {
                         "stage_id": sid,
                         "title": STAGE_BY_ID[sid].title,
-                        "eligible": eligible and bool(candidates),
-                        "previous_done": prev_ctx.is_done(sid),
+                        "eligible": True,
+                        "previous_done": source_ctx.is_done(sid),
+                        "source_run_id": source_id,
                     }
                 )
         return {
             "active_run_id": rid,
             "immediate_previous_run_id": prev_id,
+            "recent_prior_run_ids": recent_ids,
             "hash_match_with_previous": hash_match,
             "previous_run_summary": prev_summary,
             "stages": stages_out,

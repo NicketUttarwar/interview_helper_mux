@@ -1,11 +1,11 @@
 import type { RunData, StageStep } from "../types";
-import { isJobActivelyRunning } from "./jobStatus";
+import { handoffBetweenStagesEnabled } from "./checkpoint";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { isAutoNavConsumed, markAutoNavConsumed } from "./autoNavigationLedger";
 
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
-  transcript_review: "complete_g0",
+  transcript_review: "review_transcript",
   disfluency_review: "review_fillers",
   analysis_profile: "verify_profile",
   g1_vo_pickup: "continue_delivery",
@@ -132,11 +132,20 @@ export function resolveFocusStepId(
   }
 
   if (blockingReason === "handoff_review") {
-    if (hasStep(steps, "handoff")) return "handoff";
-    return "handoff";
+    if (!handoffBetweenStagesEnabled(run)) {
+      /* first_try skips mid-stage handoff pauses */
+    } else {
+      if (hasStep(steps, "handoff")) return "handoff";
+      return "handoff";
+    }
   }
 
-  if (stage?.status === "done" && run && !run.handoff_ack?.[stageId]) {
+  if (
+    handoffBetweenStagesEnabled(run) &&
+    stage?.status === "done" &&
+    run &&
+    !run.handoff_ack?.[stageId]
+  ) {
     const paths = stage.handoff_paths?.length ?? 0;
     if (paths > 0 || blockingReason === "handoff_review") {
       if (hasStep(steps, "handoff")) return "handoff";

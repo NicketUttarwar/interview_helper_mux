@@ -84,9 +84,13 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`; **Retry load** when the run id is set but data failed to load.
 
-**Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util).
+**Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util). **Transcript reuse** opens `TranscriptReuseEditModal` once (synced dock + fuzzy tools → `POST …/transcript/reuse-edit/complete` or dismiss via `POST …/transcript/reuse-edit/dismiss`) before continuing — not shown merely for visiting STT review.
 
 **Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved. Under **first-try** (`defer_write_approval_until: phase_end`), mid-phase pauses are skipped; use **Save all pending** (`gui.write_approval.batch_save` / `POST …/pending-writes/approve-batch`). See [first-try-reliability.md](./first-try-reliability.md).
+
+**Unified segmentation review** (`journey_ui.segmentation_unified_review`, default on): `boundary_detection` stages without pause; `segment_classification` shows `SegmentationReviewPanel` (timeline health, boundaries table, manifest table, parity/cross-artifact badges) and paired save via `POST …/approve-segmentation-writes` or checkpoint continue on `segment_classification`.
+
+**Write approval vs quality gates:** Critical LLM stages (`block_partial_on_quality_fail`) do not stage write-approvable partials after lint/truncation/accept failure — only audit sidecars under `understanding/stage_runs/`. Save is refused for resilience-partial critical artifacts; write-approval pause never overwrites `needs_clarification` / LLM `gate`. Truncated evidence auto-escalates to shard/collate ([truncation-integrity.md](../cross-cutting/truncation-integrity.md)).
 
 **Full autopilot (`journey_ui.full_autopilot`, default on):** After **Run**, the server runs in-run finalize (`stage_finalize.py`) with `gui_job.phase: auto_resolving`. If decisions remain, `StageDecisionWizard` (`operator_decisions` substep) shows one question at a time — `GET/POST …/stages/{id}/decisions`. When the queue is empty, operator lands on **Review and save** (`WriteApprovalPanel`). Fix all, artifact clarification, and standalone propagation wizard are **legacy mode only** (`full_autopilot: false`). See [full-autopilot-operator-model.md](./full-autopilot-operator-model.md).
 
@@ -146,7 +150,7 @@ Also shows an **Episode structure** summary strip when `understanding/episode_st
 
 | Component | APIs | Artifacts |
 |-----------|------|-----------|
-| `FlowAdaptationCard` / `DeliveryBriefCard` | Story board — topology adaptation + adaptive delivery soft targets (`GET/PATCH …/delivery-brief`) | `understanding/flow_adaptation.json`, `understanding/delivery_brief.json` |
+| `FlowAdaptationCard` / `DeliveryBriefCard` | Story board — topology adaptation + graduated TBIY conformance + adaptive delivery soft targets (`GET/PATCH …/delivery-brief`) | `understanding/flow_adaptation.json` (`tbiy_conformance`), `understanding/delivery_brief.json` |
 
 Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_palettes` stage detail as a compact scenario/tag provenance view.
 
@@ -154,8 +158,8 @@ Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_pal
 
 | Component | File | APIs | Operator actions |
 |-----------|------|------|------------------|
-| Chunk navigator + clip audio + bulk textarea | `TranscriptReviewPanel` | `GET/PUT …/transcript-review`, `POST …/complete` | Previous/Next clip, **Save chunk**, **Complete transcript review** |
-| Synced word-level dock | `TranscriptDockViewer` | `GET …/transcript`, `PATCH …/transcript/words` | Click seek, double-click edit, debounced save |
+| Clip navigator + audio + synced dock (single review surface) | `TranscriptReviewPanel` → `TranscriptDockViewer` | `GET/PUT …/transcript-review`, `GET …/transcript`, `PATCH …/transcript/words`, `POST …/complete` | Previous/Next clip, click seek, double-click edit, **Save and complete review** |
+| Reuse edit interstitial (one-time after reuse accept only) | `TranscriptReuseEditModal` → `TranscriptDockViewer` | `GET …/transcript`, `PATCH …/transcript/words`, `POST …/transcript/reuse-edit/complete`, `POST …/transcript/reuse-edit/dismiss` | Same dock + fuzzy tools; **Save & continue** or **Skip** |
 | Fuzzy similar-word panel | `FuzzyReplacePopover` | *(client)* → batch `PATCH …/transcript/words` | Match strictness 80–100%, jump to match, **Replace N words** |
 
 Inline on `StageDetail` when `transcript_review` is `action_required`; also in `OperatorActionModal`. Transcript dock also on **Transcribe** / **Transcript review build** without the chunk navigator.
@@ -264,11 +268,11 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 |------------|------|-------------------------|
 | Ingest | `ingest` | `ingest/normalized.wav`, `ingest/checksums.json` |
 | Transcribe | `transcribe` | `transcript/full.json`, `transcript/speakers.json` |
-| STT review prep | `transcript_review_build` | `transcript/review_queue.json`, clips |
+| STT review prep | `transcript_review_build` | `transcript/review_queue.json`, `transcript/corrections.json`, `transcript/review_clips/*` |
 | Disfluency extract | `disfluency_extract` | `transcript/disfluencies.json`, `transcript/disfluency_clips/` |
 | Source acoustic profile | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
 | Sonic context build | `sonic_context_build` | `understanding/sonic_context.json` |
-| Speaker roles | `speaker_roles` | `understanding/speakers.json` |
+| Speaker roles | `speaker_roles` | `understanding/speakers.json` (roles, `conversation_profile`, `conversation_hypotheses`, `gap_sensitivity`; operator confirms hypothesis at handoff via `POST …/speaker-roles/confirm-hypothesis`, `action_id` `gui.speaker_roles.confirm_hypothesis`) |
 | Content understanding | `content_context` | `understanding/content_brief.json` |
 | Segment boundaries | `boundary_detection` | `segments/boundaries.json` |
 | Segment classification | `segment_classification` | `segments/manifest.json` |
@@ -320,7 +324,7 @@ When `production_profiles.active` is `tbiy` (see [tbiy-production-profile.md](..
 | **Pickup speaker** | `source_topology_build` | `GET/POST …/source-topology`, `POST …/flow-adaptation` | `PickupSpeakerPanel` — confirm least-spoken pickup voice |
 | **Conversation studio** | `optimal_questions` | `GET/PUT …/gap-report/lines` | `ConversationStudioPanel` — edit gap lines + `voice_speaker_id` |
 | **Flow adaptation** | `source_topology_build` | journey `flow_adaptation` | `FlowAdaptationCard` — topology-driven flow class |
-| **G1.5 post-preview pickup** | `g1_5_preview_pickup` | `POST …/vo/{line_id}` | `PreviewPickupPanel` — re-record after assembly preview listen |
+| **G1.5 post-preview pickup** | `g1_5_preview_pickup` | `POST …/vo/{line_id}` | `PreviewPickupPanel` — re-record after assembly preview listen. Non-TBIY / disabled → `optional_skipped` (not Failed/`incomplete` via pending `gap_report`). See [ui-truth-invariants.md](./ui-truth-invariants.md). |
 
 ### MMAudio operator journey (SFX + G1.5)
 

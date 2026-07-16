@@ -36,6 +36,9 @@ def probe_consumers(
         for inp in c_contract.inputs:
             if inp.path != producer_rel:
                 continue
+            # Producer artifact is under review — do not require committed disk copy.
+            if inp.hard and artifact:
+                continue
             if inp.hard and not ctx.artifact_exists(inp.path):
                 findings.append(
                     SufficiencyFinding(
@@ -46,11 +49,10 @@ def probe_consumers(
                         "micro_gap_fill",
                     )
                 )
-        cons_artifact = artifact if producer_rel else None
-        if cons_artifact:
-            for f in evaluate(consumer, cons_artifact, ctx):
-                if f.blocking and f.path in str(producer_rel):
-                    findings.append(f)
+    if artifact and producer_rel:
+        for finding in evaluate(producer_stage, artifact, ctx):
+            if finding.blocking:
+                findings.append(finding)
     return findings
 
 

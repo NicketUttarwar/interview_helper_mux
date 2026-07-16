@@ -35,6 +35,10 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
 }
 
 HIGH_SEVERITY_STAGES = {
+    "content_context",
+    "boundary_detection",
+    "segment_classification",
+    "content_brief_reanchor",
     "missing_framing",
     "optimal_questions",
     "topic_coverage_audit",

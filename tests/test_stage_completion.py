@@ -87,7 +87,8 @@ def test_staged_partial_blocked_from_write_approval(tmp_path, monkeypatch):
         assert_write_approval_allowed(ctx, "speaker_roles")
 
 
-def test_staged_partial_speakers_acceptable_when_roles_evidence_ok(tmp_path, monkeypatch):
+def test_staged_partial_speakers_blocked_for_critical_stage(tmp_path, monkeypatch):
+    """Critical stages never approve resilience-partial staging (A/C)."""
     from interview_mux.analysis_memory import default_analysis_state
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -109,4 +110,5 @@ def test_staged_partial_speakers_acceptable_when_roles_evidence_ok(tmp_path, mon
     state["speakers"] = speakers["speakers"]
     write_pending_content(ctx, "speaker_roles", "understanding/analysis_state.json", data=state)
     ok, reason = staged_artifacts_acceptable(ctx, "speaker_roles")
-    assert ok, reason
+    assert not ok
+    assert "partial" in reason.lower()

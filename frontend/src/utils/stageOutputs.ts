@@ -1,4 +1,4 @@
-import type { StageInfo } from "../types";
+import type { RunMeta, StageInfo } from "../types";
 
 /** True when every required artifact is fully committed (not staged/partial/pending). */
 export function stageArtifactsFullyComplete(stage: StageInfo): boolean {
@@ -58,6 +58,25 @@ export function stageIncompleteReason(stage: StageInfo): string | null {
   return null;
 }
 
+function stageSatisfiedForProgression(stage: StageInfo): boolean {
+  if (stage.stage_output_mode === "optional_skipped") return true;
+  if (stage.status === "incomplete") return false;
+  if (stage.status !== "done") return false;
+  return stageArtifactsFullyComplete(stage);
+}
+
+function isDeferredAudioPreclean(stage: StageInfo, meta?: RunMeta | null): boolean {
+  if (stage.id !== "audio_preclean" || stage.status !== "pending") return false;
+  if (stage.stage_output_mode === "optional_skipped") return false;
+  const decisions = meta?.audio_preclean?.decisions;
+  if (!Array.isArray(decisions)) return true;
+  return !decisions.some(
+    (d) =>
+      d.checkpoint === "before_ingest" &&
+      (d.action === "dismiss" || d.action === "accept"),
+  );
+}
+
 /** Upstream artifact complete check for autopilot / continue guards. */
 export function upstreamArtifactsReady(
   stages: StageInfo[],
@@ -66,10 +85,7 @@ export function upstreamArtifactsReady(
   const idx = stages.findIndex((s) => s.id === targetStageId);
   if (idx <= 0) return true;
   for (let i = 0; i < idx; i++) {
-    const s = stages[i];
-    if (s.status === "incomplete") return false;
-    if (s.status !== "done") return false;
-    if (!stageArtifactsFullyComplete(s)) return false;
+    if (!stageSatisfiedForProgression(stages[i])) return false;
   }
   return true;
 }
@@ -78,14 +94,14 @@ export function upstreamArtifactsReady(
 export function firstUpstreamBlocker(
   stages: StageInfo[],
   targetStageId: string,
+  meta?: RunMeta | null,
 ): StageInfo | null {
   const idx = stages.findIndex((s) => s.id === targetStageId);
   if (idx <= 0) return null;
   for (let i = 0; i < idx; i++) {
     const s = stages[i];
-    if (s.status === "incomplete") return s;
-    if (s.status !== "done") return s;
-    if (!stageArtifactsFullyComplete(s)) return s;
+    if (isDeferredAudioPreclean(s, meta)) continue;
+    if (!stageSatisfiedForProgression(s)) return s;
   }
   return null;
 }

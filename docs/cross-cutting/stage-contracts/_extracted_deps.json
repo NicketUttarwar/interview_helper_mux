@@ -90,7 +90,6 @@
   },
   "segmentation": {
     "reads": [
-      "segments/boundaries.json",
       "transcript/full.json",
       "understanding/content_brief.json",
       "understanding/source_acoustic_profile.json",
@@ -156,14 +155,14 @@
   },
   "transcript_review": {
     "reads": [
+      "operator/transcript_corrected.json",
+      "operator/transcript_corrected.txt",
       "transcript/corrections.json",
       "transcript/full.json",
       "transcript/review_queue.json",
       "transcript/speakers.json"
     ],
     "writes": [
-      "transcript/corrections.json",
-      "transcript/full.json",
       "transcript/review_queue.json"
     ]
   },

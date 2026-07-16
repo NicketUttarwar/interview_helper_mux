@@ -76,6 +76,22 @@
     "generated": {
       "type": "object",
       "additionalProperties": true
+    },
+    "five_act_mode": {
+      "type": "string",
+      "enum": ["full", "soft", "collapsed"]
+    },
+    "moat_mode": {
+      "type": "string",
+      "enum": ["require", "soft", "defer"]
+    },
+    "vo_bridge_priority": {
+      "type": "string",
+      "enum": ["high", "normal", "low"]
+    },
+    "tbiy_conformance": {
+      "type": "object",
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

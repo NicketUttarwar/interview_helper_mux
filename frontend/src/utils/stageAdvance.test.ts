@@ -67,6 +67,64 @@ describe("applyReuseResultAndFocus", () => {
       "info",
     );
   });
+
+  it("opens transcript edit interstitial and does not auto-continue", async () => {
+    const autoContinuePipeline = vi.fn().mockResolvedValue(true);
+    const openTranscriptReuseEdit = vi.fn();
+    const showToast = vi.fn();
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [
+        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
+        { id: "transcript_review_build", title: "G0 build", status: "pending", phase: "prepare" },
+      ],
+    };
+    await applyReuseResultAndFocus({
+      run,
+      stageId: "transcribe",
+      stageTitle: "Transcribe",
+      reuse: { status: "reused", copied: [], hasStagedWrites: false },
+      refreshRun: vi.fn().mockResolvedValue(run),
+      showToast,
+      autoContinuePipeline,
+      openTranscriptReuseEdit,
+      ...workbench,
+    });
+    expect(openTranscriptReuseEdit).toHaveBeenCalled();
+    expect(autoContinuePipeline).not.toHaveBeenCalled();
+    expect(workbench.selectStage).toHaveBeenCalled();
+  });
+
+  it("does not open transcript edit interstitial for later transcript stages", async () => {
+    const openTranscriptReuseEdit = vi.fn();
+    const autoContinuePipeline = vi.fn().mockResolvedValue(false);
+    const showToast = vi.fn();
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [
+        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
+        {
+          id: "transcript_review_build",
+          title: "G0 build",
+          status: "done",
+          phase: "prepare",
+        },
+        { id: "transcript_review", title: "G0", status: "pending", phase: "prepare" },
+      ],
+    };
+    await applyReuseResultAndFocus({
+      run,
+      stageId: "transcript_review_build",
+      stageTitle: "G0 build",
+      reuse: { status: "reused", copied: [], hasStagedWrites: false },
+      refreshRun: vi.fn().mockResolvedValue(run),
+      showToast,
+      autoContinuePipeline,
+      openTranscriptReuseEdit,
+      ...workbench,
+    });
+    expect(openTranscriptReuseEdit).not.toHaveBeenCalled();
+  });
 });
 
 function stage(id: string, title = id): StageInfo {

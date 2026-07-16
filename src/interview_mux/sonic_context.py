@@ -206,6 +206,10 @@ def classify_atlas_bucket(ctx: RunContext) -> str:
 
     style = state.get("style") if isinstance(state.get("style"), dict) else {}
     format_class = str(style.get("format_class") or "").strip()
+    if not format_class and ctx.artifact_exists("understanding/speakers.json"):
+        spk_doc = _read_if_dict(ctx, "understanding/speakers.json") or {}
+        profile = spk_doc.get("conversation_profile") if isinstance(spk_doc.get("conversation_profile"), dict) else {}
+        format_class = str(profile.get("format_class_candidate") or "").strip()
     overlap_proxy = float(((sap.get("pacing") or {}).get("overlap_proxy")) or 0.0)
     room_hint = str(((sap.get("energy") or {}).get("room_timbre_hint")) or "").lower()
     segs = [s for s in (manifest.get("segments") or []) if isinstance(s, dict)]

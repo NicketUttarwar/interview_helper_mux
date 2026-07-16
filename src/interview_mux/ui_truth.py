@@ -144,6 +144,9 @@ def reconcile_stage_status(stage: dict[str, Any]) -> dict[str, Any]:
     """Downgrade done → incomplete when required artifacts are pending/partial (T1)."""
     if stage.get("status") != "done":
         return stage
+    # N/A / optional skips: artifacts are marked n_a before reconcile; never T1-downgrade.
+    if stage.get("stage_output_mode") == "optional_skipped":
+        return stage
     arts = stage.get("artifacts_status") or {}
     lifecycle = stage.get("artifacts_lifecycle") or {}
     for path, st in arts.items():

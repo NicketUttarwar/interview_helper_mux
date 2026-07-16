@@ -74,14 +74,14 @@ export function stageAwaitingWriteApproval(
 export function canLoadPendingWriteContent(
   run: RunData | null,
   stageId: string,
-  opts?: { actionBusy?: boolean },
+  opts?: { actionBusy?: boolean; apiPaths?: string[] },
 ): boolean {
   if (!run || !stageId) return false;
   if (isWriteApprovalSaveInProgress(run, { actionBusy: opts?.actionBusy, stageId })) {
     return false;
   }
   if (!stageAwaitingWriteApproval(run, stageId)) return false;
-  return resolvePendingWritePaths(run, stageId).length > 0;
+  return resolvePendingWritePaths(run, stageId, opts?.apiPaths).length > 0;
 }
 
 /** 404 after staging was flushed or wrong stage — safe to ignore in write-approval UI. */

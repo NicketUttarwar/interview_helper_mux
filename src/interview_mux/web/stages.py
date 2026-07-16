@@ -47,8 +47,9 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
         "STT review prep",
         "Rank transcript clips by AWS confidence and pre-cut audio for human review.",
         "analysis",
-        ("transcript/review_queue.json",),
+        ("transcript/review_queue.json", "transcript/corrections.json"),
         (),
+        ("glob:transcript/review_clips/*.wav",),
     ),
 )
 
@@ -73,8 +74,15 @@ TRANSCRIPT_REVIEW_GATE = StageInfo(
     "Transcript review",
     "Listen to ranked clips, correct speech-to-text errors, then mark review complete before analysis continues.",
     "gate",
-    ("transcript/review_queue.json", "transcript/corrections.json"),
-    ("transcript/corrections.json",),
+    (
+        "transcript/review_queue.json",
+        "transcript/corrections.json",
+        "transcript/full.json",
+        "operator/transcript_corrected.json",
+        "operator/transcript_corrected.txt",
+        "operator/transcript_corrections.json",
+    ),
+    ("transcript/corrections.json", "transcript/full.json"),
 )
 
 DISFLUENCY_REVIEW_GATE = StageInfo(

@@ -15,6 +15,7 @@ import {
 import { formatApiError } from "../../utils/safeApi";
 import { isFullAutopilotEnabled } from "../../utils/fullAutopilot";
 import { ReviewPanelControls } from "./ReviewPanelControls";
+import { SegmentationReviewPanel } from "./SegmentationReviewPanel";
 import type { StageInfo } from "../../types";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
@@ -152,7 +153,7 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
   const loadContent = useCallback(
     async (path: string) => {
       if (!runId || !path || fileKind(path) === "audio") return;
-      if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy })) {
+      if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy, apiPaths })) {
         return;
       }
 
@@ -181,10 +182,9 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
       } catch (reason) {
         if (gen !== contentLoadGenRef.current) return;
         if (isStalePendingWriteLoadError(reason)) return;
-        if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy })) return;
+        if (!canLoadPendingWriteContent(runRef.current, pendingStageId, { actionBusy, apiPaths })) return;
         setEditorValue("");
         const msg = formatApiError(reason, `Load ${path}`);
-        showToast(msg, "error");
         appendClientLog(msg, "error", pendingStageId);
       } finally {
         if (gen === contentLoadGenRef.current) {
@@ -192,14 +192,14 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         }
       }
     },
-    [runId, pendingStageId, actionBusy, showToast, appendClientLog],
+    [runId, pendingStageId, actionBusy, apiPaths, showToast, appendClientLog],
   );
 
   useEffect(() => {
     if (!selectedPath || fileKind(selectedPath) === "audio") return;
-    if (!canLoadPendingWriteContent(run, pendingStageId, { actionBusy })) return;
+    if (!canLoadPendingWriteContent(run, pendingStageId, { actionBusy, apiPaths })) return;
     void loadContent(selectedPath);
-  }, [selectedPath, loadContent, run, pendingStageId, actionBusy]);
+  }, [selectedPath, loadContent, run, pendingStageId, actionBusy, apiPaths]);
 
   useEffect(() => {
     setSelectedPath((prev) => {
@@ -447,6 +447,8 @@ export function WriteApprovalPanel({ stage }: { stage: StageInfo }) {
         </div>
         <ReviewPanelControls />
       </div>
+
+      <SegmentationReviewPanel stage={stage} />
 
       {loading ? (
         <p className="hint empty-state">

@@ -60,8 +60,10 @@ export async function invokeStepFooterAction(
   }
 
   if (
+    step.id === "review_transcript" ||
     step.id === "complete_g0" ||
-    (step.embed === "transcript_review" && label.includes("complete transcript"))
+    (step.embed === "transcript_review" &&
+      (label.includes("complete transcript") || label.includes("save and complete")))
   ) {
     await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush", step.id]);
     await handlers.completeTranscriptReview(false);

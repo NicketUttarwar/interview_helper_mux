@@ -19,7 +19,8 @@ interface Props {
 
 function stepPrimaryTestId(step: StageStep): string {
   if (step.kind === "write_approval") return "write-approval-save-continue";
-  if (step.id === "complete_g0") return "complete-transcript-review";
+  if (step.id === "review_transcript" || step.id === "complete_g0")
+    return "complete-transcript-review";
   if (step.id === "complete_g05") return "complete-disfluency-review";
   if (step.id === "prompt_review") return "approve-sfx-prompts";
   if (step.kind === "handoff") return "handoff-acknowledge";

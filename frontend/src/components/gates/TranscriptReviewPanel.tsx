@@ -41,50 +41,26 @@ export function TranscriptReviewPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
-  const [text, setText] = useState("");
   const [clipLoadError, setClipLoadError] = useState(false);
   const [correctionStats, setCorrectionStats] = useState<TranscriptCorrectionStats>(
     emptyCorrectionStats(),
   );
   const [draftRevision, setDraftRevision] = useState(0);
-  const textRef = useRef(text);
   const indexRef = useRef(0);
   const clipAudioRef = useRef<HTMLAudioElement>(null);
   const dockRef = useRef<TranscriptDockHandle>(null);
   const chunkDraftsRef = useRef<Map<string, string>>(new Map());
   const chunkDirtyRef = useRef<Set<string>>(new Set());
 
-  textRef.current = text;
-
   const reportError = (reason: unknown, label: string) => {
     const msg = formatApiError(reason, label);
     setError(msg);
-    showToast(msg, "error");
     appendClientLog(msg, "error", "transcript_review");
   };
 
   const chunks = transcriptReview?.chunks || [];
   const idx = Math.min(index, Math.max(0, chunks.length - 1));
   const chunk = chunks[idx];
-
-  const baselineForChunk = useCallback(
-    (c: (typeof chunks)[number]) => c.corrected_text || c.text || "",
-    [],
-  );
-
-  const stashCurrentChunkDraft = useCallback(() => {
-    const chunksNow = transcriptReview?.chunks || [];
-    const idxNow = indexRef.current;
-    const chunkNow = chunksNow[idxNow];
-    if (!chunkNow) return;
-    const baseline = baselineForChunk(chunkNow);
-    const current = textRef.current;
-    if (current !== baseline) {
-      chunkDraftsRef.current.set(chunkNow.chunk_id, current);
-      chunkDirtyRef.current.add(chunkNow.chunk_id);
-      setDraftRevision((n) => n + 1);
-    }
-  }, [transcriptReview?.chunks, baselineForChunk]);
 
   useEffect(() => {
     setLoading(true);
@@ -101,16 +77,6 @@ export function TranscriptReviewPanel() {
   }, [idx]);
 
   useEffect(() => {
-    if (!chunk) return;
-    const draft = chunkDraftsRef.current.get(chunk.chunk_id);
-    if (draft !== undefined) {
-      setText(draft);
-      return;
-    }
-    setText(baselineForChunk(chunk));
-  }, [chunk?.chunk_id, chunk?.corrected_text, chunk?.text, baselineForChunk]);
-
-  useEffect(() => {
     setClipLoadError(false);
   }, [chunk?.chunk_id]);
 
@@ -123,23 +89,11 @@ export function TranscriptReviewPanel() {
     });
   };
 
-  useEffect(() => {
-    registerStepPrimaryPrep("transcript_dock_flush", async () => {
-      await dockRef.current?.flushPendingSaves();
-    });
-    return () => registerStepPrimaryPrep("transcript_dock_flush", null);
-  }, []);
-
+  // transcript_dock_flush is registered by TranscriptDockViewer (all dock embeds).
   useEffect(() => {
     registerStepPrimaryPrep("transcript_review_flush", async () => {
       if (!run) return;
-      stashCurrentChunkDraft();
-      const chunksNow = transcriptReview?.chunks || [];
       const dirtyIds = new Set(chunkDirtyRef.current);
-      const idxNow = indexRef.current;
-      const chunkNow = chunksNow[idxNow];
-      if (chunkNow) dirtyIds.add(chunkNow.chunk_id);
-
       try {
         for (const chunkId of dirtyIds) {
           const draft = chunkDraftsRef.current.get(chunkId);
@@ -157,7 +111,7 @@ export function TranscriptReviewPanel() {
       }
     });
     return () => registerStepPrimaryPrep("transcript_review_flush", null);
-  }, [run, transcriptReview?.chunks, loadTranscriptReview, refreshRun, stashCurrentChunkDraft]);
+  }, [run, loadTranscriptReview, refreshRun]);
 
   const handleLocalWordsChange = useCallback(
     (words: TranscriptWord[]) => {
@@ -166,14 +120,12 @@ export function TranscriptReviewPanel() {
       const synced = chunkTextFromWords(words, c.start_ms, c.end_ms);
       chunkDraftsRef.current.set(c.chunk_id, synced);
       chunkDirtyRef.current.add(c.chunk_id);
-      setText(synced);
       setDraftRevision((n) => n + 1);
     },
     [chunks],
   );
 
   const goToIndex = (next: number) => {
-    if (indexRef.current !== next) stashCurrentChunkDraft();
     indexRef.current = next;
     setIndex(next);
   };
@@ -225,9 +177,12 @@ export function TranscriptReviewPanel() {
   return (
     <div className="tr-review-panel">
       <p className="hint sm tr-review-panel-hint">
-        Edits are kept while you move between clips — use{" "}
-        <strong>Save and complete review</strong> in the banner above when finished.
-        {pendingCount > 0 ? ` (${pendingCount} clip${pendingCount === 1 ? "" : "s"} not yet marked reviewed)` : null}
+        Edit words in the transcript below. Changes save when you finish with{" "}
+        <strong>Save and complete review</strong> (banner) or{" "}
+        <strong>Complete transcript review</strong> (step footer).
+        {pendingCount > 0
+          ? ` (${pendingCount} clip${pendingCount === 1 ? "" : "s"} not yet marked reviewed)`
+          : null}
         {hasLocalDrafts ? " Unsaved local edits pending." : null}
       </p>
 
@@ -301,26 +256,6 @@ export function TranscriptReviewPanel() {
           </button>
         </div>
       </div>
-
-      <details className="tr-bulk-edit-details">
-        <summary>Chunk bulk edit</summary>
-        <textarea
-          className="tr-textarea tr-textarea--compact"
-          rows={2}
-          value={text}
-          onChange={(e) => {
-            const next = e.target.value;
-            setText(next);
-            if (chunk) {
-              chunkDraftsRef.current.set(chunk.chunk_id, next);
-              const baseline = baselineForChunk(chunk);
-              if (next !== baseline) chunkDirtyRef.current.add(chunk.chunk_id);
-              else chunkDirtyRef.current.delete(chunk.chunk_id);
-              setDraftRevision((n) => n + 1);
-            }
-          }}
-        />
-      </details>
 
       <section className="tr-review-dock-section">
         <TranscriptDockViewer

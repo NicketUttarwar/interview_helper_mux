@@ -65,7 +65,6 @@ export function DisfluencyReviewPanel() {
     const msg = formatApiError(reason, label);
     setError(msg);
     if (opts?.toast !== false) {
-      showToast(msg, "error");
       appendClientLog(msg, "error", "disfluency_review");
     }
   };

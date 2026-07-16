@@ -66,7 +66,6 @@ export function ProfilePanel() {
     } catch (e) {
       const msg = formatApiError(e, "Load profile");
       setStatus(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error", "analysis_profile");
     }
   }, [run, showToast, appendClientLog]);
@@ -141,7 +140,6 @@ export function ProfilePanel() {
       await loadProfile();
     } catch (e) {
       const msg = formatApiError(e, "Save profile");
-      showToast(msg, "error");
       appendClientLog(msg, "error", "analysis_profile");
     } finally {
       setSaving(false);

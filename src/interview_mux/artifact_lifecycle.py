@@ -297,6 +297,20 @@ def stage_output_mode(ctx: Any, stage_id: str) -> str:
         if ctx.is_done("audio_preclean") and preclean_was_skipped(ctx):
             return "optional_skipped"
 
+    # N/A gates force-marked done must not T1-downgrade to incomplete via pending deps.
+    if stage_id == "g1_5_preview_pickup":
+        from interview_mux.gates_tbiy import g1_5_preview_pickup_enabled
+        from interview_mux.production_profile import is_tbiy
+
+        if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
+            return "optional_skipped"
+
+    if stage_id in ("disfluency_review", "disfluency_extract"):
+        from interview_mux.disfluency.config import disfluency_enabled
+
+        if not disfluency_enabled():
+            return "optional_skipped"
+
     info = STAGE_BY_ID.get(stage_id)
     if not info or not info.artifacts:
         return "none"

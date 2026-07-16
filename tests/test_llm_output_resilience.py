@@ -89,8 +89,8 @@ def test_sanitize_strips_unanchored_claims(tmp_path):
     assert report.stripped[0]["path"] == "key_claims[1]"
 
 
-def test_resolve_persist_plan_partial_on_lint(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "persist_partial")
+def test_resolve_persist_plan_blocks_partial_on_lint_for_critical(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "persist_partial_blocked")
     envelope = {
         "status": "complete",
         "artifacts": {
@@ -113,6 +113,37 @@ def test_resolve_persist_plan_partial_on_lint(tmp_path):
         [],
         ["key_claim without evidence anchor"],
         cfg=_resilience_cfg(),
+    )
+    assert plan.action == "none"
+    assert "no partial persist" in (plan.report.summary or "").lower()
+
+
+def test_resolve_persist_plan_partial_allowed_when_quality_block_disabled(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "persist_partial_opt_out")
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "thesis": "Main point",
+            "topics": [
+                {
+                    "name": "Tech",
+                    "summary": "Topic summary",
+                    "approx_time_range": "0:00-2:00",
+                }
+            ],
+            "key_claims": [{"id": "c2", "claim": "No anchor"}],
+        },
+    }
+    cfg = _resilience_cfg()
+    cfg["analysis"]["flow_hardening"]["block_partial_on_quality_fail"] = False
+    plan = resolve_persist_plan(
+        ctx,
+        "content_context",
+        envelope,
+        {"verdict": "accept"},
+        [],
+        ["key_claim without evidence anchor"],
+        cfg=cfg,
     )
     assert plan.action == "partial"
     assert plan.merge_memory is False
@@ -227,27 +258,24 @@ def test_apply_resilience_critical_null_blocks(tmp_path, monkeypatch):
     assert plan.action == "none"
 
 
-def test_finalize_stage_attempt_partial_persist(tmp_path, monkeypatch):
+def test_finalize_stage_attempt_blocks_partial_persist_on_lint(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())
-    ctx = isolated_run_ctx(tmp_path, "res_finalize")
-
-    def persist(_ctx, _artifacts):
-        return None
+    ctx = isolated_run_ctx(tmp_path, "res_finalize_blocked")
 
     envelope = {
         "status": "complete",
-            "artifacts": {
-                "thesis": "Saved thesis",
-                "topics": [
-                    {
-                        "name": "Tech",
-                        "summary": "Topic summary",
-                        "approx_time_range": "0:00-2:00",
-                    }
-                ],
-                "key_claims": [{"id": "c2", "claim": "No anchor"}],
-            },
+        "artifacts": {
+            "thesis": "Saved thesis",
+            "topics": [
+                {
+                    "name": "Tech",
+                    "summary": "Topic summary",
+                    "approx_time_range": "0:00-2:00",
+                }
+            ],
+            "key_claims": [{"id": "c2", "claim": "No anchor"}],
+        },
         "_routing_meta": {
             "deterministic_lint_errors": ["key_claim without evidence anchor"],
             "routed_via_collate": False,
@@ -262,12 +290,10 @@ def test_finalize_stage_attempt_partial_persist(tmp_path, monkeypatch):
         {"verdict": "accept"},
         [],
         0,
-        persist_artifacts=persist,
+        persist_artifacts=lambda _c, _a: None,
     )
-    assert ctx.artifact_exists("understanding/content_brief.json")
-    brief = ctx.read_json("understanding/content_brief.json")
-    assert brief["thesis"] == "Saved thesis"
-    assert (brief.get("_meta") or {}).get("resilience", {}).get("partial") is True
+    assert not ctx.artifact_exists("understanding/content_brief.json")
+    assert (envelope.get("_routing_meta") or {}).get("persist_action") == "none"
 
 
 def test_complete_llm_stage_or_halt_strict_blocks_partial(tmp_path, monkeypatch):

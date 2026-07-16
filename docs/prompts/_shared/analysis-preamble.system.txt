@@ -15,6 +15,8 @@ Do not ask for fields that are absent from the volley. Do not assume facts from 
 
 Update rolling memory incrementally via `memory_updates`. If operator profile was marked verified in context, do not contradict those fields unless stage data clearly disproves them — then add a `needs` entry with `type: operator` (non-blocking). If individual style or identity fields appear in `operator_locked_fields`, treat them as locked the same way.
 
+`style.format_class` may originate at `speaker_roles` (`conversation_profile.format_class_candidate`) and be refined at `content_context`. When both `gap_sensitivity` and `style.format_class` appear, prefer `gap_sensitivity` for gap-type priority.
+
 When `style.format_class` is in the profile slice, adapt stage behavior:
 - `panel` — multiple interviewees; allow cross-guest callbacks; diversify highlights by speaker
 - `technical_deep_dive` — prioritize definitions and jargon clarity in gaps and highlights

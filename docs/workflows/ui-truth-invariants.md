@@ -25,6 +25,18 @@ Canonical rules so workflow chips, sidebar, middle-panel outputs, and operator-a
 
 **Never** show `provider.json` / `lineage.json` as pending when `audio_preclean` is `done` + `optional_skipped`.
 
+**N/A gates** (force-`done` when inapplicable) must use `stage_output_mode: optional_skipped` with artifact lifecycle `n_a`, same as preclean skip:
+
+| Stage | When N/A |
+|-------|----------|
+| `g1_5_preview_pickup` | Not TBIY, or `g1_5_preview_pickup` disabled |
+| `disfluency_review` / `disfluency_extract` | Disfluency disabled |
+| `audio_preclean` | Operator dismissed / skip stamp |
+
+Without `n_a`, T1 would downgrade `done` → `incomplete` (e.g. pending `gap_report.json`) and auto-navigation would jump to a distant **Failed** panel with nothing to do.
+
+GUI: `findNextRunnableStage` only prioritizes **actionable** incompletes (upstream ready, not `optional_skipped`). Unreachable incompletes show **Waiting**, not Failed.
+
 ## Invariant codes (backend `ui_truth.validate_run_snapshot`)
 
 | Code | Rule |

@@ -178,7 +178,7 @@ export function StageParentProgressBanner({
     primaryStep.embed === "disfluency_review"
       ? "review_fillers"
       : primaryStep.embed === "transcript_review"
-        ? "listen_clips"
+        ? "review_transcript"
         : primaryStep.id;
 
   return (

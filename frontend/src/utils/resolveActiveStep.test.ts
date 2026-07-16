@@ -74,8 +74,15 @@ describe("resolveFocusStepId", () => {
       run_id: "exec_test",
       stages: [
         stage("transcript_review", "action_required", [
-          { id: "listen_clips", status: "todo", kind: "gate", number: 1, label: "Listen", review: [] },
-          { id: "complete_g0", status: "todo", kind: "gate", number: 4, label: "Complete", review: [] },
+          {
+            id: "review_transcript",
+            status: "todo",
+            kind: "gate",
+            number: 1,
+            label: "Review and correct transcript",
+            review: [],
+            primary_button: "Complete transcript review",
+          },
         ]),
         stage("disfluency_review", "action_required", [
           { id: "review_fillers", status: "todo", kind: "gate", number: 1, label: "Review", review: [] },
@@ -83,7 +90,7 @@ describe("resolveFocusStepId", () => {
         ]),
       ],
     };
-    expect(resolveFocusStepId(run, "transcript_review")).toBe("complete_g0");
+    expect(resolveFocusStepId(run, "transcript_review")).toBe("review_transcript");
     expect(resolveFocusStepId(run, "disfluency_review")).toBe("review_fillers");
   });
 

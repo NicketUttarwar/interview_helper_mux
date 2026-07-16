@@ -151,6 +151,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `content_context` | Transcript length ≥ ~80 chars; G0 complete | Extend transcript or complete G0 |
 | `boundary_detection` | `speakers.json` with ≥1 `interviewer`; `pause_ladder_hints` + SAP `pace_class` in volley | Re-run `speaker_roles` or edit speakers; `--from-stage boundary_detection` after G0 timestamp fix |
 | `interview_spine_build` | `understanding/interview_spine.json` when enabled; CLAP optional (`retrieval.enabled: false` fail-open) | `--from-stage interview_spine_build` or Story Board **Recompute spine**; complete G0 + SAP first |
+| `source_topology_build` (TBIY) | `source_topology.json` + `flow_adaptation.json`; when `production_style=tbiy_narrative`, Story Board shows conformance score / acts / moat / VO-bridge modes | Confirm topology + pickup speaker; see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md) |
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
 | Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review Story Board panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
@@ -209,7 +210,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `understanding/content_brief.json` (pass 1) | After `content_context`: **complete** for `thesis`, `topics`, sensible typed `key_claims` | **Fill gaps** or `--from-stage content_context`; edit in Files tab — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md) |
 | `understanding/content_brief.json` (pass 2) | After `content_brief_reanchor`: `topics[].segment_ids` populated; `topic_relationships` present; claims have `evidence_segment_ids` where possible | `--from-stage content_brief_reanchor` after manifest stable |
 | `analysis_state.hypotheses` | Open hypotheses from pass 1 confirmed/rejected after reanchor | Re-run `content_brief_reanchor` or edit profile |
-| `understanding/speakers.json` | Roles match who asks vs answers | Edit + `--from-stage speaker_roles` or fix in profile |
+| `understanding/speakers.json` | Roles match who asks vs answers; confirm `conversation_hypotheses` at handoff when listed | Edit + `--from-stage speaker_roles` or **Confirm interpretation** in handoff panel (`gui.speaker_roles.confirm_hypothesis`) |
 | `understanding/source_acoustic_profile.json` | `pacing.pace_class` and `mix_contract` look plausible for the interview cadence | Re-run `--from-stage source_acoustic_profile`; verify transcript timing + ingest WAV |
 | **Recompute SAP** (GUI) | **Recompute profile** on `source_acoustic_profile` stage re-derives from current ingest/transcript; invalidates downstream when pace class changes | Use after G0 corrections or preclean; check `gui_log.jsonl` for `acoustic_profile_recomputed` |
 | **SAP overrides** (GUI) | Optional `operator_overrides.pace_class` / `underscore_policy` saved without re-running DSP | Clear overrides to restore derived values — [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) |
@@ -253,6 +254,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 |-------|------|--------|
 | `gap_evaluations.json` | High-severity rows have plausible `gap_type` | `--from-stage missing_framing` |
 | `gap_report.json` | Each `delivery: record` has `line_id` / target segment | `--from-stage optimal_questions` |
+| TBIY VO bridges | When `vo_bridge_priority` is `high`/`normal`, expect `reaction_line` / `chapter_hook` / `transition_banter` toward least-spoken pickup — do **not** expect documentary fallback | Confirm pickup speaker; re-run `optimal_questions` |
 | `interviewer_script.txt` | Readable script matches report | Edit gap_report + regenerate script if tooling supports |
 | **G1** | Every required line has `vo_pickup/{line_id}.wav` | Record pickups; optional pickup pre-clean — [operator-gates.md](./operator-gates.md#g1--human-vo-pickup) |
 | `delivery: synthesize` | v1 **does not** trigger G1 — do not wait for TTS | Expect `record` only until product ships synthesize |

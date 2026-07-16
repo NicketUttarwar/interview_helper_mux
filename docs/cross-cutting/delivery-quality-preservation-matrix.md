@@ -30,7 +30,7 @@ See also: [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_ac
 | source_acoustic_profile | stage | pipeline.stage.source_acoustic_profile | integrity_only | no | no | — | SAP for mix |
 | interview_spine_build | stage | pipeline.stage.interview_spine_build | integrity_only | no | no | post_interview_spine | Soft unless escalated |
 | speaker_roles | stage | pipeline.stage.speaker_roles | integrity_only | no | no | — | LLM |
-| source_topology_build | stage | pipeline.stage.source_topology_build | produce | no | no | — | Writes `flow_adaptation.json` |
+| source_topology_build | stage | pipeline.stage.source_topology_build | produce | no | no | — | Writes `flow_adaptation.json` + graduated `tbiy_conformance` when TBIY |
 | content_context | stage | pipeline.stage.content_context | integrity_only | no | no | — | content_brief |
 | boundary_detection | stage | pipeline.stage.boundary_detection | integrity_only | no | no | post_boundary_detection | Hard |
 | segment_classification | stage | pipeline.stage.segment_classification | integrity_only | no | no | post_segmentation | Hard |

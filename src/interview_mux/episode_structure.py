@@ -240,6 +240,14 @@ def _detect_axes(ctx: RunContext) -> dict[str, str]:
     except Exception:
         state = {}
     style = state.get("style") if isinstance(state.get("style"), dict) else {}
+    format_class = str(style.get("format_class") or "").strip()
+    if not format_class and ctx.artifact_exists("understanding/speakers.json"):
+        try:
+            spk = ctx.read_json("understanding/speakers.json") or {}
+            profile = spk.get("conversation_profile") if isinstance(spk.get("conversation_profile"), dict) else {}
+            format_class = str(profile.get("format_class_candidate") or "").strip()
+        except Exception:
+            format_class = ""
     sonic = load_sonic_context(ctx) or {}
     scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
     atlas = str(scenario.get("atlas_bucket") or "").strip()
@@ -249,7 +257,7 @@ def _detect_axes(ctx: RunContext) -> dict[str, str]:
         except Exception:
             atlas = "one_on_one"
     return {
-        "format_class": str(style.get("format_class") or scenario.get("format_class") or "unknown"),
+        "format_class": format_class or str(scenario.get("format_class") or "unknown"),
         "tone_class": str(style.get("tone_class") or scenario.get("tone_class") or "unknown"),
         "atlas_bucket": atlas or "one_on_one",
         "production_style": str(style.get("production_style") or ""),

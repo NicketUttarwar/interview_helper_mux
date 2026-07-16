@@ -18,4 +18,4 @@ def test_block_partial_segment_classification_on_coverage_lint(tmp_path):
     )
     assert plan.action == "none"
     summary = (plan.report.summary or "").lower()
-    assert "blocked" in summary or "schema validation failed" in summary
+    assert "no partial persist" in summary or "blocked" in summary or "schema validation failed" in summary

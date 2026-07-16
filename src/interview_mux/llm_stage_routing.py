@@ -62,9 +62,10 @@ PersistFn = Callable[[RunContext, dict[str, Any]], None]
 SyncFn = Callable[[RunContext, dict[str, Any]], None]
 
 _LINT_EVIDENCE_APPENDIX = (
-    "Prior attempt failed evidence anchoring. Every topic MUST include segment_ids or "
-    "approx_time_range; every key_claim MUST include segment_ids, evidence_segment_ids, "
-    "and/or approx_time_range tied to transcript moments."
+    "Prior attempt failed evidence anchoring. Pre-segmentation: every topic and key_claim "
+    "MUST include a non-null approx_time_range (mm:ss-mm:ss) drawn from transcript timing. "
+    "Use JSON null for segment_ids/evidence_segment_ids when seg_* ids do not exist yet — "
+    "empty [] arrays without a time range will fail lint again."
 )
 _LINT_THESIS_APPENDIX = (
     "Prior attempt had an empty thesis. Produce a non-empty one-sentence thesis grounded "
@@ -294,21 +295,71 @@ def _run_primary_with_volley_retries(
     call_attempt: int = 1,
     system_appendix: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
+    from interview_mux.truncation_policy import TruncationEscalationRequired
+
     system_override = _system_prompt_with_appendix(prompt_rel, stage_key, system_appendix)
-    envelope = run_prompt_envelope(
-        stage_key,
-        prompt_rel,
-        messages=volley,
-        ctx=ctx,
-        task_kind="primary",
-        bump_tier=bump_tier,
-        call_attempt=call_attempt,
-        system_override=system_override,
-    )
+
+    def _call_primary(*, retry_index: int = 0) -> dict[str, Any]:
+        try:
+            return run_prompt_envelope(
+                stage_key,
+                prompt_rel,
+                messages=volley,
+                ctx=ctx,
+                task_kind="primary",
+                bump_tier=bump_tier,
+                call_attempt=call_attempt,
+                system_override=system_override,
+                volley_retry_index=retry_index,
+            )
+        except TruncationEscalationRequired as exc:
+            ctx.log(
+                f"Stage {stage_key}: truncation escalation required — "
+                f"{', '.join(exc.flags[:3])}",
+                level="warning",
+                stage=stage_key,
+                action_id="truncation.escalation_required",
+                detail={"flags": exc.flags, "steps": exc.steps},
+            )
+            return {
+                "status": "blocked",
+                "artifacts": {},
+                "memory_updates": {},
+                "needs": [
+                    {
+                        "type": "decompose",
+                        "stage": stage_key,
+                        "reason": f"LLM input truncated: {', '.join(exc.flags[:3])}",
+                        "blocking": True,
+                    }
+                ],
+                "follow_up_investigations": [],
+                "confidence": 0.0,
+                "reasoning_summary": f"Blocked: truncated LLM input ({', '.join(exc.flags[:3])})",
+                "_llm_meta": {
+                    "task_kind": "primary",
+                    "truncation_escalation": {
+                        "rounds": 1,
+                        "steps": list(exc.steps),
+                        "final_flags": list(exc.flags),
+                        "provider": "openai",
+                    },
+                },
+            }
+
+    envelope = _call_primary()
     artifacts = envelope.get("artifacts") or {}
     schema_errors = validate_stage_artifacts(stage_key, artifacts)
     envelope_errors = validate_envelope(envelope)
     all_errors = envelope_errors + schema_errors
+
+    # Truncation hard-block: do not volley-retry with the same truncated messages.
+    if any(
+        isinstance(n, dict) and n.get("type") == "decompose"
+        for n in (envelope.get("needs") or [])
+    ) and (envelope.get("_llm_meta") or {}).get("truncation_escalation", {}).get("final_flags"):
+        reconcile_envelope_confidence(stage_key, envelope)
+        return envelope, volley, all_errors
 
     retries = 0
     max_retries = _max_volley_retries(ctx)
@@ -322,17 +373,7 @@ def _run_primary_with_volley_retries(
             retry_index=retries,
             ctx=ctx,
         )
-        envelope = run_prompt_envelope(
-            stage_key,
-            prompt_rel,
-            messages=volley,
-            ctx=ctx,
-            task_kind="primary",
-            bump_tier=bump_tier,
-            call_attempt=call_attempt,
-            system_override=system_override,
-            volley_retry_index=retries,
-        )
+        envelope = _call_primary(retry_index=retries)
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
         envelope_errors = validate_envelope(envelope)
@@ -352,16 +393,7 @@ def _run_primary_with_volley_retries(
             retry_index=retries,
             ctx=ctx,
         )
-        envelope = run_prompt_envelope(
-            stage_key,
-            prompt_rel,
-            messages=volley,
-            ctx=ctx,
-            task_kind="primary",
-            bump_tier=bump_tier,
-            call_attempt=call_attempt,
-            volley_retry_index=retries,
-        )
+        envelope = _call_primary(retry_index=retries)
         artifacts = envelope.get("artifacts") or {}
         schema_errors = validate_stage_artifacts(stage_key, artifacts)
         envelope_errors = validate_envelope(envelope)
@@ -602,6 +634,8 @@ def run_llm_stage_with_routing(
     force_decompose: bool = False,
     system_appendix: str | None = None,
     stage_input_obligation: dict[str, Any] | None = None,
+    context_cap_boost_round: int = 0,
+    clear_field_truncation: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any], list[str], int, str | None]:
     """
     Run primary → validate → arbiter → optional uptier/decompose.
@@ -807,7 +841,8 @@ def run_llm_stage_with_routing(
         shard_plan, shard_plan_source = build_deterministic_shard_plan(
             stage_key,
             stage_input,
-            truncation_flags=["lint_retry_force_decompose"],
+            truncation_flags=["lint_retry_force_decompose"]
+            + (["field_truncated"] if clear_field_truncation else []),
         )
         if shard_plan:
             with logged_step(f"{stage_key}/lint_retry_decompose", ctx=ctx, stage=stage_key):
@@ -821,6 +856,10 @@ def run_llm_stage_with_routing(
                     stage_input=stage_input,
                     shard_plan=shard_plan,
                     parent_attempt=attempt,
+                    context_cap_boost_round=max(int(context_cap_boost_round), 1)
+                    if clear_field_truncation
+                    else int(context_cap_boost_round),
+                    clear_field_truncation=bool(clear_field_truncation),
                 )
                 schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})
                 arbiter_result = run_llm_arbiter(
@@ -858,39 +897,148 @@ def run_llm_stage_with_routing(
         )
         volley, local_framing = router_outcome.volley, router_outcome.framing
         truncation_flags = truncation_flags_for_volley(volley)
-    if (
-        flow_hardening_enabled()
-        and stage_severity(stage_key) == "high"
-        and truncation_flags
-    ):
-        ctx.log(
-            f"Stage {stage_key}: high-severity truncation — blocking primary, need decompose.",
-            level="warning",
-            stage=stage_key,
+    cap_boost_used = 0
+    if flow_hardening_enabled() and truncation_flags:
+        from interview_mux.truncation_policy import rebuild_volley_clearing_truncation
+
+        # Holistic escalation: rebuild volley with higher caps before decompose/block.
+        rebuild = rebuild_volley_clearing_truncation(
+            ctx,
+            stage_key,
+            stage_input,
+            profile="full",
+            task_kind="primary",
+            initial_volley=volley,
+            initial_framing=local_framing,
+            initial_flags=truncation_flags,
         )
-        envelope = {
-            "status": "blocked",
-            "artifacts": {},
-            "memory_updates": {},
-            "needs": [
-                {
-                    "type": "decompose",
-                    "stage": stage_key,
-                    "reason": f"Evidence truncated: {', '.join(truncation_flags[:3])}",
-                    "blocking": True,
-                }
-            ],
-            "follow_up_investigations": [],
-            "reasoning_summary": "Truncation hard-block before primary.",
-        }
-        arbiter_result = {
-            "verdict": "decompose",
-            "confidence": 0.9,
-            "gaps": truncation_flags,
-            "shard_plan": [],
-            "reasoning_summary": "Flow hardening: high-severity stage with truncated context.",
-        }
-        return envelope, volley, arbiter_result, [], 0, None
+        volley = rebuild.volley
+        local_framing = rebuild.framing
+        truncation_flags = rebuild.flags
+        cap_boost_used = rebuild.boost_round
+        if rebuild.cleared:
+            ctx.log(
+                f"Stage {stage_key}: truncation cleared after cap-boost rebuild "
+                f"(round={rebuild.boost_round}, steps={rebuild.steps[:4]})",
+                level="info",
+                stage=stage_key,
+                action_id="truncation.cap_boost_cleared",
+                detail={"boost_round": rebuild.boost_round, "steps": rebuild.steps},
+            )
+        elif stage_key in DECOMPOSE_ELIGIBLE:
+            shard_plan, shard_plan_source = build_deterministic_shard_plan(
+                stage_key,
+                stage_input,
+                truncation_flags=truncation_flags or ["field_truncated"],
+            )
+            if shard_plan:
+                ctx.log(
+                    f"Stage {stage_key}: truncated evidence after cap boost — "
+                    f"auto-escalating to decompose ({', '.join(truncation_flags[:3])}).",
+                    level="warning",
+                    stage=stage_key,
+                    action_id="truncation.auto_decompose",
+                    detail={
+                        "flags": truncation_flags[:4],
+                        "shard_count": len(shard_plan),
+                        "boost_round": cap_boost_used,
+                    },
+                )
+                with logged_step(f"{stage_key}/truncation_decompose", ctx=ctx, stage=stage_key):
+                    envelope, shard_count = run_shards_then_collate(
+                        ctx,
+                        stage_key=stage_key,
+                        prompt_rel=prompt_rel,
+                        stage_input=stage_input,
+                        shard_plan=shard_plan,
+                        parent_attempt=attempt,
+                        context_cap_boost_round=max(cap_boost_used, 1),
+                        clear_field_truncation=True,
+                    )
+                    schema_errors = validate_stage_artifacts(
+                        stage_key, envelope.get("artifacts") or {}
+                    )
+                    arbiter_result = run_llm_arbiter(
+                        ctx=ctx,
+                        stage_key=stage_key,
+                        attempt_number=attempt,
+                        envelope=envelope,
+                        schema_errors=schema_errors,
+                        context_chars=sum(len(m.get("content", "")) for m in volley),
+                        truncation_flags=truncation_flags,
+                        stage_expectations=_arbiter_stage_expectations(
+                            stage_key, bump_tier=True
+                        ),
+                    )
+                    envelope["_routing_meta"] = {
+                        "routed_via_collate": True,
+                        "shard_plan_source": shard_plan_source,
+                        "truncation_auto_decompose": True,
+                        "cap_boost_round": cap_boost_used,
+                        "cap_boost_steps": rebuild.steps,
+                    }
+                    lint_errors = _post_arbiter_hardening(
+                        ctx,
+                        stage_key,
+                        envelope,
+                        arbiter_result,
+                        schema_errors,
+                        volley=volley,
+                        truncation_flags=truncation_flags_for_volley(volley),
+                        routed_via_collate=True,
+                        stage_input_obligation=obligation,
+                    )
+                    envelope.setdefault("_routing_meta", {})[
+                        "deterministic_lint_errors"
+                    ] = lint_errors
+                return (
+                    envelope,
+                    volley,
+                    arbiter_result,
+                    schema_errors,
+                    shard_count,
+                    shard_plan_source,
+                )
+        if truncation_flags and stage_severity(stage_key) == "high":
+            ctx.log(
+                f"Stage {stage_key}: high-severity truncation — blocking primary "
+                f"after cap-boost exhaustion (flags={', '.join(truncation_flags[:3])}).",
+                level="warning",
+                stage=stage_key,
+                action_id="truncation.blocked",
+                detail={"flags": truncation_flags, "boost_steps": rebuild.steps},
+            )
+            envelope = {
+                "status": "blocked",
+                "artifacts": {},
+                "memory_updates": {},
+                "needs": [
+                    {
+                        "type": "decompose",
+                        "stage": stage_key,
+                        "reason": f"Evidence truncated: {', '.join(truncation_flags[:3])}",
+                        "blocking": True,
+                    }
+                ],
+                "follow_up_investigations": [],
+                "reasoning_summary": "Truncation hard-block before primary.",
+                "_llm_meta": {
+                    "truncation_escalation": {
+                        "rounds": cap_boost_used,
+                        "steps": rebuild.steps,
+                        "final_flags": truncation_flags,
+                        "provider": "openai",
+                    }
+                },
+            }
+            arbiter_result = {
+                "verdict": "decompose",
+                "confidence": 0.9,
+                "gaps": truncation_flags,
+                "shard_plan": [],
+                "reasoning_summary": "Flow hardening: high-severity stage with truncated context.",
+            }
+            return envelope, volley, arbiter_result, [], 0, None
 
     with logged_step(f"{stage_key}/primary", ctx=ctx, stage=stage_key):
         envelope, volley, schema_errors = _run_primary_with_openai_fallback(
@@ -945,6 +1093,21 @@ def run_llm_stage_with_routing(
                 ctx, stage_key, stage_input, profile="full", task_kind="primary"
             )
             volley, local_framing = router_outcome.volley, router_outcome.framing
+            uptier_flags = truncation_flags_for_volley(volley)
+            if uptier_flags:
+                from interview_mux.truncation_policy import rebuild_volley_clearing_truncation
+
+                rebuild = rebuild_volley_clearing_truncation(
+                    ctx,
+                    stage_key,
+                    stage_input,
+                    profile="full",
+                    task_kind="primary",
+                    initial_volley=volley,
+                    initial_framing=local_framing,
+                    initial_flags=uptier_flags,
+                )
+                volley, local_framing = rebuild.volley, rebuild.framing
             envelope, volley, schema_errors = _run_primary_with_openai_fallback(
                 ctx,
                 stage_key,
@@ -1003,6 +1166,13 @@ def run_llm_stage_with_routing(
                     stage_input=stage_input,
                     shard_plan=shard_plan,
                     parent_attempt=attempt,
+                    context_cap_boost_round=max(int(context_cap_boost_round), 1)
+                    if (truncation_flags or clear_field_truncation)
+                    else int(context_cap_boost_round),
+                    clear_field_truncation=bool(
+                        clear_field_truncation
+                        or bool(truncation_flags)
+                    ),
                 )
                 routed_via_collate = True
                 schema_errors = validate_stage_artifacts(stage_key, envelope.get("artifacts") or {})

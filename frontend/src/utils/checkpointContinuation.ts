@@ -335,7 +335,7 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
 
   const tryStartStage = async (stageId: string): Promise<boolean> => {
     if (!autoRunEnabled || !canAutoRunStage(stageId, refreshed, opts.config)) return false;
-    const blocker = firstUpstreamBlocker(refreshed.stages, stageId);
+    const blocker = firstUpstreamBlocker(refreshed.stages, stageId, refreshed.meta);
     if (blocker) {
       await focusStageWorkbench({
         run: refreshed,

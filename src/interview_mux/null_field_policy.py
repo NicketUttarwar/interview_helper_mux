@@ -33,7 +33,21 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
 
 # Optional paths where JSON null means "unavailable" — acknowledged and excluded from volleys.
 NULLABLE_FIELDS: dict[str, frozenset[str]] = {
-    "speaker_roles": frozenset({"speakers[].label", "speakers[].confidence", "notes"}),
+    "speaker_roles": frozenset(
+        {
+            "speakers[].label",
+            "speakers[].confidence",
+            "speakers[].narrative_function",
+            "speakers[].evidence_windows",
+            "speakers[].question_density",
+            "speakers[].avg_turn_length_ms",
+            "notes",
+            "conversation_profile",
+            "conversation_hypotheses",
+            "confirmed_conversation_hypothesis_id",
+            "gap_sensitivity",
+        }
+    ),
     "content_context": frozenset(
         {
             "audience",
@@ -41,8 +55,6 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "emotional_beats",
             "key_claims",
             "topics[].segment_ids",
-            "topics[].approx_time_range",
-            "key_claims[].approx_time_range",
             "key_claims[].segment_ids",
             "key_claims[].evidence_segment_ids",
             "emotional_beats[].segment_ids",

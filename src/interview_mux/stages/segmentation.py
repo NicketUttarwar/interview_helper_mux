@@ -1,3 +1,5 @@
+"""Boundary detection and segment classification stages."""
+
 from __future__ import annotations
 
 from interview_mux.disfluency.context import attach_disfluency_context
@@ -38,8 +40,11 @@ def run_boundaries(ctx: RunContext) -> None:
             }
         from interview_mux.interview_spine.compact import attach_spine_to_payload
 
+        from interview_mux.conversation_context import attach_conversation_context
+
         attach_spine_to_payload(c, payload, "boundary_detection")
         observe_boundary_detection_input(c, payload, pre_thin_counts=pre_thin)
+        payload = attach_conversation_context(c, payload, "boundary_detection")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("segments/boundaries.json", "boundary_detection")
@@ -56,38 +61,9 @@ def run_boundaries(ctx: RunContext) -> None:
 
 def run_classification(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
-        payload: dict = {
-            "boundaries": c.read_json("segments/boundaries.json"),
-            "transcript": c.read_json("transcript/full.json"),
-            "speakers": c.read_json("understanding/speakers.json"),
-            "content_brief": c.read_json("understanding/content_brief.json"),
-        }
-        hints = compact_profile_style_hints(load_analysis_state(c))
-        if hints:
-            payload["profile_style"] = hints
-        vf = compact_value_features_summary(c)
-        if vf:
-            payload["value_features_summary"] = vf
-        from interview_mux.interview_spine.compact import attach_spine_to_payload
+        from interview_mux.segmentation_input_resolver import build_classification_payload
 
-        attach_spine_to_payload(c, payload, "segment_classification")
-        from interview_mux.classification_obligation import (
-            build_obligation,
-            classification_context_cfg,
-        )
-
-        if classification_context_cfg().get("classification_obligation_enabled", True):
-            boundaries = payload.get("boundaries")
-            if isinstance(boundaries, dict):
-                payload["classification_obligation"] = build_obligation(
-                    c,
-                    boundaries,
-                    payload.get("speakers") if isinstance(payload.get("speakers"), dict) else None,
-                )
-        retry_ob = payload.get("classification_obligation_retry")
-        if isinstance(retry_ob, dict):
-            payload["classification_obligation_retry"] = retry_ob
-        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+        return build_classification_payload(c)
 
     def _manifest_transform(artifacts: dict) -> dict:
         segments = artifacts.get("segments") or artifacts

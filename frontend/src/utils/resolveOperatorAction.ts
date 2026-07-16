@@ -307,7 +307,7 @@ function buildLockedAction(stage: StageInfo): OperatorAction {
 }
 
 function runStageBlocked(run: RunData, stageId: string): StageInfo | null {
-  const upstream = firstUpstreamBlocker(run.stages, stageId);
+  const upstream = firstUpstreamBlocker(run.stages, stageId, run.meta);
   if (upstream && upstream.id !== stageId) return upstream;
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id && blocking.stage_id !== stageId) {
@@ -615,10 +615,39 @@ export function resolveOperatorActionForStage(
     }
   }
 
+  if (stage.stage_output_mode === "optional_skipped") {
+    const next =
+      nav.nextStage?.id === stageId
+        ? null
+        : (nav.nextStage ?? findNextRunnableStage(run.stages, run.meta) ?? null);
+    return buildDoneAction(
+      run,
+      stage,
+      next,
+      nextEntry?.number ?? nav.nextNumber,
+    );
+  }
+
   if (
     stage.status === "incomplete" ||
     (stage.status === "done" && !stageHasCommittedOutputs(stage))
   ) {
+    const upstream = firstUpstreamBlocker(run.stages, stageId, run.meta);
+    if (upstream) {
+      return {
+        mode: "locked",
+        stageId: stage.id,
+        substepId: upstream.id,
+        headline: `Waiting — finish ${upstream.title} first`,
+        subline:
+          stageIncompleteReason(stage) ||
+          "This step is not ready yet. Continue with earlier pipeline steps.",
+        primaryLabel: "Locked",
+        primaryKind: "none",
+        primaryDisabled: true,
+        modalAutoOpen: false,
+      };
+    }
     const reason = stageIncompleteReason(stage);
     return {
       mode: "error",

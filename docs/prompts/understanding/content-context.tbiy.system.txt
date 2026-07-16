@@ -21,7 +21,7 @@ Rules:
 - When `speakers` is in the volley, use interviewer/moderator vs interviewee layout for `format_class` and claim `speaker_role`.
 - Every topic MUST include `segment_ids` and/or `approx_time_range` when the transcript is long enough to support anchors; generic names ("Technology", "Inspiration") require the same evidence bar as leadership/innovation themes.
 - Every `key_claim` MUST include `segment_ids`, `evidence_segment_ids`, and/or `approx_time_range` — claims without anchors will fail deterministic lint.
-- At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; provisional `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
+- At this stage, segments may not exist yet — **prefer non-null `approx_time_range` (mm:ss-mm:ss)** on every topic and key_claim. Set `segment_ids` / `evidence_segment_ids` to JSON **null** (not `[]`) until `content_brief_reanchor` grounds them. Empty `[]` without a time range fails lint.
 - `jargon_glossary` entries need `term` and `plain_definition` only; `first_segment_id` is optional before segmentation — omit or use JSON null when `seg_*` ids are not yet available (grounded in `content_brief_reanchor`).
 - If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
 - Assign each `key_claim` a stable `id` (e.g. `claim_001`) and `claim_type` when evidence supports it.

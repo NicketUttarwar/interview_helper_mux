@@ -340,20 +340,22 @@ def _blocking(
     if not blocked:
         from interview_mux.stage_execution_reuse import (
             reuse_candidates_if_undecided,
+            stage_reuse_blocks_execute,
             stage_reuse_offers_enabled,
         )
 
         if stage_reuse_offers_enabled():
             pending = _next_pending_stage_ids(ctx)
-            if pending:
-                sid = pending[0]
+            for sid in pending:
                 candidates = reuse_candidates_if_undecided(ctx, sid)
                 if candidates:
-                    blocked = True
-                    reason = "stage_reuse"
-                    stage_id = sid
-                    message = "Choose reuse or run fresh"
                     reuse_candidates_payload = [c.to_dict() for c in candidates]
+                    if stage_reuse_blocks_execute():
+                        blocked = True
+                        reason = "stage_reuse"
+                        stage_id = sid
+                        message = "Choose reuse or run fresh"
+                    break
 
     if not blocked and handoff_between_stages_enabled():
         handoff_sid = pending_handoff_stage(ctx)

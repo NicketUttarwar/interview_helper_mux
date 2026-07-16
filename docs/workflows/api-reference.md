@@ -111,6 +111,9 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/waveform` | `path` (default `ingest/normalized.wav`) | — | `peaks[]`, `window_ms`, `duration_ms` | **404** |
 | `GET` | `/api/runs/{run_id}/transcript` | — | — | `ready`, `words[]`, `duration_ms`, `audio_path`, `low_confidence_threshold`, `review_applied_at` — see **Transcript dock word edits** | **404** |
 | `PATCH` | `/api/runs/{run_id}/transcript/words` | — | **TranscriptWordsPatchBody** | `ok`, `updated_count`, `words`, `text` — batch-safe (fuzzy replace) | **404** |
+| `PUT` | `/api/runs/{run_id}/transcript/text` | — | **TranscriptTextBody** `{text}` | Full-text save (reuse interstitial / operator re-edit); refreshes `full.json` + `operator/transcript_corrected.*` | **400** empty, **404** |
+| `POST` | `/api/runs/{run_id}/transcript/reuse-edit/complete` | — | — | Finalize one-time reuse edit after dock word patches; clears `transcript_reuse_pending_edit` | **400** empty, **404** |
+| `POST` | `/api/runs/{run_id}/transcript/reuse-edit/dismiss` | — | — | Skip one-time reuse edit; clears pending so modal does not reopen at STT review | — |
 | `GET` | `/api/runs/{run_id}/nle` | — | — | NLE JSON object | **404** |
 | `PUT` | `/api/runs/{run_id}/nle` | — | **NleBody** | `ok: true` | **404** |
 | `PATCH` | `/api/runs/{run_id}/nle/segment` | — | **NleSegmentBody** | `ok`, `nle` | **404** |
@@ -122,7 +125,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `POST` | `/api/runs/{run_id}/fill-artifact-gaps` | — | **FillArtifactGapsBody** `{path, api_consents?}` | Same ack shape as `execute` — background `mode: stage` for producing stage | **400** unknown path, **409** job running, **404** |
 | `POST` | `/api/runs/{run_id}/extract-value-features` | — | — | `{ok, profiles_written[]}` when `value_analysis.enabled` | **400** if disabled, **404** |
 | `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
-| `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404** |
+| `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404**, **409** `hypothesis_confirmation_required` when `speaker_roles` has unconfirmed `conversation_hypotheses` |
+| `POST` | `/api/runs/{run_id}/speaker-roles/confirm-hypothesis` | — | `{hypothesis_id}` | `ok`, `speakers` (applies hypothesis, re-enriches `gap_sensitivity`, syncs `analysis_state`, invalidates downstream from `source_topology_build`) | **400**, **409** `run_busy` |
 | `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `REMOVED_selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
 | `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `blocking`, `candidates[]` (hash fields, `paths[]`, `same_source_audio`), `pending_decision`, `current_source_audio_hash_short` | **404** unknown stage |
@@ -132,6 +136,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | `path` (required) | — | JSON object, or `{text}` for `.md`/`.txt` | **404** |
 | `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
+| `GET` | `/api/runs/{run_id}/segmentation-review` | — | — | Parity report: `source_paths`, `contract`, `parity_errors`, `cross_validate_errors`, `pending_paths`, `ready` | — |
+| `POST` | `/api/runs/{run_id}/approve-segmentation-writes` | — | — | Paired flush: `boundary_detection` then `segment_classification` with parity + cross-validate gates | **404** / **409** |
 | `POST` | `/api/runs/{run_id}/pending-writes/approve-batch` | — | optional `{phases?: string[], stage_ids?: string[]}` | `ok`, `approved{}`, `errors{}` — batch Save for first-try phase end | **409** run_busy |
 | `POST` | `/api/runs/{run_id}/g1/skip-optional` | — | optional `{line_ids?: string[]}` | `ok`, `skipped[]`, `g1_missing[]` — mark non-blocking VO optional | **404** |
 | `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |

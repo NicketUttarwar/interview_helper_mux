@@ -72,7 +72,7 @@ def compact_profile_style_hints(state: dict[str, Any] | None) -> dict[str, str]:
         return {}
     style = state.get("style") or {}
     if not isinstance(style, dict):
-        return {}
+        style = {}
     out: dict[str, str] = {}
     tc = style.get("tone_class")
     if validate_tone_class(tc):
@@ -80,6 +80,18 @@ def compact_profile_style_hints(state: dict[str, Any] | None) -> dict[str, str]:
     fc = style.get("format_class")
     if validate_format_class(fc):
         out["format_class"] = fc
+    if not out.get("format_class"):
+        profile = state.get("conversation_profile") or {}
+        if isinstance(profile, dict):
+            candidate = profile.get("format_class_candidate")
+            if validate_format_class(candidate):
+                out["format_class"] = candidate
+    if not out.get("tone_class"):
+        profile = state.get("conversation_profile") or {}
+        if isinstance(profile, dict):
+            candidate = profile.get("tone_class_candidate")
+            if validate_tone_class(candidate):
+                out["tone_class"] = candidate
     if style.get("tone"):
         out["tone_nuance"] = str(style["tone"])[:240]
     if style.get("format_notes"):

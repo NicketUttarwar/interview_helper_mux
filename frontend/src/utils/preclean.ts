@@ -58,11 +58,12 @@ export function resolvePrecleanOffer(
   return offer;
 }
 
-/** True when operator dismissed optional pre-clean for this stage's checkpoint. */
+/** True when optional/N/A stage is skipped (preclean dismiss or backend optional_skipped). */
 export function isOptionalStageSkipped(
   stage: StageInfo,
   meta?: RunMeta | null,
 ): boolean {
+  if (stage.stage_output_mode === "optional_skipped") return true;
   if (stage.id === "audio_preclean") {
     return precleanDismissedAtCheckpoint(meta?.audio_preclean, "before_ingest");
   }
@@ -70,6 +71,17 @@ export function isOptionalStageSkipped(
     return precleanDismissedAtCheckpoint(meta?.audio_preclean, "g1_vo_pickup");
   }
   return false;
+}
+
+/** Unset optional pre-clean offer — defer until operator opens that stage explicitly. */
+export function isDeferredOptionalStage(
+  stage: StageInfo,
+  meta?: RunMeta | null,
+): boolean {
+  if (stage.id !== "audio_preclean") return false;
+  if (stage.status === "done") return false;
+  if (isOptionalStageSkipped(stage, meta)) return false;
+  return !precleanOfferSettled(meta?.audio_preclean, "before_ingest");
 }
 
 export function getOptionalSkipLabel(stage: StageInfo): string {
@@ -83,9 +95,21 @@ export function findActiveStage(
   return findNextRunnableStage(stages, meta);
 }
 
+/** Incomplete is actionable only when N/A-skip is false and upstream stages are ready. */
+export function isActionableIncomplete(
+  stages: StageInfo[],
+  stage: StageInfo,
+  meta?: RunMeta | null,
+): boolean {
+  if (stage.status !== "incomplete") return false;
+  if (stage.stage_output_mode === "optional_skipped") return false;
+  if (firstUpstreamBlocker(stages, stage.id, meta)) return false;
+  return true;
+}
+
 export function findNextRunnableStage(
   stages: StageInfo[],
-  _meta?: RunMeta | null,
+  meta?: RunMeta | null,
 ): StageInfo | undefined {
   for (const s of stages) {
     if (s.status === "awaiting_write_approval") return s;
@@ -94,11 +118,13 @@ export function findNextRunnableStage(
     if (s.status === "action_required") return s;
   }
   for (const s of stages) {
-    if (s.status === "incomplete") return s;
+    if (isActionableIncomplete(stages, s, meta)) return s;
   }
   for (const s of stages) {
     if (s.status === "pending" && s.phase !== "gate") {
-      if (firstUpstreamBlocker(stages, s.id)) continue;
+      if (isOptionalStageSkipped(s, meta)) continue;
+      if (isDeferredOptionalStage(s, meta)) continue;
+      if (firstUpstreamBlocker(stages, s.id, meta)) continue;
       return s;
     }
   }

@@ -76,13 +76,11 @@ export function PrecleanOfferCard({
       } else {
         const msg =
           "Could not start audio cleaning — check Activity log or retry from the step header.";
-        showToast(msg, "error");
         appendClientLog(msg, "error", "audio_preclean");
       }
       await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, "Audio cleaning");
-      showToast(msg, "error");
       appendClientLog(msg, "error", "audio_preclean");
     } finally {
       setSubmitting(false);

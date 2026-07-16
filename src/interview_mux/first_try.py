@@ -109,13 +109,23 @@ def stage_phase(stage_id: str) -> str | None:
     return None
 
 
+def segmentation_unified_review_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return bool(journey_ui_cfg(cfg).get("segmentation_unified_review", True))
+
+
 def should_pause_for_write_approval(stage_id: str, cfg: dict[str, Any] | None = None) -> bool:
     """Whether finishing this stage should raise write-approval pause.
 
     When deferred, only phase-boundary stages pause (caller may also batch).
+    Unified segmentation review defers boundary_detection until segment_classification.
     """
     if not bool(journey_ui_cfg(cfg).get("require_write_approval_per_stage", True)):
         return False
+    if segmentation_unified_review_enabled(cfg):
+        if stage_id == "boundary_detection":
+            return False
+        if stage_id == "segment_classification":
+            return True
     if not write_approval_deferred(cfg):
         return True
     # Under deferral, intermediate stages do not pause; phase-end batch Save handles commit.

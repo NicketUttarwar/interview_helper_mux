@@ -86,7 +86,7 @@ P0 analysis spine order: **speaker_roles → content_context → boundary_detect
 
 1. Optional: accept **audio pre-clean** once ([audio_preclean](../pipeline/audio_preclean/README.md)).
 2. Run **Prepare transcript for review** (ingest → transcribe → STT review queue).
-3. **G0:** Open transcript review; fix lowest-confidence clips first using the **synced transcript dock** (word-by-word) or chunk textarea; use **Fix similar words** to batch-replace repeated mishearings; **Complete transcript review**.
+3. **G0:** Open transcript review; fix lowest-confidence clips first in the **synced transcript dock** (word-by-word); use **Fix similar words** to batch-replace repeated mishearings; **Complete transcript review**.
 
 Go deeper: [transcript-review.md](../pipeline/transcription/transcript-review.md).
 

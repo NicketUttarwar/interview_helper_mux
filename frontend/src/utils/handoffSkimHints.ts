@@ -2,7 +2,7 @@ import type { StageInfo } from "../types";
 
 const PATH_HINTS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /content_brief/i, label: "Thesis, topics, and narrative framing" },
-  { pattern: /speakers\.json/i, label: "Speaker roles and interviewer mapping" },
+  { pattern: /speakers\.json/i, label: "Speaker roles, format candidate, and gap sensitivity" },
   { pattern: /themes/i, label: "Theme clusters and story angles" },
   { pattern: /gap_report/i, label: "Missing context and pickup lines" },
   { pattern: /analysis_state/i, label: "Analysis profile and tone" },

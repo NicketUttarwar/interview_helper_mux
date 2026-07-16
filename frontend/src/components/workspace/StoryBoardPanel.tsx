@@ -91,7 +91,6 @@ export function StoryBoardPanel() {
     } catch (e) {
       const msg = formatApiError(e, verify ? "Lock story" : "Save story");
       if (!verify) {
-        showToast(msg, "error");
         appendClientLog(msg, "error");
       }
     } finally {
@@ -114,7 +113,6 @@ export function StoryBoardPanel() {
       await refreshRun();
     } catch (e) {
       const msg = formatApiError(e, "Resolve investigation");
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setResolvingId(null);

@@ -32,6 +32,20 @@ LOCAL_SCHEMA_FILES: dict[str, str] = {
     "local_shard_prep": "local_shard_packet_prep.schema.json",
 }
 
+# Catalog LX-* ids → schema interaction (verify must match generate_local_chat appendix).
+LX_INTERACTION_BY_ID: dict[str, str] = {
+    "LX-01": "local_framer",
+    "LX-01a": "local_framer",
+    "LX-01b": "local_framer",
+    "LX-01c": "local_framer",
+    "LX-01d": "local_framer",
+    "LX-02": "itr_clarification",
+    "LX-02a": "itr_clarification",
+    "LX-03": "local_digest_compress",
+    "LX-04": "local_escalate_advisory",
+    "LX-05": "local_shard_prep",
+}
+
 
 def resolve_local_interaction(stage_key: str, task_kind: str | None = None) -> str:
     if stage_key.endswith("__itr"):
@@ -51,6 +65,34 @@ def resolve_local_interaction(stage_key: str, task_kind: str | None = None) -> s
         "local_specialist",
     ):
         return "local_framer"
+    return "local_framer"
+
+
+def resolve_lx_interaction(
+    interaction_id: str,
+    *,
+    stage_key: str | None = None,
+    task_kind: str | None = None,
+) -> str:
+    """Pick the local schema interaction for an LX-* catalog id.
+
+    Prefer ``task_kind`` when set (same path as ``generate_local_chat`` schema appendix),
+    then exact / prefix id map, else framer.
+    """
+    if task_kind or (stage_key or "").endswith("__itr"):
+        return resolve_local_interaction(stage_key or "", task_kind)
+    if interaction_id in LX_INTERACTION_BY_ID:
+        return LX_INTERACTION_BY_ID[interaction_id]
+    if interaction_id.startswith("LX-02"):
+        return "itr_clarification"
+    if interaction_id.startswith("LX-01"):
+        return "local_framer"
+    if interaction_id.startswith("LX-03"):
+        return "local_digest_compress"
+    if interaction_id.startswith("LX-04"):
+        return "local_escalate_advisory"
+    if interaction_id.startswith("LX-05"):
+        return "local_shard_prep"
     return "local_framer"
 
 

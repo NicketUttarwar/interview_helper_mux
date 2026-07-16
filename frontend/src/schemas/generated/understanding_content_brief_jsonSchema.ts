@@ -6,7 +6,7 @@ export const understanding_content_brief_jsonSchema = z.object({
   "topics": z.array(z.object({
   "name": z.string(),
   "summary": z.string(),
-  "approx_time_range": z.string().optional(),
+  "approx_time_range": z.string().min(1).optional(),
   "segment_ids": z.array(z.string()).optional(),
   "confidence": z.number().optional(),
 })),
@@ -22,6 +22,7 @@ export const understanding_content_brief_jsonSchema = z.object({
   "claim": z.string(),
   "claim_type": z.enum(["fact", "opinion", "prediction", "anecdote", "definition"]).optional(),
   "speaker_role": z.enum(["interviewee", "interviewer"]).optional(),
+  "approx_time_range": z.string().min(1).optional(),
   "segment_ids": z.array(z.string()).optional(),
   "evidence_segment_ids": z.array(z.string()).optional(),
   "depends_on_claim_ids": z.array(z.string()).optional(),

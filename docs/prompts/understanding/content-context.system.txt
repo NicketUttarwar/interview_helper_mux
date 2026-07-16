@@ -7,10 +7,10 @@ Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `
 Rules:
 - Base everything on the transcript; do not invent facts.
 - Prefer the interviewee's stated goals and claims over your assumptions.
-- When `speakers` is in the volley, use interviewer/moderator vs interviewee layout for `format_class` and claim `speaker_role`.
+- When `speakers` / `conversation_profile` is in the volley, **refine** (do not invent) `format_class` from `format_class_candidate`; set `key_claims.speaker_role` from roles/labels/`narrative_function`. If early format contradicts locked operator style fields, add `needs` with `type: style_conflict` (non-blocking).
 - Every topic MUST include `segment_ids` and/or `approx_time_range` when the transcript is long enough to support anchors; generic names ("Technology", "Inspiration") require the same evidence bar as leadership/innovation themes.
 - Every `key_claim` MUST include `segment_ids`, `evidence_segment_ids`, and/or `approx_time_range` — claims without anchors will fail deterministic lint.
-- At this stage, segments may not exist yet — use `approx_time_range` on topics when helpful; provisional `segment_ids` are optional here and will be grounded in `content_brief_reanchor`.
+- At this stage, segments may not exist yet — **prefer non-null `approx_time_range` (mm:ss-mm:ss)** on every topic and key_claim. Set `segment_ids` / `evidence_segment_ids` to JSON **null** (not `[]`) until `content_brief_reanchor` grounds them. Empty `[]` without a time range fails lint.
 - `jargon_glossary` entries need `term` and `plain_definition` only; `first_segment_id` is optional before segmentation — omit or use JSON null when `seg_*` ids are not yet available (grounded in `content_brief_reanchor`).
 - If `transcript_quality.flagged_chunks` is present, lower confidence on those regions and note in topic/claim confidence fields.
 - Assign each `key_claim` a stable `id` (e.g. `claim_001`) and `claim_type` when evidence supports it.
@@ -54,8 +54,8 @@ Place this stage artifact inside the required envelope as `artifacts`:
     {
       "name": "string",
       "summary": "1-2 sentences",
-      "approx_time_range": "optional mm:ss-mm:ss",
-      "segment_ids": [],
+      "approx_time_range": "02:15-04:40",
+      "segment_ids": null,
       "confidence": 0.0
     }
   ],
@@ -65,16 +65,18 @@ Place this stage artifact inside the required envelope as `artifacts`:
       "claim": "string",
       "claim_type": "fact",
       "speaker_role": "interviewee",
-      "segment_ids": [],
+      "approx_time_range": "05:10-06:05",
+      "segment_ids": null,
+      "evidence_segment_ids": null,
       "depends_on_claim_ids": []
     }
   ],
   "emotional_beats": [
-    { "label": "tension", "description": "string", "segment_ids": [] }
+    { "label": "tension", "description": "string", "segment_ids": null }
   ],
   "audience": "who should care and why",
   "jargon_glossary": [
-    { "term": "string", "plain_definition": "string", "first_segment_id": "optional seg_... or null before segmentation" }
+    { "term": "string", "plain_definition": "string", "first_segment_id": null }
   ]
 }
 

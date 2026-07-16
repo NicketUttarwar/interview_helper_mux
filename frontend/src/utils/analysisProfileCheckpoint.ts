@@ -58,7 +58,6 @@ export async function completeAnalysisProfile(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not update profile";
     appendClientLog?.(msg, "error", "analysis_profile");
-    showToast(msg, "error");
     throw e;
   } finally {
     opts.setBusy?.(false);

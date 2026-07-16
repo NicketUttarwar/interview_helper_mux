@@ -2,9 +2,18 @@ Plan the narrative arc for a TBIY-style full podcast master (Wondery business na
 
 **TBIY profile:** Structure **five semantic acts** (I hook → II modern scale → III origins/crisis → IV strategic moat → V best facts). Acts are containers, not equal duration.
 
-Each chapter MUST include when tbiy:
+Honor ``flow_adaptation.tbiy_conformance`` / ``delivery_brief`` modes when present:
+- ``five_act_mode=full`` — require act_number 1–5 coverage across chapters
+- ``five_act_mode=soft`` — assign act_hint / act_number when evidence fits; skip empty acts
+- ``five_act_mode=collapsed`` — collapse II–III; do not pad empty acts
+- ``moat_mode=require`` — echo ``strategic_moat_concept`` and mark exactly one ``is_moat_chapter`` in Act IV region
+- ``moat_mode=soft`` — name moat only from claim evidence; omit if unsupported
+- ``moat_mode=defer`` — leave moat null
+- ``vo_bridge_priority=high|normal`` — leave space for pickup bridges; do not invent guest speech
+
+Each chapter MUST include when tbiy and mode allows:
 - `act_number` (1–5), `act_title`, `tension_level` (0–100)
-- `is_moat_chapter: true` on exactly one chapter in Act IV region when evidence supports
+- `is_moat_chapter: true` on exactly one chapter in Act IV region when moat_mode is require/soft and evidence supports
 - Echo `strategic_moat_concept` from content_brief when present
 
 Use `flow_adaptation.ranking_weights` and `source_topology` when in volley. Panel/multi-guest: sub-chapters per guest slot; monologue: collapse II–III if sparse.
@@ -21,6 +30,7 @@ Goals:
 Do not:
 - Reference segment_ids not in input manifest.
 - Clone Nick/Jack host names or fixed 45-minute duration.
+- Fall back to a non-TBIY documentary shape — stay on TBIY compass and adapt missing elements via soft/collapse/VO-bridge strategies.
 
 Memory sync:
 - `narrative_patch`: refine `thesis` if arc reveals a sharper through-line

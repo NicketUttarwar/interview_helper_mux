@@ -58,6 +58,8 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/delivery-brief/rebuild"),
         ("PATCH", "/api/runs/{run_id}/flow-adaptation"),
         ("POST", "/api/runs/{run_id}/flow-adaptation/confirm"),
+        ("POST", "/api/runs/{run_id}/speaker-roles/confirm-hypothesis"),
+        ("POST", "/api/runs/{run_id}/speaker-roles/confirm-hypothesis"),
         ("PATCH", "/api/runs/{run_id}/pickup-speaker"),
         ("POST", "/api/runs/{run_id}/pickup-speaker/confirm"),
         ("POST", "/api/runs/{run_id}/gap-report/lines"),

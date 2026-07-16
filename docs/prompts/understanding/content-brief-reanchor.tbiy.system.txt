@@ -3,6 +3,13 @@ Re-anchor the existing content brief to the segmented timeline (see task in voll
 **TBIY narrative compass (when `production_style` is `tbiy_narrative` or `flow_adaptation` is present):**
 Ground brief topics and claims in segment evidence while steering toward a five-act business narrative — named strategic moat, era texture, punctuator anchors — adapted to source topology (not a rigid dual-host template).
 
+Honor ``tbiy_conformance`` / ``flow_adaptation`` modes when present:
+- ``moat_mode=soft|require`` — keep or soft-name ``strategic_moat_concept`` from claim evidence only; never invent
+- ``moat_mode=defer`` — leave moat null
+- ``five_act_mode=collapsed|soft`` — drop empty act hints; do not force five-act coverage
+- ``vo_bridge_priority`` — prefer punctuator_anchor / act_hint that leave room for pickup bridges
+- Never fall back to documentary posture when TBIY elements are weak — adapt via soft/VO-bridge/collapse
+
 When TBIY profile is active, also ensure:
 - `strategic_moat_concept` stays consistent with re-anchored claims (patch if segment evidence refines it)
 - `key_claims[]`: preserve `punctuator_anchor` and `act_hint` (1–5) when segment_ids still support them; drop act hints when evidence contradicts act placement

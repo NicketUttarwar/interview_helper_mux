@@ -21,6 +21,12 @@ from interview_mux.run_context import RunContext
 
 FIXTURE = Path(__file__).parent / "fixtures/runs/base_smoke"
 
+
+class _FakeReuseCandidate:
+    def to_dict(self) -> dict[str, str]:
+        return {"run_id": "exec_old"}
+
+
 @pytest.fixture
 def smoke_ctx(tmp_path, monkeypatch):
     run_id = "exec_001_20260101T000000Z"
@@ -176,7 +182,7 @@ def test_blocking_write_approval_short_circuits_reuse_scan(tmp_path, monkeypatch
     assert snap["stage_id"] == "ingest"
     assert snap["message"] == "Awaiting your review"
 
-def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
+def test_blocking_reuse_scan_finds_first_stage_with_candidates(tmp_path, monkeypatch):
     from interview_mux.journey_orchestrator import _blocking
     from run_fixtures import init_run_meta_for_test, isolated_run_ctx
 
@@ -188,6 +194,7 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
             "executions_root": str(tmp_path / "ASSETS" / "executions"),
             "data_root": str(tmp_path / "data"),
             "stage_execution_reuse": {"enabled": True},
+            "journey_ui": {"first_try_mode": False},
         },
     )
     monkeypatch.setattr(
@@ -197,6 +204,7 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
             "executions_root": str(tmp_path / "ASSETS" / "executions"),
             "data_root": str(tmp_path / "data"),
             "stage_execution_reuse": {"enabled": True},
+            "journey_ui": {"first_try_mode": False},
         },
     )
     ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
@@ -206,6 +214,8 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
 
     def _fake_reuse(current, stage_id):
         calls.append(stage_id)
+        if stage_id == "ingest":
+            return [_FakeReuseCandidate()]
         return []
 
     monkeypatch.setattr(
@@ -214,8 +224,53 @@ def test_blocking_reuse_scan_only_first_pending_stage(tmp_path, monkeypatch):
     )
 
     snap = _blocking(ctx, job={"status": "idle"}, milestones={"g0_complete": False})
+    assert snap["blocked"] is True
+    assert snap["reason"] == "stage_reuse"
+    assert snap["stage_id"] == "ingest"
+    assert calls[:2] == ["audio_preclean", "ingest"]
+
+
+def test_blocking_reuse_soft_under_first_try(tmp_path, monkeypatch):
+    from interview_mux.journey_orchestrator import _blocking
+    from run_fixtures import init_run_meta_for_test, isolated_run_ctx
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+            "stage_execution_reuse": {"enabled": True},
+            "journey_ui": {"first_try_mode": True},
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.run_context.merged_config",
+        lambda: {
+            "assets_root": str(tmp_path / "ASSETS"),
+            "executions_root": str(tmp_path / "ASSETS" / "executions"),
+            "data_root": str(tmp_path / "data"),
+            "stage_execution_reuse": {"enabled": True},
+            "journey_ui": {"first_try_mode": True},
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_001_20260101T000000Z")
+    init_run_meta_for_test(ctx)
+
+    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: True)
+    monkeypatch.setattr(
+        "interview_mux.stage_execution_reuse.reuse_candidates_if_undecided",
+        lambda _current, stage_id: (
+            [_FakeReuseCandidate()]
+            if stage_id == "ingest"
+            else []
+        ),
+    )
+
+    snap = _blocking(ctx, job={"status": "idle"}, milestones={"g0_complete": False})
     assert snap["blocked"] is False
-    assert calls == ["audio_preclean"]
+    assert snap.get("reuse_candidates")
 
 def test_active_operator_action_write_approval(tmp_path, monkeypatch):
     from run_fixtures import init_run_meta_for_test, isolated_run_ctx

@@ -75,10 +75,16 @@ def _staged_resilience_partial_acceptable(
     doc: dict[str, Any],
     stage_id: str,
 ) -> bool:
-    """Allow partial-persist rescue saves when the stage producer content is semantically complete."""
+    """Allow partial-persist rescue saves when the stage producer content is semantically complete.
+
+    Critical LLM stages never approve resilience-partial staging — Fail closed; re-run instead.
+    """
     from interview_mux.artifact_completeness import compute_gaps
+    from interview_mux.llm_flow_hardening import ALL_CRITICAL_LLM_STAGES
     from interview_mux.llm_output_resilience import artifact_resilience_partial
 
+    if stage_id in ALL_CRITICAL_LLM_STAGES:
+        return False
     if not artifact_resilience_partial(doc):
         return False
     producer = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
@@ -90,11 +96,12 @@ def _staged_resilience_partial_acceptable(
 def staged_artifacts_acceptable(ctx: RunContext, stage_id: str) -> tuple[bool, str]:
     """True when pending staged JSON artifacts are safe to flush and mark done."""
     from interview_mux.artifact_completeness import compute_staged_write_gaps
+    from interview_mux.llm_flow_hardening import ALL_CRITICAL_LLM_STAGES
     from interview_mux.llm_output_resilience import artifact_resilience_partial
     from interview_mux.prompt_validation import validate_artifact_write
-    from interview_mux.write_staging import list_pending_paths, read_pending_json
+    from interview_mux.write_staging import list_stage_staging_paths, read_pending_json
 
-    for rel in list_pending_paths(ctx, stage_id):
+    for rel in list_stage_staging_paths(ctx, stage_id):
         if not rel.endswith(".json"):
             continue
         try:
@@ -108,6 +115,13 @@ def staged_artifacts_acceptable(ctx: RunContext, stage_id: str) -> tuple[bool, s
         ):
             return False, (
                 f"{rel} is a partial rescue save — re-run the stage instead of approving."
+            )
+        te = (doc.get("_meta") or {}).get("truncation_escalation") or {}
+        flags = te.get("final_flags") or []
+        if flags and stage_id in ALL_CRITICAL_LLM_STAGES:
+            return False, (
+                f"{rel} has truncation flags ({', '.join(list(flags)[:2])}) — "
+                "re-run instead of approving."
             )
         errors = validate_artifact_write(rel, doc)
         if errors:

@@ -21,6 +21,7 @@ IssueKind = Literal[
     "null",
     "enum",
     "coverage",
+    "field_parity",
     "request_schema",
     "sufficiency",
     "downstream_blocked",
@@ -202,6 +203,32 @@ def classify_cross_validate_message(
     else:
         issue.repair_strategy = "llm_pick"
     return issue
+
+
+def classify_field_parity_message(
+    stage_key: str,
+    message: str,
+    *,
+    artifact_path: str | None = None,
+) -> ClassifiedIssue:
+    seg_id = _extract_segment_id(message)
+    low = message.lower()
+    repair = "hydrate_from_boundaries"
+    if "speaker" in low:
+        repair = "repair_speaker_role"
+    elif "missing manifest" in low or "missing segment_id" in low:
+        repair = "fabricate_missing_segment"
+    return ClassifiedIssue(
+        message=message,
+        kind="field_parity",
+        severity="critical",
+        blocking=True,
+        repair_strategy=repair,
+        artifact_path=artifact_path or "segments/manifest.json",
+        segment_id=seg_id,
+        source="field_parity",
+        upstream_stage="boundary_detection" if stage_key == "segment_classification" else None,
+    )
 
 
 def classify_schema_error(stage_key: str, error: str, *, artifact_path: str | None = None) -> ClassifiedIssue:

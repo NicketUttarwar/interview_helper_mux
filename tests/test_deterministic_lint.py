@@ -129,6 +129,44 @@ def test_lint_content_context_claim_passes_with_segment_ids(tmp_path, monkeypatc
     ]
     assert not errors
 
+
+def test_lint_content_context_claim_passes_with_approx_time_range(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_claim_time")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "thesis": "Main point from the guest.",
+            "topics": [
+                {
+                    "name": "Product",
+                    "summary": "Launch story",
+                    "approx_time_range": "00:30-02:00",
+                    "segment_ids": None,
+                }
+            ],
+            "key_claims": [
+                {
+                    "id": "c1",
+                    "claim": "We launched in 2020.",
+                    "claim_type": "fact",
+                    "approx_time_range": "01:10-01:45",
+                    "segment_ids": None,
+                    "evidence_segment_ids": None,
+                }
+            ],
+        },
+    }
+    errors = [
+        e
+        for e in deterministic_lint("content_context", envelope, ctx)
+        if "key_claim" in e or "topic without evidence" in e or "thesis empty" in e
+    ]
+    assert not errors
+
+
 def test_lint_speaker_roles_multi_unknown(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
@@ -145,6 +183,25 @@ def test_lint_speaker_roles_multi_unknown(tmp_path, monkeypatch):
     }
     errors = deterministic_lint("speaker_roles", envelope, ctx)
     assert any("unknown" in e.lower() for e in errors)
+
+
+def test_lint_speaker_roles_panel_requires_two_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_panel")
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "speakers": [
+                {"speaker_id": "a", "role": "moderator", "confidence": 0.9},
+                {"speaker_id": "b", "role": "interviewee", "confidence": 0.9},
+            ],
+            "conversation_profile": {"format_class_candidate": "panel", "format_confidence": 0.8},
+        },
+    }
+    errors = deterministic_lint("speaker_roles", envelope, ctx)
+    assert any("panel format requires" in e for e in errors)
 
 def test_producer_artifact_complete_passes_envelope_before_disk(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))

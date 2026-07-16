@@ -133,6 +133,41 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     }
     weights = adapt.get("ranking_weights") if isinstance(adapt.get("ranking_weights"), dict) else {}
 
+    # Refresh TBIY conformance against brief/gaps when style is tbiy_narrative
+    conf_compact: dict[str, Any] | None = None
+    five_act_mode = str(adapt.get("five_act_mode") or "soft")
+    moat_mode = str(adapt.get("moat_mode") or "soft")
+    vo_bridge_priority = str(adapt.get("vo_bridge_priority") or "normal")
+    from interview_mux.production_profile import is_tbiy
+
+    if is_tbiy(ctx):
+        from interview_mux.tbiy_conformance import compact_conformance_for_volley, refresh_conformance
+
+        plan = refresh_conformance(ctx)
+        conf_compact = compact_conformance_for_volley(plan)
+        if isinstance(plan, dict):
+            modes = plan.get("modes") if isinstance(plan.get("modes"), dict) else {}
+            five_act_mode = str(modes.get("five_act_mode") or five_act_mode)
+            moat_mode = str(modes.get("moat_mode") or moat_mode)
+            vo_bridge_priority = str(modes.get("vo_bridge_priority") or vo_bridge_priority)
+            # Re-read adaptation after refresh (weights/sfx may have shifted)
+            adapt = _flow_adaptation(ctx)
+            if isinstance(adapt.get("sfx_density"), dict):
+                sfx = adapt["sfx_density"]
+                dens = {
+                    "max_beds": int(sfx.get("max_beds") or dens["max_beds"]),
+                    "max_punctuators": int(sfx.get("max_punctuators") or dens["max_punctuators"]),
+                    "max_foley": int(sfx.get("max_foley") or dens["max_foley"]),
+                }
+            if isinstance(adapt.get("ranking_weights"), dict):
+                weights = adapt["ranking_weights"]
+        # High VO-bridge need → nudge question budget toward more short frame lines
+        if vo_bridge_priority == "high" and q_ideal < question_max:
+            q_ideal = min(question_max, max(q_ideal, high_gaps + 1, 2))
+            q_max = min(question_max, max(q_max, q_ideal))
+        if five_act_mode == "collapsed":
+            ch_ideal = max(ch_min, min(ch_ideal, 4))
+
     rationale = [
         f"source_duration_ms={source_ms}",
         f"ideal_fraction={ideal_frac}",
@@ -140,6 +175,12 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
         f"segment_count={segs}",
         f"topology_style={adapt.get('production_style') or 'unknown'}",
     ]
+    if conf_compact:
+        score = conf_compact.get("score") if isinstance(conf_compact.get("score"), dict) else {}
+        rationale.append(f"tbiy_conformance_ratio={score.get('ratio')}")
+        rationale.append(f"five_act_mode={five_act_mode}")
+        rationale.append(f"moat_mode={moat_mode}")
+        rationale.append(f"vo_bridge_priority={vo_bridge_priority}")
 
     brief: dict[str, Any] = {
         "version": 1,
@@ -157,6 +198,11 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
             "by": "delivery_brief_build",
         },
     }
+    if conf_compact:
+        brief["tbiy_conformance"] = conf_compact
+        brief["five_act_mode"] = five_act_mode
+        brief["moat_mode"] = moat_mode
+        brief["vo_bridge_priority"] = vo_bridge_priority
 
     existing_overrides: dict[str, Any] = {}
     if ctx.artifact_exists(DELIVERY_BRIEF_PATH):
@@ -282,7 +328,7 @@ def estimated_selection_duration_sec(ctx: RunContext) -> float | None:
 def compact_delivery_brief_for_volley(brief: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(brief, dict):
         return None
-    return {
+    out: dict[str, Any] = {
         "target_duration_sec": brief.get("target_duration_sec"),
         "question_budget": brief.get("question_budget"),
         "chapter_budget": brief.get("chapter_budget"),
@@ -290,6 +336,15 @@ def compact_delivery_brief_for_volley(brief: dict[str, Any] | None) -> dict[str,
         "sfx_density": brief.get("sfx_density"),
         "ranking_weights": brief.get("ranking_weights"),
     }
+    if brief.get("five_act_mode"):
+        out["five_act_mode"] = brief.get("five_act_mode")
+    if brief.get("moat_mode"):
+        out["moat_mode"] = brief.get("moat_mode")
+    if brief.get("vo_bridge_priority"):
+        out["vo_bridge_priority"] = brief.get("vo_bridge_priority")
+    if isinstance(brief.get("tbiy_conformance"), dict):
+        out["tbiy_conformance"] = brief["tbiy_conformance"]
+    return out
 
 
 def attach_delivery_brief_to_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:

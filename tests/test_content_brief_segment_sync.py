@@ -45,6 +45,29 @@ def test_repair_content_brief_strips_placeholder_topic_segment_ids(
     assert applied
 
 
+def test_repair_content_brief_keeps_claims_with_approx_time_range_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "brief_time_claim")
+    brief = {
+        "thesis": "Test thesis about the interview.",
+        "topics": [{"name": "Pivot", "summary": "Market shift.", "approx_time_range": "03:00-05:00"}],
+        "key_claims": [
+            {
+                "id": "claim_001",
+                "claim": "They pivoted to protein bars.",
+                "approx_time_range": "03:20-04:10",
+                "segment_ids": [],
+            }
+        ],
+    }
+    repaired, applied = repair_content_brief(ctx, brief)
+    assert len(repaired["key_claims"]) == 1
+    assert repaired["key_claims"][0]["approx_time_range"] == "03:20-04:10"
+    assert not any(a.get("reason") == "no_evidence" for a in applied)
+
+
 def test_sync_content_brief_uses_staged_manifest_during_write_approval(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

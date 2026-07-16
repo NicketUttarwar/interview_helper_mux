@@ -1,28 +1,102 @@
-Map diarized speaker IDs to conversational roles (see task in volley).
+Map diarized speaker IDs to conversational roles and early conversation shape (see task in volley).
 
 Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
 
-Input: `transcript_samples` provides opening / middle / closing windows from a long interview. Evaluate **all** windows before assigning roles. Legacy `transcript_excerpt` is a single window — treat the same way.
+Input: `transcript_samples` provides opening / middle / closing windows from a long interview. Evaluate **all** windows before assigning roles. `speaker_talk_stats` and `role_evidence_hints` are deterministic backfill signals — prefer transcript evidence when they conflict.
 
-Roles:
-- interviewer — asks questions, introduces topics, shorter turns, guides flow
-- interviewee — primary subject; longer answers, personal/company narrative
-- unknown — use only when evidence is insufficient
+## Per-speaker model (A)
 
-Rules:
-- Typical interview: one interviewer, at least one interviewee.
-- Panel / multi-guest: multiple interviewees allowed; note in `notes` with `format_hint: panel` when two or more distinct interviewees are evident.
-- When STT diarization is ambiguous (overlapping turns, single merged speaker, or sparse samples), weigh question marks, turn-taking, and intro/outro phrasing across **all** windows before assigning `unknown`.
-- Multi-speaker runs where **every** speaker remains `unknown` fail downstream lint — assign interviewer/moderator when Q&A structure is evident.
-- Use question density, turn length, and intro/outro language as signals across all sample windows.
-- Do not guess display names unless explicitly stated in the transcript.
+For each `speaker_id` emit:
 
-Do not:
-- Assign interviewer to the longest speaker without checking question patterns.
-- Leave all speakers `unknown` when the transcript clearly shows Q&A.
+| Field | Purpose |
+|-------|---------|
+| `role` | `interviewer`, `interviewee`, `moderator`, `panelist`, `co_host`, `off_mic`, `unknown` |
+| `narrative_function` | `storyteller`, `frame`, `reactor`, `analytical_lens`, `unknown` — seeds downstream TBIY topology before talk-ratio guess |
+| `label` | Display name **only** when explicitly stated in transcript; otherwise JSON null |
+| `evidence` | Short pattern quotes (legacy; keep brief) |
+| `evidence_windows` | `{start_ms, end_ms, quote}` anchors when timing is inferable |
+| `question_density` | `low` / `medium` / `high` from question marks and turn-taking |
+| `avg_turn_length_ms` | Typical turn length when inferable; omit if unknown |
+| `confidence` | 0–1 |
+
+### Role rules
+
+- **interviewer** — asks questions, introduces topics, shorter turns, guides flow
+- **moderator** — panel host directing guests; question-dense frame speaker
+- **co_host** — second question-asker / audience proxy; still frame unless long personal narrative dominates
+- **interviewee** — primary subject in one-on-one
+- **panelist** — substantive guest answerer in multi-guest layout
+- **off_mic** — producer, audience, ambient; non-interview speech when diarized
+- **unknown** — only when evidence is insufficient
+
+Signals: question density, turn length, intro/outro phrasing, host pivots, named guest handoffs ("Sarah, what do you think?").
+
+Do not assign `interviewer` to the longest speaker without verifying question patterns across **all** sample windows.
+
+## Run-level conversation profile (E + early format)
+
+Emit `conversation_profile`:
+
+- `format_class_candidate` — one of: `one_on_one`, `panel`, `fireside`, `technical_deep_dive`, `media_profile`, `debate`
+- `format_confidence` — 0–1
+- `tone_class_candidate` — optional early tone: `journalistic`, `conversational`, `investor`, `technical`, `human_interest`
+- `dynamics` — `{question_density, turn_asymmetry, overlap_risk}` each `low`/`medium`/`high`
+
+When `format_confidence < 0.75` OR any speaker remains `unknown` with conflicting layout signals, emit **`conversation_hypotheses`** (2–3 alternatives max):
+
+```json
+{
+  "id": "hyp_panel",
+  "format_class": "panel",
+  "confidence": 0.62,
+  "reason": "two guests answering substantively",
+  "speaker_role_map": {"spk_00": "moderator", "spk_01": "panelist", "spk_02": "panelist"},
+  "blocking": false
+}
+```
+
+Use stable snake_case `id` values. `speaker_role_map` keys must be diarization IDs from input.
+
+Leave `confirmed_conversation_hypothesis_id` as JSON null — operator confirms at handoff.
+
+## Gap sensitivity (F)
+
+Emit `gap_sensitivity` for downstream `missing_framing` / `optimal_questions`:
+
+- `severity_hints` — per `gap_type`: `strict` / `normal` / `relaxed` for:
+  `missing_question`, `missing_setup`, `missing_callback`, `missing_definition`, `missing_followup`, `ok_with_light_bridge`
+- `priority_gap_types` / `deemphasize_gap_types` — explicit steering lists
+- `theme_overlays` — `{axis, effect}` when dynamics warrant (e.g. high overlap → elevate missing_setup)
+- `segment_focus` — `interviewee_answer` or `interviewee_answer_per_guest` for panels
+- `flow_hints` — soft bias string (`flow1_narrative_default`, `flow2_clip_clarity_on_panel`, etc.)
+- `notes` — one sentence policy summary
+
+Base severity on `format_class_candidate` + `tone_class_candidate` + `dynamics` + speaker layout. Downstream stages treat `gap_sensitivity` as authoritative when present.
+
+### Format baselines (starting point)
+
+- `one_on_one` — strict missing_question / missing_setup; strict ok_with_light_bridge
+- `panel` — relaxed missing_callback; strict missing_definition for jargon
+- `fireside` / `media_profile` — relaxed bridges
+- `technical_deep_dive` — strict missing_definition + missing_setup
+- `debate` — strict missing_setup; relaxed missing_callback when roles clear
+
+## Panel, co-host, off-mic, code-switching
+
+- Panel: one frame (`interviewer` or `moderator`) + 2+ `panelist` or `interviewee` guests
+- Co-host: `co_host` when second question-asker is evident; do not collapse to single interviewer
+- Off-mic: `off_mic` or `unknown` with evidence noting ambient speech
+- Code-switching does not change role assignment — use Q&A structure
+
+## Quality bar
+
+- Minimum: one confident frame role (`interviewer`, `moderator`, or `co_host`) AND one content role (`interviewee` or `panelist`), OR documented ambiguity with `conversation_hypotheses` + operator `needs`
+- Never leave **all** speakers `unknown` when clear Q&A exists in any window
+- Multi-speaker all-unknown fails downstream lint
 
 Memory sync (`memory_updates`):
-- `speakers`: list of speaker role objects when confident. Do not invent display names.
+- `speakers` — full speaker list when confident
+- Do not invent display names
 
 Investigations: if roles stay ambiguous after evidence, `needs` with `type: operator` (non-blocking).
 
@@ -30,53 +104,15 @@ Examples: see `docs/prompts/_shared/examples/speaker-roles.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/speakers_artifact.schema.json`
 
-Place this stage artifact inside the required envelope as `artifacts.speakers` and `artifacts.notes`:
+Place artifact fields at envelope `artifacts` root (not nested under `artifacts.speakers` only):
 
+```json
 {
-  "speakers": [
-    {
-      "speaker_id": "spk_00",
-      "role": "interviewer",
-      "confidence": 0.0,
-      "evidence": ["short quote or pattern observed"]
-    }
-  ],
-  "notes": "optional ambiguity or multi-guest caveats"
+  "speakers": [...],
+  "conversation_profile": {...},
+  "conversation_hypotheses": [...],
+  "confirmed_conversation_hypothesis_id": null,
+  "gap_sensitivity": {...},
+  "notes": "optional ambiguity caveats"
 }
-
-Allowed `role` values: `interviewer`, `interviewee`, `unknown`.
-
-## Diverse English interviews — panel, co-host, off-mic, code-switching
-
-### Panel and multi-guest (`format_class: panel`)
-
-- Expect **one primary interviewer** and **two or more interviewees** with distinct `speaker_id`s.
-- Assign `interviewee` to each guest who answers substantively; do not collapse panel guests into a single role.
-- When the host directs questions to a named guest ("Sarah, what do you think?"), use that turn to confirm `speaker_id` ↔ guest mapping in `evidence`.
-- **Co-host** (second person asking questions): assign `role: interviewer` with `evidence` noting co-host; both interviewers may have shorter turns — distinguish from interviewees by question density, not turn length alone.
-- In `notes`, include `format_hint: panel` and list ambiguous handoffs (e.g. two guests answering in one diarized bucket).
-
-### Co-host vs primary interviewer
-
-- Primary interviewer: opens/closes, owns topic pivots, asks most structured questions.
-- Co-host: follow-ups, devil's advocate, audience proxy — still `interviewer` unless they deliver long personal narrative (rare → `interviewee` with evidence).
-- When diarization merges co-host and guest, leave affected speakers `unknown` and add `needs` `{ "type": "operator", "blocking": false, "reason": "co-host/guest overlap" }`.
-
-### Off-mic and ambient speakers
-
-- **Off-mic** laughter, producer cues, or audience — if diarized as `spk_XX`, use `role: unknown` with `evidence: "off-mic / ambient; non-interview speech"`.
-- Do not assign `interviewee` to brief unintelligible bursts unless transcript clearly attributes a substantive answer.
-- Note off-mic density in `notes` when it affects downstream crosstalk flags.
-
-### Code-switching and dialect
-
-- English may mix with other languages or regional registers (`en-GB`, `en-IN`, `en-AU`, `en-US`, Caribbean, African Englishes).
-- Code-switching does **not** change role assignment — same Q&A signals apply.
-- When STT labels a single speaker inconsistently across windows, prefer **question patterns over accent** for role; cite cross-window quotes in `evidence`.
-- Lower `confidence` (by 0.1–0.2) when role inference depends on a single short window with heavy crosstalk or poor diarization.
-
-### Quality bar
-
-- Minimum deliverable: at least one confident `interviewer` and one confident `interviewee`, OR explicit `unknown` with operator `needs` and documented ambiguity.
-- Never leave all speakers `unknown` when clear Q&A exists in any sample window.
-- Never assign `interviewer` to the longest speaker without verifying question syntax across windows.
+```

@@ -116,9 +116,11 @@ def _preflight_content_context(ctx: RunContext) -> list[str]:
     roles = {
         str(sp.get("role", "")).strip().lower() for sp in speakers if isinstance(sp, dict)
     }
-    if not (roles & {"interviewer", "moderator"}):
+    from interview_mux.conversation_context import role_is_frame
+
+    if not any(role_is_frame(r) for r in roles):
         errors.append(
-            "speakers.json missing interviewer or moderator role — re-run Speaker roles"
+            "speakers.json missing frame role (interviewer/moderator/co_host) — re-run Speaker roles"
         )
     errors.extend(_spine_preflight(ctx))
     return errors
@@ -137,26 +139,24 @@ def _preflight_boundary_detection(ctx: RunContext) -> list[str]:
         errors.append("speakers.json has no speakers")
         return errors
     roles = {str(sp.get("role", "")).strip().lower() for sp in speakers if isinstance(sp, dict)}
-    if "interviewer" not in roles:
-        errors.append("speakers.json missing interviewer role")
+    from interview_mux.conversation_context import role_is_frame
+
+    if not any(role_is_frame(r) for r in roles):
+        errors.append("speakers.json missing frame role — re-run Speaker roles")
     errors.extend(_spine_preflight(ctx))
     return errors
 
 
 def _preflight_segment_classification(ctx: RunContext) -> list[str]:
-    if not ctx.artifact_exists("segments/boundaries.json"):
-        return ["segments/boundaries.json missing"]
-    doc = ctx.read_json("segments/boundaries.json")
-    boundaries = doc.get("boundaries") if isinstance(doc, dict) else None
-    if not boundaries:
-        return ["segments/boundaries.json has no boundaries"]
-    from interview_mux.stage_coupling import contract_timeline_valid, read_segment_contract
+    from interview_mux.segmentation_input_resolver import (
+        assert_boundary_contract_ready,
+        resolve_segmentation_inputs,
+    )
 
-    if not contract_timeline_valid(doc if isinstance(doc, dict) else None):
-        contract = read_segment_contract(doc if isinstance(doc, dict) else None)
-        errs = (contract or {}).get("timeline_errors") or ["boundary timeline invalid"]
-        return [f"boundary timeline invalid: {errs[0]}"]
-    return []
+    bundle = resolve_segmentation_inputs(ctx)
+    errors = list(bundle.errors)
+    errors.extend(assert_boundary_contract_ready(bundle))
+    return errors[:6]
 
 
 def _preflight_content_brief_reanchor(ctx: RunContext) -> list[str]:

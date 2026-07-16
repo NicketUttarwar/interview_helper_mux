@@ -2,6 +2,7 @@ import type { OperatorPhase, PipelineSubTab, RunData, StageInfo } from "../types
 import {
   findPendingFocusStage,
   getHandoffPathsLocal,
+  handoffBetweenStagesEnabled,
 } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
@@ -207,6 +208,7 @@ export function listAttentionItems(
 
   if (ctx.needsStageReuse && job?.stage) {
     const stage = run.stages.find((s) => s.id === job.stage);
+    const firstTrySoft = run.journey?.first_try?.enabled !== false;
     push({
       kind: "stage_reuse",
       priority: 3,
@@ -219,11 +221,13 @@ export function listAttentionItems(
       primaryLabel: checkpointPrimaryLabel(job.stage, "stage_reuse"),
       phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
       subTab: "stage",
+      optional: firstTrySoft,
     });
   }
 
   for (const stage of run.stages) {
     if (stage.status !== "done") continue;
+    if (!handoffBetweenStagesEnabled(run)) continue;
     const paths = getHandoffPathsLocal(stage, run.log_tail);
     if (paths.length && !run.handoff_ack?.[stage.id]) {
       push(handoffItem(run, stage));
@@ -239,6 +243,7 @@ export function listAttentionItems(
     const pickupCount = parseCountFromMessage(blocking.message, /Record (\d+) pickup/);
 
     if (reason === "stage_reuse") {
+      const firstTrySoft = run.journey?.first_try?.enabled !== false;
       push({
         kind: "stage_reuse",
         priority: 3,
@@ -251,6 +256,7 @@ export function listAttentionItems(
         primaryLabel: checkpointPrimaryLabel(sid, "stage_reuse"),
         phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
         subTab: "stage",
+        optional: firstTrySoft,
       });
     } else if (reason === "write_approval" && !jobRunning) {
       push(writeApprovalItem(run, sid, blocking.message));

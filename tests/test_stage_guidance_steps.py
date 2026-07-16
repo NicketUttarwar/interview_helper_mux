@@ -42,8 +42,10 @@ def test_g0_gate_steps(tmp_path) -> None:
     init_run_meta_for_test(ctx)
     guidance = build_stage_guidance(ctx, "transcript_review", status="action_required")
     steps = build_stage_steps(ctx, "transcript_review", status="action_required", guidance=guidance)
-    assert len(steps) >= 4
-    assert steps[-1]["primary_button"] == "Complete transcript review"
+    assert len(steps) == 1
+    assert steps[0]["id"] == "review_transcript"
+    assert steps[0]["embed"] == "transcript_review"
+    assert steps[0]["primary_button"] == "Complete transcript review"
 
 
 def test_locked_stage_single_step(tmp_path) -> None:

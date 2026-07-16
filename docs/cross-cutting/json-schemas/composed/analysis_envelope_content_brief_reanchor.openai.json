@@ -51,6 +51,11 @@
                 "type": [
                   "string",
                   "null"
+                ],
+                "minLength": 1,
+                "description": "mm:ss-mm:ss (or m:ss) span in the source transcript where this topic is discussed. Required before seg_* ids exist.",
+                "examples": [
+                  "02:15-04:40"
                 ]
               },
               "segment_ids": {
@@ -134,6 +139,7 @@
               "claim",
               "claim_type",
               "speaker_role",
+              "approx_time_range",
               "segment_ids",
               "evidence_segment_ids",
               "depends_on_claim_ids",
@@ -171,6 +177,17 @@
                 "enum": [
                   "interviewee",
                   "interviewer"
+                ]
+              },
+              "approx_time_range": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "description": "mm:ss-mm:ss (or m:ss) span where this claim is stated. Prefer this over empty segment_ids before segmentation; empty arrays alone fail lint.",
+                "examples": [
+                  "05:10-06:05"
                 ]
               },
               "segment_ids": {

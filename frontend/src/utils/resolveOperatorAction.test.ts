@@ -650,6 +650,41 @@ describe("copy templates", () => {
     expect(a.primaryLabel).toMatch(/Rerun/);
   });
 
+  it("unreachable incomplete (upstream open) shows locked, not Failed", () => {
+    const run = baseRun({
+      stages: [
+        stage("source_acoustic_profile", "pending", "Source acoustic profile"),
+        {
+          ...stage("g1_5_preview_pickup", "incomplete", "Post-preview pickup (G1.5)"),
+          incomplete_reason: "understanding/gap_report.json is pending",
+        },
+      ],
+      selected_stage_id: "g1_5_preview_pickup",
+    });
+    const a = resolveOperatorActionForStage(run, "g1_5_preview_pickup", {});
+    expect(a.mode).toBe("locked");
+    expect(a.primaryKind).toBe("none");
+    expect(a.headline).toMatch(/Waiting/i);
+  });
+
+  it("optional_skipped stage shows done, not Failed", () => {
+    const run = baseRun({
+      stages: [
+        stage("source_acoustic_profile", "pending", "Source acoustic profile"),
+        {
+          ...stage("g1_5_preview_pickup", "done", "Post-preview pickup (G1.5)"),
+          stage_output_mode: "optional_skipped",
+          artifacts_status: { "understanding/gap_report.json": "complete" },
+          artifacts_lifecycle: { "understanding/gap_report.json": "n_a" },
+        },
+      ],
+      selected_stage_id: "g1_5_preview_pickup",
+    });
+    const a = resolveOperatorActionForStage(run, "g1_5_preview_pickup", {});
+    expect(a.mode).toBe("done");
+    expect(a.headline).toMatch(/complete/i);
+  });
+
   it("server action with modal_auto_open false", () => {
     const run = baseRun({
       journey: {

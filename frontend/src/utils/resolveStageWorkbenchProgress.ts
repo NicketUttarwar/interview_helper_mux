@@ -1,6 +1,6 @@
 import type { AppConfig, RunData, StageInfo, StageStep } from "../types";
 import { listRequiredAttentionItems } from "./attentionQueue";
-import { getHandoffPathsLocal } from "./checkpoint";
+import { getHandoffPathsLocal, handoffBetweenStagesEnabled } from "./checkpoint";
 import { resolveReviewGateSpec, type ReviewGateSpec } from "./resolveReviewGate";
 import { stageAwaitingWriteApproval } from "./writeApproval";
 
@@ -9,9 +9,8 @@ const STEP_PRIORITY = [
   "write_approval",
   "operator_decisions",
   "handoff",
-  "complete_g0",
+  "review_transcript",
   "review_fillers",
-  "listen_clips",
   "complete_g05",
   "prompt_review",
   "verify_profile",
@@ -21,6 +20,7 @@ const STEP_PRIORITY = [
 
 function handoffStepPending(stage: StageInfo, run: RunData | null): boolean {
   if (!run || stage.status !== "done") return false;
+  if (!handoffBetweenStagesEnabled(run)) return false;
   if (run.handoff_ack?.[stage.id]) return false;
   return getHandoffPathsLocal(stage, run.log_tail).length > 0;
 }

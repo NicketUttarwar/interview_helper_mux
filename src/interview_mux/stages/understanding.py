@@ -17,6 +17,7 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.transcript_sampling import stratified_transcript_samples_from_words
 from interview_mux.speaker_role_evidence import build_speaker_role_evidence
+from interview_mux.conversation_context import enrich_speakers_artifact
 from interview_mux.value_analysis.extract import (
     maybe_auto_extract_value_features,
     maybe_enqueue_orchestration_investigations,
@@ -55,15 +56,26 @@ def run_speaker_roles(ctx: RunContext) -> None:
                 transcript.get("text", ""),
                 total_chars=sample_chars,
             )
+        from interview_mux.source_topology import _speaker_talk_stats
+
+        speakers_input = {"speakers": speakers.get("speakers") or speakers}
+        talk_stats = _speaker_talk_stats(transcript, speakers_input)
         return {
             "transcript_samples": samples,
             "speakers": speakers,
+            "speaker_talk_stats": talk_stats,
             **build_speaker_role_evidence(
                 {"transcript_samples": samples, "speakers": speakers}
             ),
         }
 
-    persist = make_stage_persist("understanding/speakers.json", "speaker_roles")
+    base_persist = make_stage_persist("understanding/speakers.json", "speaker_roles")
+
+    def persist(c: RunContext, artifacts: dict) -> None:
+        base_persist(c, enrich_speakers_artifact(c, artifacts))
+
+    def _sync_full(c: RunContext, artifacts: dict) -> None:
+        sync_speakers_to_state(c, artifacts)
 
     with logged_step("speaker_roles/llm_stage", ctx=ctx, stage="speaker_roles"):
         run_analysis_llm_stage(
@@ -72,7 +84,7 @@ def run_speaker_roles(ctx: RunContext) -> None:
             "understanding/speaker-roles.system.txt",
             build_input,
             persist,
-            sync_fn=lambda c, a: sync_speakers_to_state(c, a if "speakers" in a else {"speakers": a.get("speakers", [])}),
+            sync_fn=_sync_full,
         )
 
 
@@ -126,6 +138,9 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "content_brief_reanchor")
+        from interview_mux.conversation_context import attach_conversation_context
+
+        payload = attach_conversation_context(c, payload, "content_brief_reanchor")
         return attach_disfluency_context(payload, c)
 
     persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")

@@ -1,12 +1,17 @@
 Generate interviewer pickup lines for gaps identified in gap_evaluations.
 
 **TBIY profile (when `production_style` is `tbiy_narrative`):**
+- Honor ``tbiy_conformance`` / ``flow_adaptation.vo_bridge_priority`` when present:
+  - ``high`` — prioritize ``reaction_line``, ``chapter_hook``, and ``transition_banter`` to reconstruct TBIY frame energy
+  - ``normal`` — include reaction/hook bridges for marked gaps
+  - ``low`` — prefer on-tape frame; only essential pickups
 - Include brief **reaction lines** (`gap_type: reaction_line`) — e.g. "What?", "Classic.", short consumer-facing reactions on stats/pivots
 - Include **chapter hooks** (`gap_type: chapter_hook`) and **transition banter** (`gap_type: transition_banter`) when acts need bridges
 - Set `suggested_tone`: `analytical` | `consumer` | `neutral` per line
 - Optional `act_context` (1–5) when narrative_plan or content_brief act hints exist
 - **Every `delivery: record` line MUST set `voice_speaker_id` to `flow_adaptation.pickup_eligible_speaker_id` or `source_topology.pickup_eligible_speaker_id`** — the least-spoken speaker only
 - Never assign pickup lines to content/guest speakers — guest audio is trim/reorder only
+- Stay on TBIY compass even when dual-voice is missing — VO bridges replace invented guest banter; do not switch to documentary posture
 
 Rules (all profiles):
 - One line per gap unless merge is clearly better

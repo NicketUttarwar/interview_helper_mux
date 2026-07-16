@@ -144,6 +144,20 @@ describe("canLoadPendingWriteContent", () => {
     expect(canLoadPendingWriteContent(run, "ingest")).toBe(true);
   });
 
+  it("returns true when only API paths are known (job metadata cleared)", () => {
+    const run = runStub({
+      stages: [
+        { id: "boundary_detection", title: "Boundaries", status: "awaiting_write_approval", phase: "understand" },
+      ],
+      job: { status: "complete", stage: "boundary_detection" },
+    });
+    expect(
+      canLoadPendingWriteContent(run, "boundary_detection", {
+        apiPaths: ["segments/boundaries.json"],
+      }),
+    ).toBe(true);
+  });
+
   it("returns false during write-approval save", () => {
     const run = runStub({
       job: {

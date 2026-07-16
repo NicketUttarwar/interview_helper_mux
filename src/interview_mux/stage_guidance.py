@@ -468,9 +468,15 @@ def _prior_stage_satisfied(ctx: RunContext, prior: str) -> bool:
         return True
     if prior != "audio_preclean":
         return False
+    from interview_mux.operator_quality import preclean_checkpoint_decision
     from interview_mux.stages.audio_preclean import preclean_was_skipped
 
-    return preclean_was_skipped(ctx)
+    if preclean_was_skipped(ctx):
+        return True
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if preclean_checkpoint_decision(meta, "before_ingest") is None:
+        return True
+    return False
 
 
 def _prior_stage_items(

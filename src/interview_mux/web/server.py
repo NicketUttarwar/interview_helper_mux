@@ -306,6 +306,10 @@ class TranscriptWordsPatchBody(BaseModel):
     updates: list[TranscriptWordPatch] = Field(default_factory=list)
 
 
+class TranscriptTextBody(BaseModel):
+    text: str = Field(min_length=1)
+
+
 class AnalysisProfileBody(BaseModel):
     data: dict[str, Any]
     operator_verified: bool | None = None
@@ -1278,9 +1282,18 @@ def create_app() -> FastAPI:
             from interview_mux.custom_run_handoff import stage_for_custom_run_path
 
             stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
-            ctx.write_json(body.path, body.data, stage_key=stage_key)
+            data = body.data
+            if body.path == "understanding/speakers.json" and isinstance(data, dict):
+                from interview_mux.conversation_context import (
+                    enrich_speakers_artifact,
+                    sync_conversation_to_analysis_state,
+                )
+
+                data = enrich_speakers_artifact(ctx, data)
+                sync_conversation_to_analysis_state(ctx, data)
+            ctx.write_json(body.path, data, stage_key=stage_key)
             stage = stage_key
-            mirror_artifact_to_operator(ctx, body.path, body.data, source="artifact_json_editor")
+            mirror_artifact_to_operator(ctx, body.path, data, source="artifact_json_editor")
             ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
             if body.path == "understanding/analysis_state.json":
                 persist_operator_analysis_profile(ctx, source="artifact_json_editor")
@@ -1407,6 +1420,43 @@ def create_app() -> FastAPI:
                 if list_pending_paths(ctx, stage_id):
                     runner.restore_write_approval_pause(ctx, stage_id, paths)
                 raise
+
+    @app.get("/api/runs/{run_id}/segmentation-review")
+    def get_segmentation_review(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.segmentation_input_resolver import segmentation_review_report
+
+        return segmentation_review_report(ctx)
+
+    @app.post("/api/runs/{run_id}/approve-segmentation-writes")
+    async def approve_segmentation_writes(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+
+            def _approve_locked() -> list[str]:
+                from interview_mux.write_staging import approve_segmentation_pair_writes
+
+                return approve_segmentation_pair_writes(ctx)
+
+            try:
+                flushed = await run_in_threadpool(_approve_locked)
+            except RunBusyError as exc:
+                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
+            except FileNotFoundError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            except Exception as exc:
+                from interview_mux.write_staging import WriteApprovalBlockedError
+
+                if isinstance(exc, WriteApprovalBlockedError):
+                    raise HTTPException(409, str(exc)) from exc
+                raise HTTPException(400, str(exc)) from exc
+            runner.clear_operator_pause(
+                ctx,
+                "segment_classification",
+                message=f"Segmentation saved {len(flushed)} file(s) — advancing pipeline.",
+            )
+            refresh_journey_meta(ctx)
+            return {"ok": True, "flushed": flushed, "stage_id": "segment_classification"}
 
     @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
     async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -2352,6 +2402,23 @@ def create_app() -> FastAPI:
     def handoff_ack(run_id: str, body: HandoffAckBody) -> dict[str, Any]:
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
+            if body.stage_id == "speaker_roles" and ctx.artifact_exists("understanding/speakers.json"):
+                from interview_mux.conversation_context import (
+                    hypotheses_require_confirmation,
+                )
+
+                speakers_doc = ctx.read_json("understanding/speakers.json")
+                if hypotheses_require_confirmation(speakers_doc):
+                    raise HTTPException(
+                        409,
+                        {
+                            "error": "hypothesis_confirmation_required",
+                            "message": (
+                                "Confirm a conversation interpretation before acknowledging "
+                                "speaker_roles handoff."
+                            ),
+                        },
+                    )
             now = datetime.now(timezone.utc).isoformat()
 
             def _patch(meta: dict[str, Any]) -> None:
@@ -2466,6 +2533,62 @@ def create_app() -> FastAPI:
                 raise HTTPException(404, "Transcript not found — run transcribe first.")
             updates = [{"index": u.index, "text": u.text} for u in body.updates]
             return transcript_review.patch_transcript_words(ctx, updates)
+
+    @app.put("/api/runs/{run_id}/transcript/text")
+    def put_transcript_text(run_id: str, body: TranscriptTextBody) -> dict[str, Any]:
+        """Full-text save after transcript reuse (edit interstitial) or operator re-edit."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("transcript/full.json"):
+                raise HTTPException(404, "Transcript not found — run transcribe first.")
+            try:
+                if transcript_review.transcript_reuse_pending_edit(ctx):
+                    result = transcript_review.save_reused_transcript_text(ctx, body.text)
+                else:
+                    result = transcript_review.apply_full_transcript_text(
+                        ctx, body.text, source="operator_text_edit"
+                    )
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            return {
+                "ok": True,
+                "text": result.get("text"),
+                "word_count": result.get("word_count"),
+                "pending_edit": transcript_review.transcript_reuse_pending_edit(ctx),
+                "transcript_review_done": ctx.is_done("transcript_review"),
+            }
+
+    @app.post("/api/runs/{run_id}/transcript/reuse-edit/complete")
+    def complete_transcript_reuse_edit(run_id: str) -> dict[str, Any]:
+        """Finalize reuse interstitial after dock word edits (no full-text remap)."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("transcript/full.json"):
+                raise HTTPException(404, "Transcript not found — run transcribe first.")
+            if not transcript_review.transcript_reuse_pending_edit(ctx):
+                return {
+                    "ok": True,
+                    "pending_edit": False,
+                    "transcript_review_done": ctx.is_done("transcript_review"),
+                }
+            try:
+                result = transcript_review.finalize_reused_transcript_from_disk(ctx)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            return {
+                "ok": True,
+                "text": result.get("text"),
+                "word_count": result.get("word_count"),
+                "pending_edit": False,
+                "transcript_review_done": ctx.is_done("transcript_review"),
+            }
+
+    @app.post("/api/runs/{run_id}/transcript/reuse-edit/dismiss")
+    def dismiss_transcript_reuse_edit(run_id: str) -> dict[str, Any]:
+        """Skip the one-time reuse edit window; do not re-open at STT review."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            return transcript_review.dismiss_transcript_reuse_edit(ctx)
 
     @app.get("/api/runs/{run_id}/transcript-review")
     def get_transcript_review(run_id: str) -> dict[str, Any]:
@@ -2861,6 +2984,30 @@ def create_app() -> FastAPI:
                 detail={"kind": "adaptation", "journey_kind": "adaptation", "action_id": "gui.adaptation.confirm"},
             )
             return {"ok": True, "adaptation": adapt}
+
+    @app.post("/api/runs/{run_id}/speaker-roles/confirm-hypothesis")
+    def confirm_speaker_roles_hypothesis(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.conversation_context import confirm_conversation_hypothesis
+
+            ctx = _ctx(run_id)
+            hypothesis_id = str(body.get("hypothesis_id") or "").strip()
+            if not hypothesis_id:
+                raise HTTPException(400, "hypothesis_id is required")
+            try:
+                updated = confirm_conversation_hypothesis(ctx, hypothesis_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            ctx.log(
+                f"Conversation hypothesis confirmed: {hypothesis_id}",
+                level="action",
+                stage="speaker_roles",
+                detail={
+                    "hypothesis_id": hypothesis_id,
+                    "action_id": "gui.speaker_roles.confirm_hypothesis",
+                },
+            )
+            return {"ok": True, "speakers": updated}
 
     @app.get("/api/runs/{run_id}/pickup-speaker")
     def get_pickup_speaker(run_id: str) -> dict[str, Any]:
@@ -3458,6 +3605,16 @@ def _build_stage_list(
                     if isinstance(row, dict):
                         row["status"] = "complete"
                         row["phase"] = "n_a"
+            elif sid == "g1_vo_pickup" and s.get("status") == "done":
+                # Vacuous / satisfied G1: gap_report is enough; script may not exist yet.
+                script = "understanding/interviewer_script.txt"
+                if (s.get("artifacts_status") or {}).get(script) in ("pending", "partial"):
+                    s.setdefault("artifacts_lifecycle", {})[script] = "n_a"
+                    s["artifacts_status"][script] = "complete"
+                    for row in s.get("outputs_view") or []:
+                        if isinstance(row, dict) and row.get("path") == script:
+                            row["status"] = "complete"
+                            row["phase"] = "n_a"
             s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
             if ctx.is_done(sid):
                 handoff = handoff_paths_for_stage(ctx, sid)

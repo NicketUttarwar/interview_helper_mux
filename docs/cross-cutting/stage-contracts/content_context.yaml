@@ -59,8 +59,6 @@ nullable_fields:
 - jargon_glossary
 - jargon_glossary[].first_segment_id
 - key_claims
-- key_claims[].approx_time_range
 - key_claims[].evidence_segment_ids
 - key_claims[].segment_ids
-- topics[].approx_time_range
 - topics[].segment_ids

@@ -55,9 +55,19 @@ def build_deterministic_shard_plan(
         "content_brief_reanchor",
         "topic_coverage_audit",
     ):
-        if "lint_retry_force_decompose" in (truncation_flags or []) or "proactive_per_segment" in (
-            truncation_flags or []
-        ):
+        # Truncation / field clips: prefer per-segment shards so boost + slice can clear markers.
+        trunc_ish = any(
+            f in (truncation_flags or [])
+            for f in (
+                "field_truncated",
+                "max_stage_data_chars",
+                "framer_digest_truncated",
+                "volley_middle_truncated",
+                "lint_retry_force_decompose",
+                "proactive_per_segment",
+            )
+        )
+        if trunc_ish:
             per_seg = _per_segment_shards(stage_input)
             if per_seg:
                 return per_seg, "deterministic"
@@ -133,6 +143,22 @@ def _gap_segment_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
             batches.append({"label": f"gaps_{i // cap + 1}", "segment_ids": ids})
     return batches[:_max_transcript_shards()]
 
+def _finalize_boundary_plans(plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Snap adjacent shard windows contiguous and attach span metadata."""
+    if not plans:
+        return plans
+    finalized: list[dict[str, Any]] = []
+    for idx, plan in enumerate(plans):
+        entry = dict(plan)
+        if idx > 0 and entry.get("start_ms") is not None and finalized[-1].get("end_ms") is not None:
+            entry["start_ms"] = int(finalized[-1]["end_ms"])
+        start = entry.get("start_ms")
+        end = entry.get("end_ms")
+        if start is not None and end is not None:
+            entry["shard_span_ms"] = max(0, int(end) - int(start))
+        finalized.append(entry)
+    return finalized
+
 def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     tr = stage_input.get("transcript")
     words = tr.get("words") if isinstance(tr, dict) else None
@@ -147,7 +173,7 @@ def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
             end_ms = chunk[-1].get("end_ms", start_ms)
             plans.append({"label": f"time_{i // batch + 1}", "start_ms": start_ms, "end_ms": end_ms})
         if plans:
-            return plans[:_max_transcript_shards()]
+            return _finalize_boundary_plans(plans[:_max_transcript_shards()])
     items = tr.get("items") if isinstance(tr, dict) else None
     if not items or len(items) < 400:
         return _segment_batches(stage_input)
@@ -160,7 +186,7 @@ def _boundary_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
         start_ms = chunk[0].get("start_ms", 0)
         end_ms = chunk[-1].get("end_ms", start_ms)
         plans.append({"label": f"time_{i // batch + 1}", "start_ms": start_ms, "end_ms": end_ms})
-    return plans[:_max_transcript_shards()]
+    return _finalize_boundary_plans(plans[:_max_transcript_shards()])
 
 def _ranking_batches(stage_input: dict[str, Any]) -> list[dict[str, Any]]:
     plan = stage_input.get("narrative_plan") or {}
@@ -272,9 +298,27 @@ def should_proactive_decompose_boundary_detection(
     ctx: Any | None = None,
 ) -> bool:
     from interview_mux.boundary_observability import oversplit_risk_from_hints, spine_truncation_risk
+    from interview_mux.segment_timeline_standard import segmentation_cfg
 
+    seg_cfg = segmentation_cfg()
+    pace_classes = set(seg_cfg.get("boundary_proactive_decompose_pace_classes") or ["calm", "brisk"])
+    sap = stage_input.get("source_acoustic_profile") if isinstance(stage_input.get("source_acoustic_profile"), dict) else {}
+    pacing = sap.get("pacing") if isinstance(sap.get("pacing"), dict) else {}
+    pace_class = str(pacing.get("pace_class") or stage_input.get("pace_class") or "").strip().lower()
     hints = stage_input.get("pause_ladder_hints")
-    if oversplit_risk_from_hints(hints if isinstance(hints, dict) else None):
+    oversplit = oversplit_risk_from_hints(hints if isinstance(hints, dict) else None)
+
+    tr = stage_input.get("transcript")
+    duration_ms = 0
+    if isinstance(tr, dict) and tr.get("words"):
+        words = tr["words"]
+        if words:
+            duration_ms = int(words[-1].get("end_ms", 0))
+
+    if duration_ms and duration_ms < 60_000 and not oversplit:
+        return False
+
+    if oversplit and (not pace_classes or pace_class in pace_classes or not pace_class):
         return True
     if ctx is not None and spine_truncation_risk(ctx):
         return True

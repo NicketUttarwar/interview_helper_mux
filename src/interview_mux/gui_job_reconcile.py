@@ -373,12 +373,33 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
 
 
 def pause_job_for_write_approval(ctx: RunContext, exc: Any) -> None:
-    """Persist awaiting_write_approval gui_job from an isolated stage worker."""
-    from interview_mux.write_staging import WriteApprovalPending
+    """Persist awaiting_write_approval gui_job from an isolated stage worker.
+
+    Never clobber an existing quality gate / clarification pause — those outrank Save.
+    """
+    from interview_mux.write_staging import (
+        WriteApprovalPending,
+        is_stage_gate_blocked,
+        read_gui_job,
+    )
     from interview_mux.first_try import write_approval_deferred
 
     if not isinstance(exc, WriteApprovalPending):
         raise TypeError("expected WriteApprovalPending")
+
+    prior = read_gui_job(ctx) or {}
+    prior_status = str(prior.get("status") or "")
+    if prior_status in {"needs_clarification", "gate"} and is_stage_gate_blocked(
+        ctx, exc.stage_id
+    ):
+        ctx.log(
+            f"Write approval pause skipped for {exc.stage_id}: preserving {prior_status}.",
+            level="warning",
+            stage=exc.stage_id,
+            detail={"event": "write_approval_gate_preserved", "status": prior_status},
+        )
+        return
+
     if write_approval_deferred():
         # Keep job running-complete; deferred staging must not stall every stage.
         ctx.write_json(

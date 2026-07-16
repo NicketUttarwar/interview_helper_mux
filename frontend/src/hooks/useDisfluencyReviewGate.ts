@@ -69,7 +69,6 @@ export function useDisfluencyReviewGate(enabled: boolean) {
           const msg = formatApiError(reason, "Complete disfluency review");
           setError(msg);
           if (!isExpectedDisfluencyGateError(reason)) {
-            showToast(msg, "error");
             appendClientLog(msg, "error", "disfluency_review");
           }
         } finally {
@@ -101,7 +100,6 @@ export function useDisfluencyReviewGate(enabled: boolean) {
       const msg = formatApiError(reason, "Complete disfluency review");
       setError(msg);
       if (!isExpectedDisfluencyGateError(reason)) {
-        showToast(msg, "error");
         appendClientLog(msg, "error", "disfluency_review");
       }
     } finally {
@@ -119,7 +117,6 @@ export function useDisfluencyReviewGate(enabled: boolean) {
       const msg = formatApiError(reason, "Complete disfluency review");
       setError(msg);
       if (!isExpectedDisfluencyGateError(reason)) {
-        showToast(msg, "error");
         appendClientLog(msg, "error", "disfluency_review");
       }
     } finally {

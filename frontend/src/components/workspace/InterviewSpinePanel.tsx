@@ -70,7 +70,6 @@ export function InterviewSpinePanel() {
       await load();
     } catch (e) {
       const msg = formatApiError(e, "Recompute spine");
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setLoading(false);
@@ -92,7 +91,6 @@ export function InterviewSpinePanel() {
       setHits(res.hits || []);
     } catch (e) {
       const msg = formatApiError(e, "Spine query");
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setLoading(false);

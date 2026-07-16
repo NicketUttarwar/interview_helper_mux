@@ -37,7 +37,6 @@ export function VolleyMemoryPanel() {
       const msg = formatApiError(e, "Volley memory");
       setError(msg);
       if (!isExpectedEmptyApiError(e)) {
-        showToast(msg, "error");
         appendClientLog(msg, "error");
       }
     } finally {
@@ -76,7 +75,6 @@ export function VolleyMemoryPanel() {
     } catch (e) {
       const msg = formatApiError(e, "Save volley entry");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setSaving(false);
@@ -93,7 +91,6 @@ export function VolleyMemoryPanel() {
     } catch (e) {
       const msg = formatApiError(e, "Invalidate volley entry");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     }
   };
@@ -115,7 +112,6 @@ export function VolleyMemoryPanel() {
     } catch (e) {
       const msg = formatApiError(e, "Add volley entry");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     }
   };
@@ -129,7 +125,6 @@ export function VolleyMemoryPanel() {
     } catch (e) {
       const msg = formatApiError(e, "Rebuild volley memory");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error");
     } finally {
       setLoading(false);

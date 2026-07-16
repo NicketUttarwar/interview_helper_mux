@@ -11,7 +11,6 @@ import {
 } from "./tabs/lazyTabs";
 import { ModalHost } from "./modals/ModalHost";
 import { SessionStaleOverlay } from "./SessionStaleOverlay";
-import { Toast } from "./Toast";
 import { ActionOverlay } from "./ActionOverlay";
 import { LiveStatusBar } from "./LiveStatusBar";
 
@@ -69,7 +68,6 @@ export function AppShell() {
       {activeTab !== "pipeline" ? <ActivityTeaser /> : null}
       <ModalHost />
       <SessionStaleOverlay />
-      <Toast />
       <ActionOverlay />
     </div>
   );

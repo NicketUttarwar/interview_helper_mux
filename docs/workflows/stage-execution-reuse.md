@@ -1,8 +1,8 @@
 # Stage execution reuse
 
-At **every pipeline stage**, the GUI can offer to copy outputs from the **immediate previous execution** (`run_meta.immediate_previous_run_id`, execution_number − 1) when that run used the **same canonical pipeline WAV** (`run_meta.source_audio_hash`, derived from the post-conversion `.wav` file — never from raw m4a/mp4 containers).
+At **every pipeline stage**, the GUI can offer to copy outputs from a **recent prior execution** when that run used the **same canonical pipeline WAV** (`run_meta.source_audio_hash`, derived from the post-conversion `.wav` file — never from raw m4a/mp4 containers).
 
-Older executions with matching hash are **not** scanned for reuse offers (session management overhaul, 2026-06).
+The scanner walks the **last N prior executions** (`journey_ui.stage_reuse_lookback_executions`, default **5**), ordered by `execution_number` from newest to oldest. The **first** run in that window with a hash match and complete stage outputs becomes the reuse candidate. Runs outside the lookback window are not offered even when the hash matches.
 
 Fresh executions are the default. Reuse is **opt-in per stage** and only appears when strict eligibility checks pass.
 
@@ -32,7 +32,7 @@ The **Executions** tab and status header also surface hash chips; runs with matc
 
 1. Run or resume an execution with the same input WAV as a prior run (hash computed at `POST /api/runs` from the canonical pipeline WAV).
 2. On each pending stage, review **Previous execution reuse** (if candidates exist) or click **Run step N**.
-3. **Reuse outputs** — copies artifacts to the working directory. **Transcript stages** (`transcribe`, `transcript_review_build`, `transcript_review`) copy directly to final paths (no write-approval staging). Reusing a corrected transcript does **not** auto-complete G0 — open **Transcript review** and click **Save and complete review** after optional edits.
+3. **Reuse outputs** — copies artifacts to the working directory. **Transcript stages** (`transcribe`, `transcript_review_build`, `transcript_review`) copy directly to final paths (no write-approval staging). When operator-corrected snapshots exist (`operator/transcript_corrected.*`), they are **overlaid onto `transcript/full.json`** so the working transcript is the latest corrected text. **Only `transcribe` reuse** opens the **one-time** edit window (`transcript_reuse_pending_edit`) with the **synced transcript dock** (fuzzy similar-word replace, undo, audio sync) — not the plain STT review UI. Later transcript-stage reuses (`transcript_review_build`, `transcript_review`) copy artifacts without reopening the interstitial. Edit and **Save & continue**, or **Skip** to clear the pending flag and edit later in G0. The window does not auto-appear merely because the operator is on the Transcript review stage, and it does not reappear after you have saved or skipped once. Save refreshes `transcript/full.json` + `operator/transcript_corrected.*`, so the **next** execution's reuse picks up the corrected transcript. G0 first-try auto-complete is suppressed while the interstitial is pending.
 4. **Run fresh instead** — records decline and runs the stage normally (e.g. fresh AWS transcribe).
 
 When `enable_stage_reuse_offers` is `false`, the UI still lists candidates but execute is not blocked (CLI: `--no-reuse-offers`).

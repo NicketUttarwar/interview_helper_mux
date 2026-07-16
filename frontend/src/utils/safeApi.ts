@@ -32,7 +32,6 @@ export function reportPanelFetchOutcome(opts: {
     return msg;
   }
   if (opts.kind === "action_failed" || opts.kind === "system") {
-    opts.showToast?.(msg, "error");
     opts.appendClientLog?.(msg, "error", opts.stage);
   }
   return msg;

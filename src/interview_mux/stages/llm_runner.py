@@ -172,13 +172,14 @@ def _truncation_blocked_envelope(
     flags: list[str],
     esc_meta: Any,
 ) -> dict[str, Any]:
+    need_type = "decompose" if task_kind in ("primary", "shard") else "rerun_stage"
     return {
         "status": "blocked",
         "artifacts": {},
         "memory_updates": {},
         "needs": [
             {
-                "type": "rerun_stage",
+                "type": need_type,
                 "stage": stage_key,
                 "reason": f"LLM input truncated: {', '.join(flags[:3])}",
                 "blocking": True,
@@ -486,9 +487,10 @@ def run_prompt_envelope(
     system_override: str | None = None,
     volley_retry_index: int = 0,
 ) -> dict[str, Any]:
-    """OpenAI gateway with universal truncation scan and tier escalation."""
+    """OpenAI gateway with universal truncation scan and hard block on truncated primary."""
     from interview_mux.truncation_policy import (
         TruncationEscalationMeta,
+        TruncationEscalationRequired,
         log_truncation_event,
         scan_llm_input,
         tier_at_ladder_step,
@@ -507,35 +509,17 @@ def run_prompt_envelope(
         if truncation_integrity_enabled(cfg):
             ti = truncation_integrity_cfg(cfg)
             if ti.get("enforce_at_gateways", True):
-                max_rounds = int(ti.get("max_escalation_rounds_per_call", 4))
-                esc_meta.rounds = min(1, max_rounds)
                 if not model:
                     if use_explicit is None and not use_bump:
                         use_bump = True
                         esc_meta.steps.append("tier_bump")
+                        esc_meta.rounds = 1
                     elif use_bump:
                         use_explicit = tier_at_ladder_step(2, cfg)
                         esc_meta.steps.append(f"tier_{use_explicit}")
-                if (
-                    ti.get("never_accept_truncated_output", True)
-                    and esc_meta.rounds >= max_rounds
-                    and task_kind in ("primary", "shard")
-                    and use_explicit == tier_at_ladder_step(max_rounds - 1, cfg)
-                ):
-                    blocked = _truncation_blocked_envelope(
-                        record_stage_key or stage_key,
-                        task_kind,
-                        flags=scan.flags,
-                        esc_meta=esc_meta,
-                    )
-                    if ctx:
-                        log_truncation_event(
-                            ctx,
-                            stage_key=record_stage_key or stage_key,
-                            event="blocked",
-                            scan=scan,
-                        )
-                    return blocked
+                        esc_meta.rounds = 2
+                    else:
+                        esc_meta.rounds = 1
                 if ctx:
                     log_truncation_event(
                         ctx,
@@ -543,6 +527,34 @@ def run_prompt_envelope(
                         event="input_truncated",
                         scan=scan,
                         step=esc_meta.steps[-1] if esc_meta.steps else None,
+                    )
+                # Tier bump cannot remove truncation markers from the volley — do not
+                # call primary/shard with truncated input when integrity requires clean I/O.
+                if ti.get("never_accept_truncated_output", True) and task_kind in (
+                    "primary",
+                    "shard",
+                ):
+                    esc_meta.steps.append("blocked_truncated_primary")
+                    if ctx:
+                        log_truncation_event(
+                            ctx,
+                            stage_key=record_stage_key or stage_key,
+                            event="blocked",
+                            scan=scan,
+                            step="blocked_truncated_primary",
+                        )
+                    # Surface for outer routing that can force_decompose / rebuild caps.
+                    if ti.get("raise_escalation_required", True) and task_kind == "primary":
+                        raise TruncationEscalationRequired(
+                            flags=list(scan.flags),
+                            steps=list(esc_meta.steps),
+                            stage_key=record_stage_key or stage_key,
+                        )
+                    return _truncation_blocked_envelope(
+                        record_stage_key or stage_key,
+                        task_kind,
+                        flags=scan.flags,
+                        esc_meta=esc_meta,
                     )
 
     return _execute_openai_envelope_call(

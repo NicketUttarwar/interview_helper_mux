@@ -39,21 +39,6 @@ export function StageStepBody({ step, stage }: Props) {
   const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
 
   if (
-    step.id === "complete_g0" &&
-    stage.id === "transcript_review" &&
-    stage.status === "action_required"
-  ) {
-    return (
-      <div className="tr-complete-step-body">
-        <p className="hint">
-          Use <strong>Accept all &amp; proceed</strong> in the banner above to sign off without
-          reviewing every clip.
-        </p>
-      </div>
-    );
-  }
-
-  if (
     step.id === "complete_g05" &&
     stage.id === "disfluency_review" &&
     stage.status === "action_required"
@@ -212,9 +197,6 @@ export function StageStepBody({ step, stage }: Props) {
 
     case "gate":
       return <GateActions stage={stage} />;
-
-    case "embed_transcript_dock":
-      return <TranscriptReviewPanel />;
 
     case "embed_story_board":
       return (

@@ -22,6 +22,7 @@ from interview_mux.config import merged_config
 from interview_mux.issue_severity_rules import (
     ClassifiedIssue,
     classify_cross_validate_message,
+    classify_field_parity_message,
     classify_lint_message,
     classify_schema_error,
     classify_sufficiency_finding,
@@ -283,6 +284,17 @@ def collect_issues(
     if not schema_errors and rel and artifact:
         for err in validate_artifact_write(rel, artifact):
             issues.append(classify_schema_error(stage_key, str(err), artifact_path=rel))
+
+    if stage_key == "segment_classification" and staged and isinstance(artifact, dict):
+        from interview_mux.segmentation_input_resolver import assert_field_parity, resolve_segmentation_inputs
+        from interview_mux.segment_timeline_standard import segmentation_cfg
+
+        if segmentation_cfg().get("enforce_field_parity", True):
+            bundle = resolve_segmentation_inputs(ctx)
+            for err in assert_field_parity(bundle.boundaries, artifact, bundle.speakers):
+                issues.append(
+                    classify_field_parity_message(stage_key, err, artifact_path="segments/manifest.json")
+                )
 
     from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
 

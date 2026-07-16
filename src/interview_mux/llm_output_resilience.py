@@ -254,22 +254,64 @@ def extract_schema_valid_artifact(
 def _block_partial_segment_classification(lint_errors: list[str], cfg: dict[str, Any] | None = None) -> bool:
     cfg = cfg or merged_config()
     from interview_mux.artifact_issue_triage import triage_cfg
+    from interview_mux.segment_timeline_standard import segmentation_cfg
 
+    joined = " ".join(lint_errors).lower()
+    triggers = (
+        "segment_coverage_ratio",
+        "all segments typed interviewee_answer",
+        "manifest times not monotonic",
+        "envelope_status_complete",
+    )
+    if segmentation_cfg(cfg).get("block_partial_classification", True):
+        if any(x in joined for x in triggers):
+            return True
     if triage_cfg(cfg).get("allow_partial_then_repair", True):
         return False
     fh = flow_hardening_cfg(cfg)
     if not fh.get("block_partial_segment_classification", True):
         return False
-    joined = " ".join(lint_errors).lower()
-    return any(
-        x in joined
-        for x in (
-            "segment_coverage_ratio",
-            "all segments typed interviewee_answer",
-            "manifest times not monotonic",
-            "envelope_status_complete",
+    return any(x in joined for x in triggers)
+
+
+def _block_partial_on_quality_fail(
+    stage_key: str,
+    envelope: dict[str, Any],
+    arbiter_result: dict[str, Any] | None,
+    schema_errors: list[str],
+    lint_errors: list[str],
+    *,
+    routed_via_collate: bool = False,
+    cfg: dict[str, Any] | None = None,
+) -> str | None:
+    """Return a reason when critical stages must not stage write-approvable partials."""
+    from interview_mux.analysis_memory import should_merge_envelope
+    from interview_mux.llm_flow_hardening import ALL_CRITICAL_LLM_STAGES
+
+    if stage_key not in ALL_CRITICAL_LLM_STAGES:
+        return None
+    fh = flow_hardening_cfg(cfg)
+    if not fh.get("block_partial_on_quality_fail", True):
+        return None
+    if lint_errors:
+        return (
+            f"Critical stage lint failures — no partial persist "
+            f"({'; '.join(lint_errors[:2])})"
         )
-    )
+    if schema_errors:
+        return (
+            f"Critical stage schema errors — no partial persist "
+            f"({'; '.join(schema_errors[:2])})"
+        )
+    te = ((envelope.get("_llm_meta") or {}).get("truncation_escalation") or {})
+    flags = te.get("final_flags") or []
+    if flags:
+        return f"Truncation flags present — no partial persist ({', '.join(list(flags)[:2])})"
+    if not should_merge_envelope(
+        arbiter_result, envelope, routed_via_collate=routed_via_collate
+    ):
+        return "Envelope not accepted — no partial persist"
+    return None
 
 
 def resolve_persist_plan(
@@ -313,6 +355,21 @@ def resolve_persist_plan(
     if stage_key == "segment_classification" and _block_partial_segment_classification(lint_errors, cfg):
         empty_report.summary = "Partial persist blocked — segment classification obligation lint failed"
         empty_report.lint_errors_before = lint_errors[:8]
+        return PersistPlan("none", {}, empty_report)
+
+    quality_block = _block_partial_on_quality_fail(
+        stage_key,
+        envelope,
+        arbiter_result,
+        schema_errors,
+        lint_errors,
+        routed_via_collate=routed_via_collate,
+        cfg=cfg,
+    )
+    if quality_block:
+        empty_report.summary = quality_block
+        empty_report.lint_errors_before = lint_errors[:8]
+        empty_report.schema_errors = schema_errors[:8]
         return PersistPlan("none", {}, empty_report)
 
     sanitized, report = sanitize_artifacts(
@@ -518,6 +575,28 @@ def apply_resilience_and_persist(
         routing["envelope_blocked"] = True
 
     if plan.action == "none":
+        summary = (plan.report.summary or "").lower()
+        if any(
+            tok in summary
+            for tok in (
+                "no partial persist",
+                "partial persist blocked",
+                "partial persist disabled",
+            )
+        ):
+            sidecar = write_resilience_sidecar(ctx, stage_key, attempt, plan.report)
+            ctx.log(
+                f"LLM resilience: skipped partial persist ({stage_key}) — {plan.report.summary}",
+                level="warning",
+                stage=stage_key,
+                action_id="llm.resilience.partial_blocked",
+                detail={
+                    "summary": plan.report.summary,
+                    "sidecar": sidecar or None,
+                    "lint_errors": (plan.report.lint_errors_before or [])[:4],
+                },
+            )
+        routing["persist_action"] = "none"
         _sync_caller_envelope()
         return plan
 

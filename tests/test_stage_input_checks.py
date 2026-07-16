@@ -190,3 +190,82 @@ def test_segment_classification_blocked_when_boundaries_incomplete(
         require_stage_inputs(ctx, "segment_classification")
     assert exc.value.stage_id == "segment_classification"
     assert any("boundaries" in issue.message.lower() for issue in exc.value.issues)
+
+
+def _stage_pending(ctx: RunContext, stage_id: str, rel: str) -> None:
+    enter_stage_staging(stage_id)
+    staged = ctx.path(*rel.split("/"))
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text("{}", encoding="utf-8")
+    exit_stage_staging()
+
+
+def test_deferred_pending_does_not_block_next_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: True)
+    _stage_pending(ctx, "ingest", "ingest/checksums.json")
+    # Other stage may run while prior stage writes are deferred.
+    write_issues = [
+        i for i in collect_stage_input_issues(ctx, "source_topology_build") if i.kind == "write_approval"
+    ]
+    assert write_issues == []
+
+
+def test_deferred_pending_blocks_same_stage_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: True)
+    _stage_pending(ctx, "source_topology_build", "understanding/source_topology.json")
+    issues = collect_stage_input_issues(ctx, "source_topology_build")
+    write_issues = [i for i in issues if i.kind == "write_approval"]
+    assert len(write_issues) == 1
+    assert write_issues[0].related_stage == "source_topology_build"
+    with pytest.raises(StageInputError) as exc:
+        require_stage_inputs(ctx, "source_topology_build")
+    assert exc.value.write_approval_only is True
+    assert exc.value.pending_write_stage == "source_topology_build"
+
+
+def test_undeferred_pending_blocks_any_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: False)
+    _stage_pending(ctx, "ingest", "ingest/checksums.json")
+    issues = collect_stage_input_issues(ctx, "source_topology_build")
+    assert any(i.kind == "write_approval" for i in issues)
+
+
+def test_require_stage_inputs_logs_warning_not_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    logged: list[dict] = []
+
+    def _capture(msg: str, **kwargs: object) -> None:
+        logged.append({"msg": msg, **kwargs})
+
+    monkeypatch.setattr("interview_mux.operator_trace.log_step", _capture)
+    with pytest.raises(StageInputError):
+        require_stage_inputs(ctx, "master_finalize")
+    assert logged
+    assert logged[0].get("level") == "warning"
+    assert "blocked" in str(logged[0].get("msg", "")).lower()
+
+
+def test_check_write_approval_deferred_same_stage_soft_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.write_staging import check_write_approval_before_execute
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: True)
+    _stage_pending(ctx, "source_topology_build", "understanding/source_topology.json")
+    assert check_write_approval_before_execute(ctx) is None
+    assert check_write_approval_before_execute(ctx, stage_id="speaker_roles") is None
+    pending = check_write_approval_before_execute(ctx, stage_id="source_topology_build")
+    assert pending is not None
+    assert pending.stage_id == "source_topology_build"

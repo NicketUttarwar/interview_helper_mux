@@ -140,11 +140,42 @@ def custom_run_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     present = [p for p in paths if ctx.artifact_exists(p)]
     return present or paths
 
+
 def handoff_paths_for_stage(ctx: RunContext, stage_id: str) -> list[str]:
     """Custom-run paths for a stage that are complete and ready for operator review."""
     from interview_mux.artifact_completeness import artifact_ready_for_review
 
     return [p for p in custom_run_paths_for_stage(ctx, stage_id) if artifact_ready_for_review(p, ctx)]
+
+
+def maybe_auto_ack_handoffs_when_disabled(ctx: RunContext) -> None:
+    """Under first_try / disabled handoff, clear stale unacked handoffs (e.g. after reuse)."""
+    if handoff_between_stages_enabled():
+        return
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    to_ack: list[str] = []
+    meta = read_run_meta(ctx)
+    existing_ack = dict(meta.get("handoff_ack") or {})
+    for sid in _pipeline_stage_order():
+        if not ctx.is_done(sid):
+            continue
+        if existing_ack.get(sid):
+            continue
+        if handoff_paths_for_stage(ctx, sid):
+            to_ack.append(sid)
+    if not to_ack:
+        return
+
+    def _mutate(meta: dict[str, Any]) -> None:
+        ack = dict(meta.get("handoff_ack") or {})
+        for sid in to_ack:
+            ack[sid] = now
+        meta["handoff_ack"] = ack
+
+    ctx.mutate_run_meta(_mutate)
+
 
 def pending_handoff_stage(ctx: RunContext) -> str | None:
     """Earliest completed stage (pipeline order) with unacknowledged custom-run handoff."""
@@ -221,6 +252,7 @@ def check_handoff_before_execute(ctx: RunContext) -> str | None:
 
 def handoff_state_for_run(ctx: RunContext) -> dict[str, Any]:
     """Canonical handoff snapshot for journey orchestrator and frontend types."""
+    maybe_auto_ack_handoffs_when_disabled(ctx)
     meta = read_run_meta(ctx)
     pending_stage = pending_handoff_stage(ctx)
     return {

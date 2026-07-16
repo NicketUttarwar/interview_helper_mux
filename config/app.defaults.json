@@ -171,6 +171,19 @@
       "adaptation_defaults": {
         "require_moat": true,
         "require_five_act_coverage": true
+      },
+      "conformance": {
+        "_comment": "Graduated TBIY element inventory thresholds — never flips to documentary",
+        "thresholds": {
+          "frame_talk_present": 0.18,
+          "frame_talk_weak": 0.08,
+          "content_dominance": 0.55,
+          "reaction_turns_present": 6,
+          "reaction_questions_present": 3,
+          "duration_ms_full_acts": 1800000,
+          "duration_ms_soft_acts": 600000,
+          "topic_era_present": 2
+        }
       }
     }
   },
@@ -351,11 +364,13 @@
     "require_preview_listen": false,
     "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,
+    "stage_reuse_lookback_executions": 5,
     "require_write_approval_per_stage": true,
     "auto_advance_pipeline": false,
     "full_autopilot": true,
     "first_try_mode": true,
     "defer_write_approval_until": "phase_end",
+    "segmentation_unified_review": true,
     "preclean_auto_dismiss_when_green": true,
     "batch_save_phases": [
       "analysis",
@@ -449,16 +464,21 @@
         "flagship"
       ],
       "decompose_at_flagship_if_still_truncated": true,
+      "raise_escalation_required": true,
       "max_escalation_rounds_per_call": 4,
       "framer_digest_limits": {
         "speaker_roles": 24000,
+        "content_context": 24000,
         "default": 8000
       },
       "context_cap_boost_steps": [
         1.0,
         2.0,
-        4.0
-      ]
+        4.0,
+        8.0,
+        16.0
+      ],
+      "field_truncation_clear_floor_chars": 8000
     },
     "context": {
       "transcript_excerpt_chars": 24000,
@@ -552,6 +572,7 @@
       "max_investigation_reruns_per_kind": 2,
       "stuck_signature_threshold": 2,
       "block_partial_segment_classification": true,
+      "block_partial_on_quality_fail": true,
       "clarification_before_halt": true,
       "spend_block_stages": [
         "sfx_prompt_craft",
@@ -566,7 +587,8 @@
       "record_stripped_fields": true,
       "min_artifact_mass": {
         "content_context": [
-          "thesis"
+          "thesis",
+          "topics"
         ],
         "speaker_roles": [
           "speakers"
@@ -605,6 +627,9 @@
       "max_upstream_reruns_per_run": 2,
       "max_downstream_auto_continue": 1,
       "boundary_merge_threshold_ms": 500,
+      "boundary_snap_tolerance_ms": 500,
+      "boundary_coarse_partition_min_children": 2,
+      "boundary_coarse_coverage_ratio": 0.85,
       "require_propagation_before_segment_approve": true,
       "upstream_rerun_invalidate_downstream": true,
       "auto_resolve_min_confidence": 0.7,
@@ -643,6 +668,21 @@
     "downstream_probe": {
       "enabled": true,
       "blocking_tier": "progression"
+    },
+    "segmentation": {
+      "reject_invalid_shards": true,
+      "deterministic_collate_authoritative": true,
+      "deterministic_classification_collate_authoritative": true,
+      "block_invalid_boundary_commit": true,
+      "block_partial_classification": true,
+      "fabricate_missing_segments": true,
+      "require_type_diversity": true,
+      "enforce_field_parity": true,
+      "drop_orphan_manifest_rows": true,
+      "boundary_proactive_decompose_pace_classes": [
+        "calm",
+        "brisk"
+      ]
     }
   },
   "structure": {

@@ -42,6 +42,14 @@ critical_fields:
 - speakers[].role
 - speakers[].speaker_id
 nullable_fields:
+- confirmed_conversation_hypothesis_id
+- conversation_hypotheses
+- conversation_profile
+- gap_sensitivity
 - notes
+- speakers[].avg_turn_length_ms
 - speakers[].confidence
+- speakers[].evidence_windows
 - speakers[].label
+- speakers[].narrative_function
+- speakers[].question_density

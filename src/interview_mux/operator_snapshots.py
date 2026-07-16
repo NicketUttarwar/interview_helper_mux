@@ -113,7 +113,12 @@ def write_operator_snapshot(
     rel = SNAPSHOT_PATHS.get(key)
     if not rel:
         raise ValueError(f"Unknown operator snapshot key: {key}")
-    ctx.write_json(rel, data)
+    if rel.startswith("operator/transcript_"):
+        from interview_mux.write_staging import write_mirrored_json
+
+        write_mirrored_json(ctx, rel, data)
+    else:
+        ctx.write_json(rel, data)
     _write_manifest_entry(ctx, key, path=rel, source=source, detail=detail)
     return rel
 
@@ -128,10 +133,15 @@ def write_operator_text_snapshot(
     rel = SNAPSHOT_PATHS.get(key)
     if not rel:
         raise ValueError(f"Unknown operator snapshot key: {key}")
-    from interview_mux.file_store import write_text as fs_write_text
+    if rel.startswith("operator/transcript_"):
+        from interview_mux.write_staging import write_mirrored_text
 
-    dest = ctx.path(rel)
-    fs_write_text(dest, text)
+        write_mirrored_text(ctx, rel, text)
+    else:
+        from interview_mux.file_store import write_text as fs_write_text
+
+        dest = ctx.path(rel)
+        fs_write_text(dest, text)
     _write_manifest_entry(ctx, key, path=rel, source=source)
     return rel
 

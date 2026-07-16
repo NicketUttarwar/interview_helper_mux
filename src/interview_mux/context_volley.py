@@ -50,9 +50,9 @@ class StageContextPlan:
 
 STAGE_PLANS: dict[str, StageContextPlan] = {
     "speaker_roles": StageContextPlan(
-        task_line="Map diarized speaker IDs to interviewer / interviewee roles.",
+        task_line="Map diarized speaker IDs to roles, conversation profile, and gap sensitivity.",
         prior_stages=(),
-        profile_keys=("operator_notes",),
+        profile_keys=("operator_notes", "conversation_profile", "gap_sensitivity"),
         max_investigations=0,
     ),
     "content_context": StageContextPlan(
@@ -92,14 +92,14 @@ STAGE_PLANS: dict[str, StageContextPlan] = {
     "missing_framing": StageContextPlan(
         task_line="Evaluate which segments are self-explanatory for listeners; classify gaps only.",
         prior_stages=("segment_classification", "content_brief_reanchor", "content_context"),
-        profile_keys=("narrative", "entities", "major_questions", "hypotheses"),
+        profile_keys=("narrative", "entities", "major_questions", "hypotheses", "gap_sensitivity"),
         investigation_kinds=frozenset({"gap_unresolved", "segment_ambiguity", "topic_drift", "missing_callback"}),
         max_investigations=3,
     ),
     "optimal_questions": StageContextPlan(
         task_line="Write short interviewer VO lines that fix framing gaps.",
         prior_stages=("missing_framing", "content_context"),
-        profile_keys=("style", "major_questions", "narrative"),
+        profile_keys=("style", "major_questions", "narrative", "gap_sensitivity"),
         investigation_kinds=frozenset({"gap_unresolved"}),
         max_investigations=2,
     ),
@@ -198,8 +198,23 @@ def _context_cfg() -> dict[str, Any]:
     return (merged_config().get("analysis") or {}).get("context") or {}
 
 
-def _char_limit(key: str, default: int) -> int:
-    return int(_context_cfg().get(key, default))
+def _char_limit(key: str, default: int, *, field_clip: bool = False) -> int:
+    from interview_mux.truncation_policy import apply_context_cap_boost
+
+    base = int(_context_cfg().get(key, default))
+    # Field clips (segment/transcript excerpts) participate in clear-field escalation.
+    clip_keys = {
+        "segment_text_max_chars",
+        "transcript_excerpt_chars",
+        "transcript_full_chars",
+        "speaker_roles_sample_chars",
+        "classification_excerpt_max_chars",
+        "max_stage_data_chars",
+    }
+    return apply_context_cap_boost(
+        base,
+        field_clip=field_clip or key in clip_keys,
+    )
 
 
 def plan_for_stage(stage_key: str, ctx: RunContext | None = None) -> StageContextPlan:
@@ -364,13 +379,15 @@ def _build_collate_volley(
         artifacts = env.get("artifacts") or {}
         counts = {k: len(v) if isinstance(v, list) else 1 for k, v in artifacts.items()}
         label = shard.get("label") or f"shard_{idx}"
-        seg_ids = [str(x) for x in (shard.get("segment_ids") or [])]
+        from interview_mux.segment_timeline_standard import format_shard_identity
+
+        identity = format_shard_identity(shard if isinstance(shard, dict) else {}, stage_key, env)
         summary = env.get("reasoning_summary") or "(no summary)"
         messages.append(
             {
                 "role": "assistant",
                 "content": (
-                    f"**Shard {label}** — segments: {', '.join(seg_ids) or 'n/a'}\n"
+                    f"**Shard {label}** — {identity}\n"
                     f"Summary: {summary}\n"
                     f"Artifact keys: {list(artifacts.keys())}; counts: {counts}"
                 ),
@@ -416,18 +433,34 @@ def _build_collate_volley(
 
 
 def _parent_reasoning_one_liner(ctx: RunContext, stage_key: str) -> str:
-    """Parent attempt reasoning for shard profile."""
+    """Parent attempt reasoning for shard profile.
+
+    Skips blocked/truncation summaries so shard retries are not polluted by prior
+    hard-blocks (which themselves contain truncation markers).
+    """
     base = ctx.path("understanding", "stage_runs", stage_key)
     if not base.is_dir():
         return ""
     attempts = sorted(base.glob("attempt_*.json"), reverse=True)
+    skip_tokens = (
+        "truncated llm input",
+        "truncation hard-block",
+        "collate skipped",
+        "evidence truncated",
+    )
     for path in attempts:
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
             env = doc.get("envelope") or {}
+            if str(env.get("status") or "").strip() == "blocked":
+                continue
             summary = (env.get("reasoning_summary") or "").strip()
-            if summary:
-                return f"## Parent pass context\n{summary[:500]}"
+            if not summary:
+                continue
+            low = summary.lower()
+            if any(tok in low for tok in skip_tokens):
+                continue
+            return f"## Parent pass context\n{summary[:500]}"
         except Exception:
             continue
     return ""
@@ -536,7 +569,15 @@ def _artifact_digest(ctx: RunContext, stage: str) -> str:
             parts = []
             for sp in doc.get("speakers") or []:
                 parts.append(f"{sp.get('speaker_id')}={sp.get('role')}")
-            return "Speakers: " + ", ".join(parts) if parts else ""
+            profile = doc.get("conversation_profile") or {}
+            fc = profile.get("format_class_candidate")
+            hyp_count = len(doc.get("conversation_hypotheses") or [])
+            suffix = ""
+            if fc:
+                suffix = f"; format={fc}"
+            if hyp_count:
+                suffix += f"; {hyp_count} hypothesis(es)"
+            return ("Speakers: " + ", ".join(parts) if parts else "") + suffix
         if stage == "content_context" and ctx.artifact_exists("understanding/content_brief.json"):
             b = ctx.read_json("understanding/content_brief.json")
             topics = [t.get("name", "") for t in (b.get("topics") or [])[:6] if isinstance(t, dict)]
@@ -665,6 +706,34 @@ def _format_profile_slice(state: dict[str, Any], keys: tuple[str, ...]) -> str:
                     for h in open_hyps[:6]
                 )
             )
+    if "conversation_profile" in keys:
+        cp = state.get("conversation_profile") or {}
+        bits = []
+        if cp.get("format_class_candidate"):
+            bits.append(f"format={cp['format_class_candidate']}")
+        if cp.get("tone_class_candidate"):
+            bits.append(f"tone={cp['tone_class_candidate']}")
+        if cp.get("format_confidence") is not None:
+            bits.append(f"format_confidence={cp['format_confidence']}")
+        if bits:
+            lines.append("Conversation profile: " + ", ".join(bits))
+        conv_hyps = state.get("conversation_hypotheses") or []
+        if conv_hyps:
+            lines.append(
+                "Conversation hypotheses: "
+                + "; ".join(
+                    f"{h.get('id', '')} ({h.get('format_class', '')})"
+                    for h in conv_hyps[:4]
+                    if isinstance(h, dict)
+                )
+            )
+    if "gap_sensitivity" in keys:
+        gs = state.get("gap_sensitivity") or {}
+        if gs.get("notes"):
+            lines.append(f"Gap sensitivity: {str(gs['notes'])[:200]}")
+        pri = gs.get("priority_gap_types") or []
+        if pri:
+            lines.append("Priority gap types: " + ", ".join(str(x) for x in pri[:6]))
     if "operator_notes" in keys and state.get("operator_notes"):
         lines.append(f"Operator notes: {state['operator_notes']}")
     return "\n".join(lines)
@@ -1129,7 +1198,7 @@ def _compact_segments(segments: Any, *, max_count: int = 60, for_gaps: bool = Fa
     else:
         return segments
     max_seg = _char_limit("max_segments_in_context", max_count)
-    text_max = _char_limit("segment_text_max_chars", 400)
+    text_max = _char_limit("segment_text_max_chars", 400, field_clip=True)
     slim = []
     for s in segs[:max_seg]:
         if not isinstance(s, dict):

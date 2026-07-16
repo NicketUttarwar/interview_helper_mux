@@ -217,6 +217,8 @@ def _run_llm_stage_loop(
             )
             bump_tier = bool(pending_retry.get("bump_tier") or context_plan.bump_tier)
             system_appendix = pending_retry.get("strict_appendix") or context_plan.system_appendix
+            clear_field_truncation = bool(pending_retry.get("clear_field_truncation"))
+            context_cap_boost_round = int(pending_retry.get("context_cap_boost_round") or 0)
             if context_plan.strategy_key not in ("obligation_full", "default"):
                 log_adaptation_step(
                     ctx,
@@ -236,6 +238,8 @@ def _run_llm_stage_loop(
                 force_decompose=force_decompose,
                 system_appendix=system_appendix,
                 stage_input_obligation=stage_input.get("classification_obligation"),
+                context_cap_boost_round=context_cap_boost_round,
+                clear_field_truncation=clear_field_truncation,
             )
         with logged_step(f"{stage_key}/attempt_{attempt}/finalize", ctx=ctx, stage=stage_key):
             finalize_stage_attempt(
@@ -426,6 +430,18 @@ def _run_llm_stage_loop(
             or blocking_needs
             or blocking_followups
         ):
+            if any(
+                isinstance(n, dict) and n.get("type") == "decompose"
+                for n in (blocking_needs or [])
+            ):
+                pending_retry = {
+                    **(pending_retry or {}),
+                    "force_decompose": True,
+                    "bump_tier": True,
+                    "clear_field_truncation": True,
+                    "context_cap_boost_round": 1,
+                    "strategy_key": "truncation_decompose_retry",
+                }
             ctx.log(
                 f"Stage {stage_key} attempt {attempt}/{limit}: {status} — retrying with updated memory",
                 level="info",

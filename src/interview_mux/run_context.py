@@ -64,7 +64,7 @@ class RunContext:
             for p in executions.iterdir():
                 if not p.is_dir():
                     continue
-                m = re.match(r"exec_(\d{3})_", p.name)
+                m = re.match(r"exec_(\d+)_", p.name)
                 if m:
                     nums.append(int(m.group(1)))
         return max(nums) if nums else 0

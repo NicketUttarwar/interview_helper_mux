@@ -47,21 +47,18 @@ Each pronunciation item from AWS Transcribe includes `alternatives[0].confidence
 | `.stage_done/transcript_review_build` | Prep complete |
 | `.stage_done/transcript_review` | Operator signed off |
 
-**Session drafts:** Dock word edits and chunk textarea edits are kept in the GUI while you move between clips. Nothing is written to `transcript/full.json` or operator snapshots until **Save and complete review**.
+**Session drafts / persistence:** Word edits in the synced transcript dock auto-save to `transcript/full.json` after a short debounce (and flush on Save and complete review). Deferred write-approval staging mirrors these edits so later stages and batch Save keep the corrected transcript.
 
 ## GUI workflow
 
 1. Run **Transcribe**, then **STT review prep** (or “Run all analysis” — pipeline pauses at the gate).
-2. Open stage **Transcript review** in the sidebar (checkpoint modal opens automatically when G0 is pending).
-3. For each ranked clip:
-   - Play the chunk audio.
-   - Use the **synced transcript dock** below for word-by-word fixes (recommended).
-   - Optionally bulk-edit the chunk textarea (edits persist when you switch clips).
-4. Click **Save and complete review** in the gate banner.
+2. Open stage **Transcript review** in the sidebar (single workbench step: review + correct).
+3. For each ranked clip: play the chunk audio, then fix words in the **synced transcript dock** (double-click a word; **Fix similar words** for repeated mishearings).
+4. Click **Save and complete review** in the gate banner (or **Complete transcript review** in the step footer).
 
-The dock is also available on **Transcribe** and **Transcript review** stage detail outside the modal for ongoing word edits.
+The dock is also available on **Transcribe** and **Transcript review build** stage detail for ongoing word edits.
 
-**Reuse:** A new execution only loads a prior corrected transcript when you explicitly accept **Reuse outputs** for `transcribe` (or related transcript stages). **Run fresh instead** always remains available. See [stage-execution-reuse.md](../../workflows/stage-execution-reuse.md).
+**Reuse:** A new execution only loads a prior corrected transcript when you explicitly accept **Reuse outputs** for `transcribe` (or related transcript stages). **Only `transcribe` reuse** opens the **one-time** reuse edit window with the same synced transcript dock + **Fix similar words** tools as G0; later transcript-stage reuses copy artifacts without reopening it. **Save & continue** finalizes corrections into `transcript/full.json` and `operator/transcript_corrected.*`. **Skip** clears the interstitial so it does **not** reopen at STT review. When `operator/transcript_corrected.*` exists on the source run, it is overlaid onto `full.json` before the edit window. **Run fresh instead** always remains available. See [stage-execution-reuse.md](../../workflows/stage-execution-reuse.md).
 
 ## Synced transcript dock (word editor)
 
@@ -76,9 +73,9 @@ The dock is also available on **Transcribe** and **Transcript review** stage det
 | Low-confidence words | Wavy underline until corrected |
 | Corrected words | Dotted green underline |
 
-**API:** `GET /api/runs/{id}/transcript` loads `words[]`, `duration_ms`, `audio_path`, `low_confidence_threshold`. On **Save and complete review**, pending edits flush via `PATCH /api/runs/{id}/transcript/words` and `PUT …/transcript-review/{chunk_id}` before `POST …/transcript-review/complete`.
+**API:** `GET /api/runs/{id}/transcript` loads `words[]`, `duration_ms`, `audio_path`, `low_confidence_threshold`. Dock edits debounce-save via `PATCH /api/runs/{id}/transcript/words`. On **Save and complete review**, any remaining pending edits flush via that PATCH and `PUT …/transcript-review/{chunk_id}` before `POST …/transcript-review/complete`.
 
-**Queue sync:** Each dock save updates overlapping chunks in `transcript/review_queue.json` (`corrected_text`) and `transcript/corrections.json` (text only; `reviewed` unchanged). The chunk textarea refreshes automatically.
+**Queue sync:** Each dock save updates overlapping chunks in `transcript/review_queue.json` (`corrected_text`) and `transcript/corrections.json` (text only; `reviewed` unchanged).
 
 **Undo:** Toolbar **Undo** or ⌘Z / Ctrl+Z reverts the last word edit or batch fuzzy replace (up to 30 steps).
 
@@ -113,6 +110,9 @@ When editing a word, the **Fix similar words** side panel (`FuzzyReplacePopover`
 |--------|------|---------|
 | GET | `/api/runs/{id}/transcript` | Word-level dock state (audio sync) |
 | PATCH | `/api/runs/{id}/transcript/words` | Inline word edits (single or batch) |
+| PUT | `/api/runs/{id}/transcript/text` | Full-text replace (legacy / operator re-edit) |
+| POST | `/api/runs/{id}/transcript/reuse-edit/complete` | Finalize one-time reuse edit after dock patches |
+| POST | `/api/runs/{id}/transcript/reuse-edit/dismiss` | Skip one-time reuse edit (clears pending) |
 | GET | `/api/runs/{id}/transcript-review` | Ranked queue + pending count |
 | PUT | `/api/runs/{id}/transcript-review/{chunk_id}` | Save chunk correction |
 | POST | `/api/runs/{id}/transcript-review/complete` | Merge chunk corrections into `full.json`, mark gate done |

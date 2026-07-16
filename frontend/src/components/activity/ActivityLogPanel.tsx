@@ -3,17 +3,12 @@ import { useApp } from "../../context/AppContext";
 import { useActivityLogPanelHeightCap } from "../../hooks/useActivityLogPanelHeightCap";
 import {
   dedupeConsecutiveLogEntries,
-  excludePinnedEntries,
   filterByStage,
   filterLiveStream,
   resolveActiveStream,
   resolveFocusStageId,
-  resolveLiveStageId,
-  pinnedAlertKey,
-  selectPinnedAlerts,
 } from "../../utils/logStreams";
 import { LogEntryList } from "./LogEntryList";
-import { PinnedAlertStrip } from "./PinnedAlertStrip";
 import { useStageProgress } from "../../hooks/useStageProgress";
 import type { LogStreamTab } from "../../types";
 
@@ -44,7 +39,6 @@ export function ActivityLogPanel({
 
   const [autoScroll, setAutoScroll] = useState(true);
   const [liveSeenTs, setLiveSeenTs] = useState<string | null>(null);
-  const [dismissedAlertKeys, setDismissedAlertKeys] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const heightCapEnabled = variant !== "global" && !activityLogCollapsed;
   const { panelRef, maxPanelHeight } = useActivityLogPanelHeightCap(heightCapEnabled);
@@ -75,45 +69,13 @@ export function ActivityLogPanel({
     return logEntries;
   }, [activityLogTab, logEntries, run, jobRunning, selectedStageId]);
 
-  const pinnedStageId = useMemo(() => {
-    if (activityLogTab === "step") return selectedStageId;
-    if (activityLogTab === "live") {
-      return resolveLiveStageId(run, jobRunning, logEntries);
-    }
-    return null;
-  }, [activityLogTab, selectedStageId, run, jobRunning, logEntries]);
-
-  const pinnedSelection = useMemo(() => {
-    if (activityLogTab === "all") {
-      return {
-        primaryError: null,
-        displayedErrors: [],
-        displayedWarnings: [],
-        errorOverflow: 0,
-        warningOverflow: 0,
-        allPinned: [],
-      };
-    }
-    return selectPinnedAlerts(logEntries, { stageId: pinnedStageId });
-  }, [activityLogTab, logEntries, pinnedStageId]);
-
-  const visiblePinnedAlerts = useMemo(
-    () =>
-      pinnedSelection.allPinned.filter((entry) => !dismissedAlertKeys.has(pinnedAlertKey(entry))),
-    [pinnedSelection.allPinned, dismissedAlertKeys],
-  );
-
-  const showPinnedStrip = activityLogTab !== "all" && visiblePinnedAlerts.length > 0;
-
   const scrollEntries = useMemo(() => {
-    const pinned = showPinnedStrip ? pinnedSelection.allPinned : [];
-    const withoutPinned = excludePinnedEntries(displayed, pinned);
     const deduped =
       activityLogTab === "all"
-        ? dedupeConsecutiveLogEntries(withoutPinned)
-        : withoutPinned;
+        ? dedupeConsecutiveLogEntries(displayed)
+        : displayed;
     return deduped.slice(-200);
-  }, [displayed, pinnedSelection.allPinned, showPinnedStrip, activityLogTab]);
+  }, [displayed, activityLogTab]);
 
   const selectActivityTab = (tab: LogStreamTab) => {
     userPinnedActivityTabRef.current = true;
@@ -279,20 +241,6 @@ export function ActivityLogPanel({
         <p className="hint sm activity-log-stream-label">
           Filtered to current step
         </p>
-      ) : null}
-
-      {(activityLogTab === "live" || activityLogTab === "step") && showPinnedStrip ? (
-        <PinnedAlertStrip
-          alerts={visiblePinnedAlerts}
-          onDismiss={(entry) => {
-            const key = pinnedAlertKey(entry);
-            setDismissedAlertKeys((prev) => {
-              const next = new Set(prev);
-              next.add(key);
-              return next;
-            });
-          }}
-        />
       ) : null}
 
       <div

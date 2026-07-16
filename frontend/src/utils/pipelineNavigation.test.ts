@@ -47,7 +47,7 @@ describe("stageNavStatus", () => {
     });
     const run = minimalRun({ stages: [preclean] });
     const numbered = buildNumberedStages(run.stages);
-    expect(stageNavStatus(numbered[0], run, null, null)).toBe("done");
+    expect(stageNavStatus(numbered[0], run, null, null)).toBe("skipped");
   });
 
   it("focusStageId matches resolver stageId for write approval", () => {

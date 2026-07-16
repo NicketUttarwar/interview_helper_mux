@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from interview_mux.config import merged_config
 from interview_mux.model_registry import TIER_ORDER, next_tier
@@ -21,6 +23,11 @@ MARKER_FLAG_MAP: dict[str, str] = {
     "…[truncated]": "field_truncated",
     "…[volley_middle_truncated]": "volley_middle_truncated",
 }
+
+# Active volley rebuild boost (0 = baseline caps). Applied by context_volley._char_limit.
+_CONTEXT_CAP_BOOST_ROUND: ContextVar[int] = ContextVar("context_cap_boost_round", default=0)
+# When True, aggressively raise clip caps so rebuild can clear field_truncated markers.
+_CLEAR_FIELD_TRUNCATION: ContextVar[bool] = ContextVar("clear_field_truncation", default=False)
 
 
 class TruncationEscalationRequired(Exception):
@@ -56,6 +63,18 @@ class TruncationEscalationMeta:
         }
 
 
+@dataclass
+class CapBoostRebuildResult:
+    """Outcome of rebuild-with-boost escalation before primary/shard calls."""
+
+    volley: list[dict[str, str]]
+    framing: Any = None
+    flags: list[str] = field(default_factory=list)
+    boost_round: int = 0
+    cleared: bool = False
+    steps: list[str] = field(default_factory=list)
+
+
 def truncation_integrity_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     base = (cfg or merged_config()).get("analysis") or {}
     defaults = {
@@ -67,8 +86,12 @@ def truncation_integrity_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any
         "openai_tier_ladder": list(TIER_ORDER),
         "decompose_at_flagship_if_still_truncated": True,
         "max_escalation_rounds_per_call": 4,
-        "framer_digest_limits": {"speaker_roles": 24000, "default": 8000},
-        "context_cap_boost_steps": [1.0, 2.0, 4.0],
+        "framer_digest_limits": {"speaker_roles": 24000, "content_context": 24000, "default": 8000},
+        # Baseline + progressive rebuild multipliers (round index into this list).
+        "context_cap_boost_steps": [1.0, 2.0, 4.0, 8.0, 16.0],
+        "raise_escalation_required": True,
+        # When field_truncated remains after multiplier boost, raise clip caps to this floor.
+        "field_truncation_clear_floor_chars": 8000,
     }
     raw = base.get("truncation_integrity") or {}
     return {**defaults, **raw}
@@ -78,15 +101,46 @@ def truncation_integrity_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(truncation_integrity_cfg(cfg).get("enabled", True))
 
 
+def get_context_cap_boost_round() -> int:
+    return int(_CONTEXT_CAP_BOOST_ROUND.get())
+
+
+def clear_field_truncation_enabled() -> bool:
+    return bool(_CLEAR_FIELD_TRUNCATION.get())
+
+
+def set_context_cap_boost_round(round_idx: int) -> Token:
+    return _CONTEXT_CAP_BOOST_ROUND.set(max(0, int(round_idx)))
+
+
+@contextmanager
+def context_cap_boost(
+    round_idx: int,
+    *,
+    clear_field_truncation: bool = False,
+) -> Iterator[None]:
+    """Temporarily raise context clip caps for a rebuild/retry pass."""
+    token = set_context_cap_boost_round(round_idx)
+    clear_token = _CLEAR_FIELD_TRUNCATION.set(bool(clear_field_truncation))
+    try:
+        yield
+    finally:
+        _CLEAR_FIELD_TRUNCATION.reset(clear_token)
+        _CONTEXT_CAP_BOOST_ROUND.reset(token)
+
+
 def digest_limit_for_stage(stage_key: str, cfg: dict[str, Any] | None = None) -> int:
     ti = truncation_integrity_cfg(cfg)
     limits = ti.get("framer_digest_limits") or {}
     if stage_key in limits:
-        return int(limits[stage_key])
-    ctx_cfg = (cfg or merged_config()).get("analysis", {}).get("context") or {}
-    if stage_key == "speaker_roles":
-        return int(ctx_cfg.get("speaker_roles_sample_chars", 24000))
-    return int(limits.get("default", 8000))
+        base = int(limits[stage_key])
+    else:
+        ctx_cfg = (cfg or merged_config()).get("analysis", {}).get("context") or {}
+        if stage_key == "speaker_roles":
+            base = int(ctx_cfg.get("speaker_roles_sample_chars", 24000))
+        else:
+            base = int(limits.get("default", 8000))
+    return apply_context_cap_boost(base, cfg=cfg, field_clip=False)
 
 
 def build_framer_digest(
@@ -145,9 +199,39 @@ def scan_messages(messages: list[dict[str, str]]) -> TruncationScan:
 
 
 def context_cap_multiplier(round_idx: int, cfg: dict[str, Any] | None = None) -> float:
-    steps = truncation_integrity_cfg(cfg).get("context_cap_boost_steps") or [1.0, 2.0, 4.0]
-    idx = min(max(round_idx, 0), len(steps) - 1)
+    steps = truncation_integrity_cfg(cfg).get("context_cap_boost_steps") or [1.0, 2.0, 4.0, 8.0, 16.0]
+    idx = min(max(int(round_idx), 0), len(steps) - 1)
     return float(steps[idx])
+
+
+def apply_context_cap_boost(
+    base: int,
+    *,
+    cfg: dict[str, Any] | None = None,
+    field_clip: bool = False,
+) -> int:
+    """Apply active ContextVar boost (and optional field-clear floor) to a char cap."""
+    base_i = max(0, int(base))
+    mult = context_cap_multiplier(get_context_cap_boost_round(), cfg)
+    boosted = int(base_i * mult)
+    if field_clip and clear_field_truncation_enabled():
+        floor = int(truncation_integrity_cfg(cfg).get("field_truncation_clear_floor_chars", 8000))
+        boosted = max(boosted, floor)
+    return max(base_i, boosted) if get_context_cap_boost_round() > 0 or clear_field_truncation_enabled() else base_i
+
+
+def max_cap_boost_round(cfg: dict[str, Any] | None = None) -> int:
+    steps = truncation_integrity_cfg(cfg).get("context_cap_boost_steps") or [1.0, 2.0, 4.0, 8.0, 16.0]
+    configured = int(truncation_integrity_cfg(cfg).get("max_escalation_rounds_per_call", 4))
+    return min(max(len(steps) - 1, 0), max(configured, 0))
+
+
+def escalation_boost_rounds(cfg: dict[str, Any] | None = None) -> list[int]:
+    """Round indices to try when clearing truncation (skip baseline 0; start at 1)."""
+    top = max_cap_boost_round(cfg)
+    if top < 1:
+        return [0]
+    return list(range(1, top + 1))
 
 
 def next_openai_tier(current: str) -> str:
@@ -166,6 +250,91 @@ def tier_at_ladder_step(step: int, cfg: dict[str, Any] | None = None) -> str:
     ladder = truncation_integrity_cfg(cfg).get("openai_tier_ladder") or list(TIER_ORDER)
     idx = min(max(step, 0), len(ladder) - 1)
     return str(ladder[idx])
+
+
+def rebuild_volley_clearing_truncation(
+    ctx: Any,
+    stage_key: str,
+    stage_input: dict[str, Any],
+    *,
+    profile: str = "full",
+    task_kind: str = "primary",
+    initial_volley: list[dict[str, str]] | None = None,
+    initial_framing: Any = None,
+    initial_flags: list[str] | None = None,
+    cfg: dict[str, Any] | None = None,
+) -> CapBoostRebuildResult:
+    """
+    Holistic truncation escalation: rebuild the volley with progressively higher context
+    caps until markers clear (or boost rounds are exhausted).
+    """
+    from interview_mux.context_volley import truncation_flags_for_volley
+    from interview_mux.local_volley_framer import prepare_volley_for_llm
+
+    resolved_cfg = cfg or merged_config()
+    steps: list[str] = []
+    volley = list(initial_volley or [])
+    framing = initial_framing
+    flags = list(initial_flags or (truncation_flags_for_volley(volley) if volley else []))
+
+    if not flags and volley:
+        return CapBoostRebuildResult(
+            volley=volley,
+            framing=framing,
+            flags=[],
+            boost_round=get_context_cap_boost_round(),
+            cleared=True,
+            steps=["already_clean"],
+        )
+
+    # Prefer clear_field when field clips are involved (most common catch-22).
+    want_clear_field = bool(flags) and (
+        "field_truncated" in flags
+        or "max_stage_data_chars" in flags
+        or "framer_digest_truncated" in flags
+        or "volley_middle_truncated" in flags
+    )
+
+    for round_idx in escalation_boost_rounds(resolved_cfg):
+        clear_field = want_clear_field and round_idx >= 1
+        step_name = f"cap_boost_r{round_idx}" + ("_clear_field" if clear_field else "")
+        steps.append(step_name)
+        with context_cap_boost(round_idx, clear_field_truncation=clear_field):
+            volley, framing = prepare_volley_for_llm(
+                ctx,
+                stage_key,
+                stage_input,
+                profile=profile,
+                task_kind=task_kind,
+                cfg=resolved_cfg,
+            )
+            flags = truncation_flags_for_volley(volley)
+        if ctx is not None:
+            log_truncation_event(
+                ctx,
+                stage_key=stage_key,
+                event="cap_boost_rebuild",
+                scan=TruncationScan(truncated=bool(flags), flags=flags, locations=[]),
+                step=step_name,
+            )
+        if not flags:
+            return CapBoostRebuildResult(
+                volley=volley,
+                framing=framing,
+                flags=[],
+                boost_round=round_idx,
+                cleared=True,
+                steps=steps,
+            )
+
+    return CapBoostRebuildResult(
+        volley=volley,
+        framing=framing,
+        flags=flags,
+        boost_round=escalation_boost_rounds(resolved_cfg)[-1] if escalation_boost_rounds(resolved_cfg) else 0,
+        cleared=False,
+        steps=steps,
+    )
 
 
 def validate_framer_turns(

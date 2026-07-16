@@ -8,7 +8,11 @@ import {
   writeApprovalStatusLine,
 } from "./operatorStatus";
 import { findNextRunnableStage, isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
-import { stageArtifactsFullyComplete, stageHasCommittedOutputs } from "./stageOutputs";
+import {
+  firstUpstreamBlocker,
+  stageArtifactsFullyComplete,
+  stageHasCommittedOutputs,
+} from "./stageOutputs";
 
 export interface NumberedStage {
   number: number;
@@ -182,7 +186,11 @@ export function stageNavStatus(
 ): "done" | "current" | "blocked" | "upcoming" | "skipped" {
   const { stage } = entry;
   if (isOptionalStageSkipped(stage, run.meta)) return "skipped";
-  if (stage.status === "incomplete") return "blocked";
+  if (stage.status === "incomplete") {
+    // Distant false incompletes (upstream still open) are not "blocked" work.
+    if (firstUpstreamBlocker(run.stages, stage.id, run.meta)) return "upcoming";
+    return "blocked";
+  }
   if (stage.status === "done" && !stageArtifactsFullyComplete(stage)) return "blocked";
   if (stage.status === "done") return "done";
   if (stage.status === "action_required" || stage.status === "awaiting_write_approval") {

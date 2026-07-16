@@ -50,7 +50,6 @@ export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
       const fd = new FormData();
       fd.append("file", file);
       await api(`/api/runs/${runId}/vo/${lineId}`, { method: "POST", body: fd });
-      showToast(`Post-preview VO saved for ${lineId}.`);
       appendClientLog(`G1.5 VO saved: ${lineId}`, "action");
       const wasPending = (run?.g1_5_preview_pickup_pending || []).length > 0;
       const refreshed = await refreshRun();

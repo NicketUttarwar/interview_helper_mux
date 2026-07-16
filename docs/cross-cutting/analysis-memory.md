@@ -15,7 +15,7 @@ Every execution builds a **custom analysis profile** for that recording. Memory 
 | `understanding/coherence_report.json` | H-ORC-03 scored risks (30m+ interviews) — see [coherence-orc03.md](./coherence-orc03.md) |
 | `analysis_state.coherence_risks[]` | Open subset mirrored from coherence report for Story Board / volley caps |
 | `understanding/content_brief.json` | Stage artifact (thesis, topics, typed claims, `topic_relationships`); synced into `analysis_state` — pass 1 from `content_context`, timeline patch from `content_brief_reanchor` |
-| `understanding/speakers.json` | Speaker roles |
+| `understanding/speakers.json` | Speaker roles, early `conversation_profile`, `gap_sensitivity`, optional `conversation_hypotheses` |
 | `segments/manifest.json` | Segment timeline |
 
 Edit these in the **Interview profile** GUI panel or any stage JSON editor. Saves run **Zod** (client) + **jsonschema** (server) validation — see [artifact-generation-and-validation.md](./artifact-generation-and-validation.md).

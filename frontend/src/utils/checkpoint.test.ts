@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
+import { findHandoffStage, findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData } from "../types";
 
@@ -100,7 +100,7 @@ describe("findPendingFocusStage", () => {
     expect(resolveOperatorAction(run).stageId).toBe("transcript_review");
   });
 
-  it("prefers unacked handoff on done stage before next pending stage", () => {
+  it("skips handoff focus under first_try even when a done stage is unacked", () => {
     const run = minimalRun({
       stages: [
         {
@@ -122,6 +122,43 @@ describe("findPendingFocusStage", () => {
       job: { status: "complete", stage: "source_acoustic_profile" },
       journey: {
         phase: "understand",
+        first_try: { enabled: true },
+        blocking: {
+          blocked: true,
+          reason: "stage_reuse",
+          stage_id: "interview_spine_build",
+          message: "Choose reuse or run fresh",
+        },
+      },
+    });
+    expect(findHandoffStage(run)).toBeNull();
+    expect(findPendingFocusStage(run)).toBe("interview_spine_build");
+  });
+
+  it("prefers unacked handoff when first_try is off and handoffs enabled", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
+          description: "",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/source_acoustic_profile.json"],
+        },
+        {
+          id: "interview_spine_build",
+          title: "Interview spine",
+          description: "",
+          status: "pending",
+          phase: "understand",
+        },
+      ],
+      job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: {
+        phase: "understand",
+        first_try: { enabled: false },
+        handoff: { handoff_between_stages_enabled: true },
         blocking: {
           blocked: true,
           reason: "stage_reuse",

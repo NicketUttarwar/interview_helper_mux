@@ -51,7 +51,6 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } catch (reason) {
       const msg = formatApiError(reason, "Complete transcript review");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error", "transcript_review");
     } finally {
       setCompleting(false);
@@ -67,7 +66,6 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } catch (reason) {
       const msg = formatApiError(reason, "Complete transcript review");
       setError(msg);
-      showToast(msg, "error");
       appendClientLog(msg, "error", "transcript_review");
     } finally {
       setCompleting(false);

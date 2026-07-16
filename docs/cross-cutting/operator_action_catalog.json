@@ -353,6 +353,30 @@
     "doc_link": ""
   },
   {
+    "action_id": "gui.transcript_reuse.save_and_continue",
+    "description": "Save dock/fuzzy corrections after transcript reuse and continue",
+    "implementation": "components/modals/TranscriptReuseEditModal.tsx",
+    "stage": "transcript_review",
+    "origin": "gui",
+    "doc_link": "docs/workflows/stage-execution-reuse.md"
+  },
+  {
+    "action_id": "gui.transcript_reuse.dismiss_edit",
+    "description": "Skip one-time transcript reuse edit interstitial (clear pending; edit later in G0)",
+    "implementation": "components/modals/TranscriptReuseEditModal.tsx",
+    "stage": "transcript_review",
+    "origin": "gui",
+    "doc_link": "docs/workflows/stage-execution-reuse.md"
+  },
+  {
+    "action_id": "gui.transcript_reuse.save_text",
+    "description": "Persist full-text transcript edit (operator or reuse)",
+    "implementation": "stages/transcript_review.py#apply_full_transcript_text",
+    "stage": "transcript_review",
+    "origin": "gui",
+    "doc_link": "docs/pipeline/transcription/transcript-review.md"
+  },
+  {
     "action_id": "gui.stage_reuse.decline",
     "description": "Decline reuse and run fresh",
     "implementation": "*",
@@ -535,6 +559,46 @@
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
+  },
+  {
+    "action_id": "llm.resilience.partial_blocked",
+    "description": "Critical stage skipped write-approvable partial persist after quality failure",
+    "implementation": "llm_output_resilience.apply_resilience_and_persist",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "truncation.input_truncated",
+    "description": "Truncation markers detected in LLM input before call",
+    "implementation": "truncation_policy.log_truncation_event",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "truncation.blocked",
+    "description": "Gateway blocked truncated primary/shard call",
+    "implementation": "llm_runner.run_prompt_envelope",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "truncation.auto_decompose",
+    "description": "Routing auto-escalated truncated evidence to shard/collate",
+    "implementation": "llm_stage_routing.run_llm_stage_with_routing",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "truncation.escalation_required",
+    "description": "TruncationEscalationRequired raised and mapped to decompose need",
+    "implementation": "llm_stage_routing._run_primary_with_volley_retries",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
   },
   {
     "action_id": "ingest.hash",
@@ -961,6 +1025,46 @@
     "doc_link": ""
   },
   {
+    "action_id": "boundary.shard_rejected",
+    "description": "Boundary shard rejected after timeline normalize",
+    "implementation": "llm_subtasks._run_shard_pass",
+    "stage": "boundary_detection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "boundary.deterministic_collate",
+    "description": "Deterministic boundary collate merged shard timelines",
+    "implementation": "llm_subtasks._collate_shard_outputs",
+    "stage": "boundary_detection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "segmentation.boundary_deferred",
+    "description": "Boundary staged without pause — unified review at segment_classification",
+    "implementation": "write_staging.after_stage_write_check",
+    "stage": "boundary_detection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "segmentation.classification_cleared_on_boundary_restage",
+    "description": "Clear segment_classification staging when boundary_detection re-stages",
+    "implementation": "write_staging.clear_segmentation_classification_on_boundary_restage",
+    "stage": "boundary_detection",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "api.segmentation.approve_pair",
+    "description": "Approve paired boundary_detection + segment_classification writes",
+    "implementation": "write_staging.approve_segmentation_pair_writes",
+    "stage": "segment_classification",
+    "origin": "api",
+    "doc_link": ""
+  },
+  {
     "action_id": "itr.bridge.start",
     "description": "Start ITR adaptation bridge after LLM stage",
     "implementation": "adaptation_itr_bridge",
@@ -1326,6 +1430,14 @@
     "implementation": "write_staging",
     "stage": "*",
     "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.speaker_roles.confirm_hypothesis",
+    "description": "Operator confirms conversation interpretation hypothesis at speaker_roles handoff",
+    "implementation": "server.confirm_speaker_roles_hypothesis",
+    "stage": "speaker_roles",
+    "origin": "gui",
     "doc_link": ""
   },
   {

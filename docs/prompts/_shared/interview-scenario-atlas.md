@@ -336,7 +336,7 @@ Sensitive personal history, grief, abuse, discrimination; dignity and consent po
 
 ## Using this atlas in prompts
 
-1. `content_context` sets `format_class` — downstream stages inherit via `analysis_state_summary`.
+1. `speaker_roles` sets early `format_class_candidate` + `gap_sensitivity`; `content_context` confirms/refines `format_class` — downstream stages inherit via `analysis_state_summary` and conversation context kernel slices.
 2. If format ambiguous, prefer **under-segmentation** and **higher missing_framing scrutiny**.
 3. Sound stages read `source_acoustic_profile.mix_contract` + `placement_hints` — override defaults per scenario table above.
 4. On conflict between atlas and operator `style_patch`, operator wins.

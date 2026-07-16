@@ -257,7 +257,7 @@ export function LiveStatusBar() {
                 className={`btn ghost sm${alertsMuted ? " muted-active" : ""}`}
                 onClick={() => setAlertsMuted(!alertsMuted)}
               >
-                {alertsMuted ? "Unmute" : "Mute"}
+                {alertsMuted ? "Unmute sounds" : "Mute sounds"}
               </button>
               <div className="header-menu-wrap">
                 <button

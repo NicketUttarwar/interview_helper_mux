@@ -2,17 +2,43 @@
 
 **Good — classic two-person interview**
 
-- `spk_00`: `role: interviewer`, evidence includes “let’s start with your background” and short median turn length.
-- `spk_01`: `role: interviewee`, evidence includes long narrative answers to open questions.
+- `spk_00`: `role: interviewer`, `narrative_function: frame`, evidence includes “let’s start with your background”.
+- `spk_01`: `role: interviewee`, `narrative_function: storyteller`, long narrative answers.
+- `conversation_profile.format_class_candidate: one_on_one`, `format_confidence: 0.9`.
+- `gap_sensitivity.severity_hints.missing_setup: strict`.
 
-**Good — unknown when ambiguous**
+**Good — panel with moderator**
 
-- Both speakers similar turn length; `role: unknown` for one or both with **low** `confidence` and `needs` suggesting operator relabel in GUI.
+- `spk_00`: `role: moderator`, `narrative_function: frame`.
+- `spk_01`, `spk_02`: `role: panelist`, distinct substantive answers.
+- `format_class_candidate: panel`, `segment_focus: interviewee_answer_per_guest` in gap_sensitivity.
+- `priority_gap_types` includes `missing_definition`.
+
+**Good — ambiguous layout with hypotheses (E)**
+
+- `format_confidence: 0.55` — emit two hypotheses:
+  - `hyp_one_on_one`: co-host interpreted as interviewer + single interviewee
+  - `hyp_panel`: moderator + two panelists
+- Leave `confirmed_conversation_hypothesis_id: null`; operator picks at handoff.
+
+**Good — co-host frame**
+
+- `spk_00`: `interviewer` (opens/closes, owns pivots).
+- `spk_01`: `co_host` (follow-ups, audience proxy) — evidence cites question density not length.
+- `spk_02`: `interviewee`, `narrative_function: storyteller`.
+
+**Good — off-mic**
+
+- `spk_03`: `off_mic`, evidence: “producer cue / laughter burst, non-substantive”.
 
 **Bad — longest speaker = interviewee without evidence**
 
-- Assigning interviewee solely because their total word count is higher — violates “do not assign interviewer to the longest speaker without checking question patterns”.
+- Assigning interviewee solely because word count is higher — violates question-pattern rule.
 
-**Bad — all unknown**
+**Bad — all unknown with clear Q&A**
 
-- Clear back-and-forth Q&A in first 5 minutes but both `unknown` — violates “do not leave all speakers unknown when the transcript clearly shows Q&A”.
+- First five minutes show explicit questions and answers but every speaker `unknown` — lint fail.
+
+**Bad — collapsing panel guests**
+
+- Two distinct guests both labeled `interviewee` without `panelist` when `format_class_candidate: panel`.

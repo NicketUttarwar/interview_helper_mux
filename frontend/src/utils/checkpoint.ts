@@ -114,7 +114,7 @@ export function findPendingFocusStage(
       next.status === "awaiting_write_approval" ||
       next.status === "action_required")
   ) {
-    const blocker = firstUpstreamBlocker(run.stages, next.id);
+    const blocker = firstUpstreamBlocker(run.stages, next.id, run.meta);
     if (blocker) return blocker.id;
     return next.id;
   }
@@ -161,8 +161,15 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
   }
 }
 
+/** Mid-stage AI output handoffs are disabled under first_try (and when server flag is off). */
+export function handoffBetweenStagesEnabled(run: RunData | null): boolean {
+  if (!run) return false;
+  if (run.journey?.first_try?.enabled !== false) return false;
+  return run.journey?.handoff?.handoff_between_stages_enabled !== false;
+}
+
 export function findHandoffStage(run: RunData | null): StageInfo | null {
-  if (!run) return null;
+  if (!run || !handoffBetweenStagesEnabled(run)) return null;
   for (const s of run.stages) {
     if (s.status !== "done") continue;
     if (!stageArtifactsFullyComplete(s)) continue;
@@ -225,6 +232,7 @@ export function checkpointContinueLabel(
     return writeApprovalPrimaryLabel(write.paths.length);
   }
   if (stage.status === "done") {
+    if (!handoffBetweenStagesEnabled(run)) return "Continue to next step";
     const paths = getHandoffPathsLocal(stage, run.log_tail);
     if (paths.length && !run.handoff_ack?.[stage.id]) {
       return "Acknowledge & continue";
@@ -257,6 +265,7 @@ export function checkpointContinueEnabled(
     return false;
   }
   if (stage.status === "done") {
+    if (!handoffBetweenStagesEnabled(run)) return false;
     const paths = getHandoffPathsLocal(stage, run.log_tail);
     return paths.length > 0 && !run.handoff_ack?.[stage.id];
   }

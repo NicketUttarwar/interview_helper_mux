@@ -62,6 +62,7 @@ python tools/audit_stage_plans_doc.py
 | Volley parity | `python tools/audit_stage_plans_doc.py` (exit 0) |
 | BUILD-072 preclean | `pytest tests/test_preclean_offer.py tests/test_audio_preclean.py -q` |
 | Gates G0–G2 + profile | `pytest tests/test_gates.py -q` |
+| Conversation context (speaker_roles A/E/F) | `pytest tests/test_conversation_context.py tests/test_deterministic_lint.py -k speaker_roles -q` |
 | Cross-artifact | `pytest tests/test_artifact_cross_validate.py tests/test_sdp_cross_validate.py -q` |
 
 Promotion gate: [§15 in 02-WAVE-0](./june182026build/02-WAVE-0-resilience-harness.md#15-promotion-gate-for-wave-a).
@@ -248,7 +249,7 @@ python tools/run_analysis.py --run-id <id>
 
 **G1 path:** Leave `delivery: record` gaps unrecorded → pipeline exits with message; record `vo_pickup/*.wav`; rerun `--from-stage vo_ingest`.
 
-**G0 path:** Pause at transcript review; fix corrections in synced dock (word edit + fuzzy batch replace) or chunk textarea; verify `words[].corrected` and `PATCH …/transcript/words`; mark complete.
+**G0 path:** Pause at transcript review; fix corrections in the single synced dock (word edit + fuzzy batch replace); verify `words[].corrected` and `PATCH …/transcript/words`; mark complete.
 
 ---
 

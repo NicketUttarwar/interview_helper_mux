@@ -27,7 +27,6 @@ import type {
   TimelineData,
   TranscriptReviewState,
   ToastLevel,
-  ToastState,
 } from "../types";
 import { formatApiError } from "../utils/safeApi";
 import { isJobActivelyRunning } from "../utils/jobStatus";
@@ -121,7 +120,6 @@ interface AppContextValue {
   grantApiConsent: (provider: string, granted?: boolean) => Promise<void>;
   refreshApiGrants: () => Promise<void>;
   alertsMuted: boolean;
-  toast: ToastState | null;
   jobRunning: boolean;
   actionBusy: boolean;
   transcriptReview: TranscriptReviewState | null;
@@ -130,6 +128,7 @@ interface AppContextValue {
   pendingActionCount: number;
   actionSummary: string | null;
   confirmMessage: string | null;
+  transcriptReuseEditOpen: boolean;
   menuOpen: boolean;
   serverActiveRunId: string | null;
   sessionReady: boolean;
@@ -158,10 +157,11 @@ interface AppContextValue {
   setSelectedAsset: (path: string | null) => void;
   setMenuOpen: (open: boolean) => void;
   showToast: (msg: string, level?: ToastLevel) => void;
-  dismissToast: () => void;
   openActionModal: () => void;
   closeActionModal: () => void;
   closeActionModalAfterSuccess: () => void;
+  openTranscriptReuseEdit: () => void;
+  closeTranscriptReuseEdit: () => void;
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string) => Promise<void>;
@@ -236,10 +236,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [alertsMuted, setAlertsMutedState] = useState(
     () => localStorage.getItem("gui_mute_alerts") === "1",
   );
-  const [toast, setToast] = useState<ToastState | null>(null);
   const [jobRunning, setJobRunning] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appendClientLogRef = useRef<
+    (message: string, level?: string, stage?: string, actionId?: string) => void
+  >(() => {});
   const jobRunningRef = useRef(false);
   const actionBusyRef = useRef(false);
   const approveInFlightRef = useRef(false);
@@ -257,6 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     useState<TranscriptReviewState | null>(null);
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [transcriptReuseEditOpen, setTranscriptReuseEditOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [serverActiveRunId, setServerActiveRunId] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -316,20 +318,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [run, selectedStageId],
   );
 
-  const dismissToast = useCallback(() => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = null;
-    setToast(null);
-  }, []);
-
+  /** Operator-visible notices — written to gui_log.jsonl via appendClientLog, not overlay toasts. */
   const showToast = useCallback((msg: string, level: ToastLevel = "info") => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ message: msg, level });
-    const extended = jobRunningRef.current || actionBusyRef.current;
-    toastTimerRef.current = window.setTimeout(
-      () => setToast(null),
-      extended ? 7000 : level === "error" ? 6000 : 3500,
-    ) as unknown as ReturnType<typeof setTimeout>;
+    appendClientLogRef.current(
+      msg,
+      level,
+      selectedStageIdRef.current || undefined,
+      "gui.notice",
+    );
   }, []);
 
   const refreshApiGrants = useCallback(async () => {
@@ -544,6 +540,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     /* no-op */
   }, []);
 
+  const openTranscriptReuseEdit = useCallback(() => {
+    setTranscriptReuseEditOpen(true);
+  }, []);
+
+  const closeTranscriptReuseEdit = useCallback(() => {
+    setTranscriptReuseEditOpen(false);
+  }, []);
+
   const setCheckpointBusy = useCallback((busy: boolean) => {
     setActionBusy(busy);
     actionBusyRef.current = busy;
@@ -665,15 +669,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     recentClientLogRef.current = { key: dedupeKey, at: now };
 
     if (!rid) {
-      renderLogWithAlerts([
-        {
-          ts: new Date().toISOString(),
-          level: level as LogEntry["level"],
-          message,
-          stage,
-          detail: actionId ? { action_id: actionId, origin: "gui" } : undefined,
-        },
-      ]);
+      const entry: LogEntry = {
+        ts: new Date().toISOString(),
+        level: level as LogEntry["level"],
+        message,
+        stage,
+        detail: actionId ? { action_id: actionId, origin: "gui" } : undefined,
+      };
+      setLogEntries((prev) => [...prev, entry]);
       return;
     }
     await api(`/api/runs/${rid}/log`, {
@@ -690,6 +693,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [runId, pollLog],
   );
+  appendClientLogRef.current = appendClientLog;
 
   const traceAction = useCallback(
     (
@@ -1170,7 +1174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       if (run?.stages?.length) {
-        const upstream = firstUpstreamBlocker(run.stages, stageId);
+        const upstream = firstUpstreamBlocker(run.stages, stageId, run.meta);
         if (upstream) {
           showToast(
             `Complete ${upstream.title} before running ${stageId.replace(/_/g, " ")}.`,
@@ -1403,7 +1407,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         renderLogWithAlerts(runData.log_tail || []);
         const resolvedStage = opts.preferFirstStage
-          ? runData.stages[0]?.id ?? null
+          ? findNextRunnableStage(runData.stages, runData.meta)?.id ??
+            runData.stages[0]?.id ??
+            null
           : stageId ||
             findActiveStage(runData.stages, runData.meta)?.id ||
             runData.stages[0]?.id ||
@@ -1736,13 +1742,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Handoff acknowledgment failed";
       appendClientLog(msg, "warning", stageId);
-      showToast(msg, "error");
     }
   }, [
     selectedStageId,
     runId,
     run,
-    showToast,
     refreshRun,
     logOperatorAction,
     appendClientLog,
@@ -2055,7 +2059,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
         appendClientLog(msg, "warning", sid, "gui.write_approval.error");
-        showToast(msg, "error");
         if (e instanceof ApiError && e.status === 409 && runId) {
           const { jobRunning: busy, writeApprovalCleared } = await reconcileBusyRun({
             runId,
@@ -2122,14 +2125,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(body),
         });
         appendClientLog("Batch saved pending stage outputs", "success", undefined, "gui.write_approval.batch_save");
-        showToast("All pending outputs saved.", "success");
         await refreshRun();
         await pollLog(true);
         return true;
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Batch save failed";
         appendClientLog(msg, "warning", undefined, "gui.write_approval.error");
-        showToast(msg, "error");
         return false;
       } finally {
         approveInFlightRef.current = false;
@@ -2234,12 +2235,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await api(`/api/runs/${runId}/pending-writes/${stageId}/discard`, {
           method: "POST",
         });
-        showToast("Discarded staged outputs — re-run this step when ready.");
         appendClientLog(`Write approval discarded for ${stageId}`, "info");
         await refreshRun();
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Discard failed";
-        showToast(msg, "error");
         appendClientLog(msg, "error", stageId);
       }
     },
@@ -2352,7 +2351,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (next) showToast(readyForStageMessage(next.title), "info");
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Could not skip optional step";
-        showToast(msg, "error");
         appendClientLog(msg, "warning", stageId);
       }
     },
@@ -2445,10 +2443,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refreshRun();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Redo failed";
-      showToast(msg, "error");
       appendClientLog(msg, "warning");
     }
-  }, [selectedStageId, runId, refreshRun, confirm, appendClientLog, showToast]);
+  }, [selectedStageId, runId, refreshRun, confirm, appendClientLog]);
 
   const loadTranscriptReview = useCallback(async () => {
     if (!runId) return null;
@@ -2721,7 +2718,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     grantApiConsent,
     refreshApiGrants,
     alertsMuted,
-    toast,
     jobRunning,
     actionBusy,
     transcriptReview,
@@ -2730,6 +2726,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pendingActionCount,
     actionSummary,
     confirmMessage,
+    transcriptReuseEditOpen,
     menuOpen,
     serverActiveRunId,
     sessionReady,
@@ -2761,10 +2758,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSelectedAsset,
     setMenuOpen,
     showToast,
-    dismissToast,
     openActionModal,
     closeActionModal,
     closeActionModalAfterSuccess,
+    openTranscriptReuseEdit,
+    closeTranscriptReuseEdit,
     clearSession,
     refreshHome,
     startRun,

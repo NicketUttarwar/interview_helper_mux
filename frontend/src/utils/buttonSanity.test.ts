@@ -287,9 +287,10 @@ describe("buttonSanity — stage step workbench", () => {
     expect(pipeline).not.toContain("PipelineToolRow");
   });
 
-  it("ModalHost only mounts ConfirmDialog", () => {
+  it("ModalHost mounts ConfirmDialog and transcript reuse editor", () => {
     const text = readFileSync(join(ROOT, "components/modals/ModalHost.tsx"), "utf8");
     expect(text).toContain("ConfirmDialog");
+    expect(text).toContain("TranscriptReuseEditModal");
     expect(text).not.toContain("OperatorActionModal");
   });
 });

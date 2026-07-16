@@ -41,6 +41,7 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.null_field_policy",
     "interview_mux.llm_fabricate",
     "interview_mux.llm_output_normalizer",
+    "interview_mux.llm_output_resilience",
 )
 
 def parse_log_detail(entry: dict[str, Any]) -> dict[str, Any]:

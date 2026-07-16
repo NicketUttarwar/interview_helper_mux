@@ -47,9 +47,9 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `gui_job` | Background job stall thresholds (`stall_threshold_sec`, `subprocess_stall_threshold_sec`) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel | When `enabled`, blocks SFX until post-preview VO re-recorded |
-| `production_profiles` | `production_profile.py`, TBiy profile selection | Wrong profile → incorrect gate and lint behavior |
+| `production_profiles` | `production_profile.py`, TBiy profile selection + `tbiy_narrative.conformance` thresholds / `adaptation_defaults` | Wrong profile → incorrect gate, lint, and graduated TBIY moves |
 | `production_style` | Sound design + mix defaults for production posture | Style mismatch vs operator intent |
-| `source_topology` | `source_topology.py`, topology-driven flow adaptation | Missing topology breaks TBiy pickup speaker rules |
+| `source_topology` | `source_topology.py`, topology-driven flow adaptation + TBIY conformance seed | Missing topology breaks TBiy pickup speaker rules |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
 | `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
@@ -63,11 +63,13 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `POST …/milestones/preview-listened` before polish execute |
 | `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
+| `journey_ui.stage_reuse_lookback_executions` | `stage_execution_reuse`, session lineage | How many prior executions (by `execution_number`, newest first) to scan for hash-matched reuse offers (default `5`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
 | `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `false` (shipped default), after save/checkpoint the GUI **focuses** the next runnable stage and shows *Ready for … — use Run when you want to start*; operator runs each stage explicitly. Set `true` for unattended auto-run between stages. |
 | `journey_ui.full_autopilot` | `stage_finalize`, GUI stage steps, ITR gates | When `true` (default), in-run `finalize_stage_outputs()` replaces operator Fix all; **Stage Decision Wizard** for unresolved choices; `needs_clarification` not surfaced. Set `false` for legacy Fix all + artifact clarification UI. See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md). |
 | `journey_ui.first_try_mode` | `first_try`, gates, write staging, GUI autopilot | Cold-start friction collapse (default **true**). See [first-try-reliability.md](../workflows/first-try-reliability.md). |
 | `journey_ui.defer_write_approval_until` | `write_staging`, journey `_blocking` | `phase_end` (default under first_try): keep `.pending_writes/` without mid-phase pause; batch Save at phase end. `off` restores per-stage pause. |
+| `journey_ui.segmentation_unified_review` | `write_staging`, `first_try`, GUI `SegmentationReviewPanel` | When `true` (default), `boundary_detection` stages without write-approval pause; `segment_classification` offers paired review/save for boundaries + manifest. |
 | `journey_ui.preclean_auto_dismiss_when_green` | `source_readiness` | When true, auto-dismiss preclean offer on green readiness (never auto-accept). |
 | `journey_ui.batch_save_phases` | batch Save API/GUI | Default `["analysis","delivery"]`. |
 | `transcript_review.auto_complete_when_clean` | `transcript_review` | Auto-complete G0 when zero `needs_review` chunks. |
@@ -382,6 +384,19 @@ Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (sh
 | `max_stage_data_chars` | Huge payloads rejected or truncated by model host |
 | `interviewer_sample_lines` | Transitions stage lacks tone reference |
 
+## `analysis.truncation_integrity.*`
+
+Consumed by `truncation_policy` + LLM routing gateways. Defaults in `config/app.defaults.json`.
+
+| Key | When it matters |
+|-----|-----------------|
+| `context_cap_boost_steps` | Rebuild multipliers after truncated volley detected (default `[1,2,4,8,16]`) |
+| `field_truncation_clear_floor_chars` | Minimum segment/transcript clip floor during clear-field rebuild (default `8000`) |
+| `max_escalation_rounds_per_call` | Caps how many boost rebuild rounds run before hard-block |
+| `framer_digest_limits` | Local framer digest size per stage before `…[digest truncated]` |
+
+See [truncation-integrity.md](truncation-integrity.md).
+
 ---
 
 ## `analysis.context_index.*`
@@ -417,6 +432,8 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
 | `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → stage treated as stuck |
 | `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per investigation kind (`attempt_budget.py`) |
+| `block_partial_segment_classification` | `true` | Block partial persist when segment classification obligation lints fail |
+| `block_partial_on_quality_fail` | `true` | Critical LLM stages never stage write-approvable partials after lint/schema/truncation/accept failure — audit sidecar only |
 | `spend_block_stages` | see defaults | Stages that require complete upstream SDP/craft before API spend |
 | `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix_flow*` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
 | `clarification_before_halt` | `true` | Run ITR and set `needs_clarification` instead of hard halt when artifacts are repairable |
@@ -426,6 +443,23 @@ When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before
 **Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx`, `REMOVED_mmaudio_flow2`, `mix`, `REMOVED_mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
 
 **Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
+
+## `analysis.segmentation`
+
+Timeline authority + boundary/classification hardening — `segment_timeline_standard.py`, `segmentation_input_resolver.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `reject_invalid_shards` | `true` | Exclude boundary shards that fail timeline validation after normalize |
+| `deterministic_collate_authoritative` | `true` | Deterministic `merge_shard_boundaries` wins over LLM collate rows |
+| `deterministic_classification_collate_authoritative` | `true` | Contract-ordered deterministic segment collate wins over LLM collate |
+| `block_invalid_boundary_commit` | `true` | Refuse commit when `segment_contract.timeline_valid` is false |
+| `block_partial_classification` | `true` | Block staging manifest with coverage/type lint failures |
+| `fabricate_missing_segments` | `true` | Fabricate missing manifest rows from boundaries before ITR wizard |
+| `require_type_diversity` | `true` | Enforce type diversity when interviewer role exists |
+| `enforce_field_parity` | `true` | Assert manifest/boundary field parity at collate, hydrate, paired save |
+| `drop_orphan_manifest_rows` | `true` | Drop manifest rows not in `segment_contract` on hydrate |
+| `boundary_proactive_decompose_pace_classes` | `["calm","brisk"]` | Pace classes eligible for proactive boundary decompose |
 
 ## `analysis.duration_policy`
 
@@ -458,9 +492,9 @@ Partial persist and sanitize when primary output fails lint/schema — `llm_outp
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `progression_mode` | `strict` | Stage progression requires acceptance-clean artifacts (`degraded_continue` is deprecated) |
-| `partial_persist_enabled` | `true` | Write sanitized partial artifacts to staging for repair input (does not mark stages done) |
+| `partial_persist_enabled` | `true` | Write sanitized partial artifacts to staging for repair input (does not mark stages done). Critical stages with `block_partial_on_quality_fail` still skip this on lint/accept failure |
 | `record_stripped_fields` | `true` | Write `attempt_NNN_resilience.json` sidecars |
-| `min_artifact_mass` | per-stage | Minimum keys required for partial persist to count as progress |
+| `min_artifact_mass` | per-stage | Minimum keys required for partial persist (`content_context`: thesis + topics) |
 
 ---
 
@@ -485,6 +519,9 @@ Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artif
 | `max_upstream_reruns_per_run` | `2` | Cap operator-initiated upstream reruns per run |
 | `max_downstream_auto_continue` | `1` | After upstream rerun completes, auto-continue downstream stages (max count) |
 | `boundary_merge_threshold_ms` | `500` | Merge adjacent micro-boundaries below this span in `repair_boundaries` |
+| `boundary_snap_tolerance_ms` | `500` | Snap nearby boundary timestamps when collating shards or repairing timeline drift |
+| `boundary_coarse_partition_min_children` | `2` | Drop a coarse boundary when at least this many finer child boundaries cover its span |
+| `boundary_coarse_coverage_ratio` | `0.85` | Minimum child coverage required before dropping a dominated coarse boundary |
 | `require_propagation_before_segment_approve` | `true` | Block write approval when downstream cross-validate fails after segment/boundary fix |
 | `upstream_rerun_invalidate_downstream` | `true` | Invalidate downstream summaries when upstream rerun is executed |
 | `auto_resolve_min_confidence` | `0.70` | Minimum option confidence for Fix all auto-pick |
@@ -568,6 +605,8 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
 | `question_budget_max` | `6` | clamp record gaps | Too many VO pickups or none |
 | `enforce_duration` | `false` | ranking cross-validate | When `true`, soft duration band becomes hard fail |
+
+TBIY runs additionally refresh `flow_adaptation.tbiy_conformance` during `delivery_brief_build` and may copy `five_act_mode` / `moat_mode` / `vo_bridge_priority` onto the brief.
 
 ---
 

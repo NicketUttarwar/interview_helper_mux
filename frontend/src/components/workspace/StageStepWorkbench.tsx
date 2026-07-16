@@ -136,7 +136,7 @@ export function StageStepWorkbench() {
 
   const reviewDetailStepId =
     selectedStage.id === "transcript_review"
-      ? "listen_clips"
+      ? "review_transcript"
       : selectedStage.id === "disfluency_review"
         ? "review_fillers"
         : undefined;

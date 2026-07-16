@@ -5,6 +5,7 @@ import { findLatestHandoffAudit } from "../../utils/handoff";
 import { handoffSkimBullets } from "../../utils/handoffSkimHints";
 import { escapeHtml } from "../../utils";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
+import { SpeakerRolesHypothesisPanel } from "./SpeakerRolesHypothesisPanel";
 
 export function HandoffPanel() {
   const { run, selectedStage, openArtifactInEditor, showToast } = useApp();
@@ -65,6 +66,7 @@ export function HandoffPanel() {
         Skim the files below. Edit in Files if needed. Use{" "}
         <strong>Acknowledge &amp; continue</strong> at the bottom of this step when ready.
       </p>
+      {selectedStage.id === "speaker_roles" ? <SpeakerRolesHypothesisPanel /> : null}
       {skimBullets.length ? (
         <ul className="handoff-skim-list">
           {skimBullets.map((b) => (
