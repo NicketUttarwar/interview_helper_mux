@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import stage_reuse_output_specs
 from interview_mux.web.stages import STAGE_BY_ID
@@ -33,6 +34,48 @@ def _is_operational_artifact(rel: str) -> bool:
     return any(rel.startswith(p) for p in _OPERATIONAL_PREFIXES)
 
 
+def _pipeline_orders() -> tuple[list[str], ...]:
+    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
+
+    return (ANALYSIS_ORDER, DELIVERY_ORDER)
+
+
+def _order_containing(stage_id: str) -> list[str] | None:
+    for order in _pipeline_orders():
+        if stage_id in order:
+            return order
+    return None
+
+
+def _artifact_producer_stages(rel: str) -> list[str]:
+    return [sid for sid, path in STAGE_ARTIFACT_DISK_PATHS.items() if path == rel]
+
+
+def _preserve_cross_order_upstream_artifact(
+    ctx: RunContext,
+    rel: str,
+    *,
+    order: list[str],
+    invalidation_slice: set[str],
+) -> bool:
+    """Keep analysis-owned artifacts when invalidating an unrelated delivery slice."""
+    producers = _artifact_producer_stages(rel)
+    if not producers:
+        return False
+    from_order = tuple(order)
+    for producer in producers:
+        if producer in invalidation_slice:
+            continue
+        if not ctx.is_done(producer):
+            continue
+        producer_order = _order_containing(producer)
+        if producer_order is None:
+            continue
+        if tuple(producer_order) != from_order:
+            return True
+    return False
+
+
 def _collect_stage_output_paths(stage_id: str) -> list[str]:
     paths: list[str] = []
     info = STAGE_BY_ID.get(stage_id)
@@ -56,6 +99,7 @@ def archive_artifacts_from(ctx: RunContext, from_stage: str, order: list[str]) -
     if from_stage not in order:
         return None
     idx = order.index(from_stage)
+    invalidation_slice = set(order[idx:])
     rel_paths: list[str] = []
     for sid in order[idx:]:
         rel_paths.extend(_collect_stage_output_paths(sid))
@@ -65,6 +109,13 @@ def archive_artifacts_from(ctx: RunContext, from_stage: str, order: list[str]) -
         if rel in seen or _is_operational_artifact(rel):
             continue
         seen.add(rel)
+        if _preserve_cross_order_upstream_artifact(
+            ctx,
+            rel,
+            order=order,
+            invalidation_slice=invalidation_slice,
+        ):
+            continue
         if ctx.final_path(*rel.split("/")).is_file():
             to_archive.append(rel)
     if not to_archive:

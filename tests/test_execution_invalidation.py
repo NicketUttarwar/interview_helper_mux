@@ -88,6 +88,43 @@ def test_discard_on_invalidate_unblocks_execute(
     assert check_write_approval_before_execute(ctx) is None
 
 
+def test_clear_from_delivery_preserves_analysis_sound_design_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from interview_mux.pipeline import DELIVERY_ORDER
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    sdp = ctx.final_path("understanding/sound_design_plan.json")
+    sdp.parent.mkdir(parents=True, exist_ok=True)
+    sdp.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "coherence": {"sonic_identity": "test identity", "primary_mood": "", "density": ""},
+                "palettes": [{"palette_id": "p1", "name": "Warm"}],
+                "assets": [],
+                "flow_plans": {"podcast": {"profile": "podcast", "cues": []}},
+                "generated": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.mark_done("sound_design_palettes", force=True)
+    coverage = ctx.final_path("master/coverage_audit.json")
+    coverage.parent.mkdir(parents=True, exist_ok=True)
+    coverage.write_text("{}", encoding="utf-8")
+    ctx.mark_done("topic_coverage_audit", force=True)
+
+    ctx.clear_from("topic_coverage_audit", DELIVERY_ORDER)
+
+    assert sdp.is_file()
+    doc = json.loads(sdp.read_text(encoding="utf-8"))
+    assert doc.get("palettes")
+    assert ctx.is_done("sound_design_palettes")
+
+
 def test_clear_from_stamps_stale_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
