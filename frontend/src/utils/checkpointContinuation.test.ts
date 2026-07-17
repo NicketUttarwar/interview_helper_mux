@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import {
   advancePipeline,
+  focusStageWorkbench,
   patchRunAfterWriteApproval,
   reconcileBusyRun,
   syncPipelineStageFocus,
@@ -157,6 +158,10 @@ describe("advancePipeline", () => {
         { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
       ],
       job: { status: "complete", stage: "speaker_roles" },
+      journey: {
+        first_try: { enabled: false },
+        handoff: { handoff_between_stages_enabled: true },
+      },
     });
     const started = await advancePipeline({
       run,
@@ -464,6 +469,10 @@ describe("tryAutoContinuePipeline", () => {
         },
       ],
       job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: {
+        first_try: { enabled: false },
+        handoff: { handoff_between_stages_enabled: true },
+      },
     });
     const started = await tryAutoContinuePipeline({
       run,
@@ -562,5 +571,23 @@ describe("tryAutopilotCheckpointResolution", () => {
     });
     expect(ok).toBe(true);
     expect(fixAllAndContinueStage).toHaveBeenCalledWith("boundary_detection");
+  });
+});
+
+describe("focusStageWorkbench", () => {
+  it("routes virtual investigation_queue focus to Story Board without selecting a stage", async () => {
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const setPipelineSubTab = vi.fn();
+    const stepId = await focusStageWorkbench({
+      run: runStub(),
+      stageId: "investigation_queue",
+      selectStage,
+      expandStage: vi.fn(),
+      setPipelineSubTab,
+      navigationIntent: "user_continue",
+    });
+    expect(stepId).toBeNull();
+    expect(selectStage).not.toHaveBeenCalled();
+    expect(setPipelineSubTab).toHaveBeenCalledWith("story");
   });
 });

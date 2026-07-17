@@ -71,6 +71,41 @@ def test_g1_5_na_not_incomplete_without_gap_report(
     assert not validate_run_snapshot(stages=[g15])
 
 
+def test_content_context_stays_done_when_brief_only_missing_reanchor_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GUI stage list must not downgrade content_context when re-anchor fields are absent."""
+    import json
+
+    from interview_mux.artifact_writes import write_validated_artifact
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    fixture = (
+        Path(__file__).resolve().parent / "fixtures/sufficiency/content_context/pass.json"
+    )
+    brief = json.loads(fixture.read_text())
+    write_validated_artifact(
+        ctx,
+        "understanding/content_brief.json",
+        brief,
+        merge_from_disk=False,
+        stage_key="content_context",
+    )
+    ctx.mark_done("content_context", force=True)
+    ctx.mark_done("content_brief_reanchor", force=True)
+    ctx.mark_done("boundary_detection", force=True)
+    ctx.mark_done("segment_classification", force=True)
+
+    stages = _build_stage_list(ctx, [], False, False, False, False)
+    content = next(s for s in stages if s["id"] == "content_context")
+    reanchor = next(s for s in stages if s["id"] == "content_brief_reanchor")
+    assert content["status"] == "done"
+    assert content["artifacts_status"]["understanding/content_brief.json"] == "complete"
+    assert reanchor["status"] in ("incomplete", "pending")
+    assert not ctx.is_done("content_brief_reanchor")
+    assert not validate_run_snapshot(stages=[content])
+
+
 def test_disfluency_review_disabled_optional_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -89,3 +124,20 @@ def test_disfluency_review_disabled_optional_skipped(
     assert review["stage_output_mode"] == "optional_skipped"
     assert review["status"] != "incomplete"
     assert not validate_run_snapshot(stages=[review])
+
+
+def test_gap_fill_stages_hidden_when_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    from interview_mux.stages.gaps import ensure_gap_fill_skipped
+
+    ensure_gap_fill_skipped(ctx, reason="peer topology", signals={"topology_class": "test"})
+    stages = _build_stage_list(ctx, [], False, False, False, False)
+    hidden = [s for s in stages if s.get("stage_visibility") == "hidden"]
+    hidden_ids = {s["id"] for s in hidden}
+    assert "missing_framing" in hidden_ids
+    assert "optimal_questions" in hidden_ids
+    assert "g1_vo_pickup" in hidden_ids
+    visible_count = len([s for s in stages if s.get("stage_visibility", "visible") != "hidden"])
+    assert visible_count == len(stages) - 3

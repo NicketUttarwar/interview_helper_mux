@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -80,7 +81,16 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
     "missing_framing": frozenset({"evaluations[].notes"}),
     "optimal_questions": frozenset({"gaps[].notes"}),
     "topic_coverage_audit": frozenset({"gaps", "notes"}),
-    "narrative_arc_plan": frozenset({"ordering_constraints", "notes"}),
+    "narrative_arc_plan": frozenset(
+        {
+            "ordering_constraints",
+            "notes",
+            "pacing_notes",
+            "chapters[].act_title",
+            "chapters[].tension_level",
+            "chapters[].is_moat_chapter",
+        }
+    ),
     "full_master_ranking": frozenset({"excluded_segment_ids", "notes"}),
     "transitions": frozenset({"transitions[].notes"}),
     "sound_design_plan": frozenset({"notes"}),
@@ -176,6 +186,50 @@ def _is_nullable_path(stage_key: str, path: str) -> bool:
         if path_matches_pattern(path, pat):
             return True
     return False
+
+def _normalize_null_path(path: str) -> str:
+    return re.sub(r"\[\d+\]", "[]", path)
+
+
+def omit_nullable_null_leaves_for_disk(stage_key: str, artifacts: dict[str, Any]) -> dict[str, Any]:
+    """Drop JSON null leaves registered as nullable before on-disk schema validation."""
+    if not null_policy_enabled() or not null_policy_cfg().get("prefer_omit_over_fabricate", True):
+        return artifacts
+
+    out = copy.deepcopy(artifacts)
+
+    def _omit(obj: Any, prefix: str) -> None:
+        if isinstance(obj, dict):
+            to_delete: list[str] = []
+            for key, val in obj.items():
+                if key == "_meta":
+                    continue
+                child = f"{prefix}.{key}" if prefix else key
+                if val is None and _is_nullable_path(stage_key, _normalize_null_path(child)):
+                    to_delete.append(key)
+                elif isinstance(val, (dict, list)):
+                    _omit(val, child)
+            for key in to_delete:
+                del obj[key]
+        elif isinstance(obj, list):
+            for i in range(len(obj) - 1, -1, -1):
+                child = f"{prefix}[{i}]"
+                item = obj[i]
+                if item is None and _is_nullable_path(stage_key, _normalize_null_path(child)):
+                    del obj[i]
+                elif isinstance(item, (dict, list)):
+                    _omit(item, child)
+
+    _omit(out, "")
+    return out
+
+
+def stage_key_for_artifact_path(rel_path: str) -> str | None:
+    for stage, path in STAGE_ARTIFACT_DISK_PATHS.items():
+        if path == rel_path:
+            return stage
+    return None
+
 
 def partition_nulls(
     stage_key: str,

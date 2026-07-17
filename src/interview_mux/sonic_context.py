@@ -404,6 +404,12 @@ def build_tag_registry(ctx: RunContext) -> list[dict[str, Any]]:
     return sorted(tags_by_id.values(), key=lambda x: str(x.get("tag_id")))
 
 
+def _cue_segment_fields(segment_id: str | None) -> dict[str, str]:
+    """Schema allows omitted segment_id; never emit null."""
+    cleaned = str(segment_id or "").strip()
+    return {"segment_id": cleaned} if cleaned else {}
+
+
 def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
     narrative = _read_if_dict(ctx, "master/narrative_plan.json") or {}
     gap_report = _read_if_dict(ctx, "understanding/gap_report.json") or {}
@@ -423,7 +429,10 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
         key = (kind, sid, start, end)
         if kind and key not in seen:
             seen.add(key)
-            out.append(row)
+            stored = dict(row)
+            if not sid:
+                stored.pop("segment_id", None)
+            out.append(stored)
 
     chapters = [c for c in (narrative.get("chapters") or []) if isinstance(c, dict)]
     for idx, chapter in enumerate(chapters):
@@ -431,7 +440,7 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
         add(
             {
                 "kind": "chapter_boundary",
-                "segment_id": sid or None,
+                **_cue_segment_fields(sid),
                 "beat": str(chapter.get("title") or chapter.get("chapter_id") or f"chapter_{idx + 1}"),
                 "confidence": 0.78,
                 "provenance": ["master/narrative_plan.json"],
@@ -440,8 +449,8 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
     if chapters:
         first_sid = str(chapters[0].get("suggested_open_segment_id") or "").strip()
         last_sid = str(chapters[-1].get("suggested_open_segment_id") or "").strip()
-        add({"kind": "cold_open", "segment_id": first_sid or None, "confidence": 0.64, "provenance": ["narrative_plan"]})
-        add({"kind": "outro", "segment_id": last_sid or None, "confidence": 0.64, "provenance": ["narrative_plan"]})
+        add({"kind": "cold_open", **_cue_segment_fields(first_sid), "confidence": 0.64, "provenance": ["narrative_plan"]})
+        add({"kind": "outro", **_cue_segment_fields(last_sid), "confidence": 0.64, "provenance": ["narrative_plan"]})
 
     for line in gap_report.get("interviewer_lines") or []:
         if not isinstance(line, dict):
@@ -450,7 +459,7 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
         add(
             {
                 "kind": "vo_bridge",
-                "segment_id": sid or None,
+                **_cue_segment_fields(sid),
                 "beat": str(line.get("gap_type") or "bridge"),
                 "confidence": 0.81,
                 "provenance": ["understanding/gap_report.json"],
@@ -467,7 +476,7 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
             add(
                 {
                     "kind": "tension_peak",
-                    "segment_id": sid,
+                    **_cue_segment_fields(sid),
                     "start_ms": start_ms,
                     "confidence": 0.62,
                     "provenance": ["understanding/value_features.json"],
@@ -489,7 +498,7 @@ def build_cue_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
         add(
             {
                 "kind": kind,
-                "segment_id": sid,
+                **_cue_segment_fields(sid),
                 "beat": label,
                 "confidence": 0.74,
                 "provenance": ["understanding/content_brief.json"],
@@ -726,6 +735,122 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any]:
         "avoid_hard": _string_list(doc.get("avoid_hard"))[:8],
         "segment_flags": doc.get("segment_flags") or {},
     }
+
+
+def build_palette_keyword_catalog(doc: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Exact tag_registry rows palettes must ground keywords against (BUILD-SFX)."""
+    if not isinstance(doc, dict):
+        return []
+    catalog: list[dict[str, Any]] = []
+    for row in doc.get("tag_registry") or []:
+        if not isinstance(row, dict):
+            continue
+        keywords = [str(k).strip() for k in (row.get("keywords") or []) if str(k).strip()]
+        if not keywords:
+            continue
+        catalog.append(
+            {
+                "tag_id": str(row.get("tag_id") or ""),
+                "kind": str(row.get("kind") or ""),
+                "keywords": keywords,
+                "segment_ids": _string_list(row.get("segment_ids")),
+                "provenance": _string_list(row.get("provenance")),
+            }
+        )
+    return catalog
+
+
+def sonic_provenance_keyword_set(doc: dict[str, Any] | None) -> set[str]:
+    """Lowercased keyword tokens accepted for palette provenance lint."""
+    if not isinstance(doc, dict):
+        return set()
+    out: set[str] = set()
+    for row in doc.get("tag_registry") or []:
+        if not isinstance(row, dict):
+            continue
+        tag_id = str(row.get("tag_id") or "").strip().lower()
+        if tag_id:
+            out.add(tag_id)
+        for keyword in row.get("keywords") or []:
+            token = str(keyword or "").strip().lower()
+            if token:
+                out.add(token)
+    return out
+
+
+def _keyword_tokens(value: str) -> set[str]:
+    import re
+
+    low = value.strip().lower()
+    if not low:
+        return set()
+    tokens = set(re.findall(r"[a-z0-9]+", low))
+    tokens.add(low)
+    return tokens
+
+
+_STOP_TOKENS = frozenset({"and", "or", "the", "a", "an", "to", "of", "in", "for", "on", "at", "with"})
+
+
+def palette_keyword_matches_sonic_provenance(keyword: str, sonic_keywords: set[str]) -> bool:
+    """True when a palette keyword traces to sonic_context tag_registry."""
+    kw = str(keyword or "").strip().lower()
+    if not kw or not sonic_keywords:
+        return False
+    if kw in sonic_keywords:
+        return True
+    for sk in sonic_keywords:
+        if len(kw) >= 4 and (kw in sk or sk in kw):
+            return True
+    kw_tokens = _keyword_tokens(kw) - _STOP_TOKENS
+    if not kw_tokens:
+        return False
+    for sk in sonic_keywords:
+        overlap = kw_tokens & (_keyword_tokens(sk) - _STOP_TOKENS)
+        if overlap:
+            return True
+    return False
+
+
+def align_palette_keywords_to_sonic_context(
+    palettes: list[dict[str, Any]],
+    sonic_doc: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Normalize palette keywords/tag_ids from tag_registry segment overlap."""
+    if not isinstance(sonic_doc, dict) or not palettes:
+        return palettes
+    registry = [t for t in (sonic_doc.get("tag_registry") or []) if isinstance(t, dict)]
+    if not registry:
+        return palettes
+    aligned: list[dict[str, Any]] = []
+    for pal in palettes:
+        if not isinstance(pal, dict):
+            continue
+        row = dict(pal)
+        seg_ids = {str(s) for s in (row.get("segment_ids") or []) if str(s).strip()}
+        matched = [
+            t
+            for t in registry
+            if seg_ids & {str(s) for s in (t.get("segment_ids") or []) if str(s).strip()}
+        ]
+        if not matched and row.get("theme_label"):
+            theme_slug = _slug(str(row.get("theme_label") or ""))
+            matched = [t for t in registry if theme_slug and theme_slug in str(t.get("tag_id") or "")]
+        keywords = [str(k).strip() for k in (row.get("keywords") or []) if str(k).strip()]
+        sonic_kw = sonic_provenance_keyword_set(sonic_doc)
+        if keywords and any(palette_keyword_matches_sonic_provenance(k, sonic_kw) for k in keywords):
+            aligned.append(row)
+            continue
+        if matched:
+            merged_kw: list[str] = []
+            tag_ids: list[str] = []
+            for tag in matched[:4]:
+                tag_ids.append(str(tag.get("tag_id") or ""))
+                merged_kw.extend(str(k).strip() for k in (tag.get("keywords") or []) if str(k).strip())
+            row["tag_ids"] = sorted({t for t in tag_ids if t})
+            row["keywords"] = sorted({k for k in merged_kw if k})[:8] or keywords
+        aligned.append(row)
+    return aligned
 
 
 def build_sonic_context(ctx: RunContext) -> dict[str, Any]:

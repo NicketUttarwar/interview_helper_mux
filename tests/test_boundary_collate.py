@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from interview_mux.boundary_collate import merge_shard_boundaries, normalize_boundary_timeline
-from interview_mux.llm_subtasks import _apply_deterministic_boundary_collate
+from interview_mux.boundary_collate import (
+    align_boundary_rows_to_shard,
+    boundary_coverage_errors,
+    merge_shard_boundaries,
+    normalize_boundary_timeline,
+)
+from interview_mux.llm_subtasks import (
+    _apply_deterministic_boundary_collate,
+    _slice_pause_ladder_hints,
+    _slice_stage_input,
+)
 from interview_mux.segment_timeline import validate_boundary_rows
 
 
@@ -204,3 +213,197 @@ def test_normalize_boundary_timeline_snaps_nearby_boundaries():
     assert normalized[1]["start_ms"] == 1000
     assert any(action["action"] == "snap_start_to_prev_end" for action in applied)
     assert not validate_boundary_rows(normalized)
+
+
+def test_align_relative_shard_boundaries_to_absolute_window():
+    rows = [
+        {
+            "segment_id": "seg_001",
+            "start_ms": 0,
+            "end_ms": 5000,
+            "speaker_id": "spk_0",
+            "proposed_split_reason": "pause",
+        },
+        {
+            "segment_id": "seg_002",
+            "start_ms": 5000,
+            "end_ms": 12000,
+            "speaker_id": "spk_1",
+            "proposed_split_reason": "pause",
+        },
+    ]
+    aligned, applied = align_boundary_rows_to_shard(rows, shard_start_ms=229009, shard_end_ms=448369)
+    assert aligned[0]["start_ms"] == 229009
+    assert aligned[-1]["end_ms"] == 241009
+    assert any(action["action"] == "shift_relative_to_shard_start" for action in applied)
+
+
+def test_clip_misscoped_full_ladder_rows_to_later_shard():
+    rows = [
+        {
+            "segment_id": "seg_030",
+            "start_ms": 230649,
+            "end_ms": 238089,
+            "speaker_id": "spk_0",
+            "proposed_split_reason": "pause",
+        },
+        {
+            "segment_id": "seg_040",
+            "start_ms": 289890,
+            "end_ms": 291890,
+            "speaker_id": "spk_1",
+            "proposed_split_reason": "pause",
+        },
+    ]
+    aligned, applied = align_boundary_rows_to_shard(rows, shard_start_ms=229009, shard_end_ms=448369)
+    assert aligned
+    assert aligned[0]["start_ms"] >= 229009
+    assert not applied
+
+
+def test_clip_misscoped_rows_starting_at_zero_for_later_shard():
+    rows = [
+        {
+            "segment_id": "seg_001",
+            "start_ms": 0,
+            "end_ms": 8210,
+            "speaker_id": "spk_0",
+            "proposed_split_reason": "pause",
+        },
+        {
+            "segment_id": "seg_030",
+            "start_ms": 230649,
+            "end_ms": 238089,
+            "speaker_id": "spk_1",
+            "proposed_split_reason": "pause",
+        },
+    ]
+    aligned, applied = align_boundary_rows_to_shard(rows, shard_start_ms=229009, shard_end_ms=448369)
+    assert len(aligned) == 1
+    assert aligned[0]["start_ms"] == 230649
+    assert any(action["action"] == "clip_misscoped_to_shard_window" for action in applied)
+
+
+def test_merge_shard_boundaries_aligns_relative_later_shards():
+    shard_outputs = [
+        {
+            "label": "time_1",
+            "start_ms": 0,
+            "end_ms": 229009,
+            "envelope": {
+                "artifacts": {
+                    "boundaries": [
+                        {
+                            "segment_id": "seg_001",
+                            "start_ms": 0,
+                            "end_ms": 229009,
+                            "speaker_id": "spk_0",
+                            "proposed_split_reason": "pause",
+                        }
+                    ]
+                }
+            },
+        },
+        {
+            "label": "time_2",
+            "start_ms": 229009,
+            "end_ms": 448369,
+            "envelope": {
+                "artifacts": {
+                    "boundaries": [
+                        {
+                            "segment_id": "seg_001",
+                            "start_ms": 0,
+                            "end_ms": 5000,
+                            "speaker_id": "spk_1",
+                            "proposed_split_reason": "pause",
+                        },
+                        {
+                            "segment_id": "seg_002",
+                            "start_ms": 5000,
+                            "end_ms": 219360,
+                            "speaker_id": "spk_0",
+                            "proposed_split_reason": "pause",
+                        },
+                    ]
+                }
+            },
+        },
+    ]
+    merged_rows, applied = merge_shard_boundaries(shard_outputs)
+    assert merged_rows
+    assert merged_rows[-1]["end_ms"] >= 448000
+    assert any(action["action"] == "shift_relative_to_shard_start" for action in applied)
+    assert not validate_boundary_rows(merged_rows)
+
+
+def test_slice_pause_ladder_hints_to_shard_window():
+    hints = {
+        "candidates": [
+            {
+                "threshold_ms": 400,
+                "split_times_ms": [4139, 230649, 448000, 684000],
+                "count": 4,
+            }
+        ]
+    }
+    sliced = _slice_pause_ladder_hints(hints, start_ms=229009, end_ms=448369)
+    times = sliced["candidates"][0]["split_times_ms"]
+    assert 4139 not in times
+    assert 230649 in times
+    assert 448000 in times
+    assert 684000 not in times
+
+
+def test_slice_stage_input_injects_boundary_shard_window_and_sliced_hints():
+    stage_input = {
+        "transcript": {"words": [{"start_ms": 0, "end_ms": 1000, "text": "hi"}]},
+        "pause_ladder_hints": {
+            "candidates": [{"threshold_ms": 400, "split_times_ms": [100, 250000], "count": 2}]
+        },
+    }
+    shard = {"label": "time_2", "start_ms": 229009, "end_ms": 448369}
+    sliced = _slice_stage_input("boundary_detection", stage_input, shard)
+    assert sliced["boundary_shard_window"]["start_ms"] == 229009
+    assert 100 not in sliced["pause_ladder_hints"]["candidates"][0]["split_times_ms"]
+    assert 250000 in sliced["pause_ladder_hints"]["candidates"][0]["split_times_ms"]
+
+
+def test_boundary_collate_blocks_incomplete_coverage(tmp_path, monkeypatch):
+    from interview_mux.run_context import RunContext
+
+    monkeypatch.setenv("INTERVIEW_MUX_RUNS_ROOT", str(tmp_path))
+    ctx = RunContext("exec_boundary_cov", create=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": [{"start_ms": 0, "end_ms": 890575, "text": "x"}]},
+        skip_handoff=True,
+    )
+    collate_env = {"status": "complete", "artifacts": {"warnings": []}}
+    shard_outputs = [
+        {
+            "start_ms": 0,
+            "end_ms": 890575,
+            "envelope": {
+                "artifacts": {
+                    "boundaries": [
+                        {
+                            "segment_id": "seg_001",
+                            "start_ms": 0,
+                            "end_ms": 291890,
+                            "speaker_id": "spk_0",
+                            "proposed_split_reason": "pause",
+                        }
+                    ]
+                }
+            },
+        }
+    ]
+    merged = _apply_deterministic_boundary_collate(collate_env, shard_outputs, ctx=ctx)
+    assert merged["status"] == "blocked"
+    assert boundary_coverage_errors(
+        merged["artifacts"]["boundaries"],
+        interview_duration_ms=890575,
+    )
+    assert any(n.get("blocking") for n in merged.get("needs") or [])
+

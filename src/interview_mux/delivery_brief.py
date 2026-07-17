@@ -298,8 +298,9 @@ def run_delivery_brief_build(ctx: RunContext) -> None:
         stage="delivery_brief_build",
     )
     try:
-        from interview_mux.analysis_memory import maybe_auto_verify_profile
+        from interview_mux.analysis_memory import maybe_auto_verify_profile, update_completion_from_analysis
 
+        update_completion_from_analysis(ctx)
         maybe_auto_verify_profile(ctx)
     except Exception as exc:  # noqa: BLE001
         ctx.log(f"profile auto-verify skipped: {exc}", level="warning", stage="delivery_brief_build")

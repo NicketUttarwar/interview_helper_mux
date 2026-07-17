@@ -189,10 +189,12 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
         from interview_mux.context_resolver import context_index_cfg, migrate_context_index_v1_to_v2, sync_stage_plans
 
         if context_index_cfg().get("sync_plans_on_ensure", True):
+            from interview_mux.write_staging import write_committed_json
+
             raw = ctx.read_json(CONTEXT_INDEX_PATH)
             migrated = migrate_context_index_v1_to_v2(raw, ctx.run_id)
             synced = sync_stage_plans(ctx, migrated)
-            ctx.write_json(CONTEXT_INDEX_PATH, synced, **scaffold)
+            write_committed_json(ctx, CONTEXT_INDEX_PATH, synced, stage_key="context_index")
     if not ctx.artifact_exists(ORCHESTRATION_PATH):
         ctx.write_json(ORCHESTRATION_PATH, default_orchestration(), **scaffold)
     if not ctx.artifact_exists(SOUND_DESIGN_PLAN_PATH):
@@ -637,7 +639,16 @@ def should_merge_envelope(
     routed_via_collate: bool = False,
 ) -> bool:
     """Merge memory only after arbiter accept or successful collate."""
+    from interview_mux.holistic_fabrication import should_accept_holistic_fabrication
+
     status = envelope.get("status", "complete")
+    if should_accept_holistic_fabrication(envelope):
+        blocking = [
+            n
+            for n in envelope.get("needs") or []
+            if n.get("blocking") and n.get("type") != "operator"
+        ]
+        return status == "complete" and not blocking
     if status == "blocked":
         return False
     if routed_via_collate and status == "complete":
@@ -908,10 +919,71 @@ def sync_gaps_to_state(ctx: RunContext, evaluations: dict[str, Any]) -> None:
     save_analysis_state(ctx, state, stage="missing_framing")
 
 
+def hydrate_analysis_state_for_profile_gate(ctx: RunContext) -> bool:
+    """Backfill analysis_state profile fields from committed artifacts before gate checks."""
+    from interview_mux.tone_taxonomy import validate_format_class, validate_tone_class
+
+    changed = False
+    state = load_analysis_state(ctx)
+
+    if ctx.artifact_exists("understanding/speakers.json"):
+        speakers_doc = ctx.read_json("understanding/speakers.json")
+        if isinstance(speakers_doc, dict):
+            needs_speaker_sync = not (state.get("speakers") or []) or not (
+                state.get("conversation_profile") or state.get("style", {}).get("format_class")
+            )
+            if needs_speaker_sync:
+                sync_speakers_to_state(ctx, speakers_doc)
+                state = load_analysis_state(ctx)
+                changed = True
+            else:
+                profile = speakers_doc.get("conversation_profile") or {}
+                if isinstance(profile, dict):
+                    state.setdefault("style", {})
+                    fc = profile.get("format_class_candidate")
+                    if validate_format_class(fc) and not state["style"].get("format_class"):
+                        state["style"]["format_class"] = fc
+                        changed = True
+                    tc = profile.get("tone_class_candidate")
+                    if validate_tone_class(tc) and not state["style"].get("tone_class"):
+                        state["style"]["tone_class"] = tc
+                        changed = True
+
+    state.setdefault("style", {})
+    if not str(state["style"].get("tone") or "").strip():
+        tc = state["style"].get("tone_class")
+        if validate_tone_class(tc):
+            state["style"]["tone"] = str(tc).replace("_", " ")
+            changed = True
+
+    state.setdefault("interview_identity", {})
+    if not _nested_get(state, "interview_identity.one_line_summary"):
+        if ctx.artifact_exists("understanding/content_brief.json"):
+            brief = ctx.read_json("understanding/content_brief.json")
+            if isinstance(brief, dict):
+                derived = _derive_one_line_summary(brief)
+                if derived:
+                    state["interview_identity"]["one_line_summary"] = derived
+                    changed = True
+
+    if ctx.artifact_exists("understanding/content_brief.json"):
+        brief = ctx.read_json("understanding/content_brief.json")
+        if isinstance(brief, dict) and brief.get("thesis"):
+            state.setdefault("narrative", {})
+            if not _nested_get(state, "narrative.thesis"):
+                state["narrative"]["thesis"] = brief["thesis"]
+                changed = True
+
+    if changed:
+        save_analysis_state(ctx, state, stage="profile_hydrate")
+    return changed
+
+
 def update_completion_from_analysis(ctx: RunContext) -> dict[str, Any]:
     from interview_mux.artifact_completeness import artifact_status
     from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_enabled
 
+    hydrate_analysis_state_for_profile_gate(ctx)
     state = load_analysis_state(ctx)
     queue = load_queue(ctx)
     blockers: list[str] = []

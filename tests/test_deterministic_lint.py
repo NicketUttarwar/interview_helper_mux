@@ -53,6 +53,29 @@ def test_lint_narrative_arc_empty_chapter(tmp_path, monkeypatch):
     )
     assert any("segment_ids" in e for e in errors)
 
+
+def test_lint_narrative_arc_accepts_suggested_open_segment_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "lint_nap_open")
+    ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"))
+    errors = deterministic_lint(
+        "narrative_arc_plan",
+        {
+            "artifacts": {
+                "chapters": [
+                    {
+                        "chapter_id": "ch_01",
+                        "title": "Opening",
+                        "suggested_open_segment_id": "seg_001",
+                    }
+                ],
+                "ordering_constraints": [],
+            }
+        },
+        ctx,
+    )
+    assert not any("segment_ids" in e for e in errors)
+
 def test_lint_edl_audit_invalid_verdict(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "lint_edl")

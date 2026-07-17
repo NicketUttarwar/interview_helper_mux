@@ -10,6 +10,12 @@ import {
   type TranscriptDockHandle,
 } from "../workspace/TranscriptDockViewer";
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
+import {
+  markTranscriptReuseEditConsumed,
+  shouldOpenTranscriptReuseEdit,
+  syncTranscriptReuseEditConsumed,
+  transcriptReuseEditPending,
+} from "../../utils/transcriptReuseEditGate";
 
 /**
  * One-time interstitial after accepting transcript reuse.
@@ -43,21 +49,29 @@ export function TranscriptReuseEditModal() {
   );
   const [dockReady, setDockReady] = useState(false);
   const dockRef = useRef<TranscriptDockHandle>(null);
-  /** Prevents reopen after skip while dismiss request is in flight / after clear. */
-  const dismissedForRunRef = useRef<string | null>(null);
 
-  const pending = Boolean(run?.meta?.transcript_reuse_pending_edit);
+  const pending = transcriptReuseEditPending(run?.meta);
   const open = transcriptReuseEditOpen;
 
-  // Recover unfinished one-time edit after refresh — not when merely visiting STT review.
+  // One-time interstitial: open only when server pending flag is set and not yet consumed.
   useEffect(() => {
-    if (!runId || !pending) return;
-    if (dismissedForRunRef.current === runId) return;
+    if (!runId) return;
+    syncTranscriptReuseEditConsumed(runId, run?.meta);
+    if (!shouldOpenTranscriptReuseEdit(runId, run?.meta)) {
+      if (transcriptReuseEditOpen) closeTranscriptReuseEdit();
+      return;
+    }
     if (!transcriptReuseEditOpen) openTranscriptReuseEdit();
-  }, [runId, pending, transcriptReuseEditOpen, openTranscriptReuseEdit]);
+  }, [
+    runId,
+    run?.meta,
+    pending,
+    transcriptReuseEditOpen,
+    openTranscriptReuseEdit,
+    closeTranscriptReuseEdit,
+  ]);
 
   useEffect(() => {
-    dismissedForRunRef.current = null;
     setCorrectionStats(emptyCorrectionStats());
     setDockReady(false);
   }, [runId]);
@@ -99,6 +113,7 @@ export function TranscriptReuseEditModal() {
         summary ? `Reuse edit saved — ${summary}.` : "Reused transcript confirmed.",
         "success",
       );
+      if (runId) markTranscriptReuseEditConsumed(runId);
       closeTranscriptReuseEdit();
       await afterCloseContinue();
     } catch (e) {
@@ -111,7 +126,7 @@ export function TranscriptReuseEditModal() {
 
   const dismissEdit = async () => {
     if (!runId || guardBusy(jobRunning, actionBusy || busy, showToast)) return;
-    dismissedForRunRef.current = runId;
+    markTranscriptReuseEditConsumed(runId);
     setDismissing(true);
     setCheckpointBusy(true);
     try {
@@ -122,7 +137,6 @@ export function TranscriptReuseEditModal() {
       await refreshRun();
       showToast("Using copied transcript — edit in STT review if needed.", "info");
     } catch (e) {
-      dismissedForRunRef.current = null;
       showToast(e instanceof Error ? e.message : "Failed to dismiss edit", "error");
     } finally {
       setDismissing(false);

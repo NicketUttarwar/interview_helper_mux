@@ -58,6 +58,9 @@ _SOFT_PROGRESSION_DEFAULTS: dict[str, Any] = {
         "post_listen failed",
         "mmaudio_qa placeholder",
         "missing wav for asset_id",
+        "time gap",
+        "no boundaries",
+        "time gaps",
     ],
 }
 

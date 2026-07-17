@@ -424,7 +424,7 @@ def _collate_shard_outputs(
                 action_id="reanchor.deterministic_collate",
             )
     elif stage_key == "boundary_detection":
-        collate_env = _apply_deterministic_boundary_collate(collate_env, collate_shards)
+        collate_env = _apply_deterministic_boundary_collate(collate_env, collate_shards, ctx=ctx)
         routing = collate_env.get("_routing_meta") if isinstance(collate_env.get("_routing_meta"), dict) else {}
         if routing.get("deterministic_boundary_collate"):
             actions = routing.get("deterministic_boundary_collate_actions") or []
@@ -456,9 +456,12 @@ def _collate_shard_outputs(
 def _apply_deterministic_boundary_collate(
     collate_env: dict[str, Any],
     shard_outputs: list[dict[str, Any]],
+    *,
+    ctx: RunContext | None = None,
 ) -> dict[str, Any]:
     """Union shard boundary rows by timeline (deterministic fallback)."""
-    from interview_mux.boundary_collate import merge_shard_boundaries
+    from interview_mux.boundary_collate import boundary_coverage_errors, merge_shard_boundaries
+    from interview_mux.interview_duration_policy import transcript_duration_ms
     from interview_mux.segment_timeline_standard import segmentation_cfg
 
     collate_artifacts = (collate_env.get("artifacts") or {}) if isinstance(collate_env, dict) else {}
@@ -474,24 +477,55 @@ def _apply_deterministic_boundary_collate(
     if not merged_rows:
         return collate_env
 
+    duration_ms = transcript_duration_ms(ctx) if ctx is not None else 0
+    coverage_errors = boundary_coverage_errors(merged_rows, interview_duration_ms=duration_ms)
+
     merged = dict(collate_env)
     artifacts = dict(merged.get("artifacts") or {})
     artifacts["boundaries"] = merged_rows
+    warnings = list(artifacts.get("warnings") or [])
     if applied:
-        warnings = list(artifacts.get("warnings") or [])
         warnings.append(
             "Deterministic boundary collate normalized shard timelines "
             f"({len(applied)} adjustment(s))."
         )
+    for err in coverage_errors:
+        if err not in warnings:
+            warnings.append(err)
+    if warnings:
         artifacts["warnings"] = warnings
     merged["artifacts"] = artifacts
-    if merged.get("status") != "complete" and merged_rows:
-        merged["status"] = "complete"
+
     routing = dict(merged.get("_routing_meta") or {})
     routing["deterministic_boundary_collate"] = True
     if applied:
         routing["deterministic_boundary_collate_actions"] = applied
     merged["_routing_meta"] = routing
+
+    if coverage_errors:
+        merged["status"] = "blocked"
+        needs = list(merged.get("needs") or [])
+        needs.append(
+            {
+                "type": "rerun_stage",
+                "stage": "boundary_detection",
+                "reason": coverage_errors[0],
+                "blocking": True,
+            }
+        )
+        merged["needs"] = needs
+        if ctx is not None:
+            ctx.log(
+                f"Boundary collate blocked: {coverage_errors[0]}",
+                level="error",
+                stage="boundary_detection",
+                action_id="boundary.collate_coverage_blocked",
+                detail={"coverage_errors": coverage_errors[:3], "duration_ms": duration_ms},
+            )
+        return merged
+
+    if merged.get("status") != "complete" and merged_rows:
+        merged["status"] = "complete"
     return merged
 
 
@@ -558,6 +592,36 @@ def _filter_segments_by_ids(raw: Any, segment_ids: set[Any]) -> Any:
     return raw
 
 
+def _slice_pause_ladder_hints(
+    hints: dict[str, Any] | None,
+    *,
+    start_ms: int,
+    end_ms: int,
+    snap_tolerance_ms: int = 500,
+) -> dict[str, Any] | None:
+    if not isinstance(hints, dict):
+        return hints
+    window_start = int(start_ms) - snap_tolerance_ms
+    window_end = int(end_ms) + snap_tolerance_ms
+    sliced = dict(hints)
+    for key in ("candidates", "pre_thin_candidates"):
+        raw = hints.get(key)
+        if not isinstance(raw, list):
+            continue
+        new_candidates: list[dict[str, Any]] = []
+        for candidate in raw:
+            if not isinstance(candidate, dict):
+                continue
+            times = [
+                int(t)
+                for t in (candidate.get("split_times_ms") or [])
+                if window_start <= int(t) <= window_end
+            ]
+            new_candidates.append({**candidate, "split_times_ms": times, "count": len(times)})
+        sliced[key] = new_candidates
+    return sliced
+
+
 def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[str, Any]) -> dict[str, Any]:
     copied = dict(stage_input)
     segment_ids = set(shard.get("segment_ids") or [])
@@ -578,6 +642,19 @@ def _slice_stage_input(stage_key: str, stage_input: dict[str, Any], shard: dict[
         tr = copied.get("transcript")
         start_ms = int(shard.get("start_ms", 0))
         end_ms = int(shard.get("end_ms", 0))
+        copied["boundary_shard_window"] = {
+            "label": shard.get("label"),
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "absolute_timestamps_required": True,
+        }
+        hints = copied.get("pause_ladder_hints")
+        if isinstance(hints, dict):
+            copied["pause_ladder_hints"] = _slice_pause_ladder_hints(
+                hints,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
         if isinstance(tr, dict):
             sliced = dict(tr)
             if tr.get("items"):

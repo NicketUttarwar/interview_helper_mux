@@ -7,11 +7,12 @@ Canonical recovery order for every LLM gateway (`run_prompt_envelope`, `generate
 2. **Normalize** — `llm_output_normalizer.normalize_llm_response` (omit → fabricate → block per field)
 3. **Verify** — `verify_llm_response` on post-normalized payload
 4. **Volley retry** — schema errors in prompt (`llm_stage_routing`)
-5. **Fabricate batch** — mid-tier / deterministic benign defaults (`llm_fabricate`)
-6. **Block** — critical null → investigation / operator gate
-7. **Resilience** — `apply_resilience_and_persist`
-8. **Acceptance** — `stage_acceptance`, `complete_llm_stage_or_halt`
-9. **Persist** — artifact write + `mark_done` (only when artifact complete)
+5. **Fabricate batch** — mid-tier / deterministic benign defaults (`llm_fabricate`); evidentiary paths defer to **holistic fabrication** when enabled
+6. **Holistic fabrication** — context-aware repair using stage inputs + volley (`holistic_fabrication.py`) — see [holistic-fabrication.md](./holistic-fabrication.md)
+7. **Block** — critical null → investigation / operator gate
+8. **Resilience** — `apply_resilience_and_persist`
+9. **Acceptance** — `stage_acceptance`, `complete_llm_stage_or_halt`
+10. **Persist** — artifact write + `mark_done` (only when artifact complete)
 
 ## Field tiers
 

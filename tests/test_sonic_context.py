@@ -7,6 +7,7 @@ import pytest
 from interview_mux.analysis_memory import default_analysis_state
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import build_sonic_context
+from interview_mux.stages.sonic_context_stages import run_sonic_context_build
 from run_fixtures import (
     isolated_run_ctx,
     minimal_manifest_segment,
@@ -122,6 +123,23 @@ def test_build_sonic_context_trauma_adjacent_bucket(tmp_path, monkeypatch):
     doc = build_sonic_context(ctx)
     assert doc["scenario"]["atlas_bucket"] == "trauma_adjacent"
     assert "no playful/comedic motifs" in doc["avoid_hard"]
+
+
+def test_sonic_context_build_omits_segment_id_when_unanchored(tmp_path, monkeypatch):
+    """emotional_beats without segment_ids must not write null segment_id."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "sonic_unanchored_cues")
+    _seed_base(ctx)
+    brief = ctx.read_json("understanding/content_brief.json")
+    brief["emotional_beats"] = [{"label": "measured confidence"}]
+    ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+
+    run_sonic_context_build(ctx)
+
+    doc = ctx.read_json("understanding/sonic_context.json")
+    assert doc["cue_opportunities"]
+    first = doc["cue_opportunities"][0]
+    assert "segment_id" not in first or first["segment_id"]
 
 
 def test_build_sonic_context_dense_jargon_bucket(tmp_path, monkeypatch):

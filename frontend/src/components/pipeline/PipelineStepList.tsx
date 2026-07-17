@@ -8,6 +8,7 @@ import {
 } from "../../utils/pipelineNavigation";
 import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stageSubsteps";
 import { stageHasTodoActions } from "../../utils/stageGuidance";
+import { isOptionalStageSkipped } from "../../utils/preclean";
 import { stageNeedsAttention } from "../../utils/attentionQueue";
 import { firstUpstreamBlocker } from "../../utils/stageOutputs";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
@@ -149,7 +150,7 @@ export function PipelineStepList() {
           const isSelected = entry.stage.id === selectedStageId;
           const isFocus =
             entry.stage.id === focusStageId && operatorAction.mode === "needs_you";
-          const hasAction = stageHasTodoActions(entry.stage);
+          const hasAction = stageHasTodoActions(entry.stage, run.meta);
           const isRunning =
             (jobRunning || isJobActivelyRunning(run.job)) &&
             (run.job?.current_stage === entry.stage.id ||
@@ -176,7 +177,8 @@ export function PipelineStepList() {
               actionBusy,
             );
 
-          const skipped = status === "skipped";
+          const skippedOptional = isOptionalStageSkipped(entry.stage, run.meta);
+          const skipped = skippedOptional;
           const upstreamBlocker = firstUpstreamBlocker(run.stages, entry.stage.id, run.meta);
           const metaSuffix = skipped
             ? " · skipped"

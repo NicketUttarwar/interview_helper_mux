@@ -26,3 +26,63 @@ def test_flow1_readiness_includes_layer_on_blockers(tmp_path):
     for b in report.get("blockers") or []:
         assert "layer" in b
         assert "message" in b
+
+
+def test_no_g1_blocker_when_gap_fill_skipped(tmp_path):
+    from interview_mux.stages.gaps import ensure_gap_fill_skipped
+
+    ctx = isolated_run_ctx(tmp_path, "readiness_gap_skip")
+    ensure_gap_fill_skipped(ctx, reason="test", signals={})
+    report = build_delivery_readiness_report(ctx)
+    gate_ids = [b.get("id") for b in report.get("blockers") or [] if b.get("layer") == "gate"]
+    assert "g1_vo_pickup" not in gate_ids
+
+
+def test_invisible_staging_does_not_block_delivery_readiness(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "readiness_invisible_staging")
+    staging = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "topic_coverage_audit"
+        / "understanding"
+    )
+    staging.mkdir(parents=True)
+    (staging / "context_index.json").write_text('{"volley_entries": [], "meta": {}}', encoding="utf-8")
+
+    report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
+    blocker_ids = [b.get("id") for b in report.get("blockers") or []]
+    assert "pending_write_approval" not in blocker_ids
+
+
+def test_operator_visible_staging_blocks_delivery_readiness(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "readiness_visible_staging")
+    staging = ctx.run_dir / ".pending_writes" / "topic_coverage_audit" / "master"
+    staging.mkdir(parents=True)
+    (staging / "coverage_audit.json").write_text('{"coverage_score": 0.9}', encoding="utf-8")
+
+    report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
+    assert any(b.get("id") == "pending_write_approval" for b in report.get("blockers") or [])
+
+
+def test_context_index_sync_under_staging_does_not_block_delivery(tmp_path):
+    from interview_mux.analysis_memory import ensure_analysis_workspace
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = isolated_run_ctx(tmp_path, "readiness_context_index_staging")
+    committed = ctx.run_dir / "understanding" / "context_index.json"
+    committed.parent.mkdir(parents=True, exist_ok=True)
+    committed.write_text(
+        '{"schema_version":2,"run_id":"readiness_context_index_staging","volley_entries":[],"stage_plans":{},"padding_rules":{},"meta":{}}',
+        encoding="utf-8",
+    )
+    enter_stage_staging("topic_coverage_audit")
+    try:
+        ensure_analysis_workspace(ctx)
+        report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
+        assert not any(
+            b.get("id") == "pending_write_approval" for b in report.get("blockers") or []
+        )
+        pending = ctx.run_dir / ".pending_writes" / "topic_coverage_audit"
+        assert not (pending / "understanding" / "context_index.json").is_file()
+    finally:
+        exit_stage_staging()

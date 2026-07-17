@@ -515,9 +515,9 @@
       "short_max_ms": 900000,
       "medium_max_ms": 3600000,
       "very_long_min_ms": 7200000,
-      "primary_attempts_base": 6,
+      "primary_attempts_base": 12,
       "primary_attempts_per_30min_above_short": 1,
-      "primary_attempts_cap": 16,
+      "primary_attempts_cap": 24,
       "shard_calls_base": 24,
       "shard_calls_very_long": 48,
       "boundary_micro_segment_min_ms": 900000
@@ -591,6 +591,12 @@
       "shadow_log": true,
       "min_catalog_items": 4
     },
+    "gap_fill": {
+      "enabled": true,
+      "auto_skip_when_ineligible": true,
+      "frame_confidence_min": 0.65,
+      "hide_gui_stages_when_skipped": true
+    },
     "g1": {
       "blocking_severities": [
         "high",
@@ -614,7 +620,7 @@
       "investigation_dedupe": true,
       "shard_min_success_ratio": 0.5,
       "inner_retry_require_delta": true,
-      "max_primary_attempts_per_stage": 12,
+      "max_primary_attempts_per_stage": 24,
       "max_arbiter_rejects_per_stage": 4,
       "max_investigation_reruns_per_kind": 3,
       "stuck_signature_threshold": 4,
@@ -657,6 +663,17 @@
       "permissive_mode": true,
       "auto_fabricate_unknown_optional": true,
       "block_only_evidentiary_critical": true
+    },
+    "holistic_fabrication": {
+      "enabled": true,
+      "llm_enabled": true,
+      "deterministic_first": true,
+      "model_tier": "economy",
+      "max_calls_per_stage_attempt": 2,
+      "max_calls_per_run": 24,
+      "override_arbiter_on_clear": true,
+      "allow_upstream_patches": true,
+      "stages": "*"
     },
     "artifact_issue_triage": {
       "enabled": true,

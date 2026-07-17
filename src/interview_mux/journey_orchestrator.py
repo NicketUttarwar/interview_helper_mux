@@ -178,10 +178,13 @@ def _recommended_preclean(ctx: RunContext, phase: str, milestones: dict[str, boo
 
 
 def _next_pending_stage_ids(ctx: RunContext) -> list[str]:
-    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, shared_analysis_chain_complete
 
     order: list[str] = list(ANALYSIS_ORDER)
-    if ctx.artifact_exists("analysis_complete.json"):
+    if ctx.artifact_exists("analysis_complete.json") or (
+        gap_fill_was_skipped(ctx) and shared_analysis_chain_complete(ctx)
+    ):
         order.extend(DELIVERY_ORDER)
     return [sid for sid in order if not ctx.is_done(sid)]
 
@@ -258,7 +261,13 @@ def _blocking(
         message = f"Review {pending} filler event(s)" if pending else "Complete disfluency review"
 
     g1_missing = check_g1_vo(ctx)
-    if g1_missing and ctx.artifact_exists("understanding/gap_report.json"):
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if (
+        g1_missing
+        and ctx.artifact_exists("understanding/gap_report.json")
+        and not gap_fill_was_skipped(ctx)
+    ):
         blocked = True
         reason = "g1_vo_pickup"
         stage_id = "g1_vo_pickup"
@@ -274,7 +283,7 @@ def _blocking(
             stage_id = "g1_5_preview_pickup"
             message = f"Re-record {len(g1_5_pending)} post-preview pickup line(s)"
 
-    if not blocked:
+    if not blocked and not gap_fill_was_skipped(ctx):
         from interview_mux.source_topology import check_pickup_speaker_pending
 
         if check_pickup_speaker_pending(ctx):

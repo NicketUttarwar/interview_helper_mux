@@ -91,6 +91,12 @@ export function StageDecisionWizard({ stage }: Props) {
       ) : null}
       <h3 className="stage-decision-headline">{current.headline}</h3>
       <p className="hint sm stage-decision-detail">{current.detail}</p>
+      {current.kind === "acknowledge_warning" ? (
+        <p className="hint sm">
+          Autopilot repaired what it could automatically. Confirm you have reviewed the note above,
+          then continue to staged outputs.
+        </p>
+      ) : null}
 
       {isIssueChoice && options.length > 1 ? (
         <label className="stage-decision-select-wrap">

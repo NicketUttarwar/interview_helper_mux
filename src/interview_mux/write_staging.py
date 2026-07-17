@@ -73,6 +73,33 @@ def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     return staged_path(ctx, rel, stage_id=sid)
 
 
+def write_committed_json(
+    ctx: RunContext,
+    rel: str,
+    data: Any,
+    *,
+    stage_key: str | None = None,
+) -> Path:
+    """Persist to the committed run tree without opening a new staging root.
+
+    Use for cross-cutting memory (for example ``understanding/context_index.json``)
+    that must not create invisible ``.pending_writes/<stage>/`` entries while another
+    stage is in flight.
+    """
+    if isinstance(data, dict):
+        from interview_mux.artifact_writes import _prepare_for_disk_validation
+        from interview_mux.prompt_validation import validate_artifact_write
+
+        payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
+        errors = validate_artifact_write(rel, payload)
+        if errors:
+            raise ValueError(
+                f"{rel}: schema validation failed — " + "; ".join(errors[:6])
+            )
+        data = payload
+    return write_mirrored_json(ctx, rel, data)
+
+
 def write_mirrored_json(ctx: RunContext, rel: str, data: Any) -> Path:
     """Write JSON to the committed final path and update every pending staging copy.
 
@@ -464,18 +491,29 @@ def write_pending_content(
     return p
 
 
-def all_pending_stages(ctx: RunContext) -> list[str]:
-    meta_path = ctx.run_dir / "run_meta.json"
-    if not meta_path.is_file():
-        return []
-    meta = ctx.read_json("run_meta.json")
-    pending = meta.get("pending_write_approval") if isinstance(meta, dict) else {}
-    if isinstance(pending, dict) and pending:
-        return list(pending.keys())
+def all_pending_stages(ctx: RunContext, *, savable_only: bool = True) -> list[str]:
+    stages: list[str] = []
     root = ctx.run_dir / ".pending_writes"
-    if not root.is_dir():
-        return []
-    return [p.name for p in sorted(root.iterdir()) if p.is_dir() and list_pending_paths(ctx, p.name)]
+    if root.is_dir():
+        stages.extend(
+            p.name
+            for p in sorted(root.iterdir())
+            if p.is_dir() and list_pending_paths(ctx, p.name)
+        )
+    meta_path = ctx.run_dir / "run_meta.json"
+    if meta_path.is_file():
+        meta = ctx.read_json("run_meta.json")
+        pending = meta.get("pending_write_approval") if isinstance(meta, dict) else {}
+        if isinstance(pending, dict):
+            for sid, info in pending.items():
+                if sid in stages:
+                    continue
+                paths = info.get("paths") if isinstance(info, dict) else None
+                if isinstance(paths, list) and paths:
+                    stages.append(str(sid))
+    if not savable_only:
+        return stages
+    return [sid for sid in stages if not write_approval_save_blocked_reason(ctx, sid)]
 
 
 def read_pending_json(ctx: RunContext, stage_id: str, rel: str) -> Any:
@@ -558,9 +596,37 @@ def is_stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
     return is_llm_gate_blocked(ctx, stage_id) or is_itr_clarification_blocked(ctx, stage_id)
 
 
+def write_approval_save_blocked_reason(ctx: RunContext, stage_id: str) -> str | None:
+    """Human-readable reason when pending writes must not be saved, else None."""
+    if not has_pending_writes(ctx, stage_id):
+        return None
+    if is_stage_gate_blocked(ctx, stage_id):
+        job = read_gui_job(ctx) or {}
+        return str(
+            job.get("message")
+            or (
+                f"Stage {stage_id} failed the LLM quality gate — "
+                "re-run or discard staged outputs instead of saving."
+            )
+        )
+    from interview_mux.stage_completion import staged_artifacts_acceptable
+
+    ok, reason = staged_artifacts_acceptable(ctx, stage_id)
+    if not ok:
+        return reason
+    from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+
+    if triage_enabled() and blocking_issues_remaining(ctx, stage_id) > 0:
+        return "Resolve artifact clarification issues before saving."
+    ready, reason = _staged_critical_llm_ready_for_save(ctx, stage_id)
+    if not ready:
+        return reason
+    return None
+
+
 def write_approval_allowed(ctx: RunContext, stage_id: str) -> bool:
     """True when staged outputs may be saved for this stage."""
-    if is_stage_gate_blocked(ctx, stage_id):
+    if write_approval_save_blocked_reason(ctx, stage_id):
         return False
     if not write_approval_enabled():
         return True
@@ -644,6 +710,9 @@ def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
             if stage_id in ALL_CRITICAL_LLM_STAGES:
                 ready, reason = _staged_critical_llm_ready_for_save(ctx, stage_id)
                 if not ready:
+                    gate_msg = (
+                        f"{reason} Discard staged outputs and re-run this stage."
+                    )
                     ctx.log(
                         f"Write approval skipped for {stage_id}: {reason} — "
                         "discard pending and re-run; Save is not offered after quality failure.",
@@ -654,6 +723,7 @@ def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
                             "reason": reason,
                         },
                     )
+                    set_llm_gate(ctx, stage_id, message=gate_msg)
                     return
         if stage_id == "boundary_detection" and segmentation_unified_review_enabled():
             record_pending_approval(ctx, stage_id)
@@ -815,6 +885,7 @@ def approve_batch_stage_writes(ctx: RunContext, stages: list[str] | None = None)
     results: dict[str, Any] = {"approved": {}, "errors": {}, "phases": {}}
     for sid in ordered:
         try:
+            assert_write_approval_allowed(ctx, sid)
             flushed = approve_stage_writes(ctx, sid)
             results["approved"][sid] = flushed
             phase = stage_phase(sid) or "other"

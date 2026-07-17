@@ -287,6 +287,17 @@ def complete_llm_stage_or_halt(
         ctx.mark_done(stage_key)
         return True
 
+    if stage_key == "segment_classification":
+        from interview_mux.segment_good_enough import try_good_enough_advance
+
+        ge = try_good_enough_advance(ctx, stage_key, None)
+        if ge.cleared:
+            ctx.mark_done(stage_key)
+            from interview_mux.gui_job_reconcile import reconcile_llm_gate_if_cleared
+
+            reconcile_llm_gate_if_cleared(ctx, stage_key)
+            return True
+
     if not flow_hardening_enabled(cfg):
         ctx.mark_done(stage_key)
         return True

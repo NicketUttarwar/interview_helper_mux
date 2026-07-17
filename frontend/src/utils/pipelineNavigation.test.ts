@@ -19,9 +19,26 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
   };
 }
 
+describe("buildNumberedStages", () => {
+  it("hidden gap-fill stages excluded from numbering", () => {
+    const visible = stage({ id: "ingest", title: "Ingest", status: "done" });
+    const hidden = stage({
+      id: "missing_framing",
+      title: "Missing framing",
+      status: "done",
+      stage_visibility: "hidden",
+    });
+    const run = minimalRun({ stages: [visible, hidden] });
+    const numbered = buildNumberedStages(run.stages);
+    expect(numbered).toHaveLength(1);
+    expect(numbered[0].stage.id).toBe("ingest");
+    expect(numbered[0].number).toBe(1);
+  });
+});
+
 describe("stageNavStatus", () => {
-  it("marks dismissed audio_preclean as skipped", () => {
-    const preclean = stage({ id: "audio_preclean", title: "Audio pre-clean", status: "pending" });
+  it("marks dismissed audio_preclean as done (collapsed complete section)", () => {
+    const preclean = stage({ id: "audio_preclean", title: "Audio pre-clean", status: "done" });
     const run = minimalRun({
       stages: [preclean],
       meta: {
@@ -31,10 +48,10 @@ describe("stageNavStatus", () => {
       },
     });
     const numbered = buildNumberedStages(run.stages);
-    expect(stageNavStatus(numbered[0], run, null, null)).toBe("skipped");
+    expect(stageNavStatus(numbered[0], run, null, null)).toBe("done");
   });
 
-  it("skipped optional audio_preclean shows skipped nav status", () => {
+  it("optional_skipped audio_preclean shows done nav status", () => {
     const preclean = stage({
       id: "audio_preclean",
       title: "Audio pre-clean",
@@ -47,7 +64,7 @@ describe("stageNavStatus", () => {
     });
     const run = minimalRun({ stages: [preclean] });
     const numbered = buildNumberedStages(run.stages);
-    expect(stageNavStatus(numbered[0], run, null, null)).toBe("skipped");
+    expect(stageNavStatus(numbered[0], run, null, null)).toBe("done");
   });
 
   it("focusStageId matches resolver stageId for write approval", () => {

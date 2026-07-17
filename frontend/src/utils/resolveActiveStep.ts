@@ -3,6 +3,7 @@ import { handoffBetweenStagesEnabled } from "./checkpoint";
 import { isJobActivelyRunning } from "./jobStatus";
 import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { isAutoNavConsumed, markAutoNavConsumed } from "./autoNavigationLedger";
+import { isStageHidden } from "./stageVisibility";
 
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
@@ -71,8 +72,9 @@ export function resolveFocusStepId(
   opts: FocusStepOpts = {},
 ): string | null {
   if (!stageId) return null;
-  const steps = stageSteps(run, stageId);
   const stage = run?.stages.find((s) => s.id === stageId);
+  if (stage && isStageHidden(stage)) return null;
+  const steps = stageSteps(run, stageId);
   const job = run?.job;
   const blocking = run?.journey?.blocking ?? run?.blocking;
   const blockingReason =

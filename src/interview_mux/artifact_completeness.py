@@ -255,6 +255,35 @@ def _status_stage_key(rel_path: str, ctx: RunContext) -> str | None:
         return "content_brief_reanchor"
     return None
 
+
+def artifact_status_for_stage(
+    rel_path: str,
+    ctx: RunContext,
+    consumer_stage_id: str,
+) -> str:
+    """pending | partial | complete — semantic gaps scoped to the consuming stage."""
+    if not ctx.artifact_exists(rel_path):
+        return "pending"
+    if rel_path.endswith(".txt"):
+        from interview_mux.write_staging import resolve_read_path
+
+        p = resolve_read_path(ctx, rel_path)
+        return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+    raw = ctx.read_json(rel_path)
+    data = raw if isinstance(raw, dict) else None
+    from interview_mux.llm_output_resilience import artifact_resilience_partial
+
+    if artifact_resilience_partial(data):
+        return "partial"
+    schema_errors = validate_artifact_write(rel_path, data) if data else ["missing"]
+    semantic = compute_gaps(rel_path, data, stage_key=consumer_stage_id, ctx=ctx)
+    if rel_path == "sound_design/mmaudio_qa.json" and data:
+        semantic.extend([Gap(path=p, reason="incomplete") for p in _mmaudio_qa_wav_parity_gaps(ctx, data)])
+    if schema_errors or semantic:
+        return "partial"
+    return "complete"
+
+
 def artifact_status(rel_path: str, ctx: RunContext) -> str:
     """pending | partial | complete"""
     if not ctx.artifact_exists(rel_path):
@@ -494,6 +523,82 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
         hydrated = [row for row in hydrated if str(row.get("segment_id")) in allowed]
 
     return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}
+
+
+def complete_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Fill missing manifest segment rows from boundary contract (deterministic fallback)."""
+    from interview_mux.conversation_context import role_is_content, role_is_frame
+    from interview_mux.segment_timeline_standard import contract_ordered_segment_ids
+
+    hydrated = hydrate_manifest_from_boundaries(ctx, manifest)
+    if not isinstance(hydrated, dict):
+        return manifest
+
+    boundary_doc: dict[str, Any] | None = None
+    if ctx.artifact_exists("segments/boundaries.json"):
+        raw = ctx.read_json("segments/boundaries.json")
+        if isinstance(raw, dict):
+            boundary_doc = raw
+
+    contract_ids = contract_ordered_segment_ids(boundary_doc)
+    if not contract_ids:
+        return hydrated
+
+    segs = hydrated.get("segments") or []
+    by_id = {
+        str(s.get("segment_id")): dict(s)
+        for s in segs
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+
+    speakers_by_id: dict[str, str] = {}
+    if ctx.artifact_exists("understanding/speakers.json"):
+        sp_doc = ctx.read_json("understanding/speakers.json")
+        if isinstance(sp_doc, dict):
+            for sp in sp_doc.get("speakers") or []:
+                if isinstance(sp, dict) and sp.get("speaker_id"):
+                    speakers_by_id[str(sp["speaker_id"])] = str(sp.get("role") or "unknown")
+
+    boundary_by_id: dict[str, dict[str, Any]] = {}
+    if boundary_doc:
+        for row in boundary_doc.get("boundaries") or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                boundary_by_id[str(row["segment_id"])] = row
+
+    completed: list[dict[str, Any]] = []
+    added = 0
+    for sid in contract_ids:
+        row = dict(by_id.get(sid) or {"segment_id": sid})
+        row["segment_id"] = sid
+        boundary = boundary_by_id.get(sid)
+        if boundary:
+            if boundary.get("speaker_id") and not row.get("speaker_id"):
+                row["speaker_id"] = str(boundary["speaker_id"])
+        speaker_id = str(row.get("speaker_id") or boundary.get("speaker_id") if boundary else "")
+        role = speakers_by_id.get(speaker_id, row.get("speaker_role") or "unknown")
+        if not row.get("type"):
+            if role_is_frame(role):
+                row["type"] = "interviewer_question"
+            elif role_is_content(role):
+                row["type"] = "interviewee_answer"
+            else:
+                row["type"] = "general_turn"
+        if sid not in by_id:
+            added += 1
+            meta = dict(row.get("_meta") or {})
+            meta["resilience"] = {"fallback": "boundary_complete"}
+            row["_meta"] = meta
+        completed.append(row)
+
+    out = {**hydrated, "segments": completed}
+    if added:
+        meta = dict(out.get("_meta") or {})
+        res = dict(meta.get("resilience") or {})
+        res["boundary_complete_added"] = added
+        meta["resilience"] = res
+        out["_meta"] = meta
+    return out
+
 
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
     from interview_mux.null_field_policy import null_acknowledged_paths

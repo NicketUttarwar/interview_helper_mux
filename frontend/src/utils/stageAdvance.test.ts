@@ -68,12 +68,48 @@ describe("applyReuseResultAndFocus", () => {
     );
   });
 
-  it("opens transcript edit interstitial and does not auto-continue", async () => {
+  it("shows transcript reuse toast only when server pending flag is set", async () => {
     const autoContinuePipeline = vi.fn().mockResolvedValue(true);
-    const openTranscriptReuseEdit = vi.fn();
     const showToast = vi.fn();
     const run: RunData = {
       run_id: "exec_test",
+      meta: { transcript_reuse_pending_edit: true },
+      stages: [
+        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
+        { id: "transcript_review_build", title: "G0 build", status: "pending", phase: "prepare" },
+      ],
+    };
+    await applyReuseResultAndFocus({
+      run,
+      stageId: "transcribe",
+      stageTitle: "Transcribe",
+      reuse: { status: "reused", copied: ["transcript/full.json"], hasStagedWrites: false },
+      refreshRun: vi.fn().mockResolvedValue(run),
+      showToast,
+      autoContinuePipeline,
+      ...workbench,
+    });
+    expect(showToast).toHaveBeenCalledWith(
+      "Reused prior Transcribe — review and edit the full transcript before continuing.",
+      "success",
+    );
+    expect(autoContinuePipeline).not.toHaveBeenCalled();
+    expect(workbench.selectStage).toHaveBeenCalled();
+  });
+
+  it("does not show transcript reuse toast when reuse was already applied", async () => {
+    const autoContinuePipeline = vi.fn().mockResolvedValue(false);
+    const showToast = vi.fn();
+    const run: RunData = {
+      run_id: "exec_test",
+      meta: {
+        stage_reuse: {
+          transcribe: {
+            action: "accept",
+            applied_at: "2026-01-01T00:00:00Z",
+          },
+        },
+      },
       stages: [
         { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
         { id: "transcript_review_build", title: "G0 build", status: "pending", phase: "prepare" },
@@ -87,16 +123,19 @@ describe("applyReuseResultAndFocus", () => {
       refreshRun: vi.fn().mockResolvedValue(run),
       showToast,
       autoContinuePipeline,
-      openTranscriptReuseEdit,
       ...workbench,
     });
-    expect(openTranscriptReuseEdit).toHaveBeenCalled();
-    expect(autoContinuePipeline).not.toHaveBeenCalled();
-    expect(workbench.selectStage).toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalledWith(
+      "Reused prior Transcribe — review and edit the full transcript before continuing.",
+      "success",
+    );
+    expect(showToast).toHaveBeenCalledWith(
+      "Reused prior Transcribe outputs from ASSETS.",
+      "success",
+    );
   });
 
   it("does not open transcript edit interstitial for later transcript stages", async () => {
-    const openTranscriptReuseEdit = vi.fn();
     const autoContinuePipeline = vi.fn().mockResolvedValue(false);
     const showToast = vi.fn();
     const run: RunData = {
@@ -120,10 +159,12 @@ describe("applyReuseResultAndFocus", () => {
       refreshRun: vi.fn().mockResolvedValue(run),
       showToast,
       autoContinuePipeline,
-      openTranscriptReuseEdit,
       ...workbench,
     });
-    expect(openTranscriptReuseEdit).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalledWith(
+      "Reused prior G0 build — review and edit the full transcript before continuing.",
+      "success",
+    );
   });
 });
 

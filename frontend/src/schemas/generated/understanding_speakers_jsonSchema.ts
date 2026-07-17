@@ -6,16 +6,16 @@ export const understanding_speakers_jsonSchema = z.object({
   "speaker_id": z.string(),
   "role": z.enum(["interviewer", "interviewee", "moderator", "panelist", "co_host", "off_mic", "unknown"]),
   "narrative_function": z.enum(["storyteller", "frame", "reactor", "analytical_lens", "unknown"]).optional(),
-  "confidence": z.number(),
+  "confidence": z.number().nullable(),
   "label": z.string().nullable().optional(),
   "evidence": z.array(z.string()).optional(),
   "evidence_windows": z.array(z.object({
   "start_ms": z.number(),
   "end_ms": z.number(),
   "quote": z.string(),
-})).optional(),
+})).nullable().optional(),
   "question_density": z.enum(["low", "medium", "high"]).optional(),
-  "avg_turn_length_ms": z.number().optional(),
+  "avg_turn_length_ms": z.number().nullable().optional(),
 })).min(1),
   "notes": z.string().nullable().optional(),
   "conversation_profile": z.object({
@@ -27,7 +27,7 @@ export const understanding_speakers_jsonSchema = z.object({
   "turn_asymmetry": z.enum(["low", "medium", "high"]).optional(),
   "overlap_risk": z.enum(["low", "medium", "high"]).optional(),
 }).optional(),
-}).optional(),
+}).nullable().optional(),
   "conversation_hypotheses": z.array(z.object({
   "id": z.string(),
   "format_class": z.enum(["one_on_one", "panel", "fireside", "technical_deep_dive", "media_profile", "debate"]),
@@ -35,7 +35,7 @@ export const understanding_speakers_jsonSchema = z.object({
   "reason": z.string().optional(),
   "speaker_role_map": z.record(z.string(), z.unknown()).optional(),
   "blocking": z.boolean().optional(),
-})).optional(),
+})).nullable().optional(),
   "confirmed_conversation_hypothesis_id": z.string().nullable().optional(),
   "gap_sensitivity": z.object({
   "format_class": z.string().optional(),
@@ -57,5 +57,5 @@ export const understanding_speakers_jsonSchema = z.object({
   "segment_focus": z.string().optional(),
   "flow_hints": z.string().optional(),
   "notes": z.string().optional(),
-}).optional(),
+}).nullable().optional(),
 });

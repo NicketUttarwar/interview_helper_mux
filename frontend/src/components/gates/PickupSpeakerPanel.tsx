@@ -20,6 +20,7 @@ interface PickupSpeakerPayload {
   least_spoken_speaker_id?: string;
   pickup_eligible_speaker_id?: string;
   pickup_speaker_confirmed?: boolean;
+  gap_fill_skipped?: boolean;
   pending?: boolean;
 }
 
@@ -97,11 +98,48 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
     }
   };
 
+  const skipGapFill = async () => {
+    if (!runId || busy) return;
+    setBusy(true);
+    traceAction("gui.gap_fill.skip", "Skipping gap speaker sections", { stage: stage.id });
+    try {
+      await api(`/api/runs/${runId}/gap-fill/skip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      showToast(
+        "Gap speaker sections skipped — continuing with source audio only (no new VO).",
+        "success",
+      );
+      await load();
+      await refreshRun();
+      closeActionModal();
+      await advanceFromCheckpoint();
+    } catch (e) {
+      showToast(formatApiError(e, "Skip gap speaker sections"), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading && !data) {
     return (
       <p className="hint gate-loading">
         <span className="spinner-inline" aria-hidden /> Loading speakers…
       </p>
+    );
+  }
+
+  if (data?.gap_fill_skipped || run?.gap_fill_mode === "skipped") {
+    return (
+      <section className="pickup-speaker-panel panel-inset" data-testid="pickup-speaker-panel">
+        <h4>Gap speaker sections skipped</h4>
+        <p className="hint sm">
+          This run will not add gap-fill VO or new interviewer lines. The pipeline will reposition
+          and polish existing source segments only.
+        </p>
+      </section>
     );
   }
 
@@ -120,16 +158,21 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
     <section className="pickup-speaker-panel panel-inset" data-testid="pickup-speaker-panel">
       <h4>Gap pickup speaker</h4>
       <p className="hint sm">
-        Choose who will record new gap-fill lines during realtime pickup. By default this is
-        the speaker with the least talk time in the source audio
+        Choose who will record new gap-fill lines during realtime pickup. By default this is the
+        speaker with the least talk time in the source audio
         {defaultId ? (
           <>
             {" "}
             (<strong>{defaultId}</strong>)
           </>
         ) : null}
-        . Listen to a sample from each speaker, then confirm your choice before gap questions
-        are generated.
+        . Listen to a sample from each speaker, then confirm your choice before gap questions are
+        generated.
+      </p>
+      <p className="hint sm">
+        <strong>No new VO needed?</strong> Skip gap speaker sections to use the source as-is — no
+        gap analysis, no pickup recordings, no new speech. The edit will reposition segments and
+        add SFX/polish only.
       </p>
 
       <ul className="pickup-speaker-list">
@@ -181,22 +224,34 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
       {confirmed ? (
         <p className="hint sm">✓ Gap pickup speaker confirmed ({data.pickup_eligible_speaker_id})</p>
       ) : (
-        <button
-          type="button"
-          className="btn primary sm"
-          data-testid="confirm-pickup-speaker"
-          data-action-id="gui.adaptation.pickup_speaker"
-          disabled={busy || !selected}
-          onClick={() => void confirm()}
-        >
-          {busy ? (
-            <>
-              <span className="spinner-inline" aria-hidden /> Confirming…
-            </>
-          ) : (
-            "Confirm gap pickup speaker"
-          )}
-        </button>
+        <div className="pickup-speaker-actions">
+          <button
+            type="button"
+            className="btn primary sm"
+            data-testid="confirm-pickup-speaker"
+            data-action-id="gui.adaptation.pickup_speaker"
+            disabled={busy || !selected}
+            onClick={() => void confirm()}
+          >
+            {busy ? (
+              <>
+                <span className="spinner-inline" aria-hidden /> Confirming…
+              </>
+            ) : (
+              "Confirm gap pickup speaker"
+            )}
+          </button>
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-testid="skip-gap-fill"
+            data-action-id="gui.gap_fill.skip"
+            disabled={busy}
+            onClick={() => void skipGapFill()}
+          >
+            Skip gap speaker sections
+          </button>
+        </div>
       )}
     </section>
   );

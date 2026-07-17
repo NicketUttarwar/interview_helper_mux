@@ -28,6 +28,7 @@ import {
   stageHadAutoNavigation,
   type AutoNavTarget,
 } from "./autoNavigationLedger";
+import { resolveVirtualPipelineFocus } from "./virtualPipelineFocus";
 
 /** Who triggered navigation — auto_surface is once per source stage per run.sh session. */
 export type NavigationIntent = "auto_surface" | "user_continue";
@@ -224,6 +225,15 @@ function shouldSkipAutoSurfaceNavigation(
 /** Select a stage and land on the correct numbered workbench step. */
 export async function focusStageWorkbench(opts: FocusStageWorkbenchOpts): Promise<string | null> {
   const intent = opts.navigationIntent ?? "user_continue";
+  const virtual = resolveVirtualPipelineFocus(opts.stageId);
+  if (virtual) {
+    opts.setPipelineSubTab(opts.subTab ?? virtual.subTab);
+    if (intent === "auto_surface") {
+      markAutoNavConsumed({ stageId: opts.stageId, stepId: null });
+    }
+    return null;
+  }
+
   const target = resolveFocusTarget(opts.run, opts.stageId, opts);
   if (shouldSkipAutoSurfaceNavigation(intent, target)) {
     return null;

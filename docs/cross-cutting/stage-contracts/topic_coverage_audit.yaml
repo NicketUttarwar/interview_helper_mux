@@ -16,7 +16,7 @@ inputs:
   hard: []
   soft: []
 sufficiency:
-- path: topics
+- path: topic_mappings
   rule: min_rows
   min_count: 1
 propagation:

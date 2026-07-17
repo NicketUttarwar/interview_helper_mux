@@ -31,7 +31,6 @@ export function StageReuseOfferCard({
     setActiveStepId,
     setPipelineSubTab,
     autoContinuePipeline,
-    openTranscriptReuseEdit,
   } = useApp();
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -104,7 +103,6 @@ export function StageReuseOfferCard({
         setActiveStepId,
         setPipelineSubTab,
         autoContinuePipeline,
-        openTranscriptReuseEdit,
       });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Reuse action failed", "error");

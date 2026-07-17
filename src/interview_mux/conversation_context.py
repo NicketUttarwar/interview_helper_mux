@@ -586,6 +586,8 @@ def sync_conversation_to_analysis_state(ctx: RunContext, speakers_doc: dict[str,
         tc = profile.get("tone_class_candidate")
         if validate_tone_class(tc) and not state["style"].get("tone_class"):
             state["style"]["tone_class"] = tc
+        if not str(state["style"].get("tone") or "").strip() and validate_tone_class(tc):
+            state["style"]["tone"] = str(tc).replace("_", " ")
     gs = speakers_doc.get("gap_sensitivity")
     if isinstance(gs, dict) and gs.get("severity_hints"):
         state["gap_sensitivity"] = gs

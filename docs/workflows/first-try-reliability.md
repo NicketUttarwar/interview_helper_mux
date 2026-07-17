@@ -18,6 +18,8 @@ Helper: `interview_mux.first_try`.
 | G0 | Auto-complete when review queue has zero `needs_review` chunks |
 | G0.5 | Auto-complete when empty |
 | G1 | Only `severity` in `high`/`critical` (or `blocking: true`) require VO WAV |
+| Gap-fill | Auto-skip `missing_framing` / `optimal_questions` / G1 when eligibility signals say no clear interviewer frame (`analysis.gap_fill`) |
+| Segment classification | Good-enough advance accepts boundary-complete manifest before hard LLM gate (`segment_classification.good_enough_advance`) |
 | Profile | Auto-verify when ready and no critical investigations |
 | Pickup speaker | Auto-confirm when one eligible speaker |
 | G1.5 prompts | Auto-approve when prompt completeness QA is green |

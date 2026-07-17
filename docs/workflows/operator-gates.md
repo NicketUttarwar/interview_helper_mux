@@ -142,6 +142,10 @@ See [analysis-memory.md](../cross-cutting/analysis-memory.md), [podcast-quality-
 
 **Skip when:** No `delivery: record` lines, or all pickup files present.
 
+**Auto-skip (gap-fill ineligible):** When `analysis.gap_fill.auto_skip_when_ineligible` is true and eligibility signals indicate no clear interviewer frame (peer topology, ambiguous roles, etc.), the pipeline writes empty gap artifacts via `ensure_gap_fill_skipped`, marks `missing_framing` / `optimal_questions` done, and **hides** `missing_framing`, `optimal_questions`, and `g1_vo_pickup` from the GUI step list (`stage_visibility: hidden`). G1 does not block delivery. Skip reason is logged (`gap_fill.skip`) and exposed on `GET /api/runs/{id}` as `gap_fill_mode` / `gap_fill_skip_reason`.
+
+**Operator skip (gap pickup speaker step):** On **Missing framing** before gap evaluation, use **Skip gap speaker sections** (`gui.gap_fill.skip` / `POST …/gap-fill/skip`) when you do not want new interviewer VO, gap analysis, or G1 pickup recordings. The pipeline commits empty gap artifacts, marks gap stages done, and continues with source-only repositioning + SFX polish. Cleared when redoing from `speaker_roles` or `source_topology_build`.
+
 ### Quality offer at G1 (required product behavior)
 
 After pickup recordings are saved, **offer background noise removal on the new VO files only**:

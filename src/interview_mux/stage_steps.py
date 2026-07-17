@@ -158,7 +158,21 @@ def _next_stage_title(stage_id: str) -> str:
 
 def _prereqs_met(guidance: dict[str, Any]) -> bool:
     prereqs = guidance.get("prerequisites") or []
-    return all(p.get("status") != "todo" for p in prereqs)
+    upstream_todo = [
+        p
+        for p in prereqs
+        if p.get("status") == "todo" and p.get("category", "upstream") == "upstream"
+    ]
+    return len(upstream_todo) == 0
+
+
+def _stage_health_blockers(guidance: dict[str, Any]) -> list[dict[str, Any]]:
+    prereqs = guidance.get("prerequisites") or []
+    return [
+        p
+        for p in prereqs
+        if p.get("status") == "todo" and p.get("category") == "stage_health"
+    ]
 
 def _job_running_stage(ctx: RunContext, stage_id: str) -> bool:
     if not ctx.artifact_exists("gui_job.json"):
@@ -190,6 +204,60 @@ def _needs_write(ctx: RunContext, stage_id: str) -> bool:
     if write_approval_deferred():
         return False
     return write_approval_allowed(ctx, stage_id)
+
+
+def _has_pending_write_review(ctx: RunContext, stage_id: str) -> bool:
+    """True when staged outputs exist and the operator should review or discard them."""
+    from interview_mux.write_staging import has_pending_writes, write_approval_enabled
+    from interview_mux.first_try import write_approval_deferred
+
+    if write_approval_deferred() or not write_approval_enabled():
+        return False
+    if _stage_gate_blocked(ctx, stage_id):
+        return False
+    return has_pending_writes(ctx, stage_id)
+
+
+def _write_approval_step(
+    ctx: RunContext,
+    stage_id: str,
+    num: int,
+    *,
+    instruction: str,
+    review: list[str],
+    embed: str | None = None,
+) -> dict[str, Any]:
+    from interview_mux.write_staging import write_approval_save_blocked_reason
+
+    blocked = write_approval_save_blocked_reason(ctx, stage_id)
+    if blocked:
+        return _step(
+            "write_approval",
+            num,
+            "Outputs need re-run",
+            instruction=(
+                f"Save is blocked: {blocked} "
+                "Discard staged outputs and re-run this stage."
+            ),
+            review=review or ["Quality check failed on staged JSON"],
+            primary_button="Discard & re-run",
+            kind="write_approval",
+            status="todo",
+            embed=embed,
+            blocking_reason=blocked,
+        )
+    return _step(
+        "write_approval",
+        num,
+        "Review and save",
+        instruction=instruction,
+        review=review,
+        primary_button="Save all files & continue",
+        secondary_button="Discard & re-run",
+        kind="write_approval",
+        status="todo",
+        embed=embed,
+    )
 
 def _stage_gate_blocked(ctx: RunContext, stage_id: str) -> bool:
     from interview_mux.write_staging import is_stage_gate_blocked
@@ -458,7 +526,29 @@ def _preclean_steps(ctx: RunContext, status: str) -> list[dict[str, Any]]:
     nxt = _next_stage_title(PRECLEAN_STAGE)
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     decision = preclean_checkpoint_decision(meta, "before_ingest")
-    dismissed = decision == "dismiss"
+    dismissed = decision == "dismiss" or ctx.artifact_exists("preclean/skip.json")
+    if dismissed:
+        return [
+            _step(
+                "review_offer",
+                1,
+                "Optional pre-clean skipped",
+                instruction="Original source audio will be used for ingest.",
+                review=["Pre-clean is not required for this run"],
+                kind="done",
+                status="done",
+            ),
+            _step(
+                "complete",
+                2,
+                "Step complete",
+                instruction="Skipped optional pre-clean.",
+                primary_button=f"Continue to {nxt}" if nxt else "Continue",
+                kind="done",
+                status="done",
+                next_hint=f"Next: {nxt}" if nxt else None,
+            ),
+        ]
     accepted = decision == "accept"
     running = _job_running_stage(ctx, PRECLEAN_STAGE)
     needs_write = _needs_write(ctx, PRECLEAN_STAGE) or status == "awaiting_write_approval"
@@ -614,25 +704,38 @@ def _automated_steps(
 
     llm_gate = is_llm_gate_blocked(ctx, stage_id)
     itr_blocked = is_itr_clarification_blocked(ctx, stage_id)
-    needs_write = (
-        _needs_write(ctx, stage_id) or status == "awaiting_write_approval"
+    needs_write_review = (
+        _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval"
     ) and not gate_blocked
+    needs_write = _needs_write(ctx, stage_id) and not gate_blocked
     running = _job_running_stage(ctx, stage_id)
     stage_done = status == "done" or ctx.is_done(stage_id)
-    past_run = stage_done or needs_write or running or gate_blocked
+    past_run = stage_done or needs_write or needs_write_review or running or gate_blocked
 
-    prereq_items = [p.get("label", "") for p in (guidance.get("prerequisites") or []) if p.get("label")]
+    prereq_items = [
+        p.get("label", "")
+        for p in (guidance.get("prerequisites") or [])
+        if p.get("label") and p.get("category", "upstream") == "upstream"
+    ]
+    health_items = [p.get("label", "") for p in _stage_health_blockers(guidance) if p.get("label")]
     prereq_status = "done" if _prereqs_met(guidance) or past_run else "todo"
+    prereq_review = prereq_items[:6] if prereq_items else ["All prior stages complete"]
+    if health_items and not past_run:
+        prereq_review = prereq_review + health_items[:4]
     steps.append(
         _step(
             "prereqs",
             num,
             "Check prerequisites",
-            instruction="This step needs the outputs listed below from earlier steps.",
-            review=prereq_items[:6] if prereq_items else ["All prior stages complete"],
-            primary_button="Continue" if prereq_status == "done" else None,
+            instruction=(
+                "Confirm upstream stages produced the inputs this step needs."
+                if not health_items
+                else "Upstream stages look ready. Resolve any quality blockers listed below before re-running."
+            ),
+            review=prereq_review,
+            primary_button="Continue" if prereq_status == "done" and not health_items else None,
             kind="info",
-            status=prereq_status,
+            status="done" if prereq_status == "done" and not health_items else prereq_status,
         )
     )
     num += 1
@@ -677,7 +780,7 @@ def _automated_steps(
 
     review_bullets = STAGE_REVIEW.get(stage_id, [])
     embed = STAGE_EMBED.get(stage_id)
-    embed_status = "done" if stage_done or needs_write else "todo"
+    embed_status = "done" if stage_done or needs_write or needs_write_review else "todo"
 
     if stage_id in NLE_EMBED_STAGES:
         steps.append(
@@ -795,18 +898,14 @@ def _automated_steps(
                 )
             )
             num += 1
-        elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
+        elif _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval":
             steps.append(
-                _step(
-                    "write_approval",
+                _write_approval_step(
+                    ctx,
+                    stage_id,
                     num,
-                    "Review and save",
                     instruction="Preview staged files. Edit if needed, then save to continue.",
                     review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                    primary_button="Save all files & continue",
-                    secondary_button="Discard & re-run",
-                    kind="write_approval",
-                    status="todo",
                     embed=embed,
                 )
             )
@@ -859,18 +958,14 @@ def _automated_steps(
                 )
             )
             num += 1
-        elif _needs_write(ctx, stage_id) or status == "awaiting_write_approval":
+        elif _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval":
             steps.append(
-                _step(
-                    "write_approval",
+                _write_approval_step(
+                    ctx,
+                    stage_id,
                     num,
-                    "Review outputs before saving",
                     instruction="Preview staged files before they are written to disk.",
                     review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                    primary_button="Save all files & continue",
-                    secondary_button="Discard & re-run",
-                    kind="write_approval",
-                    status="todo",
                     embed=embed,
                 )
             )
@@ -996,8 +1091,9 @@ def build_stage_steps(
                     2,
                     "Confirm gap pickup speaker",
                     instruction=(
-                        "Select who will record new gap-fill lines, then confirm before gap "
-                        "evaluation and question writing run."
+                        "Select who will record new gap-fill lines and confirm — or skip gap "
+                        "speaker sections to use the source audio as-is (no new VO, no gap "
+                        "analysis)."
                     ),
                     primary_button="Confirm gap pickup speaker",
                     kind="gate",

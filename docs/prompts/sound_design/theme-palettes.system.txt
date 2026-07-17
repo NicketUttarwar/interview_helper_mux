@@ -110,9 +110,11 @@ When `style.sound_design_notes` (or operator profile equivalent) appears in the 
 
 ## Sonic context linkage (BUILD-SFX)
 
-When `understanding/sonic_context.json` is present in stage input:
+When stage input includes `palette_keyword_catalog` and/or `sonic_context`:
 
 - Align `coherence` with `scenario.sound_posture` (`bed_density`, `stinger_cap_per_minute`) before inventing palette density.
-- Reuse `tag_registry` as the first source of palette keywords and segment grounding; keep tags connected to their `provenance` trails.
+- **Keywords law:** each palette `keywords[]` must copy strings **verbatim** from `palette_keyword_catalog[].keywords` (exact spelling/casing as listed). Do not invent synonyms.
+- Set `tag_ids[]` on each palette to the matching `palette_keyword_catalog[].tag_id` values for the segments you map.
+- Ground `segment_ids` using catalog `segment_ids` plus manifest evidence; do not invent themes without transcript support.
 - Prefer cueable moments implied by `cue_opportunities` (chapter_boundary, emotional_beat, vo_bridge) when deciding which segments receive each palette.
 - In compact reasoning/provenance notes, name scenario posture + one source path so downstream plan/craft can trace why each palette exists.

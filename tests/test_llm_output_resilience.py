@@ -296,6 +296,207 @@ def test_finalize_stage_attempt_blocks_partial_persist_on_lint(tmp_path, monkeyp
     assert (envelope.get("_routing_meta") or {}).get("persist_action") == "none"
 
 
+def test_sound_design_palettes_merge_persist_writes_full_sdp(tmp_path, monkeypatch):
+    """Merge-disk stages must call persist_fn (not write partial envelope keys to SDP path)."""
+    import json
+    from pathlib import Path
+
+    from interview_mux.analysis_memory import default_sound_design_plan
+    from interview_mux.llm_output_resilience import apply_resilience_and_persist
+    from interview_mux.prompt_validation import validate_sound_design_plan
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _resilience_cfg())
+    ctx = isolated_run_ctx(tmp_path, "sdp_merge_persist")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        default_sound_design_plan(),
+        skip_handoff=True,
+    )
+    fixture = (
+        Path(__file__).resolve().parent / "fixtures" / "sonic_context" / "one_on_one.json"
+    )
+    ctx.write_json(
+        "understanding/sonic_context.json",
+        json.loads(fixture.read_text(encoding="utf-8")),
+        skip_handoff=True,
+    )
+    from run_fixtures import minimal_manifest, minimal_manifest_segment
+
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_001",
+                start_ms=0,
+                end_ms=1000,
+                text="hello",
+                topic_tags=["founder_origin"],
+            )
+        ),
+        skip_handoff=True,
+    )
+
+    from interview_mux.stages import sound_design_stages as sds
+
+    def persist(c, artifacts):
+        sdp = sds._load_sound_design_plan(c)
+        if "coherence" in artifacts:
+            sdp["coherence"] = artifacts["coherence"]
+        if "palettes" in artifacts:
+            sdp["palettes"] = artifacts["palettes"]
+        sds._validate_sound_design_plan(sdp)
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            c,
+            "understanding/sound_design_plan.json",
+            sdp,
+            merge_from_disk=False,
+            stage_key="sound_design_palettes",
+        )
+
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "coherence": {
+                "sonic_identity": "Warm documentary intimacy under speech.",
+                "primary_mood": "reflective",
+                "density": "sparse",
+            },
+            "palettes": [
+                {
+                    "palette_id": "origin_story",
+                    "theme_label": "Origin",
+                    "keywords": ["founder", "startup", "early"],
+                    "segment_ids": ["seg_001", "seg_002"],
+                    "ambient_description": "Optional soft room tone at chapter break only.",
+                    "accent_description": "Single soft wood tap once per chapter.",
+                    "avoid": ["trailer hits", "synth risers", "crowd beds"],
+                }
+            ],
+            "_meta": {"fabricated": True},
+            "envelope": "",
+            "follow_up_investigations": [],
+        },
+    }
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch(
+        "interview_mux.write_staging.write_approval_enabled", return_value=True
+    ):
+        plan = apply_resilience_and_persist(
+            ctx,
+            "sound_design_palettes",
+            1,
+            envelope,
+            {"verdict": "accept"},
+            [],
+            [],
+            persist_fn=persist,
+        )
+
+    assert plan.action == "full", plan.report.summary
+    assert ctx.artifact_exists("understanding/sound_design_plan.json")
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    assert sdp["coherence"]["sonic_identity"].startswith("Warm documentary")
+    assert len(sdp.get("palettes") or []) == 1
+    assert "version" in sdp and "flow_plans" in sdp
+    assert not validate_sound_design_plan(sdp)
+    assert "_meta" not in sdp
+    assert "envelope" not in sdp
+
+
+def test_optimal_questions_resilience_persist_writes_interviewer_script(
+    tmp_path, monkeypatch
+):
+    """Resilience persist writes gap_report.json and companion interviewer_script.txt."""
+    from interview_mux.llm_output_resilience import apply_resilience_and_persist
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _resilience_cfg())
+    ctx = isolated_run_ctx(tmp_path, "oq_resilience_script")
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_001",
+                    "self_explanatory": True,
+                    "gap_type": "ok_with_light_bridge",
+                    "severity": "low",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "interviewer_lines": [],
+        },
+    }
+
+    plan = apply_resilience_and_persist(
+        ctx,
+        "optimal_questions",
+        1,
+        envelope,
+        {"verdict": "accept"},
+        [],
+        [],
+        persist_fn=lambda _c, _a: None,
+    )
+
+    assert plan.action == "full", plan.report.summary
+    assert ctx.artifact_exists("understanding/gap_report.json")
+    assert ctx.artifact_exists("understanding/interviewer_script.txt")
+    script = ctx.read_path("understanding/interviewer_script.txt").read_text(encoding="utf-8")
+    assert "Interviewer script" in script
+    report = ctx.read_json("understanding/gap_report.json")
+    assert report.get("interviewer_lines") == []
+
+
+def test_resolve_persist_plan_sound_design_palettes_uses_stage_schema(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _resilience_cfg())
+    ctx = isolated_run_ctx(tmp_path, "sdp_plan_schema")
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "coherence": {
+                "sonic_identity": "Warm documentary intimacy under speech.",
+                "primary_mood": "reflective",
+                "density": "sparse",
+            },
+            "palettes": [
+                {
+                    "palette_id": "origin_story",
+                    "theme_label": "Origin",
+                    "keywords": ["founder", "startup", "early"],
+                    "segment_ids": ["seg_001", "seg_002"],
+                    "ambient_description": "Optional soft room tone at chapter break only.",
+                    "accent_description": "Single soft wood tap once per chapter.",
+                    "avoid": ["trailer hits", "synth risers", "crowd beds"],
+                }
+            ],
+            "_meta": {"noise": True},
+        },
+    }
+    plan = resolve_persist_plan(
+        ctx,
+        "sound_design_palettes",
+        envelope,
+        {"verdict": "accept"},
+        [],
+        [],
+        cfg=_resilience_cfg(),
+    )
+    assert plan.action == "full"
+    assert "_meta" not in plan.artifacts
+    assert plan.artifacts["coherence"]["sonic_identity"]
+
+
 def test_complete_llm_stage_or_halt_strict_blocks_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _resilience_cfg())

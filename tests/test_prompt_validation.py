@@ -38,6 +38,21 @@ def test_validate_speakers_artifact_ok():
     }
     assert validate_stage_artifacts("speaker_roles", artifacts) == []
 
+
+def test_validate_speakers_artifact_nullable_evidence_windows():
+    artifacts = {
+        "speakers": [
+            {
+                "speaker_id": "spk_0",
+                "role": "interviewer",
+                "confidence": 0.9,
+                "evidence": ["asks questions"],
+                "evidence_windows": None,
+            }
+        ]
+    }
+    assert validate_stage_artifacts("speaker_roles", artifacts) == []
+
 def test_validate_speakers_artifact_missing_role():
     artifacts = {"speakers": [{"speaker_id": "spk_0", "confidence": 0.5}]}
     errors = validate_stage_artifacts("speaker_roles", artifacts)

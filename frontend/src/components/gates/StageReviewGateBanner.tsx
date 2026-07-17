@@ -435,7 +435,7 @@ function OperatorDecisionsGateContent({
             })
           }
         >
-          Apply choice
+          Review decision
         </button>
       }
     />

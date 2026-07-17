@@ -35,6 +35,27 @@ def test_segment_coverage_ratio_low(tmp_path, monkeypatch):
     assert any("segment_coverage_ratio" in e for e in errors)
 
 
+def test_topic_coverage_segment_ratio_uses_topic_mappings(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    ctx = isolated_run_ctx(tmp_path, "lint_topic_cov")
+    segs = [minimal_manifest(f"seg_{i:03d}")["segments"][0] for i in range(1, 6)]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    envelope = {
+        "status": "complete",
+        "confidence": 0.9,
+        "artifacts": {
+            "topic_mappings": [
+                {"topic": "Theme A", "segment_ids": ["seg_001", "seg_002"], "covered": True},
+                {"topic": "Theme B", "segment_ids": ["seg_003", "seg_004"], "covered": True},
+            ],
+            "coverage_score": 0.8,
+        },
+    }
+    errors = deterministic_lint("topic_coverage_audit", envelope, ctx)
+    assert not any("segment_coverage_ratio" in e for e in errors)
+
+
 def test_min_row_count_met_speaker_roles(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "lint_min")

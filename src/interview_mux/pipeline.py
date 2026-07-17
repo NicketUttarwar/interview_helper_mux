@@ -107,8 +107,8 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
-        "missing_framing": lambda: gaps.run_missing_framing(ctx),
-        "optimal_questions": lambda: gaps.run_optimal_questions(ctx),
+        "missing_framing": lambda: _run_missing_framing_stage(ctx),
+        "optimal_questions": lambda: _run_optimal_questions_stage(ctx),
         "delivery_brief_build": lambda: __import__(
             "interview_mux.delivery_brief", fromlist=["run_delivery_brief_build"]
         ).run_delivery_brief_build(ctx),
@@ -124,19 +124,19 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
 
 def _delivery_stage_fns(ctx: RunContext) -> dict[str, Any]:
     return {
-        "topic_coverage_audit": analysis_extended.run_topic_coverage,
-        "narrative_arc_plan": analysis_extended.run_narrative_arc,
-        "full_master_ranking": selection.run_full_master_ranking,
-        "transitions": selection.run_transitions,
+        "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
+        "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
+        "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
+        "transitions": lambda: selection.run_transitions(ctx),
         "sound_design_plan": lambda: sound_design_stages.run_sound_design_plan(ctx),
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
-        "edl": assembly.run_edl,
-        "assembly_preview": assembly.run_preview,
+        "edl": lambda: assembly.run_edl(ctx),
+        "assembly_preview": lambda: assembly.run_preview(ctx),
         "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
         "mmaudio_sfx": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
-        "mix": assembly.run_mix,
-        "master_finalize": mastering.run_master_finalize,
+        "mix": lambda: assembly.run_mix(ctx),
+        "master_finalize": lambda: mastering.run_master_finalize(ctx),
     }
 
 
@@ -158,6 +158,93 @@ def _guard_stage_reuse(ctx: RunContext, stage: str) -> bool:
     if resolve_before_stage_run(ctx, stage) == "skipped":
         return True
     return False
+
+
+def _run_missing_framing_stage(ctx: RunContext) -> None:
+    from interview_mux.gap_fill_eligibility import (
+        assess_gap_fill_eligibility,
+        gap_fill_auto_skip_enabled,
+        gap_fill_was_skipped,
+    )
+
+    if gap_fill_was_skipped(ctx):
+        return
+    decision = assess_gap_fill_eligibility(ctx)
+    if not decision.eligible and gap_fill_auto_skip_enabled():
+        gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
+        return
+    gaps.run_missing_framing(ctx)
+
+
+def _run_optimal_questions_stage(ctx: RunContext) -> None:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if gap_fill_was_skipped(ctx):
+        return
+    gaps.run_optimal_questions(ctx)
+
+
+def shared_analysis_chain_complete(ctx: RunContext) -> bool:
+    """True when the last shared analysis stage (episode structure) finished."""
+    return ctx.is_done("episode_structure_compose")
+
+
+def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> bool:
+    """Write analysis_complete.json when the shared analysis chain is ready. Idempotent."""
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if ctx.artifact_exists("analysis_complete.json"):
+        return True
+    if not shared_analysis_chain_complete(ctx):
+        if not strict:
+            return False
+    if not gap_fill_was_skipped(ctx) and not ctx.is_done("optimal_questions"):
+        return False
+    missing = check_g1_vo(ctx)
+    if missing and not gap_fill_was_skipped(ctx):
+        if strict:
+            msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
+            ctx.log(msg, level="warning", stage="g1_vo_pickup")
+            raise SystemExit(msg)
+        return False
+    from interview_mux.artifact_cross_validate import validate_cross_artifacts
+    from interview_mux.llm_flow_hardening import flow_hardening_enabled
+
+    if flow_hardening_enabled():
+        post_reanchor = validate_cross_artifacts(ctx, "post_reanchor")
+        if post_reanchor:
+            summary = "; ".join(post_reanchor[:4])
+            msg = f"Analysis complete blocked — post_reanchor cross-validate: {summary}"
+            if strict:
+                ctx.log(
+                    msg,
+                    level="error",
+                    stage="content_brief_reanchor",
+                    detail={"layer": "cross", "checkpoint": "post_reanchor"},
+                )
+                raise SystemExit(msg)
+            return False
+    completion = post_analysis_finalize(ctx)
+    ctx.write_json(
+        "analysis_complete.json",
+        {
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "run_id": ctx.run_id,
+            "completion": completion,
+        },
+    )
+    ctx.log(
+        "Shared analysis complete — delivery stages unlocked.",
+        level="success",
+        stage="episode_structure_compose",
+        detail={"gap_fill_skipped": gap_fill_was_skipped(ctx)},
+    )
+    return True
+
+
+def _finalize_analysis_completion(ctx: RunContext) -> None:
+    """Write analysis_complete.json when gap path finishes (LLM or skip)."""
+    maybe_finalize_shared_analysis(ctx, strict=True)
 
 
 def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
@@ -194,13 +281,15 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             require_transcript_review_clear(ctx)
             require_disfluency_review_clear(ctx)
         if stage in ("missing_framing", "optimal_questions"):
+            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
             from interview_mux.source_topology import (
                 maybe_auto_confirm_pickup_speaker,
                 require_pickup_speaker_clear,
             )
 
-            maybe_auto_confirm_pickup_speaker(ctx)
-            require_pickup_speaker_clear(ctx)
+            if not gap_fill_was_skipped(ctx):
+                maybe_auto_confirm_pickup_speaker(ctx)
+                require_pickup_speaker_clear(ctx)
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
@@ -221,25 +310,7 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             ctx.log(msg, level="warning", stage="disfluency_review")
             raise SystemExit(msg)
         if stage == "optimal_questions":
-            missing = check_g1_vo(ctx)
-            if missing:
-                msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
-                ctx.log(msg, level="warning", stage="g1_vo_pickup")
-                raise SystemExit(msg)
-            from interview_mux.artifact_cross_validate import validate_cross_artifacts
-            from interview_mux.llm_flow_hardening import flow_hardening_enabled
-
-            if flow_hardening_enabled():
-                post_reanchor = validate_cross_artifacts(ctx, "post_reanchor")
-                if post_reanchor:
-                    summary = "; ".join(post_reanchor[:4])
-                    msg = f"Analysis complete blocked — post_reanchor cross-validate: {summary}"
-                    ctx.log(msg, level="error", stage="content_brief_reanchor", detail={"layer": "cross", "checkpoint": "post_reanchor"})
-                    raise SystemExit(msg)
-            ctx.write_json(
-                "analysis_complete.json",
-                {"completed_at": datetime.now(timezone.utc).isoformat(), "run_id": ctx.run_id},
-            )
+            _finalize_analysis_completion(ctx)
         return
 
     if stage in DELIVERY_ORDER:
@@ -490,19 +561,19 @@ def run_delivery(
         ctx.clear_from(from_stage, DELIVERY_ORDER)
 
     steps = [
-        ("topic_coverage_audit", analysis_extended.run_topic_coverage),
-        ("narrative_arc_plan", analysis_extended.run_narrative_arc),
-        ("full_master_ranking", selection.run_full_master_ranking),
-        ("transitions", selection.run_transitions),
+        ("topic_coverage_audit", lambda: analysis_extended.run_topic_coverage(ctx)),
+        ("narrative_arc_plan", lambda: analysis_extended.run_narrative_arc(ctx)),
+        ("full_master_ranking", lambda: selection.run_full_master_ranking(ctx)),
+        ("transitions", lambda: selection.run_transitions(ctx)),
         ("sound_design_plan", lambda: sound_design_stages.run_sound_design_plan(ctx)),
         ("sound_design_vo_finalize", lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx)),
         ("edl_narrative_audit", lambda: edl_narrative_audit.run_edl_narrative_audit(ctx)),
-        ("edl", assembly.run_edl),
-        ("assembly_preview", assembly.run_preview),
+        ("edl", lambda: assembly.run_edl(ctx)),
+        ("assembly_preview", lambda: assembly.run_preview(ctx)),
         ("sfx_prompt_craft", lambda: sound_design_stages.run_sfx_prompt_craft(ctx)),
         ("mmaudio_sfx", lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast")),
-        ("mix", assembly.run_mix),
-        ("master_finalize", mastering.run_master_finalize),
+        ("mix", lambda: assembly.run_mix(ctx)),
+        ("master_finalize", lambda: mastering.run_master_finalize(ctx)),
     ]
     _run_steps(ctx, steps, from_stage, until_stage=until_stage, preclean_hook=preclean_hook)
 
@@ -552,7 +623,10 @@ def _run_steps(
             planned.append(name)
         if until_stage and name == until_stage:
             break
-    total = len(planned) or 1
+    from interview_mux.gap_fill_eligibility import filter_visible_job_stages
+
+    visible_planned = filter_visible_job_stages(ctx, planned)
+    total = len(visible_planned) or 1
     plan_idx = 0
     for name, fn in slice_steps:
         if ctx.is_done(name) and from_stage != name:
@@ -566,16 +640,16 @@ def _run_steps(
                 continue
         if resolve_before_stage_run(ctx, name) == "skipped":
             continue
-        if name in planned:
-            plan_idx = planned.index(name) + 1
+        if name in visible_planned:
+            plan_idx = visible_planned.index(name) + 1
         from interview_mux.web.job_progress import notify_stage_start
 
         notify_stage_start(
             ctx.run_id,
             name,
-            index=plan_idx or 1,
+            index=plan_idx if name in visible_planned else max(plan_idx, 1),
             total=total,
-            stages_planned=planned,
+            stages_planned=visible_planned,
         )
         if preclean_hook is not None:
             preclean_hook(name)

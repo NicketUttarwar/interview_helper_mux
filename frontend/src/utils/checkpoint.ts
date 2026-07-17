@@ -5,6 +5,7 @@ import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention, topAttentionItem } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
+import { isStageHidden } from "./stageVisibility";
 import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
 import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
 import { gateFocusStageId } from "./gateFocus";
@@ -70,6 +71,8 @@ export function findPendingFocusStage(
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
+    const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
+    if (!(blockedStage && isStageHidden(blockedStage))) {
     const reason = blocking.reason || "";
     if (
       reason === "transcript_review" ||
@@ -83,6 +86,7 @@ export function findPendingFocusStage(
       reason === "llm_gate"
     ) {
       return blocking.stage_id;
+    }
     }
   }
 
@@ -105,7 +109,12 @@ export function findPendingFocusStage(
   const handoff = findHandoffStage(run);
   if (handoff) return handoff.id;
 
-  if (blocking?.blocked && blocking.stage_id) return blocking.stage_id;
+  if (blocking?.blocked && blocking.stage_id) {
+    const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
+    if (!(blockedStage && isStageHidden(blockedStage))) {
+      return blocking.stage_id;
+    }
+  }
 
   const next = findNextRunnableStage(run.stages, run.meta);
   if (

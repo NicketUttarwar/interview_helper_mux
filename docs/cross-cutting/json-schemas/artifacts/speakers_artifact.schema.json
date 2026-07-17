@@ -28,11 +28,11 @@
             "type": "string",
             "enum": ["storyteller", "frame", "reactor", "analytical_lens", "unknown"]
           },
-          "confidence": { "type": "number" },
+          "confidence": { "type": ["number", "null"] },
           "label": { "type": ["string", "null"] },
           "evidence": { "type": "array", "items": { "type": "string" } },
           "evidence_windows": {
-            "type": "array",
+            "type": ["array", "null"],
             "items": {
               "type": "object",
               "required": ["start_ms", "end_ms", "quote"],
@@ -47,13 +47,13 @@
             "type": "string",
             "enum": ["low", "medium", "high"]
           },
-          "avg_turn_length_ms": { "type": "number" }
+          "avg_turn_length_ms": { "type": ["number", "null"] }
         }
       }
     },
     "notes": { "type": ["string", "null"] },
     "conversation_profile": {
-      "type": "object",
+      "type": ["object", "null"],
       "properties": {
         "format_class_candidate": {
           "type": "string",
@@ -97,7 +97,7 @@
       }
     },
     "conversation_hypotheses": {
-      "type": "array",
+      "type": ["array", "null"],
       "items": {
         "type": "object",
         "required": ["id", "format_class", "confidence"],
@@ -126,7 +126,7 @@
     },
     "confirmed_conversation_hypothesis_id": { "type": ["string", "null"] },
     "gap_sensitivity": {
-      "type": "object",
+      "type": ["object", "null"],
       "properties": {
         "format_class": { "type": "string" },
         "tone_class": { "type": "string" },

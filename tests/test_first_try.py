@@ -206,6 +206,8 @@ def test_preclean_auto_dismiss_green_only(tmp_path: Path, monkeypatch: pytest.Mo
     meta = json.loads((run / "run_meta.json").read_text(encoding="utf-8"))
     decisions = (meta.get("audio_preclean") or {}).get("decisions") or []
     assert any(d.get("action") == "dismiss" and d.get("reason") == "auto_clean_enough" for d in decisions)
+    assert (run / "preclean" / "skip.json").is_file()
+    assert (run / ".stage_done" / "audio_preclean").is_file()
     # Never accept
     assert all(d.get("action") != "accept" for d in decisions)
 

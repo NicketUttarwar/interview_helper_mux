@@ -46,8 +46,8 @@ Authoritative list of **every pipeline stage** (shipped, gate, and planned). Whe
 | `segment_classification` | shipped | `segmentation.py` | BUILD-024 | `segments/manifest.json` | `segmentation/segment-classification` |
 | `content_brief_reanchor` | shipped | `understanding.py` | BUILD-023 | `understanding/content_brief.json` (patch) | `understanding/content-brief-reanchor` |
 | `sonic_context_build` | shipped | `stages/sonic_context_stages.py` | BUILD-SFX-01 | `understanding/sonic_context.json` | deterministic build from brief/profile/segments |
-| `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` |
-| `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` |
+| `missing_framing` | shipped | `gaps.py` | BUILD-025 | `understanding/gap_evaluations.json` | `interviewer-gap/missing-framing` · **optional** when `analysis.gap_fill` skips (hidden in GUI) |
+| `optimal_questions` | shipped | `gaps.py` | BUILD-026 | `understanding/gap_report.json`, `interviewer_script.txt` | `interviewer-gap/optimal-questions` · **optional** when gap-fill skipped |
 | `delivery_brief_build` | shipped | `delivery_brief.py` | adaptive policy | `understanding/delivery_brief.json` | [delivery-quality-preservation-matrix.md](../cross-cutting/delivery-quality-preservation-matrix.md) |
 | `soundscape_policy_build` | shipped | `soundscape_policy.py` | BUILD-SS-01 | `understanding/soundscape_policy.json` | [soundscape-policy.md](../cross-cutting/soundscape-policy.md) |
 | `episode_structure_compose` | shipped | `episode_structure.py` | Plan 2 | `understanding/episode_structure.json` | [episode-structure-catalog.md](../cross-cutting/episode-structure-catalog.md) |

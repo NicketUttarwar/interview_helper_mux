@@ -79,6 +79,21 @@ def bridge_adaptation_to_itr(
         detail={"lint_errors": (lint_errors or [])[:4], "halt_kind": halt_kind},
     )
 
+    from interview_mux.holistic_fabrication import try_holistic_fabrication_from_staged
+
+    if try_holistic_fabrication_from_staged(ctx, stage_key, lint_errors):
+        _finalize_cleared(ctx, stage_key)
+        ctx.log(
+            f"ITR bridge cleared via holistic fabrication ({halt_kind})",
+            level="info",
+            stage=stage_key,
+            action_id="itr.bridge.holistic_cleared",
+        )
+        return BridgeResult(
+            outcome=BridgeOutcome.CLEARED,
+            message=f"{stage_key}: holistic fabrication cleared gate",
+        )
+
     if lint_errors:
         repair = try_staged_structural_repair(ctx, stage_key, lint_errors)
         if repair.acceptance_ok:

@@ -5,8 +5,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from interview_mux.null_field_policy import omit_nullable_null_leaves_for_disk, stage_key_for_artifact_path
 from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.run_context import RunContext
+
+
+def _prepare_for_disk_validation(
+    out: dict[str, Any],
+    *,
+    rel_path: str,
+    stage_key: str | None,
+) -> dict[str, Any]:
+    sk = stage_key or stage_key_for_artifact_path(rel_path)
+    if not sk:
+        return out
+    return omit_nullable_null_leaves_for_disk(sk, out)
 
 
 def _prepare_segment_artifact(
@@ -96,6 +109,8 @@ def write_validated_artifact(
     if rel_path == "segments/manifest.json":
         pass  # already hydrated in _prepare_segment_artifact
 
+    out = _prepare_for_disk_validation(out, rel_path=rel_path, stage_key=stage_key)
+
     errors = validate_artifact_write(rel_path, out)
     if errors:
         ctx.log(
@@ -146,6 +161,8 @@ def write_partial_artifact(
         out = merge_artifact(rel_path, existing, payload, stage_key=stage_key)
 
     out = _prepare_segment_artifact(ctx, rel_path, out, stage_key=stage_key)
+
+    out = _prepare_for_disk_validation(out, rel_path=rel_path, stage_key=stage_key)
 
     errors = validate_artifact_write(rel_path, out)
     if errors:

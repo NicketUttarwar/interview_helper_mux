@@ -704,4 +704,16 @@ def run_episode_structure_compose(ctx: RunContext) -> None:
             stage="episode_structure_compose",
             detail={"omit_count": len(doc.get("omit_reasons") or [])},
         )
+    try:
+        from interview_mux.analysis_memory import update_completion_from_analysis
+        from interview_mux.pipeline import maybe_finalize_shared_analysis
+
+        update_completion_from_analysis(ctx)
+        maybe_finalize_shared_analysis(ctx)
+    except Exception as exc:  # noqa: BLE001
+        ctx.log(
+            f"analysis completion refresh skipped: {exc}",
+            level="warning",
+            stage="episode_structure_compose",
+        )
     ctx.mark_done("episode_structure_compose")

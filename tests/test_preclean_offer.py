@@ -144,7 +144,8 @@ def test_dismiss_unblocks_ingest_guidance(tmp_path) -> None:
     stages = _build_stage_list(ctx, check_g1_vo(ctx), False, True, False)
     preclean = next(s for s in stages if s["id"] == "audio_preclean")
     ingest = next(s for s in stages if s["id"] == "ingest")
-    assert preclean["status"] in ("done", "incomplete")
+    assert preclean["status"] == "done"
+    assert preclean.get("stage_output_mode") == "optional_skipped"
     assert ctx.artifact_exists("preclean/skip.json")
     assert ingest["status"] == "pending"
 

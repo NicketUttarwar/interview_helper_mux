@@ -101,7 +101,7 @@ describe("preclean", () => {
     expect(isOptionalStageSkipped(stage, {})).toBe(true);
   });
 
-  it("skips unset audio_preclean and lands on ingest for cold start", () => {
+  it("offers audio_preclean first on cold start", () => {
     const stages: StageInfo[] = [
       {
         id: "audio_preclean",
@@ -118,6 +118,38 @@ describe("preclean", () => {
         phase: "prepare",
       },
     ];
-    expect(findNextRunnableStage(stages, {})?.id).toBe("ingest");
+    expect(findNextRunnableStage(stages, {})?.id).toBe("audio_preclean");
+  });
+
+  it("does not block downstream when optional pre-clean was dismissed", () => {
+    const stages: StageInfo[] = [
+      {
+        id: "audio_preclean",
+        title: "Audio pre-clean",
+        description: "",
+        status: "pending",
+        phase: "prepare",
+      },
+      {
+        id: "ingest",
+        title: "Ingest",
+        description: "",
+        status: "done",
+        phase: "prepare",
+      },
+      {
+        id: "interview_spine_build",
+        title: "Interview spine",
+        description: "",
+        status: "pending",
+        phase: "understand",
+      },
+    ];
+    const meta = {
+      audio_preclean: {
+        decisions: [{ checkpoint: "before_ingest", action: "dismiss" }],
+      },
+    };
+    expect(findNextRunnableStage(stages, meta)?.id).toBe("interview_spine_build");
   });
 });

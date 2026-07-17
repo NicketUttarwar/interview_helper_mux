@@ -9,6 +9,7 @@ import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
 import { resolvePrecleanOffer } from "./preclean";
+import { isStageHidden } from "./stageVisibility";
 import { isStageGateBlocked } from "./writeApproval";
 export type WorkflowStepStatus = "done" | "active" | "upcoming" | "attention";
 export type WorkflowStepId =
@@ -238,6 +239,9 @@ export function listAttentionItems(
   if (blocking?.blocked && blocking.stage_id) {
     const sid = blocking.stage_id;
     const stage = run.stages.find((s) => s.id === sid);
+    if (stage && isStageHidden(stage)) {
+      /* gap-fill stages hidden — no operator attention */
+    } else {
     const reason = blocking.reason || "";
     const clipCount = parseCountFromMessage(blocking.message, /Review (\d+) ranked STT/);
     const pickupCount = parseCountFromMessage(blocking.message, /Record (\d+) pickup/);
@@ -324,6 +328,7 @@ export function listAttentionItems(
         phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
         subTab: stage ? subTabForStage(stage.id, "blocked") : "stage",
       });
+    }
     }
   }
 

@@ -276,6 +276,19 @@ Micro-gap fill and upstream rerun orchestration when sufficiency or ITR findings
 
 ---
 
+## `analysis.gap_fill`
+
+Binary eligibility gate for missing_framing / optimal_questions / G1 VO — `gap_fill_eligibility.py`, `stages/gaps.py`.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.gap_fill.enabled` | `true` | Eligibility never evaluated; gap stages always run |
+| `analysis.gap_fill.auto_skip_when_ineligible` | `true` | Ineligible sources still spend LLM on gap-fill |
+| `analysis.gap_fill.frame_confidence_min` | `0.65` | Frame-speaker threshold for eligibility |
+| `analysis.gap_fill.hide_gui_stages_when_skipped` | `true` | Skipped gap stages still appear in step list |
+
+---
+
 ## `analysis.artifact_lifecycle`
 
 Fingerprinting, stale reads, reuse validation — `artifact_lifecycle.py`.
@@ -552,6 +565,24 @@ Explicit JSON `null` for unavailable optional fields — `null_field_policy.py`.
 | `allow_unavailable_reason` | `true` | Prompt allows optional `_unavailable_reason` on null fields |
 | `hard_stop_on_critical_null` | `true` | Block persist when critical fields are null |
 | `exclude_from_volleys` | `true` | Omit null-acknowledged paths from shaped volley input |
+
+---
+
+## `analysis.holistic_fabrication`
+
+Global LLM-backed fallback for blocked stages — `holistic_fabrication.py`. Spec: [holistic-fabrication.md](./holistic-fabrication.md).
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch for holistic repair before persist / ITR bridge |
+| `llm_enabled` | `true` | Run economy-tier LLM when deterministic repair insufficient |
+| `deterministic_first` | `true` | Code-first repairs (orphan mapping, claim synthesis) before API |
+| `model_tier` | `economy` | Model tier for fabrication LLM calls |
+| `max_calls_per_stage_attempt` | `2` | Cap LLM fabrication calls per stage attempt |
+| `max_calls_per_run` | `24` | Cap LLM fabrication calls per run |
+| `override_arbiter_on_clear` | `true` | Allow persist when holistic repair clears lint |
+| `allow_upstream_patches` | `true` | Patch input artifacts (e.g. `content_brief.json`) |
+| `stages` | `"*"` | Stage allowlist; `"*"` = all LLM stages |
 
 ---
 

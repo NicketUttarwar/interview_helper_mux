@@ -13,7 +13,12 @@ from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.run_context import RunContext
-from interview_mux.sonic_context import compact_for_volley as sonic_compact_for_volley, load_sonic_context
+from interview_mux.sonic_context import (
+    align_palette_keywords_to_sonic_context,
+    build_palette_keyword_catalog,
+    compact_for_volley as sonic_compact_for_volley,
+    load_sonic_context,
+)
 from interview_mux.stage_enrichment import compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
 
@@ -42,6 +47,7 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         sonic_context = load_sonic_context(c)
         if sonic_context:
             payload["sonic_context"] = sonic_compact_for_volley(sonic_context)
+            payload["palette_keyword_catalog"] = build_palette_keyword_catalog(sonic_context)
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
@@ -58,7 +64,11 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             sdp["coherence"] = artifacts["coherence"]
         if "palettes" in artifacts:
             palettes = artifacts["palettes"]
-            sdp["palettes"] = _attach_palette_provenance(c, palettes if isinstance(palettes, list) else [])
+            palette_list = palettes if isinstance(palettes, list) else []
+            sonic = load_sonic_context(c)
+            if sonic and palette_list:
+                palette_list = align_palette_keywords_to_sonic_context(palette_list, sonic)
+            sdp["palettes"] = _attach_palette_provenance(c, palette_list)
         _validate_sound_design_plan(sdp)
         write_validated_artifact(
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_palettes"

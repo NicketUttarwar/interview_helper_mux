@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { StageInfo, StageStep } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { useStageDecisions } from "../../hooks/useStageDecisions";
 import { guardBusy, type ShowToastFn } from "../../utils/guardBusy";
 import {
   invokeStepFooterAction,
@@ -27,7 +28,64 @@ function stepPrimaryTestId(step: StageStep): string {
   return "stage-step-primary";
 }
 
+function operatorDecisionPrimaryLabel(kind: string | undefined): string {
+  if (kind === "acknowledge_warning") return "Continue to review";
+  if (kind === "propagation" || kind === "upstream_rerun") return "Apply choice";
+  return "Apply choice";
+}
+
+function OperatorDecisionStepFooter({
+  step,
+  stage,
+  isActive,
+}: Props) {
+  const { jobRunning, actionBusy, showToast } = useApp();
+  const { busy, current, resolveCurrent } = useStageDecisions(stage.id);
+
+  const primaryLabel = useMemo(() => {
+    if (current) return operatorDecisionPrimaryLabel(current.kind);
+    return step.primary_button || "Apply choice";
+  }, [current, step.primary_button]);
+
+  if (!isActive || !primaryLabel) return null;
+
+  const disabled =
+    !current ||
+    jobRunning ||
+    actionBusy ||
+    busy ||
+    step.status === "done" ||
+    step.status === "waiting" ||
+    step.status === "blocked";
+
+  const onPrimary = () => {
+    if (!current) return;
+    if (guardBusy(jobRunning, actionBusy || busy, showToast as ShowToastFn)) return;
+    const picked = current.options[0]?.value ?? current.recommended ?? "acknowledge";
+    void resolveCurrent(picked);
+  };
+
+  return (
+    <div className="stage-step-footer">
+      <button
+        type="button"
+        className="btn primary stage-step-primary"
+        data-testid="stage-decision-apply"
+        data-action-id="gui.decision.apply"
+        disabled={disabled}
+        onClick={onPrimary}
+      >
+        {primaryLabel}
+      </button>
+    </div>
+  );
+}
+
 export function StageStepFooter({ step, stage, isActive }: Props) {
+  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
+    return <OperatorDecisionStepFooter step={step} stage={stage} isActive={isActive} />;
+  }
+
   const {
     run,
     selectedStageId,
@@ -127,7 +185,9 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
 
   const primaryActionId =
     step.kind === "write_approval"
-      ? "gui.write_approval.save"
+      ? step.blocking_reason
+        ? "gui.write_approval.discard"
+        : "gui.write_approval.save"
       : step.kind === "handoff"
         ? "gui.handoff.acknowledge"
         : undefined;

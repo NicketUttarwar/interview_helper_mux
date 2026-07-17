@@ -60,6 +60,29 @@ def test_stuck_signature_tracking(tmp_path, monkeypatch):
     assert stuck_count(ctx, "speaker_roles") >= 2
 
 
+def test_truncation_escalation_does_not_bill_primary_budget(tmp_path, monkeypatch):
+    from interview_mux.attempt_budget import (
+        check_primary_budget,
+        primary_billable_count,
+        truncation_escalation_count,
+    )
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"flow_hardening": {"enabled": True, "max_primary_attempts_per_stage": 2}}},
+    )
+    ctx = isolated_run_ctx(tmp_path, "trunc_budget")
+    record_primary_attempt(ctx, "sound_design_palettes", billable=False)
+    record_primary_attempt(ctx, "sound_design_palettes", billable=False)
+    assert truncation_escalation_count(ctx, "sound_design_palettes") == 2
+    assert primary_billable_count(ctx, "sound_design_palettes") == 0
+    assert check_primary_budget(ctx, "sound_design_palettes") is None
+    record_primary_attempt(ctx, "sound_design_palettes", billable=True)
+    record_primary_attempt(ctx, "sound_design_palettes", billable=True)
+    assert check_primary_budget(ctx, "sound_design_palettes") is not None
+
+
 def test_stuck_signature_differs_when_lint_changes(tmp_path, monkeypatch):
     from interview_mux.attempt_budget import build_attempt_signature, record_stuck_signature
 

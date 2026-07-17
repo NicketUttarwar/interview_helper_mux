@@ -4,6 +4,7 @@ from interview_mux.null_field_policy import (
     acknowledge_null_fields,
     find_null_fields,
     null_acknowledged_paths,
+    omit_nullable_null_leaves_for_disk,
     partition_nulls,
     strip_null_leaves_for_volley,
 )
@@ -52,3 +53,23 @@ def test_strip_null_leaves_for_volley():
     shaped = strip_null_leaves_for_volley({"audience": None, "thesis": "x"})
     assert shaped["audience"] == {"_unavailable": True}
     assert shaped["thesis"] == "x"
+
+
+def test_omit_nullable_null_leaves_for_disk_speaker_roles():
+    artifacts = {
+        "speakers": [
+            {
+                "speaker_id": "spk_0",
+                "role": "interviewer",
+                "confidence": 0.8,
+                "evidence_windows": None,
+                "label": None,
+            }
+        ],
+        "notes": None,
+    }
+    out = omit_nullable_null_leaves_for_disk("speaker_roles", artifacts)
+    assert "evidence_windows" not in out["speakers"][0]
+    assert "label" not in out["speakers"][0]
+    assert "notes" not in out
+    assert out["speakers"][0]["role"] == "interviewer"

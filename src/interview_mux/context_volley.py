@@ -908,6 +908,16 @@ def _shape_stage_input(stage_key: str, raw: dict[str, Any]) -> dict[str, Any]:
         sap = _compact_source_acoustic_profile(raw.get("source_acoustic_profile"))
         if sap:
             out_sdp["source_acoustic_profile"] = sap
+        sonic = raw.get("sonic_context")
+        if isinstance(sonic, dict) and sonic:
+            out_sdp["sonic_context"] = sonic
+        catalog = raw.get("palette_keyword_catalog")
+        if isinstance(catalog, list) and catalog:
+            out_sdp["palette_keyword_catalog"] = catalog
+        if raw.get("lint_retry_hint"):
+            out_sdp["lint_retry_hint"] = raw.get("lint_retry_hint")
+        if raw.get("lint_feedback"):
+            out_sdp["lint_feedback"] = raw.get("lint_feedback")
         return out_sdp
     if stage_key == "missing_framing":
         out_mf: dict[str, Any] = {

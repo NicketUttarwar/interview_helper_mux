@@ -166,6 +166,13 @@ def lint_retry_strategy(
         strategy["inject_role_evidence"] = True
         strategy["strip_uncertainty_assistant"] = True
         strategy["strategy_key"] = "speaker_roles_evidence_retry"
+    if stage_key == "sound_design_palettes" and "sonic_context provenance" in joined:
+        strategy["enrich_input"] = True
+        strategy["strategy_key"] = "palette_keyword_catalog_retry"
+        strategy["lint_feedback"] = (
+            "Each palette keywords[] must copy strings verbatim from palette_keyword_catalog "
+            "(use tag keywords exactly). Set tag_ids to matching catalog tag_id values."
+        )
     if not strategy.get("strategy_key"):
         strategy["strategy_key"] = f"lint_retry_{stage_key}"
     return strategy

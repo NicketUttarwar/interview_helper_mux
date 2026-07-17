@@ -30,7 +30,8 @@
         "segmentation_granularity": { "type": ["string", "null"] },
         "force_resegment": { "type": "boolean" },
         "topology_confirmed": { "type": "boolean" },
-        "pickup_speaker_confirmed": { "type": "boolean" }
+        "pickup_speaker_confirmed": { "type": "boolean" },
+        "gap_fill_skipped": { "type": "boolean" }
       }
     },
     "pickup_eligible_speaker_id": { "type": "string" },

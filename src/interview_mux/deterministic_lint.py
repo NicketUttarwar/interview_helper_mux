@@ -141,6 +141,15 @@ def collect_segment_ids_from_artifacts(stage_key: str, artifacts: dict[str, Any]
             if isinstance(row, dict) and row.get("segment_id"):
                 refs.add(str(row["segment_id"]))
     elif stage_key in ("topic_coverage_audit", "content_brief_reanchor"):
+        if stage_key == "topic_coverage_audit":
+            for row in artifacts.get("topic_mappings") or []:
+                if isinstance(row, dict):
+                    for sid in row.get("segment_ids") or []:
+                        refs.add(str(sid))
+            for row in artifacts.get("claim_mappings") or []:
+                if isinstance(row, dict):
+                    for sid in row.get("segment_ids") or []:
+                        refs.add(str(sid))
         for row in artifacts.get("topics") or []:
             if isinstance(row, dict):
                 for sid in row.get("segment_ids") or []:
@@ -310,14 +319,17 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
     return errors
 
 
-def _lint_segment_classification(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
+def _lint_segment_classification(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
     segments = artifacts.get("segments") or []
     if not segments:
         errors.append("no classified segments")
     types = [str(s.get("type", "")) for s in segments if isinstance(s, dict)]
     if types and types.count("interviewee_answer") == len(types):
-        errors.append("all segments typed interviewee_answer")
+        from interview_mux.gap_fill_eligibility import gap_fill_mode
+
+        if gap_fill_mode(ctx) != "skipped":
+            errors.append("all segments typed interviewee_answer")
     return errors
 
 
@@ -341,6 +353,12 @@ def _lint_missing_framing(artifacts: dict[str, Any], _ctx: RunContext) -> list[s
 
 
 def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
+    from interview_mux.sonic_context import (
+        load_sonic_context,
+        palette_keyword_matches_sonic_provenance,
+        sonic_provenance_keyword_set,
+    )
+
     errors: list[str] = []
     coherence = artifacts.get("coherence") or {}
     if not str(coherence.get("sonic_identity", "")).strip():
@@ -349,14 +367,27 @@ def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> l
     palettes = artifacts.get("palettes") or []
     if not palettes:
         errors.append("no palettes")
+    sonic_doc = load_sonic_context(ctx) or {}
+    sonic_keywords = sonic_provenance_keyword_set(sonic_doc)
+    sonic_tag_ids = {
+        str(t.get("tag_id")).strip().lower()
+        for t in (sonic_doc.get("tag_registry") or [])
+        if isinstance(t, dict) and t.get("tag_id")
+    }
     for p in palettes:
         if not isinstance(p, dict):
             continue
-        keywords = [str(k).strip().lower() for k in (p.get("keywords") or []) if str(k).strip()]
-        if keywords:
-            overlap = set(keywords) & _sonic_tag_keywords(ctx)
-            if not overlap:
-                errors.append(f"palette {p.get('palette_id')} keywords lack sonic_context provenance")
+        keywords = [str(k).strip() for k in (p.get("keywords") or []) if str(k).strip()]
+        tag_ids = [str(t).strip().lower() for t in (p.get("tag_ids") or []) if str(t).strip()]
+        provenance_ok = False
+        if tag_ids and sonic_tag_ids and any(t in sonic_tag_ids for t in tag_ids):
+            provenance_ok = True
+        elif keywords and sonic_keywords:
+            provenance_ok = any(
+                palette_keyword_matches_sonic_provenance(k, sonic_keywords) for k in keywords
+            )
+        if keywords and sonic_keywords and not provenance_ok:
+            errors.append(f"palette {p.get('palette_id')} keywords lack sonic_context provenance")
         seg_ids = p.get("segment_ids") or []
         if not seg_ids:
             errors.append(f"palette {p.get('palette_id')} has no segment_ids")
@@ -675,11 +706,13 @@ def _lint_narrative_arc_plan(artifacts: dict[str, Any], ctx: RunContext) -> list
     chapters = artifacts.get("chapters") or []
     if len(chapters) > max_ch:
         errors.append(f"chapter count {len(chapters)} exceeds max {max_ch}")
+    from interview_mux.artifact_repairs import narrative_chapter_segment_ids
+
     manifest_ids = _manifest_ids(ctx)
     for ch in chapters:
         if not isinstance(ch, dict):
             continue
-        seg_ids = ch.get("segment_ids") or []
+        seg_ids = narrative_chapter_segment_ids(ctx, ch)
         if not seg_ids:
             errors.append(f"chapter {ch.get('chapter_id')} has no segment_ids")
         for sid in seg_ids:
@@ -977,6 +1010,8 @@ def lint_remediation_hint(error: str) -> str | None:
         return "Vary types (interviewer_question, setup, reaction) per segment-classification taxonomy."
     if "manifest times not monotonic" in low:
         return "Fix segments/boundaries.json timeline — re-run from boundary_detection."
+    if "sonic_context provenance" in low:
+        return "Copy keywords verbatim from palette_keyword_catalog; set tag_ids to matching catalog tag_id."
     return None
 
 

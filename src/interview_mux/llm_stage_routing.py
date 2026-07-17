@@ -646,13 +646,14 @@ def run_llm_stage_with_routing(
     stage_input_obligation: dict[str, Any] | None = None,
     context_cap_boost_round: int = 0,
     clear_field_truncation: bool = False,
+    bill_primary_attempt: bool = True,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any], list[str], int, str | None]:
     """
     Run primary → validate → arbiter → optional uptier/decompose.
     Returns (envelope, volley, arbiter_result, schema_errors, shard_count, shard_plan_source).
     """
     obligation = stage_input_obligation or stage_input.get("classification_obligation")
-    record_primary_attempt(ctx, stage_key)
+    record_primary_attempt(ctx, stage_key, billable=bill_primary_attempt)
     router_outcome = None
     with logged_step(f"{stage_key}/preflight", ctx=ctx, stage=stage_key):
         arb_budget_msg = check_arbiter_budget(ctx, stage_key)

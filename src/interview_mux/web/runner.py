@@ -450,7 +450,9 @@ class JobRunner:
                 if "transcript_review_build" in order:
                     order = order[: order.index("transcript_review_build") + 1]
             pending = [s for s in order if not ctx.is_done(s)]
-            return pending
+            from interview_mux.gap_fill_eligibility import filter_visible_job_stages
+
+            return filter_visible_job_stages(ctx, pending)
         delivery_orders = {
             "delivery": DELIVERY_ORDER,
             "delivery_until_preview": DELIVERY_ORDER,
@@ -467,7 +469,10 @@ class JobRunner:
                 order = order[: order.index("assembly_preview") + 1]
             elif mode == "delivery_polish" and "sfx_prompt_craft" in order:
                 order = order[order.index("sfx_prompt_craft") :]
-            return [s for s in order if not ctx.is_done(s)]
+            pending = [s for s in order if not ctx.is_done(s)]
+            from interview_mux.gap_fill_eligibility import filter_visible_job_stages
+
+            return filter_visible_job_stages(ctx, pending)
         return []
 
     def _check_api_consent(

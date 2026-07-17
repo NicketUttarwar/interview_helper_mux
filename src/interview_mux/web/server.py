@@ -627,6 +627,14 @@ def create_app() -> FastAPI:
         profile_ready = analysis_profile_ready_for_review(ctx)
         story_board_ready = story_board_ready_for_gui(ctx)
         timeline_ready = timeline_ready_for_gui(ctx)
+        from interview_mux.gap_fill_eligibility import gap_fill_mode
+
+        gap_mode = gap_fill_mode(ctx)
+        gap_skip_reason = meta.get("gap_fill_skip_reason")
+        if not gap_skip_reason and ctx.artifact_exists("understanding/gap_fill_skip.json"):
+            skip_doc = ctx.read_json("understanding/gap_fill_skip.json")
+            if isinstance(skip_doc, dict):
+                gap_skip_reason = skip_doc.get("reason")
         stages = _build_stage_list(
             ctx, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
         )
@@ -701,6 +709,8 @@ def create_app() -> FastAPI:
             "g1_5_preview_pickup_pending": g1_5_pending,
             "g1_5_preview_pickup_clear": not g1_5_pending,
             "pickup_speaker_pending": pickup_speaker_pending,
+            "gap_fill_mode": gap_mode,
+            "gap_fill_skip_reason": gap_skip_reason,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "job": job,
             "journey": journey,
@@ -3064,6 +3074,45 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, str(exc)) from exc
             return {"ok": True, **pickup_speaker_payload(ctx)}
 
+    @app.post("/api/runs/{run_id}/gap-fill/skip")
+    def skip_gap_fill_endpoint(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_fill_eligibility import (
+                gap_fill_was_skipped,
+                operator_skip_gap_fill,
+            )
+
+            ctx = _ctx(run_id)
+            payload = body or {}
+            reason = str(payload.get("reason") or "").strip() or None
+            if gap_fill_was_skipped(ctx):
+                refresh_journey_meta(ctx)
+                return {"ok": True, "already_skipped": True, "gap_fill_mode": "skipped"}
+            operator_skip_gap_fill(
+                ctx,
+                reason=reason
+                or "Operator skipped gap speaker sections — no new VO or gap analysis",
+            )
+            runner.clear_operator_pause(
+                ctx,
+                "missing_framing",
+                message="Gap-fill skipped — continuing with source segments only.",
+                level="info",
+            )
+            runner.clear_operator_pause(
+                ctx,
+                "optimal_questions",
+                message="Gap-fill skipped — no interviewer script required.",
+                level="info",
+            )
+            refresh_journey_meta(ctx)
+            return {
+                "ok": True,
+                "gap_fill_mode": "skipped",
+                "missing_framing_done": ctx.is_done("missing_framing"),
+                "optimal_questions_done": ctx.is_done("optimal_questions"),
+            }
+
     @app.get("/api/runs/{run_id}/gap-report/lines")
     def list_gap_report_lines(run_id: str) -> dict[str, Any]:
         from interview_mux.gap_report_api import list_lines
@@ -3523,14 +3572,15 @@ def _build_stage_list(
             else:
                 s["status"] = "done"
         elif sid == "missing_framing":
+            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
             from interview_mux.source_topology import check_pickup_speaker_pending
 
-            if check_pickup_speaker_pending(ctx):
-                s["status"] = "action_required"
-            elif ctx.is_done(sid):
+            if gap_fill_was_skipped(ctx) or ctx.is_done(sid):
                 s["status"] = "done"
+            elif check_pickup_speaker_pending(ctx):
+                s["status"] = "action_required"
             else:
-                s["status"] = "pending"
+                s["status"] = "pending" if not ctx.is_done(sid) else "done"
         elif sid == "analysis_profile":
             ensure_analysis_workspace(ctx)
             from interview_mux.artifact_completeness import analysis_profile_ready_for_review
@@ -3542,7 +3592,11 @@ def _build_stage_list(
             else:
                 s["status"] = "action_required"
         elif sid == "g1_vo_pickup":
-            if not ctx.artifact_exists("understanding/gap_report.json"):
+            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+            if gap_fill_was_skipped(ctx):
+                s["status"] = "done"
+            elif not ctx.artifact_exists("understanding/gap_report.json"):
                 s["status"] = "locked"
             elif g1_missing:
                 s["status"] = "action_required"
@@ -3568,7 +3622,10 @@ def _build_stage_list(
             else:
                 s["status"] = "done"
         elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase == "delivery":
-            if g1_missing or not ctx.artifact_exists("analysis_complete.json"):
+            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+            g1_blocks = bool(g1_missing) and not gap_fill_was_skipped(ctx)
+            if g1_blocks or not ctx.artifact_exists("analysis_complete.json"):
                 s["status"] = "locked"
             elif profile_gate_pending:
                 s["status"] = "locked"
@@ -3578,6 +3635,16 @@ def _build_stage_list(
             s["status"] = "locked"
         elif df_pending and sid in _disfluency_locked_analysis_stages():
             s["status"] = "locked"
+        elif sid == "audio_preclean":
+            from interview_mux.operator_quality import preclean_checkpoint_decision
+            from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            dismissed = preclean_checkpoint_decision(run_meta, "before_ingest") == "dismiss"
+            if preclean_was_skipped(ctx) or ctx.is_done(sid) or dismissed:
+                s["status"] = "done"
+            else:
+                s["status"] = "pending"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
         from interview_mux.write_staging import gate_blocked_stage
@@ -3590,7 +3657,7 @@ def _build_stage_list(
                 s["status"] = "awaiting_write_approval"
         info = STAGE_BY_ID.get(sid)
         if info:
-            from interview_mux.artifact_completeness import artifact_status
+            from interview_mux.artifact_completeness import artifact_status_for_stage
             from interview_mux.artifact_lifecycle import (
                 build_outputs_view,
                 split_artifact_lists,
@@ -3604,10 +3671,15 @@ def _build_stage_list(
             s["artifacts_lifecycle"] = lifecycle
             s["artifacts_present"] = committed
             s["artifacts_status"] = {
-                a: artifact_status(a, ctx) for a in info.artifacts if a and not a.endswith("/")
+                a: artifact_status_for_stage(a, ctx, sid)
+                for a in info.artifacts
+                if a and not a.endswith("/")
             }
             s["outputs_view"] = build_outputs_view(ctx, sid)
             s["stage_output_mode"] = stage_output_mode(ctx, sid)
+            from interview_mux.gap_fill_eligibility import gap_fill_mode, gap_fill_stage_visibility
+
+            s["stage_visibility"] = gap_fill_stage_visibility(ctx, sid)
             from interview_mux.web.stages import reuse_policy_for
 
             s["reuse_policy"] = reuse_policy_for(sid)

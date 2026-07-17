@@ -292,7 +292,11 @@ export function buildStageSubsteps(
         },
       );
     }
-  } else if (offer && stage.id === "audio_preclean") {
+  } else if (
+    offer &&
+    stage.id === "audio_preclean" &&
+    !isOptionalStageSkipped(stage, run.meta)
+  ) {
     substeps.push({
       id: "preclean:run",
       label: "Run audio cleaning",
@@ -350,14 +354,33 @@ export function buildStageProgress(
     null;
   const doneCount = substeps.filter((s) => s.status === "done").length;
   const totalCount = substeps.length;
+  const optionalSkipped = isOptionalStageSkipped(stage, run.meta);
   const fullyComplete =
-    stage.status === "done" &&
-    stageHasCommittedOutputs(stage) &&
-    !hasTodo &&
-    !hasRunning &&
-    !hasError &&
-    !hasUnackedHandoff(stage, run) &&
-    !stageAwaitingWriteApproval(run, stage.id);
+    optionalSkipped ||
+    (stage.status === "done" &&
+      stageHasCommittedOutputs(stage) &&
+      !hasTodo &&
+      !hasRunning &&
+      !hasError &&
+      !hasUnackedHandoff(stage, run) &&
+      !stageAwaitingWriteApproval(run, stage.id));
+
+  if (optionalSkipped) {
+    const settledSubsteps = substeps.map((s) =>
+      s.status === "done" ? s : { ...s, status: "done" as const },
+    );
+    return {
+      stageId: stage.id,
+      substeps: settledSubsteps,
+      fullyComplete: true,
+      hasTodo: false,
+      hasRunning: false,
+      hasError: false,
+      activeSubstep: null,
+      doneCount: settledSubsteps.length,
+      totalCount: settledSubsteps.length,
+    };
+  }
 
   return {
     stageId: stage.id,

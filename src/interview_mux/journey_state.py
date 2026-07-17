@@ -159,8 +159,13 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         state = ctx.read_json(ANALYSIS_STATE_PATH)
         profile_verified = bool((state.get("meta") or {}).get("operator_verified"))
 
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
     g1_missing = check_g1_vo(ctx)
-    g1_complete = not g1_missing and ctx.artifact_exists("analysis_complete.json")
+    if gap_fill_was_skipped(ctx):
+        g1_complete = ctx.artifact_exists("analysis_complete.json")
+    else:
+        g1_complete = not g1_missing and ctx.artifact_exists("analysis_complete.json")
 
     preview_ready = ctx.artifact_exists("master/assembly_preview.wav")
     preview_listened = bool(meta.get("preview_listened_at"))
@@ -205,11 +210,18 @@ def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None =
     if not ms.get("g0_complete"):
         return "prepare"
     if not ctx.artifact_exists("analysis_complete.json"):
-        if not ms.get("profile_verified"):
-            if ctx.is_done("content_context") or ctx.is_done("optimal_questions"):
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+        from interview_mux.pipeline import shared_analysis_chain_complete
+
+        if gap_fill_was_skipped(ctx) and shared_analysis_chain_complete(ctx):
+            if not ms.get("profile_verified"):
                 return "understand"
-        if not ctx.is_done("optimal_questions"):
-            return "understand"
+        else:
+            if not ms.get("profile_verified"):
+                if ctx.is_done("content_context") or ctx.is_done("optimal_questions"):
+                    return "understand"
+            if not ctx.is_done("optimal_questions"):
+                return "understand"
     if not ms.get("g1_complete"):
         return "complete"
 

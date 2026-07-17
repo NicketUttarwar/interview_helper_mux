@@ -13,11 +13,20 @@ import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
-import { findNextRunnableStage, resolvePrecleanOffer } from "./preclean";
+import {
+  findNextRunnableStage,
+  isOptionalStageSkipped,
+  resolvePrecleanOffer,
+} from "./preclean";
 import { buildNumberedStages, resolvePipelineNav } from "./pipelineNavigation";
-import { firstTodoItem } from "./stageGuidance";
+import {
+  firstStageHealthTodoItem,
+  firstUpstreamTodoItem,
+  guidanceHasTodo,
+} from "./stageGuidance";
 import { resolvePendingWritePaths } from "./writeApproval";
 import { stageHasCommittedOutputs, stageIncompleteReason, firstUpstreamBlocker } from "./stageOutputs";
+import { isStageHidden } from "./stageVisibility";
 
 const MODE_LABELS: Record<StepMode, string> = {
   locked: "Waiting",
@@ -292,13 +301,28 @@ function buildGateAction(
 }
 
 function buildLockedAction(stage: StageInfo): OperatorAction {
-  const blocker = firstTodoItem(stage.guidance);
+  const health = firstStageHealthTodoItem(stage.guidance);
+  const blocker = firstUpstreamTodoItem(stage.guidance);
+  if (health && !blocker) {
+    return {
+      mode: "error",
+      stageId: stage.id,
+      substepId: health.id,
+      headline: `${stage.title} needs a re-run`,
+      subline: health.label,
+      primaryLabel: `Re-run ${stage.title}`,
+      primaryKind: "run_stage",
+      primaryDisabled: false,
+      modalAutoOpen: false,
+    };
+  }
+  const todo = blocker ?? health;
   return {
     mode: "locked",
     stageId: stage.id,
-    substepId: blocker?.id ?? null,
+    substepId: todo?.id ?? null,
     headline: `Waiting — complete earlier steps first`,
-    subline: blocker?.label ?? "Prerequisites for this step are not met.",
+    subline: todo?.label ?? "Prerequisites for this step are not met.",
     primaryLabel: "Locked",
     primaryKind: "none",
     primaryDisabled: true,
@@ -514,7 +538,11 @@ export function resolveOperatorAction(
     if (next.status === "locked") {
       return buildLockedAction(next);
     }
-    if (next.status === "pending" && resolvePrecleanOffer(next, run.meta)) {
+    if (
+      next.status === "pending" &&
+      !isOptionalStageSkipped(next, run.meta) &&
+      resolvePrecleanOffer(next, run.meta)
+    ) {
       return buildPrecleanAction(next);
     }
     if (next.status === "pending") {
@@ -544,6 +572,10 @@ export function resolveOperatorActionForStage(
   const global = resolveOperatorAction(run, ctx);
   const stage = stageById(run, stageId);
   if (!stage) return global;
+  if (isStageHidden(stage)) {
+    const next = findNextRunnableStage(run.stages, run.meta);
+    return buildDoneAction(run, stage, next, null);
+  }
 
   const job = run.job;
   const jobRunning = Boolean(ctx.jobRunning);
@@ -602,7 +634,10 @@ export function resolveOperatorActionForStage(
     return buildLockedAction(stage);
   }
 
-  const precleanOffer = resolvePrecleanOffer(stage, run.meta);
+  const precleanOffer =
+    !isOptionalStageSkipped(stage, run.meta)
+      ? resolvePrecleanOffer(stage, run.meta)
+      : null;
   if (precleanOffer) {
     if (
       stage.id === "audio_preclean" &&
@@ -676,8 +711,24 @@ export function resolveOperatorActionForStage(
   }
 
   if (nav.nextStage?.id === stageId && stage.status === "pending") {
-    const prereqs = (stage.guidance?.prerequisites || []).some((i) => i.status === "todo");
-    if (prereqs) return buildLockedAction(stage);
+    const upstreamBlocked = (stage.guidance?.prerequisites || []).some(
+      (i) => i.status === "todo" && (i.category || "upstream") === "upstream",
+    );
+    if (upstreamBlocked) return buildLockedAction(stage);
+    const health = firstStageHealthTodoItem(stage.guidance);
+    if (health) {
+      return {
+        mode: "error",
+        stageId: stage.id,
+        substepId: health.id,
+        headline: `${stage.title} needs a re-run`,
+        subline: health.label,
+        primaryLabel: `Re-run ${stage.title}`,
+        primaryKind: "run_stage",
+        primaryDisabled: false,
+        modalAutoOpen: false,
+      };
+    }
     const action = buildIdleAction(run, stage);
     return action;
   }

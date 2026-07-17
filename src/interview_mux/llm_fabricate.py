@@ -139,7 +139,28 @@ def fabricate_field_values(
     out = dict(artifacts)
 
     # Deterministic benign defaults (mid-tier LLM hook point for future OM-F* calls)
-    for path in batch:
+    holistic_paths = [
+        p
+        for p in batch
+        if any(path_matches_pattern(p, pat) for pat in NEVER_FABRICATE_PATHS)
+    ]
+    standard_paths = [p for p in batch if p not in holistic_paths]
+
+    from interview_mux.holistic_fabrication import holistic_fabrication_enabled
+
+    if holistic_paths and holistic_fabrication_enabled(stage_key) and ctx is not None:
+        # Evidentiary paths defer to holistic fabrication during persist/ITR bridge.
+        for path in holistic_paths:
+            provenance.append(
+                {
+                    "path": path,
+                    "action": "defer_holistic",
+                    "source": "holistic_fabrication",
+                    "model_id": None,
+                }
+            )
+
+    for path in standard_paths:
         if any(path_matches_pattern(path, pat) for pat in NEVER_FABRICATE_PATHS):
             continue
         val = deterministic_fabricated_value(path, stage_key=stage_key)

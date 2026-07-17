@@ -51,6 +51,51 @@ def test_repair_narrative_plan_drops_orphan_chapters(tmp_path, monkeypatch: pyte
     assert patched["chapters"][0]["chapter_id"] == "ch_2"
 
 
+def test_repair_narrative_plan_infers_segment_ids_from_topic_tags(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_narr_infer")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001"),
+            minimal_manifest_segment("seg_012"),
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {
+            "thesis": "Test thesis",
+            "topics": [
+                {
+                    "name": "Early product missteps and pivots",
+                    "summary": "Regulatory setbacks and failed products.",
+                    "segment_ids": ["seg_012"],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    doc = {
+        "arc_summary": "Test arc",
+        "chapters": [
+            {
+                "chapter_id": "ch_01",
+                "title": "False Starts",
+                "topic_tags": ["early_product_missteps_and_pivots"],
+                "suggested_open_segment_id": "seg_012",
+            }
+        ],
+        "ordering_constraints": [],
+    }
+    patched, applied = repair_narrative_plan(ctx, doc)
+    assert len(patched["chapters"]) == 1
+    assert patched["chapters"][0]["segment_ids"] == ["seg_012"]
+    assert any(row.get("action") == "infer_segment_ids" for row in applied)
+
+
 def test_repair_edl_audit_normalizes_verdict(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_edl")

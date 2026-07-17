@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
@@ -11,6 +11,7 @@ import {
   workflowStepIndex,
   workflowStepStatus,
   workflowStepAttentionCount,
+  workflowStepsForRun,
   type WorkflowStepId,
 } from "../utils/workflowSteps";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
@@ -47,6 +48,8 @@ export function LiveStatusBar() {
     activeTab,
     actionBusy,
   } = useApp();
+
+  const workflowSteps = useMemo(() => workflowStepsForRun(run), [run]);
 
   const statusOnlyOnPipeline = activeTab === "pipeline" && Boolean(run);
 
@@ -118,7 +121,7 @@ export function LiveStatusBar() {
 
   const navigateToStep = useCallback(
     (stepId: WorkflowStepId) => {
-      const def = WORKFLOW_STEPS.find((s) => s.id === stepId);
+      const def = workflowSteps.find((s) => s.id === stepId);
       if (!def) return;
       if (stepId === "start") {
         setActiveTab("start");
@@ -143,7 +146,7 @@ export function LiveStatusBar() {
         });
       }
     },
-    [run, apiGrants, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast],
+    [run, apiGrants, setActiveTab, setPipelineSubTab, selectStage, openActionModal, showToast, workflowSteps],
   );
 
   const operatorAction = useGlobalOperatorAction(run, {
@@ -313,13 +316,13 @@ export function LiveStatusBar() {
             className="live-status-phase-label muted"
             title="High-level journey: Prepare → Export. Individual pipeline steps are numbered separately in the Pipeline tab."
           >
-            Workflow phase {activeIndex + 1} of {WORKFLOW_STEPS.length}:{" "}
-            <strong>{WORKFLOW_STEPS[activeIndex]?.label}</strong>
+            Workflow phase {activeIndex + 1} of {workflowSteps.length}:{" "}
+            <strong>{workflowSteps[activeIndex]?.label}</strong>
           </span>
           <ol
             className={`workflow-step-track live-status-chips${activeTab === "pipeline" ? " workflow-phase-bar-readonly" : ""}`}
           >
-            {WORKFLOW_STEPS.map((step, i) => {
+            {workflowSteps.map((step, i) => {
               const status = workflowStepStatus(step.id, run, apiGrants);
               const isActive = step.id === activeStepId;
               const attentionCount = workflowStepAttentionCount(step.id, run, apiGrants);

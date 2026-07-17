@@ -15,6 +15,7 @@ import { StageReuseSection } from "../guidance/StageReuseSection";
 import { StageParentProgressBanner } from "./StageParentProgressBanner";
 import { ProgressionReadinessBanner } from "../guidance/ProgressionReadinessBanner";
 import { stageHasCommittedOutputs } from "../../utils/stageOutputs";
+import { resolveVirtualPipelineFocus } from "../../utils/virtualPipelineFocus";
 export function StageStepWorkbench() {
   const {
     run,
@@ -116,6 +117,18 @@ export function StageStepWorkbench() {
   }, [stageReadyToAdvance, run, selectedStageId, jobRunning, syncPipelineStageFocus, autoContinuePipeline]);
 
   if (!selectedStage || !stageAction) {
+    const virtual = selectedStageId ? resolveVirtualPipelineFocus(selectedStageId) : null;
+    if (virtual) {
+      return (
+        <div className="panel stage-step-workbench">
+          <h2>{virtual.label}</h2>
+          <p className="hint">
+            Open the <strong>{virtual.label}</strong> tab above to resolve open questions, then return
+            to the stage list.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="panel stage-step-workbench">
         <h2>Loading step…</h2>

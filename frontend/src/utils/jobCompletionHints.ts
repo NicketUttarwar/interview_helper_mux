@@ -1,4 +1,5 @@
 import type { RunData } from "../types";
+import { gapFillSkipped } from "./stageVisibility";
 
 /** Extra operator hint appended after a job completes (stage-specific). */
 export function jobCompletionHint(
@@ -27,6 +28,12 @@ export function jobCompletionHint(
     refreshed.journey?.blocking?.reason === "analysis_profile"
   ) {
     return "Analysis profile gate — verify story on Story Board or Profile tab.";
+  }
+  if (
+    completedStageId === "delivery_brief_build" &&
+    gapFillSkipped(refreshed)
+  ) {
+    return "Gap-fill skipped — continue to interview profile and flow selection.";
   }
   if (completedStageId === "assembly_preview") {
     return "Listen to the assembly preview before sound design spend.";

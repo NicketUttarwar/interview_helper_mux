@@ -7,6 +7,7 @@ import {
   type StageReuseFromAssetsResult,
 } from "./stageReuseFromAssets";
 import { isTranscriptReuseEditStage } from "./transcriptReuseStages";
+import { transcriptReuseEditPending } from "./transcriptReuseEditGate";
 
 export function readyForStageMessage(title: string): string {
   return `Ready for ${title} — use Run when you want to start.`;
@@ -42,8 +43,6 @@ export interface ApplyReuseResultOpts extends StageWorkbenchDeps {
   announceNext?: boolean;
   /** When autopilot is on, chain into the next stage after reuse lands. */
   autoContinuePipeline?: (completedStageId?: string | null) => Promise<boolean>;
-  /** Open full-text edit interstitial after transcript reuse accept. */
-  openTranscriptReuseEdit?: () => void;
 }
 
 /** After reuse copies land, focus write approval or continue the pipeline. */
@@ -68,19 +67,30 @@ export async function applyReuseResultAndFocus(opts: ApplyReuseResultOpts): Prom
   }
 
   if (isTranscriptReuseEditStage(opts.stageId)) {
-    opts.showToast(
-      `Reused prior ${opts.stageTitle} — review and edit the full transcript before continuing.`,
-      "success",
-    );
-    opts.openTranscriptReuseEdit?.();
-    await focusStageWorkbench({
-      run: refreshed,
-      stageId: opts.stageId,
-      selectStage: opts.selectStage,
-      expandStage: opts.expandStage,
-      setActiveStepId: opts.setActiveStepId,
-      setPipelineSubTab: opts.setPipelineSubTab,
-    });
+    if (transcriptReuseEditPending(refreshed.meta)) {
+      opts.showToast(
+        `Reused prior ${opts.stageTitle} — review and edit the full transcript before continuing.`,
+        "success",
+      );
+      await focusStageWorkbench({
+        run: refreshed,
+        stageId: opts.stageId,
+        selectStage: opts.selectStage,
+        expandStage: opts.expandStage,
+        setActiveStepId: opts.setActiveStepId,
+        setPipelineSubTab: opts.setPipelineSubTab,
+      });
+      return;
+    }
+    opts.showToast(`Reused prior ${opts.stageTitle} outputs from ASSETS.`, "success");
+    if (opts.autoContinuePipeline) {
+      const continued = await opts.autoContinuePipeline(opts.stageId);
+      if (continued) return;
+    }
+    const next = await focusNextRunnableStageWorkbench(refreshed, opts);
+    if (next && opts.announceNext !== false) {
+      opts.showToast(readyForStageMessage(next.title), "info");
+    }
     return;
   }
 
@@ -114,7 +124,7 @@ export async function tryReuseFromAssetsForStage(
 }
 
 export async function handleReuseFromAssetsForStage(
-  opts: TryReuseFromAssetsOpts & { openTranscriptReuseEdit?: () => void },
+  opts: TryReuseFromAssetsOpts,
 ): Promise<"reused" | "no_candidates" | "failed"> {
   const reuse = await tryReuseFromAssetsForStage(opts);
   if (reuse.status === "reused") {
@@ -130,7 +140,6 @@ export async function handleReuseFromAssetsForStage(
       setActiveStepId: opts.setActiveStepId,
       setPipelineSubTab: opts.setPipelineSubTab,
       autoContinuePipeline: opts.autoContinuePipeline,
-      openTranscriptReuseEdit: opts.openTranscriptReuseEdit,
     });
     return "reused";
   }

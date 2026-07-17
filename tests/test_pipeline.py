@@ -93,6 +93,29 @@ def _stub_stage(called: list[str], name: str):
 
     return _fn
 
+
+def test_delivery_stage_fns_invoke_without_ctx_argument(tmp_path, monkeypatch):
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "delivery_fn_wrappers")
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        pipeline.analysis_extended,
+        "run_topic_coverage",
+        _stub_stage(seen, "topic_coverage_audit"),
+    )
+    monkeypatch.setattr(
+        pipeline.assembly,
+        "run_edl",
+        _stub_stage(seen, "edl"),
+    )
+
+    pipeline._delivery_stage_fns(ctx)["topic_coverage_audit"]()
+    pipeline._delivery_stage_fns(ctx)["edl"]()
+
+    assert seen == ["topic_coverage_audit", "edl"]
+
 def test_run_delivery_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, monkeypatch):
     ctx = ctx_from_fixture(tmp_path)
     called: list[str] = []

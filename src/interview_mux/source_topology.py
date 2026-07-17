@@ -334,6 +334,10 @@ def pickup_speaker_confirmed(ctx: RunContext) -> bool:
 
 def check_pickup_speaker_pending(ctx: RunContext) -> bool:
     """True when topology exists but operator has not confirmed gap pickup speaker."""
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if gap_fill_was_skipped(ctx):
+        return False
     if pickup_speaker_confirmed(ctx):
         return False
     if not ctx.artifact_exists("understanding/source_topology.json"):
@@ -481,6 +485,8 @@ def ensure_speaker_sample_clips(ctx: RunContext) -> dict[str, str]:
 
 
 def pickup_speaker_payload(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
     topo = load_topology(ctx) or {}
     adapt = load_flow_adaptation(ctx) or {}
     stats = list(topo.get("speaker_stats") or [])
@@ -510,6 +516,7 @@ def pickup_speaker_payload(ctx: RunContext) -> dict[str, Any]:
         "least_spoken_speaker_id": least,
         "pickup_eligible_speaker_id": selected,
         "pickup_speaker_confirmed": pickup_speaker_confirmed(ctx),
+        "gap_fill_skipped": gap_fill_was_skipped(ctx),
         "pending": check_pickup_speaker_pending(ctx),
     }
 

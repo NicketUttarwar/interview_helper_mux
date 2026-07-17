@@ -155,10 +155,12 @@ def load_context_index(ctx: RunContext, *, write: bool = True) -> dict[str, Any]
     return doc
 
 def save_context_index(ctx: RunContext, index: dict[str, Any]) -> None:
+    from interview_mux.write_staging import write_committed_json
+
     index.setdefault("meta", {})
     index["meta"]["last_updated_at"] = _now()
     index["meta"]["entries_count"] = len(index.get("volley_entries") or [])
-    ctx.write_json(CONTEXT_INDEX_PATH, index, stage_key="context_index")
+    write_committed_json(ctx, CONTEXT_INDEX_PATH, index, stage_key="context_index")
 
 def _supersede_prior(
     entries: list[dict[str, Any]],

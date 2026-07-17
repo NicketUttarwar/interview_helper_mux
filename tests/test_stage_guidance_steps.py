@@ -195,6 +195,19 @@ def test_automated_steps_gate_blocks_write_approval(tmp_path, monkeypatch) -> No
     assert by_id["run"]["status"] == "done"
 
 
+def test_preclean_steps_after_dismiss(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "steps_preclean_dismiss")
+    init_run_meta_for_test(ctx)
+    from interview_mux.web.server import _record_preclean_offer
+
+    _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
+    guidance = build_stage_guidance(ctx, "audio_preclean", status="done")
+    steps = build_stage_steps(ctx, "audio_preclean", status="done", guidance=guidance)
+    assert all(s["status"] == "done" for s in steps)
+    assert steps[0]["id"] == "review_offer"
+    assert "skipped" in steps[0]["label"].lower()
+
+
 def test_preclean_steps_done(tmp_path) -> None:
     ctx = isolated_run_ctx(tmp_path, "steps_preclean_done")
     init_run_meta_for_test(ctx)

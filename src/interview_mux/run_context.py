@@ -118,13 +118,16 @@ class RunContext:
         skip_handoff: bool = False,
     ) -> Path:
         if isinstance(data, dict):
+            from interview_mux.artifact_writes import _prepare_for_disk_validation
             from interview_mux.prompt_validation import validate_artifact_write
 
-            errors = validate_artifact_write(rel, data)
+            payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
+            errors = validate_artifact_write(rel, payload)
             if errors:
                 raise ValueError(
                     f"{rel}: schema validation failed — " + "; ".join(errors[:6])
                 )
+            data = payload
         p = self.path(rel)
         fs_write_json(p, data)
         if not skip_handoff:
@@ -413,6 +416,9 @@ class RunContext:
             marker = self.final_path(".stage_done", s)
             if marker.is_file():
                 marker.unlink()
+        from interview_mux.gap_fill_eligibility import maybe_clear_gap_fill_skip_on_invalidation
+
+        maybe_clear_gap_fill_skip_on_invalidation(self, stage)
         from interview_mux.stage_step_through import clear_step_through_from
 
         clear_step_through_from(self, stage, order)

@@ -1,4 +1,6 @@
 import type { RunMeta, StageInfo } from "../types";
+import { isOptionalStageSkipped } from "./preclean";
+import { isStageHidden } from "./stageVisibility";
 
 /** True when every required artifact is fully committed (not staged/partial/pending). */
 export function stageArtifactsFullyComplete(stage: StageInfo): boolean {
@@ -58,34 +60,25 @@ export function stageIncompleteReason(stage: StageInfo): string | null {
   return null;
 }
 
-function stageSatisfiedForProgression(stage: StageInfo): boolean {
+function stageSatisfiedForProgression(stage: StageInfo, meta?: RunMeta | null): boolean {
+  if (isStageHidden(stage)) return true;
   if (stage.stage_output_mode === "optional_skipped") return true;
+  if (isOptionalStageSkipped(stage, meta)) return true;
   if (stage.status === "incomplete") return false;
   if (stage.status !== "done") return false;
   return stageArtifactsFullyComplete(stage);
-}
-
-function isDeferredAudioPreclean(stage: StageInfo, meta?: RunMeta | null): boolean {
-  if (stage.id !== "audio_preclean" || stage.status !== "pending") return false;
-  if (stage.stage_output_mode === "optional_skipped") return false;
-  const decisions = meta?.audio_preclean?.decisions;
-  if (!Array.isArray(decisions)) return true;
-  return !decisions.some(
-    (d) =>
-      d.checkpoint === "before_ingest" &&
-      (d.action === "dismiss" || d.action === "accept"),
-  );
 }
 
 /** Upstream artifact complete check for autopilot / continue guards. */
 export function upstreamArtifactsReady(
   stages: StageInfo[],
   targetStageId: string,
+  meta?: RunMeta | null,
 ): boolean {
   const idx = stages.findIndex((s) => s.id === targetStageId);
   if (idx <= 0) return true;
   for (let i = 0; i < idx; i++) {
-    if (!stageSatisfiedForProgression(stages[i])) return false;
+    if (!stageSatisfiedForProgression(stages[i], meta)) return false;
   }
   return true;
 }
@@ -100,8 +93,7 @@ export function firstUpstreamBlocker(
   if (idx <= 0) return null;
   for (let i = 0; i < idx; i++) {
     const s = stages[i];
-    if (isDeferredAudioPreclean(s, meta)) continue;
-    if (!stageSatisfiedForProgression(s)) return s;
+    if (!stageSatisfiedForProgression(s, meta)) return s;
   }
   return null;
 }

@@ -16,10 +16,14 @@
           "title": { "type": "string" },
           "topic_tags": { "type": "array", "items": { "type": "string" } },
           "suggested_open_segment_id": { "type": "string" },
+          "segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "act_number": { "type": "integer", "minimum": 1, "maximum": 5 },
-          "act_title": { "type": "string" },
-          "tension_level": { "type": "number", "minimum": 0, "maximum": 100 },
-          "is_moat_chapter": { "type": "boolean" }
+          "act_title": { "type": ["string", "null"] },
+          "tension_level": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+          "is_moat_chapter": { "type": ["boolean", "null"] }
         }
       }
     },

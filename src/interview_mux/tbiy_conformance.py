@@ -371,40 +371,53 @@ def inventory_from_topology(
         )
 
     # pickup_frame_voice
-    least = min(stats, key=lambda s: float(s.get("talk_ms") or 0))["speaker_id"] if stats else None
-    pickup = pickup_id or least
-    pickup_row = next((s for s in stats if str(s.get("speaker_id")) == str(pickup)), None)
-    pickup_is_frame = bool(pickup_row and _role_is_frame(str(pickup_row.get("role_hint"))))
-    if pickup and pickup_is_frame:
-        elements.append(
-            _element(
-                "pickup_frame_voice",
-                presence=PRESENCE_PRESENT,
-                action=ACTION_APPLY,
-                rationale="Gap pickup voice is a frame/host speaker (least-spoken default).",
-                evidence={"pickup_eligible_speaker_id": pickup},
-            )
-        )
-    elif pickup:
-        elements.append(
-            _element(
-                "pickup_frame_voice",
-                presence=PRESENCE_WEAK,
-                action=ACTION_OPERATOR,
-                rationale="Pickup defaults to least-spoken; confirm in GUI if that speaker is not the intended host frame.",
-                evidence={"pickup_eligible_speaker_id": pickup, "least_spoken_speaker_id": least},
-            )
-        )
-    else:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if gap_fill_was_skipped(ctx):
         elements.append(
             _element(
                 "pickup_frame_voice",
                 presence=PRESENCE_MISSING,
-                action=ACTION_OPERATOR,
-                rationale="No speakers yet — operator must confirm pickup voice when topology exists.",
-                evidence={},
+                action=ACTION_DEFER,
+                rationale="Gap-fill VO path skipped — no pickup frame voice required for this source.",
+                evidence={"gap_fill_mode": "skipped"},
             )
         )
+    else:
+        least = min(stats, key=lambda s: float(s.get("talk_ms") or 0))["speaker_id"] if stats else None
+        pickup = pickup_id or least
+        pickup_row = next((s for s in stats if str(s.get("speaker_id")) == str(pickup)), None)
+        pickup_is_frame = bool(pickup_row and _role_is_frame(str(pickup_row.get("role_hint"))))
+        if pickup and pickup_is_frame:
+            elements.append(
+                _element(
+                    "pickup_frame_voice",
+                    presence=PRESENCE_PRESENT,
+                    action=ACTION_APPLY,
+                    rationale="Gap pickup voice is a frame/host speaker (least-spoken default).",
+                    evidence={"pickup_eligible_speaker_id": pickup},
+                )
+            )
+        elif pickup:
+            elements.append(
+                _element(
+                    "pickup_frame_voice",
+                    presence=PRESENCE_WEAK,
+                    action=ACTION_OPERATOR,
+                    rationale="Pickup defaults to least-spoken; confirm in GUI if that speaker is not the intended host frame.",
+                    evidence={"pickup_eligible_speaker_id": pickup, "least_spoken_speaker_id": least},
+                )
+            )
+        else:
+            elements.append(
+                _element(
+                    "pickup_frame_voice",
+                    presence=PRESENCE_MISSING,
+                    action=ACTION_OPERATOR,
+                    rationale="No speakers yet — operator must confirm pickup voice when topology exists.",
+                    evidence={},
+                )
+            )
 
     return elements
 

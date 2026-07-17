@@ -67,7 +67,10 @@
                 ]
               },
               "confidence": {
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "label": {
                 "type": [

@@ -263,7 +263,7 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
         if not rel or rel.endswith("/"):
             continue
         phase = _artifact_lifecycle_phase(ctx, rel, stage_id=stage_id)
-        from interview_mux.artifact_completeness import artifact_status
+        from interview_mux.artifact_completeness import artifact_status_for_stage
         from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
 
         suff = "ok"
@@ -279,7 +279,7 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
             {
                 "path": rel,
                 "label": rel.split("/")[-1],
-                "status": artifact_status(rel, ctx),
+                "status": artifact_status_for_stage(rel, ctx, stage_id),
                 "phase": phase,
                 "kind": "artifact",
                 "sufficiency_status": suff,
@@ -309,6 +309,12 @@ def stage_output_mode(ctx: Any, stage_id: str) -> str:
         from interview_mux.disfluency.config import disfluency_enabled
 
         if not disfluency_enabled():
+            return "optional_skipped"
+
+    if stage_id in ("missing_framing", "optimal_questions", "g1_vo_pickup"):
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        if gap_fill_was_skipped(ctx):
             return "optional_skipped"
 
     info = STAGE_BY_ID.get(stage_id)

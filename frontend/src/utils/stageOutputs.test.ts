@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { StageInfo } from "../types";
-import { stageArtifactsFullyComplete, stageHasCommittedOutputs, stageIncompleteReason, upstreamArtifactsReady } from "./stageOutputs";
+import {
+  firstUpstreamBlocker,
+  stageArtifactsFullyComplete,
+  stageHasCommittedOutputs,
+  stageIncompleteReason,
+  upstreamArtifactsReady,
+} from "./stageOutputs";
 
 function stage(partial: Partial<StageInfo> & { id: string }): StageInfo {
   return {
@@ -57,5 +63,24 @@ describe("stageOutputs", () => {
     ];
     expect(stageArtifactsFullyComplete(stages[0])).toBe(false);
     expect(upstreamArtifactsReady(stages, "content_context")).toBe(false);
+  });
+
+  it("firstUpstreamBlocker ignores dismissed optional pre-clean still marked pending", () => {
+    const stages = [
+      stage({
+        id: "audio_preclean",
+        title: "Audio pre-clean",
+        status: "pending",
+        phase: "prepare",
+      }),
+      stage({ id: "ingest", status: "done", phase: "prepare" }),
+      stage({ id: "interview_spine_build", status: "pending", phase: "understand" }),
+    ];
+    const meta = {
+      audio_preclean: {
+        decisions: [{ checkpoint: "before_ingest", action: "dismiss" }],
+      },
+    };
+    expect(firstUpstreamBlocker(stages, "interview_spine_build", meta)).toBeNull();
   });
 });

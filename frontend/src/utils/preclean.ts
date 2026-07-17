@@ -1,5 +1,6 @@
 import type { RunMeta, StageInfo, StageStatus } from "../types";
 import { firstUpstreamBlocker } from "./stageOutputs";
+import { isStageHidden } from "./stageVisibility";
 
 export function precleanDismissedAtCheckpoint(
   preclean: RunMeta["audio_preclean"] | undefined,
@@ -73,17 +74,6 @@ export function isOptionalStageSkipped(
   return false;
 }
 
-/** Unset optional pre-clean offer — defer until operator opens that stage explicitly. */
-export function isDeferredOptionalStage(
-  stage: StageInfo,
-  meta?: RunMeta | null,
-): boolean {
-  if (stage.id !== "audio_preclean") return false;
-  if (stage.status === "done") return false;
-  if (isOptionalStageSkipped(stage, meta)) return false;
-  return !precleanOfferSettled(meta?.audio_preclean, "before_ingest");
-}
-
 export function getOptionalSkipLabel(stage: StageInfo): string {
   return "Skip optional step";
 }
@@ -112,18 +102,21 @@ export function findNextRunnableStage(
   meta?: RunMeta | null,
 ): StageInfo | undefined {
   for (const s of stages) {
+    if (isStageHidden(s)) continue;
     if (s.status === "awaiting_write_approval") return s;
   }
   for (const s of stages) {
+    if (isStageHidden(s)) continue;
     if (s.status === "action_required") return s;
   }
   for (const s of stages) {
+    if (isStageHidden(s)) continue;
     if (isActionableIncomplete(stages, s, meta)) return s;
   }
   for (const s of stages) {
+    if (isStageHidden(s)) continue;
     if (s.status === "pending" && s.phase !== "gate") {
       if (isOptionalStageSkipped(s, meta)) continue;
-      if (isDeferredOptionalStage(s, meta)) continue;
       if (firstUpstreamBlocker(stages, s.id, meta)) continue;
       return s;
     }

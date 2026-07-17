@@ -161,8 +161,9 @@ def _guidance_item(
     action: str | None = None,
     kind: str | None = None,
     substep_label: str | None = None,
+    category: str = "upstream",
 ) -> dict[str, Any]:
-    row: dict[str, Any] = {"id": item_id, "label": label, "status": status}
+    row: dict[str, Any] = {"id": item_id, "label": label, "status": status, "category": category}
     if stage_id:
         row["stage_id"] = stage_id
     if action:
@@ -213,7 +214,7 @@ def _latest_stage_attempt(ctx: RunContext, stage_id: str) -> dict[str, Any] | No
 def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     """Actionable bullets for budget exhaustion, lint failures, and placement QA."""
     from interview_mux.analysis_memory import load_analysis_state
-    from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count
+    from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count, primary_billable_count
     from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS
     from interview_mux.deterministic_lint import lint_remediation_hints
     from interview_mux.llm_preflight import run_preflight
@@ -221,13 +222,15 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
     items: list[dict[str, Any]] = []
     if stage_id in LLM_HANDOFF_STAGES:
         cap = max_primary_attempts(ctx=ctx)
-        count = primary_attempt_count(ctx, stage_id)
-        if count >= cap:
+        billable = primary_billable_count(ctx, stage_id)
+        if billable >= cap:
             items.append(
                 _guidance_item(
                     "llm_budget",
-                    f"Primary attempt budget exhausted ({count}/{cap}) — review stage_runs before retry",
+                    f"Primary attempt budget exhausted ({billable}/{cap}) — discard staged outputs and re-run",
                     "todo",
+                    category="stage_health",
+                    kind="run",
                 )
             )
         attempt = _latest_stage_attempt(ctx, stage_id)
@@ -239,6 +242,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                         "llm_lint",
                         f"Latest attempt lint: {str(err)[:120]}",
                         "todo",
+                        category="stage_health",
                     )
                 )
             for hint in lint_remediation_hints([str(e) for e in lint])[:2]:
@@ -247,6 +251,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                         "llm_lint_fix",
                         hint,
                         "todo",
+                        category="stage_health",
                     )
                 )
         degraded = (load_analysis_state(ctx).get("meta") or {}).get("degraded_stages") or {}
@@ -278,6 +283,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     "artifact_clarification",
                     f"{open_count} validation issue(s) (layer: itr) need clarification before save{hint}",
                     "todo",
+                    category="stage_health",
                 )
             )
         for it in list_stage_issues(ctx, stage_id):
@@ -320,6 +326,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     "todo",
                     action="story_board",
                     kind="story_board",
+                    category="stage_health",
                 )
             )
     checkpoint = STAGE_CHECKPOINTS.get(stage_id)
@@ -527,7 +534,9 @@ def _flow_prereqs(
     info = STAGE_BY_ID.get(stage_id)
     if not info or info.phase != "delivery":
         return items
-    if g1_missing:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if g1_missing and not gap_fill_was_skipped(ctx):
         items.append(
             _guidance_item(
                 "g1",
@@ -539,12 +548,21 @@ def _flow_prereqs(
             )
         )
     elif not ctx.artifact_exists("analysis_complete.json"):
+        from interview_mux.pipeline import shared_analysis_chain_complete
+
+        pending_stage = (
+            "analysis_profile"
+            if gap_fill_was_skipped(ctx) and shared_analysis_chain_complete(ctx)
+            else "episode_structure_compose"
+            if gap_fill_was_skipped(ctx)
+            else "optimal_questions"
+        )
         items.append(
             _guidance_item(
                 "analysis",
                 "Complete understanding analysis first",
                 "todo",
-                stage_id="optimal_questions",
+                stage_id=pending_stage,
                 kind="run",
             )
         )

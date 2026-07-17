@@ -154,15 +154,15 @@ def _build_propagation_decision(ctx: Any, stage_key: str, plan: dict[str, Any]) 
     )
 
 
-def _build_warning_decision(warnings: list[str]) -> OperatorDecision | None:
-    if not warnings:
+def _build_warning_decision(warnings: list[str], *, auto_fixed: int = 0) -> OperatorDecision | None:
+    if not warnings or auto_fixed <= 0:
         return None
     return OperatorDecision(
         id=new_decision_id(),
         kind="acknowledge_warning",
-        headline=warning_headline(len(warnings)),
+        headline=warning_headline(len(warnings), auto_fixed=auto_fixed),
         detail=warning_detail(warnings),
-        context={"warnings": warnings[:6]},
+        context={"warnings": warnings[:6], "auto_fixed": auto_fixed},
         options=[DecisionOption(label="Continue to review", value="acknowledge")],
         recommended="acknowledge",
     )
@@ -287,8 +287,12 @@ def _finalize_stage_outputs_impl(
     )
 
     triage_result = run_triage_pipeline(ctx, stage_key, staged=True)
+    auto_fixed = int(getattr(triage_result, "auto_fixed", 0) or 0)
     if triage_result.errors:
-        result.warnings.extend(triage_result.errors[:3])
+        if auto_fixed > 0:
+            result.warnings.extend(triage_result.errors[:3])
+        else:
+            result.errors.extend(triage_result.errors[:3])
 
     use_autopilot = mode == "autopilot" or full_autopilot_enabled()
     if use_autopilot:
@@ -319,7 +323,7 @@ def _finalize_stage_outputs_impl(
     prop_dec = _build_propagation_decision(ctx, stage_key, plan)
     if prop_dec:
         decisions.append(prop_dec)
-    warn_dec = _build_warning_decision([w for w in result.warnings if w])
+    warn_dec = _build_warning_decision([w for w in result.warnings if w], auto_fixed=auto_fixed)
     if warn_dec and not decisions:
         decisions.append(warn_dec)
 

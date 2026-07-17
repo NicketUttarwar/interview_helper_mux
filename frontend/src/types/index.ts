@@ -194,6 +194,8 @@ export interface GuidanceItem {
   substep_label?: string;
   from_stage_id?: string;
   from_stage_title?: string;
+  /** upstream = prior stages; stage_health = lint/budget/cross-val blockers on this stage */
+  category?: "upstream" | "stage_health" | string;
 }
 
 export interface StageGuidance {
@@ -307,6 +309,7 @@ export interface StageInfo {
     sufficiency_status?: string;
   }>;
   stage_output_mode?: string;
+  stage_visibility?: "visible" | "hidden";
   handoff_paths?: string[];
   audio_outputs_present?: string[];
   api_providers?: string[];
@@ -394,6 +397,8 @@ export interface RunData {
   g1_5_preview_pickup_pending?: string[];
   g1_5_preview_pickup_clear?: boolean;
   pickup_speaker_pending?: boolean;
+  gap_fill_mode?: "active" | "skipped" | "pending";
+  gap_fill_skip_reason?: string | null;
   flow_adaptation?: FlowAdaptation | null;
   nle_dirty?: boolean;
   analysis_complete?: boolean;
@@ -450,6 +455,8 @@ export interface RunMeta {
   >;
   /** True after transcript reuse accept until operator saves the edit interstitial. */
   transcript_reuse_pending_edit?: boolean;
+  gap_fill_mode?: "active" | "skipped" | "pending";
+  gap_fill_skip_reason?: string | null;
   pending_write_approval?: Record<
     string,
     {

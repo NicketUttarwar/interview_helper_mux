@@ -74,7 +74,9 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Terminology:** **Workflow phase** (7 chips) → **Pipeline stage** (numbered) → **Substep** (single operator action).
 
-**Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active.
+**Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active. When gap-fill is skipped, hidden stage IDs (`missing_framing`, `optimal_questions`, `g1_vo_pickup`) are excluded from `stage_total` / `stages_planned` so progress matches the visible step list.
+
+**Stage visibility:** Each stage in `GET /api/runs/{id}` may include `stage_visibility: "visible" | "hidden"`. Hidden gap stages are omitted from sidebar numbering (not shown as “· skipped”). Run snapshot also includes `gap_fill_mode` and `gap_fill_skip_reason` for Activity log / Story Board.
 
 **Terminology:** Job complete → **Step finished**; operator phase `complete` → **Record & choose**; stage done → **Done**.
 

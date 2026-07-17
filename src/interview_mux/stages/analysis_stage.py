@@ -33,6 +33,31 @@ from interview_mux.attempt_budget import build_attempt_signature
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
+
+def _try_good_enough_before_gate(
+    ctx: RunContext,
+    stage_key: str,
+    lint_errors: list[str] | None,
+) -> bool:
+    from interview_mux.holistic_fabrication import try_holistic_fabrication_from_staged
+    from interview_mux.segment_good_enough import try_good_enough_advance
+
+    if try_holistic_fabrication_from_staged(ctx, stage_key, lint_errors):
+        ctx.mark_done(stage_key)
+        from interview_mux.gui_job_reconcile import reconcile_llm_gate_if_cleared
+
+        reconcile_llm_gate_if_cleared(ctx, stage_key)
+        return True
+
+    result = try_good_enough_advance(ctx, stage_key, lint_errors)
+    if not result.cleared:
+        return False
+    ctx.mark_done(stage_key)
+    from interview_mux.gui_job_reconcile import reconcile_llm_gate_if_cleared
+
+    reconcile_llm_gate_if_cleared(ctx, stage_key)
+    return True
+
 PersistFn = Callable[[RunContext, dict[str, Any]], None]
 SyncFn = Callable[[RunContext, dict[str, Any]], None]
 PostLoopHook = Callable[[RunContext, str, dict[str, Any], dict[str, Any], list[str], bool], None]
@@ -130,6 +155,11 @@ def _run_llm_stage_loop(
                     recovery_from_stage=stage_key,
                     action_id="llm.budget.primary_exhausted",
                 )
+                if _try_good_enough_before_gate(ctx, stage_key, lint_history[-4:] if lint_history else None):
+                    last_envelope = last_envelope or {"status": "complete", "_routing_meta": {}}
+                    last_envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
                 from interview_mux.write_staging import set_llm_gate
 
                 set_llm_gate(
@@ -207,6 +237,11 @@ def _run_llm_stage_loop(
                     action_id="llm.adaptation.exhausted",
                     extra_detail={"context_plan": context_plan.to_dict()},
                 )
+                if _try_good_enough_before_gate(ctx, stage_key, lint_history[-4:] if lint_history else None):
+                    last_envelope = last_envelope or {"status": "complete", "_routing_meta": {}}
+                    last_envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
                 from interview_mux.write_staging import set_llm_gate
 
                 set_llm_gate(ctx, stage_key, message=f"LLM stage gate ({stage_key}): {bridge.message or halt_msg}")
@@ -228,6 +263,14 @@ def _run_llm_stage_loop(
                     extra_detail=context_plan.to_dict(),
                 )
         with logged_step(f"{stage_key}/attempt_{attempt}/routing", ctx=ctx, stage=stage_key):
+            bill_primary_attempt = True
+            if attempt > 1 and pending_retry:
+                strategy_key = str(pending_retry.get("strategy_key") or "")
+                bill_primary_attempt = not (
+                    pending_retry.get("clear_field_truncation")
+                    or int(pending_retry.get("context_cap_boost_round") or 0) > 0
+                    or "truncation" in strategy_key
+                )
             envelope, volley, arbiter_result, schema_errors, shard_count, _src = run_llm_stage_with_routing(
                 ctx,
                 stage_key,
@@ -240,6 +283,7 @@ def _run_llm_stage_loop(
                 stage_input_obligation=stage_input.get("classification_obligation"),
                 context_cap_boost_round=context_cap_boost_round,
                 clear_field_truncation=clear_field_truncation,
+                bill_primary_attempt=bill_primary_attempt,
             )
         with logged_step(f"{stage_key}/attempt_{attempt}/finalize", ctx=ctx, stage=stage_key):
             finalize_stage_attempt(
@@ -366,6 +410,10 @@ def _run_llm_stage_loop(
                     action_id="llm.adaptation.signature_repeat",
                     extra_detail={"strategy_key": strategy_key, "lint_errors": lint_errors[:4]},
                 )
+                if _try_good_enough_before_gate(ctx, stage_key, lint_errors):
+                    envelope.setdefault("_routing_meta", {})["structural_repair_cleared"] = True
+                    itr_bridge_break = True
+                    break
                 from interview_mux.write_staging import set_llm_gate
 
                 set_llm_gate(ctx, stage_key, message=f"LLM stage gate ({stage_key}): {bridge.message or halt_msg}")

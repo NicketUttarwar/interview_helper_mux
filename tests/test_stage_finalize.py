@@ -22,6 +22,15 @@ def test_stage_decisions_summary_empty(tmp_path, monkeypatch):
     assert summary["ready_for_review"] is True
 
 
+def test_build_warning_decision_requires_auto_fixed():
+    from interview_mux.stage_finalize import _build_warning_decision
+
+    assert _build_warning_decision(["cross-val issue"], auto_fixed=0) is None
+    dec = _build_warning_decision(["segment overlap repaired"], auto_fixed=1)
+    assert dec is not None
+    assert dec.kind == "acknowledge_warning"
+
+
 def test_set_stage_decisions_persists_queue(tmp_path):
     from interview_mux.run_context import RunContext
 

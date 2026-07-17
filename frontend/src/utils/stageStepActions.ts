@@ -55,6 +55,10 @@ export async function invokeStepFooterAction(
   }
 
   if (step.kind === "write_approval" || label.includes("save all") || label.includes("save &")) {
+    if (step.blocking_reason || label.includes("discard")) {
+      await handlers.discardPendingWrites(stage.id);
+      return;
+    }
     await handlers.approveWriteAndContinue(stage.id);
     return;
   }

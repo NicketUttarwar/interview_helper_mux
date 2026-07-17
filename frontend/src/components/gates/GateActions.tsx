@@ -23,6 +23,7 @@ import { SfxBlockedPanel } from "./SfxBlockedPanel";
 import { SonicContextPanel } from "./SonicContextPanel";
 import { collectSfxBlockReasons } from "../../utils/sfxBlockReasons";
 import { resolvePrecleanOffer } from "../../utils/preclean";
+import { isStageHidden } from "../../utils/stageVisibility";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface Props {
@@ -50,6 +51,7 @@ export function GateActions({ stage }: Props) {
   const { run, config, timeline, setPipelineSubTab } = useApp();
 
   if (!run) return null;
+  if (isStageHidden(stage)) return null;
 
   if (
     stage.id === "topic_coverage_audit" &&

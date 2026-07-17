@@ -59,7 +59,12 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
                 stage_id="disfluency_review",
             )
         )
-    missing_vo = check_g1_vo(ctx)
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if gap_fill_was_skipped(ctx):
+        missing_vo: list[str] = []
+    else:
+        missing_vo = check_g1_vo(ctx)
     if missing_vo:
         out.append(
             ProgressionBlocker(
@@ -138,12 +143,27 @@ def _guess_pointer(error: str) -> str | None:
 def _analysis_complete_blocker(ctx: RunContext) -> ProgressionBlocker | None:
     if ctx.artifact_exists("analysis_complete.json"):
         return None
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    from interview_mux.pipeline import shared_analysis_chain_complete
+
+    if gap_fill_was_skipped(ctx):
+        stage_id = "episode_structure_compose"
+        if shared_analysis_chain_complete(ctx):
+            message = (
+                "Shared analysis not marked complete — finish Episode structure "
+                "(or refresh the run after gap-fill skip)."
+            )
+        else:
+            message = "Shared analysis not complete — finish remaining Analyze steps."
+    else:
+        stage_id = "optimal_questions"
+        message = "Shared analysis not marked complete — finish optimal_questions or vo_ingest."
     return ProgressionBlocker(
         layer="completeness",
         id="analysis_complete",
         path="analysis_complete.json",
-        message="Shared analysis not marked complete — finish optimal_questions or vo_ingest.",
-        stage_id="optimal_questions",
+        message=message,
+        stage_id=stage_id,
     )
 
 def _flow1_spine_blockers(ctx: RunContext, *, through_stage: str | None = None) -> list[ProgressionBlocker]:
@@ -186,10 +206,9 @@ def _preflight_blockers(ctx: RunContext, stage_id: str) -> list[ProgressionBlock
     ]
 
 def _pending_write_blocker(ctx: RunContext) -> ProgressionBlocker | None:
-    pending_root = ctx.run_dir / ".pending_writes"
-    if not pending_root.is_dir():
-        return None
-    stages = sorted(d.name for d in pending_root.iterdir() if d.is_dir())
+    from interview_mux.write_staging import all_pending_stages
+
+    stages = sorted(all_pending_stages(ctx))
     if not stages:
         return None
     return ProgressionBlocker(

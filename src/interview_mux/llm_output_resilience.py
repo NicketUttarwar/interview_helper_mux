@@ -10,7 +10,12 @@ from typing import Any, Literal
 
 from interview_mux.config import merged_config
 from interview_mux.llm_flow_hardening import flow_hardening_cfg, producer_artifact_path
-from interview_mux.prompt_validation import validate_artifact_write
+from interview_mux.prompt_validation import (
+    clean_stage_artifacts_for_persist,
+    stage_uses_merge_disk_persist,
+    validate_artifact_write,
+    validate_stage_artifacts,
+)
 
 PersistAction = Literal["none", "partial", "full"]
 ResilienceEvent = Literal[
@@ -180,14 +185,17 @@ def _prepare_stage_artifacts_for_write(
     artifacts: dict[str, Any],
 ) -> dict[str, Any]:
     """Stage-specific enrichment/repair before staging or committing artifacts."""
+    from interview_mux.null_field_policy import omit_nullable_null_leaves_for_disk
+
     if stage_key == "speaker_roles":
         from interview_mux.conversation_context import enrich_speakers_artifact
 
-        return enrich_speakers_artifact(ctx, artifacts)
-    from interview_mux.artifact_repairs import apply_repairs_for_stage
+        out = enrich_speakers_artifact(ctx, artifacts)
+    else:
+        from interview_mux.artifact_repairs import apply_repairs_for_stage
 
-    repaired, _applied = apply_repairs_for_stage(ctx, stage_key, artifacts)
-    return repaired
+        out, _applied = apply_repairs_for_stage(ctx, stage_key, artifacts)
+    return omit_nullable_null_leaves_for_disk(stage_key, out)
 
 
 def sanitize_artifacts(
@@ -309,7 +317,11 @@ def _block_partial_on_quality_fail(
     """Return a reason when critical stages must not stage write-approvable partials."""
     from interview_mux.analysis_memory import should_merge_envelope
     from interview_mux.coverage_limits import partition_lint_errors, soft_progression_enabled
+    from interview_mux.holistic_fabrication import should_accept_holistic_fabrication
     from interview_mux.llm_flow_hardening import ALL_CRITICAL_LLM_STAGES
+
+    if should_accept_holistic_fabrication(envelope):
+        return None
 
     if stage_key not in ALL_CRITICAL_LLM_STAGES:
         return None
@@ -367,7 +379,20 @@ def resolve_persist_plan(
         and not lint_errors
         and should_merge_envelope(arbiter_result, envelope, routed_via_collate=routed_via_collate)
     ):
-        valid, _ = extract_schema_valid_artifact(rel or "", artifacts, stage_key=stage_key) if rel else (artifacts, [])
+        if stage_uses_merge_disk_persist(stage_key):
+            valid = clean_stage_artifacts_for_persist(stage_key, artifacts)
+            art_errors = validate_stage_artifacts(stage_key, valid)
+            if art_errors:
+                empty_report.summary = f"Stage artifact schema failed — {art_errors[0]}"
+                empty_report.schema_errors = art_errors[:8]
+                return PersistPlan("none", {}, empty_report)
+        else:
+            valid, _ = (
+                extract_schema_valid_artifact(rel or "", artifacts, stage_key=stage_key)
+                if rel
+                else (artifacts, [])
+            )
+            valid = clean_stage_artifacts_for_persist(stage_key, valid)
         empty_report.kept_paths = list(valid.keys())
         empty_report.artifact_mass_score = 1.0
         empty_report.sanitized_artifacts = valid
@@ -405,7 +430,14 @@ def resolve_persist_plan(
         lint_errors=lint_errors,
         schema_errors=schema_errors,
     )
-    if rel:
+    if stage_uses_merge_disk_persist(stage_key):
+        sanitized = clean_stage_artifacts_for_persist(stage_key, sanitized)
+        remaining_schema = validate_stage_artifacts(stage_key, sanitized)
+        report.schema_errors = remaining_schema
+        if remaining_schema:
+            report.summary = "Stage artifact schema failed after sanitize"
+            return PersistPlan("none", {}, report)
+    elif rel:
         sanitized, remaining_schema = extract_schema_valid_artifact(
             rel, sanitized, stage_key=stage_key
         )
@@ -590,6 +622,40 @@ def apply_resilience_and_persist(
     if artifacts:
         envelope["artifacts"] = _prepare_stage_artifacts_for_write(ctx, stage_key, artifacts)
 
+    from interview_mux.holistic_fabrication import holistic_fabrication_enabled, try_holistic_fabrication
+
+    if holistic_fabrication_enabled(stage_key):
+        needs_holistic = (
+            envelope.get("status") == "blocked"
+            or (arbiter_result and str(arbiter_result.get("verdict", "")).strip() != "accept")
+            or lint_errors
+            or schema_errors
+        )
+        if needs_holistic:
+            hf = try_holistic_fabrication(
+                ctx,
+                stage_key,
+                envelope,
+                volley=volley,
+                arbiter_result=arbiter_result,
+                lint_errors=lint_errors,
+                schema_errors=schema_errors,
+                routed_via_collate=routed_via_collate,
+                attempt=attempt,
+            )
+            if hf.cleared:
+                envelope = hf.envelope
+                _sync_caller_envelope()
+                arbiter_result = hf.arbiter_result
+                lint_errors = hf.lint_errors
+                schema_errors = hf.schema_errors
+                routing = envelope.setdefault("_routing_meta", {})
+                routing["deterministic_lint_errors"] = lint_errors
+                routing.pop("envelope_blocked", None)
+            elif hf.envelope is not envelope:
+                envelope = hf.envelope
+                _sync_caller_envelope()
+
     plan = resolve_persist_plan(
         ctx,
         stage_key,
@@ -642,40 +708,70 @@ def apply_resilience_and_persist(
         )
 
     artifacts = _prepare_stage_artifacts_for_write(ctx, stage_key, plan.artifacts)
+    artifacts = clean_stage_artifacts_for_persist(stage_key, artifacts)
 
     if persist_fn and artifacts:
-        from interview_mux.artifact_writes import write_partial_artifact
-
-        rel = producer_artifact_path(stage_key) or ""
-        try:
-            write_partial_artifact(
+        if stage_uses_merge_disk_persist(stage_key):
+            try:
+                persist_fn(ctx, artifacts)
+            except (ValueError, TypeError) as exc:
+                ctx.log(
+                    f"LLM resilience: merge persist failed ({stage_key}) — {exc}",
+                    level="warning",
+                    stage=stage_key,
+                    action_id="llm.resilience.merge_persist_failed",
+                )
+                plan.action = "none"
+                _sync_caller_envelope()
+                return plan
+            sidecar = write_resilience_sidecar(ctx, stage_key, attempt, plan.report)
+            log_resilience_event(
                 ctx,
-                rel,
-                artifacts,
-                resilience_report=plan.report,
-                stage_key=stage_key,
-                partial=(plan.action == "partial"),
+                stage_key,
+                "partial_persist",
+                plan.report,
+                attempt=attempt,
+                arbiter_result=arbiter_result,
+                envelope=envelope,
+                sidecar_path=sidecar or None,
             )
-        except ValueError as exc:
-            ctx.log(
-                f"LLM resilience: partial persist failed ({stage_key}) — {exc}",
-                level="warning",
-                stage=stage_key,
+        else:
+            from interview_mux.artifact_writes import write_partial_artifact
+
+            rel = producer_artifact_path(stage_key) or ""
+            try:
+                write_partial_artifact(
+                    ctx,
+                    rel,
+                    artifacts,
+                    resilience_report=plan.report,
+                    stage_key=stage_key,
+                    partial=(plan.action == "partial"),
+                )
+            except ValueError as exc:
+                ctx.log(
+                    f"LLM resilience: partial persist failed ({stage_key}) — {exc}",
+                    level="warning",
+                    stage=stage_key,
+                )
+                plan.action = "none"
+                _sync_caller_envelope()
+                return plan
+            if stage_key == "optimal_questions":
+                from interview_mux.stages.gaps import persist_optimal_questions_companion_artifacts
+
+                persist_optimal_questions_companion_artifacts(ctx, artifacts)
+            sidecar = write_resilience_sidecar(ctx, stage_key, attempt, plan.report)
+            log_resilience_event(
+                ctx,
+                stage_key,
+                "partial_persist",
+                plan.report,
+                attempt=attempt,
+                arbiter_result=arbiter_result,
+                envelope=envelope,
+                sidecar_path=sidecar or None,
             )
-            plan.action = "none"
-            _sync_caller_envelope()
-            return plan
-        sidecar = write_resilience_sidecar(ctx, stage_key, attempt, plan.report)
-        log_resilience_event(
-            ctx,
-            stage_key,
-            "partial_persist",
-            plan.report,
-            attempt=attempt,
-            arbiter_result=arbiter_result,
-            envelope=envelope,
-            sidecar_path=sidecar or None,
-        )
         if sync_fn:
             sync_fn(ctx, artifacts)
 

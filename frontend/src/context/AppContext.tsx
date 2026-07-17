@@ -57,6 +57,7 @@ import { guardBusy } from "../utils/guardBusy";
 import { jobCompletionHint } from "../utils/jobCompletionHints";
 import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { scrollToStageStep } from "../utils/activateStageStep";
+import { resolveVirtualPipelineFocus } from "../utils/virtualPipelineFocus";
 import {
   advancePipeline,
   focusStageWorkbench,
@@ -84,6 +85,10 @@ import {
 } from "../utils/autoNavigationLedger";
 import { shouldSuppressJobPollTerminalToast } from "../utils/jobPollToasts";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
+import {
+  shouldOpenTranscriptReuseEdit,
+  syncTranscriptReuseEditConsumed,
+} from "../utils/transcriptReuseEditGate";
 import {
   clampPipelineSubTab,
   pipelineSubTabAvailability,
@@ -259,6 +264,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [transcriptReuseEditOpen, setTranscriptReuseEditOpen] = useState(false);
+
+  useEffect(() => {
+    setTranscriptReuseEditOpen(false);
+  }, [runId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [serverActiveRunId, setServerActiveRunId] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -541,8 +550,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openTranscriptReuseEdit = useCallback(() => {
+    const rid = runIdRef.current;
+    if (!shouldOpenTranscriptReuseEdit(rid, run?.meta)) return;
     setTranscriptReuseEditOpen(true);
-  }, []);
+  }, [run?.meta]);
 
   const closeTranscriptReuseEdit = useCallback(() => {
     setTranscriptReuseEditOpen(false);
@@ -752,6 +763,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!runId) return null;
     try {
       const runData = await api<RunData>(`/api/runs/${runId}`);
+      syncTranscriptReuseEditConsumed(runId, runData.meta);
       setRun(runData);
       setRunState(runData);
       setShownPrecleanOffers(
@@ -780,6 +792,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const selectStage = useCallback(
     async (stageId: string, opts?: { pinned?: boolean; stepId?: string | null }) => {
+      const virtual = resolveVirtualPipelineFocus(stageId);
+      if (virtual) {
+        setActiveTabState("pipeline");
+        activeTabRef.current = "pipeline";
+        setPipelineSubTabWrapped(virtual.subTab);
+        persistSessionUi();
+        return;
+      }
       if (opts?.pinned !== false) {
         userPinnedStageIdRef.current = stageId;
         setPinnedStageId(stageId);
@@ -1381,6 +1401,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }),
         });
         const runData = await api<RunData>(`/api/runs/${id}`);
+        syncTranscriptReuseEditConsumed(id, runData.meta);
         setRun(runData);
         setRunState(runData);
         setShownPrecleanOffers(
@@ -1911,27 +1932,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       approveInFlightRef.current = true;
       setActionBusy(true);
       actionBusyRef.current = true;
-      setJobRunning(true);
-      setRun((prev) =>
-        prev
-          ? {
-              ...prev,
-              job: {
-                ...prev.job,
-                status: "running",
-                mode: "write_approval",
-                stage: sid,
-                current_stage: sid,
-                pending_write_stage: sid,
-                pending_write_paths: paths,
-                message: `Saving ${paths.length} file(s) for ${sid.replace(/_/g, " ")}…`,
-              },
-            }
-          : prev,
-      );
       setActivityLogTabState("live");
       activityLogTabRef.current = "live";
-      startJobPoll();
       let keepBusyForJob = false;
       try {
         await runStepPrimaryPrep("write_approval");
@@ -2059,6 +2061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Approve failed";
         appendClientLog(msg, "warning", sid, "gui.write_approval.error");
+        showToast(msg, "warning");
         if (e instanceof ApiError && e.status === 409 && runId) {
           const { jobRunning: busy, writeApprovalCleared } = await reconcileBusyRun({
             runId,
@@ -2075,12 +2078,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return writeApprovalCleared;
           }
         }
+        await refreshRun();
         return false;
       } finally {
         if (!keepBusyForJob) {
           approveInFlightRef.current = false;
           setActionBusy(false);
           actionBusyRef.current = false;
+          setJobRunning(false);
         }
       }
     },
@@ -2119,11 +2124,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           phases && phases.length
             ? { phases }
             : { phases: run?.journey?.first_try?.batch_save_phases || ["analysis", "delivery"] };
-        await api(`/api/runs/${runId}/pending-writes/approve-batch`, {
+        const res = await api<{
+          approved?: Record<string, string[]>;
+          errors?: Record<string, string>;
+        }>(`/api/runs/${runId}/pending-writes/approve-batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        const errorStages = Object.keys(res.errors || {});
+        if (errorStages.length) {
+          const msg =
+            Object.values(res.errors || {})[0] ||
+            `Batch save failed for ${errorStages.join(", ")}`;
+          appendClientLog(msg, "warning", errorStages[0], "gui.write_approval.error");
+          showToast(msg, "warning");
+          await refreshRun();
+          await pollLog(true);
+          return false;
+        }
         appendClientLog("Batch saved pending stage outputs", "success", undefined, "gui.write_approval.batch_save");
         await refreshRun();
         await pollLog(true);
@@ -2131,6 +2150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Batch save failed";
         appendClientLog(msg, "warning", undefined, "gui.write_approval.error");
+        showToast(msg, "warning");
         return false;
       } finally {
         approveInFlightRef.current = false;
@@ -2505,8 +2525,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (gen !== bootGenRef.current) return;
           if (!restoreRunId) return;
           const stageId = serverRestarted ? null : (active?.selected_stage_id ?? null);
-          selectedStageIdRef.current = stageId;
-          setSelectedStageId(stageId);
+          const virtualRestore = stageId ? resolveVirtualPipelineFocus(stageId) : null;
+          const restoreStageId = virtualRestore ? null : stageId;
+          selectedStageIdRef.current = restoreStageId;
+          setSelectedStageId(restoreStageId);
           if (!serverRestarted && active?.active_step_id) {
             activeStepIdRef.current = active.active_step_id;
             setActiveStepIdState(active.active_step_id);
@@ -2518,10 +2540,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           prefetchTab(restoreTab);
           await openRun(restoreRunId, {
             quiet: true,
-            selectedStageId: stageId,
+            selectedStageId: restoreStageId,
             preferFirstStage: serverRestarted,
             activeTab: restoreTab,
-            pipelineSubTab: serverRestarted ? "stage" : (active?.pipeline_sub_tab ?? "stage"),
+            pipelineSubTab: virtualRestore
+              ? virtualRestore.subTab
+              : serverRestarted
+                ? "stage"
+                : (active?.pipeline_sub_tab ?? "stage"),
             force: Boolean(runQuery) || serverRestarted,
           });
           if (active?.activity_log_tab) {

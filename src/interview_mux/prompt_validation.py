@@ -35,6 +35,20 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
 }
 
 # stage_key -> on-disk relative path (under run dir)
+# LLM envelope artifacts are a subset merged into a larger on-disk document via stage persist_fn.
+STAGE_MERGE_DISK_PERSIST: frozenset[str] = frozenset(
+    {
+        "sound_design_palettes",
+        "sound_design_plan",
+        "sfx_prompt_refine",
+    }
+)
+
+# Keys that must not be passed through merge persist (normalization / envelope pollution).
+PERSIST_ARTIFACT_JUNK_KEYS: frozenset[str] = frozenset(
+    {"_meta", "envelope", "follow_up_investigations"}
+)
+
 STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "speaker_roles": "understanding/speakers.json",
     "content_context": "understanding/content_brief.json",
@@ -95,6 +109,17 @@ def validate_investigation_queue(queue: dict[str, Any]) -> list[str]:
 
 def validate_nle_edits(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("nle_edits.schema.json"))
+
+def stage_uses_merge_disk_persist(stage_key: str) -> bool:
+    """True when stage persist_fn merges envelope artifacts into a larger disk artifact."""
+    return stage_key in STAGE_MERGE_DISK_PERSIST
+
+
+def clean_stage_artifacts_for_persist(stage_key: str, artifacts: dict[str, Any]) -> dict[str, Any]:
+    """Drop envelope pollution before merge persist or stage-schema validation."""
+    _ = stage_key
+    return {k: v for k, v in artifacts.items() if k not in PERSIST_ARTIFACT_JUNK_KEYS}
+
 
 def validate_stage_artifacts(stage_key: str, artifacts: dict[str, Any]) -> list[str]:
     """Return human-readable validation errors (empty if OK or no schema)."""
@@ -200,7 +225,10 @@ def validate_disfluencies(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("disfluencies.schema.json"))
 
 def _validate_by_artifact_schema(filename: str, data: dict[str, Any]) -> list[str]:
-    return _validate_dict(data, _load_schema(filename))
+    schema = _load_schema(filename)
+    if schema:
+        schema = with_nullable_optional_leaves(schema)
+    return _validate_dict(data, schema)
 
 def validate_content_brief(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("content_brief_artifact.schema.json", data)

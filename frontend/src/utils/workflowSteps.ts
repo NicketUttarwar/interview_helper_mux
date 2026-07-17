@@ -61,6 +61,21 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
   },
 ];
 
+export function workflowStepsForRun(run: RunData | null): WorkflowStepDef[] {
+  const skipped =
+    run?.gap_fill_mode === "skipped" || run?.meta?.gap_fill_mode === "skipped";
+  if (!skipped) return WORKFLOW_STEPS;
+  return WORKFLOW_STEPS.map((step) =>
+    step.id === "complete"
+      ? {
+          ...step,
+          label: "Choose flow",
+          tooltip: "Pick your delivery flow after analysis completes (no VO pickup needed).",
+        }
+      : step,
+  );
+}
+
 export function currentWorkflowStep(run: RunData | null): WorkflowStepId {
   if (!run) return "start";
   return run.journey?.phase ?? run.meta?.operator_phase ?? "prepare";

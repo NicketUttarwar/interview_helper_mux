@@ -119,10 +119,14 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "boundary_detection": ("segments/boundaries.json",),
     "segment_classification": ("segments/manifest.json",),
     "sound_design_palettes": ("understanding/sound_design_plan.json",),
-    "missing_framing": ("understanding/gap_evaluations.json",),
+    "missing_framing": (
+        "understanding/gap_evaluations.json",
+        "understanding/gap_fill_skip.json",
+    ),
     "optimal_questions": (
         "understanding/gap_report.json",
         "understanding/interviewer_script.txt",
+        "understanding/gap_fill_skip.json",
     ),
     "delivery_brief_build": ("understanding/delivery_brief.json",),
     "soundscape_policy_build": ("understanding/soundscape_policy.json",),

@@ -345,6 +345,38 @@
     "doc_link": ""
   },
   {
+    "action_id": "gap_fill.skip",
+    "description": "Auto-skip missing_framing and optimal_questions when gap-fill ineligible",
+    "implementation": "stages.gaps.ensure_gap_fill_skipped",
+    "stage": "missing_framing",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.gap_fill.skip",
+    "description": "Operator skips gap speaker sections — no gap analysis or VO pickup",
+    "implementation": "frontend/src/components/gates/PickupSpeakerPanel.tsx#skipGapFill",
+    "stage": "missing_framing",
+    "origin": "gui",
+    "doc_link": "docs/workflows/operator-gates.md"
+  },
+  {
+    "action_id": "gap_fill.re_evaluate",
+    "description": "Clear gap-fill skip artifact after upstream invalidation",
+    "implementation": "gap_fill_eligibility.clear_gap_fill_skip",
+    "stage": "missing_framing",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "segment_classification.good_enough_advance",
+    "description": "Accept good-enough segment manifest before LLM gate (first-try)",
+    "implementation": "segment_good_enough.try_good_enough_advance",
+    "stage": "segment_classification",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
     "action_id": "gui.stage_reuse.accept",
     "description": "Reuse outputs from prior execution",
     "implementation": "*",
@@ -1527,6 +1559,30 @@
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
+  },
+  {
+    "action_id": "holistic_fabrication.cleared",
+    "description": "Holistic fabrication fallback cleared blocked stage",
+    "implementation": "holistic_fabrication",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/holistic-fabrication.md"
+  },
+  {
+    "action_id": "holistic_fabrication.llm_failed",
+    "description": "Holistic fabrication LLM call failed",
+    "implementation": "holistic_fabrication",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/holistic-fabrication.md"
+  },
+  {
+    "action_id": "itr.bridge.holistic_cleared",
+    "description": "ITR bridge cleared via holistic fabrication",
+    "implementation": "adaptation_itr_bridge",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/holistic-fabrication.md"
   },
   {
     "action_id": "llm.null.omitted",

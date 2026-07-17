@@ -110,3 +110,14 @@ def test_transcript_duration_ms_zero_without_artifact(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "empty")
     assert transcript_duration_ms(ctx) == 0
+
+
+def test_transcript_duration_ms_from_words_when_duration_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "words_only")
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": [{"start_ms": 0, "end_ms": 890575, "text": "x"}]},
+        skip_handoff=True,
+    )
+    assert transcript_duration_ms(ctx) == 890575

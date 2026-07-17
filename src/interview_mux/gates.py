@@ -143,6 +143,10 @@ def check_g1_vo(ctx: RunContext) -> list[str]:
 
 
 def require_g1_clear(ctx: RunContext) -> None:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if gap_fill_was_skipped(ctx):
+        return
     missing = check_g1_vo(ctx)
     if missing:
         _gate_exit(

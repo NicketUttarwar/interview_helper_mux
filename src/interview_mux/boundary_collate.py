@@ -248,6 +248,167 @@ def _renumber_segment_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return renumbered
 
 
+def _clip_rows_to_window(
+    rows: list[dict[str, Any]],
+    *,
+    window_start: int,
+    window_end: int,
+) -> list[dict[str, Any]]:
+    """Keep rows overlapping [window_start, window_end] and clip to the window."""
+    clipped: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("start_ms") is None or row.get("end_ms") is None:
+            continue
+        start = int(row["start_ms"])
+        end = int(row["end_ms"])
+        if end <= window_start or start >= window_end:
+            continue
+        normalized = dict(row)
+        normalized["start_ms"] = max(start, window_start)
+        normalized["end_ms"] = min(end, window_end)
+        if int(normalized["end_ms"]) > int(normalized["start_ms"]):
+            clipped.append(normalized)
+    return clipped
+
+
+def align_boundary_rows_to_shard(
+    rows: list[dict[str, Any]],
+    *,
+    shard_start_ms: int | None,
+    shard_end_ms: int | None,
+    snap_tolerance_ms: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map shard-local boundary timestamps onto absolute interview tape time."""
+    applied: list[dict[str, Any]] = []
+    if not rows or shard_start_ms is None or shard_end_ms is None:
+        return rows, applied
+
+    snap_tol = int(snap_tolerance_ms if snap_tolerance_ms is not None else boundary_collate_cfg()["snap_tolerance_ms"])
+    shard_start = int(shard_start_ms)
+    shard_end = int(shard_end_ms)
+    span = shard_end - shard_start
+    if span <= 0:
+        return rows, applied
+
+    valid = [
+        dict(row)
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("start_ms") is not None
+        and row.get("end_ms") is not None
+        and int(row["end_ms"]) > int(row["start_ms"])
+    ]
+    if not valid:
+        return [], applied
+
+    starts = [int(r["start_ms"]) for r in valid]
+    ends = [int(r["end_ms"]) for r in valid]
+    min_start = min(starts)
+    max_end = max(ends)
+
+    if min_start >= shard_start - snap_tol and max_end <= shard_end + snap_tol:
+        return valid, applied
+
+    if (
+        min_start <= snap_tol
+        and max_end <= span + snap_tol
+        and shard_start > snap_tol
+    ):
+        shifted = [
+            {
+                **row,
+                "start_ms": int(row["start_ms"]) + shard_start,
+                "end_ms": int(row["end_ms"]) + shard_start,
+            }
+            for row in valid
+        ]
+        applied.append(
+            {
+                "action": "shift_relative_to_shard_start",
+                "offset_ms": shard_start,
+                "shard_start_ms": shard_start,
+                "shard_end_ms": shard_end,
+            }
+        )
+        return _clip_rows_to_window(shifted, window_start=shard_start, window_end=shard_end), applied
+
+    if min_start < shard_start - snap_tol:
+        filtered = _clip_rows_to_window(
+            [
+                row
+                for row in valid
+                if int(row["end_ms"]) > shard_start + snap_tol and int(row["start_ms"]) < shard_end
+            ],
+            window_start=shard_start,
+            window_end=shard_end,
+        )
+        if filtered:
+            applied.append(
+                {
+                    "action": "clip_misscoped_to_shard_window",
+                    "kept": len(filtered),
+                    "dropped": len(valid) - len(filtered),
+                    "shard_start_ms": shard_start,
+                    "shard_end_ms": shard_end,
+                }
+            )
+            return filtered, applied
+        applied.append(
+            {
+                "action": "reject_misscoped_no_window_overlap",
+                "shard_start_ms": shard_start,
+                "shard_end_ms": shard_end,
+            }
+        )
+        return [], applied
+
+    clipped = _clip_rows_to_window(valid, window_start=shard_start, window_end=shard_end)
+    if clipped:
+        applied.append(
+            {
+                "action": "clip_to_shard_window",
+                "shard_start_ms": shard_start,
+                "shard_end_ms": shard_end,
+            }
+        )
+    return clipped, applied
+
+
+def boundary_timeline_coverage_ratio(
+    rows: list[dict[str, Any]],
+    *,
+    interview_duration_ms: int,
+) -> float:
+    if interview_duration_ms <= 0 or not rows:
+        return 0.0
+    last_end = max(int(r.get("end_ms") or 0) for r in rows if isinstance(r, dict))
+    return last_end / interview_duration_ms
+
+
+def boundary_coverage_errors(
+    rows: list[dict[str, Any]],
+    *,
+    interview_duration_ms: int,
+    min_ratio: float | None = None,
+    min_duration_ms: int = 60_000,
+) -> list[str]:
+    if interview_duration_ms <= min_duration_ms:
+        return []
+    ratio = boundary_timeline_coverage_ratio(rows, interview_duration_ms=interview_duration_ms)
+    threshold = float(
+        min_ratio
+        if min_ratio is not None
+        else (merged_config().get("analysis") or {}).get("boundary_timeline_coverage_min_ratio", 0.85)
+    )
+    if ratio >= threshold:
+        return []
+    pct = ratio * 100
+    return [
+        f"boundary timeline coverage {pct:.0f}% < {threshold * 100:.0f}% of interview "
+        f"(last_end_ms vs duration_ms={interview_duration_ms})"
+    ]
+
+
 def reject_misscoped_shard_boundaries(
     rows: list[dict[str, Any]],
     *,
@@ -280,19 +441,34 @@ def collect_boundary_rows(
     *,
     shard_outputs: list[dict[str, Any]] | None = None,
     collate_artifacts: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+    cfg: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
+    applied: list[dict[str, Any]] = []
+    snap_tol = int(boundary_collate_cfg(cfg)["snap_tolerance_ms"])
     for shard in shard_outputs or []:
-        env = shard.get("envelope") if isinstance(shard, dict) else None
+        if not isinstance(shard, dict):
+            continue
+        env = shard.get("envelope")
         artifacts = env.get("artifacts") if isinstance(env, dict) else {}
         boundaries = artifacts.get("boundaries") if isinstance(artifacts, dict) else []
-        if isinstance(boundaries, list):
-            rows.extend(dict(row) for row in boundaries if isinstance(row, dict))
+        if not isinstance(boundaries, list):
+            continue
+        shard_rows = [dict(row) for row in boundaries if isinstance(row, dict)]
+        aligned, align_actions = align_boundary_rows_to_shard(
+            shard_rows,
+            shard_start_ms=shard.get("start_ms"),
+            shard_end_ms=shard.get("end_ms"),
+            snap_tolerance_ms=snap_tol,
+        )
+        if align_actions:
+            applied.extend(align_actions)
+        rows.extend(aligned)
     if isinstance(collate_artifacts, dict):
         boundaries = collate_artifacts.get("boundaries") or []
         if isinstance(boundaries, list):
             rows.extend(dict(row) for row in boundaries if isinstance(row, dict))
-    return rows
+    return rows, applied
 
 
 def normalize_boundary_timeline(
@@ -355,5 +531,10 @@ def merge_shard_boundaries(
     cfg: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Union shard (and optional collate) boundaries into one monotonic timeline."""
-    rows = collect_boundary_rows(shard_outputs=shard_outputs, collate_artifacts=collate_artifacts)
-    return normalize_boundary_timeline(rows, cfg=cfg)
+    rows, align_actions = collect_boundary_rows(
+        shard_outputs=shard_outputs,
+        collate_artifacts=collate_artifacts,
+        cfg=cfg,
+    )
+    merged_rows, timeline_actions = normalize_boundary_timeline(rows, cfg=cfg)
+    return merged_rows, align_actions + timeline_actions

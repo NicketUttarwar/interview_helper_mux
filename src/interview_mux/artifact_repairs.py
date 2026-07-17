@@ -646,6 +646,86 @@ def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
     return out, applied
 
 
+def _content_brief_topic_segment_map(ctx: Any) -> list[tuple[str, list[str]]]:
+    """Topic labels from content_brief with their segment_ids (manifest order preserved later)."""
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        return []
+    brief = ctx.read_json("understanding/content_brief.json")
+    rows: list[tuple[str, list[str]]] = []
+    for topic in (brief.get("topics") or []) if isinstance(brief, dict) else []:
+        if not isinstance(topic, dict):
+            continue
+        name = str(topic.get("name") or "").strip()
+        seg_ids = topic.get("segment_ids") or []
+        if name and isinstance(seg_ids, list) and seg_ids:
+            rows.append((name, [str(s) for s in seg_ids if s]))
+    return rows
+
+
+def _manifest_segment_order(ctx: Any) -> list[str]:
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return []
+    manifest = ctx.read_json("segments/manifest.json")
+    return [
+        str(row.get("segment_id"))
+        for row in (manifest.get("segments") or [])
+        if isinstance(row, dict) and row.get("segment_id")
+    ]
+
+
+def _sort_segment_ids_by_manifest(ids: list[str], manifest_order: list[str]) -> list[str]:
+    if not manifest_order:
+        return list(dict.fromkeys(ids))
+    pos = {sid: idx for idx, sid in enumerate(manifest_order)}
+    return sorted(dict.fromkeys(ids), key=lambda sid: pos.get(sid, 10**9))
+
+
+def narrative_chapter_segment_ids(ctx: Any, chapter: dict[str, Any]) -> list[str]:
+    """
+    Effective segment_ids for a narrative_plan chapter.
+
+    LLM output uses suggested_open_segment_id + topic_tags; lint/repair need segment_ids.
+    Prefer explicit segment_ids when present; otherwise infer from topic evidence.
+    """
+    manifest_ids, tag_to_segments = _manifest_ids_and_tags(ctx)
+    manifest_order = _manifest_segment_order(ctx)
+
+    existing = chapter.get("segment_ids")
+    if isinstance(existing, list) and existing:
+        cleaned = _sanitize_topic_segment_ids(existing, manifest_ids)
+        return _sort_segment_ids_by_manifest(cleaned, manifest_order)
+
+    inferred: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw_ids: list[Any]) -> None:
+        for sid in _sanitize_topic_segment_ids(raw_ids, manifest_ids):
+            if sid not in seen:
+                seen.add(sid)
+                inferred.append(sid)
+
+    for tag in chapter.get("topic_tags") or []:
+        tag_s = str(tag or "").strip()
+        if not tag_s:
+            continue
+        for topic_name, seg_ids in _content_brief_topic_segment_map(ctx):
+            if _topic_name_matches_tag(topic_name, tag_s):
+                _add(seg_ids)
+        for key in (tag_s, tag_s.lower(), tag_s.replace(" ", "_")):
+            _add(tag_to_segments.get(key, []))
+
+    open_sid = str(
+        chapter.get("suggested_open_segment_id")
+        or chapter.get("anchor_segment_id")
+        or chapter.get("opens_with_segment_id")
+        or ""
+    ).strip()
+    if open_sid:
+        _add([open_sid])
+
+    return _sort_segment_ids_by_manifest(inferred, manifest_order)
+
+
 def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
@@ -656,16 +736,32 @@ def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
         for ch in chapters:
             if not isinstance(ch, dict):
                 continue
-            seg_ids = ch.get("segment_ids")
-            if isinstance(seg_ids, list):
-                cleaned = [s for s in seg_ids if str(s) in manifest_ids]
-                if cleaned != seg_ids:
-                    ch["segment_ids"] = cleaned
-                    applied.append({"action": "drop_orphan_ref", "chapter_id": ch.get("chapter_id")})
-            if not ch.get("segment_ids"):
-                applied.append({"action": "drop_row", "chapter_id": ch.get("chapter_id")})
+            seg_ids = narrative_chapter_segment_ids(ctx, ch)
+            prior = ch.get("segment_ids")
+            if seg_ids:
+                if not isinstance(prior, list) or prior != seg_ids:
+                    ch["segment_ids"] = seg_ids
+                    if isinstance(prior, list) and prior:
+                        if [s for s in prior if str(s) in manifest_ids] != seg_ids:
+                            applied.append(
+                                {
+                                    "action": "drop_orphan_ref",
+                                    "chapter_id": ch.get("chapter_id"),
+                                }
+                            )
+                    else:
+                        applied.append(
+                            {
+                                "action": "infer_segment_ids",
+                                "chapter_id": ch.get("chapter_id"),
+                                "count": len(seg_ids),
+                            }
+                        )
+                kept.append(ch)
                 continue
-            kept.append(ch)
+            if isinstance(prior, list) and prior:
+                applied.append({"action": "drop_orphan_ref", "chapter_id": ch.get("chapter_id")})
+            applied.append({"action": "drop_row", "chapter_id": ch.get("chapter_id")})
         out["chapters"] = kept
     for entry in applied:
         _append_repair_meta(out, entry)

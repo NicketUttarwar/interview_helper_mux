@@ -75,7 +75,9 @@ def upstream_rerun_detail(stage_key: str, upstream_stage: str) -> str:
     )
 
 
-def warning_headline(count: int) -> str:
+def warning_headline(count: int, *, auto_fixed: int = 0) -> str:
+    if auto_fixed <= 0:
+        return "Review autopilot output"
     if count == 1:
         return "Autopilot applied 1 automatic fix"
     return f"Autopilot applied {count} automatic fixes"

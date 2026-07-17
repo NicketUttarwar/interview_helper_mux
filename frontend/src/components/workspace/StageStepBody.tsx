@@ -165,8 +165,14 @@ export function StageStepBody({ step, stage }: Props) {
       return stage.guidance?.prerequisites?.length ? (
         <ul className="stage-step-prereq-list">
           {(stage.guidance.prerequisites || []).map((p) => (
-            <li key={p.id} className={`prereq-${p.status}`}>
+            <li
+              key={p.id}
+              className={`prereq-${p.status}${p.category === "stage_health" ? " prereq-health" : ""}`}
+            >
               {p.label}
+              {p.category === "stage_health" && p.status === "todo" ? (
+                <span className="hint sm"> — discard staged outputs if budget exhausted, then re-run</span>
+              ) : null}
             </li>
           ))}
         </ul>

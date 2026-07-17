@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from interview_mux.analysis_memory import load_analysis_state
+from interview_mux.analysis_memory import load_analysis_state, update_completion_from_analysis
 from interview_mux.llm_specialists import (
     load_comprehension_risks,
     maybe_run_pre_stage_specialists,
@@ -14,6 +16,102 @@ from interview_mux.source_topology import attach_adaptation_to_payload, pickup_e
 from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
+
+
+def ensure_gap_fill_skipped(
+    ctx: RunContext,
+    *,
+    reason: str,
+    signals: dict[str, Any] | None = None,
+) -> None:
+    """Deterministic gap-path skip — valid artifacts, no LLM spend."""
+    from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.gap_fill_eligibility import GAP_FILL_SKIP_REL, persist_gap_fill_mode
+    from interview_mux.gap_fill_eligibility import GapFillDecision
+
+    decision = GapFillDecision(eligible=False, reason=reason, signals=dict(signals or {}))
+    skip_doc = {
+        "status": "skipped",
+        "reason": reason,
+        "signals": dict(signals or {}),
+        "skipped_at": datetime.now(timezone.utc).isoformat(),
+        "eligible": False,
+    }
+    ctx.write_json(GAP_FILL_SKIP_REL, skip_doc, skip_handoff=True)
+    persist_gap_fill_mode(ctx, decision, skipped=True)
+
+    segments: list[dict[str, Any]] = []
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        if isinstance(manifest, dict):
+            segments = [
+                s for s in (manifest.get("segments") or []) if isinstance(s, dict) and s.get("segment_id")
+            ]
+
+    evaluations = [
+        {
+            "segment_id": str(seg.get("segment_id")),
+            "self_explanatory": True,
+            "gap_type": "ok_with_light_bridge",
+            "severity": "low",
+            "listener_confusion": "",
+        }
+        for seg in segments
+    ]
+    if not evaluations:
+        evaluations = [
+            {
+                "segment_id": "seg_001",
+                "self_explanatory": True,
+                "gap_type": "ok_with_light_bridge",
+                "severity": "low",
+                "listener_confusion": "",
+            }
+        ]
+
+    eval_doc = {
+        "evaluations": evaluations,
+        "_meta": {"producer": "gap_fill_skip", "producer_stage": "missing_framing"},
+    }
+    report_doc = {
+        "interviewer_lines": [],
+        "gaps": [],
+        "_meta": {"producer": "gap_fill_skip", "producer_stage": "optimal_questions"},
+    }
+
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_evaluations.json",
+        eval_doc,
+        merge_from_disk=False,
+        stage_key="missing_framing",
+    )
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_report.json",
+        report_doc,
+        merge_from_disk=False,
+        stage_key="optimal_questions",
+    )
+    ctx.path("understanding", "interviewer_script.txt").write_text(
+        "# Interviewer script — gap-fill skipped (no pickup lines required)\n",
+        encoding="utf-8",
+    )
+
+    sync_gaps_to_state(ctx, eval_doc)
+    update_completion_from_analysis(ctx)
+
+    for stage_id in ("missing_framing", "optimal_questions"):
+        if not ctx.is_done(stage_id):
+            ctx.mark_done(stage_id, force=True)
+
+    ctx.log(
+        f"Gap-fill skipped: {reason}",
+        level="info",
+        stage="missing_framing",
+        action_id="gap_fill.skip",
+        detail={"signals": dict(signals or {})},
+    )
 
 
 def run_missing_framing(ctx: RunContext) -> None:
@@ -67,17 +165,6 @@ def run_optimal_questions(ctx: RunContext) -> None:
     def persist(c: RunContext, artifacts: dict) -> None:
         from interview_mux.artifact_writes import write_validated_artifact
 
-        lines = artifacts.get("interviewer_lines") or []
-        eligible = pickup_eligible_speaker_id(c)
-        for i, line in enumerate(lines):
-            if "line_id" not in line:
-                line["line_id"] = f"line_{i+1:03d}"
-            if not line.get("placement"):
-                line["placement"] = "before"
-            if line.get("delivery") == "synthesize":
-                line["delivery"] = "record"
-            if line.get("delivery") == "record" and eligible:
-                line["voice_speaker_id"] = eligible
         write_validated_artifact(
             c,
             "understanding/gap_report.json",
@@ -85,7 +172,7 @@ def run_optimal_questions(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="optimal_questions",
         )
-        _write_interviewer_script(c, lines)
+        persist_optimal_questions_companion_artifacts(c, artifacts)
 
     with logged_step("optimal_questions/llm_stage", ctx=ctx, stage="optimal_questions"):
         run_analysis_llm_stage(
@@ -95,6 +182,22 @@ def run_optimal_questions(ctx: RunContext) -> None:
             build_input,
             persist,
         )
+
+
+def persist_optimal_questions_companion_artifacts(ctx: RunContext, artifacts: dict) -> None:
+    """Write interviewer_script.txt after gap_report.json (resilience + merge persist)."""
+    lines = artifacts.get("interviewer_lines") or []
+    eligible = pickup_eligible_speaker_id(ctx)
+    for i, line in enumerate(lines):
+        if "line_id" not in line:
+            line["line_id"] = f"line_{i+1:03d}"
+        if not line.get("placement"):
+            line["placement"] = "before"
+        if line.get("delivery") == "synthesize":
+            line["delivery"] = "record"
+        if line.get("delivery") == "record" and eligible:
+            line["voice_speaker_id"] = eligible
+    _write_interviewer_script(ctx, lines)
 
 
 def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:

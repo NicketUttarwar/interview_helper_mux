@@ -8,6 +8,7 @@ import {
 } from "./stageOutputs";
 import { pendingWriteInfo } from "./writeApproval";
 import { isFullAutopilotEnabled } from "./fullAutopilot";
+import { gapFillSkipped } from "./stageVisibility";
 
 /** Stages that need operator checkpoints — autopilot focuses but does not auto-run. */
 export const MANUAL_CHECKPOINT_STAGES = new Set([
@@ -77,11 +78,12 @@ export function canAutoRunStage(stageId: string, run?: RunData, config?: AppConf
       return run.journey?.blocking?.reason !== "transcript_review";
     }
     if (stageId === "g1_vo_pickup") {
+      if (gapFillSkipped(run)) return true;
       return (run.g1_missing || []).length === 0;
     }
     return false;
   }
-  if (run && !upstreamArtifactsReady(run.stages, stageId)) return false;
+  if (run && !upstreamArtifactsReady(run.stages, stageId, run.meta)) return false;
   return true;
 }
 

@@ -49,13 +49,29 @@ def _save_orch(ctx: RunContext, orch: dict[str, Any]) -> None:
     ctx.write_json(ORCHESTRATION_PATH, orch, skip_handoff=True)
 
 
-def record_primary_attempt(ctx: RunContext, stage_key: str) -> int:
+def record_primary_attempt(ctx: RunContext, stage_key: str, *, billable: bool = True) -> int:
     orch = _orch(ctx)
     counts = orch.setdefault("primary_attempt_counts", {})
     n = int(counts.get(stage_key, 0)) + 1
     counts[stage_key] = n
+    if billable:
+        billable_counts = orch.setdefault("primary_billable_counts", {})
+        billable_counts[stage_key] = int(billable_counts.get(stage_key, 0)) + 1
+    else:
+        trunc = orch.setdefault("truncation_escalation_counts", {})
+        trunc[stage_key] = int(trunc.get(stage_key, 0)) + 1
+        billable_counts = orch.setdefault("primary_billable_counts", {})
+        billable_counts.setdefault(stage_key, 0)
     _save_orch(ctx, orch)
     return n
+
+
+def primary_billable_count(ctx: RunContext, stage_key: str) -> int:
+    return int(_orch(ctx).get("primary_billable_counts", {}).get(stage_key, 0))
+
+
+def truncation_escalation_count(ctx: RunContext, stage_key: str) -> int:
+    return int(_orch(ctx).get("truncation_escalation_counts", {}).get(stage_key, 0))
 
 
 def record_arbiter_reject(ctx: RunContext, stage_key: str, verdict: str) -> int:
@@ -79,6 +95,8 @@ def reset_stage_attempt_budget(ctx: RunContext, stage_key: str) -> None:
     changed = False
     for bucket_key in (
         "primary_attempt_counts",
+        "primary_billable_counts",
+        "truncation_escalation_counts",
         "arbiter_reject_counts",
         "stuck_signatures",
         "stuck_counts",
@@ -131,7 +149,7 @@ def stuck_count(ctx: RunContext, stage_key: str) -> int:
 def check_primary_budget(ctx: RunContext, stage_key: str) -> str | None:
     if not flow_hardening_enabled():
         return None
-    n = primary_attempt_count(ctx, stage_key)
+    n = primary_billable_count(ctx, stage_key)
     cap = max_primary_attempts(ctx=ctx)
     if n >= cap:
         msg = (
@@ -209,8 +227,10 @@ def budget_extra_for_attempt(
     """Metadata recorded in stage_runs attempt files."""
     out: dict[str, Any] = {
         "primary_attempt_count": primary_attempt_count(ctx, stage_key),
+        "primary_billable_count": primary_billable_count(ctx, stage_key),
+        "truncation_escalation_count": truncation_escalation_count(ctx, stage_key),
         "arbiter_reject_count": arbiter_reject_count(ctx, stage_key),
-        "budget_remaining_primary": max(0, max_primary_attempts(ctx=ctx) - primary_attempt_count(ctx, stage_key)),
+        "budget_remaining_primary": max(0, max_primary_attempts(ctx=ctx) - primary_billable_count(ctx, stage_key)),
     }
     if attempt_signature is not None:
         out["attempt_signature"] = list(attempt_signature)

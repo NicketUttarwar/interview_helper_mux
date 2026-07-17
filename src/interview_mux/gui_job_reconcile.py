@@ -146,6 +146,23 @@ def reconcile_stale_write_approval_job(ctx: RunContext, job: dict[str, Any]) -> 
     return out
 
 
+def reconcile_llm_gate_if_cleared(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
+    """Clear stale LLM gate when the blocked stage is now complete."""
+    job = read_gui_job(ctx)
+    if not job or str(job.get("status")) != "gate":
+        return None
+    if str(job.get("stage") or "") != stage_id:
+        return None
+    if not ctx.is_done(stage_id):
+        return None
+    return _resume_after_operator_gate(
+        ctx,
+        job,
+        stage_id=stage_id,
+        message=f"{stage_id} complete — continue pipeline.",
+    )
+
+
 def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     """Clear stale operator checkpoint gates once the checkpoint has been satisfied."""
     if str(job.get("status")) != "gate":
@@ -157,6 +174,14 @@ def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[st
     from interview_mux.gate_focus import operator_gate_focus_stage
 
     focus = operator_gate_focus_stage(msg, job_stage=stage) or stage
+    blocked_stage = str(job.get("stage") or "")
+    if blocked_stage and ctx.is_done(blocked_stage) and "llm stage gate" in low:
+        return _resume_after_operator_gate(
+            ctx,
+            job,
+            stage_id=blocked_stage,
+            message=f"{blocked_stage} complete — continue pipeline.",
+        )
 
     if focus == "transcript_review":
         from interview_mux.stages.transcript_review import check_transcript_review_pending

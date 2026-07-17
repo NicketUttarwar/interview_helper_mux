@@ -13,6 +13,7 @@ import {
   stageArtifactsFullyComplete,
   stageHasCommittedOutputs,
 } from "./stageOutputs";
+import { isStageHidden, visibleStages } from "./stageVisibility";
 
 export interface NumberedStage {
   number: number;
@@ -35,12 +36,12 @@ export interface PipelineNavState {
   precleanOffer: ReturnType<typeof resolvePrecleanOffer>;
 }
 
-function visibleStages(stages: StageInfo[]): StageInfo[] {
-  return stages;
+function visibleStagesForNav(stages: StageInfo[]): StageInfo[] {
+  return visibleStages(stages);
 }
 
 export function buildNumberedStages(stages: StageInfo[]): NumberedStage[] {
-  const visible = visibleStages(stages);
+  const visible = visibleStagesForNav(stages);
   return visible.map((stage, i) => ({
     number: i + 1,
     stage,
@@ -109,9 +110,10 @@ export function resolvePipelineNav(
       : nextRunnable?.id === "audio_preclean"
         ? precleanStage
         : null;
-  const precleanOffer = precleanTarget
-    ? resolvePrecleanOffer(precleanTarget, run.meta)
-    : null;
+  const precleanOffer =
+    precleanTarget && !isOptionalStageSkipped(precleanTarget, run.meta)
+      ? resolvePrecleanOffer(precleanTarget, run.meta)
+      : null;
 
   let statusLine = run.journey?.next_action || "Select a step or run the next stage.";
   let nextLine = "";
@@ -185,7 +187,7 @@ export function stageNavStatus(
   focusStageId: string | null,
 ): "done" | "current" | "blocked" | "upcoming" | "skipped" {
   const { stage } = entry;
-  if (isOptionalStageSkipped(stage, run.meta)) return "skipped";
+  if (isOptionalStageSkipped(stage, run.meta)) return "done";
   if (stage.status === "incomplete") {
     // Distant false incompletes (upstream still open) are not "blocked" work.
     if (firstUpstreamBlocker(run.stages, stage.id, run.meta)) return "upcoming";

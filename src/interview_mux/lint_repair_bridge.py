@@ -48,6 +48,8 @@ def lint_errors_structurally_repairable(lint_errors: list[str]) -> bool:
     joined = _joined_lint(lint_errors)
     if any(p in joined for p in STRUCTURAL_LINT_PATTERNS):
         return True
+    if "segment_coverage_ratio" in joined:
+        return True
     if "warnings" in joined and "null" in joined:
         return True
     return False
@@ -78,7 +80,22 @@ def try_staged_structural_repair(
         return StructuralRepairResult(outcome=RepairOutcome.NOT_APPLICABLE)
 
     seg_before = _segment_count_from_artifact(stage_key, artifact)
-    patched, applied = apply_repairs_for_stage(ctx, stage_key, artifact, rel_path=rel)
+    applied: list[dict[str, Any]] = []
+    patched = artifact
+
+    if stage_key == "segment_classification" and any(
+        "segment_coverage_ratio" in str(e).lower() for e in lint_errors
+    ):
+        from interview_mux.artifact_completeness import complete_manifest_from_boundaries
+
+        patched = complete_manifest_from_boundaries(ctx, artifact)
+        applied.append({"action": "complete_manifest_from_boundaries"})
+
+    repair_patched, repair_applied = apply_repairs_for_stage(ctx, stage_key, patched, rel_path=rel)
+    if repair_applied:
+        patched = repair_patched
+        applied.extend(repair_applied)
+
     if not applied:
         return StructuralRepairResult(
             outcome=RepairOutcome.NOT_REPAIRABLE,

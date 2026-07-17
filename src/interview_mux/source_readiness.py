@@ -198,6 +198,15 @@ def maybe_auto_dismiss_preclean(ctx: RunContext, *, checkpoint: str = "before_in
         m["audio_preclean"] = ap
 
     ctx.mutate_run_meta(patch)
+    from interview_mux.stages.audio_preclean import ensure_preclean_skipped
+
+    scope = "vo_pickup" if checkpoint == "g1_vo_pickup" else "full_source"
+    ensure_preclean_skipped(
+        ctx,
+        checkpoint=checkpoint,
+        scope=scope,
+        reason="auto_clean_enough",
+    )
     ctx.log(
         f"Pre-clean auto-dismissed ({checkpoint}): source readiness green.",
         level="info",
