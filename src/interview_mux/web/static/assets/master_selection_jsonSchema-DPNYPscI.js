@@ -1,1 +1,0 @@
-import{o as t,s as e,a as s}from"./zod-vendor-0yp7anPg.js";const n=t({ordered_segment_ids:s(e()).min(1),chapters:s(t({title:e(),segment_ids:s(e())})).optional(),excluded_segment_ids:s(t({segment_id:e(),reason:e()})).optional(),notes:e().optional()});export{n as master_selection_jsonSchema};

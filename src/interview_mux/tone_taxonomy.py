@@ -1,99 +1,38 @@
-"""Shared tone and interview-format taxonomy for analysis profile and downstream stages."""
+"""Minimal tone/format taxonomy helpers for analysis profile validation."""
 
 from __future__ import annotations
 
 from typing import Any
 
-TONE_CLASS_VALUES: tuple[str, ...] = (
-    "journalistic",
-    "conversational",
-    "investor",
-    "technical",
-    "human_interest",
+OPERATOR_LOCKABLE_IDENTITY_FIELDS = frozenset(
+    {"interview_identity", "themes", "major_questions", "entities", "speakers"}
 )
+OPERATOR_LOCKABLE_STYLE_FIELDS = frozenset({"style", "narrative", "confidence"})
 
-FORMAT_CLASS_VALUES: tuple[str, ...] = (
-    "one_on_one",
-    "panel",
-    "fireside",
-    "technical_deep_dive",
-    "media_profile",
-    "debate",
+FORMAT_CLASS_VALUES = frozenset(
+    {"one_on_one", "panel", "fireside", "debate", "tutorial", "unknown"}
 )
-
-OPERATOR_LOCKABLE_STYLE_FIELDS: tuple[str, ...] = (
-    "style.tone",
-    "style.tone_class",
-    "style.format_class",
-    "style.format_notes",
-    "style.pacing",
-    "style.interviewer_style",
-    "style.interviewee_style",
-)
-
-OPERATOR_LOCKABLE_IDENTITY_FIELDS: tuple[str, ...] = (
-    "interview_identity.title",
-    "interview_identity.one_line_summary",
+TONE_CLASS_VALUES = frozenset(
+    {"conversational", "journalistic", "intimate", "energetic", "formal", "unknown"}
 )
 
 
-def validate_tone_class(value: str | None) -> bool:
-    return isinstance(value, str) and value in TONE_CLASS_VALUES
-
-
-def validate_format_class(value: str | None) -> bool:
-    return isinstance(value, str) and value in FORMAT_CLASS_VALUES
-
-
-def tone_class_for_show_description(state: dict[str, Any] | None) -> str | None:
-    """Return profile tone_class when valid, else None."""
-    if not isinstance(state, dict):
+def validate_format_class(value: Any) -> str | None:
+    if value is None:
         return None
-    style = state.get("style") or {}
-    if not isinstance(style, dict):
+    s = str(value).strip()
+    return s if s in FORMAT_CLASS_VALUES else None
+
+
+def validate_tone_class(value: Any) -> str | None:
+    if value is None:
         return None
-    tc = style.get("tone_class")
-    return tc if validate_tone_class(tc) else None
+    s = str(value).strip()
+    return s if s in TONE_CLASS_VALUES else None
 
 
-def format_class_from_state(state: dict[str, Any] | None) -> str | None:
-    if not isinstance(state, dict):
-        return None
-    style = state.get("style") or {}
-    if not isinstance(style, dict):
-        return None
-    fc = style.get("format_class")
-    return fc if validate_format_class(fc) else None
-
-
-def compact_profile_style_hints(state: dict[str, Any] | None) -> dict[str, str]:
-    """Compact tone/format hints for stage input injection."""
+def compact_profile_style_hints(state: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(state, dict):
         return {}
-    style = state.get("style") or {}
-    if not isinstance(style, dict):
-        style = {}
-    out: dict[str, str] = {}
-    tc = style.get("tone_class")
-    if validate_tone_class(tc):
-        out["tone_class"] = tc
-    fc = style.get("format_class")
-    if validate_format_class(fc):
-        out["format_class"] = fc
-    if not out.get("format_class"):
-        profile = state.get("conversation_profile") or {}
-        if isinstance(profile, dict):
-            candidate = profile.get("format_class_candidate")
-            if validate_format_class(candidate):
-                out["format_class"] = candidate
-    if not out.get("tone_class"):
-        profile = state.get("conversation_profile") or {}
-        if isinstance(profile, dict):
-            candidate = profile.get("tone_class_candidate")
-            if validate_tone_class(candidate):
-                out["tone_class"] = candidate
-    if style.get("tone"):
-        out["tone_nuance"] = str(style["tone"])[:240]
-    if style.get("format_notes"):
-        out["format_notes"] = str(style["format_notes"])[:240]
-    return out
+    style = state.get("style")
+    return {"style": style} if isinstance(style, dict) else {}

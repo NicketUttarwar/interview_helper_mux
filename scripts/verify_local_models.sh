@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Verify local model stacks after bootstrap (MLX LLM, DeepFilterNet, MMAudio, optional STT).
-# Exit 0 when all required stacks pass; 1 when any required stack fails.
+# Verify local stacks after bootstrap (v2: audio + speech + LLM).
+# Exit 0 when MMAudio + local speech STT pass on arm64; optional stacks WARN unless STRICT_*=1.
 #
 # Usage:
 #   ./scripts/verify_local_models.sh
-#   STRICT_LOCAL_STT=1 ./scripts/verify_local_models.sh   # fail if faster-whisper weights missing
-#   STRICT_DEEPFILTER=1 ./scripts/verify_local_models.sh # fail if DeepFilterNet stack missing
+#   STRICT_DEEPFILTER=1 ./scripts/verify_local_models.sh
+#   STRICT_LOCAL_LLM=1 ./scripts/verify_local_models.sh
 #
-# Docs: SETUP.md § Verify local models
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 FAIL=0
 WARN=0
+IS_ARM64=false
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  IS_ARM64=true
+fi
 
 _report() {
   local status="$1"
@@ -26,28 +29,13 @@ _report() {
   esac
 }
 
-echo "Verifying local model stacks..."
+echo "Verifying local MLX stacks (v2)..."
 
 if [[ -d .venv ]]; then
   # shellcheck source=/dev/null
   source .venv/bin/activate
 fi
 
-# --- MLX LLM (macOS Apple Silicon) ---
-if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
-  MLX_PY="$ROOT/ASSETS/local_llm/venv/bin/python"
-  if [[ ! -x "$MLX_PY" ]]; then
-    _report FAIL "MLX LLM" "venv missing — re-run ./scripts/bootstrap_venv.sh"
-  elif "$MLX_PY" "$ROOT/scripts/download_local_llm.py" --verify >/dev/null 2>&1; then
-    _report OK "MLX LLM" "weights loadable (OpenAI fallback if disabled or missing at runtime)"
-  else
-    _report FAIL "MLX LLM" "run: python scripts/select_local_llm.py --download --verify"
-  fi
-else
-  _report OK "MLX LLM" "skipped (Apple Silicon macOS only; OpenAI volleys used)"
-fi
-
-# --- DeepFilterNet (optional preclean) ---
 DF_PY="$ROOT/ASSETS/local_deepfilter/venv/bin/python"
 if [[ ! -x "$DF_PY" ]]; then
   if [[ "${STRICT_DEEPFILTER:-0}" == "1" ]]; then
@@ -56,16 +44,15 @@ if [[ ! -x "$DF_PY" ]]; then
     _report WARN "DeepFilterNet" "venv missing — preclean unavailable; install Rust and re-run bootstrap"
   fi
 elif "$DF_PY" "$ROOT/scripts/download_deepfilter.py" --verify >/dev/null 2>&1; then
-  _report OK "DeepFilterNet" "venv + df import (preclean)"
+  _report OK "DeepFilterNet" "venv + df import (optional preclean offer)"
 else
   if [[ "${STRICT_DEEPFILTER:-0}" == "1" ]]; then
-    _report FAIL "DeepFilterNet" "verify failed — install Rust (brew install rust) and re-run ./scripts/bootstrap_venv.sh"
+    _report FAIL "DeepFilterNet" "verify failed — install Rust and re-run ./scripts/bootstrap_venv.sh"
   else
-    _report WARN "DeepFilterNet" "not built — preclean falls back to ffmpeg; install Rust and re-run bootstrap"
+    _report WARN "DeepFilterNet" "not built — preclean offer unavailable"
   fi
 fi
 
-# --- MMAudio (SFX) ---
 MM_PY="$ROOT/ASSETS/local_mmaudio/venv/bin/python"
 if [[ ! -x "$MM_PY" ]]; then
   _report FAIL "MMAudio" "venv missing — re-run ./scripts/bootstrap_venv.sh"
@@ -75,19 +62,47 @@ else
   _report FAIL "MMAudio" "verify failed — re-run ./scripts/bootstrap_venv.sh"
 fi
 
-# --- faster-whisper (disfluency_extract; optional) ---
-STT_PY="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}"
-STT_PY="${STT_PY:-python}"
-if "$STT_PY" "$ROOT/scripts/download_local_stt.py" --verify >/dev/null 2>&1; then
-  _report OK "faster-whisper (STT)" "weights cached under ASSETS/local_stt/models"
-elif [[ "${STRICT_LOCAL_STT:-0}" == "1" ]]; then
-  _report FAIL "faster-whisper (STT)" "run: python scripts/download_local_stt.py --model base"
+SP_PY="$ROOT/ASSETS/local_speech/venv/bin/python"
+if [[ ! -x "$SP_PY" ]]; then
+  if [[ "$IS_ARM64" == true ]]; then
+    _report FAIL "local_speech STT" "venv missing — re-run ./scripts/bootstrap_venv.sh"
+  else
+    _report WARN "local_speech STT" "skipped (Apple Silicon only)"
+  fi
+elif "$SP_PY" "$ROOT/scripts/download_local_speech.py" --verify-stt >/dev/null 2>&1; then
+  _report OK "local_speech STT" "venv + mlx-audio import"
 else
-  _report WARN "faster-whisper (STT)" "optional — lexicon pass works without weights; run: python scripts/download_local_stt.py --model base"
+  if [[ "$IS_ARM64" == true ]]; then
+    _report FAIL "local_speech STT" "verify failed — re-run ./scripts/bootstrap_venv.sh"
+  else
+    _report WARN "local_speech STT" "verify failed (non-arm64)"
+  fi
 fi
 
-# --- install.json manifests (informational) ---
-for entry in "mlx:local_llm" "deepfilter:local_deepfilter" "mmaudio:local_mmaudio"; do
+if [[ -x "$SP_PY" ]] && "$SP_PY" "$ROOT/scripts/download_local_speech.py" --verify-s2s >/dev/null 2>&1; then
+  _report OK "local_speech S2S" "venv + mlx-audio TTS import"
+else
+  _report WARN "local_speech S2S" "verify failed — G1 synthesize unavailable until fixed"
+fi
+
+LLM_PY="$ROOT/ASSETS/local_llm/venv/bin/python"
+if [[ ! -x "$LLM_PY" ]]; then
+  if [[ "${STRICT_LOCAL_LLM:-0}" == "1" && "$IS_ARM64" == true ]]; then
+    _report FAIL "local_llm framer" "venv missing — re-run ./scripts/bootstrap_venv.sh"
+  else
+    _report WARN "local_llm framer" "venv missing — volley framer fail-open"
+  fi
+elif "$LLM_PY" "$ROOT/scripts/download_local_llm.py" --verify >/dev/null 2>&1; then
+  _report OK "local_llm framer" "venv + mlx-lm import"
+else
+  if [[ "${STRICT_LOCAL_LLM:-0}" == "1" && "$IS_ARM64" == true ]]; then
+    _report FAIL "local_llm framer" "verify failed — re-run ./scripts/bootstrap_venv.sh"
+  else
+    _report WARN "local_llm framer" "verify failed — OpenAI-only path continues"
+  fi
+fi
+
+for entry in "deepfilter:local_deepfilter" "mmaudio:local_mmaudio" "speech:local_speech" "mlx:local_llm"; do
   stack="${entry%%:*}"
   dir="${entry##*:}"
   manifest="$ROOT/ASSETS/${dir}/install.json"
@@ -99,12 +114,12 @@ done
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
   if [[ "$WARN" -eq 0 ]]; then
-    echo "Local models: all stacks OK."
+    echo "Local MLX stacks: OK."
   else
-    echo "Local models: required stacks OK; $WARN optional warning(s)."
+    echo "Local MLX stacks: required OK; $WARN optional warning(s)."
   fi
   exit 0
 fi
 
-echo "Local models: $FAIL required stack(s) failed — see SETUP.md § Verify local models." >&2
+echo "Local MLX stacks: $FAIL required stack(s) failed." >&2
 exit 1

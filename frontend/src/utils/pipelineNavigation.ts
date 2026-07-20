@@ -5,7 +5,6 @@ import {
   gateStatusLine,
   resolveJobStatusContext,
   reuseStatusLine,
-  writeApprovalStatusLine,
 } from "./operatorStatus";
 import { findNextRunnableStage, isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 import {
@@ -125,11 +124,6 @@ export function resolvePipelineNav(
   if (jobCtx.isRunning) {
     statusLine = job?.message || `Running ${job?.stage || "pipeline"}…`;
     nextLine = "Watch Logs for progress.";
-  } else if (jobCtx.awaitingWriteApproval) {
-    statusLine = writeApprovalStatusLine(run, job);
-    nextLine = "Approve or discard staged files in the checkpoint panel.";
-    primaryAction = "checkpoint";
-    canRunNext = true;
   } else if (jobCtx.needsStageReuse || jobCtx.needsStageReuseFromJourney) {
     const reuseStageId = job?.stage || jobCtx.journeyReuseStageId;
     const reuseJob = reuseStageId ? { ...job, stage: reuseStageId } : job;
@@ -144,13 +138,6 @@ export function resolvePipelineNav(
     statusLine = gateStatusLine(run, job, jobCtx.actionRequiredStage);
     nextLine = gate ? `Complete ${gate.title}, then continue.` : "Open the checkpoint panel.";
     primaryAction = "checkpoint";
-    canRunNext = true;
-  } else if (handoffStage) {
-    statusLine = `${handoffStage.title} finished — review AI outputs`;
-    nextLine = nextStageResolved
-      ? `Next: Step ${nextNumber ?? "?"} — ${nextStageResolved.title}`
-      : "Acknowledge review to continue.";
-    primaryAction = "handoff";
     canRunNext = true;
   } else if (nextRunnable) {
     statusLine = `Up next: Step ${nextNumber ?? "?"} — ${nextRunnable.title}`;

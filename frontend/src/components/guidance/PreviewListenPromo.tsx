@@ -50,7 +50,11 @@ export function PreviewListenPromo({ compact }: Props) {
           </p>
         ) : null}
       </div>
-      {!compact ? <audio controls src={playUrl} className="preview-listen-audio" /> : null}
+      <audio
+        controls
+        src={playUrl}
+        className={`preview-listen-audio${compact ? " preview-listen-audio--compact" : ""}`}
+      />
       <div className="preview-listen-actions">
         {compact ? (
           <button type="button" className="btn ghost sm" onClick={openPipeline}>

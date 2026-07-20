@@ -1,4 +1,4 @@
-# Direct application dependencies (BUILD-010).
+# Core application dependencies (v2 — cloud LLM + local audio subprocesses).
 # Full transitive pins: requirements.lock (regenerate with pip-compile).
 # Doc mirror: docs/cross-cutting/anchored-requirements.lock
 
@@ -15,17 +15,12 @@ filelock==3.29.0
 pydantic==2.13.4
 numpy==2.4.6
 
-# Planned mix/mastering (BUILD-065, 071) — safe to install early
+# Mix / mastering
 pyloudnorm==0.2.0
 pydub==0.25.1
 soundfile==0.13.1
 
-# Local STT (optional; disfluency_extract falls back to transcript lexicon when missing)
-faster-whisper>=1.1.0,<2
-
-# Dev / setup gate
+# Dev / CI (also installed via pip install -e ".[dev]")
 pytest>=8,<9
 pip-audit>=2.7,<3
-
-# Transitive security pin (cachecontrol → pip-audit); GHSA-6v7p-g79w-8964
 msgpack>=1.2.1

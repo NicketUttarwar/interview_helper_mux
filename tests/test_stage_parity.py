@@ -59,44 +59,63 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
 }
 
 def test_operator_linear_stage_order() -> None:
+    from interview_mux.v2.config import v2_enabled
     from interview_mux.web.stages import operator_linear_stage_ids
 
     ids = operator_linear_stage_ids(None)
     assert ids.index("transcript_review_build") < ids.index("transcript_review")
-    assert ids.index("transcript_review") < ids.index("disfluency_extract")
-    assert ids.index("disfluency_extract") < ids.index("disfluency_review")
-    assert ids.index("disfluency_review") < ids.index("source_acoustic_profile")
-    assert ids.index("optimal_questions") < ids.index("analysis_profile")
-    assert ids.index("analysis_profile") < ids.index("g1_vo_pickup")
+    if v2_enabled():
+        assert "disfluency_extract" not in ids
+        assert "disfluency_review" not in ids
+        assert "analysis_profile" not in ids
+        assert ids.index("transcript_review") < ids.index("source_acoustic_profile")
+        assert ids.index("optimal_questions") < ids.index("g1_vo_pickup")
+    else:
+        assert ids.index("transcript_review") < ids.index("disfluency_extract")
+        assert ids.index("disfluency_extract") < ids.index("disfluency_review")
+        assert ids.index("disfluency_review") < ids.index("source_acoustic_profile")
+        assert ids.index("optimal_questions") < ids.index("analysis_profile")
+        assert ids.index("analysis_profile") < ids.index("g1_vo_pickup")
 
-    flow1 = operator_linear_stage_ids("podcast")
+    operator_linear_stage_ids("podcast")
+
 
 def test_executable_order_matches_pipeline() -> None:
+    from interview_mux.v2.config import effective_analysis_order, effective_delivery_order
+
     pairs = [
-        ("analysis", pipeline.ANALYSIS_ORDER),
-        ("delivery", pipeline.DELIVERY_ORDER),
+        ("analysis", effective_analysis_order()),
+        ("delivery", effective_delivery_order()),
     ]
     for name, pipe_order in pairs:
         web_order = EXECUTABLE_ORDER[name]
+        if name == "analysis":
+            from interview_mux.v2.config import v2_enabled
+
+            if v2_enabled():
+                assert list(pipe_order) == list(web_order) or set(pipe_order) <= set(web_order), (
+                    f"{name}: v2 pipeline stages should be subset of GUI EXECUTABLE_ORDER"
+                )
+                continue
         assert list(pipe_order) == list(web_order), (
             f"{name}: pipeline vs GUI mismatch {set(pipe_order) ^ set(web_order)}"
         )
 
 def test_stage_by_id_covers_pipeline_stages() -> None:
+    from interview_mux.v2.config import effective_analysis_order, effective_delivery_order
     from interview_mux.web.stages import STAGE_BY_ID
 
     for order in (
-        pipeline.ANALYSIS_ORDER,
-        pipeline.DELIVERY_ORDER,
+        effective_analysis_order(),
+        effective_delivery_order(),
     ):
         for stage_id in order:
             assert stage_id in STAGE_BY_ID, f"missing GUI metadata for {stage_id}"
 
 def test_each_pipeline_stage_has_test_coverage() -> None:
-    all_stages = (
-        list(pipeline.ANALYSIS_ORDER)
-        + list(pipeline.DELIVERY_ORDER)
-    )
+    from interview_mux.v2.config import effective_analysis_order, effective_delivery_order
+
+    all_stages = list(effective_analysis_order()) + list(effective_delivery_order())
     missing_registry = [s for s in all_stages if s not in STAGE_TEST_COVERAGE]
     assert not missing_registry, f"Add STAGE_TEST_COVERAGE entries for: {missing_registry}"
 

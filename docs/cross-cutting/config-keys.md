@@ -202,7 +202,9 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 | `local_llm.capability.lx03_min_verify_rate` | `0.85` | Gate LX-03 digest compressor enable |
 | `local_llm.capability.lx04_min_agreement` | `0.95` | Gate LX-04 escalate advisory enable |
 | `local_llm.capability.lx05_min_verify_rate` | `0.85` | Gate LX-05 shard packet prep enable |
-| `local_llm.capability.allowlist` | `[]` | Empty → code `QUALITY_LOCAL_ALLOWLIST`; non-empty overrides |
+| `local_llm.framer_allowlist` | `[]` | Empty → code `QUALITY_LOCAL_ALLOWLIST`; non-empty overrides |
+| `local_llm.fail_open` | `true` | Framer verify errors proceed OpenAI-only when `true` |
+| `local_llm.request_timeout_sec` | `120` | Local framer subprocess timeout |
 
 Capability calibration writes `ASSETS/local_llm/capability_manifest.json` via `scripts/calibrate_local_llm.py` (bootstrap after model select). See [local-llm-tier.md](./local-llm-tier.md).
 
@@ -806,9 +808,29 @@ Isolated venv paths — [local-audio-stack.md](./local-audio-stack.md).
 | Key | Default | If wrong |
 |-----|---------|----------|
 | `local_runtimes.mlx.venv_dir` | `ASSETS/local_llm/venv` | MLX subprocess fails — re-run `bootstrap_venv.sh` |
+| `local_runtimes.llm.venv_dir` | `ASSETS/local_llm/venv` | Alias for volley framer runtime |
+| `local_runtimes.speech.venv_dir` | `ASSETS/local_speech/venv` | mlx-audio STT/S2S subprocess fails |
 | `local_runtimes.deepfilter.venv_dir` | `ASSETS/local_deepfilter/venv` | Preclean DeepFilterNet subprocess fails |
 | `local_runtimes.mmaudio.venv_dir` | `ASSETS/local_mmaudio/venv` | MMAudio SFX subprocess fails |
 | `local_runtimes.*.enabled` | `true` | When `false`, `local_runtime` raises for that stack |
+
+---
+
+## `local_speech`
+
+Local mlx-audio STT + S2S — [speech-to-speech-vo.md](./speech-to-speech-vo.md) · [local-audio-stack.md](./local-audio-stack.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `local_speech.enabled` | `true` | STT stage fails on arm64 when disabled |
+| `local_speech.models_dir` | `ASSETS/local_speech/models` | HF weights cache location |
+| `local_speech.fail_open` | `true` | S2S errors block G1 when `false` |
+| `local_speech.stt_timeout_sec` | `3600` | Long interviews timeout mid-transcribe |
+| `local_speech.s2s_timeout_sec` | `600` | Gap VO synthesis timeout |
+| `local_speech.context_clip_enabled` | `true` | Disable segment-adjacent prosody clips |
+| `local_speech.context_clip_min_ms` | `2000` | Minimum context window |
+| `local_speech.context_clip_max_ms` | `8000` | Maximum context window |
+| `local_speech.min_reference_sec` | `3.0` | Speaker sample quality floor |
 
 ---
 
@@ -864,6 +886,21 @@ Optional lock files: `requirements-local-mlx.txt`, `requirements-local-deepfilte
 | Key | Used by | If wrong |
 |-----|---------|----------|
 | `nle_edits.strict` | `nle_state.save_nle`, GUI NLE PUT | When `true`, invalid `segments/nle_edits.json` raises HTTP 400 instead of warn-only |
+
+---
+
+## `v2` (greenfield simplified app)
+
+| Key | Default | Used by | Notes |
+|-----|---------|---------|-------|
+| `v2.enabled` | `true` | `v2.config`, GUI PhaseWorkbench | Single master-podcast path |
+| `v2.auto_commit_artifacts` | `true` | `write_staging.write_approval_enabled` | No `.pending_writes/` staging |
+| `v2.g1_optional` | `true` | `gates.require_g1_clear`, pipeline analysis finalize | Skip gap VO allowed |
+| `v2.llm_max_attempts` | `2` | `llm_simple.run_llm_stage_simple` | Schema + one retry |
+| `v2.lint_blocking` | `false` | `llm_simple` warn-only lint | |
+| `v2.cross_validate_blocking` | `false` | `llm_simple` warn-only crossval | |
+
+See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/drop-manifest.md).
 
 ---
 

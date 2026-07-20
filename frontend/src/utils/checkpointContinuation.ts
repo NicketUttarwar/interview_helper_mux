@@ -3,7 +3,6 @@ import { findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker } from "./stageOutputs";
 import { readyForStageMessage } from "./stageAdvance";
-import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveFocusStepId } from "./resolveActiveStep";
@@ -35,30 +34,8 @@ export type NavigationIntent = "auto_surface" | "user_continue";
 
 /** Auto fix-all when autopilot is enabled. Returns true if an action ran. */
 export async function tryAutopilotCheckpointResolution(
-  opts: AdvancePipelineOpts,
+  _opts: AdvancePipelineOpts,
 ): Promise<boolean> {
-  if (!isPipelineAutopilotEnabled(opts.config) || !opts.runId) return false;
-
-  const run = opts.runId ? await opts.refreshRun() : opts.run;
-  if (!run) return false;
-
-  const checkpoint = resolveAutopilotCheckpoint(run, opts.config);
-  if (!checkpoint) return false;
-  if (!canAttemptAutopilotCheckpoint(opts.runId, checkpoint)) return false;
-
-  recordAutopilotCheckpointAttempt(opts.runId, checkpoint);
-
-  if (checkpoint.kind === "write_approval") {
-    return false;
-  }
-
-  if (!opts.fixAllAndContinueStage) return false;
-  opts.showToast("Autopilot: fixing artifact issues…", "info");
-  const ok = await opts.fixAllAndContinueStage(checkpoint.stageId);
-  if (ok) {
-    clearAutopilotCheckpointAttempts(opts.runId, checkpoint.stageId);
-    return true;
-  }
   return false;
 }
 
@@ -174,12 +151,6 @@ export interface AdvancePipelineOpts {
   /** When true, automatically start the next automated stage after focusing it. */
   autoRun?: boolean;
   config?: AppConfig | null;
-  /** Auto-acknowledge AI handoff checkpoints when autopilot is active. */
-  acknowledgeHandoff?: () => Promise<void>;
-  /** Autopilot: auto-resolve ITR issues (Fix all & continue). */
-  fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
-  /** Autopilot: auto-save staged outputs. */
-  approveWriteAndContinue?: (stageId?: string) => Promise<boolean>;
   /** auto_surface = show operator focus once per source stage; user_continue = always navigate. */
   navigationIntent?: NavigationIntent;
 }
@@ -377,33 +348,12 @@ export async function advancePipeline(opts: AdvancePipelineOpts): Promise<boolea
     }
   }
 
-  const write = pendingWriteInfo(refreshed);
-  if (write?.paths.length) {
-    await focusStageWorkbench({
-      run: refreshed,
-      stageId: write.stageId,
-      selectStage: opts.selectStage,
-      expandStage: opts.expandStage,
-      setActiveStepId: opts.setActiveStepId,
-      setPipelineSubTab: opts.setPipelineSubTab,
-      blockingReason: "write_approval",
-      navigationIntent: navIntent,
-    });
-    return false;
-  }
-
   const blocking = refreshed.journey?.blocking ?? refreshed.blocking;
   if (blocking?.blocked && blocking.stage_id) {
     const substepId =
       blocking.reason === "stage_reuse"
         ? `stage_reuse:${blocking.stage_id}`
-        : blocking.reason === "handoff_review"
-          ? `handoff:${blocking.stage_id}`
-          : blocking.reason === "write_approval"
-            ? `write_approval:${blocking.stage_id}`
-            : blocking.reason === "operator_decisions"
-              ? `operator_decisions:${blocking.stage_id}`
-              : null;
+        : null;
     if (substepId) opts.setActiveSubstepId(substepId);
     await focusStageWorkbench({
       run: refreshed,
@@ -573,10 +523,5 @@ export async function reconcileBusyRun(opts: ReconcileBusyOpts): Promise<{
   }
 
   const refreshed = await opts.refreshRun();
-  const sid = refreshed?.job?.pending_write_stage || refreshed?.job?.stage;
-  const cleared =
-    !refreshed?.job?.awaiting_write_approval &&
-    refreshed?.job?.status !== "awaiting_write_approval" &&
-    (!sid || !stageAwaitingWriteApproval(refreshed, sid));
-  return { jobRunning: false, writeApprovalCleared: cleared };
+  return { jobRunning: false, writeApprovalCleared: false };
 }

@@ -193,9 +193,13 @@ See also: [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_ac
 
 ## KEEP / MERGE / DEFER (product features)
 
+**v2 simplified app** (see [NORTH_STAR.md](../../NORTH_STAR.md), [docs/v2/drop-manifest.md](../v2/drop-manifest.md)):
+
 | Layer | Features |
 |-------|----------|
-| KEEP | Full analysis + delivery, gates G0–G1.5, SDP chain, QC, LLM hardening, NLE, write approval |
+| KEEP | 32-stage analysis + delivery spine, G0 mandatory, G1 optional, SDP chain, QC (`verify_master`), NLE, stage reuse, preclean offer |
+| SIMPLIFY | LLM: schema + 1 retry (`llm_simple.py`); auto-commit artifacts; linear pipeline (no volley/autopilot/handoffs) |
+| CUT | G0.5 disfluency, profile gate, local MLX, investigation queue, write approval, handoffs, Decision Wizard |
 | MERGE | Former flow2 quotability → `full_master_ranking` via enrichment flags |
 | DEFER | Show notes export after master (not a parallel flow) |
 | DEPRECATED | Flow 2 montage, Flow 3 parallel pipeline, G2 picker, legacy mux/sfx_brief as default |

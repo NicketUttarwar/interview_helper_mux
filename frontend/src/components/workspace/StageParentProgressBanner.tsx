@@ -9,9 +9,6 @@ import {
 } from "../../utils/stageStepActions";
 import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import { guardBusy } from "../../utils/guardBusy";
-import { writeApprovalPrimaryLabel } from "../../utils/writeApprovalLabels";
-import { resolvePendingWritePaths } from "../../utils/writeApproval";
-import { isWriteApprovalSaveInProgress } from "../../utils/jobStatus";
 
 interface Props {
   stage: StageInfo;
@@ -76,14 +73,8 @@ export function StageParentProgressBanner({
     skipOptionalStage,
     redoFromStage,
     selectStage,
-    approveWriteAndContinue,
-    discardPendingWrites,
     completeTranscriptReview,
-    completeDisfluencyReview,
     approveSfxPrompts,
-    acknowledgeHandoff,
-    revalidateArtifactIssues,
-    fixAllAndContinueStage,
     beginStageExecution,
   } = useApp();
 
@@ -120,32 +111,16 @@ export function StageParentProgressBanner({
   const primaryStep = progress.primaryStep;
   if (!primaryStep || !progress.attentionLabel) return null;
 
-  const writePaths = resolvePendingWritePaths(run, stage.id);
-  const saveInProgress =
-    primaryStep.kind === "write_approval" &&
-    isWriteApprovalSaveInProgress(run, { actionBusy, stageId: stage.id });
-  const otherJobRunning = jobRunning && !saveInProgress;
-  const busy = stepBusy || saveInProgress || otherJobRunning || actionBusy;
-
-  const primaryLabel =
-    primaryStep.kind === "write_approval"
-      ? writeApprovalPrimaryLabel(writePaths.length)
-      : primaryStep.primary_button || progress.attentionLabel;
+  const busy = stepBusy || jobRunning || actionBusy;
+  const primaryLabel = primaryStep.primary_button || progress.attentionLabel;
 
   const actionHandlers = {
     executeJob: (body: Parameters<typeof executeJob>[0]) => executeJob(body),
     runNextStage: () => runNextStage(),
     advanceFromCheckpoint: () => advanceFromCheckpoint(),
-    approveWriteAndContinue: (sid: string) => approveWriteAndContinue(sid),
-    revalidateArtifactIssues: (sid: string) => revalidateArtifactIssues(sid),
-    fixAllAndContinueStage: (sid: string) => fixAllAndContinueStage(sid),
-    discardPendingWrites: (sid: string) => discardPendingWrites(sid),
     completeTranscriptReview: (acceptUnreviewed?: boolean) =>
       completeTranscriptReview(acceptUnreviewed),
-    completeDisfluencyReview: (acceptUnreviewed?: boolean) =>
-      completeDisfluencyReview(acceptUnreviewed),
     approveSfxPrompts: () => approveSfxPrompts(),
-    acknowledgeHandoff: () => acknowledgeHandoff(),
     skipOptional: (sid: string) => skipOptionalStage(sid),
     declineReuseAndRun: (sid: string) =>
       beginStageExecution({ kind: "decline_reuse_and_run", stageId: sid }),
@@ -155,8 +130,7 @@ export function StageParentProgressBanner({
   };
 
   const onPrimary = () => {
-    if (saveInProgress) return;
-    if (guardBusy(otherJobRunning, actionBusy, showToast)) return;
+    if (guardBusy(jobRunning, actionBusy, showToast)) return;
     setStepBusy(true);
     void invokeStepFooterAction(primaryStep, stage, actionHandlers).finally(() =>
       setStepBusy(false),
@@ -166,8 +140,7 @@ export function StageParentProgressBanner({
   const onSecondary = () => {
     const secondary = progress.secondaryStep;
     if (!secondary?.secondary_button) return;
-    if (saveInProgress) return;
-    if (guardBusy(otherJobRunning, actionBusy, showToast)) return;
+    if (guardBusy(jobRunning, actionBusy, showToast)) return;
     setStepBusy(true);
     void invokeStepFooterSecondaryAction(secondary, stage, actionHandlers).finally(() =>
       setStepBusy(false),
@@ -175,11 +148,9 @@ export function StageParentProgressBanner({
   };
 
   const detailStepId =
-    primaryStep.embed === "disfluency_review"
-      ? "review_fillers"
-      : primaryStep.embed === "transcript_review"
-        ? "review_transcript"
-        : primaryStep.id;
+    primaryStep.embed === "transcript_review"
+      ? "review_transcript"
+      : primaryStep.id;
 
   return (
     <div className="stage-parent-progress-banner" data-testid="stage-parent-progress-banner">
@@ -196,12 +167,6 @@ export function StageParentProgressBanner({
             busy={busy}
             label={primaryLabel}
             testId="stage-parent-progress-primary"
-            actionId={
-              primaryStep.kind === "write_approval" ? "gui.write_approval.save" : undefined
-            }
-            disabled={
-              primaryStep.kind === "write_approval" && writePaths.length === 0
-            }
             onClick={onPrimary}
           />
           {progress.secondaryStep?.secondary_button ? (

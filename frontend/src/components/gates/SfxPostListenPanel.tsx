@@ -184,8 +184,7 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
   const playAsset = async (assetId: string, path: string) => {
     const soloUrl = `/api/runs/${run.run_id}/audio?path=${encodeURIComponent(path)}`;
     const underSpeechUrl = getSfxUnderSpeechUrl(run.run_id, assetId);
-    const player = document.querySelector(".audio-player") as HTMLAudioElement | null;
-    const target = player || inlineRef.current;
+    const target = inlineRef.current;
     if (!target) {
       showToast("Could not play audio — no player available.");
       return;
@@ -219,7 +218,7 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
 
   return (
     <div className="quality-offer-card sfx-post-listen-card">
-      <audio ref={inlineRef} className="stage-inline-audio hidden" aria-hidden />
+      <audio ref={inlineRef} controls className="stage-inline-audio sfx-post-listen-player" />
       <h4>Post-listen QA (MMAudio)</h4>
       <p className="muted">
         Listen solo, then under speech stem. Fail hints: {FAIL_HINTS.join(" · ")}

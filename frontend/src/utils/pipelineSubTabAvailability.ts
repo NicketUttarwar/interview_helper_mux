@@ -6,15 +6,11 @@ export interface SubTabAvailability {
   prerequisiteStageId?: string;
 }
 
-function storyReadyFallback(run: RunData): boolean {
-  const contentDone = run.stages?.find((s) => s.id === "content_context")?.status === "done";
-  return Boolean(contentDone && run.analysis_complete);
-}
-
 function timelineReadyFallback(timeline: TimelineData | null): boolean {
   return (timeline?.segments?.length ?? 0) > 0;
 }
 
+/** v2 pipeline exposes stage workbench and NLE timeline only. */
 export function pipelineSubTabAvailability(
   tab: PipelineSubTab,
   run: RunData | null,
@@ -26,20 +22,7 @@ export function pipelineSubTabAvailability(
 
   switch (tab) {
     case "stage":
-    case "files":
-    case "llm_calls":
-    case "volley_memory":
       return { available: true };
-    case "story": {
-      const ready = run.story_board_ready ?? storyReadyFallback(run);
-      return ready
-        ? { available: true }
-        : {
-            available: false,
-            reason: "Unlocks after content understanding",
-            prerequisiteStageId: "content_context",
-          };
-    }
     case "timeline": {
       const ready = run.timeline_ready ?? timelineReadyFallback(timeline);
       return ready
@@ -50,18 +33,8 @@ export function pipelineSubTabAvailability(
             prerequisiteStageId: "segment_classification",
           };
     }
-    case "profile": {
-      const ready = Boolean(run.profile_ready_for_review || run.profile_verified);
-      return ready
-        ? { available: true }
-        : {
-            available: false,
-            reason: "Unlocks when analysis profile is ready for review",
-            prerequisiteStageId: "analysis_profile",
-          };
-    }
     default:
-      return { available: true };
+      return { available: false, reason: "Not available in v2 mode" };
   }
 }
 

@@ -1,11 +1,7 @@
 import type { StageInfo, StageStep } from "../../types";
 import { GateActions } from "../gates/GateActions";
 import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
-import { HandoffPanel } from "./HandoffPanel";
-import { WriteApprovalPanel } from "../guidance/WriteApprovalPanel";
-import { ArtifactClarificationPanel } from "../guidance/ArtifactClarificationPanel";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
-import { StoryBoardPanel } from "./StoryBoardPanel";
 import { NlePanel } from "./NlePanel";
 import { AcousticProfilePanel } from "../gates/AcousticProfilePanel";
 import { InterviewSpinePanel } from "./InterviewSpinePanel";
@@ -16,18 +12,13 @@ import { SfxPostListenPanel } from "../gates/SfxPostListenPanel";
 import { PlacementAdjustmentsPanel } from "../gates/PlacementAdjustmentsPanel";
 import { DeliverableCard } from "./DeliverableCard";
 import { StageOutputsPanel } from "./StageOutputsPanel";
-import { LlmCallsPanel } from "./LlmCallsPanel";
-import { VolleyMemoryPanel } from "./VolleyMemoryPanel";
 import { TranscriptReviewPanel } from "../gates/TranscriptReviewPanel";
-import { DisfluencyReviewPanel } from "../gates/DisfluencyReviewPanel";
-import { AnalysisProfileGate } from "../gates/AnalysisProfileGate";
 import { VoPickupPanel } from "../gates/VoPickupPanel";
 import { PreviewPickupPanel } from "../gates/PreviewPickupPanel";
 import { SfxPromptReviewPanel } from "../gates/SfxPromptReviewPanel";
+import { PickupSpeakerPanel } from "../gates/PickupSpeakerPanel";
 import { useApp } from "../../context/AppContext";
 import { resolvePrecleanOffer } from "../../utils/preclean";
-import { isFullAutopilotEnabled } from "../../utils/fullAutopilot";
-import { StageDecisionWizard } from "../guidance/StageDecisionWizard";
 
 interface Props {
   step: StageStep;
@@ -35,73 +26,14 @@ interface Props {
 }
 
 export function StageStepBody({ step, stage }: Props) {
-  const { run, timeline, config } = useApp();
+  const { run, timeline } = useApp();
   const precleanOffer = run ? resolvePrecleanOffer(stage, run.meta) : null;
-
-  if (
-    step.id === "complete_g05" &&
-    stage.id === "disfluency_review" &&
-    stage.status === "action_required"
-  ) {
-    return (
-      <div className="tr-complete-step-body">
-        <p className="hint">
-          When every clip is confirmed or rejected, use <strong>Continue pipeline</strong> in the
-          review panel or step footer. <strong>Confirm all &amp; continue</strong> accepts every
-          pending clip at once.
-        </p>
-      </div>
-    );
-  }
-
-  if (
-    step.id === "verify_profile" &&
-    stage.id === "analysis_profile" &&
-    stage.status === "action_required"
-  ) {
-    return (
-      <div className="tr-complete-step-body">
-        <p className="hint">
-          Use <strong>Approve profile &amp; proceed</strong> in the banner above to verify the AI
-          story profile and unlock later stages.
-        </p>
-      </div>
-    );
-  }
-
-  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
-    return <StageDecisionWizard stage={stage} />;
-  }
-
-  if (
-    (step.kind === "artifact_clarification" || step.id === "artifact_clarification") &&
-    !isFullAutopilotEnabled(config)
-  ) {
-    return <ArtifactClarificationPanel stage={stage} />;
-  }
 
   if (step.kind === "progress" || step.id === "auto_resolving") {
     return (
       <p className="hint sm" data-testid="stage-auto-resolving">
         Automatic repairs and validation are running — watch the activity log.
       </p>
-    );
-  }
-
-  if (step.kind === "write_approval") {
-    return (
-      <div className="stage-decision-panel" data-testid="stage-write-approval-decision">
-        <p className="hint sm">
-          Use <strong>Save all files &amp; continue</strong> in the banner above to approve staged
-          outputs without opening each file.
-        </p>
-        <WriteApprovalPanel stage={stage} />
-        {step.embed === "transcript_dock" ? (
-          <section className="stage-transcript-dock">
-            <TranscriptDockViewer />
-          </section>
-        ) : null}
-      </div>
     );
   }
 
@@ -141,22 +73,7 @@ export function StageStepBody({ step, stage }: Props) {
             </ul>
           </div>
         ) : null}
-        <LlmCallsPanel />
-        <VolleyMemoryPanel />
       </div>
-    );
-  }
-
-  if (step.kind === "handoff") {
-    return (
-      <>
-        <p className="hint sm">
-          Use <strong>Acknowledge &amp; continue</strong> in the banner above to sign off on AI
-          outputs without opening each file.
-        </p>
-        <HandoffPanel />
-        <StageOutputsPanel stage={stage} />
-      </>
     );
   }
 
@@ -195,7 +112,6 @@ export function StageStepBody({ step, stage }: Props) {
         </p>
       );
 
-
     case "preclean":
       return precleanOffer ? (
         <PrecleanOfferCard stage={stage} offer={precleanOffer} />
@@ -203,14 +119,6 @@ export function StageStepBody({ step, stage }: Props) {
 
     case "gate":
       return <GateActions stage={stage} />;
-
-    case "embed_story_board":
-      return (
-        <>
-          <StoryBoardPanel />
-          <AnalysisProfileGate stage={stage} />
-        </>
-      );
 
     case "embed_timeline":
       return <NlePanel />;
@@ -227,26 +135,13 @@ export function StageStepBody({ step, stage }: Props) {
       return <SfxPostListenPanel stage={stage} />;
 
     case "done":
-      return (
-        <>
-          <StageOutputsPanel stage={stage} />
-        </>
-      );
+      return <StageOutputsPanel stage={stage} />;
 
     case "locked":
       return (
         <p className="hint">
           Complete the blocking stage first, then return here.
         </p>
-      );
-
-    case "embed_debug":
-      return (
-        <details className="stage-step-debug">
-          <summary>Engineering debug</summary>
-          <LlmCallsPanel />
-          <VolleyMemoryPanel />
-        </details>
       );
 
     default:
@@ -274,10 +169,6 @@ export function StageStepBody({ step, stage }: Props) {
       return <DeliverableCard />;
     case "transcript_review":
       return <TranscriptReviewPanel />;
-    case "disfluency_review":
-      return <DisfluencyReviewPanel />;
-    case "analysis_profile":
-      return <AnalysisProfileGate stage={stage} />;
     case "pickup_speaker":
       return <PickupSpeakerPanel stage={stage} />;
     case "vo_pickup":
@@ -286,14 +177,6 @@ export function StageStepBody({ step, stage }: Props) {
       return <PreviewPickupPanel voLines={timeline?.vo_lines || []} />;
     case "sfx_prompt_review":
       return <SfxPromptReviewPanel stage={stage} />;
-    case "debug":
-      return (
-        <details className="stage-step-debug">
-          <summary>Engineering debug</summary>
-          <LlmCallsPanel />
-          <VolleyMemoryPanel />
-        </details>
-      );
     default:
       if (step.kind === "gate") return <GateActions stage={stage} />;
       return step.status === "done" ? <StageOutputsPanel stage={stage} /> : null;

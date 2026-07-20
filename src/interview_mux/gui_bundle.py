@@ -16,11 +16,9 @@ _ASSET_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Shipped bundle must expose the atomic checkpoint save API (not legacy /approve-only).
+# v2 GUI bundle must expose checkpoint continuation (no write-approval / handoff flows).
 _REQUIRED_JS_MARKERS = (
-    "continue-after-checkpoint",
     "advanceFromCheckpoint",
-    "approveWriteAndContinue",
     "checkpoint_continue",
 )
 

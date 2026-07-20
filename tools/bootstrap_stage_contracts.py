@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import yaml  # noqa: E402
 
-from interview_mux.analysis_orchestrator import ALL_LLM_STAGES  # noqa: E402
+from interview_mux.v2.config import ALL_LLM_STAGES  # noqa: E402
 from interview_mux.artifact_dependency_graph import _PROPAGATION_SEEDS  # noqa: E402
 from interview_mux.context_resolver import ARTIFACTS_REGISTRY  # noqa: E402
 from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE  # noqa: E402

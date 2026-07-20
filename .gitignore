@@ -162,9 +162,6 @@ activemq-data/
 .env
 .envrc
 .venv
-CURSOR_EXECUTE/.venv/
-CURSOR_EXECUTE/logs/
-CURSOR_EXECUTE/state/
 env/
 venv/
 ENV/

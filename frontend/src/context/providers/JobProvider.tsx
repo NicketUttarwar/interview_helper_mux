@@ -7,7 +7,6 @@ export interface JobContextValue {
   executeJob: (body: ExecuteBody, opts?: { source?: "user" | "checkpoint_continue" }) => Promise<void>;
   startJobPoll: () => void;
   runNextStage: () => Promise<void>;
-  approveWriteAndContinue: (stageId?: string) => Promise<boolean>;
   advanceFromCheckpoint: () => Promise<void>;
 }
 

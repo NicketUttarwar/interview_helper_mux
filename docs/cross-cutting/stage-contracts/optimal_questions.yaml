@@ -17,7 +17,10 @@ inputs:
   - path: understanding/gap_evaluations.json
     producer: missing_framing
   soft: []
-sufficiency: []
+sufficiency:
+- path: gaps
+  rule: min_rows
+  min_count: 1
 propagation:
   invalidates_stages: []
 consumers:
@@ -29,5 +32,6 @@ remediation:
   - volley_retry
   - full_stage_rerun
 critical_fields:
-- interviewer_lines
+- gaps
 nullable_fields:
+- gaps[].notes

@@ -90,38 +90,8 @@ def require_stage_inputs(ctx: RunContext, stage_id: str) -> None:
 
 
 def _pending_write_approval_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
-    """Block only when write approval must pause execute for this stage.
-
-    Under first-try ``defer_write_approval_until=phase_end``, other stages may
-    keep staged files without blocking subsequent stages. Re-running a stage
-    that still has its own pending writes remains blocked.
-    """
-    from interview_mux.first_try import write_approval_deferred
-
-    if write_approval_deferred():
-        if not has_pending_writes(ctx, stage_id):
-            return []
-        return [
-            StageInputIssue(
-                f"Write approval pending for stage '{stage_id}'",
-                f"Open the write review modal for '{stage_id}' and choose Save & continue or Discard & re-run.",
-                kind="write_approval",
-                related_stage=stage_id,
-            )
-        ]
-
-    pending = all_pending_stages(ctx)
-    if not pending:
-        return []
-    sid = pending[0]
-    return [
-        StageInputIssue(
-            f"Write approval pending for stage '{sid}'",
-            f"Open the write review modal for '{sid}' and choose Save & continue or Discard & re-run.",
-            kind="write_approval",
-            related_stage=sid,
-        )
-    ]
+    _ = (ctx, stage_id)
+    return []
 
 
 def _require_artifact(
@@ -243,15 +213,6 @@ def _check_sonic_context_build(ctx: RunContext) -> list[StageInputIssue]:
         issue = _require_artifact(ctx, rel, remediation=remediation)
         if issue:
             issues.append(issue)
-    return issues
-
-
-def _check_disfluency_extract(ctx: RunContext) -> list[StageInputIssue]:
-    issues = _g0_issues(ctx)
-    issues.extend(_require_audio(ctx))
-    issue = _require_artifact(ctx, "transcript/full.json", remediation="Run transcribe first.")
-    if issue:
-        issues.append(issue)
     return issues
 
 
@@ -550,7 +511,6 @@ _LLM_STAGES = frozenset(
 
 _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "transcript_review_build": _check_transcript_review_build,
-    "disfluency_extract": _check_disfluency_extract,
     "source_acoustic_profile": _check_source_acoustic_profile,
     "interview_spine_build": _check_interview_spine_build,
     "sonic_context_build": _check_sonic_context_build,

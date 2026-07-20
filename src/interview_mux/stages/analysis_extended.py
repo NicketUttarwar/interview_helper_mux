@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from interview_mux.disfluency.context import attach_disfluency_context
+from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import (
@@ -9,6 +9,7 @@ from interview_mux.stage_enrichment import (
 )
 from interview_mux.operator_trace import logged_step
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.artifact_repairs import enrich_narrative_plan_for_persist
 from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
@@ -86,7 +87,12 @@ def run_narrative_arc(ctx: RunContext) -> None:
             c,
         )
 
-    persist = make_stage_persist("master/narrative_plan.json", "narrative_arc_plan")
+    def _persist_narrative(c: RunContext, artifacts: dict) -> None:
+        enriched = enrich_narrative_plan_for_persist(c, artifacts)
+        write = make_stage_persist("master/narrative_plan.json", "narrative_arc_plan")
+        write(c, enriched)
+
+    persist = _persist_narrative
 
     with logged_step("narrative_arc_plan/llm_stage", ctx=ctx, stage="narrative_arc_plan"):
         run_flow_llm_stage(

@@ -124,7 +124,7 @@ def _plan_to_dict(plan: Any) -> dict[str, Any]:
     }
 
 def sync_stage_plans(ctx: RunContext, index: dict[str, Any] | None = None) -> dict[str, Any]:
-    from interview_mux.context_volley import STAGE_PLANS
+    from interview_mux.stage_input_helpers import STAGE_PLANS
 
     idx = index if index is not None else load_context_index(ctx, write=False)
     stage_plans: dict[str, Any] = {}
@@ -487,7 +487,7 @@ def resolve_volley_context(
     profile: str = "full",
     task_kind: str = "primary",
 ) -> dict[str, Any]:
-    from interview_mux.context_volley import plan_for_stage
+    from interview_mux.stage_input_helpers import plan_for_stage
 
     empty: dict[str, Any] = {
         "use_index": False,
@@ -534,7 +534,7 @@ def append_stage_conclusion(
     text = (reasoning_summary or "").strip()
     if not text:
         return None
-    from interview_mux.context_volley import STAGE_PLANS
+    from interview_mux.stage_input_helpers import STAGE_PLANS
 
     consumers: list[str] = []
     if consumer_stages:
@@ -565,7 +565,7 @@ def append_profile_digest(
     text = (content or "").strip()
     if not text:
         return None
-    from interview_mux.context_volley import STAGE_PLANS
+    from interview_mux.stage_input_helpers import STAGE_PLANS
 
     consumers = [sk for sk, plan in STAGE_PLANS.items() if set(profile_keys) & set(plan.profile_keys)]
     profile_content = text if len(text) <= 4000 else text[:4000] + "\n…[truncated]"

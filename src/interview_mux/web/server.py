@@ -33,15 +33,12 @@ from interview_mux.sfx_prompt_review import (
 )
 from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.file_store import read_json, write_json
-from interview_mux.disfluency.config import disfluency_enabled, disfluency_restore_enabled
 from interview_mux.gates import (
-    check_disfluency_review_pending,
     check_g1_vo,
     check_profile_gate_pending,
     check_transcript_review_pending,
     is_operator_profile_verified,
 )
-from interview_mux.stages import disfluency
 from interview_mux.stages import transcript_review
 from interview_mux.api_providers import list_providers, all_provider_grants
 from interview_mux.gui_api_consent import load_persisted_consents, merge_consents, save_persisted_consent
@@ -70,12 +67,11 @@ from interview_mux.waveform_peaks import load_or_generate_peaks
 from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log, read_log
-from interview_mux.journey_orchestrator import (
-    build_journey_snapshot,
-    mark_preview_listened,
-    refresh_journey_meta,
+from interview_mux.journey_state import (
+    compute_milestones,
+    compute_operator_phase,
+    stage_operator_phase,
 )
-from interview_mux.journey_state import stage_operator_phase
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import RunBusyError, runner
 from interview_mux.web.session_routes import ActiveBody, register_session_routes
@@ -192,16 +188,6 @@ class ArtifactTextBody(BaseModel):
     invalidate_from: str | None = None
 
 
-class HandoffAckBody(BaseModel):
-    stage_id: str
-
-
-class PendingWriteContentBody(BaseModel):
-    path: str
-    data: Any | None = None
-    text: str | None = None
-
-
 class ResetBody(BaseModel):
     from_stage: str | None = None
     new_input_audio_path: str | None = None
@@ -281,20 +267,6 @@ class TranscriptChunkBody(BaseModel):
 
 class TranscriptReviewCompleteBody(BaseModel):
     accept_unreviewed: bool = False
-
-
-class DisfluencyEventBody(BaseModel):
-    review_status: str = Field(pattern="^(pending|confirmed|rejected)$")
-    text: str | None = None
-    include_in_restore: bool | None = None
-
-
-class DisfluencyReviewCompleteBody(BaseModel):
-    accept_unreviewed: bool = False
-
-
-class DisfluencyRestoreBody(BaseModel):
-    enabled: bool
 
 
 class TranscriptWordPatch(BaseModel):
@@ -425,10 +397,12 @@ def create_app() -> FastAPI:
             "web_port": cfg.get("web_port", 8765),
             "repo_root": str(root),
             "value_analysis_enabled": value_analysis_enabled(cfg),
-            "disfluency_extract_enabled": disfluency_enabled(cfg),
-            "disfluency_restore_enabled": disfluency_restore_enabled(cfg),
             "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
             "journey_ui": (cfg.get("journey_ui") or {"enabled": True}),
+            "v2": (cfg.get("v2") or {"enabled": True}),
+            "v2_phases": __import__(
+                "interview_mux.v2.phases", fromlist=["PHASES"]
+            ).PHASES,
             "llm_routing_stage_ids": sorted(LLM_ROUTING_STAGE_IDS),
         }
 
@@ -526,7 +500,6 @@ def create_app() -> FastAPI:
                     )
                     if job.get("status") in (
                         "gate",
-                        "awaiting_write_approval",
                         "needs_operator",
                     ) or job.get("needs_stage_reuse"):
                         attention += 1
@@ -600,7 +573,6 @@ def create_app() -> FastAPI:
             **summary,
             "progress": {"done": done, "total": len(stages)},
             "last_log": log_entries[-1] if log_entries else None,
-            "handoff_ack": meta.get("handoff_ack") or {},
         }
 
     @app.get("/api/runs/{run_id}")
@@ -617,7 +589,6 @@ def create_app() -> FastAPI:
         tr_pending = check_transcript_review_pending(ctx)
         profile_verified = is_operator_profile_verified(ctx)
         profile_gate_pending = check_profile_gate_pending(ctx)
-        df_pending = check_disfluency_review_pending(ctx)
         from interview_mux.artifact_completeness import (
             analysis_profile_ready_for_review,
             story_board_ready_for_gui,
@@ -636,11 +607,9 @@ def create_app() -> FastAPI:
             if isinstance(skip_doc, dict):
                 gap_skip_reason = skip_doc.get("reason")
         stages = _build_stage_list(
-            ctx, g1_missing, tr_pending, profile_verified, profile_gate_pending, df_pending
+            ctx, g1_missing, tr_pending, profile_verified, profile_gate_pending
         )
-        handoff_ack = meta.get("handoff_ack") or {}
-        job = runner.get_job(run_id)
-        job = _enrich_job_autopilot(ctx, job if isinstance(job, dict) else {}, stages)
+        job = _sanitize_job(runner.get_job(run_id))
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
             existing = job.get("last_error") if isinstance(job.get("last_error"), dict) else {}
@@ -660,13 +629,19 @@ def create_app() -> FastAPI:
                 },
             }
         journey = build_journey_snapshot(ctx, job=job, stages=stages)
-        from interview_mux.legacy_stage_warnings import legacy_sfx_warnings
-
         llm_verification_alerts: list[dict[str, Any]] = []
         try:
             from interview_mux.llm_calls_gui import list_verification_alerts
 
             llm_verification_alerts = list_verification_alerts(ctx)
+        except Exception:
+            pass
+
+        segment_lineage_warnings: list[str] = []
+        try:
+            from interview_mux.segment_lineage_audit import lineage_warnings_for_gui
+
+            segment_lineage_warnings = lineage_warnings_for_gui(ctx)
         except Exception:
             pass
 
@@ -677,9 +652,7 @@ def create_app() -> FastAPI:
             "snapshot_version": meta.get("snapshot_version", 0),
             "execution_number": meta.get("execution_number"),
             "immediate_previous_run_id": meta.get("immediate_previous_run_id"),
-            "handoff_ack": handoff_ack,
             "sfx_generated_assets": _discover_generated_sfx_assets(ctx),
-            "legacy_migration_warnings": legacy_sfx_warnings(ctx),
             "flow_adaptation": (
                 ctx.read_json("understanding/flow_adaptation.json")
                 if ctx.artifact_exists("understanding/flow_adaptation.json")
@@ -697,8 +670,6 @@ def create_app() -> FastAPI:
             ),
             "transcript_review_pending": tr_pending,
             "transcript_review_clear": not tr_pending,
-            "disfluency_review_pending": df_pending,
-            "disfluency_review_clear": not df_pending,
             "profile_verified": profile_verified,
             "profile_gate_pending": profile_gate_pending,
             "profile_ready_for_review": profile_ready,
@@ -718,6 +689,7 @@ def create_app() -> FastAPI:
             "stages": stages,
             "log_tail": read_log(ctx.run_dir, tail=100),
             "llm_verification_alerts": llm_verification_alerts,
+            "segment_lineage_warnings": segment_lineage_warnings,
         }
 
     @app.get("/api/runs/{run_id}/delivery-readiness")
@@ -834,11 +806,21 @@ def create_app() -> FastAPI:
 
             report = ctx.read_json("understanding/gap_report.json")
             pickup = ctx.path("vo_pickup")
+            from interview_mux.stages.assembly import resolve_vo_pickup_path
+
             for line in report.get("interviewer_lines") or []:
                 lid = line.get("line_id", "")
-                seg = line.get("targets_segment_id", "")
-                candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
-                recorded = next((p.name for p in candidates if p.is_file()), None)
+                resolved = resolve_vo_pickup_path(ctx, line)
+                recorded = None
+                if resolved and resolved.is_file():
+                    try:
+                        recorded = resolved.relative_to(pickup).as_posix()
+                    except ValueError:
+                        recorded = resolved.name
+                else:
+                    seg = line.get("targets_segment_id", "")
+                    candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
+                    recorded = next((p.name for p in candidates if p.is_file()), None)
                 row = {**line, "recorded_file": recorded}
                 if line.get("post_preview"):
                     row["post_preview_satisfied"] = bool(
@@ -1304,9 +1286,7 @@ def create_app() -> FastAPI:
                             "errors": schema_errors,
                         },
                     )
-            from interview_mux.custom_run_handoff import stage_for_custom_run_path
-
-            stage_key = body.invalidate_from or stage_for_custom_run_path(body.path) or "artifact_editor"
+            stage_key = body.invalidate_from or "artifact_editor"
             data = body.data
             if body.path == "understanding/speakers.json" and isinstance(data, dict):
                 from interview_mux.conversation_context import (
@@ -1362,226 +1342,12 @@ def create_app() -> FastAPI:
                 persist_operator_preclean(ctx, source=f"preclean_{body.action}")
             return {"ok": True, "changed": changed, "audio_preclean": payload}
 
-    @app.get("/api/runs/{run_id}/pending-writes")
-    def list_pending_writes(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        from interview_mux.write_staging import all_pending_stages, list_pending_paths
-
-        stages = all_pending_stages(ctx)
-        return {
-            "stages": [
-                {"stage_id": sid, "paths": list_pending_paths(ctx, sid)} for sid in stages
-            ]
-        }
-
-    @app.get("/api/runs/{run_id}/pending-writes/{stage_id}")
-    def get_pending_writes_stage(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        from interview_mux.write_staging import list_pending_paths
-
-        paths = list_pending_paths(ctx, stage_id)
-        if not paths and ctx.artifact_exists("run_meta.json"):
-            meta = ctx.read_json("run_meta.json")
-            pending = meta.get("pending_write_approval") if isinstance(meta, dict) else {}
-            if isinstance(pending, dict):
-                info = pending.get(stage_id)
-                if isinstance(info, dict):
-                    raw = info.get("paths")
-                    if isinstance(raw, list):
-                        paths = [str(p) for p in raw if p]
-        if not paths:
-            raise HTTPException(404, f"No pending writes for stage: {stage_id}")
-        return {"stage_id": stage_id, "paths": paths}
-
-    @app.get("/api/runs/{run_id}/pending-writes/{stage_id}/content")
-    def get_pending_write_content(run_id: str, stage_id: str, path: str) -> Any:
-        ctx = _ctx(run_id)
-        _assert_artifact_path(path)
-        from interview_mux.write_staging import read_pending_content, read_pending_json, read_pending_text
-
-        rel_path = path
-        try:
-            if path.endswith(".json"):
-                return read_pending_json(ctx, stage_id, rel_path)
-            if path.endswith((".md", ".txt")):
-                return {"text": read_pending_text(ctx, stage_id, rel_path)}
-            raw = read_pending_content(ctx, stage_id, rel_path)
-            return {"bytes_b64": None, "size": len(raw)}
-        except FileNotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
-
-    @app.put("/api/runs/{run_id}/pending-writes/{stage_id}/content")
-    def put_pending_write_content(
-        run_id: str, stage_id: str, body: PendingWriteContentBody
-    ) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            _assert_artifact_path(body.path)
-            from interview_mux.write_staging import write_pending_content
-
-            if body.data is not None:
-                write_pending_content(ctx, stage_id, body.path, data=body.data)
-            elif body.text is not None:
-                write_pending_content(ctx, stage_id, body.path, text=body.text)
-            else:
-                raise HTTPException(400, "Provide data or text")
-            return {"ok": True, "path": body.path}
-
-    def _approve_staged_writes_locked(
-        run_id: str,
-        ctx: RunContext,
-        stage_id: str,
-    ) -> list[str]:
-        from interview_mux.write_staging import approve_stage_writes, list_pending_paths
-
-        with runner.operator_guard(run_id):
-            paths = list_pending_paths(ctx, stage_id)
-            if not paths:
-                raise HTTPException(404, f"No pending writes for stage: {stage_id}")
-            runner.mark_write_approval_saving(ctx, stage_id, paths)
-            try:
-                return approve_stage_writes(ctx, stage_id)
-            except Exception:
-                if list_pending_paths(ctx, stage_id):
-                    runner.restore_write_approval_pause(ctx, stage_id, paths)
-                raise
-
     @app.get("/api/runs/{run_id}/segmentation-review")
     def get_segmentation_review(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
         from interview_mux.segmentation_input_resolver import segmentation_review_report
 
         return segmentation_review_report(ctx)
-
-    @app.post("/api/runs/{run_id}/approve-segmentation-writes")
-    async def approve_segmentation_writes(run_id: str) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-
-            def _approve_locked() -> list[str]:
-                from interview_mux.write_staging import approve_segmentation_pair_writes
-
-                return approve_segmentation_pair_writes(ctx)
-
-            try:
-                flushed = await run_in_threadpool(_approve_locked)
-            except RunBusyError as exc:
-                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
-            except FileNotFoundError as exc:
-                raise HTTPException(404, str(exc)) from exc
-            except Exception as exc:
-                from interview_mux.write_staging import WriteApprovalBlockedError
-
-                if isinstance(exc, WriteApprovalBlockedError):
-                    raise HTTPException(409, str(exc)) from exc
-                raise HTTPException(400, str(exc)) from exc
-            runner.clear_operator_pause(
-                ctx,
-                "segment_classification",
-                message=f"Segmentation saved {len(flushed)} file(s) — advancing pipeline.",
-            )
-            refresh_journey_meta(ctx)
-            return {"ok": True, "flushed": flushed, "stage_id": "segment_classification"}
-
-    @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/approve")
-    async def approve_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-
-            def _approve_locked() -> list[str]:
-                from interview_mux.write_staging import assert_write_approval_allowed
-
-                assert_write_approval_allowed(ctx, stage_id)
-                return _approve_staged_writes_locked(run_id, ctx, stage_id)
-
-            try:
-                flushed = await run_in_threadpool(_approve_locked)
-            except RunBusyError as exc:
-                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
-            except HTTPException:
-                raise
-            except Exception as exc:
-                from interview_mux.write_staging import WriteApprovalBlockedError
-
-                if isinstance(exc, WriteApprovalBlockedError):
-                    raise HTTPException(409, str(exc)) from exc
-                raise
-            title = STAGE_BY_ID.get(stage_id)
-            stage_label = title.title if title else stage_id.replace("_", " ")
-            runner.clear_operator_pause(
-                ctx,
-                stage_id,
-                message=(
-                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
-                ),
-            )
-            ctx.log(
-                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
-                level="success",
-                stage=stage_id,
-                action_id="api.write_approval.approve",
-                origin="api",
-                detail={
-                    "journey_kind": "milestone",
-                    "event": "write_approval_complete",
-                    "paths": flushed,
-                    "stage_id": stage_id,
-                },
-            )
-            refresh_journey_meta(ctx)
-            return {"ok": True, "flushed": flushed, "stage_id": stage_id}
-
-    @app.post("/api/runs/{run_id}/pending-writes/approve-batch")
-    async def approve_pending_writes_batch(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Batch Save — approve all (or phase-filtered) pending stage writes."""
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            body = body or {}
-            phases = body.get("phases")
-            stage_ids = body.get("stage_ids")
-            from interview_mux.first_try import ANALYSIS_PHASE_STAGES, DELIVERY_PHASE_STAGES, batch_save_phases
-            from interview_mux.write_staging import all_pending_stages, approve_batch_stage_writes
-
-            pending = all_pending_stages(ctx)
-            selected: list[str] | None = None
-            if isinstance(stage_ids, list) and stage_ids:
-                selected = [str(s) for s in stage_ids]
-            elif isinstance(phases, list) and phases:
-                wanted = {str(p) for p in phases} or set(batch_save_phases())
-                selected = []
-                for sid in pending:
-                    if "analysis" in wanted and sid in ANALYSIS_PHASE_STAGES:
-                        selected.append(sid)
-                    elif "delivery" in wanted and sid in DELIVERY_PHASE_STAGES:
-                        selected.append(sid)
-                    elif sid not in ANALYSIS_PHASE_STAGES and sid not in DELIVERY_PHASE_STAGES:
-                        selected.append(sid)
-
-            def _batch() -> dict[str, Any]:
-                return approve_batch_stage_writes(ctx, selected)
-
-            try:
-                result = await run_in_threadpool(_batch)
-            except RunBusyError as exc:
-                raise HTTPException(409, {"error": "run_busy", "message": str(exc)}) from exc
-            for sid in list((result.get("approved") or {}).keys()):
-                title = STAGE_BY_ID.get(sid)
-                stage_label = title.title if title else sid.replace("_", " ")
-                runner.clear_operator_pause(
-                    ctx,
-                    sid,
-                    message=f"{stage_label}: batch-saved — advancing pipeline.",
-                )
-            refresh_journey_meta(ctx)
-            ctx.log(
-                f"Batch write approval complete ({len(result.get('approved') or {})} stage(s)).",
-                level="success",
-                stage="write_approval",
-                action_id="api.write_approval.batch_approve",
-                origin="api",
-                detail={"event": "write_approval_batch"},
-            )
-            return {"ok": True, **result}
 
     @app.post("/api/runs/{run_id}/g1/skip-optional")
     def g1_skip_optional(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1590,8 +1356,13 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             body = body or {}
             line_ids = body.get("line_ids")
-            from interview_mux.first_try import line_requires_vo, line_severity
             from interview_mux.delivery_brief import rebuild_delivery_brief
+
+            def _line_severity(line: dict[str, Any]) -> str:
+                return str(line.get("severity") or "medium").lower()
+
+            def _line_requires_vo(line: dict[str, Any]) -> bool:
+                return line.get("blocking") is True or _line_severity(line) in {"high", "critical"}
 
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 raise HTTPException(404, "gap_report.json not found")
@@ -1609,11 +1380,11 @@ def create_app() -> FastAPI:
                 lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
                 if wanted is not None and lid not in wanted:
                     continue
-                if line.get("blocking") is True or line_severity(line) in {"high", "critical"}:
+                if line.get("blocking") is True or _line_severity(line) in {"high", "critical"}:
                     if wanted is None:
                         continue
                     # Explicit id list can skip medium/low only — never high/critical without override
-                    if line_requires_vo(line):
+                    if _line_requires_vo(line):
                         continue
                 line["skipped_optional"] = True
                 line["blocking"] = False
@@ -1630,378 +1401,6 @@ def create_app() -> FastAPI:
                 detail={"event": "g1_skip_optional", "line_ids": skipped},
             )
             return {"ok": True, "skipped": skipped, "g1_missing": check_g1_vo(ctx)}
-
-    @app.post("/api/runs/{run_id}/continue-after-checkpoint")
-    async def continue_after_checkpoint(
-        run_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Approve staged writes and release the run lock without auto-starting the next stage."""
-        kind = str(body.get("kind") or "write_approval")
-        stage_id = str(body.get("stage_id") or "")
-        if kind == "artifact_clarification":
-            if not stage_id:
-                raise HTTPException(400, "stage_id required")
-            ctx = _ctx(run_id)
-
-            def _itr_continue() -> dict[str, Any]:
-                from interview_mux.artifact_auto_resolve import auto_resolve_stage
-
-                result = auto_resolve_stage(ctx, stage_id, runner=runner, run_id=run_id)
-                refresh_journey_meta(ctx)
-                return result.to_dict()
-
-            try:
-                with runner.operator_guard(run_id):
-                    return _itr_continue()
-            except RunBusyError as exc:
-                raise HTTPException(409, str(exc)) from exc
-
-        if kind != "write_approval" or not stage_id:
-            raise HTTPException(400, "kind=write_approval and stage_id required")
-
-        def _approve_and_next() -> dict[str, Any]:
-            return runner.approve_write_and_continue(run_id, stage_id)
-
-        try:
-            return await run_in_threadpool(_approve_and_next)
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        except FileNotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
-        except Exception as exc:
-            from interview_mux.write_staging import WriteApprovalBlockedError
-
-            if isinstance(exc, WriteApprovalBlockedError):
-                raise HTTPException(409, str(exc)) from exc
-            raise
-
-    @app.post("/api/runs/{run_id}/pending-writes/{stage_id}/discard")
-    def discard_pending_writes(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        from interview_mux.write_staging import discard_stage_writes
-
-        try:
-            with runner.operator_guard(run_id):
-                discard_stage_writes(ctx, stage_id)
-                runner.invalidate_from(run_id, stage_id)
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        title = STAGE_BY_ID.get(stage_id)
-        stage_label = title.title if title else stage_id.replace("_", " ")
-        runner.clear_operator_pause(
-            ctx,
-            stage_id,
-            message=f"{stage_label}: discarded staged outputs — re-run when ready.",
-            level="info",
-        )
-        refresh_journey_meta(ctx)
-        return {"ok": True, "stage_id": stage_id}
-
-    @app.get("/api/runs/{run_id}/stages/{stage_id}/issues")
-    def get_stage_issues(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_auto_resolve import auto_resolve_stage, get_stage_issues_summary, stage_capabilities
-        from interview_mux.artifact_issue_triage import (
-            blocking_issues_remaining,
-            list_stage_issues,
-            triage_enabled,
-        )
-
-        items = list_stage_issues(ctx, stage_id) if triage_enabled() else []
-        summary = get_stage_issues_summary(ctx, stage_id) if triage_enabled() else {}
-        caps = stage_capabilities(stage_id)
-        return {
-            "stage_id": stage_id,
-            "items": items,
-            "open_blocking": blocking_issues_remaining(ctx, stage_id),
-            "summary": summary,
-            "capabilities": caps,
-        }
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-resolve")
-    async def post_stage_issues_auto_resolve(
-        run_id: str,
-        stage_id: str,
-        body: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_auto_resolve import auto_resolve_stage
-        from interview_mux.artifact_issue_triage import triage_enabled
-
-        if not triage_enabled():
-            return {"outcome": "success", "stage_key": stage_id, "open_blocking": 0, "can_advance_pipeline": True}
-
-        autopilot = bool((body or {}).get("autopilot"))
-
-        def _resolve() -> dict[str, Any]:
-            ctx.log(
-                f"api.itr.auto_resolve stage={stage_id} autopilot={autopilot}",
-                level="action",
-                stage=stage_id,
-                action_id="api.itr.auto_resolve",
-            )
-            result = auto_resolve_stage(
-                ctx,
-                stage_id,
-                runner=runner,
-                run_id=run_id,
-                autopilot=autopilot,
-            )
-            return result.to_dict()
-
-        try:
-            with runner.operator_guard(run_id):
-                out = _resolve()
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return out
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/auto-repair")
-    def post_stage_issues_auto_repair(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_issue_triage import run_triage_pipeline, triage_enabled
-
-        if not triage_enabled():
-            return {"ok": True, "summary": {}, "open_blocking": 0}
-        try:
-            with runner.operator_guard(run_id):
-                result = run_triage_pipeline(ctx, stage_id, staged=True)
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return {"ok": True, "summary": result.summary(), "open_blocking": result.open_blocking}
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/{issue_id}/resolve")
-    async def post_stage_issue_resolve(
-        run_id: str,
-        stage_id: str,
-        issue_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_issue_triage import blocking_issues_remaining, resolve_issue
-
-        choice = body.get("choice")
-        if choice is None:
-            raise HTTPException(400, "choice required")
-
-        def _resolve() -> dict[str, Any]:
-            ctx.log(
-                f"api.itr.issue_resolve stage={stage_id} issue={issue_id}",
-                level="action",
-                stage=stage_id,
-                action_id="api.itr.issue_resolve",
-            )
-            ok, errors = resolve_issue(ctx, stage_id, issue_id, choice)
-            return {
-                "ok": ok,
-                "errors": errors,
-                "open_blocking": blocking_issues_remaining(ctx, stage_id),
-            }
-
-        try:
-            with runner.operator_guard(run_id):
-                out = _resolve()
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return out
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/revalidate")
-    def post_stage_issues_revalidate(run_id: str, stage_id: str) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            if stage_id not in STAGE_BY_ID:
-                raise HTTPException(404, f"Unknown stage: {stage_id}")
-            from interview_mux.artifact_issue_triage import (
-                blocking_issues_remaining,
-                clear_clarification_gate,
-                get_propagation_plan,
-                revalidate_after_repair,
-                revalidate_downstream_on_segment_fix,
-                triage_enabled,
-            )
-
-            if not triage_enabled():
-                return {"ok": True, "errors": [], "open_blocking": 0}
-            ctx.log(
-                f"api.itr.revalidate stage={stage_id}",
-                level="action",
-                stage=stage_id,
-                action_id="api.itr.revalidate",
-            )
-            ok, errors = revalidate_after_repair(ctx, stage_id, staged=True)
-            downstream_errors = revalidate_downstream_on_segment_fix(ctx, stage_id)
-            propagation_plan = get_propagation_plan(ctx, stage_id)
-            open_blocking = blocking_issues_remaining(ctx, stage_id)
-            all_ok = ok and not downstream_errors and not propagation_plan.get("has_blocking")
-            if all_ok and open_blocking == 0:
-                clear_clarification_gate(ctx, stage_id)
-            refresh_journey_meta(ctx)
-            return {
-                "ok": all_ok,
-                "errors": errors,
-                "downstream_errors": downstream_errors,
-                "propagation_plan": propagation_plan,
-                "open_blocking": open_blocking,
-            }
-
-    @app.get("/api/runs/{run_id}/stages/{stage_id}/propagation-plan")
-    def get_stage_propagation_plan(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.artifact_issue_triage import get_propagation_plan, triage_enabled
-
-        if not triage_enabled():
-            return {"stage_id": stage_id, "propagation_plan": {}}
-        return {"stage_id": stage_id, "propagation_plan": get_propagation_plan(ctx, stage_id)}
-
-    @app.get("/api/runs/{run_id}/stages/{stage_id}/decisions")
-    def get_stage_decisions(run_id: str, stage_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        from interview_mux.operator_decisions import stage_decisions_summary
-
-        return stage_decisions_summary(ctx, stage_id)
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/decisions/{decision_id}/resolve")
-    async def post_stage_decision_resolve(
-        run_id: str,
-        stage_id: str,
-        decision_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        choice = body.get("choice")
-        if choice is None:
-            raise HTTPException(400, "choice required")
-        from interview_mux.stage_finalize import resolve_operator_decision
-
-        def _run() -> dict[str, Any]:
-            ctx.log(
-                f"api.decision.resolve stage={stage_id} decision={decision_id}",
-                level="action",
-                stage=stage_id,
-                action_id="api.decision.resolve",
-            )
-            return resolve_operator_decision(
-                ctx,
-                stage_id,
-                decision_id,
-                choice,
-                runner=runner,
-                run_id=run_id,
-            )
-
-        try:
-            with runner.operator_guard(run_id):
-                out = _run()
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return out
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/propagation/execute")
-    async def post_stage_propagation_execute(
-        run_id: str,
-        stage_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        invalidate_from = str(body.get("invalidate_from") or "")
-        if not invalidate_from:
-            raise HTTPException(400, "invalidate_from required")
-        rerun_stages = body.get("rerun_stages")
-        from interview_mux.artifact_issue_triage import execute_propagation
-
-        def _run() -> dict[str, Any]:
-            ctx.log(
-                f"api.itr.propagation stage={stage_id} from={invalidate_from}",
-                level="action",
-                stage=stage_id,
-                action_id="api.itr.propagation",
-            )
-            result = execute_propagation(
-                ctx,
-                stage_id,
-                invalidate_from=invalidate_from,
-                rerun_stages=rerun_stages if isinstance(rerun_stages, list) else None,
-                runner=runner,
-                run_id=run_id,
-            )
-            return {
-                "ok": result.ok,
-                "errors": result.errors,
-                "job": result.job,
-                "invalidated_from": result.invalidated_from,
-                "upstream_stage": result.upstream_stage,
-            }
-
-        try:
-            with runner.operator_guard(run_id):
-                out = _run()
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return out
-
-    @app.post("/api/runs/{run_id}/stages/{stage_id}/issues/{issue_id}/execute-action")
-    async def post_stage_issue_execute_action(
-        run_id: str,
-        stage_id: str,
-        issue_id: str,
-        body: dict[str, Any],
-    ) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        if stage_id not in STAGE_BY_ID:
-            raise HTTPException(404, f"Unknown stage: {stage_id}")
-        action = str(body.get("action") or "")
-        if not action:
-            raise HTTPException(400, "action required")
-        from interview_mux.artifact_issue_triage import blocking_issues_remaining, execute_recovery_action
-
-        def _run() -> dict[str, Any]:
-            result = execute_recovery_action(
-                ctx,
-                stage_id,
-                issue_id,
-                action,
-                upstream_stage=body.get("upstream_stage"),
-                runner=runner,
-                run_id=run_id,
-            )
-            return {
-                "ok": result.ok,
-                "errors": result.errors,
-                "job": result.job,
-                "upstream_stage": result.upstream_stage,
-                "invalidated_from": result.invalidated_from,
-                "open_blocking": blocking_issues_remaining(ctx, stage_id),
-            }
-
-        try:
-            with runner.operator_guard(run_id):
-                out = _run()
-        except RunBusyError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        refresh_journey_meta(ctx)
-        return out
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -2103,29 +1502,16 @@ def create_app() -> FastAPI:
             raise HTTPException(409, str(exc)) from exc
 
         refresh_journey_meta(ctx)
-        from interview_mux.write_staging import has_pending_writes, list_pending_paths
-
-        if action == "accept" and copied and has_pending_writes(ctx, stage_id):
-            paths = list_pending_paths(ctx, stage_id)
-            runner.restore_write_approval_pause(ctx, stage_id, paths)
-            ctx.log(
-                f"{stage_label}: reused {len(copied)} file(s) — review outputs before saving.",
-                level="action",
-                stage=stage_id,
-                action_id="api.stage_reuse.accept",
-                origin="api",
-            )
-        else:
-            runner.clear_operator_pause(
-                ctx,
-                stage_id,
-                message=(
-                    f"{stage_label}: reused {len(copied)} file(s) from prior execution."
-                    if action == "accept" and copied
-                    else f"{stage_label}: reuse decision recorded — ready for next step."
-                ),
-                level="success" if action == "accept" and copied else "info",
-            )
+        runner.clear_operator_pause(
+            ctx,
+            stage_id,
+            message=(
+                f"{stage_label}: reused {len(copied)} file(s) from prior execution."
+                if action == "accept" and copied
+                else f"{stage_label}: reuse decision recorded — ready for next step."
+            ),
+            level="success" if action == "accept" and copied else "info",
+        )
         return {
             "ok": True,
             "action": action,
@@ -2422,52 +1808,6 @@ def create_app() -> FastAPI:
     def get_sfx_qa(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
         return _read_mmaudio_qa(ctx)
-
-    @app.post("/api/runs/{run_id}/handoff-ack")
-    def handoff_ack(run_id: str, body: HandoffAckBody) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            if body.stage_id == "speaker_roles" and ctx.artifact_exists("understanding/speakers.json"):
-                from interview_mux.conversation_context import (
-                    hypotheses_require_confirmation,
-                )
-
-                speakers_doc = ctx.read_json("understanding/speakers.json")
-                if hypotheses_require_confirmation(speakers_doc):
-                    raise HTTPException(
-                        409,
-                        {
-                            "error": "hypothesis_confirmation_required",
-                            "message": (
-                                "Confirm a conversation interpretation before acknowledging "
-                                "speaker_roles handoff."
-                            ),
-                        },
-                    )
-            now = datetime.now(timezone.utc).isoformat()
-
-            def _patch(meta: dict[str, Any]) -> None:
-                ack = dict(meta.get("handoff_ack") or {})
-                ack[body.stage_id] = now
-                meta["handoff_ack"] = ack
-                pending = dict(meta.get("handoff_pending_writes") or {})
-                pending.pop(body.stage_id, None)
-                meta["handoff_pending_writes"] = pending
-
-            meta = ctx.mutate_run_meta(_patch)
-            title = STAGE_BY_ID.get(body.stage_id)
-            stage_label = title.title if title else body.stage_id.replace("_", " ")
-            ctx.log(
-                f"Handoff acknowledged for {body.stage_id} — ready for next step.",
-                level="success",
-                stage=body.stage_id,
-            )
-            runner.clear_operator_pause(
-                ctx,
-                body.stage_id,
-                message=f"{stage_label}: AI outputs reviewed — ready for next step.",
-            )
-            return {"ok": True, "handoff_ack": meta.get("handoff_ack") or {}}
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
@@ -2812,73 +2152,6 @@ def create_app() -> FastAPI:
             refresh_journey_meta(ctx)
             return {"ok": True, "transcript_review_clear": True}
 
-    @app.get("/api/runs/{run_id}/disfluency-review")
-    def get_disfluency_review(run_id: str) -> dict[str, Any]:
-        ctx = _ctx(run_id)
-        return disfluency.get_review_state(ctx)
-
-    @app.put("/api/runs/{run_id}/disfluency-review/{event_id}")
-    def put_disfluency_event(run_id: str, event_id: str, body: DisfluencyEventBody) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            if not ctx.artifact_exists("transcript/disfluencies.json"):
-                raise HTTPException(404, "Disfluency catalog not built — run disfluency_extract first.")
-            try:
-                return disfluency.update_event_review(
-                    ctx,
-                    event_id,
-                    review_status=body.review_status,
-                    text=body.text,
-                    include_in_restore=body.include_in_restore,
-                )
-            except KeyError:
-                raise HTTPException(404, f"Unknown event: {event_id}") from None
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from exc
-
-    @app.post("/api/runs/{run_id}/disfluency-review/complete")
-    def complete_disfluency_review(
-        run_id: str,
-        body: DisfluencyReviewCompleteBody = DisfluencyReviewCompleteBody(),
-    ) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            state = disfluency.get_review_state(ctx)
-            if not state.get("ready"):
-                raise HTTPException(400, "Disfluency catalog not ready.")
-            pending = state.get("pending_count", 0)
-            if pending and not body.accept_unreviewed:
-                raise HTTPException(
-                    400,
-                    f"{pending} event(s) still pending review. Confirm each or pass accept_unreviewed=true.",
-                )
-            try:
-                disfluency.mark_disfluency_review_complete(ctx, accept_unreviewed=body.accept_unreviewed)
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from exc
-            from interview_mux.gui_job_reconcile import reconcile_operator_gate_job
-            from interview_mux.write_staging import read_gui_job
-
-            job = read_gui_job(ctx) or {}
-            reconciled = reconcile_operator_gate_job(ctx, job)
-            if reconciled is not job:
-                ctx.write_json("gui_job.json", reconciled, skip_handoff=True)
-            refresh_journey_meta(ctx)
-            return {"ok": True, "disfluency_review_clear": True}
-
-    @app.patch("/api/runs/{run_id}/disfluency-restore")
-    def patch_disfluency_restore(run_id: str, body: DisfluencyRestoreBody) -> dict[str, Any]:
-        with _guarded_run(run_id):
-            ctx = _ctx(run_id)
-            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            block = meta.get("disfluency_restore")
-            if not isinstance(block, dict):
-                block = {}
-            block["enabled"] = body.enabled
-            meta["disfluency_restore"] = block
-            ctx.write_json("run_meta.json", meta)
-            return {"ok": True, "disfluency_restore_enabled": body.enabled}
-
     @app.post("/api/runs/{run_id}/vo/{line_id}")
     async def upload_vo(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -2924,6 +2197,130 @@ def create_app() -> FastAPI:
                 detail={"kind": "gate", "line_id": line_id, "pickup_eligible_speaker_id": eligible},
             )
             return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
+
+    @app.post("/api/runs/{run_id}/vo/{line_id}/synthesize")
+    def vo_synthesize_line(run_id: str, line_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("understanding/gap_report.json"):
+                raise HTTPException(404, "gap_report.json not found")
+            report = ctx.read_json("understanding/gap_report.json")
+            line = next(
+                (
+                    ln
+                    for ln in (report.get("interviewer_lines") or [])
+                    if isinstance(ln, dict) and str(ln.get("line_id")) == line_id
+                ),
+                None,
+            )
+            if not line:
+                raise HTTPException(404, f"Unknown line_id: {line_id}")
+            from interview_mux import s2s_runner
+
+            try:
+                out = s2s_runner.synthesize_line(ctx, line, mode="synthesize")
+            except Exception as exc:
+                block = (merged_config().get("local_speech") or {})
+                if block.get("fail_open", True):
+                    ctx.log(
+                        f"S2S synthesize fail-open for {line_id}: {exc}",
+                        level="warning",
+                        stage="g1_vo_pickup",
+                        action_id="gui.g1.vo.synthesize",
+                    )
+                    raise HTTPException(503, str(exc)) from exc
+                raise HTTPException(500, str(exc)) from exc
+            ctx.log(
+                f"S2S synthesized vo_pickup/{out.name}",
+                level="success",
+                stage="g1_vo_pickup",
+                action_id="gui.g1.vo.synthesize",
+                detail={"line_id": line_id, "path": out.relative_to(ctx.run_dir).as_posix()},
+            )
+            return {
+                "ok": True,
+                "path": out.relative_to(ctx.run_dir).as_posix(),
+                "g1_missing": check_g1_vo(ctx),
+            }
+
+    @app.post("/api/runs/{run_id}/vo/{line_id}/match")
+    async def vo_match_line(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("understanding/gap_report.json"):
+                raise HTTPException(404, "gap_report.json not found")
+            report = ctx.read_json("understanding/gap_report.json")
+            line = next(
+                (
+                    ln
+                    for ln in (report.get("interviewer_lines") or [])
+                    if isinstance(ln, dict) and str(ln.get("line_id")) == line_id
+                ),
+                None,
+            )
+            if not line:
+                raise HTTPException(404, f"Unknown line_id: {line_id}")
+            pickup = ctx.path("vo_pickup")
+            pickup.mkdir(parents=True, exist_ok=True)
+            raw = pickup / f"{line_id}_upload.wav"
+            content = await file.read()
+            fs_write_bytes(raw, content)
+            from interview_mux import s2s_runner
+
+            try:
+                out = s2s_runner.synthesize_line(ctx, line, mode="convert", source_audio=raw)
+            except Exception as exc:
+                raise HTTPException(503, str(exc)) from exc
+            ctx.log(
+                f"VO voice-match saved: {out.relative_to(ctx.run_dir).as_posix()}",
+                level="success",
+                stage="g1_vo_pickup",
+                action_id="gui.g1.vo.match",
+                detail={"line_id": line_id},
+            )
+            return {
+                "ok": True,
+                "path": out.relative_to(ctx.run_dir).as_posix(),
+                "g1_missing": check_g1_vo(ctx),
+            }
+
+    @app.post("/api/runs/{run_id}/vo/{line_id}/tone")
+    def vo_tone_line(run_id: str, line_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            body = body or {}
+            tone = str(body.get("tone") or "neutral")
+            if not ctx.artifact_exists("understanding/gap_report.json"):
+                raise HTTPException(404, "gap_report.json not found")
+            report = ctx.read_json("understanding/gap_report.json")
+            line = next(
+                (
+                    ln
+                    for ln in (report.get("interviewer_lines") or [])
+                    if isinstance(ln, dict) and str(ln.get("line_id")) == line_id
+                ),
+                None,
+            )
+            if not line:
+                raise HTTPException(404, f"Unknown line_id: {line_id}")
+            from interview_mux import s2s_runner
+
+            try:
+                out = s2s_runner.synthesize_line(ctx, line, mode="tone", tone=tone)
+            except Exception as exc:
+                raise HTTPException(503, str(exc)) from exc
+            ctx.log(
+                f"S2S tone ({tone}) for {line_id}",
+                level="success",
+                stage="g1_vo_pickup",
+                action_id="gui.g1.vo.tone",
+                detail={"line_id": line_id, "tone": tone},
+            )
+            return {
+                "ok": True,
+                "path": out.relative_to(ctx.run_dir).as_posix(),
+                "g1_missing": check_g1_vo(ctx),
+            }
 
     @app.get("/api/runs/{run_id}/delivery-brief")
     def get_delivery_brief(run_id: str) -> dict[str, Any]:
@@ -3256,9 +2653,9 @@ def create_app() -> FastAPI:
 
             full = staged_path(ctx, path, stage_id=pending_stage)
         else:
-            full = ctx.final_path(*path.split("/"))
-        if not full.is_file():
-            full = ctx.path(path)
+            from interview_mux.write_staging import resolve_read_path
+
+            full = resolve_read_path(ctx, path)
         if not full.is_file():
             raise HTTPException(404, f"Audio not found: {path}")
         media = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
@@ -3337,62 +2734,169 @@ def _invalidate_sound_design_for_pace_change(ctx: RunContext) -> list[str]:
     return cleared
 
 
-def _count_sufficiency_blocking(ctx: RunContext, stages: list[dict[str, Any]]) -> int:
-    """Count committed artifacts with blocking sufficiency findings across done stages."""
-    from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
-
-    if not sufficiency_enabled():
-        return 0
-    total = 0
-    for s in stages:
-        if s.get("status") != "done":
-            continue
-        for row in s.get("outputs_view") or []:
-            if row.get("sufficiency_status") != "blocking":
-                continue
-            rel = str(row.get("path") or "")
-            if not rel or not ctx.artifact_exists(rel):
-                continue
-            try:
-                doc = ctx.read_json(rel)
-                if isinstance(doc, dict):
-                    total += len([f for f in evaluate(str(s.get("id") or ""), doc, ctx) if f.blocking])
-            except Exception:
-                total += 1
-    return total
+_LEGACY_JOB_KEYS = (
+    "awaiting_write_approval",
+    "pending_write_stage",
+    "pending_write_paths",
+    "can_fix_all",
+    "bridge_eligible",
+    "itr_open_blocking",
+    "itr_blocking_count",
+    "pending_decision_count",
+    "sufficiency_blocking",
+)
 
 
-def _enrich_job_autopilot(
-    ctx: RunContext, job: dict[str, Any], stages: list[dict[str, Any]] | None = None
-) -> dict[str, Any]:
-    """Attach ITR autopilot hints so the GUI can auto fix-all without an extra round trip."""
+def _sanitize_job(job: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(job, dict):
-        return job
-    suff_count = _count_sufficiency_blocking(ctx, stages or [])
-    if suff_count:
-        job = {**job, "sufficiency_blocking": suff_count}
-    stage = job.get("pending_write_stage") or job.get("stage")
-    status = str(job.get("status") or "")
-    if not stage or status not in ("needs_clarification", "gate", "awaiting_write_approval"):
-        return job
-    try:
-        from interview_mux.artifact_auto_resolve import get_stage_issues_summary
-        from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
+        return {}
+    return {k: v for k, v in job.items() if k not in _LEGACY_JOB_KEYS}
 
-        if not triage_enabled():
-            return job
-        stage_key = str(stage)
-        summary = get_stage_issues_summary(ctx, stage_key)
-        open_blocking = int(summary.get("open_blocking") or blocking_issues_remaining(ctx, stage_key))
+
+def refresh_journey_meta(ctx: RunContext) -> None:
+    milestones = compute_milestones(ctx)
+    phase = compute_operator_phase(ctx, milestones)
+
+    def patch(meta: dict[str, Any]) -> None:
+        meta["journey_milestones"] = milestones
+        meta["operator_phase"] = phase
+
+    ctx.mutate_run_meta(patch)
+
+
+def _journey_blocking(
+    ctx: RunContext,
+    *,
+    job: dict[str, Any] | None,
+    stages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    job = job or {}
+    status = str(job.get("status") or "")
+    stage_id = job.get("stage") or job.get("current_stage")
+
+    if job.get("needs_stage_reuse") and stage_id:
         return {
-            **job,
-            "can_fix_all": bool(summary.get("can_fix_all")),
-            "bridge_eligible": bool(summary.get("bridge_eligible")),
-            "itr_open_blocking": open_blocking,
-            "itr_blocking_count": job.get("itr_blocking_count") or open_blocking,
+            "blocked": True,
+            "reason": "stage_reuse",
+            "stage_id": stage_id,
+            "message": str(job.get("message") or "Choose reuse or run fresh."),
         }
-    except Exception:
-        return job
+    if status == "gate" and stage_id:
+        return {
+            "blocked": True,
+            "reason": "llm_gate",
+            "stage_id": stage_id,
+            "message": str(job.get("message") or job.get("error") or "Operator gate."),
+        }
+    if status == "needs_operator" and job.get("needs_api_consent"):
+        return {
+            "blocked": True,
+            "reason": "api_consent",
+            "stage_id": stage_id,
+            "message": str(job.get("message") or "API consent required."),
+        }
+
+    if check_transcript_review_pending(ctx):
+        return {
+            "blocked": True,
+            "reason": "transcript_review",
+            "stage_id": "transcript_review",
+            "message": "G0 transcript review pending — correct STT before continuing.",
+        }
+
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+    if not gap_fill_was_skipped(ctx):
+        missing = check_g1_vo(ctx)
+        if missing:
+            return {
+                "blocked": True,
+                "reason": "g1_vo_pickup",
+                "stage_id": "g1_vo_pickup",
+                "message": f"G1 VO pickup missing for line(s): {', '.join(missing[:6])}.",
+            }
+
+    for stage in stages or []:
+        if stage.get("status") == "action_required" and stage.get("id"):
+            sid = str(stage["id"])
+            if sid == "transcript_review":
+                continue
+            return {
+                "blocked": True,
+                "reason": "gate",
+                "stage_id": sid,
+                "message": f"{stage.get('title') or sid.replace('_', ' ')} needs operator action.",
+            }
+
+    return {"blocked": False}
+
+
+def _journey_next_action(
+    *,
+    phase: str,
+    blocking: dict[str, Any],
+    milestones: dict[str, bool],
+) -> str:
+    if blocking.get("blocked"):
+        reason = str(blocking.get("reason") or "")
+        if reason == "transcript_review":
+            return "Complete transcript review (G0)"
+        if reason == "g1_vo_pickup":
+            return "Record or skip G1 pickup VO"
+        if reason == "stage_reuse":
+            return "Choose reuse or run fresh"
+        if reason == "api_consent":
+            return "Grant API access"
+        return str(blocking.get("message") or "Operator action required")
+    if phase == "prepare":
+        return "Run prepare pipeline through transcript review"
+    if phase == "understand":
+        return "Run shared analysis"
+    if phase == "complete":
+        return "Fill gaps or continue to delivery"
+    if phase == "create":
+        return "Run delivery through assembly preview"
+    if phase == "polish":
+        return "Polish sound and mix"
+    if milestones.get("master_exported"):
+        return "Master exported"
+    return "Continue pipeline"
+
+
+def build_journey_snapshot(
+    ctx: RunContext,
+    *,
+    job: dict[str, Any] | None = None,
+    stages: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    milestones = compute_milestones(ctx)
+    phase = compute_operator_phase(ctx, milestones)
+    clean_job = _sanitize_job(job if isinstance(job, dict) else None)
+    blocking = _journey_blocking(ctx, job=clean_job, stages=stages)
+    return {
+        "phase": phase,
+        "milestones": milestones,
+        "blocking": blocking,
+        "next_action": _journey_next_action(
+            phase=phase,
+            blocking=blocking,
+            milestones=milestones,
+        ),
+        "active_operator_action": None,
+        "active_substep_id": None,
+        "active_substep_label": None,
+        "execute_hint": None,
+    }
+
+
+def mark_preview_listened(ctx: RunContext) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+
+    def patch(meta: dict[str, Any]) -> None:
+        meta["preview_listened_at"] = now
+
+    ctx.mutate_run_meta(patch)
+    refresh_journey_meta(ctx)
 
 
 def _sync_tbiy_operator_profile(ctx: RunContext, state: dict[str, Any]) -> None:
@@ -3526,29 +3030,14 @@ def _g0_locked_analysis_stages() -> frozenset[str]:
     return G0_LOCKED_ANALYSIS_STAGES
 
 
-def _disfluency_locked_analysis_stages() -> frozenset[str]:
-    from interview_mux.stage_guidance import DISFLUENCY_LOCKED_ANALYSIS_STAGES
-
-    return DISFLUENCY_LOCKED_ANALYSIS_STAGES
-
-
 def _build_stage_list(
     ctx: RunContext,
     g1_missing: list[str],
     transcript_review_pending: bool,
     profile_verified: bool,
     profile_gate_pending: bool,
-    disfluency_review_pending: bool | None = None,
 ) -> list[dict[str, Any]]:
-    from interview_mux.write_staging import all_pending_stages
-
-    df_pending = (
-        disfluency_review_pending
-        if disfluency_review_pending is not None
-        else check_disfluency_review_pending(ctx)
-    )
     stages = all_stages_for_run(None)
-    pending_write_stages = set(all_pending_stages(ctx))
     from interview_mux.stage_completion import reconcile_stage_done_marker
 
     for s in stages:
@@ -3559,15 +3048,6 @@ def _build_stage_list(
             if not ctx.artifact_exists("transcript/review_queue.json"):
                 s["status"] = "locked"
             elif transcript_review_pending:
-                s["status"] = "action_required"
-            else:
-                s["status"] = "done"
-        elif sid == "disfluency_review":
-            if not disfluency_enabled():
-                s["status"] = "done"
-            elif not ctx.artifact_exists("transcript/disfluencies.json"):
-                s["status"] = "locked"
-            elif df_pending:
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"
@@ -3633,8 +3113,6 @@ def _build_stage_list(
                 s["status"] = "done" if ctx.is_done(sid) else "pending"
         elif transcript_review_pending and sid in _g0_locked_analysis_stages():
             s["status"] = "locked"
-        elif df_pending and sid in _disfluency_locked_analysis_stages():
-            s["status"] = "locked"
         elif sid == "audio_preclean":
             from interview_mux.operator_quality import preclean_checkpoint_decision
             from interview_mux.stages.audio_preclean import preclean_was_skipped
@@ -3647,14 +3125,6 @@ def _build_stage_list(
                 s["status"] = "pending"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
-        from interview_mux.write_staging import gate_blocked_stage
-
-        gate_stage = gate_blocked_stage(ctx)
-        if sid in pending_write_stages:
-            if gate_stage == sid:
-                s["status"] = "action_required"
-            else:
-                s["status"] = "awaiting_write_approval"
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status_for_stage
@@ -3663,7 +3133,6 @@ def _build_stage_list(
                 split_artifact_lists,
                 stage_output_mode,
             )
-            from interview_mux.custom_run_handoff import handoff_paths_for_stage
 
             committed, staged, lifecycle = split_artifact_lists(ctx, sid, info.artifacts)
             s["artifacts_committed"] = committed
@@ -3702,11 +3171,9 @@ def _build_stage_list(
                         if isinstance(row, dict) and row.get("path") == script:
                             row["status"] = "complete"
                             row["phase"] = "n_a"
-            s["audio_outputs_present"] = [a for a in info.audio_outputs if ctx.artifact_exists(a)]
-            if ctx.is_done(sid):
-                handoff = handoff_paths_for_stage(ctx, sid)
-                if handoff:
-                    s["handoff_paths"] = handoff
+            from interview_mux.write_staging import expand_audio_output_paths
+
+            s["audio_outputs_present"] = expand_audio_output_paths(ctx, info.audio_outputs)
             from interview_mux.ui_truth import reconcile_stage_status
 
             reconcile_stage_status(s)

@@ -4,7 +4,7 @@
 
 Authoritative route list for **`interview_mux` web server** (`src/interview_mux/web/server.py`). The single-page GUI under `/` is a **React + TypeScript** app (source: `frontend/`, built to `web/static/`); all JSON state goes through **`/api/*`**.
 
-**GUI build:** `./scripts/build_gui.sh` or `cd frontend && npm run build`. `./scripts/run.sh` builds automatically if static output is missing.
+**GUI build:** included in `./scripts/bootstrap_venv.sh`. After frontend changes: `MUX_REBUILD_GUI=1 ./scripts/run.sh` (or `./scripts/build_gui.sh`).
 
 **Companion:** [gui-surface-map.md](./gui-surface-map.md) maps UI areas to these routes and on-disk artifacts.
 

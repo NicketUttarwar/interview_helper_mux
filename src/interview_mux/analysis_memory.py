@@ -149,7 +149,7 @@ def default_sound_design_plan() -> dict[str, Any]:
 
 
 def _build_context_index_from_plans(run_id: str) -> dict[str, Any]:
-    from interview_mux.context_volley import STAGE_PLANS
+    from interview_mux.stage_input_helpers import STAGE_PLANS
     from interview_mux.context_resolver import ARTIFACTS_REGISTRY, default_padding_rules
 
     idx = default_context_index(run_id)
@@ -228,7 +228,7 @@ def save_analysis_state(ctx: RunContext, state: dict[str, Any], *, stage: str | 
     ctx.write_json(ANALYSIS_STATE_PATH, state, stage_key=stage or "analysis_profile")
     if stage == "operator_gui":
         try:
-            from interview_mux.context_volley import _format_profile_slice, plan_for_stage
+            from interview_mux.stage_input_helpers import _format_profile_slice, plan_for_stage
             from interview_mux.context_resolver import append_profile_digest, context_index_enabled, write_on_accept
 
             if context_index_enabled() and write_on_accept():
@@ -625,11 +625,8 @@ def build_analysis_context_payload(
     stage_key: str,
     stage_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Deprecated: use context_volley.build_message_volley for API calls."""
-    from interview_mux.context_volley import build_message_volley
-
-    volley = build_message_volley(ctx, stage_key, stage_data)
-    return {"stage": stage_key, "message_volley": volley}
+    _ = ctx
+    return {"stage": stage_key, "stage_data": stage_data}
 
 
 def should_merge_envelope(
@@ -638,36 +635,8 @@ def should_merge_envelope(
     *,
     routed_via_collate: bool = False,
 ) -> bool:
-    """Merge memory only after arbiter accept or successful collate."""
-    from interview_mux.holistic_fabrication import should_accept_holistic_fabrication
-
-    status = envelope.get("status", "complete")
-    if should_accept_holistic_fabrication(envelope):
-        blocking = [
-            n
-            for n in envelope.get("needs") or []
-            if n.get("blocking") and n.get("type") != "operator"
-        ]
-        return status == "complete" and not blocking
-    if status == "blocked":
-        return False
-    if routed_via_collate and status == "complete":
-        blocking = [
-            n
-            for n in envelope.get("needs") or []
-            if n.get("blocking") and n.get("type") != "operator"
-        ]
-        return not blocking
-    if not arbiter_result:
-        return status == "complete"
-    verdict = str(arbiter_result.get("verdict", "")).strip()
-    if verdict == "accept":
-        return status == "complete"
-    if verdict == "decompose":
-        return False
-    if verdict in ("enqueue_investigation", "retry_uptier"):
-        return False
-    return status == "complete"
+    _ = (arbiter_result, routed_via_collate)
+    return str(envelope.get("status") or "").lower() == "complete"
 
 
 def should_persist_artifacts(
@@ -796,7 +765,7 @@ def apply_envelope_to_memory(
                         )
                     digest = profile_digest_from_memory_updates(envelope.get("memory_updates"))
                     if digest:
-                        from interview_mux.context_volley import plan_for_stage
+                        from interview_mux.stage_input_helpers import plan_for_stage
 
                         plan = plan_for_stage(stage_key)
                         append_profile_digest(
@@ -1050,9 +1019,7 @@ def record_stage_attempt(
     else:
         path = base / f"attempt_{attempt:03d}{suffix}.json"
     from interview_mux.file_store import write_json
-    from interview_mux.context_volley import volley_char_estimate
-
-    meta = envelope.get("_llm_meta") or {}
+    from interview_mux.stage_input_helpers import volley_char_estimate
     write_json(
         path,
         {
@@ -1088,43 +1055,8 @@ def mark_operator_verified(ctx: RunContext, verified: bool = True) -> None:
 
 
 def maybe_auto_verify_profile(ctx: RunContext) -> bool:
-    """Under first_try, auto-verify when profile ready and no critical investigations."""
-    from interview_mux.first_try import first_try_mode_enabled
-    from interview_mux.artifact_completeness import analysis_profile_ready_for_review
-
-    if not first_try_mode_enabled():
-        return False
-    if bool((load_analysis_state(ctx).get("meta") or {}).get("operator_verified")):
-        return False
-    if not analysis_profile_ready_for_review(ctx):
-        return False
-    # Critical open investigations block auto-verify
-    try:
-        orch = ctx.read_json("understanding/orchestration.json") if ctx.artifact_exists("understanding/orchestration.json") else {}
-        inv = orch.get("investigations") if isinstance(orch, dict) else None
-        if isinstance(inv, list):
-            for row in inv:
-                if not isinstance(row, dict):
-                    continue
-                if str(row.get("status") or "").lower() in {"open", "blocking", "critical"}:
-                    sev = str(row.get("severity") or row.get("priority") or "").lower()
-                    if sev in {"critical", "high", "blocking"} or row.get("blocking"):
-                        return False
-    except Exception:
-        pass
-    mark_operator_verified(ctx, True)
-    state = load_analysis_state(ctx)
-    state.setdefault("meta", {})
-    state["meta"]["verified_by"] = "first_try_auto"
-    save_analysis_state(ctx, state, stage="operator")
-    ctx.log(
-        "Profile auto-verified (first_try).",
-        level="success",
-        stage="analysis_profile",
-        action_id="gui.analysis_profile.verify",
-        detail={"event": "profile_auto_verify", "verified_by": "first_try_auto"},
-    )
-    return True
+    _ = ctx
+    return False
 
 
 def invalidate_sonic_context(ctx: RunContext, *, reason: str, stage: str = "invalidation") -> bool:

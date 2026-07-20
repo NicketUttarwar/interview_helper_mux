@@ -3,10 +3,7 @@ import { getSfxPrompts } from "../../api/client";
 import type { SfxBlockReason, StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { StageAudioActions } from "./StageAudioActions";
-import { AnalysisProfileGate } from "./AnalysisProfileGate";
 import { TranscriptReviewPanel } from "./TranscriptReviewPanel";
-import { DisfluencyReviewPanel } from "./DisfluencyReviewPanel";
-import { DisfluencyRestorePanel } from "./DisfluencyRestorePanel";
 import { VoPickupPanel } from "./VoPickupPanel";
 import { PreviewPickupPanel } from "./PreviewPickupPanel";
 import { ConversationStudioPanel } from "./ConversationStudioPanel";
@@ -47,55 +44,17 @@ function wrapDoneGate(stage: StageInfo, children: ReactNode, title?: string) {
   );
 }
 
+/** v2 operator gates: G0 transcript review, G1 VO pickup, NLE timeline, and stage-specific panels. */
 export function GateActions({ stage }: Props) {
-  const { run, config, timeline, setPipelineSubTab } = useApp();
+  const { run, config, timeline } = useApp();
 
   if (!run) return null;
   if (isStageHidden(stage)) return null;
-
-  if (
-    stage.id === "topic_coverage_audit" &&
-    stage.status === "locked" &&
-    run.profile_gate_pending
-  ) {
-    return (
-      <div className="gate-actions">
-        <p className="hint">
-          Verify the interview profile before delivery stages — edit themes in Story Board,
-          then <strong>Mark profile verified</strong>.
-        </p>
-        <div className="flow-choice">
-          <button
-            type="button"
-            className="btn primary sm"
-            onClick={() => setPipelineSubTab("story")}
-          >
-            Open Story Board
-          </button>
-          <button
-            type="button"
-            className="btn ghost sm"
-            onClick={() => setPipelineSubTab("profile")}
-          >
-            Open profile
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   if (stage.id === "transcript_review" && stage.status === "action_required") {
     return (
       <div className="gate-actions attention-required">
         <TranscriptReviewPanel />
-      </div>
-    );
-  }
-
-  if (stage.id === "disfluency_review" && stage.status === "action_required") {
-    return (
-      <div className="gate-actions">
-        <DisfluencyReviewPanel />
       </div>
     );
   }
@@ -119,8 +78,6 @@ export function GateActions({ stage }: Props) {
       <div className="gate-actions">
         <div className="attention-required-wrap">
           <StageAudioActions stage={stage} />
-
-          {stage.id === "analysis_profile" ? <AnalysisProfileGate stage={stage} /> : null}
 
           {stage.id === "missing_framing" && stage.status === "action_required" ? (
             <PickupSpeakerPanel stage={stage} />
@@ -153,10 +110,6 @@ export function GateActions({ stage }: Props) {
           {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
           {stage.id === "interview_spine_build" ? <InterviewSpinePanel /> : null}
           {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
-
-          {stage.id === "edl" || stage.id === "assembly_preview" ? (
-            <DisfluencyRestorePanel stageId={stage.id} />
-          ) : null}
 
           {run.journey?.phase === "ship" ? (
             <>

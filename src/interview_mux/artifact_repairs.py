@@ -620,12 +620,46 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
 def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
+    manifest_ids, _ = _manifest_ids_and_tags(ctx)
     brief_topics: set[str] = set()
     if ctx.artifact_exists("understanding/content_brief.json"):
         brief = ctx.read_json("understanding/content_brief.json")
         for t in (brief.get("topics") or []) if isinstance(brief, dict) else []:
             if isinstance(t, dict) and t.get("name"):
                 brief_topics.add(str(t["name"]).lower())
+    all_mapped: set[str] = set()
+    for key in ("topic_mappings", "claim_mappings"):
+        rows = out.get(key)
+        if not isinstance(rows, list):
+            continue
+        kept_rows: list[dict[str, Any]] = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            if key == "topic_mappings":
+                topic = str(row.get("topic") or row.get("name") or "").lower()
+                if brief_topics and topic and topic not in brief_topics:
+                    applied.append({"action": "drop_orphan_ref", "topic": topic})
+                    continue
+            seg_ids = row.get("segment_ids")
+            if isinstance(seg_ids, list) and manifest_ids:
+                cleaned = _sanitize_topic_segment_ids(seg_ids, manifest_ids)
+                if cleaned != seg_ids:
+                    row["segment_ids"] = cleaned
+                    applied.append({"action": "drop_orphan_ref", "path": f"{key}[{i}].segment_ids"})
+                all_mapped.update(cleaned)
+            elif isinstance(seg_ids, list):
+                all_mapped.update(str(s) for s in seg_ids if s)
+            kept_rows.append(row)
+        out[key] = kept_rows
+    if manifest_ids:
+        orphans = sorted(manifest_ids - all_mapped)
+        if orphans:
+            out["orphan_segment_ids"] = orphans
+            applied.append({"action": "compute_orphan_segment_ids", "count": len(orphans)})
+        elif out.get("orphan_segment_ids"):
+            out["orphan_segment_ids"] = []
+            applied.append({"action": "clear_orphan_segment_ids"})
     missing = out.get("missing_coverage")
     if isinstance(missing, list):
         kept = []
@@ -766,6 +800,117 @@ def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def enrich_narrative_plan_for_persist(ctx: Any, doc: dict[str, Any]) -> dict[str, Any]:
+    """Populate chapters[].segment_ids from inference before disk write."""
+    out = copy.deepcopy(doc)
+    chapters = out.get("chapters")
+    if not isinstance(chapters, list):
+        return out
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        seg_ids = narrative_chapter_segment_ids(ctx, ch)
+        if seg_ids:
+            ch["segment_ids"] = seg_ids
+    return out
+
+
+def _rewrite_segment_id_list(ids: list[Any], parent: str, children: list[str]) -> list[str]:
+    out: list[str] = []
+    for raw in ids:
+        s = str(raw)
+        if s == parent:
+            out.extend(children)
+        elif s not in out:
+            out.append(s)
+    return out
+
+
+def propagate_nle_split_segment_refs(
+    ctx: Any,
+    parent_id: str,
+    child_ids: list[str],
+) -> list[str]:
+    """
+    Rewrite parent segment_id references to NLE split children in upstream artifacts.
+
+    Returns human-readable paths updated.
+    """
+    if not parent_id or not child_ids:
+        return []
+    updated: list[str] = []
+
+    if ctx.artifact_exists("understanding/content_brief.json"):
+        brief = ctx.read_json("understanding/content_brief.json")
+        if isinstance(brief, dict):
+            changed = False
+            for topic in brief.get("topics") or []:
+                if not isinstance(topic, dict):
+                    continue
+                seg_ids = topic.get("segment_ids")
+                if isinstance(seg_ids, list) and parent_id in [str(x) for x in seg_ids]:
+                    topic["segment_ids"] = _rewrite_segment_id_list(seg_ids, parent_id, child_ids)
+                    changed = True
+            for claim in brief.get("key_claims") or []:
+                if not isinstance(claim, dict):
+                    continue
+                for key in ("segment_ids", "evidence_segment_ids"):
+                    seg_ids = claim.get(key)
+                    if isinstance(seg_ids, list) and parent_id in [str(x) for x in seg_ids]:
+                        claim[key] = _rewrite_segment_id_list(seg_ids, parent_id, child_ids)
+                        changed = True
+            if changed:
+                ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+                updated.append("understanding/content_brief.json")
+
+    if ctx.artifact_exists("master/coverage_audit.json"):
+        audit = ctx.read_json("master/coverage_audit.json")
+        if isinstance(audit, dict):
+            changed = False
+            for key in ("topic_mappings", "claim_mappings"):
+                for row in audit.get(key) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    seg_ids = row.get("segment_ids")
+                    if isinstance(seg_ids, list) and parent_id in [str(x) for x in seg_ids]:
+                        row["segment_ids"] = _rewrite_segment_id_list(seg_ids, parent_id, child_ids)
+                        changed = True
+            if changed:
+                repaired, _ = repair_coverage_audit(ctx, audit)
+                ctx.write_json("master/coverage_audit.json", repaired, skip_handoff=True)
+                updated.append("master/coverage_audit.json")
+
+    if ctx.artifact_exists("master/narrative_plan.json"):
+        plan = ctx.read_json("master/narrative_plan.json")
+        if isinstance(plan, dict):
+            changed = False
+            for ch in plan.get("chapters") or []:
+                if not isinstance(ch, dict):
+                    continue
+                for key in ("segment_ids", "suggested_open_segment_id"):
+                    val = ch.get(key)
+                    if key == "segment_ids" and isinstance(val, list):
+                        if parent_id in [str(x) for x in val]:
+                            ch["segment_ids"] = _rewrite_segment_id_list(val, parent_id, child_ids)
+                            changed = True
+                    elif key == "suggested_open_segment_id" and str(val or "") == parent_id:
+                        ch["suggested_open_segment_id"] = child_ids[0]
+                        changed = True
+            for constraint in plan.get("ordering_constraints") or []:
+                if not isinstance(constraint, dict):
+                    continue
+                for edge_key in ("before_segment_id", "after_segment_id"):
+                    if str(constraint.get(edge_key) or "") == parent_id:
+                        constraint[edge_key] = child_ids[0]
+                        changed = True
+            if changed:
+                enriched = enrich_narrative_plan_for_persist(ctx, plan)
+                ctx.write_json("master/narrative_plan.json", enriched, skip_handoff=True)
+                updated.append("master/narrative_plan.json")
+
+    return updated
 
 
 def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:

@@ -8,21 +8,56 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from interview_mux.artifact_issue_triage import (
-    blocking_issues_remaining,
-    clear_clarification_gate,
-    get_propagation_plan,
-    revalidate_after_repair,
-    revalidate_downstream_on_segment_fix,
-    resolve_issue,
-    run_triage_pipeline,
-    triage_cfg,
-    triage_enabled,
-)
 from interview_mux.artifact_repairs import apply_choice_to_boundaries, apply_choice_to_manifest
 from interview_mux.operator_clarifications_store import items_for_stage, mark_resolved
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.write_staging import staged_path, write_pending_content
+
+ITR_DISABLED = True
+
+
+def triage_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return False
+
+
+def triage_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {}
+
+
+def blocking_issues_remaining(ctx: Any, stage_key: str) -> int:
+    return 0
+
+
+def clear_clarification_gate(ctx: Any, stage_key: str) -> None:
+    return None
+
+
+def get_propagation_plan(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    return {}
+
+
+def revalidate_after_repair(ctx: Any, stage_key: str, *, staged: bool = True) -> tuple[bool, list[str]]:
+    return True, []
+
+
+def revalidate_downstream_on_segment_fix(ctx: Any, stage_key: str) -> list[str]:
+    return []
+
+
+def resolve_issue(ctx: Any, stage_key: str, issue_id: str, choice: Any) -> tuple[bool, list[str]]:
+    return True, []
+
+
+@dataclass
+class _TriagePipelineResult:
+    revalidation_ok: bool = True
+    open_blocking: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def run_triage_pipeline(ctx: Any, stage_key: str, *, staged: bool = True) -> _TriagePipelineResult:
+    return _TriagePipelineResult()
+
 
 ITR_STAGE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "speaker_roles": {"tier": "full", "step_label": "Fix all & continue", "propagation_chain": (), "auto_chain_downstream": False},
@@ -575,9 +610,16 @@ def _apply_loop_escape_hatch(
     return deleted, warnings
 
 def _read_stage_artifact(ctx: Any, stage_key: str, *, staged: bool = True) -> tuple[str | None, dict[str, Any] | None]:
-    from interview_mux.artifact_issue_triage import _read_stage_artifact as _read
+    from interview_mux.write_staging import read_pending_json, staged_path
 
-    return _read(ctx, stage_key, staged=staged)
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return None, None
+    if staged and staged_path(ctx, rel, stage_id=stage_key).is_file():
+        return rel, read_pending_json(ctx, stage_key, rel)
+    if ctx.artifact_exists(rel):
+        return rel, ctx.read_json(rel)
+    return None, None
 
 def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
     from interview_mux.lint_repair_bridge import lint_errors_structurally_repairable
@@ -971,11 +1013,9 @@ def auto_resolve_stage(
     if triage_result.errors:
         result.warnings.extend(triage_result.errors[:3])
 
-    from interview_mux.artifact_issue_triage import _write_stage_artifact
-    from interview_mux.remediation_orchestrator import RemediationTrigger, remediate, remediation_enabled
     from interview_mux.stage_acceptance import stage_acceptance_ok
 
-    if remediation_enabled():
+    if False:
         acc = stage_acceptance_ok(ctx, stage_key, staged=True, include_downstream=False)
         if not acc.ok:
             rem = remediate(

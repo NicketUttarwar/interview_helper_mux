@@ -10,10 +10,7 @@ export function StageAudioActions({ stage }: { stage: StageInfo }) {
 
   const playPath = async (path: string) => {
     const url = `/api/runs/${runId}/audio?path=${encodeURIComponent(path)}`;
-    const player = document.querySelector(
-      ".audio-player",
-    ) as HTMLAudioElement | null;
-    const target = player || inlineRef.current;
+    const target = inlineRef.current;
     if (!target) {
       showToast("Could not play audio — no player available.");
       return;

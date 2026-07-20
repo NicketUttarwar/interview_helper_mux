@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -480,6 +481,32 @@ def ensure_speaker_sample_clips(ctx: RunContext) -> dict[str, str]:
             continue
         start_ms, end_ms = sample
         extract_clip(audio, dest, start_ms, end_ms)
+        ref_words = [
+            str(w.get("text") or "")
+            for w in (transcript.get("words") or [])
+            if isinstance(w, dict)
+            and str(w.get("speaker_id") or w.get("speaker") or "") == sid
+            and int(float(w.get("start_ms") or w.get("start") or 0)) >= start_ms
+            and int(float(w.get("end_ms") or w.get("end") or 0)) <= end_ms
+        ]
+        ref_text = " ".join(ref_words).strip()
+        if ref_text:
+            sidecar = ctx.path("understanding", "speaker_samples", f"{sid}.json")
+            sidecar.parent.mkdir(parents=True, exist_ok=True)
+            sidecar.write_text(
+                json.dumps(
+                    {
+                        "speaker_id": sid,
+                        "ref_text": ref_text,
+                        "wav": rel,
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
         out[sid] = rel
     return out
 
@@ -523,10 +550,8 @@ def pickup_speaker_payload(ctx: RunContext) -> dict[str, Any]:
 
 def attach_adaptation_to_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:
     from interview_mux.conversation_context import attach_conversation_context
-    from interview_mux.custom_run_handoff import active_pipeline_stage
 
-    stage_id = active_pipeline_stage.get() or ""
-    payload = attach_conversation_context(ctx, payload, stage_id)
+    payload = attach_conversation_context(ctx, payload, "")
     topo = load_topology(ctx)
     adapt = load_flow_adaptation(ctx)
     if topo:
@@ -594,47 +619,8 @@ def run_source_topology_build(ctx: RunContext) -> None:
 
 
 def maybe_auto_confirm_pickup_speaker(ctx: RunContext) -> bool:
-    """Under first_try, auto-confirm when exactly one eligible speaker (or 0–1 documentary)."""
-    from interview_mux.first_try import first_try_mode_enabled
-
-    if not first_try_mode_enabled():
-        return False
-    if pickup_speaker_confirmed(ctx):
-        return False
-    topo = load_topology(ctx) or {}
-    stats = topo.get("speaker_stats") or []
-    valid = sorted(_speaker_ids_from_stats(stats if isinstance(stats, list) else []))
-    if len(valid) > 1:
-        return False
-    if not valid:
-        # Documentary / 0-speaker fallthrough — confirm empty gate by marking with least/default
-        selected = str(topo.get("pickup_eligible_speaker_id") or "")
-        if not selected:
-            overrides = dict((load_flow_adaptation(ctx) or {}).get("operator_overrides") or {})
-            overrides["pickup_speaker_confirmed"] = True
-            adapt = load_flow_adaptation(ctx) or {}
-            adapt["operator_overrides"] = overrides
-            ctx.write_json("understanding/flow_adaptation.json", adapt)
-            ctx.log(
-                "Pickup speaker auto-confirmed (first_try): no speakers / documentary fallthrough.",
-                level="info",
-                stage="source_topology_build",
-                detail={"event": "pickup_auto_confirm", "speaker_id": None},
-            )
-            return True
-        valid = [selected]
-    try:
-        confirm_pickup_speaker(ctx, speaker_id=valid[0])
-        ctx.log(
-            f"Pickup speaker auto-confirmed (first_try): {valid[0]}",
-            level="success",
-            stage="source_topology_build",
-            detail={"event": "pickup_auto_confirm", "speaker_id": valid[0]},
-        )
-        return True
-    except Exception as exc:  # noqa: BLE001
-        ctx.log(f"pickup auto-confirm skipped: {exc}", level="warning", stage="source_topology_build")
-        return False
+    """v2: operator confirms pickup speaker explicitly."""
+    return False
 
 
 def apply_flow_adaptation_patch(ctx: RunContext, patch: dict[str, Any]) -> dict[str, Any]:

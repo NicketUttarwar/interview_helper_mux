@@ -29,7 +29,6 @@ export function StartTab() {
     executeJob,
     runNextStage,
     openActionModal,
-    acknowledgeHandoff,
     setPipelineSubTab,
     selectStage,
     setActiveSubstepId,
@@ -50,7 +49,6 @@ export function StartTab() {
       if (substepId) setActiveSubstepId(substepId);
       openActionModal();
     },
-    onAcknowledgeHandoff: () => void acknowledgeHandoff(),
     onGoLogs: () => setActiveTab("logs"),
     onGoStart: () => setActiveTab("start"),
     onGoPipeline: () => {

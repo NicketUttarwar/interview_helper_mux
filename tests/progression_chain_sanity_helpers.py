@@ -37,7 +37,22 @@ PROGRESSION_FLOW_STAGES = [
     "edl_narrative_audit",
 ]
 
-FULL_PROGRESSION_CHAIN = [*PROGRESSION_ANALYSIS_STAGES, *PROGRESSION_FLOW_STAGES]
+PROGRESSION_BUILD_STAGES = [
+    "sound_design_vo_finalize",
+    "edl",
+]
+
+FULL_PROGRESSION_CHAIN = [
+    *PROGRESSION_ANALYSIS_STAGES,
+    *PROGRESSION_FLOW_STAGES,
+    *PROGRESSION_BUILD_STAGES,
+]
+
+BUILD_STAGE_ARTIFACT_PATHS: dict[str, str] = {
+    "episode_structure_compose": "understanding/episode_structure.json",
+    "sound_design_vo_finalize": "understanding/sound_design_plan.json",
+    "edl": "master/edl.json",
+}
 
 
 def load_stage_fixtures() -> dict[str, Any]:
@@ -186,9 +201,10 @@ def write_stage_producer_artifact(
     fixtures: dict[str, Any],
 ) -> str | None:
     """Write the on-disk producer artifact for ``stage_id``; return relative path."""
-    from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.prompt_validation import validate_artifact_write
+    from interview_mux.write_staging import write_committed_json
 
-    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id) or BUILD_STAGE_ARTIFACT_PATHS.get(stage_id)
     if not rel:
         return None
     if stage_id == "segment_classification":
@@ -203,6 +219,67 @@ def write_stage_producer_artifact(
         doc = json.loads(sonic_path.read_text(encoding="utf-8"))
     elif stage_id in ("sound_design_palettes", "sound_design_plan"):
         doc = _sound_design_plan_doc(stage_id, fixtures)
+    elif stage_id == "episode_structure_compose":
+        from interview_mux.episode_structure import build_episode_structure, structure_enabled
+        from interview_mux.write_staging import write_committed_json
+
+        if structure_enabled():
+            doc = build_episode_structure(ctx, refresh=False)
+        else:
+            doc = {
+                "schema_version": 1,
+                "policy_hash": "fixture",
+                "axes": {},
+                "segment_order": ["seg_001"],
+                "slot_plan": [],
+                "hook_reel": {"segment_id": "seg_001", "repeat_allowed": False},
+                "omit_reasons": [],
+                "rationale": ["fixture"],
+                "integrity": {"ok": True, "flags": []},
+                "occupancy": {"violations": []},
+            }
+        rel = "understanding/episode_structure.json"
+        write_committed_json(ctx, rel, doc, stage_key=stage_id)
+        return rel
+    elif stage_id == "sound_design_vo_finalize":
+        rel = "understanding/sound_design_plan.json"
+        return rel if ctx.artifact_exists(rel) else None
+    elif stage_id == "edl":
+        from interview_mux.stages.assembly import build_flow1_edl
+
+        if not ctx.artifact_exists("master/selection.json"):
+            return None
+        selection = ctx.read_json("master/selection.json")
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(s.get("segment_id")): s
+            for s in (manifest.get("segments") or [])
+            if isinstance(s, dict) and s.get("segment_id")
+        }
+        gap_report = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        transitions = (
+            ctx.read_json("master/transitions.json")
+            if ctx.artifact_exists("master/transitions.json")
+            else None
+        )
+        edl = build_flow1_edl(
+            selection=selection,
+            segments_by_id=by_id,
+            gap_report=gap_report,
+            transitions=transitions,
+        )
+        if edl.get("warnings", {}).get("missing_segment_lookups"):
+            raise ValueError(
+                "edl fixture: missing segment lookups "
+                f"{edl['warnings']['missing_segment_lookups']}"
+            )
+        rel = "master/edl.json"
+        write_committed_json(ctx, rel, edl, stage_key=stage_id)
+        return rel
     elif stage_id == "transitions":
         doc = dict(fixtures.get("transitions") or {})
         for tr in doc.get("transitions") or []:
@@ -213,19 +290,41 @@ def write_stage_producer_artifact(
         doc = fixtures[stage_id]
     else:
         return None
-    write_validated_artifact(
-        ctx,
-        rel,
-        doc,
-        merge_from_disk=stage_id == "sound_design_plan",
-        stage_key=stage_id,
-    )
+    from interview_mux.artifact_writes import _prepare_for_disk_validation, _prepare_segment_artifact
+
+    out = doc
+    if stage_id == "sound_design_plan":
+        from interview_mux.artifact_completeness import merge_artifact
+
+        existing: dict[str, Any] | None = None
+        if ctx.artifact_exists(rel):
+            raw = ctx.read_json(rel)
+            if isinstance(raw, dict):
+                existing = raw
+        out = merge_artifact(rel, existing, doc, stage_key=stage_id)
+    out = _prepare_segment_artifact(ctx, rel, out, stage_key=stage_id)
+    out = _prepare_for_disk_validation(out, rel_path=rel, stage_key=stage_id)
+    errors = validate_artifact_write(rel, out)
+    if errors:
+        raise ValueError(f"{rel}: schema validation failed — {'; '.join(errors[:6])}")
+    write_committed_json(ctx, rel, out, stage_key=stage_id)
+    if stage_id == "optimal_questions":
+        lines = out.get("interviewer_lines") or []
+        rows: list[str] = []
+        for line in lines:
+            if isinstance(line, dict):
+                lid = str(line.get("line_id") or "")
+                text = str(line.get("text") or "")
+                rows.append(f"{lid}: {text}".strip(": "))
+        script_path = ctx.final_path("understanding", "interviewer_script.txt")
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text("\n".join(rows), encoding="utf-8")
     return rel
 
 
 def validate_stage_committed(ctx: RunContext, stage_id: str) -> list[str]:
     """Return human-readable validation failures (empty = OK)."""
-    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id) or BUILD_STAGE_ARTIFACT_PATHS.get(stage_id)
     if not rel or not ctx.artifact_exists(rel):
         return [f"{stage_id}: missing producer artifact {rel}"]
     doc = ctx.read_json(rel)
@@ -290,6 +389,8 @@ def seed_vo_from_gap_report(ctx: RunContext) -> None:
 
 def prepare_flow_chain_gates(ctx: RunContext) -> None:
     """Minimal run_meta + gate markers so flow fixture stages can be input-checked."""
+    from interview_mux.artifact_writes import write_validated_artifact
+
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if not isinstance(meta, dict):
         meta = {}
@@ -298,6 +399,26 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
     ctx.mark_done("analysis_profile", force=True)
     ctx.mark_done("g1_vo_pickup", force=True)
     ctx.mark_done("vo_ingest", force=True)
+    if not ctx.artifact_exists("understanding/delivery_brief.json"):
+        write_validated_artifact(
+            ctx,
+            "understanding/delivery_brief.json",
+            {
+                "version": 1,
+                "source_duration_ms": 60_000,
+                "target_duration_sec": {"min": 30, "ideal": 45, "max": 60},
+                "question_budget": {"min": 0, "ideal": 1, "max": 2},
+                "chapter_budget": {"min": 1, "ideal": 2, "max": 4},
+                "selection_mode": "coverage_first",
+                "sfx_density": {"max_beds": 1, "max_punctuators": 1, "max_foley": 0},
+                "ranking_weights": {},
+                "rationale": ["fixture"],
+                "operator_overrides": {},
+                "generated": {"at": "1970-01-01T00:00:00+00:00", "by": "test_fixture"},
+            },
+            merge_from_disk=False,
+            stage_key="delivery_brief_build",
+        )
     state = ctx.read_json("understanding/analysis_state.json")
     if isinstance(state, dict):
         state.setdefault("meta", {})["operator_verified"] = True
@@ -337,51 +458,9 @@ def simulate_segment_classification_write_approval(
     *,
     placeholder_topic_ids: bool = True,
 ) -> list[str]:
-    """
-    Regression: staged manifest + placeholder topic ids must unblock after sync/finalize.
-    Returns validation failures (empty = OK).
-    """
-    from interview_mux.artifact_issue_triage import (
-        assert_write_approval_itr_ok,
-        get_propagation_plan,
-    )
-    from interview_mux.operator_decisions import clear_stage_decisions, pending_decision_count
-    from interview_mux.write_staging import assert_write_approval_allowed, write_pending_content
-
-    stage_key = "segment_classification"
-    manifest = build_manifest_from_fixtures(fixtures)
-    write_pending_content(ctx, stage_key, "segments/manifest.json", data=manifest)
-    record_pending_approval(ctx, stage_key)
-
-    brief = ctx.read_json("understanding/content_brief.json")
-    if placeholder_topic_ids and isinstance(brief, dict):
-        topics = brief.get("topics") or []
-        if topics and isinstance(topics[0], dict):
-            topics[0] = {**topics[0], "segment_ids": ["t_placeholder_topic"]}
-            brief["topics"] = topics
-            ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
-
-    sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_key)
-    clear_stage_decisions(ctx, stage_key)
-
-    failures: list[str] = []
-    failures.extend(validate_content_brief_segment_id_hygiene(ctx))
-
-    plan = get_propagation_plan(ctx, stage_key, overlay_stage=stage_key)
-    if plan.get("has_blocking"):
-        failures.append(
-            "unexpected propagation block: "
-            + "; ".join((plan.get("cross_errors") or [])[:4])
-        )
-
-    if pending_decision_count(ctx, stage_key) > 0:
-        failures.append(f"{stage_key}: pending operator decisions remain")
-    try:
-        assert_write_approval_allowed(ctx, stage_key)
-        assert_write_approval_itr_ok(ctx, stage_key)
-    except Exception as exc:
-        failures.append(f"{stage_key}: write approval blocked — {exc}")
-    return failures
+    """Write-approval ITR regression removed in v2 (auto-commit)."""
+    _ = (ctx, fixtures, placeholder_topic_ids)
+    return []
 
 
 def run_progression_chain_sanity(
@@ -401,7 +480,11 @@ def run_progression_chain_sanity(
         "ok": True,
     }
 
-    if any(s in PROGRESSION_FLOW_STAGES for s in chain):
+    needs_flow_gates = bool(
+        set(chain)
+        & (set(PROGRESSION_FLOW_STAGES) | set(PROGRESSION_BUILD_STAGES) | {"episode_structure_compose"})
+    )
+    if needs_flow_gates:
         prepare_flow_chain_gates(ctx)
 
     if include_write_approval_regression and PROGRESSION_START_STAGE in chain:

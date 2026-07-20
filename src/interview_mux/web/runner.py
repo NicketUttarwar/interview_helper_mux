@@ -29,8 +29,6 @@ from interview_mux.pipeline import (
     run_single_stage,
 )
 from interview_mux.stages import transcript_review
-from interview_mux.journey_orchestrator import refresh_journey_meta
-from interview_mux.custom_run_handoff import check_handoff_before_execute, pending_handoff_stage
 from interview_mux.run_context import RunContext
 from interview_mux.run_lock import RunDirectoryLock
 from interview_mux.stage_execution_reuse import (
@@ -39,24 +37,23 @@ from interview_mux.stage_execution_reuse import (
     clear_stage_reuse_from,
 )
 from interview_mux.stage_input_checks import StageInputError
-from interview_mux.write_staging import (
-    WriteApprovalPending,
-    check_write_approval_before_execute,
-    list_pending_paths,
-)
 from interview_mux.web.job_progress import clear_job_progress, register_job_progress
 from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 SUBPROCESS_STAGES = frozenset({"audio_preclean"})
 
 
-def _invalidate_disfluency_review_gate(ctx: RunContext) -> None:
-    marker = ctx.final_path(".stage_done", "disfluency_review")
-    if marker.is_file():
-        marker.unlink()
-    review_summary = ctx.final_path("transcript", "disfluency_review.json")
-    if review_summary.is_file():
-        review_summary.unlink()
+def refresh_journey_meta(ctx: RunContext) -> None:
+    from interview_mux.journey_state import compute_milestones, compute_operator_phase
+
+    milestones = compute_milestones(ctx)
+    phase = compute_operator_phase(ctx, milestones)
+
+    def patch(meta: dict[str, Any]) -> None:
+        meta["journey_milestones"] = milestones
+        meta["operator_phase"] = phase
+
+    ctx.mutate_run_meta(patch)
 
 
 class RunBusyError(RuntimeError):
@@ -136,9 +133,6 @@ class JobRunner:
                 "stage": stage_id,
                 "current_stage": None,
                 "message": message,
-                "pending_write_stage": None,
-                "pending_write_paths": None,
-                "awaiting_write_approval": False,
                 "needs_stage_reuse": False,
             },
         )
@@ -172,9 +166,7 @@ class JobRunner:
                 job = ctx.read_json("gui_job.json")
                 status = job.get("status")
                 if status in RUNNING_STATUSES:
-                    if job.get("mode") == "write_approval":
-                        reconcile_stale_job(run_id)
-                    elif run_id in self._lock_holder_tid:
+                    if run_id in self._lock_holder_tid:
                         return False
             except OSError:
                 pass
@@ -260,40 +252,7 @@ class JobRunner:
             pass
         return False
 
-    def mark_write_approval_saving(
-        self,
-        ctx: RunContext,
-        stage_id: str,
-        paths: list[str],
-    ) -> None:
-        """Show live save progress in gui_job while staged files are promoted to disk."""
-        title = self._stage_title(stage_id)
-        self._write_job(
-            ctx,
-            {
-                "status": "running",
-                "mode": "write_approval",
-                "stage": stage_id,
-                "current_stage": stage_id,
-                "message": f"Saving {len(paths)} file(s) for {title}…",
-                "pending_write_stage": stage_id,
-                "pending_write_paths": paths,
-            },
-        )
-        ctx.log(
-            f"Saving {len(paths)} staged file(s) for {title}…",
-            level="action",
-            stage=stage_id,
-            action_id="write_approval.save",
-            origin="api",
-            detail={
-                "journey_kind": "execute",
-                "event": "write_approval_save_start",
-                "paths": paths,
-            },
-        )
-
-    def _read_gui_job(self, run_id: str) -> dict[str, Any]:
+    def _prepare_for_operator_action(self, run_id: str) -> None:
         if not RunContext.exists(run_id):
             return {}
         try:
@@ -304,11 +263,9 @@ class JobRunner:
     def _is_operator_pause_job(self, job: dict[str, Any]) -> bool:
         status = job.get("status")
         return bool(
-            job.get("awaiting_write_approval")
-            or job.get("needs_stage_reuse")
+            job.get("needs_stage_reuse")
             or status
             in (
-                "awaiting_write_approval",
                 "needs_operator",
                 "gate",
                 "interrupted",
@@ -328,8 +285,6 @@ class JobRunner:
         status = job.get("status")
         if status not in RUNNING_STATUSES and status != "stalled":
             return False
-        if job.get("mode") == "write_approval":
-            return self._holder_thread_alive(run_id)
         return True
 
     def _prepare_for_operator_action(self, run_id: str) -> None:
@@ -570,28 +525,6 @@ class JobRunner:
             return True
         return dir_lock.acquire(blocking=False)
 
-    def restore_write_approval_pause(
-        self,
-        ctx: RunContext,
-        stage_id: str,
-        paths: list[str],
-    ) -> None:
-        """Revert gui_job to awaiting_write_approval after a failed staged save."""
-        title = self._stage_title(stage_id)
-        self._write_job(
-            ctx,
-            {
-                "status": "awaiting_write_approval",
-                "mode": "stage",
-                "stage": stage_id,
-                "current_stage": stage_id,
-                "message": f"{title} outputs await review before saving ({len(paths)} file(s)).",
-                "pending_write_stage": stage_id,
-                "pending_write_paths": paths,
-                "awaiting_write_approval": True,
-            },
-        )
-
     def _spawn_pipeline_thread(
         self,
         run_id: str,
@@ -735,47 +668,6 @@ class JobRunner:
                     ctx,
                     {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
                 )
-            except WriteApprovalPending as exc:
-                ctx.log(str(exc), level="action", stage=exc.stage_id)
-                refresh_journey_meta(ctx)
-                self._release_run_locks(run_id, dir_lock, lock)
-                from interview_mux.artifact_issue_triage import (
-                    apply_clarification_gate_after_pause,
-                    blocking_issues_remaining,
-                    triage_enabled,
-                )
-                from interview_mux.full_autopilot import full_autopilot_enabled
-                from interview_mux.operator_decisions import pending_decision_count
-
-                if full_autopilot_enabled() and pending_decision_count(ctx, exc.stage_id) > 0:
-                    self._write_job(
-                        ctx,
-                        {
-                            "status": "awaiting_write_approval",
-                            "mode": mode,
-                            "stage": exc.stage_id,
-                            "message": "Your input needed before review",
-                            "pending_write_stage": exc.stage_id,
-                            "pending_write_paths": exc.paths,
-                            "awaiting_write_approval": True,
-                            "pending_decision_count": pending_decision_count(ctx, exc.stage_id),
-                        },
-                    )
-                elif triage_enabled() and blocking_issues_remaining(ctx, exc.stage_id) > 0:
-                    apply_clarification_gate_after_pause(ctx, exc.stage_id)
-                else:
-                    self._write_job(
-                        ctx,
-                        {
-                            "status": "awaiting_write_approval",
-                            "mode": mode,
-                            "stage": exc.stage_id,
-                            "message": "Awaiting your review",
-                            "pending_write_stage": exc.stage_id,
-                            "pending_write_paths": exc.paths,
-                            "awaiting_write_approval": True,
-                        },
-                    )
             except StageInputError as exc:
                 # Soft operator/gate pause — warning note only, never ERROR+traceback.
                 gate_msg = str(exc)
@@ -793,32 +685,16 @@ class JobRunner:
                 )
                 refresh_journey_meta(ctx)
                 self._release_run_locks(run_id, dir_lock, lock)
-                if exc.write_approval_only:
-                    pending_sid = exc.pending_write_stage or exc.stage_id
-                    paths = list_pending_paths(ctx, pending_sid)
-                    self._write_job(
-                        ctx,
-                        {
-                            "status": "awaiting_write_approval",
-                            "mode": mode,
-                            "stage": pending_sid,
-                            "message": "Awaiting your review",
-                            "pending_write_stage": pending_sid,
-                            "pending_write_paths": paths,
-                            "awaiting_write_approval": True,
-                        },
-                    )
-                else:
-                    self._write_job(
-                        ctx,
-                        {
-                            "status": "gate",
-                            "mode": mode,
-                            "stage": exc.stage_id,
-                            "message": gate_msg,
-                            "error": gate_msg,
-                        },
-                    )
+                self._write_job(
+                    ctx,
+                    {
+                        "status": "gate",
+                        "mode": mode,
+                        "stage": exc.stage_id,
+                        "message": gate_msg,
+                        "error": gate_msg,
+                    },
+                )
             except StageReuseOfferPending as exc:
                 gate_msg = str(exc)
                 ctx.log(gate_msg, level="action", stage=exc.stage_id)
@@ -838,19 +714,7 @@ class JobRunner:
             except SystemExit as exc:
                 gate_msg = str(exc) or "Operator gate — action required."
                 from interview_mux.gate_focus import gate_focus_stage
-                from interview_mux.write_staging import read_gui_job
 
-                existing = read_gui_job(ctx) or {}
-                if str(existing.get("status")) == "needs_clarification":
-                    ctx.log(
-                        gate_msg,
-                        level="action",
-                        stage=label,
-                        detail="ITR clarification gate — resolve issues in the GUI.",
-                    )
-                    refresh_journey_meta(ctx)
-                    self._release_run_locks(run_id, dir_lock, lock)
-                    return
                 gate_stage = gate_focus_stage(gate_msg, job_stage=stage) or stage
                 ctx.log(
                     gate_msg,
@@ -1008,51 +872,6 @@ class JobRunner:
             nle_apply_mode="structural",
             api_consents=api_consents,
         )
-        write_pending = check_write_approval_before_execute(ctx, stage_id=stage_id)
-        if write_pending:
-            msg = str(write_pending)
-            ctx.log(msg, level="action", stage=write_pending.stage_id)
-            self._write_job(
-                ctx,
-                {
-                    "status": "awaiting_write_approval",
-                    "mode": "stage",
-                    "stage": write_pending.stage_id,
-                    "message": msg,
-                    "pending_write_stage": write_pending.stage_id,
-                    "pending_write_paths": write_pending.paths,
-                },
-            )
-            self._release_run_locks(run_id, dir_lock, lock)
-            return {
-                "ok": False,
-                "error": msg,
-                "needs_operator": True,
-                "awaiting_write_approval": True,
-                "pending_write_stage": write_pending.stage_id,
-                "pending_write_paths": write_pending.paths,
-            }
-
-        handoff_err = check_handoff_before_execute(ctx)
-        if handoff_err:
-            ctx.log(handoff_err, level="action", stage=pending_handoff_stage(ctx))
-            self._write_job(
-                ctx,
-                {
-                    "status": "needs_operator",
-                    "mode": "stage",
-                    "stage": stage_id,
-                    "message": handoff_err,
-                },
-            )
-            self._release_run_locks(run_id, dir_lock, lock)
-            return {
-                "ok": False,
-                "error": handoff_err,
-                "needs_operator": True,
-                "needs_handoff_review": True,
-            }
-
         if consent_err:
             ctx.log(consent_err, level="action", stage=stage_id)
             self._write_job(
@@ -1091,11 +910,6 @@ class JobRunner:
         return {"ok": True, "run_id": run_id, "mode": "stage", "stage": stage_id}
 
     def _next_analysis_stage(self, ctx: RunContext, after_stage_id: str) -> str | None:
-        if after_stage_id == "disfluency_extract":
-            from interview_mux.gates import check_disfluency_review_pending
-
-            if check_disfluency_review_pending(ctx):
-                return "disfluency_review"
         if after_stage_id not in ANALYSIS_ORDER:
             return None
         idx = ANALYSIS_ORDER.index(after_stage_id)
@@ -1138,35 +952,6 @@ class JobRunner:
             nle_full_refresh=nle_full_refresh,
             nle_apply_mode=nle_apply_mode,
         )
-        write_pending = check_write_approval_before_execute(
-            ctx_pre,
-            stage_id=stage if mode == "stage" else None,
-        )
-        if write_pending:
-            msg = str(write_pending)
-            ctx_pre.log(msg, level="action", stage=write_pending.stage_id)
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "awaiting_write_approval",
-                    "mode": mode,
-                    "stage": write_pending.stage_id,
-                    "message": msg,
-                    "pending_write_stage": write_pending.stage_id,
-                    "pending_write_paths": write_pending.paths,
-                    "awaiting_write_approval": True,
-                },
-            )
-            self._clear_pipeline_start_reservation(run_id)
-            return {
-                "ok": False,
-                "error": msg,
-                "needs_operator": True,
-                "awaiting_write_approval": True,
-                "pending_write_stage": write_pending.stage_id,
-                "pending_write_paths": write_pending.paths,
-            }
-
         reuse_pending = check_stage_reuse_before_execute(ctx_pre, stage_ids)
         if reuse_pending:
             msg = str(reuse_pending)
@@ -1190,26 +975,6 @@ class JobRunner:
                 "needs_stage_reuse": True,
                 "stage": reuse_pending.stage_id,
                 "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
-            }
-
-        handoff_err = check_handoff_before_execute(ctx_pre)
-        if handoff_err:
-            ctx_pre.log(handoff_err, level="action", stage=pending_handoff_stage(ctx_pre))
-            self._write_job(
-                ctx_pre,
-                {
-                    "status": "needs_operator",
-                    "mode": mode,
-                    "stage": stage,
-                    "message": handoff_err,
-                },
-            )
-            self._clear_pipeline_start_reservation(run_id)
-            return {
-                "ok": False,
-                "error": handoff_err,
-                "needs_operator": True,
-                "needs_handoff_review": True,
             }
 
         if consent_err:
@@ -1257,89 +1022,6 @@ class JobRunner:
         )
         return {"ok": True, "run_id": run_id, "mode": mode, "stage": stage}
 
-    def approve_write_and_continue(
-        self,
-        run_id: str,
-        stage_id: str,
-        *,
-        api_consents: dict[str, bool] | None = None,
-    ) -> dict[str, Any]:
-        """Flush staged writes and start the next runnable stage under one lock scope."""
-        from interview_mux.write_staging import approve_stage_writes, assert_write_approval_allowed, list_pending_paths
-
-        acquired = self._acquire_run_locks(run_id, operator_priority=True)
-        if acquired is None:
-            raise RunBusyError(run_id)
-        lock, dir_lock = acquired
-
-        ctx = RunContext(run_id, create=False)
-        title = STAGE_BY_ID.get(stage_id)
-        stage_label = title.title if title else stage_id.replace("_", " ")
-        try:
-            assert_write_approval_allowed(ctx, stage_id)
-            paths = list_pending_paths(ctx, stage_id)
-
-            self.mark_write_approval_saving(ctx, stage_id, paths)
-            try:
-                from interview_mux.write_staging import (
-                    approve_segmentation_pair_writes,
-                    segmentation_pair_approve_needed,
-                )
-
-                if segmentation_pair_approve_needed(ctx, stage_id):
-                    flushed = approve_segmentation_pair_writes(ctx)
-                else:
-                    flushed = approve_stage_writes(ctx, stage_id)
-            except Exception:
-                if list_pending_paths(ctx, stage_id):
-                    self.restore_write_approval_pause(ctx, stage_id, paths)
-                self._release_run_locks(run_id, dir_lock, lock)
-                raise
-
-            self.clear_operator_pause(
-                ctx,
-                stage_id,
-                message=(
-                    f"{stage_label}: saved {len(flushed)} file(s) to disk — advancing pipeline."
-                ),
-            )
-            ctx.log(
-                f"Saved {len(flushed)} file(s) for {stage_label} — advancing pipeline.",
-                level="success",
-                stage=stage_id,
-                action_id="api.write_approval.approve",
-                origin="api",
-                detail={
-                    "journey_kind": "milestone",
-                    "event": "write_approval_complete",
-                    "paths": flushed,
-                    "stage_id": stage_id,
-                },
-            )
-            refresh_journey_meta(ctx)
-
-            next_stage = self._next_analysis_stage(ctx, stage_id)
-            self._release_run_locks(run_id, dir_lock, lock)
-            return {
-                "ok": True,
-                "flushed": flushed,
-                "stage_id": stage_id,
-                "started_stage": next_stage,
-                "job": {
-                    "status": "complete",
-                    "stage": stage_id,
-                    "message": (
-                        f"{stage_label}: saved {len(flushed)} file(s) — ready for next step."
-                    ),
-                },
-            }
-        except RunBusyError:
-            raise
-        except Exception:
-            if lock.locked():
-                self._release_run_locks(run_id, dir_lock, lock)
-            raise
-
     def start(
         self,
         run_id: str,
@@ -1375,24 +1057,19 @@ class JobRunner:
         """Block delivery_polish when post-listen or mmaudio QA gates are not clear."""
         from interview_mux.gates import check_post_listen_gate_pending, require_post_listen_clear
         from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
-        from interview_mux.first_try import first_try_mode_enabled
         from interview_mux.config import merged_config
 
         failed_listen = check_post_listen_gate_pending(ctx)
         sound_cfg = merged_config().get("sound_design") or {}
         post_mode = str(sound_cfg.get("post_listen_gate_mode", "warn")).lower()
-        soft_listen = first_try_mode_enabled() and post_mode in {"warn", "soft"}
+        soft_listen = post_mode in {"warn", "soft"}
         if failed_listen:
             msg = (
                 f"Delivery polish blocked: post_listen failures for {', '.join(failed_listen[:6])}. "
                 "Mark Pass in the post-listen panel before continuing."
             )
             if soft_listen:
-                ctx.log(
-                    msg.replace("blocked", "soft warning (first_try)"),
-                    level="warning",
-                    stage="delivery_polish",
-                )
+                ctx.log(msg, level="warning", stage="delivery_polish")
             else:
                 ctx.log(msg, level="error", stage="delivery_polish")
                 self._write_job(ctx, {**job_base, "status": "gate", "message": msg, "stage": "delivery_polish"})
@@ -1413,7 +1090,6 @@ class JobRunner:
     ) -> None:
         from interview_mux.gui_job_reconcile import WRITE_APPROVAL_EXIT
         from interview_mux.process_cleanup import track_worker_pid, untrack_worker_pid
-        from interview_mux.write_staging import WriteApprovalPending, list_pending_paths
 
         if from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
@@ -1448,8 +1124,9 @@ class JobRunner:
                     job.pop("worker_kind", None)
                     ctx.write_json("gui_job.json", job)
         if returncode == WRITE_APPROVAL_EXIT:
-            paths = list_pending_paths(ctx, stage)
-            raise WriteApprovalPending(stage, paths)
+            raise RuntimeError(
+                f"Stage {stage} paused for staged writes — v2 auto-commit should prevent this."
+            )
         if returncode != 0:
             job = ctx.read_json("gui_job.json") if ctx.artifact_exists("gui_job.json") else {}
             msg = str(job.get("message") or job.get("error") or "").strip()
@@ -1501,8 +1178,6 @@ class JobRunner:
         if stage_id in ANALYSIS_ORDER:
             ctx.clear_from(stage_id, ANALYSIS_ORDER)
             orders.append(ANALYSIS_ORDER)
-        if stage_id in {"disfluency_extract", "disfluency_review"}:
-            _invalidate_disfluency_review_gate(ctx)
         if stage_id in DELIVERY_ORDER:
             ctx.clear_from(stage_id, DELIVERY_ORDER)
             orders.append(DELIVERY_ORDER)
@@ -1524,8 +1199,5 @@ class JobRunner:
             from interview_mux.analysis_memory import invalidate_sonic_context
 
             invalidate_sonic_context(ctx, reason=f"invalidate_from:{stage_id}", stage=stage_id)
-        from interview_mux.attempt_budget import reset_stage_attempt_budget
-
-        reset_stage_attempt_budget(ctx, stage_id)
 
 runner = JobRunner()

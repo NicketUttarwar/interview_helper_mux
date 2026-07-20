@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import repo_root
-from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE
 from interview_mux.model_registry import resolve_model, stage_severity
+
+DECOMPOSE_ELIGIBLE: frozenset[str] = frozenset()
 
 RUBRICS_DIR = repo_root() / "docs" / "prompts" / "_shared" / "arbiter-rubrics"
 

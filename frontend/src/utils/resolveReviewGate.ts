@@ -1,20 +1,10 @@
-import type { AppConfig, RunData, StageInfo } from "../types";
-import { findLatestHandoffAudit } from "./handoff";
-import { getHandoffPathsLocal } from "./checkpoint";
-import { resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
-import { autopilotHidesReviewGate } from "./autopilotResolution";
+import type { RunData, StageInfo } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
-import { isFullAutopilotEnabled } from "./fullAutopilot";
+import { autopilotHidesReviewGate } from "./autopilotResolution";
 
 export type ReviewGateKind =
   | "transcript_review"
-  | "disfluency_review"
-  | "analysis_profile"
-  | "write_approval"
-  | "artifact_clarification"
-  | "operator_decisions"
   | "llm_gate"
-  | "handoff"
   | "sfx_prompt"
   | "g1_vo";
 
@@ -22,19 +12,6 @@ export interface ReviewGateSpec {
   kind: ReviewGateKind;
   pathCount?: number;
   missingCount?: number;
-}
-
-function handoffPending(run: RunData, stage: StageInfo): boolean {
-  if (stage.status !== "done") return false;
-  if (run.handoff_ack?.[stage.id]) return false;
-  const paths = getHandoffPathsLocal(stage, run.log_tail);
-  const audit = findLatestHandoffAudit(stage.id, run.log_tail);
-  return (
-    paths.length > 0 ||
-    Boolean(audit) ||
-    (run.journey?.blocking?.reason === "handoff_review" &&
-      run.journey?.blocking?.stage_id === stage.id)
-  );
 }
 
 function sfxPromptReviewPending(stage: StageInfo): boolean {
@@ -47,47 +24,12 @@ export function resolveReviewGateSpec(
   run: RunData | null,
   stage: StageInfo | null,
   showDoneShell: boolean,
-  config?: AppConfig | null,
+  config?: { journey_ui?: { auto_advance_pipeline?: boolean } } | null,
 ): ReviewGateSpec | null {
   if (!run || !stage || showDoneShell) return null;
 
   if (isPipelineAutopilotEnabled(config) && autopilotHidesReviewGate(run, stage.id, config)) {
     return null;
-  }
-
-  if (stageAwaitingWriteApproval(run, stage.id)) {
-    const paths = resolvePendingWritePaths(run, stage.id);
-    return { kind: "write_approval", pathCount: paths.length };
-  }
-
-  if (
-    isFullAutopilotEnabled(config) &&
-    ((run.journey?.blocking?.reason === "operator_decisions" &&
-      run.journey?.blocking?.stage_id === stage.id) ||
-      (Number(run.job?.pending_decision_count ?? 0) > 0 && run.job?.stage === stage.id))
-  ) {
-    const count = Number(run.job?.pending_decision_count ?? 1);
-    return { kind: "operator_decisions", pathCount: count };
-  }
-
-  if (
-    run.journey?.blocking?.reason === "artifact_clarification" &&
-    run.journey?.blocking?.stage_id === stage.id &&
-    !isFullAutopilotEnabled(config)
-  ) {
-    const open = run.job?.itr_blocking_count ?? 0;
-    return { kind: "artifact_clarification", pathCount: open };
-  }
-
-  if (
-    run.job?.status === "needs_clarification" &&
-    run.job?.stage === stage.id &&
-    !isFullAutopilotEnabled(config)
-  ) {
-    return {
-      kind: "artifact_clarification",
-      pathCount: Number(run.job?.itr_blocking_count ?? 0),
-    };
   }
 
   if (
@@ -98,20 +40,11 @@ export function resolveReviewGateSpec(
     return { kind: "llm_gate" };
   }
 
-  if (handoffPending(run, stage)) {
-    const paths = getHandoffPathsLocal(stage, run.log_tail);
-    return { kind: "handoff", pathCount: paths.length };
-  }
-
   if (stage.status !== "action_required") return null;
 
   switch (stage.id) {
     case "transcript_review":
       return { kind: "transcript_review" };
-    case "disfluency_review":
-      return { kind: "disfluency_review" };
-    case "analysis_profile":
-      return { kind: "analysis_profile" };
     case "g1_vo_pickup":
       return { kind: "g1_vo", missingCount: run.g1_missing?.length ?? 0 };
     case "g1_5_preview_pickup":

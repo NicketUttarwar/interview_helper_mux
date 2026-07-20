@@ -1,0 +1,35 @@
+stage_id,phase,kind,source_module,port,notes
+audio_preclean,prepare,non_llm,stages/audio_preclean.py,yes,optional quality offer
+ingest,prepare,non_llm,stages/ingest.py,yes,
+transcribe,prepare,non_llm,stages/transcribe_local.py,yes,Local MLX STT (mlx-audio)
+transcript_review_build,prepare,non_llm,stages/transcript_review.py,yes,builds G0 queue
+transcript_review,g0,gate,stages/transcript_review.py,yes,mandatory G0
+source_acoustic_profile,understand,non_llm,stages/understanding.py,yes,SAP for mix
+interview_spine_build,understand,non_llm,stages/interview_spine_stage.py,yes,spine index
+speaker_roles,understand,llm,stages/understanding.py,yes,
+source_topology_build,understand,non_llm,source_topology.py,yes,flow_adaptation
+content_context,understand,llm,stages/understanding.py,yes,
+boundary_detection,understand,llm,stages/segmentation.py,yes,
+segment_classification,understand,llm,stages/segmentation.py,yes,
+content_brief_reanchor,understand,llm,stages/understanding.py,yes,
+sonic_context_build,understand,non_llm,stages/sonic_context_stages.py,yes,
+sound_design_palettes,understand,llm,stages/sound_design_stages.py,yes,soft LLM
+missing_framing,gaps,llm,stages/gaps.py,yes,optional when G1 skipped
+optimal_questions,gaps,llm,stages/gaps.py,yes,optional when G1 skipped
+delivery_brief_build,understand,non_llm,delivery_brief.py,yes,adaptive policy
+soundscape_policy_build,understand,non_llm,soundscape_policy.py,yes,
+episode_structure_compose,understand,non_llm,episode_structure.py,yes,
+g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording
+topic_coverage_audit,delivery,llm,stages/analysis_extended.py,yes,
+narrative_arc_plan,delivery,llm,stages/analysis_extended.py,yes,
+full_master_ranking,delivery,llm,stages/selection.py,yes,NLE overrides
+transitions,delivery,llm,stages/selection.py,yes,
+sound_design_plan,delivery,llm,stages/sound_design_stages.py,yes,
+sound_design_vo_finalize,delivery,non_llm,stages/sound_design_vo_finalize.py,yes,
+edl_narrative_audit,delivery,llm,stages/edl_narrative_audit.py,yes,
+edl,delivery,non_llm,stages/assembly.py,yes,
+assembly_preview,delivery,non_llm,stages/assembly.py,yes,speech+VO preview
+sfx_prompt_craft,delivery,llm,stages/sound_design_stages.py,yes,soft LLM
+mmaudio_sfx,delivery,non_llm,stages/sfx_mmaudio.py,yes,
+mix,delivery,non_llm,stages/assembly.py,yes,
+master_finalize,ship,non_llm,stages/mastering.py,yes,master.wav output

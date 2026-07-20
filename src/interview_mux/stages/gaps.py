@@ -193,15 +193,20 @@ def persist_optimal_questions_companion_artifacts(ctx: RunContext, artifacts: di
             line["line_id"] = f"line_{i+1:03d}"
         if not line.get("placement"):
             line["placement"] = "before"
-        if line.get("delivery") == "synthesize":
-            line["delivery"] = "record"
+        if line.get("delivery") == "synthesize" and not line.get("voice_speaker_id"):
+            eligible = pickup_eligible_speaker_id(ctx)
+            if eligible:
+                line["voice_speaker_id"] = eligible
         if line.get("delivery") == "record" and eligible:
             line["voice_speaker_id"] = eligible
     _write_interviewer_script(ctx, lines)
 
 
 def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
-    rows = ["# Interviewer script — record each line to vo_pickup/{line_id}.wav", ""]
+    rows = [
+        "# Interviewer script — record to vo_pickup/{line_id}.wav or synthesize at G1",
+        "",
+    ]
     for line in lines:
         lid = line.get("line_id", "line_unknown")
         rows.append(f"## {lid} ({line.get('delivery', 'record')})")
@@ -224,19 +229,23 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
     mix_cfg = merged_config().get("mix") or {}
     normalize = bool(mix_cfg.get("normalize_vo_pickup", True))
     with logged_step("vo_ingest/validate_pickups", ctx=ctx, stage="vo_ingest"):
+        from interview_mux.stages.assembly import resolve_vo_pickup_path
+
         for line in report.get("interviewer_lines") or []:
-            if line.get("delivery") != "record":
+            delivery = str(line.get("delivery") or "").lower()
+            if delivery not in {"record", "synthesize"}:
+                continue
+            if line.get("skipped_optional"):
                 continue
             lid = line.get("line_id", "")
-            seg = line.get("targets_segment_id", "")
-            clean = pickup / "clean"
-            bases = [clean, pickup] if clean.is_dir() else [pickup]
-            candidates: list[Path] = []
-            for base in bases:
-                candidates.extend([base / f"{lid}.wav", base / f"{seg}.wav"])
-            found = next((p for p in candidates if p.is_file()), None)
+            found = resolve_vo_pickup_path(ctx, line)
             if not found:
-                missing.append(lid or seg)
+                seg = line.get("targets_segment_id", "")
+                pickup = ctx.final_path("vo_pickup")
+                candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
+                found = next((p for p in candidates if p.is_file()), None)
+            if not found:
+                missing.append(lid or line.get("targets_segment_id", ""))
                 continue
             if normalize and found.parent == pickup:
                 norm_dir = pickup / "normalized"

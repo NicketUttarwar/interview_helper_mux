@@ -3,7 +3,9 @@ import { PipelineCompletePanel } from "../pipeline/PipelineCompletePanel";
 import { isPipelineComplete } from "../../utils/pipelineAutopilot";
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
+import { PhaseWorkbench } from "../workspace/PhaseWorkbench";
 import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
+import { isV2Enabled } from "../../utils/v2Phases";
 import { JourneyShell } from "../journey/JourneyShell";
 import { useOverscrollRetry } from "../../hooks/useOverscrollRetry";
 import {
@@ -25,6 +27,7 @@ export function PipelineTab() {
     sessionReady,
     activityLogCollapsed,
     refreshRun,
+    config,
   } = useApp();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,6 +95,8 @@ export function PipelineTab() {
             <div className="pipeline-v2-main">
               {isPipelineComplete(run) ? (
                 <PipelineCompletePanel />
+              ) : isV2Enabled(config) ? (
+                <PhaseWorkbench />
               ) : (
                 <StageStepWorkbench />
               )}

@@ -23,6 +23,7 @@ def segmentation_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "require_type_diversity": True,
         "enforce_field_parity": True,
         "drop_orphan_manifest_rows": True,
+        "enforce_canonical_segment_id_format": True,
         "boundary_proactive_decompose_pace_classes": ["calm", "brisk"],
     }
     return {**defaults, **raw}

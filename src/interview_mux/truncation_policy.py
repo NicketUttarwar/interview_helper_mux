@@ -264,76 +264,16 @@ def rebuild_volley_clearing_truncation(
     initial_flags: list[str] | None = None,
     cfg: dict[str, Any] | None = None,
 ) -> CapBoostRebuildResult:
-    """
-    Holistic truncation escalation: rebuild the volley with progressively higher context
-    caps until markers clear (or boost rounds are exhausted).
-    """
-    from interview_mux.context_volley import truncation_flags_for_volley
-    from interview_mux.local_volley_framer import prepare_volley_for_llm
-
-    resolved_cfg = cfg or merged_config()
-    steps: list[str] = []
+    _ = (ctx, stage_key, stage_input, profile, task_kind, cfg)
     volley = list(initial_volley or [])
-    framing = initial_framing
-    flags = list(initial_flags or (truncation_flags_for_volley(volley) if volley else []))
-
-    if not flags and volley:
-        return CapBoostRebuildResult(
-            volley=volley,
-            framing=framing,
-            flags=[],
-            boost_round=get_context_cap_boost_round(),
-            cleared=True,
-            steps=["already_clean"],
-        )
-
-    # Prefer clear_field when field clips are involved (most common catch-22).
-    want_clear_field = bool(flags) and (
-        "field_truncated" in flags
-        or "max_stage_data_chars" in flags
-        or "framer_digest_truncated" in flags
-        or "volley_middle_truncated" in flags
-    )
-
-    for round_idx in escalation_boost_rounds(resolved_cfg):
-        clear_field = want_clear_field and round_idx >= 1
-        step_name = f"cap_boost_r{round_idx}" + ("_clear_field" if clear_field else "")
-        steps.append(step_name)
-        with context_cap_boost(round_idx, clear_field_truncation=clear_field):
-            volley, framing = prepare_volley_for_llm(
-                ctx,
-                stage_key,
-                stage_input,
-                profile=profile,
-                task_kind=task_kind,
-                cfg=resolved_cfg,
-            )
-            flags = truncation_flags_for_volley(volley)
-        if ctx is not None:
-            log_truncation_event(
-                ctx,
-                stage_key=stage_key,
-                event="cap_boost_rebuild",
-                scan=TruncationScan(truncated=bool(flags), flags=flags, locations=[]),
-                step=step_name,
-            )
-        if not flags:
-            return CapBoostRebuildResult(
-                volley=volley,
-                framing=framing,
-                flags=[],
-                boost_round=round_idx,
-                cleared=True,
-                steps=steps,
-            )
-
+    flags = list(initial_flags or [])
     return CapBoostRebuildResult(
         volley=volley,
-        framing=framing,
+        framing=initial_framing,
         flags=flags,
-        boost_round=escalation_boost_rounds(resolved_cfg)[-1] if escalation_boost_rounds(resolved_cfg) else 0,
-        cleared=False,
-        steps=steps,
+        boost_round=get_context_cap_boost_round(),
+        cleared=not flags,
+        steps=["v2_no_volley_rebuild"],
     )
 
 
@@ -375,10 +315,7 @@ def should_skip_framer_injection(
     ti = truncation_integrity_cfg(cfg)
     if getattr(framing, "digest_truncated", False) and ti.get("never_inject_framer_when_truncated", True):
         return True, "digest_truncated"
-    from interview_mux.local_llm_config import force_escalate_stage
 
-    if force_escalate_stage(stage_key) and stage_key == "speaker_roles" and not prior_one_liners:
-        return True, "empty_priors_p0"
     if not getattr(framing, "volley_turns", None):
         return True, "empty_turns"
     return False, ""

@@ -15,14 +15,52 @@ from interview_mux.field_necessity_registry import (
 )
 from interview_mux.llm_fabricate import fabricate_field_values, merge_fabrication_meta
 from interview_mux.llm_response_verify import verify_llm_response
-from interview_mux.normalization_decision import (
-    DownstreamAction,
-    NormalizationDecision,
-    resolve_normalization_decision,
-    summarize_decisions,
-)
 from interview_mux.null_field_policy import find_null_fields, null_policy_cfg
 from interview_mux.openai_structured_output import resolve_parent_stage_key
+from enum import Enum
+
+
+class DownstreamAction(str, Enum):
+    OMIT_AND_ACKNOWLEDGE = "omit_and_acknowledge"
+    FABRICATE_BENIGN = "fabricate_benign"
+    VOLLEY_RETRY = "volley_retry"
+    BLOCK = "block"
+
+
+@dataclass
+class NormalizationDecision:
+    action: FieldAction
+    path: str
+    downstream: DownstreamAction
+    reason: str = ""
+
+
+def resolve_normalization_decision(
+    stage_key: str,
+    path: str,
+    *,
+    prefer_omit: bool = False,
+    error_kind: str | None = None,
+    cfg: dict[str, Any] | None = None,
+) -> NormalizationDecision:
+    if prefer_omit:
+        return NormalizationDecision(
+            action=FieldAction.OMIT,
+            path=path,
+            downstream=DownstreamAction.OMIT_AND_ACKNOWLEDGE,
+            reason="v2 normalization stub",
+        )
+    return NormalizationDecision(
+        action=FieldAction.BLOCK,
+        path=path,
+        downstream=DownstreamAction.BLOCK,
+        reason="v2 normalization stub",
+    )
+
+
+def summarize_decisions(decisions: list[NormalizationDecision]) -> dict[str, Any]:
+    return {"count": len(decisions)}
+
 
 NormalizationActionKind = Literal["omit", "fabricate", "block"]
 

@@ -21,36 +21,37 @@ def _write_analysis_state(ctx: RunContext, *, verified: bool) -> None:
     seed_analysis_ready_artifacts(ctx, verified=verified)
 
 
-def test_profile_gate_pending_only_for_flow1_unverified(tmp_path):
+def test_profile_gate_removed_in_v2(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run_001")
     _write_analysis_state(ctx, verified=False)
-    assert check_profile_gate_pending(ctx) is True
-    _write_analysis_state(ctx, verified=True)
-    assert check_profile_gate_pending(ctx) is False
+    require_profile_verified_for_delivery(ctx)
+    require_delivery_gates(ctx)
+    require_analysis_artifacts_complete(ctx)
 
 
-def test_profile_gate_skipped_after_topic_coverage_done(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "run_002")
-    _write_analysis_state(ctx, verified=False)
-    ctx.mark_done("topic_coverage_audit", force=True)
-    assert check_profile_gate_pending(ctx) is False
+def test_v2_g1_clear_is_nonblocking(tmp_path, monkeypatch):
+    monkeypatch.setattr("interview_mux.v2.config.v2_g1_optional", lambda: True)
+    ctx = isolated_run_ctx(tmp_path, "run_v2_g1")
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "L1",
+                    "delivery": "record",
+                    "blocking": True,
+                    "severity": "high",
+                    "targets_segment_id": "seg_1",
+                    "gap_type": "missing_framing",
+                    "text": "Can you expand on that?",
+                    "placement": "after",
+                }
+            ]
+        },
+    )
+    from interview_mux.gates import require_g1_clear
 
-
-def test_require_profile_verified_raises_and_logs(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "run_003")
-    _write_analysis_state(ctx, verified=False)
-    with pytest.raises(SystemExit, match="Profile gate"):
-        require_profile_verified_for_delivery(ctx)
-    log_path = ctx.path("gui_log.jsonl")
-    assert log_path.is_file()
-    assert "Profile gate" in log_path.read_text(encoding="utf-8")
-
-
-def test_delivery_gates_require_profile_verified(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "run_004")
-    _write_analysis_state(ctx, verified=False)
-    with pytest.raises(SystemExit, match="Profile gate"):
-        require_delivery_gates(ctx)
+    require_g1_clear(ctx)
 
 
 def test_is_operator_profile_verified_missing_state(tmp_path):
@@ -94,9 +95,8 @@ def test_check_g1_vo_accepts_line_id_or_segment_id_wav(tmp_path):
     assert check_g1_vo(ctx) == []
 
 
-def test_require_analysis_artifacts_complete_raises_when_incomplete(tmp_path, monkeypatch):
+def test_require_analysis_artifacts_complete_noop_in_v2(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_artifacts_gate")
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
     ctx.mark_done("optimal_questions")
-    with pytest.raises(SystemExit, match="Analysis artifacts gate"):
-        require_analysis_artifacts_complete(ctx)
+    require_analysis_artifacts_complete(ctx)

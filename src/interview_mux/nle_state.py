@@ -318,4 +318,7 @@ def split_segment_at(ctx: RunContext, segment_id: str, at_ms: int) -> dict[str, 
         order[idx:idx + 1] = [left_id, right_id]
     nle["sequence_order"] = order
     save_nle(ctx, nle)
+    from interview_mux.artifact_repairs import propagate_nle_split_segment_refs
+
+    propagate_nle_split_segment_refs(ctx, segment_id, [left_id, right_id])
     return nle

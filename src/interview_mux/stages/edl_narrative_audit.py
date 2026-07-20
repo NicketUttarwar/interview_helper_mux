@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from interview_mux.disfluency.context import attach_disfluency_context
+from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_completeness import make_stage_persist

@@ -36,5 +36,9 @@ remediation:
 critical_fields:
 - chapters
 nullable_fields:
+- chapters[].act_title
+- chapters[].is_moat_chapter
+- chapters[].tension_level
 - notes
 - ordering_constraints
+- pacing_notes

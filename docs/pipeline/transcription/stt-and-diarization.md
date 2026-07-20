@@ -1,6 +1,6 @@
 # Speech-to-text (STT) and diarization — options and source of truth
 
-This repo’s **implemented** path is **AWS Transcribe** (batch job, word timestamps, speaker labels) via the **AWS CLI** — see [README.md](./README.md) and `src/interview_mux/stages/transcribe_aws.py`. **Pinned CLI:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#system-binaries) (`aws` ≥ 2.30). Catalog options below are **not** locked unless added to the toolchain doc. Everything else below is an **integration catalog**: local OSS, managed APIs, and tradeoffs. Pick based on **accuracy**, **diarization quality**, **cost**, **privacy** (data leaves machine or not), and **ops** (CLI vs SDK policy — this project prefers CLI for AWS).
+This repo’s **implemented** path is **local MLX STT + diarization** via **mlx-audio** in `ASSETS/local_speech/venv` — see [README.md](./README.md) and `src/interview_mux/stages/transcribe_local.py`. Bootstrap: `./scripts/bootstrap_venv.sh` (step 4/5). Legacy AWS Transcribe remains in `transcribe_aws.py` for reference only. Catalog options below are **not** locked unless added to the toolchain doc.
 
 ---
 

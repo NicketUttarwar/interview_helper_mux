@@ -1,9 +1,5 @@
-import { useState } from "react";
 import { useApp } from "../../context/AppContext";
-import { useDisfluencyReviewGate } from "../../hooks/useDisfluencyReviewGate";
 import { useTranscriptReviewGate } from "../../hooks/useTranscriptReviewGate";
-import { completeAnalysisProfile } from "../../utils/analysisProfileCheckpoint";
-import { writeApprovalPrimaryLabel } from "../../utils/writeApprovalLabels";
 import type { ReviewGateSpec } from "../../utils/resolveReviewGate";
 import type { StageInfo } from "../../types";
 import { ReviewGateBannerShell } from "./ReviewGateBannerShell";
@@ -138,183 +134,6 @@ function TranscriptReviewGateContent({
   );
 }
 
-function DisfluencyReviewGateContent({ onReviewDetail }: { onReviewDetail?: () => void }) {
-  const gate = useDisfluencyReviewGate(true);
-  const pending = gate.pendingCount;
-  const primaryLabel =
-    pending > 0 ? "Confirm all & continue" : gate.busy ? "Continuing…" : "Continue pipeline";
-
-  if (gate.loading && !gate.totalCount && gate.ready) {
-    return <ReviewGateBannerShell title="" lead="" ariaLabel="Disfluency review" loading />;
-  }
-
-  const noEvents = gate.ready && gate.totalCount === 0;
-
-  return (
-    <ReviewGateBannerShell
-      title="Finish disfluency review (G0.5)"
-      lead={
-        noEvents
-          ? "No filler clips were extracted — continuing automatically."
-          : pending > 0
-            ? `${pending} of ${gate.totalCount} filler clip${gate.totalCount === 1 ? "" : "s"} still pending. Confirm each below or confirm all to continue.`
-            : gate.busy
-              ? "All clips reviewed — continuing pipeline."
-              : `All ${gate.totalCount} clip${gate.totalCount === 1 ? "" : "s"} reviewed — continuing pipeline.`
-      }
-      meta={
-        gate.totalCount > 0
-          ? `${gate.reviewedCount}/${gate.totalCount} clips reviewed`
-          : undefined
-      }
-      error={gate.error}
-      testId="disfluency-review-gate-banner"
-      ariaLabel="Complete disfluency review"
-      actions={
-        <>
-          <BusyButton
-            busy={gate.busy}
-            label={primaryLabel}
-            testId="accept-all-disfluency-review"
-            actionId="gui.disfluency_review.complete"
-            onClick={() =>
-              void (pending > 0 ? gate.acceptAllAndProceed() : gate.completeReview())
-            }
-          />
-          {onReviewDetail && gate.totalCount > 0 ? (
-            <button
-              type="button"
-              className="btn ghost sm"
-              disabled={gate.busy}
-              onClick={onReviewDetail}
-            >
-              Review clips instead
-            </button>
-          ) : null}
-        </>
-      }
-    />
-  );
-}
-
-function AnalysisProfileGateContent() {
-  const {
-    run,
-    runId,
-    refreshRun,
-    advanceFromCheckpoint,
-    showToast,
-    setCheckpointBusy,
-    actionBusy,
-    jobRunning,
-  } = useApp();
-  const [verifying, setVerifying] = useState(false);
-  const verified = Boolean(run?.profile_verified);
-  const ready = Boolean(run?.profile_ready_for_review);
-  const busy = verifying || actionBusy || jobRunning;
-
-  const verify = async () => {
-    if (!runId || busy || verified) return;
-    setVerifying(true);
-    try {
-      await completeAnalysisProfile({
-        runId,
-        verify: true,
-        refreshRun,
-        advanceFromCheckpoint,
-        showToast,
-        setBusy: setCheckpointBusy,
-        successMessage: "Profile verified — continuing pipeline.",
-      });
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  if (!ready && !verified) {
-    return (
-      <ReviewGateBannerShell
-        title="Verify analysis profile"
-        lead="Understanding analysis has not finished yet — run the analysis pipeline first."
-        ariaLabel="Analysis profile"
-        actions={null}
-      />
-    );
-  }
-
-  if (verified) return null;
-
-  return (
-    <ReviewGateBannerShell
-      title="Verify analysis profile"
-      lead="Review themes and story fields on the Story Board if you want — or approve the profile as-is to continue."
-      ariaLabel="Analysis profile"
-      testId="analysis-profile-gate-banner"
-      actions={
-        <BusyButton
-          busy={busy}
-          label="Approve profile & proceed"
-          testId="approve-analysis-profile"
-          onClick={() => void verify()}
-        />
-      }
-    />
-  );
-}
-
-function WriteApprovalGateContent({ stage, pathCount }: { stage: StageInfo; pathCount: number }) {
-  const { approveWriteAndContinue, actionBusy, jobRunning } = useApp();
-  const busy = actionBusy || jobRunning;
-
-  return (
-    <ReviewGateBannerShell
-      title="Review staged outputs"
-      lead={
-        pathCount
-          ? `${pathCount} staged file${pathCount === 1 ? "" : "s"} ready to save. Skim below if you want — or save all and continue without opening each file.`
-          : "Staged outputs are ready. Save all files to write them to disk and continue."
-      }
-      meta={pathCount ? `${pathCount} file${pathCount === 1 ? "" : "s"} pending save` : undefined}
-      ariaLabel="Write approval"
-      testId="write-approval-gate-banner"
-      actions={
-        <BusyButton
-          busy={busy}
-          label={writeApprovalPrimaryLabel(pathCount)}
-          testId="save-all-write-approval"
-          onClick={() => void approveWriteAndContinue(stage.id)}
-        />
-      }
-    />
-  );
-}
-
-function HandoffGateContent({ stage, pathCount }: { stage: StageInfo; pathCount: number }) {
-  const { acknowledgeHandoff, actionBusy, jobRunning } = useApp();
-  const busy = actionBusy || jobRunning;
-
-  return (
-    <ReviewGateBannerShell
-      title="Review AI-generated outputs"
-      lead={
-        pathCount
-          ? `${pathCount} output file${pathCount === 1 ? "" : "s"} from this step. Skim below if you want — or acknowledge to continue the pipeline.`
-          : "This step produced AI outputs. Acknowledge when ready to continue the pipeline."
-      }
-      ariaLabel="Handoff review"
-      testId="handoff-gate-banner"
-      actions={
-        <BusyButton
-          busy={busy}
-          label="Acknowledge & continue"
-          testId="acknowledge-handoff-banner"
-          onClick={() => void acknowledgeHandoff()}
-        />
-      }
-    />
-  );
-}
-
 function SfxPromptGateContent() {
   const { approveSfxPrompts, actionBusy, jobRunning } = useApp();
   const busy = actionBusy || jobRunning;
@@ -365,101 +184,11 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
   );
 }
 
-function ArtifactClarificationGateContent({
-  stage,
-  pathCount,
-}: {
-  stage: StageInfo;
-  pathCount: number;
-}) {
-  const { fixAllAndContinueStage, jobRunning, actionBusy } = useApp();
-  const [busy, setBusy] = useState(false);
-  const disabled = busy || jobRunning || actionBusy;
-
-  return (
-    <ReviewGateBannerShell
-      title="Resolve artifact issues"
-      lead={
-        pathCount
-          ? `${pathCount} issue(s) need clarification before you can save staged files.`
-          : "Review auto-fixes and re-check validation."
-      }
-      ariaLabel="Artifact clarification"
-      testId="artifact-clarification-gate-banner"
-      actions={
-        <BusyButton
-          busy={disabled}
-          label="Fix all & continue"
-          testId="artifact-clarification-fix-all-banner"
-          onClick={() => {
-            setBusy(true);
-            void fixAllAndContinueStage(stage.id).finally(() => setBusy(false));
-          }}
-        />
-      }
-    />
-  );
-}
-
-function OperatorDecisionsGateContent({
-  stage,
-  pathCount,
-}: {
-  stage: StageInfo;
-  pathCount: number;
-}) {
-  const { activateSubstep } = useApp();
-  return (
-    <ReviewGateBannerShell
-      title="Your input needed"
-      lead={
-        pathCount > 1
-          ? `Autopilot needs ${pathCount} decisions before you can review outputs.`
-          : "Autopilot needs one decision before you can review outputs."
-      }
-      ariaLabel="Operator decisions"
-      testId="operator-decisions-gate-banner"
-      actions={
-        <button
-          type="button"
-          className="btn primary sm"
-          data-testid="operator-decisions-focus-banner"
-          onClick={() =>
-            activateSubstep({
-              id: `operator_decisions:${stage.id}`,
-              stageId: stage.id,
-              status: "todo",
-              label: "Your input needed",
-              kind: "guidance",
-              source: "runtime",
-            })
-          }
-        >
-          Review decision
-        </button>
-      }
-    />
-  );
-}
-
 export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
+  void stage;
   switch (spec.kind) {
     case "transcript_review":
       return <TranscriptReviewGateContent onReviewDetail={onReviewDetail} />;
-    case "disfluency_review":
-      return <DisfluencyReviewGateContent onReviewDetail={onReviewDetail} />;
-    case "analysis_profile":
-      return <AnalysisProfileGateContent />;
-    case "write_approval":
-      return <WriteApprovalGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
-    case "operator_decisions":
-      return (
-        <OperatorDecisionsGateContent stage={stage} pathCount={spec.pathCount ?? 1} />
-      );
-    case "artifact_clarification":
-      return (
-        <ArtifactClarificationGateContent stage={stage} pathCount={spec.pathCount ?? 0} />
-      );
     case "llm_gate":
       return (
         <ReviewGateBannerShell
@@ -469,8 +198,6 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
           testId="llm-gate-banner"
         />
       );
-    case "handoff":
-      return <HandoffGateContent stage={stage} pathCount={spec.pathCount ?? 0} />;
     case "sfx_prompt":
       return <SfxPromptGateContent />;
     case "g1_vo":

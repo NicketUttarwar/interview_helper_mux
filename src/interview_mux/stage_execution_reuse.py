@@ -207,12 +207,8 @@ def stage_reuse_offers_enabled() -> bool:
 
 
 def stage_reuse_blocks_execute() -> bool:
-    """Under first_try, reuse offers are soft (listed) unless operator already decided."""
+    """Return True when reuse offers block stage execution."""
     if not stage_reuse_offers_enabled():
-        return False
-    from interview_mux.first_try import first_try_mode_enabled
-
-    if first_try_mode_enabled():
         return False
     return True
 

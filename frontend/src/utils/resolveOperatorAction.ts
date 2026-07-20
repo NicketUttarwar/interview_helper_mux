@@ -5,10 +5,7 @@ import type {
   StepMode,
 } from "../types/operatorAction";
 import type { RunData, StageInfo } from "../types";
-import {
-  findHandoffStage,
-  findPendingFocusStage,
-} from "./checkpoint";
+import { findPendingFocusStage } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
@@ -24,7 +21,6 @@ import {
   firstUpstreamTodoItem,
   guidanceHasTodo,
 } from "./stageGuidance";
-import { resolvePendingWritePaths } from "./writeApproval";
 import { stageHasCommittedOutputs, stageIncompleteReason, firstUpstreamBlocker } from "./stageOutputs";
 import { isStageHidden } from "./stageVisibility";
 
@@ -54,8 +50,6 @@ function gateHeadline(run: RunData, stageId: string, blockingReason?: string | n
   switch (stageId) {
     case "transcript_review":
       return "Review speech-to-text clips";
-    case "disfluency_review":
-      return "Review filler clips";
     case "g1_vo_pickup":
       return "Record pickup lines";
     case "g1_5_preview_pickup":
@@ -64,12 +58,7 @@ function gateHeadline(run: RunData, stageId: string, blockingReason?: string | n
       return "Confirm source topology";
     case "missing_framing":
       return "Confirm gap pickup speaker";
-    case "analysis_profile":
-      return "Verify interview profile";
-    case "operator_decisions":
-      return "Your input needed";
     default:
-      if (blockingReason === "handoff_review") return "Review AI outputs";
       return `${stageTitle(run, stageId)} needs your input`;
   }
 }
@@ -119,25 +108,6 @@ function buildRunningAction(run: RunData, _jobRunning: boolean): OperatorAction 
   const stageId = job?.current_stage || job?.stage || null;
   const title = stageTitle(run, stageId);
   const message = job?.message?.trim();
-  if (job?.mode === "write_approval" && stageId) {
-    const paths = resolvePendingWritePaths(run, stageId);
-    const fileCount = paths.length || parseFileCountFromMessage(message) || undefined;
-    const countLabel =
-      fileCount && fileCount > 1 ? `${fileCount} files` : "staged files";
-    return {
-      mode: "running",
-      stageId,
-      substepId: `write_approval:${stageId}`,
-      headline: `Saving ${title} outputs — ${countLabel}`,
-      subline: message || "Promoting staged files to disk — please wait.",
-      primaryLabel: "Saving to disk…",
-      primaryKind: "none",
-      primaryDisabled: true,
-      secondaryLabel: "View live log",
-      secondaryKind: "view_logs",
-      modalAutoOpen: false,
-    };
-  }
   const shortVerb = message || "in progress";
   const intraProgress =
     job?.step_index != null && job?.step_total && job.step_total > 1
@@ -166,45 +136,6 @@ function buildRunningAction(run: RunData, _jobRunning: boolean): OperatorAction 
     secondaryKind: "view_logs",
     progress,
     modalAutoOpen: false,
-  };
-}
-
-function buildOperatorDecisionsAction(_run: RunData, stageId: string, count: number): OperatorAction {
-  const headline = count === 1 ? "Your input needed" : `Your input needed (${count} decisions)`;
-  return {
-    mode: "needs_you",
-    stageId,
-    substepId: `operator_decisions:${stageId}`,
-    headline,
-    subline: "Autopilot needs one choice before you can review outputs.",
-    primaryLabel: "Apply choice",
-    primaryKind: "open_modal",
-    primaryDisabled: false,
-    modalAutoOpen: false,
-    blockingReason: "operator_decisions",
-  };
-}
-
-function buildWriteApprovalAction(run: RunData, stageId: string): OperatorAction {
-  const title = stageTitle(run, stageId);
-  const paths = resolvePendingWritePaths(run, stageId);
-  const fileCount =
-    paths.length ||
-    parseFileCountFromMessage(run.job?.message) ||
-    undefined;
-  return {
-    mode: "needs_you",
-    stageId,
-    substepId: `write_approval:${stageId}`,
-    headline: `Review ${title} outputs before saving`,
-    subline: fileCount
-      ? `${fileCount} staged file${fileCount === 1 ? "" : "s"}`
-      : "Preview staged outputs, then save to disk.",
-    primaryLabel: checkpointPrimaryLabel(stageId, "write_approval", { fileCount }),
-    primaryKind: "open_modal",
-    primaryDisabled: false,
-    modalAutoOpen: false,
-    blockingReason: "write_approval",
   };
 }
 
@@ -245,27 +176,10 @@ function buildPrecleanAction(stage: StageInfo): OperatorAction {
   };
 }
 
-function buildHandoffAction(_run: RunData, stage: StageInfo): OperatorAction {
-  return {
-    mode: "needs_you",
-    stageId: stage.id,
-    substepId: `handoff:${stage.id}`,
-    headline: `Review AI outputs from ${stage.title}`,
-    subline: "Skim generated files below, then acknowledge to continue.",
-    primaryLabel: checkpointPrimaryLabel(stage.id, "handoff"),
-    primaryKind: "open_modal",
-    primaryDisabled: false,
-    modalAutoOpen: false,
-    blockingReason: "handoff_review",
-  };
-}
-
 const GATE_BLOCKING_REASONS = new Set([
   "transcript_review",
-  "disfluency_review",
   "g1_vo_pickup",
   "g1_5_preview_pickup",
-  "analysis_profile",
   "gate",
 ]);
 
@@ -471,14 +385,6 @@ export function resolveOperatorAction(
     );
   }
 
-  if (jobCtx.awaitingWriteApproval) {
-    const deferred = Boolean(run.journey?.first_try?.write_approval_deferred);
-    if (!deferred) {
-      const sid = job?.pending_write_stage || job?.stage || focusStageId;
-      if (sid) return buildWriteApprovalAction(run, sid);
-    }
-  }
-
   if (jobCtx.needsStageReuse && job?.stage) {
     return buildReuseAction(run, job.stage);
   }
@@ -486,11 +392,6 @@ export function resolveOperatorAction(
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.reason === "stage_reuse" && blocking.stage_id) {
     return buildReuseAction(run, blocking.stage_id);
-  }
-
-  const handoffStage = findHandoffStage(run);
-  if (handoffStage) {
-    return buildHandoffAction(run, handoffStage);
   }
 
   if (focusStageId) {
@@ -503,23 +404,9 @@ export function resolveOperatorAction(
         job?.message || blocking?.message,
       );
     }
-    if (stage?.status === "awaiting_write_approval") {
-      return buildWriteApprovalAction(run, focusStageId);
-    }
   }
 
   if (blocking?.blocked && blocking.stage_id) {
-    if (blocking.reason === "write_approval") {
-      return buildWriteApprovalAction(run, blocking.stage_id);
-    }
-    if (blocking.reason === "operator_decisions") {
-      const count = Number(run.job?.pending_decision_count ?? 1);
-      return buildOperatorDecisionsAction(run, blocking.stage_id, count);
-    }
-    if (blocking.reason === "handoff_review") {
-      const st = stageById(run, blocking.stage_id);
-      if (st) return buildHandoffAction(run, st);
-    }
     return buildGateAction(
       run,
       blocking.stage_id,
@@ -607,22 +494,8 @@ export function resolveOperatorActionForStage(
     return buildGateAction(run, stageId, blocking?.reason, job?.message || blocking?.message);
   }
 
-  if (
-    jobCtx.awaitingWriteApproval &&
-    (job?.pending_write_stage === stageId ||
-      job?.stage === stageId ||
-      stage.status === "awaiting_write_approval")
-  ) {
-    return buildWriteApprovalAction(run, stageId);
-  }
-
   if (jobCtx.needsStageReuse && job?.stage === stageId) {
     return buildReuseAction(run, stageId);
-  }
-
-  if (stage.status === "done" && !run.handoff_ack?.[stageId]) {
-    const handoff = findHandoffStage(run);
-    if (handoff?.id === stageId) return buildHandoffAction(run, stage);
   }
 
   if (stage.status === "action_required" || job?.status === "gate" && job.stage === stageId) {

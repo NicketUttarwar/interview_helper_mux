@@ -7,7 +7,6 @@ from typing import Any
 
 from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS, validate_cross_artifacts_for_stage
 from interview_mux.config import merged_config
-from interview_mux.llm_output_resilience import progression_mode
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
 from interview_mux.run_context import RunContext
 
@@ -37,9 +36,16 @@ class AcceptanceResult:
 
 
 def _read_artifact(ctx: RunContext, stage_key: str, *, staged: bool) -> tuple[str | None, dict[str, Any] | None]:
-    from interview_mux.artifact_issue_triage import _read_stage_artifact
+    from interview_mux.write_staging import read_pending_json, staged_path
 
-    return _read_stage_artifact(ctx, stage_key, staged=staged)
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return None, None
+    if staged and staged_path(ctx, rel, stage_id=stage_key).is_file():
+        return rel, read_pending_json(ctx, stage_key, rel)
+    if ctx.artifact_exists(rel):
+        return rel, ctx.read_json(rel)
+    return None, None
 
 
 def _lint_artifact_doc(stage_key: str, artifact: dict[str, Any], ctx: RunContext) -> list[str]:
@@ -64,13 +70,6 @@ def stage_acceptance_ok(
 ) -> AcceptanceResult:
     """True when producer artifact passes schema, lint, null policy, and optional cross-validate."""
     result = AcceptanceResult(ok=False)
-
-    if progression_mode() == "degraded_continue":
-        ctx.log(
-            "progression_mode degraded_continue is deprecated — using strict acceptance",
-            level="warning",
-            stage=stage_key,
-        )
 
     rel, artifact = _read_artifact(ctx, stage_key, staged=staged)
     if not rel or not artifact:
@@ -113,22 +112,6 @@ def stage_acceptance_ok(
             )
             if result.cross_validate_errors:
                 return result
-
-    if include_downstream:
-        from interview_mux.downstream_probe import probe_consumers
-
-        probe_findings = probe_consumers(ctx, stage_key, artifact, staged=staged)
-        blocking_probe = [f.message for f in probe_findings if f.blocking]
-        if blocking_probe:
-            result.downstream_errors = blocking_probe
-            return result
-
-    if include_downstream and stage_key in ("boundary_detection", "segment_classification"):
-        from interview_mux.artifact_issue_triage import revalidate_downstream_on_segment_fix
-
-        result.downstream_errors = list(revalidate_downstream_on_segment_fix(ctx, stage_key) or [])
-        if result.downstream_errors:
-            return result
 
     result.ok = True
     return result

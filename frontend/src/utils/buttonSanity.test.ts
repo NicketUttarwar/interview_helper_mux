@@ -15,16 +15,10 @@ const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 /** data-testid values referenced by CURSOR_EXECUTE/flow1-gui-e2e/driver/gate_handlers.py */
 const E2E_CRITICAL_TESTIDS: Array<string | { pattern: RegExp; label: string }> = [
   "stage-step-primary",
-  "write-approval-save-continue",
   "live-status-primary",
-  "handoff-acknowledge",
   "reuse-run-fresh",
   "complete-transcript-review",
-  "complete-disfluency-review",
-  "disfluency-confirm-all",
   "transcript-play-clip-dock",
-  "mark-profile-verified",
-  "mark-profile-verified-modal",
   "vo-continue",
   "approve-sfx-prompts",
   "sfx-post-listen-pass-all",
@@ -87,10 +81,7 @@ describe("buttonSanity — E2E testid presence", () => {
   );
   const footerOnlyTestids = new Set([
     "stage-step-primary",
-    "write-approval-save-continue",
-    "handoff-acknowledge",
     "complete-transcript-review",
-    "complete-disfluency-review",
     "approve-sfx-prompts",
   ]);
 
@@ -139,18 +130,6 @@ describe("buttonSanity — operator primary actions are actionable", () => {
       expectKind: "open_modal",
     },
     {
-      name: "write approval ingest",
-      run: baseRun({
-        stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
-        job: {
-          status: "awaiting_write_approval",
-          pending_write_stage: "ingest",
-          pending_write_paths: ["a.wav"],
-        },
-      }),
-      expectKind: "open_modal",
-    },
-    {
       name: "next runnable ingest",
       run: baseRun({
         stages: [
@@ -161,29 +140,7 @@ describe("buttonSanity — operator primary actions are actionable", () => {
       expectKind: "run_stage",
     },
     {
-      name: "artifact clarification ITR",
-      run: baseRun({
-        stages: [stage("boundary_detection", "action_required", "Segment boundaries")],
-        job: {
-          status: "needs_clarification",
-          stage: "boundary_detection",
-          itr_blocking_count: 2,
-        },
-        journey: {
-          phase: "prepare",
-          milestones: {},
-          next_action: "Continue",
-          blocking: {
-            blocked: true,
-            reason: "artifact_clarification",
-            stage_id: "boundary_detection",
-          },
-        },
-      }),
-      stageId: "boundary_detection",
-      expectKind: "open_modal",
-    },
-    {
+      name: "transcript review gate",
       run: baseRun({
         stages: [stage("transcript_review", "action_required", "Transcript review")],
         job: { status: "gate", stage: "transcript_review" },
@@ -319,19 +276,6 @@ describe("buttonSanity — guardBusy helper", () => {
   });
 });
 
-describe("buttonSanity — analysis profile checkpoint", () => {
-  it("shared helper is used by gate, profile, and story panels", () => {
-    for (const rel of [
-      "components/gates/AnalysisProfileGate.tsx",
-      "components/workspace/ProfilePanel.tsx",
-      "components/workspace/StoryBoardPanel.tsx",
-    ]) {
-      const text = readFileSync(join(ROOT, rel), "utf8");
-      expect(text).toContain("completeAnalysisProfile");
-    }
-  });
-});
-
 describe("buttonSanity — holistic feedback hooks", () => {
   it("useAsyncAction is used by preview listen panel", () => {
     const preview = readFileSync(join(ROOT, "components/guidance/PreviewListenPromo.tsx"), "utf8");
@@ -340,12 +284,11 @@ describe("buttonSanity — holistic feedback hooks", () => {
     expect(live).toContain('from "./guidance/PreviewListenPromo"');
   });
 
-  it("step footer owns consolidated gate and save CTAs", () => {
+  it("step footer owns consolidated gate CTAs", () => {
     const footer = readFileSync(join(ROOT, "components/workspace/StageStepFooter.tsx"), "utf8");
-    expect(footer).toContain("write-approval-save-continue");
-    expect(footer).toContain("handoff-acknowledge");
-    const handoff = readFileSync(join(ROOT, "components/workspace/HandoffPanel.tsx"), "utf8");
-    expect(handoff).not.toContain("data-testid=\"handoff-acknowledge\"");
+    expect(footer).toContain("complete-transcript-review");
+    expect(footer).not.toContain("handoff-acknowledge");
+    expect(footer).not.toContain("write-approval-save-continue");
   });
 
   it("jobCompletionHint is wired in AppContext", () => {
@@ -353,10 +296,14 @@ describe("buttonSanity — holistic feedback hooks", () => {
     expect(text).toContain("jobCompletionHint");
   });
 
+  it("stage listen panels use dedicated inline audio refs", () => {
+    const stageAudio = readFileSync(join(ROOT, "components/gates/StageAudioActions.tsx"), "utf8");
+    expect(stageAudio).not.toContain('querySelector(".audio-player")');
+    const sfxListen = readFileSync(join(ROOT, "components/gates/SfxPostListenPanel.tsx"), "utf8");
+    expect(sfxListen).not.toContain('querySelector(".audio-player")');
+  });
+
   it("secondary panels use async feedback patterns", () => {
-    const artifact = readFileSync(join(ROOT, "components/workspace/ArtifactEditor.tsx"), "utf8");
-    expect(artifact).toContain("saving");
-    expect(artifact).toContain("spinner-inline");
     const deliverable = readFileSync(join(ROOT, "components/workspace/DeliverableCard.tsx"), "utf8");
     expect(deliverable).toContain("useAsyncAction");
     const timeline = readFileSync(join(ROOT, "hooks/useTimelineEditor.ts"), "utf8");

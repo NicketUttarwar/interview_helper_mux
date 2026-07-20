@@ -35,6 +35,7 @@
               "title",
               "topic_tags",
               "suggested_open_segment_id",
+              "segment_ids",
               "act_number",
               "act_title",
               "tension_level",
@@ -58,6 +59,15 @@
               },
               "suggested_open_segment_id": {
                 "type": "string"
+              },
+              "segment_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
               },
               "act_number": {
                 "type": [

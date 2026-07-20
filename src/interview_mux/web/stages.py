@@ -64,10 +64,7 @@ DISFLUENCY_EXTRACT_STAGE = StageInfo(
 )
 
 # Back-compat alias: automated analysis stages in pipeline execution order (no gates).
-ANALYSIS_STAGES: tuple[StageInfo, ...] = (
-    *ANALYSIS_STAGES_PRE_G0,
-    DISFLUENCY_EXTRACT_STAGE,
-)
+ANALYSIS_STAGES: tuple[StageInfo, ...] = ANALYSIS_STAGES_PRE_G0
 
 TRANSCRIPT_REVIEW_GATE = StageInfo(
     "transcript_review",
@@ -148,6 +145,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "analysis",
         ("understanding/source_topology.json", "understanding/flow_adaptation.json"),
         ("understanding/flow_adaptation.json",),
+        ("glob:understanding/speaker_samples/*.wav",),
     ),
     StageInfo(
         "content_context",
@@ -248,6 +246,15 @@ G1_STAGE = StageInfo(
     "gate",
     ("understanding/gap_report.json", "understanding/interviewer_script.txt"),
     ("understanding/gap_report.json",),
+)
+
+VO_SYNTHESIZE_STAGE = StageInfo(
+    "vo_synthesize",
+    "Synthesize gap VO",
+    "On-demand at G1: local mlx-audio S2S for delivery:synthesize lines (fail-open).",
+    "gate",
+    ("vo_pickup/synthesized/", "understanding/gap_report.json"),
+    ("vo_pickup/synthesized/",),
 )
 
 VO_INGEST_STAGE = StageInfo(
@@ -413,6 +420,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
         DISFLUENCY_REVIEW_GATE,
         ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
+        VO_SYNTHESIZE_STAGE,
         VO_INGEST_STAGE,
         *DELIVERY_STAGES,
         *_LEGACY_STAGE_ALIASES,
@@ -421,7 +429,7 @@ STAGE_BY_ID: dict[str, StageInfo] = {
 
 # External API providers required before execute (GUI session consent).
 STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
-    "transcribe": ("aws",),
+    "transcribe": ("local",),
     "speaker_roles": ("openai",),
     "content_context": ("openai",),
     "boundary_detection": ("openai",),
@@ -466,7 +474,17 @@ def stage_status(ctx_done: Any, stage_id: str) -> str:
 
 def operator_stages_for_run(selected_flow: str | None = None) -> tuple[StageInfo, ...]:
     """Operator sidebar / GUI order: gates interleaved where they block downstream work."""
+    from interview_mux.v2.config import v2_enabled
+
     _ = selected_flow
+    if v2_enabled():
+        return (
+            *ANALYSIS_STAGES_PRE_G0,
+            TRANSCRIPT_REVIEW_GATE,
+            *ANALYSIS_STAGES_CONTINUED,
+            G1_STAGE,
+            *DELIVERY_STAGES,
+        )
     return (
         *ANALYSIS_STAGES_PRE_G0,
         TRANSCRIPT_REVIEW_GATE,
@@ -509,7 +527,6 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "ingest",
         "transcribe",
         "transcript_review_build",
-        "disfluency_extract",
         "source_acoustic_profile",
         "interview_spine_build",
         "speaker_roles",
@@ -548,7 +565,6 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
 _STAGE_REUSE_POLICY.update(
     {
         "vo_ingest": "on_demand",
-        "disfluency_review": "gate",
         "transcript_review": "gate",
         "analysis_profile": "gate",
         "g1_vo_pickup": "gate",

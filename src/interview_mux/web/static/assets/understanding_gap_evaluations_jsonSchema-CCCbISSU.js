@@ -1,1 +1,0 @@
-import{o as a,a as o,e as n,s as e,b as s}from"./zod-vendor-0yp7anPg.js";const l=a({evaluations:o(a({segment_id:e(),self_explanatory:s(),gap_type:e().nullable().optional(),secondary_gap_type:e().nullable().optional(),listener_confusion:e().optional(),severity:n(["low","medium","high"]).optional()}))});export{l as understanding_gap_evaluations_jsonSchema};

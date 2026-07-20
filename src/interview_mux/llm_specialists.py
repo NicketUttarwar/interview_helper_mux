@@ -7,7 +7,6 @@ from typing import Any
 
 from interview_mux.analysis_memory import enqueue_investigations
 from interview_mux.config import merged_config
-from interview_mux.local_volley_framer import prepare_volley_for_llm
 from interview_mux.run_context import RunContext
 from interview_mux.stages.llm_runner import run_prompt_envelope
 
@@ -208,13 +207,16 @@ def run_specialist(
     example_rel = SPECIALIST_EXAMPLE_FILES.get(specialist_key)
     if example_rel:
         system = append_examples_to_system(system, example_rel, stage_key=specialist_key)
-    volley, _ = prepare_volley_for_llm(
-        ctx, parent_stage, stage_input, profile="shard", task_kind="specialist"
-    )
+    messages = [
+        {
+            "role": "user",
+            "content": json.dumps(stage_input, ensure_ascii=False, default=str),
+        }
+    ]
     return run_prompt_envelope(
         f"{parent_stage}__{specialist_key}",
         prompt_rel,
-        messages=volley,
+        messages=messages,
         ctx=ctx,
         task_kind="specialist",
         system_override=system,
@@ -234,7 +236,7 @@ def _persist_specialist_output(
     out_path.write_text(json.dumps(env, indent=2), encoding="utf-8")
     try:
         from interview_mux.context_resolver import append_specialist_finding, context_index_enabled, write_on_accept
-        from interview_mux.context_volley import STAGE_PLANS
+        from interview_mux.stage_input_helpers import STAGE_PLANS
 
         if context_index_enabled() and write_on_accept():
             summary = str(env.get("reasoning_summary") or "")

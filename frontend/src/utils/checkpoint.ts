@@ -6,8 +6,6 @@ import { countRequiredAttention, topAttentionItem } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
 import { isStageHidden } from "./stageVisibility";
-import { pendingWriteInfo, resolvePendingWritePaths, stageAwaitingWriteApproval } from "./writeApproval";
-import { writeApprovalPrimaryLabel } from "./writeApprovalLabels";
 import { gateFocusStageId } from "./gateFocus";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
@@ -51,7 +49,7 @@ export function getHandoffPathsLocal(
   );
 }
 
-/** Stage id the operator should focus on for checkpoints, gates, handoffs, or job pause. */
+/** Stage id the operator should focus on for checkpoints, gates, or job pause. */
 export function resolveOperatorFocusStageId(
   run: RunData | null,
   grants: Record<string, boolean> = {},
@@ -62,7 +60,7 @@ export function resolveOperatorFocusStageId(
   return findPendingFocusStage(run, grants);
 }
 
-/** Stage id the operator should focus on for checkpoints, gates, handoffs, or job pause. */
+/** Stage id the operator should focus on for checkpoints, gates, or job pause. */
 export function findPendingFocusStage(
   run: RunData | null,
   grants: Record<string, boolean> = {},
@@ -73,29 +71,19 @@ export function findPendingFocusStage(
   if (blocking?.blocked && blocking.stage_id) {
     const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
     if (!(blockedStage && isStageHidden(blockedStage))) {
-    const reason = blocking.reason || "";
-    if (
-      reason === "transcript_review" ||
-      reason === "disfluency_review" ||
-      reason === "g1_vo_pickup" ||
-      reason === "g1_5_preview_pickup" ||
-      reason === "analysis_profile" ||
-      reason === "write_approval" ||
-      reason === "operator_decisions" ||
-      reason === "pickup_speaker" ||
-      reason === "llm_gate"
-    ) {
-      return blocking.stage_id;
-    }
+      const reason = blocking.reason || "";
+      if (
+        reason === "transcript_review" ||
+        reason === "g1_vo_pickup" ||
+        reason === "g1_5_preview_pickup" ||
+        reason === "pickup_speaker" ||
+        reason === "llm_gate"
+      ) {
+        return blocking.stage_id;
+      }
     }
   }
 
-  if (
-    (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
-    (run.job.pending_write_stage || run.job.stage)
-  ) {
-    return run.job.pending_write_stage || run.job.stage || null;
-  }
   if (run.job?.status === "gate" && run.job.stage) return gateFocusStageId(run.job);
   if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
@@ -105,9 +93,6 @@ export function findPendingFocusStage(
   ) {
     return run.job.stage;
   }
-
-  const handoff = findHandoffStage(run);
-  if (handoff) return handoff.id;
 
   if (blocking?.blocked && blocking.stage_id) {
     const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
@@ -120,7 +105,7 @@ export function findPendingFocusStage(
   if (
     next &&
     (next.status === "pending" ||
-      next.status === "awaiting_write_approval" ||
+      next.status === "incomplete" ||
       next.status === "action_required")
   ) {
     const blocker = firstUpstreamBlocker(run.stages, next.id, run.meta);
@@ -150,10 +135,6 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
         ? `${n} pickup line(s) remaining — record or upload each line above.`
         : "Record or upload every pickup line listed above.";
     }
-    case "analysis_profile":
-      return run?.profile_verified
-        ? "Profile verified — continue when ready."
-        : "Review the AI-generated profile above, then mark verified when it matches your intent.";
     case "assembly_preview":
       return "Listen to the speech + VO preview before sound spend.";
     case "sonic_context_build":
@@ -163,28 +144,16 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
     case "mmaudio_sfx":
       return "Listen to outputs and pass or fail the sound check above.";
     default:
-      if (stageId === "ingest" || stageId.endsWith("_ingest")) {
-        return "Preview staged files, then Save all files & continue at the bottom of the step.";
-      }
       return "Complete the required steps above before continuing.";
   }
 }
 
-/** Mid-stage AI output handoffs are disabled under first_try (and when server flag is off). */
-export function handoffBetweenStagesEnabled(run: RunData | null): boolean {
-  if (!run) return false;
-  if (run.journey?.first_try?.enabled !== false) return false;
-  return run.journey?.handoff?.handoff_between_stages_enabled !== false;
+/** v2 disables mid-stage AI output handoffs. */
+export function handoffBetweenStagesEnabled(_run: RunData | null): boolean {
+  return false;
 }
 
-export function findHandoffStage(run: RunData | null): StageInfo | null {
-  if (!run || !handoffBetweenStagesEnabled(run)) return null;
-  for (const s of run.stages) {
-    if (s.status !== "done") continue;
-    if (!stageArtifactsFullyComplete(s)) continue;
-    const paths = getHandoffPathsLocal(s, run.log_tail);
-    if (paths.length > 0 && !run.handoff_ack?.[s.id]) return s;
-  }
+export function findHandoffStage(_run: RunData | null): StageInfo | null {
   return null;
 }
 
@@ -213,9 +182,6 @@ export function actionSummaryText(
   if (job?.status === "gate") {
     return job.message || "Action required before the pipeline can continue.";
   }
-  if (ctx.awaitingWriteApproval) {
-    return job?.message || "Review stage outputs before saving to disk.";
-  }
   if (ctx.needsStageReuse) {
     return job?.message || reuseStatusLine(run, job).replace("?", ".");
   }
@@ -225,28 +191,14 @@ export function actionSummaryText(
   if (ctx.actionRequiredStage) {
     return `${ctx.actionRequiredStage.title} — complete the required steps.`;
   }
-  if (ctx.handoffStage) {
-    return `Review AI outputs from ${ctx.handoffStage.title}.`;
-  }
   return null;
 }
 
 export function checkpointContinueLabel(
-  run: RunData,
-  stage: StageInfo,
+  _run: RunData,
+  _stage: StageInfo,
   _grants: Record<string, boolean> = {},
 ): string {
-  const write = pendingWriteInfo(run);
-  if (write && (write.stageId === stage.id || stage.status === "awaiting_write_approval")) {
-    return writeApprovalPrimaryLabel(write.paths.length);
-  }
-  if (stage.status === "done") {
-    if (!handoffBetweenStagesEnabled(run)) return "Continue to next step";
-    const paths = getHandoffPathsLocal(stage, run.log_tail);
-    if (paths.length && !run.handoff_ack?.[stage.id]) {
-      return "Acknowledge & continue";
-    }
-  }
   return "Continue to next step";
 }
 
@@ -258,25 +210,9 @@ export function checkpointContinueEnabled(
   if (isApiConsentJobPending(run, grants)) {
     return false;
   }
-  if (stageAwaitingWriteApproval(run, stage.id)) {
-    const paths = resolvePendingWritePaths(run, stage.id);
-    return paths.length > 0;
-  }
-  const write = pendingWriteInfo(run);
-  if (write?.stageId === stage.id && write.paths.length > 0) {
-    return true;
-  }
   if (stage.status === "action_required") {
     if (stage.id === "g1_vo_pickup") return Boolean(run.g1_clear);
-    if (stage.id === "analysis_profile") {
-      return Boolean(run.profile_verified) && Boolean(run.profile_ready_for_review);
-    }
     return false;
-  }
-  if (stage.status === "done") {
-    if (!handoffBetweenStagesEnabled(run)) return false;
-    const paths = getHandoffPathsLocal(stage, run.log_tail);
-    return paths.length > 0 && !run.handoff_ack?.[stage.id];
   }
   return false;
 }

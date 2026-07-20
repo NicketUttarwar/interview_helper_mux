@@ -56,6 +56,21 @@ export interface AppConfig {
   };
   /** Stage ids that may show LLM routing summary — from web/stages.py */
   llm_routing_stage_ids?: string[];
+  v2?: {
+    enabled?: boolean;
+    auto_commit_artifacts?: boolean;
+    g1_optional?: boolean;
+    llm_max_attempts?: number;
+  };
+  v2_phases?: Array<{
+    id: string;
+    label: string;
+    description: string;
+    stages: string[];
+    gate?: string | null;
+    optional?: boolean;
+    nle?: boolean;
+  }>;
 }
 
 export interface AssetFile {
@@ -412,6 +427,7 @@ export interface RunData {
     path?: string;
     task_kind?: string;
   }>;
+  segment_lineage_warnings?: string[];
 }
 
 export interface RunMeta {
@@ -494,7 +510,7 @@ export interface VoLine {
   targets_segment_id: string;
   text: string;
   gap_type?: string;
-  delivery?: string;
+  suggested_tone?: string;
   voice_speaker_id?: string;
   act_context?: number;
   post_preview?: boolean;

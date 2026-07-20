@@ -14,7 +14,6 @@ FRONTEND = ROOT / "frontend" / "src"
 ALLOWED = {
     ROOT / "src" / "interview_mux" / "operator_subprocess.py",
     ROOT / "src" / "interview_mux" / "local_runtime.py",
-    ROOT / "src" / "interview_mux" / "local_llm_selection.py",
     ROOT / "src" / "interview_mux" / "hardware_detect.py",
 }
 
@@ -24,19 +23,13 @@ CHECKPOINT_CONTINUATION = [
     ("context/AppContext.tsx", "advanceFromCheckpoint"),
     ("context/AppContext.tsx", "completeTranscriptReview"),
     ("context/AppContext.tsx", "approveSfxPrompts"),
-    ("context/AppContext.tsx", "approveWriteAndContinue"),
-    ("context/AppContext.tsx", "acknowledgeHandoff"),
     ("context/AppContext.tsx", "reconcileBusyRun"),
     ("context/AppContext.tsx", "checkpoint_continue"),
     ("utils/checkpointContinuation.ts", "advancePipeline"),
     ("utils/checkpointContinuation.ts", "reconcileBusyRun"),
     ("components/workspace/StageStepFooter.tsx", "advanceFromCheckpoint"),
-    ("components/gates/StageReviewGateBanner.tsx", "approveWriteAndContinue"),
-    ("components/guidance/WriteApprovalPanel.tsx", "Save all files &amp; continue"),
     ("components/guidance/StageReuseOfferCard.tsx", "applyReuseResultAndFocus"),
-    ("components/gates/DisfluencyReviewPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/VoPickupPanel.tsx", "advanceFromCheckpoint"),
-    ("components/gates/AnalysisProfileGate.tsx", "advanceFromCheckpoint"),
     ("components/gates/SfxPostListenPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/PickupSpeakerPanel.tsx", "advanceFromCheckpoint"),
     ("components/gates/PreviewPickupPanel.tsx", "advanceFromCheckpoint"),
@@ -44,9 +37,8 @@ CHECKPOINT_CONTINUATION = [
 ]
 
 BACKEND_CHECKPOINT = [
-    ("src/interview_mux/web/server.py", "continue-after-checkpoint"),
     ("src/interview_mux/web/server.py", "run_in_threadpool"),
-    ("src/interview_mux/write_staging.py", "write_approval.flush"),
+    ("src/interview_mux/write_staging.py", "approve_stage_writes"),
     ("src/interview_mux/ui_truth.py", "T10"),
 ]
 

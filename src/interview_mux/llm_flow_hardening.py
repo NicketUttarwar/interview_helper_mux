@@ -131,19 +131,9 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                         if aid:
                             failing.append(aid)
                 if failing:
-                    from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
-
-                    if first_try_mode_enabled() and allow_placeholder_mix():
-                        ctx.log(
-                            f"Mix gate soft (first_try): mmaudio_qa placeholder/fail asset(s): "
-                            f"{', '.join(sorted(set(failing))[:6])}",
-                            level="warning",
-                            stage=stage_key,
-                        )
-                    else:
-                        exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
-                        ctx.log(exit_msg, level="error", stage=stage_key)
-                        raise SystemExit(exit_msg)
+                    exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
+                    ctx.log(exit_msg, level="error", stage=stage_key)
+                    raise SystemExit(exit_msg)
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
             from interview_mux.coverage_limits import soft_progression_enabled
 
@@ -302,51 +292,8 @@ def complete_llm_stage_or_halt(
         ctx.mark_done(stage_key)
         return True
 
-    job = None
-    try:
-        from interview_mux.write_staging import read_gui_job
-
-        job = read_gui_job(ctx) or {}
-    except Exception:
-        job = {}
-    if str(job.get("status")) == "needs_clarification" and str(job.get("stage") or "") == stage_key:
-        return False
-
-    from interview_mux.artifact_issue_triage import set_clarification_gate, triage_enabled
-    from interview_mux.stage_acceptance import stage_acceptance_ok
-    from interview_mux.write_staging import staged_path, write_approval_enabled
-
-    rel = producer_artifact_path(stage_key)
-    use_staged = bool(
-        rel
-        and write_approval_enabled()
-        and staged_path(ctx, rel, stage_id=stage_key).is_file()
-    )
-    if (
-        triage_enabled(cfg)
-        and rel
-        and (use_staged or ctx.artifact_exists(rel))
-        and flow_hardening_cfg(cfg).get("clarification_before_halt", True)
-    ):
-        acceptance = stage_acceptance_ok(ctx, stage_key, staged=use_staged, include_cross_validate=False)
-        if not acceptance.ok:
-            set_clarification_gate(
-                ctx,
-                stage_key,
-                message=(
-                    f"{stage_key}: artifact issues remain — use Fix all & continue "
-                    "before saving."
-                ),
-            )
-            ctx.log(
-                f"Stage {stage_key}: clarification gate set (strict acceptance failed).",
-                level="warning",
-                stage=stage_key,
-                detail={"errors": acceptance.all_errors[:6]},
-            )
-            return False
-
     fh = flow_hardening_cfg(cfg)
+    rel = producer_artifact_path(stage_key)
     critical = stage_key in ALL_CRITICAL_LLM_STAGES
     if critical and fh.get("strict_critical_stages", True):
         rel_disp = rel or "(no artifact)"

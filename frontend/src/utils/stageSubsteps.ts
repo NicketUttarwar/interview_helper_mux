@@ -13,7 +13,6 @@ import { getHandoffPathsLocal } from "./checkpoint";
 import { flattenGuidanceItems } from "./stageGuidance";
 import { isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 import { isWriteApprovalSaving } from "./jobStatus";
-import { stageAwaitingWriteApproval } from "./writeApproval";
 import { stageHasCommittedOutputs } from "./stageOutputs";
 
 const USER_ACTION_KINDS = new Set<SubstepKind>([
@@ -26,6 +25,18 @@ const USER_ACTION_KINDS = new Set<SubstepKind>([
   "milestone",
   "checkpoint",
 ]);
+
+function stageAwaitingWriteApproval(run: RunData | null, stageId: string): boolean {
+  if (!run) return false;
+  const stage = run.stages.find((s) => s.id === stageId);
+  return (
+    stage?.status === "awaiting_write_approval" ||
+    Boolean(
+      run.job?.awaiting_write_approval &&
+        (run.job.pending_write_stage === stageId || run.job.stage === stageId),
+    )
+  );
+}
 
 export interface BuildSubstepsOpts {
   jobRunning?: boolean;

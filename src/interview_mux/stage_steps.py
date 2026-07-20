@@ -12,7 +12,6 @@ from interview_mux.web.stages import STAGE_BY_ID
 GATE_STAGES = frozenset(
     {
         "transcript_review",
-        "disfluency_review",
         "analysis_profile",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
@@ -198,20 +197,15 @@ def _needs_reuse(ctx: RunContext, stage_id: str) -> bool:
 
 def _needs_write(ctx: RunContext, stage_id: str) -> bool:
     from interview_mux.write_staging import write_approval_allowed
-    from interview_mux.first_try import write_approval_deferred
 
-    # Deferred phase_end: mid-stage write steps are informational only; batch Save handles commit.
-    if write_approval_deferred():
-        return False
     return write_approval_allowed(ctx, stage_id)
 
 
 def _has_pending_write_review(ctx: RunContext, stage_id: str) -> bool:
     """True when staged outputs exist and the operator should review or discard them."""
     from interview_mux.write_staging import has_pending_writes, write_approval_enabled
-    from interview_mux.first_try import write_approval_deferred
 
-    if write_approval_deferred() or not write_approval_enabled():
+    if not write_approval_enabled():
         return False
     if _stage_gate_blocked(ctx, stage_id):
         return False
@@ -306,21 +300,7 @@ def _latest_attempt_lint_hints(ctx: RunContext, stage_id: str) -> tuple[list[str
     return lint, lint_remediation_hints(lint)
 
 def _needs_handoff(ctx: RunContext, stage_id: str, status: str) -> bool:
-    if status != "done":
-        return False
-    from interview_mux.custom_run_handoff import (
-        STAGES_REQUIRING_HANDOFF_REVIEW,
-        handoff_acknowledged,
-    )
-
-    if stage_id not in STAGES_REQUIRING_HANDOFF_REVIEW:
-        return False
-    if handoff_acknowledged(ctx, stage_id):
-        return False
-    info = STAGE_BY_ID.get(stage_id)
-    if not info:
-        return False
-    return any(ctx.artifact_exists(p) for p in info.artifacts if p and not p.endswith("/"))
+    return False
 
 def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, Any]]:
     if stage_id == "transcript_review":
@@ -342,41 +322,6 @@ def _gate_steps(ctx: RunContext, stage_id: str, status: str) -> list[dict[str, A
                 kind="gate",
                 status="todo" if status == "action_required" else "done",
                 embed="transcript_review",
-                next_hint="Next: Disfluency extract or source acoustic profile",
-            ),
-        ]
-    if stage_id == "disfluency_review":
-        return [
-            _step(
-                "review_fillers",
-                1,
-                "Review filler clips",
-                instruction="Listen to each detected filler. Confirm real fillers; reject false positives.",
-                review=["Play clip", "Read surrounding context"],
-                primary_button="Confirm all & continue",
-                kind="gate",
-                status="todo" if status == "action_required" else "done",
-                embed="disfluency_review",
-            ),
-            _step(
-                "restore_pref",
-                2,
-                "Set restore preference",
-                instruction="For confirmed fillers, toggle Include in assembly restore if desired.",
-                kind="gate",
-                status="todo" if status == "action_required" else "done",
-                embed="disfluency_review",
-            ),
-            _step(
-                "complete_g05",
-                3,
-                "Sign-off",
-                instruction="When every clip is confirmed or rejected, continue the pipeline.",
-                primary_button="Continue pipeline",
-                secondary_button="Confirm all & continue",
-                kind="gate",
-                status="todo" if status == "action_required" else "done",
-                embed="disfluency_review",
                 next_hint="Next: Source acoustic profile",
             ),
         ]
@@ -848,144 +793,34 @@ def _automated_steps(
             )
         )
         num += 1
-    from interview_mux.artifact_issue_triage import blocking_issues_remaining, triage_enabled
-    from interview_mux.full_autopilot import full_autopilot_enabled
-    from interview_mux.operator_decisions import pending_decision_count
-
-    if full_autopilot_enabled():
-        from interview_mux.write_staging import read_gui_job
-
-        job = read_gui_job(ctx)
-        auto_resolving = (
-            running
-            or (
-                isinstance(job, dict)
-                and str(job.get("phase") or "") == "auto_resolving"
-                and str(job.get("stage") or "") == stage_id
+    if _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval":
+        steps.append(
+            _write_approval_step(
+                ctx,
+                stage_id,
+                num,
+                instruction="Preview staged files. Edit if needed, then save to continue.",
+                review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
+                embed=embed,
             )
         )
-        if auto_resolving:
-            steps.append(
-                _step(
-                    "auto_resolving",
-                    num,
-                    "Resolving outputs…",
-                    instruction="Automatic repairs and validation are running.",
-                    review=["Watch the activity log for progress"],
-                    kind="progress",
-                    status="active",
-                )
+        num += 1
+    elif review_bullets or embed:
+        listen_kind = "listen" if embed == "listen" else "info"
+        steps.append(
+            _step(
+                "review_outputs",
+                num,
+                "Review outputs",
+                instruction="Spot-check the generated artifacts below.",
+                review=review_bullets,
+                primary_button="I've reviewed — continue" if embed == "listen" else None,
+                kind=listen_kind,
+                status=embed_status,
+                embed=embed,
             )
-            num += 1
-
-        decision_count = pending_decision_count(ctx, stage_id)
-        if decision_count > 0:
-            label = (
-                f"Your input needed ({decision_count})"
-                if decision_count != 1
-                else "Your input needed (1 decision)"
-            )
-            steps.append(
-                _step(
-                    "operator_decisions",
-                    num,
-                    label,
-                    instruction="Autopilot finished but needs one choice at a time before you can review outputs.",
-                    review=["Read the question", "Pick an option", "Apply choice"],
-                    primary_button="Apply choice",
-                    kind="operator_decisions",
-                    status="todo",
-                )
-            )
-            num += 1
-        elif _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval":
-            steps.append(
-                _write_approval_step(
-                    ctx,
-                    stage_id,
-                    num,
-                    instruction="Preview staged files. Edit if needed, then save to continue.",
-                    review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                    embed=embed,
-                )
-            )
-            num += 1
-        elif review_bullets or embed:
-            listen_kind = "listen" if embed == "listen" else "info"
-            steps.append(
-                _step(
-                    "review_outputs",
-                    num,
-                    "Review outputs",
-                    instruction="Spot-check the generated artifacts below.",
-                    review=review_bullets,
-                    primary_button="I've reviewed — continue" if embed == "listen" else None,
-                    kind=listen_kind,
-                    status=embed_status,
-                    embed=embed,
-                )
-            )
-            num += 1
-    else:
-        itr_open = blocking_issues_remaining(ctx, stage_id) if triage_enabled() else 0
-        if itr_blocked or itr_open > 0:
-            from interview_mux.artifact_auto_resolve import stage_capabilities
-
-            caps = stage_capabilities(stage_id)
-            step_label = str(caps.get("step_label") or "Fix all & continue")
-            tier = str(caps.get("tier") or "manual")
-            instruction = (
-                "One-click fix resolves auto-repairable issues. "
-                "Manual cards appear only when confidence is too low."
-                if tier == "full"
-                else "Review artifact issues before saving."
-            )
-            steps.append(
-                _step(
-                    "artifact_clarification",
-                    num,
-                    f"Resolve {itr_open} artifact issue(s)",
-                    instruction=instruction,
-                    review=[
-                        f"{itr_open} blocking clarification(s) open",
-                        "Fix all applies recommended choices when safe",
-                        "Re-check validation after fixes",
-                    ],
-                    primary_button=step_label,
-                    secondary_button="Advanced details",
-                    kind="artifact_clarification",
-                    status="todo",
-                )
-            )
-            num += 1
-        elif _has_pending_write_review(ctx, stage_id) or status == "awaiting_write_approval":
-            steps.append(
-                _write_approval_step(
-                    ctx,
-                    stage_id,
-                    num,
-                    instruction="Preview staged files before they are written to disk.",
-                    review=review_bullets or ["Open each staged JSON", "Play any staged WAV"],
-                    embed=embed,
-                )
-            )
-            num += 1
-        elif review_bullets or embed:
-            listen_kind = "listen" if embed == "listen" else "info"
-            steps.append(
-                _step(
-                    "review_outputs",
-                    num,
-                    "Review outputs",
-                    instruction="Spot-check the generated artifacts below.",
-                    review=review_bullets,
-                    primary_button="I've reviewed — continue" if embed == "listen" else None,
-                    kind=listen_kind,
-                    status=embed_status,
-                    embed=embed,
-                )
-            )
-            num += 1
+        )
+        num += 1
 
     if stage_id in POST_LISTEN_STAGES and status == "done":
         steps.append(

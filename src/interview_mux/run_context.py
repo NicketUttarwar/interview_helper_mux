@@ -130,10 +130,6 @@ class RunContext:
             data = payload
         p = self.path(rel)
         fs_write_json(p, data)
-        if not skip_handoff:
-            from interview_mux.custom_run_handoff import record_custom_run_write
-
-            record_custom_run_write(self, rel, stage_key=stage_key)
         return p
 
     def read_json(self, rel: str) -> Any:
@@ -294,10 +290,8 @@ class RunContext:
 
     def log_handoff(self, stage_id: str, paths: list[str], *, audit_path: str | None = None) -> None:
         """Operator-visible file handoff after a stage completes."""
-        from interview_mux.custom_run_handoff import filter_custom_run_handoff_paths
         from interview_mux.web.stages import STAGE_BY_ID
 
-        paths = filter_custom_run_handoff_paths(paths)
         if not paths and not audit_path:
             return
         present = [p for p in paths if self.artifact_exists(p)]
@@ -345,7 +339,7 @@ class RunContext:
         from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
         rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
-        from interview_mux.analysis_orchestrator import ALL_LLM_STAGES
+        from interview_mux.v2.config import ALL_LLM_STAGES
 
         if not force and stage in ALL_LLM_STAGES and rel:
             from interview_mux.artifact_completeness import artifact_status
@@ -368,7 +362,6 @@ class RunContext:
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
-        from interview_mux.custom_run_handoff import custom_run_paths_for_stage
         from interview_mux.web.stages import STAGE_BY_ID
 
         def _clear_handoff_pending(meta: dict[str, Any]) -> None:
@@ -379,10 +372,8 @@ class RunContext:
         if self.artifact_exists("run_meta.json"):
             self.mutate_run_meta(_clear_handoff_pending)
 
-        paths = custom_run_paths_for_stage(self, stage)
-        if not paths:
-            info = STAGE_BY_ID.get(stage)
-            paths = list(info.artifacts) if info else []
+        info = STAGE_BY_ID.get(stage)
+        paths = list(info.artifacts) if info else []
         self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
         self.bump_snapshot_version()
 

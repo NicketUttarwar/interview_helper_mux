@@ -627,6 +627,7 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
                 "music_transition": s.get("music_transition"),
                 "placement": s.get("placement"),
                 "repeat_allowed": bool(s.get("repeat_allowed")),
+                "bound_segment_ids": list(s.get("bound_segment_ids") or [])[:40],
             }
             for s in (doc.get("slot_plan") or [])
             if isinstance(s, dict)

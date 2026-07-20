@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from interview_mux.disfluency.context import attach_disfluency_context
+from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.acoustic_profile import compact_for_volley as acoustic_compact_for_volley, load_profile
 from interview_mux.analysis_memory import default_sound_design_plan
 from interview_mux.config import merged_config

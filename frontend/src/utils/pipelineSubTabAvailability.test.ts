@@ -7,28 +7,23 @@ function baseRun(overrides: Partial<RunData> = {}): RunData {
     run_id: "exec_test",
     stages: [
       { id: "ingest", title: "Ingest", status: "done" },
-      { id: "content_context", title: "Content", status: "pending" },
       { id: "segment_classification", title: "Classify", status: "pending" },
-      { id: "analysis_profile", title: "Profile", status: "locked" },
     ],
     ...overrides,
   };
 }
 
 describe("pipelineSubTabAvailability", () => {
-  it("always allows stage and debug tabs", () => {
+  it("allows stage tab", () => {
     const run = baseRun();
     expect(pipelineSubTabAvailability("stage", run, null).available).toBe(true);
-    expect(pipelineSubTabAvailability("llm_calls", run, null).available).toBe(true);
   });
 
-  it("locks story until story_board_ready", () => {
+  it("locks legacy tabs in v2", () => {
     const run = baseRun();
     expect(pipelineSubTabAvailability("story", run, null).available).toBe(false);
-    expect(pipelineSubTabAvailability("story", run, null).reason).toContain("content understanding");
-
-    const ready = baseRun({ story_board_ready: true });
-    expect(pipelineSubTabAvailability("story", ready, null).available).toBe(true);
+    expect(pipelineSubTabAvailability("llm_calls", run, null).available).toBe(false);
+    expect(pipelineSubTabAvailability("profile", run, null).available).toBe(false);
   });
 
   it("locks timeline until segments exist", () => {
@@ -40,23 +35,9 @@ describe("pipelineSubTabAvailability", () => {
     expect(pipelineSubTabAvailability("timeline", ready, null).available).toBe(true);
   });
 
-  it("locks profile until ready for review", () => {
-    const run = baseRun();
-    expect(pipelineSubTabAvailability("profile", run, null).available).toBe(false);
-    const ready = baseRun({ profile_ready_for_review: true });
-    expect(pipelineSubTabAvailability("profile", ready, null).available).toBe(true);
-  });
-
   it("clamp falls back to stage", () => {
     const run = baseRun();
     expect(clampPipelineSubTab("story", run, null)).toBe("stage");
     expect(clampPipelineSubTab("stage", run, null)).toBe("stage");
-  });
-
-  it("timeline gating is identical for single-flow podcast runs", () => {
-    const locked = baseRun({ timeline_ready: false });
-    const ready = baseRun({ timeline_ready: true });
-    expect(pipelineSubTabAvailability("timeline", locked, null).available).toBe(false);
-    expect(pipelineSubTabAvailability("timeline", ready, null).available).toBe(true);
   });
 });

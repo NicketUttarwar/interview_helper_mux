@@ -7,18 +7,12 @@ interface StepActionHandlers {
   executeJob: (body: ExecuteBody) => Promise<void>;
   runNextStage: () => Promise<void>;
   advanceFromCheckpoint: () => Promise<void>;
-  approveWriteAndContinue: (stageId: string) => Promise<boolean>;
-  discardPendingWrites: (stageId: string) => Promise<void>;
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
-  completeDisfluencyReview: (acceptUnreviewed?: boolean) => Promise<void>;
   approveSfxPrompts: () => Promise<void>;
-  acknowledgeHandoff?: () => Promise<void>;
   skipOptional: (stageId: string) => Promise<void>;
   declineReuseAndRun: (stageId: string) => Promise<void>;
   redoFromStage: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
-  revalidateArtifactIssues?: (stageId: string) => Promise<void>;
-  fixAllAndContinueStage?: (stageId: string) => Promise<boolean>;
   stageAction: OperatorAction | null;
 }
 
@@ -39,30 +33,6 @@ export async function invokeStepFooterAction(
     return;
   }
 
-  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
-    return;
-  }
-
-  if (step.kind === "artifact_clarification" || step.id === "artifact_clarification") {
-    if (handlers.fixAllAndContinueStage) {
-      await handlers.fixAllAndContinueStage(stage.id);
-      return;
-    }
-    if (handlers.revalidateArtifactIssues) {
-      await handlers.revalidateArtifactIssues(stage.id);
-    }
-    return;
-  }
-
-  if (step.kind === "write_approval" || label.includes("save all") || label.includes("save &")) {
-    if (step.blocking_reason || label.includes("discard")) {
-      await handlers.discardPendingWrites(stage.id);
-      return;
-    }
-    await handlers.approveWriteAndContinue(stage.id);
-    return;
-  }
-
   if (
     step.id === "review_transcript" ||
     step.id === "complete_g0" ||
@@ -75,36 +45,12 @@ export async function invokeStepFooterAction(
   }
 
   if (
-    step.id === "review_fillers" ||
-    (step.id === "complete_g05" && label.includes("confirm all")) ||
-    (step.embed === "disfluency_review" && label.includes("confirm all"))
-  ) {
-    await handlers.completeDisfluencyReview(true);
-    return;
-  }
-
-  if (
-    step.id === "complete_g05" ||
-    (step.embed === "disfluency_review" && label.includes("complete review"))
-  ) {
-    await handlers.completeDisfluencyReview(false);
-    return;
-  }
-
-  if (
     step.id === "prompt_review" ||
     (step.embed === "sfx_prompt_review" && label.includes("approve"))
   ) {
     await runStepPrimaryPreps(["sfx_prompt_review", step.id]);
     await handlers.approveSfxPrompts();
     return;
-  }
-
-  if (step.kind === "handoff" || label.includes("acknowledge")) {
-    if (handlers.acknowledgeHandoff) {
-      await handlers.acknowledgeHandoff();
-      return;
-    }
   }
 
   if (
@@ -117,7 +63,6 @@ export async function invokeStepFooterAction(
   }
 
   if (step.kind === "reuse" && label.includes("reuse")) {
-    // Reuse cards handle accept — scroll only
     return;
   }
 
@@ -149,28 +94,13 @@ export async function invokeStepFooterSecondaryAction(
   stage: StageInfo,
   handlers: Pick<
     StepActionHandlers,
-    | "discardPendingWrites"
-    | "completeTranscriptReview"
-    | "completeDisfluencyReview"
-    | "skipOptional"
-    | "declineReuseAndRun"
-    | "redoFromStage"
+    "completeTranscriptReview" | "skipOptional" | "declineReuseAndRun" | "redoFromStage"
   >,
 ): Promise<void> {
   const label = (step.secondary_button || "").toLowerCase();
 
-  if (step.kind === "write_approval" || label.includes("discard")) {
-    await handlers.discardPendingWrites(stage.id);
-    return;
-  }
-
   if (label.includes("accept remaining")) {
     await handlers.completeTranscriptReview(true);
-    return;
-  }
-
-  if (label.includes("confirm all") && step.embed === "disfluency_review") {
-    await handlers.completeDisfluencyReview(true);
     return;
   }
 

@@ -1,4 +1,4 @@
-"""Subprocess runners for isolated local AI venvs (MLX, DeepFilterNet, MMAudio)."""
+"""Subprocess runners for isolated local AI venvs."""
 
 from __future__ import annotations
 
@@ -13,11 +13,17 @@ from interview_mux.operator_trace import log_api_call, resolve_ctx, resolve_stag
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_IDS = frozenset({"mlx", "deepfilter", "mmaudio"})
+RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech"})
+
+_RUNTIME_ALIASES = {"llm": "mlx"}
 
 
 class LocalRuntimeUnavailable(RuntimeError):
     """Raised when a local runtime venv or script is missing."""
+
+
+def _canonical_runtime_id(runtime_id: str) -> str:
+    return _RUNTIME_ALIASES.get(runtime_id, runtime_id)
 
 
 def repo_root() -> Path:
@@ -29,10 +35,11 @@ def repo_root() -> Path:
 def runtime_cfg(runtime_id: str) -> dict[str, Any]:
     from interview_mux.config import merged_config
 
-    if runtime_id not in RUNTIME_IDS:
+    rid = _canonical_runtime_id(runtime_id)
+    if rid not in RUNTIME_IDS:
         raise ValueError(f"Unknown runtime_id: {runtime_id}")
     runtimes = merged_config().get("local_runtimes") or {}
-    row = runtimes.get(runtime_id) or {}
+    row = runtimes.get(runtime_id) or runtimes.get(rid) or {}
     if not isinstance(row, dict):
         return {}
     return row
@@ -45,15 +52,18 @@ def runtime_enabled(runtime_id: str) -> bool:
 def resolve_venv_dir(runtime_id: str) -> Path:
     from interview_mux.config import merged_config, repo_root
 
+    rid = _canonical_runtime_id(runtime_id)
     cfg = runtime_cfg(runtime_id)
     rel = cfg.get("venv_dir")
     if not rel:
         defaults = {
-            "mlx": "ASSETS/local_llm/venv",
             "deepfilter": "ASSETS/local_deepfilter/venv",
             "mmaudio": "ASSETS/local_mmaudio/venv",
+            "mlx": "ASSETS/local_llm/venv",
+            "llm": "ASSETS/local_llm/venv",
+            "speech": "ASSETS/local_speech/venv",
         }
-        rel = defaults.get(runtime_id, f"ASSETS/local_{runtime_id}/venv")
+        rel = defaults.get(rid, f"ASSETS/local_{rid}/venv")
     path = Path(str(rel))
     if not path.is_absolute():
         path = repo_root() / path
@@ -75,15 +85,19 @@ def _default_timeout(runtime_id: str) -> int:
     from interview_mux.config import merged_config
 
     cfg = merged_config()
-    if runtime_id == "mlx":
-        block = cfg.get("local_llm") or {}
-        return int(block.get("request_timeout_sec", 600))
-    if runtime_id == "deepfilter":
+    rid = _canonical_runtime_id(runtime_id)
+    if rid == "deepfilter":
         block = cfg.get("deepfilter") or {}
         return int(block.get("request_timeout_sec", 600))
-    if runtime_id == "mmaudio":
+    if rid == "mmaudio":
         block = cfg.get("mmaudio") or {}
         return int(block.get("request_timeout_sec", 900))
+    if rid == "mlx":
+        block = cfg.get("local_llm") or {}
+        return int(block.get("request_timeout_sec", 120))
+    if rid == "speech":
+        block = cfg.get("local_speech") or {}
+        return int(block.get("stt_timeout_sec", 3600))
     return 600
 
 
@@ -126,8 +140,6 @@ def run_runtime_script(
     try:
         if stdin_data is not None:
             if run:
-                from interview_mux.operator_subprocess import run_logged_command
-
                 proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
@@ -139,8 +151,6 @@ def run_runtime_script(
                 )
                 stdout, stderr = proc.communicate(stdin_data, timeout=timeout)
                 if proc.returncode != 0:
-                    from interview_mux.operator_subprocess import LocalCommandError
-
                     run.log(
                         f"Local runtime failed (exit {proc.returncode}): {label}",
                         level="error",

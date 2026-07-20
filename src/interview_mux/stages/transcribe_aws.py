@@ -136,8 +136,10 @@ def run_transcribe(ctx: RunContext) -> None:
             _aws(ctx, "s3", "cp", f"s3://{bucket}/{output_key}", str(local_out))
 
         with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
+            from interview_mux.transcript_normalize import normalize_aws_transcript
+
             raw = _read_transcript_json(local_out)
-            full, speakers = _normalize_transcript(raw)
+            full, speakers = normalize_aws_transcript(raw)
             ctx.write_json("transcript/full.json", full)
             ctx.write_json("transcript/speakers.json", speakers)
     finally:
@@ -152,34 +154,6 @@ def run_transcribe(ctx: RunContext) -> None:
 
 
 def _normalize_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    results = raw.get("results") or {}
-    items = results.get("items") or []
-    segments = (results.get("speaker_labels") or {}).get("segments") or []
-    words: list[dict[str, Any]] = []
-    for item in items:
-        if item.get("type") != "pronunciation":
-            continue
-        start = float(item.get("start_time", 0))
-        end = float(item.get("end_time", start))
-        alt = (item.get("alternatives") or [{}])[0]
-        conf_raw = alt.get("confidence")
-        confidence = float(conf_raw) if conf_raw is not None else None
-        words.append(
-            {
-                "text": alt.get("content", ""),
-                "start_ms": int(start * 1000),
-                "end_ms": int(end * 1000),
-                "speaker_id": item.get("speaker_label"),
-                "confidence": confidence,
-            }
-        )
-    speaker_ids = sorted({w["speaker_id"] for w in words if w.get("speaker_id")})
-    speakers = {
-        "speakers": [{"id": sid, "role": "unknown"} for sid in speaker_ids],
-    }
-    full_text = (results.get("transcripts") or [{}])[0].get("transcript", "")
-    return {
-        "text": full_text,
-        "words": words,
-        "segments": segments,
-    }, speakers
+    from interview_mux.transcript_normalize import normalize_aws_transcript
+
+    return normalize_aws_transcript(raw)

@@ -305,12 +305,6 @@ def stage_output_mode(ctx: Any, stage_id: str) -> str:
         if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
             return "optional_skipped"
 
-    if stage_id in ("disfluency_review", "disfluency_extract"):
-        from interview_mux.disfluency.config import disfluency_enabled
-
-        if not disfluency_enabled():
-            return "optional_skipped"
-
     if stage_id in ("missing_framing", "optimal_questions", "g1_vo_pickup"):
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 

@@ -1,29 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
-from interview_mux.analysis_orchestrator import (
-    ALL_LLM_STAGES,
-    ANALYSIS_LLM_STAGES,
-    drain_investigation_queue,
-    llm_stage_runners,
-    post_analysis_finalize,
-    pre_analysis_init,
-)
 from interview_mux.gates import (
-    check_disfluency_review_pending,
     check_g1_vo,
     check_transcript_review_pending,
+    require_analysis_artifacts_complete,
     require_delivery_gates,
-    require_disfluency_review_clear,
     require_g1_clear,
-    require_profile_verified_for_delivery,
     require_transcript_review_clear,
 )
-from interview_mux.custom_run_handoff import active_pipeline_stage, pause_after_stage_if_needed
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import resolve_before_stage_run
 from interview_mux.stages import analysis_extended
@@ -32,6 +20,7 @@ from interview_mux.stages import audio_preclean
 from interview_mux.stages import edl_narrative_audit
 from interview_mux.stages import gaps
 from interview_mux.stages import ingest
+from interview_mux.stages import interview_spine_stage
 from interview_mux.stages import mastering
 from interview_mux.stages import segmentation
 from interview_mux.stages import selection
@@ -39,62 +28,37 @@ from interview_mux.stages import sonic_context_stages
 from interview_mux.stages import sound_design_stages
 from interview_mux.stages import sound_design_vo_finalize
 from interview_mux.stages import sfx_mmaudio
-from interview_mux.stages import transcribe_aws
-from interview_mux.stages import disfluency
+from interview_mux.stages import transcribe_local
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
-from interview_mux.stages import interview_spine_stage
+from interview_mux.v2.config import (
+    ALL_LLM_STAGES_V2,
+    ANALYSIS_ORDER_V2,
+    DELIVERY_ORDER_V2,
+    effective_analysis_order,
+    effective_delivery_order,
+    v2_g1_optional,
+)
 
-ANALYSIS_ORDER = [
-    "audio_preclean",
-    "ingest",
-    "transcribe",
-    "transcript_review_build",
-    "disfluency_extract",
-    "source_acoustic_profile",
-    "interview_spine_build",
-    "speaker_roles",
-    "source_topology_build",
-    "content_context",
-    "boundary_detection",
-    "segment_classification",
-    "content_brief_reanchor",
-    "sonic_context_build",
-    "sound_design_palettes",
-    "missing_framing",
-    "optimal_questions",
-    "delivery_brief_build",
-    "soundscape_policy_build",
-    "episode_structure_compose",
-]
+# Backward-compat aliases for remaining imports.
+ANALYSIS_ORDER: tuple[str, ...] = ANALYSIS_ORDER_V2
+DELIVERY_ORDER: tuple[str, ...] = DELIVERY_ORDER_V2
+ALL_LLM_STAGES = ALL_LLM_STAGES_V2
+ANALYSIS_LLM_STAGES: frozenset[str] = frozenset(
+    stage for stage in ALL_LLM_STAGES_V2 if stage in ANALYSIS_ORDER_V2
+)
 
-DELIVERY_ORDER = [
-    "topic_coverage_audit",
-    "narrative_arc_plan",
-    "full_master_ranking",
-    "transitions",
-    "sound_design_plan",
-    "sound_design_vo_finalize",
-    "edl_narrative_audit",
-    "edl",
-    "assembly_preview",
-    "sfx_prompt_craft",
-    "mmaudio_sfx",
-    "mix",
-    "master_finalize",
-]
-
-# Backward-compat alias
-DELIVERY_ORDER = DELIVERY_ORDER
+# Legacy flow orders removed — empty tuples for import compatibility.
+FLOW2_ORDER: tuple[str, ...] = ()
+FLOW3_ORDER: tuple[str, ...] = ()
 
 
-def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
+def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
     return {
         "audio_preclean": lambda: audio_preclean.run_audio_preclean(ctx),
         "ingest": lambda: ingest.run_ingest(ctx),
-        "transcribe": lambda: transcribe_aws.run_transcribe(ctx),
+        "transcribe": lambda: transcribe_local.run_transcribe(ctx),
         "transcript_review_build": lambda: transcript_review.run_transcript_review_build(ctx),
-        "disfluency_extract": lambda: disfluency.run_disfluency_extract(ctx),
         "source_acoustic_profile": lambda: understanding.run_source_acoustic_profile(ctx),
         "interview_spine_build": lambda: interview_spine_stage.run_interview_spine_build(ctx),
         "speaker_roles": lambda: understanding.run_speaker_roles(ctx),
@@ -122,7 +86,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Any]:
     }
 
 
-def _delivery_stage_fns(ctx: RunContext) -> dict[str, Any]:
+def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
     return {
         "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
         "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
@@ -140,24 +104,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Any]:
     }
 
 
-_LEGACY_STAGE_ALIASES: dict[str, str] = {
-    "sound_design_plan": "sound_design_plan",
-    "edl": "edl",
-    "mmaudio_sfx": "mmaudio_sfx",
-    "mix": "mix",
-    "master_finalize": "master_finalize",
-}
-
-
-def _resolve_stage_id(stage: str) -> str:
-    return _LEGACY_STAGE_ALIASES.get(stage, stage)
-
-
 def _guard_stage_reuse(ctx: RunContext, stage: str) -> bool:
     """Return True when stage was satisfied via reuse (skip stage function)."""
-    if resolve_before_stage_run(ctx, stage) == "skipped":
-        return True
-    return False
+    return resolve_before_stage_run(ctx, stage) == "skipped"
 
 
 def _run_missing_framing_stage(ctx: RunContext) -> None:
@@ -191,6 +140,7 @@ def shared_analysis_chain_complete(ctx: RunContext) -> bool:
 
 def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> bool:
     """Write analysis_complete.json when the shared analysis chain is ready. Idempotent."""
+    from interview_mux.analysis_memory import update_completion_from_analysis
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
     if ctx.artifact_exists("analysis_complete.json"):
@@ -202,29 +152,19 @@ def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> 
         return False
     missing = check_g1_vo(ctx)
     if missing and not gap_fill_was_skipped(ctx):
-        if strict:
+        if v2_g1_optional():
+            ctx.log(
+                f"Analysis complete — G1 optional: {len(missing)} VO line(s) not recorded (continue or record in GUI).",
+                level="info",
+                stage="g1_vo_pickup",
+            )
+        elif strict:
             msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
             ctx.log(msg, level="warning", stage="g1_vo_pickup")
             raise SystemExit(msg)
-        return False
-    from interview_mux.artifact_cross_validate import validate_cross_artifacts
-    from interview_mux.llm_flow_hardening import flow_hardening_enabled
-
-    if flow_hardening_enabled():
-        post_reanchor = validate_cross_artifacts(ctx, "post_reanchor")
-        if post_reanchor:
-            summary = "; ".join(post_reanchor[:4])
-            msg = f"Analysis complete blocked — post_reanchor cross-validate: {summary}"
-            if strict:
-                ctx.log(
-                    msg,
-                    level="error",
-                    stage="content_brief_reanchor",
-                    detail={"layer": "cross", "checkpoint": "post_reanchor"},
-                )
-                raise SystemExit(msg)
+        else:
             return False
-    completion = post_analysis_finalize(ctx)
+    completion = update_completion_from_analysis(ctx)
     ctx.write_json(
         "analysis_complete.json",
         {
@@ -249,24 +189,17 @@ def _finalize_analysis_completion(ctx: RunContext) -> None:
 
 def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
-    stage = _resolve_stage_id(stage)
     if stage == "transcript_review":
         transcript_review.mark_transcript_review_complete(ctx)
-        return
-    if stage == "disfluency_review":
-        disfluency.mark_disfluency_review_complete(ctx)
-        return
-    if stage == "podcast_sfx_brief":
-        selection.run_podcast_sfx_brief(ctx)
-        return
-    if stage == "mux_flow1":
-        assembly.run_mux(ctx)
         return
     if stage == "sfx_prompt_refine":
         sound_design_stages.run_sfx_prompt_refine(ctx)
         return
 
-    if stage in ANALYSIS_ORDER:
+    analysis_order = effective_analysis_order()
+    delivery_order = effective_delivery_order()
+
+    if stage in analysis_order:
         if stage not in (
             "audio_preclean",
             "ingest",
@@ -274,12 +207,9 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             "transcript_review_build",
         ):
             from interview_mux.stages.transcript_review import maybe_auto_complete_transcript_review
-            from interview_mux.stages.disfluency import maybe_auto_complete_review
 
             maybe_auto_complete_transcript_review(ctx)
-            maybe_auto_complete_review(ctx)
             require_transcript_review_clear(ctx)
-            require_disfluency_review_clear(ctx)
         if stage in ("missing_framing", "optimal_questions"):
             from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
             from interview_mux.source_topology import (
@@ -293,45 +223,28 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        token = active_pipeline_stage.set(stage)
-        try:
-            fns[stage]()
-        finally:
-            active_pipeline_stage.reset(token)
-        pause_after_stage_if_needed(ctx, stage)
+        fns[stage]()
         if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
             msg = (
                 "Transcript review required. Open the GUI to correct ranked clips, then complete review."
             )
             ctx.log(msg, level="warning", stage="transcript_review")
             raise SystemExit(msg)
-        if stage == "disfluency_extract" and check_disfluency_review_pending(ctx):
-            msg = "Disfluency review required. Confirm or reject filler events in the GUI."
-            ctx.log(msg, level="warning", stage="disfluency_review")
-            raise SystemExit(msg)
         if stage == "optimal_questions":
             _finalize_analysis_completion(ctx)
         return
 
-    if stage in DELIVERY_ORDER:
-        require_g1_clear(ctx)
+    if stage in delivery_order:
+        if not v2_g1_optional():
+            require_g1_clear(ctx)
         if stage == "topic_coverage_audit":
-            from interview_mux.analysis_memory import maybe_auto_verify_profile
-
-            maybe_auto_verify_profile(ctx)
-            require_profile_verified_for_delivery(ctx)
             from interview_mux.progression_readiness import assert_delivery_ready
 
             assert_delivery_ready(ctx, target_stage="topic_coverage_audit")
         fns = _delivery_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
-        token = active_pipeline_stage.set(stage)
-        try:
-            fns[stage]()
-        finally:
-            active_pipeline_stage.reset(token)
-        pause_after_stage_if_needed(ctx, stage)
+        fns[stage]()
         return
 
     if stage == "vo_ingest":
@@ -353,73 +266,57 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
 
 def run_single_stage(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
+    from interview_mux.artifact_lifecycle import LifecyclePhase, run_phase_checks
     from interview_mux.web.job_progress import notify_stage_start
+    from interview_mux.write_staging import (
+        after_stage_write_check,
+        has_pending_writes,
+        run_wrapped_stage,
+        write_approval_enabled,
+    )
 
-    resolved = _resolve_stage_id(stage)
     notify_stage_start(
         ctx.run_id,
-        resolved,
+        stage,
         index=1,
         total=1,
-        stages_planned=[resolved],
+        stages_planned=[stage],
     )
     ctx.log(
-        f"Stage start: {resolved}",
+        f"Stage start: {stage}",
         level="action",
-        stage=resolved,
+        stage=stage,
         detail={"journey_kind": "execute", "event": "stage_start"},
     )
-    from interview_mux.artifact_lifecycle import LifecyclePhase, run_phase_checks
 
-    pre_errors = run_phase_checks(ctx, resolved, LifecyclePhase.PRESTAGE)
+    pre_errors = run_phase_checks(ctx, stage, LifecyclePhase.PRESTAGE)
     if pre_errors:
-        raise ValueError(f"Pre-stage lifecycle failed for {resolved}: {'; '.join(pre_errors[:4])}")
-    if resolved not in (
-        "transcript_review",
-        "disfluency_review",
-        "podcast_sfx_brief",
-        "mux_flow1",
-        "sfx_prompt_refine",
-    ) and _guard_stage_reuse(ctx, resolved):
+        raise ValueError(f"Pre-stage lifecycle failed for {stage}: {'; '.join(pre_errors[:4])}")
+
+    if stage not in ("transcript_review", "sfx_prompt_refine") and _guard_stage_reuse(ctx, stage):
         from interview_mux.artifact_completeness import should_run_stage_for_artifact
 
-        if should_run_stage_for_artifact(ctx, resolved):
+        if should_run_stage_for_artifact(ctx, stage):
             ctx.log(
-                f"Re-running {resolved}: stage marked done but artifact incomplete",
+                f"Re-running {stage}: stage marked done but artifact incomplete",
                 level="info",
-                stage=resolved,
+                stage=stage,
             )
-        else:
-            from interview_mux.write_staging import (
-                after_stage_write_check,
-                has_pending_writes,
-                write_approval_enabled,
-            )
-
-            if write_approval_enabled() and has_pending_writes(ctx, resolved):
-                after_stage_write_check(ctx, resolved)
+        elif write_approval_enabled() and has_pending_writes(ctx, stage):
+            after_stage_write_check(ctx, stage)
             return
-    from interview_mux.analysis_orchestrator import ALL_LLM_STAGES, drain_investigation_queue, llm_stage_runners
-    from interview_mux.write_staging import run_wrapped_stage
+        else:
+            return
 
     def _impl() -> None:
-        setattr(ctx, "_lifecycle_consumer_stage", resolved)
+        setattr(ctx, "_lifecycle_consumer_stage", stage)
         try:
-            if resolved in ALL_LLM_STAGES:
-                from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
-
-                maybe_require_upstream_llm_progress(ctx, resolved)
             _run_single_stage_impl(ctx, stage)
-            if resolved in ALL_LLM_STAGES:
-                drain_investigation_queue(ctx, llm_stage_runners(ctx))
-                from interview_mux.stage_finalize import post_llm_stage_hooks
-
-                post_llm_stage_hooks(ctx, resolved)
         finally:
             if hasattr(ctx, "_lifecycle_consumer_stage"):
                 delattr(ctx, "_lifecycle_consumer_stage")
 
-    run_wrapped_stage(ctx, resolved, _impl)
+    run_wrapped_stage(ctx, stage, _impl)
 
 
 def run_analysis(
@@ -428,23 +325,23 @@ def run_analysis(
     from_stage: str | None = None,
     until_stage: str | None = None,
 ) -> None:
+    from interview_mux.artifact_completeness import should_run_stage_for_artifact
+    from interview_mux.web.job_progress import notify_stage_start
+    from interview_mux.write_staging import run_wrapped_stage
+
+    analysis_order = effective_analysis_order()
     if from_stage:
-        ctx.clear_from(from_stage, ANALYSIS_ORDER)
+        ctx.clear_from(from_stage, analysis_order)
 
     stages = _analysis_stage_fns(ctx)
-    llm_runners = llm_stage_runners(ctx)
-
     start_idx = 0
+    order_keys = [s for s in analysis_order if s in stages]
     if from_stage:
         if from_stage not in stages:
             raise ValueError(f"Unknown from_stage: {from_stage}")
-        start_idx = list(stages.keys()).index(from_stage)
+        start_idx = order_keys.index(from_stage) if from_stage in order_keys else list(stages.keys()).index(from_stage)
 
-    pre_analysis_init(ctx)
-
-    from interview_mux.artifact_completeness import should_run_stage_for_artifact
-
-    stage_items = list(stages.items())[start_idx:]
+    stage_items = [(k, stages[k]) for k in order_keys[start_idx:]]
     planned: list[str] = []
     for name, _fn in stage_items:
         if ctx.is_done(name) and from_stage != name:
@@ -474,8 +371,6 @@ def run_analysis(
             plan_idx = planned.index(name) + 1 if name in planned else idx
         except ValueError:
             plan_idx = idx
-        from interview_mux.web.job_progress import notify_stage_start
-
         notify_stage_start(
             ctx.run_id,
             name,
@@ -483,23 +378,7 @@ def run_analysis(
             total=total,
             stages_planned=planned,
         )
-        if name in ALL_LLM_STAGES:
-            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
-
-            maybe_require_upstream_llm_progress(ctx, name)
-        from interview_mux.write_staging import run_wrapped_stage
-
-        token = active_pipeline_stage.set(name)
-        try:
-            run_wrapped_stage(ctx, name, fn)
-        finally:
-            active_pipeline_stage.reset(token)
-        pause_after_stage_if_needed(ctx, name)
-        if name in ALL_LLM_STAGES:
-            drain_investigation_queue(ctx, llm_runners)
-            from interview_mux.stage_finalize import post_llm_stage_hooks
-
-            post_llm_stage_hooks(ctx, name)
+        run_wrapped_stage(ctx, name, fn)
         if until_stage and name == until_stage:
             break
         if name == "transcript_review_build" and check_transcript_review_pending(ctx):
@@ -509,30 +388,29 @@ def run_analysis(
             )
             ctx.log(msg, level="warning", stage="transcript_review")
             raise SystemExit(msg)
-        if name == "disfluency_extract" and check_disfluency_review_pending(ctx):
-            msg = "Disfluency review required. Confirm or reject filler events in the GUI."
-            ctx.log(msg, level="warning", stage="disfluency_review")
-            raise SystemExit(msg)
 
     if check_transcript_review_pending(ctx):
         msg = "Transcript review incomplete. Finish STT corrections in the GUI before downstream stages."
         ctx.log(msg, level="warning", stage="transcript_review")
         raise SystemExit(msg)
 
-    if check_disfluency_review_pending(ctx):
-        msg = "Disfluency review incomplete. Confirm or reject filler events in the GUI."
-        ctx.log(msg, level="warning", stage="disfluency_review")
-        raise SystemExit(msg)
-
     if until_stage and until_stage != "optimal_questions":
         return
 
-    completion = post_analysis_finalize(ctx)
+    from interview_mux.analysis_memory import update_completion_from_analysis
+
+    completion = update_completion_from_analysis(ctx)
     missing = check_g1_vo(ctx)
-    if missing:
+    if missing and not v2_g1_optional():
         msg = f"Analysis complete with G1 pending. Record VO for {missing} → {ctx.path('vo_pickup')}"
         ctx.log(msg, level="warning", stage="g1_vo_pickup")
         raise SystemExit(msg)
+    if missing and v2_g1_optional():
+        ctx.log(
+            f"Analysis complete — optional G1: {len(missing)} VO line(s) pending.",
+            level="info",
+            stage="g1_vo_pickup",
+        )
 
     ctx.write_json(
         "analysis_complete.json",
@@ -551,58 +429,33 @@ def run_delivery(
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
-    from interview_mux.gates import require_analysis_artifacts_complete
-
-    require_g1_clear(ctx)
+    if not v2_g1_optional():
+        require_g1_clear(ctx)
     require_analysis_artifacts_complete(ctx)
     require_delivery_gates(ctx, from_stage=from_stage)
+
+    delivery_order = effective_delivery_order()
     if from_stage:
-        from_stage = _resolve_stage_id(from_stage)
-        ctx.clear_from(from_stage, DELIVERY_ORDER)
+        ctx.clear_from(from_stage, delivery_order)
 
-    steps = [
-        ("topic_coverage_audit", lambda: analysis_extended.run_topic_coverage(ctx)),
-        ("narrative_arc_plan", lambda: analysis_extended.run_narrative_arc(ctx)),
-        ("full_master_ranking", lambda: selection.run_full_master_ranking(ctx)),
-        ("transitions", lambda: selection.run_transitions(ctx)),
-        ("sound_design_plan", lambda: sound_design_stages.run_sound_design_plan(ctx)),
-        ("sound_design_vo_finalize", lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx)),
-        ("edl_narrative_audit", lambda: edl_narrative_audit.run_edl_narrative_audit(ctx)),
-        ("edl", lambda: assembly.run_edl(ctx)),
-        ("assembly_preview", lambda: assembly.run_preview(ctx)),
-        ("sfx_prompt_craft", lambda: sound_design_stages.run_sfx_prompt_craft(ctx)),
-        ("mmaudio_sfx", lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast")),
-        ("mix", lambda: assembly.run_mix(ctx)),
-        ("master_finalize", lambda: mastering.run_master_finalize(ctx)),
-    ]
+    stages = _delivery_stage_fns(ctx)
+    steps = [(name, stages[name]) for name in delivery_order if name in stages]
     _run_steps(ctx, steps, from_stage, until_stage=until_stage, preclean_hook=preclean_hook)
-
-
-# Backward-compat aliases
-run_flow1 = run_delivery
-
-FLOW2_ORDER: tuple[str, ...] = ()
-FLOW3_ORDER: tuple[str, ...] = ()
-
-
-def run_flow2(*_args: Any, **_kwargs: Any) -> None:
-    raise RuntimeError("Flow 2 removed — use run_delivery")
-
-
-def run_flow3(*_args: Any, **_kwargs: Any) -> None:
-    raise RuntimeError("Flow 3 removed — use run_delivery")
 
 
 def _run_steps(
     ctx: RunContext,
-    steps: list,
+    steps: list[tuple[str, Callable[[], None]]],
     from_stage: str | None,
     *,
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
 ) -> None:
     from interview_mux.artifact_completeness import should_run_stage_for_artifact
+    from interview_mux.gap_fill_eligibility import filter_visible_job_stages
     from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS
+    from interview_mux.web.job_progress import notify_stage_start
+    from interview_mux.write_staging import run_wrapped_stage
 
     start = 0
     if from_stage:
@@ -610,7 +463,7 @@ def _run_steps(
         if from_stage not in names:
             raise ValueError(f"Unknown from_stage: {from_stage}")
         start = names.index(from_stage)
-    flow_llm_runners = llm_stage_runners(ctx)
+
     slice_steps = steps[start:]
     planned: list[str] = []
     for name, _fn in slice_steps:
@@ -623,7 +476,6 @@ def _run_steps(
             planned.append(name)
         if until_stage and name == until_stage:
             break
-    from interview_mux.gap_fill_eligibility import filter_visible_job_stages
 
     visible_planned = filter_visible_job_stages(ctx, planned)
     total = len(visible_planned) or 1
@@ -642,8 +494,6 @@ def _run_steps(
             continue
         if name in visible_planned:
             plan_idx = visible_planned.index(name) + 1
-        from interview_mux.web.job_progress import notify_stage_start
-
         notify_stage_start(
             ctx.run_id,
             name,
@@ -653,13 +503,6 @@ def _run_steps(
         )
         if preclean_hook is not None:
             preclean_hook(name)
-        if name in ALL_LLM_STAGES:
-            from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
-
-            maybe_require_upstream_llm_progress(ctx, name)
-        from interview_mux.write_staging import run_wrapped_stage
-
-        token = active_pipeline_stage.set(name)
         try:
             run_wrapped_stage(ctx, name, fn)
         except Exception:
@@ -677,13 +520,5 @@ def _run_steps(
                 },
             )
             raise
-        finally:
-            active_pipeline_stage.reset(token)
-        pause_after_stage_if_needed(ctx, name)
-        if name in ALL_LLM_STAGES:
-            drain_investigation_queue(ctx, flow_llm_runners)
-            from interview_mux.stage_finalize import post_llm_stage_hooks
-
-            post_llm_stage_hooks(ctx, name)
         if until_stage and name == until_stage:
             break

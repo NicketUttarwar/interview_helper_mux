@@ -210,7 +210,18 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
                   : ""}
               </p>
               {clipUrl ? (
-                <audio controls preload="none" className="audio-player" src={clipUrl}>
+                <audio
+                  controls
+                  preload="none"
+                  className="audio-player"
+                  src={clipUrl}
+                  onError={() =>
+                    showToast(
+                      "Could not load speaker sample — check that source topology ran successfully.",
+                      "error",
+                    )
+                  }
+                >
                   Your browser does not support audio playback.
                 </audio>
               ) : (

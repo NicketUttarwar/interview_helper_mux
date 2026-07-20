@@ -54,7 +54,8 @@ def capability_router_enabled(cfg: dict[str, Any] | None = None) -> bool:
 
 def quality_local_allowlist(cfg: dict[str, Any] | None = None) -> frozenset[str]:
     """Allowlist SoT: code constant unless config override list is non-empty."""
-    override = capability_cfg(cfg).get("allowlist") or []
+    llm = local_llm_cfg(cfg)
+    override = llm.get("framer_allowlist") or capability_cfg(cfg).get("allowlist") or []
     if isinstance(override, list) and override:
         return frozenset(str(x).strip() for x in override if str(x).strip())
     return QUALITY_LOCAL_ALLOWLIST

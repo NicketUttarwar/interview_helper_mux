@@ -17,12 +17,9 @@
       "master/edl_narrative_audit.json",
       "master/selection.json",
       "master/transitions.json",
-      "run_meta.json",
-      "transcript/disfluencies.json",
       "understanding/gap_report.json"
     ],
     "writes": [
-      "master/disfluency_restore_plan.json",
       "master/edl.json",
       "master/selection.json"
     ]
@@ -36,15 +33,6 @@
     "writes": [
       "preclean/lineage.json",
       "preclean/provider.json"
-    ]
-  },
-  "disfluency": {
-    "reads": [
-      "transcript/disfluencies.json"
-    ],
-    "writes": [
-      "transcript/disfluencies.json",
-      "transcript/disfluency_review.json"
     ]
   },
   "edl_narrative_audit": {
@@ -63,7 +51,9 @@
       "understanding/gap_evaluations.json",
       "understanding/gap_report.json"
     ],
-    "writes": []
+    "writes": [
+      "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n"
+    ]
   },
   "ingest": {
     "reads": [],

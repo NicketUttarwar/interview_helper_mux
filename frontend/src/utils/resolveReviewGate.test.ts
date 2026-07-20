@@ -21,54 +21,15 @@ describe("resolveReviewGateSpec", () => {
     });
   });
 
-  it("shows write_approval banner even when autopilot is enabled", () => {
+  it("returns g1_vo for pickup gate", () => {
     const run: RunData = {
       run_id: "exec_test",
-      stages: [stage("ingest", "awaiting_write_approval")],
-      job: {
-        status: "awaiting_write_approval",
-        pending_write_stage: "ingest",
-        pending_write_paths: ["ingest/a.json", "ingest/b.wav"],
-      },
-    };
-    expect(resolveReviewGateSpec(run, run.stages[0], false, null)).toEqual({
-      kind: "write_approval",
-      pathCount: 2,
-    });
-  });
-
-  it("returns write_approval when autopilot disabled", () => {
-    const run: RunData = {
-      run_id: "exec_test",
-      stages: [stage("ingest", "awaiting_write_approval")],
-      job: {
-        status: "awaiting_write_approval",
-        pending_write_stage: "ingest",
-        pending_write_paths: ["ingest/a.json", "ingest/b.wav"],
-      },
-    };
-    expect(resolveReviewGateSpec(run, run.stages[0], false, {
-      journey_ui: { auto_advance_pipeline: false },
-    })).toEqual({
-      kind: "write_approval",
-      pathCount: 2,
-    });
-  });
-
-  it("returns handoff for done stage without ack", () => {
-    const run: RunData = {
-      run_id: "exec_test",
-      stages: [
-        {
-          ...stage("speaker_roles", "done"),
-          handoff_paths: ["understanding/speakers.json"],
-        },
-      ],
-      handoff_ack: {},
+      stages: [stage("g1_vo_pickup", "action_required")],
+      g1_missing: ["line-1"],
     };
     expect(resolveReviewGateSpec(run, run.stages[0], false)).toEqual({
-      kind: "handoff",
-      pathCount: 1,
+      kind: "g1_vo",
+      missingCount: 1,
     });
   });
 

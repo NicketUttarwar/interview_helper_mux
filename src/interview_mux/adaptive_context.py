@@ -5,12 +5,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from interview_mux.adaptation_loop_guard import AdaptationLoopGuard
 from interview_mux.classification_obligation import classification_context_cfg
 from interview_mux.stage_coupling import contract_segment_ids
 
 DecomposeMode = Literal["none", "batch", "per_segment"]
 ProfileName = Literal["full", "shard", "collate"]
+
+
+@dataclass
+class AdaptationLoopGuard:
+    """v2 stub — legacy adaptation loop removed."""
+
+    def is_exhausted(self) -> bool:
+        return False
+
+    def can_decompose(self) -> bool:
+        return False
+
+    def request_upstream_rerun(self) -> None:
+        return None
 
 
 @dataclass

@@ -60,7 +60,7 @@ def _count_record_gaps(ctx: RunContext) -> tuple[int, int]:
     """Return (blocking_severity_record_count, all_record_count)."""
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return 0, 0
-    from interview_mux.first_try import line_requires_vo
+    from interview_mux.gates import _line_requires_vo
 
     rep = ctx.read_json("understanding/gap_report.json")
     lines = []
@@ -75,7 +75,7 @@ def _count_record_gaps(ctx: RunContext) -> tuple[int, int]:
         if delivery and delivery != "record":
             continue
         all_rec += 1
-        if line_requires_vo(row):
+        if _line_requires_vo(row):
             high += 1
     return high, all_rec
 

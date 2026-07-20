@@ -16,9 +16,10 @@ def test_retranscribe_clear_from_invalidates_downstream(tmp_path, monkeypatch):
     assert not ctx.is_done("interview_spine_build")
 
 
-def test_transcribe_aws_module_uses_subprocess_not_boto3():
+def test_transcribe_local_module_uses_local_runtime_not_boto3():
     from pathlib import Path
 
-    text = Path("src/interview_mux/stages/transcribe_aws.py").read_text(encoding="utf-8")
+    text = Path("src/interview_mux/stages/transcribe_local.py").read_text(encoding="utf-8")
     assert "boto3" not in text
-    assert "operator_subprocess" in text or "subprocess" in text
+    assert "stt_runner" in text
+    assert "transcribe_audio" in text

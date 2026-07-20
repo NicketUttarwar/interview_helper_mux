@@ -1,15 +1,11 @@
 import type { RunData, StageStep } from "../types";
-import { handoffBetweenStagesEnabled } from "./checkpoint";
 import { isJobActivelyRunning } from "./jobStatus";
-import { pendingWriteInfo, stageAwaitingWriteApproval } from "./writeApproval";
 import { isAutoNavConsumed, markAutoNavConsumed } from "./autoNavigationLedger";
 import { isStageHidden } from "./stageVisibility";
 
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
   transcript_review: "review_transcript",
-  disfluency_review: "review_fillers",
-  analysis_profile: "verify_profile",
   g1_vo_pickup: "continue_delivery",
   g1_5_preview_pickup: "continue_sfx",
 };
@@ -30,10 +26,6 @@ function hasStep(steps: StageStep[], stepId: string): boolean {
   return steps.some((s) => s.id === stepId);
 }
 
-/**
- * Journey substeps are often scoped as `kind:stage_id` (e.g. write_approval:transcribe).
- * Only apply them when the suffix matches the stage being viewed.
- */
 export function journeySubstepForStage(
   activeSubstepId: string | null | undefined,
   stageId: string,
@@ -45,14 +37,10 @@ export function journeySubstepForStage(
   return scopedStageId === stageId ? activeSubstepId : null;
 }
 
-/** Map journey substep ids (write_approval:ingest) to workbench step ids. */
+/** Map journey substep ids to workbench step ids. */
 export function substepIdToStepId(substepId: string | null | undefined): string | null {
   if (!substepId) return null;
-  if (substepId.startsWith("write_approval")) return "write_approval";
-  if (substepId.startsWith("operator_decisions")) return "operator_decisions";
-  if (substepId.startsWith("artifact_clarification")) return "artifact_clarification";
   if (substepId.startsWith("stage_reuse")) return "reuse";
-  if (substepId.startsWith("handoff")) return "handoff";
   if (substepId.startsWith("run:")) return "run";
   if (substepId.startsWith("blocked:")) {
     const bare = substepId.split(":").pop();
@@ -86,39 +74,6 @@ export function resolveFocusStepId(
   if (fromSubstep && (steps.length === 0 || hasStep(steps, fromSubstep))) return fromSubstep;
 
   if (
-    blockingReason === "operator_decisions" ||
-    (Number(job?.pending_decision_count ?? 0) > 0 && job?.stage === stageId)
-  ) {
-    if (hasStep(steps, "operator_decisions")) return "operator_decisions";
-    return "operator_decisions";
-  }
-
-  if (
-    blockingReason === "artifact_clarification" ||
-    (job?.status === "needs_clarification" && job.stage === stageId) ||
-    (Number(job?.itr_blocking_count ?? 0) > 0 && job?.stage === stageId)
-  ) {
-    if (hasStep(steps, "artifact_clarification")) return "artifact_clarification";
-    return "artifact_clarification";
-  }
-
-  const write = pendingWriteInfo(run);
-  const awaitingWrite =
-    write?.stageId === stageId ||
-    stageAwaitingWriteApproval(run, stageId) ||
-    blockingReason === "write_approval" ||
-    stage?.status === "awaiting_write_approval";
-  if (awaitingWrite) {
-    if (hasStep(steps, "artifact_clarification") && (job?.status === "needs_clarification" || Number(job?.itr_blocking_count ?? 0) > 0)) {
-      return "artifact_clarification";
-    }
-    if (hasStep(steps, "write_approval")) return "write_approval";
-    if (write?.paths.length || stage?.status === "awaiting_write_approval") {
-      return "write_approval";
-    }
-  }
-
-  if (
     blockingReason === "llm_gate" ||
     (job?.status === "gate" && job.stage === stageId)
   ) {
@@ -134,35 +89,10 @@ export function resolveFocusStepId(
     if (blockingReason === "stage_reuse" || job?.needs_stage_reuse) return "reuse";
   }
 
-  if (blockingReason === "handoff_review") {
-    if (!handoffBetweenStagesEnabled(run)) {
-      /* first_try skips mid-stage handoff pauses */
-    } else {
-      if (hasStep(steps, "handoff")) return "handoff";
-      return "handoff";
-    }
-  }
-
-  if (
-    handoffBetweenStagesEnabled(run) &&
-    stage?.status === "done" &&
-    run &&
-    !run.handoff_ack?.[stageId]
-  ) {
-    const paths = stage.handoff_paths?.length ?? 0;
-    if (paths > 0 || blockingReason === "handoff_review") {
-      if (hasStep(steps, "handoff")) return "handoff";
-    }
-  }
-
   if (!steps.length) return null;
 
   const jobStage = job?.current_stage || job?.stage;
-  if (
-    jobStage === stageId &&
-    isJobActivelyRunning(job) &&
-    job?.mode !== "write_approval"
-  ) {
+  if (jobStage === stageId && isJobActivelyRunning(job)) {
     const activeRun = steps.find((s) => s.kind === "run" && s.status === "active");
     if (activeRun) return activeRun.id;
     if (hasStep(steps, "wait_run")) return "wait_run";
@@ -221,11 +151,9 @@ export function firstTodoStepId(run: RunData | null, stageId: string | null): st
 }
 
 export interface AdvanceStaleStepOpts {
-  /** Operator explicitly opened a completed/waiting step to review — do not bounce away. */
   userReviewingCompletedStep?: boolean;
 }
 
-/** True when the operator should advance to a different step within the same stage. */
 export function shouldAdvanceStaleStep(
   run: RunData | null,
   stageId: string | null,

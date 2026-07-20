@@ -1037,7 +1037,7 @@ def deterministic_lint(
     routed_via_collate: bool = False,
 ) -> list[str]:
     """Return human-readable lint errors (empty = pass)."""
-    from interview_mux.context_volley import truncation_flags_for_volley
+    from interview_mux.stage_input_helpers import truncation_flags_for_volley
 
     flags = truncation_flags
     if flags is None and volley:

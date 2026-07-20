@@ -29,7 +29,7 @@ Gap-fill and flagship generation: [artifact-generation-and-validation.md](../../
 
 ## Operator gate
 
-G1 — record lines into `vo_pickup/` when `delivery: record`
+G1 — record lines into `vo_pickup/` when `delivery: record` (optional skip). Planned S2S paths for `delivery: synthesize` — [speech-to-speech-vo.md](../../cross-cutting/speech-to-speech-vo.md).
 
 After each pickup (or when all lines are recorded), the operator should be **offered** optional [background noise removal](../audio_preclean/README.md) scoped to **`vo_pickup` only** — common when additional questions are recorded in a home office while the interview was cleaner. This does not force re-cleaning the original interview.
 

@@ -30,6 +30,7 @@ Condensed themes (add rows sparingly). Tier: **T0** quick try, **T1** new artifa
 | Understanding | Prosody / overlap signals to enrich beats and roles — **Spec:** [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) | T0–T1 |
 | Segmentation | Audio + text boundaries (e.g. SSL states), not only pause heuristics | T0 |
 | Gaps / VO | Listener comprehension risk + VO ranked by retell uplift | T0–T1 |
+| Gaps / VO | Local S2S: voice-matched synthesis, VC on pickup, context prosody, tone transfer — **Spec:** [speech-to-speech-vo.md](../cross-cutting/speech-to-speech-vo.md) | T1 |
 | Flow 1 narrative | Pacing + lexical signals for order and transitions — **Spec:** [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) | T1 |
 | Flow 1 sound | CLAP-style semantic retrieval; events (laughter) for sting safety | T1 |
 | Flow 1/2 sound | MMAudio prompt craft + post-gen placement — [local-audio-stack.md](../cross-cutting/local-audio-stack.md) (docs shipped); per-run mix baseline — [source-derived-sonic-mix-profile.md](../cross-cutting/source-derived-sonic-mix-profile.md) | T1 |

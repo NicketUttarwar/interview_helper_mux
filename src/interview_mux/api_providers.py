@@ -20,12 +20,6 @@ PROVIDERS: dict[str, ApiProviderInfo] = {
         description="Analysis, selection, transitions, and show-description stages use the OpenAI API.",
         cost_hint="Billed per token by your OpenAI account.",
     ),
-    "aws": ApiProviderInfo(
-        id="aws",
-        label="AWS Transcribe",
-        description="Speech-to-text with speaker diarization via the AWS CLI.",
-        cost_hint="Billed by AWS for audio minutes transcribed.",
-    ),
 }
 
 
@@ -54,7 +48,6 @@ def stage_api_providers(stage_id: str) -> tuple[str, ...]:
 
 _SECRET_KEYS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
-    "aws": ("AWS_S3_BUCKET",),
 }
 
 

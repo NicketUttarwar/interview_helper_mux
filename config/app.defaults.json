@@ -7,10 +7,6 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
-  "flow2_target_lufs": -14.0,
-  "show_description_min_words": 150,
-  "show_description_max_words": 250,
-  "show_description_target_words": 200,
   "_comment_models": "OpenAI tier routing per stage",
   "models": {
     "tiers": {
@@ -129,14 +125,13 @@
     "max_palettes": 3,
     "max_assets": 6,
     "max_assets_flow1": 6,
-    "max_assets_flow2": 4,
     "use_adaptive_caps": true,
     "placement_qa_enabled": true,
     "block_mix_on_mmaudio_qa_fail": false,
     "one_regen_on_fail": true,
     "first_try_allow_placeholder_mix": true
   },
-  "_comment_soundscape": "Closed-loop soundscape policy (BUILD-SS-01…06)",
+  "_comment_soundscape": "Closed-loop soundscape policy (BUILD-SS-01\u202606)",
   "soundscape": {
     "enabled": true,
     "strict_slots": true,
@@ -147,7 +142,7 @@
       "max_regen_per_asset": 1
     }
   },
-  "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict — production values applied in gap-closure GC-F3",
+  "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict \u2014 production values applied in gap-closure GC-F3",
   "production_style": "documentary_interview",
   "production_profiles": {
     "documentary_interview": {
@@ -173,7 +168,7 @@
         "require_five_act_coverage": true
       },
       "conformance": {
-        "_comment": "Graduated TBIY element inventory thresholds — never flips to documentary",
+        "_comment": "Graduated TBIY element inventory thresholds \u2014 never flips to documentary",
         "thresholds": {
           "frame_talk_present": 0.18,
           "frame_talk_weak": 0.08,
@@ -202,7 +197,7 @@
   "g1_5_preview_pickup": {
     "enabled": true
   },
-  "g1_5_require_prompt_approval": true,
+  "g1_5_require_prompt_approval": false,
   "narrative_qc": {
     "strict": true
   },
@@ -212,13 +207,10 @@
   "edl_narrative_qc": {
     "strict": true
   },
-  "show_notes_qc": {
-    "strict": true
-  },
   "nle_edits": {
     "strict": true
   },
-  "_comment_value_analysis": "Deterministic extract flags — no SSL; specialists excluded (inference)",
+  "_comment_value_analysis": "Deterministic extract flags \u2014 no SSL; specialists excluded (inference)",
   "value_analysis": {
     "enabled": true,
     "spike_scoring": true,
@@ -227,13 +219,13 @@
     "auto_extract_after_content_context": true,
     "orc03_enabled": true
   },
-  "_comment_transcript_review": "G0 queue — salience default (H-G0-01); confidence fallback for A/B",
+  "_comment_transcript_review": "G0 queue \u2014 salience default (H-G0-01); confidence fallback for A/B",
   "transcript_review": {
     "sort_mode": "salience",
     "auto_complete_when_clean": true,
     "low_confidence_threshold": 0.85
   },
-  "_comment_coherence": "H-ORC-03 long-run coherence — 30m gate, composite drift/contradiction/callback",
+  "_comment_coherence": "H-ORC-03 long-run coherence \u2014 30m gate, composite drift/contradiction/callback",
   "coherence": {
     "enabled": true,
     "min_duration_ms": 1800000,
@@ -260,15 +252,10 @@
     "boundary_fusion_min_sources": 1,
     "clap_model_id": "laion/clap-htsat-fused",
     "clap_timeout_sec": 120,
-    "ssl_enabled": false,
-    "flow2_quotability_enabled": false
+    "ssl_enabled": false
   },
   "_comment_local_runtimes": "Isolated venv paths under ASSETS/ (gitignored)",
   "local_runtimes": {
-    "mlx": {
-      "venv_dir": "ASSETS/local_llm/venv",
-      "enabled": true
-    },
     "deepfilter": {
       "venv_dir": "ASSETS/local_deepfilter/venv",
       "enabled": true
@@ -276,7 +263,43 @@
     "mmaudio": {
       "venv_dir": "ASSETS/local_mmaudio/venv",
       "enabled": true
+    },
+    "speech": {
+      "venv_dir": "ASSETS/local_speech/venv",
+      "enabled": true
+    },
+    "llm": {
+      "venv_dir": "ASSETS/local_llm/venv",
+      "enabled": true
+    },
+    "mlx": {
+      "venv_dir": "ASSETS/local_llm/venv",
+      "enabled": true
     }
+  },
+  "_comment_local_speech": "Local mlx-audio STT + S2S (Apple Silicon); replaces AWS Transcribe",
+  "local_speech": {
+    "enabled": true,
+    "models_dir": "ASSETS/local_speech/models",
+    "fail_open": true,
+    "stt_timeout_sec": 3600,
+    "s2s_timeout_sec": 600,
+    "context_clip_enabled": true,
+    "context_clip_min_ms": 2000,
+    "context_clip_max_ms": 8000,
+    "min_reference_sec": 3.0
+  },
+  "_comment_local_llm_block": "Local MLX volley framer (LX-01) — prep only; OpenAI produces artifacts",
+  "local_llm": {
+    "enabled": true,
+    "models_dir": "ASSETS/local_llm/models",
+    "fail_open": true,
+    "max_volley_turns": 4,
+    "max_tokens": 768,
+    "request_timeout_sec": 120,
+    "escalate_on_parse_error": true,
+    "skip_openai_primary_when_local_satisfied": false,
+    "framer_allowlist": []
   },
   "_comment_deepfilter": "Local DeepFilterNet noise reduction (rikorose/deepfilternet clone)",
   "deepfilter": {
@@ -353,80 +376,19 @@
   "web": {
     "api_consent_persist": true
   },
-  "_comment_journey_ui": "Operator journey kernel — phase sidebar, story board",
+  "_comment_journey_ui": "Operator journey kernel \u2014 phase sidebar, story board",
   "journey_ui": {
     "enabled": true,
-    "intent_at_start": true,
     "phase_sidebar": true,
-    "story_board": true,
-    "express_flow1": true,
     "journey_log_filter": false,
     "require_preview_listen": false,
-    "require_handoff_between_stages": true,
     "enable_stage_reuse_offers": true,
     "stage_reuse_lookback_executions": 5,
-    "require_write_approval_per_stage": true,
-    "auto_advance_pipeline": false,
-    "full_autopilot": true,
-    "first_try_mode": true,
-    "defer_write_approval_until": "phase_end",
-    "segmentation_unified_review": true,
-    "preclean_auto_dismiss_when_green": true,
-    "batch_save_phases": [
-      "analysis",
-      "delivery"
-    ]
+    "auto_advance_pipeline": true,
+    "preclean_auto_dismiss_when_green": true
   },
   "_comment_local_llm": "On-device MLX volley framing before OpenAI; quality capability router for allowlisted stages",
-  "local_llm": {
-    "enabled": true,
-    "model_id": "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    "models_dir": "ASSETS/local_llm/models",
-    "max_volley_turns": 2,
-    "max_tokens": 768,
-    "escalate_on_parse_error": true,
-    "min_confidence": 0.6,
-    "skip_openai_primary_when_local_satisfied": false,
-    "apply_to_specialists": true,
-    "apply_to_shards": true,
-    "apply_to_collate": true,
-    "structured_outputs": {
-      "enabled": true,
-      "strict": true,
-      "fail_open_on_verify": true
-    },
-    "capability": {
-      "enabled": true,
-      "max_local_steps": 3,
-      "max_local_retries_per_cap": 0,
-      "planner_fanout_k": 3,
-      "max_enabled_caps": 4,
-      "lx03_min_verify_rate": 0.85,
-      "lx04_min_agreement": 0.95,
-      "lx05_min_verify_rate": 0.85,
-      "allowlist": []
-    }
-  },
   "_comment_disfluency": "Local VAD + Whisper filler detection after G0; optional EDL restore in Flow 1",
-  "disfluency_extract": {
-    "enabled": true,
-    "whisper_model": "base",
-    "compute_type": "int8",
-    "gap_min_ms": 80,
-    "gap_max_ms": 2500,
-    "pad_ms": 80,
-    "min_event_ms": 60,
-    "max_events": 2000,
-    "vad_energy_dbfs": -42.0,
-    "weights_dir": "ASSETS/local_stt/models"
-  },
-  "disfluency_restore": {
-    "enabled": true,
-    "max_inter_segment_gap_ms": 1200,
-    "crossfade_ms": 30,
-    "min_speech_slice_ms": 200,
-    "dedupe_overlap_ms": 40
-  },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
   "analysis": {
     "max_iterations_per_stage": 3,
@@ -541,7 +503,7 @@
     "delivery_brief": {
       "enabled": true,
       "ideal_fraction_of_source": 0.45,
-      "min_ratio_of_source": 0.10,
+      "min_ratio_of_source": 0.1,
       "max_ratio_of_source": 1.0,
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
@@ -552,17 +514,17 @@
       "analysis_timeline_min_coverage_ratio": 0.85,
       "reanchor_min_coverage_ratio": 0.55,
       "reanchor_min_coverage_ratio_max": 0.85,
-      "delivery_output_min_ratio_of_source": 0.10,
+      "delivery_output_min_ratio_of_source": 0.1,
       "delivery_output_ideal_ratio_of_source": 0.45,
       "delivery_output_max_ratio_of_source": 1.0,
       "volley_spread_quartile_min_ratio": 0.25,
-      "volley_hydrate_max_ratio_of_budget": 0.20,
+      "volley_hydrate_max_ratio_of_budget": 0.2,
       "volley_spine_event_max_ratio": 1.0,
-      "gap_fill_max_ratio": 0.20,
-      "fabricate_max_ratio_per_call": 0.20,
-      "fabricate_max_ratio_per_stage": 0.20,
-      "synthetic_edit_max_ratio": 0.20,
-      "listenability_strict_below_output_ratio": 0.40,
+      "gap_fill_max_ratio": 0.2,
+      "fabricate_max_ratio_per_call": 0.2,
+      "fabricate_max_ratio_per_stage": 0.2,
+      "synthetic_edit_max_ratio": 0.2,
+      "listenability_strict_below_output_ratio": 0.4,
       "coherence_risk_max_ratio": 1.0,
       "investigation_drain_max_ratio": 1.0,
       "disfluency_event_max_ratio": 1.0,
@@ -571,9 +533,9 @@
       "shard_batch_ceiling": 12,
       "segments_in_context_max_ratio": 1.0,
       "stage_data_max_ratio_of_model_context": 0.35,
-      "transcript_max_ratio_of_stage_data": 0.60,
+      "transcript_max_ratio_of_stage_data": 0.6,
       "boundary_timeline_coverage_min_ratio": 0.85,
-      "delivery_timeline_min_ratio": 0.10,
+      "delivery_timeline_min_ratio": 0.1,
       "max_chapters_ratio": 0.15,
       "max_highlight_clips_ratio": 0.08,
       "gap_evaluations_max_ratio": 1.0,
@@ -756,5 +718,14 @@
     "hook_reel_enabled": true,
     "require_payoff": false,
     "require_outro": false
+  },
+  "_comment_v2": "Greenfield simplified master podcast app \u2014 see NORTH_STAR.md",
+  "v2": {
+    "enabled": true,
+    "auto_commit_artifacts": true,
+    "g1_optional": true,
+    "llm_max_attempts": 2,
+    "lint_blocking": false,
+    "cross_validate_blocking": false
   }
 }

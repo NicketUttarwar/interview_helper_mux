@@ -1,0 +1,6 @@
+# ASSETS/local_speech/venv — macOS Apple Silicon STT + S2S (mlx-audio)
+mlx-audio>=0.2.7
+mlx>=0.22.0
+huggingface_hub>=0.26.0,<1
+soundfile>=0.12.1
+numpy>=1.26.0

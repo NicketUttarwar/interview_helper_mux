@@ -6565,6 +6565,18 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   font-weight: 600;
 }
 
+.preview-listen-audio--compact {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
+  height: 28px;
+}
+
+.sfx-post-listen-player {
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
 .pipeline-step-list-head {
   display: flex;
   align-items: center;
@@ -7425,5 +7437,95 @@ button.pipeline-step-row:focus-visible,
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.g1-v2-actions {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.phase-workbench {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.phase-workbench-nav {
+  border-right: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  padding-right: 0.5rem;
+}
+
+.phase-workbench-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.phase-workbench-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.phase-workbench-item.active {
+  border-color: var(--accent, #6ea8fe);
+  background: rgba(110, 168, 254, 0.08);
+}
+
+.phase-workbench-item.status-done .phase-workbench-num {
+  opacity: 0.65;
+}
+
+.phase-workbench-num {
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-width: 1.25rem;
+}
+
+.phase-workbench-label {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+.phase-workbench-tag {
+  font-size: 0.65rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.phase-workbench-main {
+  min-width: 0;
+}
+
+.phase-workbench-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.phase-workbench-lineage-warnings {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-warning-border, #c9a227);
+  background: var(--color-warning-bg, rgba(201, 162, 39, 0.12));
+  font-size: 0.875rem;
+}
+
+.phase-workbench-lineage-warnings ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
 }
 

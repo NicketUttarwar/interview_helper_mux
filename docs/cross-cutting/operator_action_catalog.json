@@ -176,6 +176,38 @@
     "doc_link": "docs/workflows/first-try-reliability.md"
   },
   {
+    "action_id": "write_staging.batch_approve",
+    "description": "Auto-commit batch flush of staged writes",
+    "implementation": "write_staging.approve_batch_stage_writes",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "write_staging.flush",
+    "description": "Flush staged writes to committed artifacts",
+    "implementation": "write_staging.flush_stage_writes",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "classification.topic_tag_bootstrap",
+    "description": "Deterministic topic tag bootstrap after segment classification",
+    "implementation": "topic_tag_bootstrap.bootstrap_manifest_topic_tags",
+    "stage": "segment_classification",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "reanchor.topic_tag_bootstrap",
+    "description": "Deterministic topic tag bootstrap after content brief reanchor",
+    "implementation": "topic_tag_bootstrap.bootstrap_manifest_topic_tags",
+    "stage": "content_brief_reanchor",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
     "action_id": "gui.g1.skip_optional",
     "description": "Skip non-blocking G1 VO lines",
     "implementation": "frontend/src/components/gates/VoPickupPanel.tsx",
@@ -545,10 +577,42 @@
     "doc_link": ""
   },
   {
-    "action_id": "subprocess.aws_transcribe",
-    "description": "AWS Transcribe CLI job",
-    "implementation": "transcribe_aws",
-    "stage": "*",
+    "action_id": "subprocess.local_stt",
+    "description": "Local MLX STT subprocess (mlx-audio)",
+    "implementation": "stt_runner",
+    "stage": "transcribe",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "subprocess.local_s2s",
+    "description": "Local MLX S2S subprocess (mlx-audio TTS)",
+    "implementation": "s2s_runner",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1.vo.synthesize",
+    "description": "Synthesize gap VO line in host voice",
+    "implementation": "web/server.py",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1.vo.match",
+    "description": "Voice-match uploaded rough VO take",
+    "implementation": "web/server.py",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1.vo.tone",
+    "description": "Re-render gap VO with suggested tone",
+    "implementation": "web/server.py",
+    "stage": "g1_vo_pickup",
     "origin": "gui",
     "doc_link": ""
   },

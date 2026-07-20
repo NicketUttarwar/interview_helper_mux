@@ -1,37 +1,22 @@
 import type { AppConfig, RunData } from "../types";
-import { findHandoffStage } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
 import {
   stageArtifactsFullyComplete,
   upstreamArtifactsReady,
   firstUpstreamBlocker,
 } from "./stageOutputs";
-import { pendingWriteInfo } from "./writeApproval";
-import { isFullAutopilotEnabled } from "./fullAutopilot";
 import { gapFillSkipped } from "./stageVisibility";
 
 /** Stages that need operator checkpoints — autopilot focuses but does not auto-run. */
 export const MANUAL_CHECKPOINT_STAGES = new Set([
   "transcript_review",
-  "disfluency_review",
   "g1_vo_pickup",
 ]);
 
-const LEGACY_MANUAL_BLOCKING = new Set([
-  "artifact_clarification",
-  "downstream_propagation",
-  "analysis_profile",
-]);
-
-const FULL_AUTOPILOT_MANUAL_BLOCKING = new Set([
-  "operator_decisions",
-]);
-
-const SHARED_MANUAL_BLOCKING = new Set([
+const MANUAL_BLOCKING = new Set([
   "stage_reuse",
   "llm_gate",
   "transcript_review",
-  "disfluency_review",
   "g1_vo_pickup",
   "gate",
 ]);
@@ -44,27 +29,6 @@ function firstTryEnabled(config?: AppConfig | null, run?: RunData): boolean {
   return run?.journey?.first_try?.enabled !== false;
 }
 
-function writeApprovalDeferred(config?: AppConfig | null, run?: RunData): boolean {
-  if (run?.journey?.first_try?.write_approval_deferred) return true;
-  const ju = config?.journey_ui as { defer_write_approval_until?: string; first_try_mode?: boolean } | undefined;
-  if (ju?.defer_write_approval_until === "phase_end") return true;
-  return firstTryEnabled(config, run) && ju?.defer_write_approval_until !== "off";
-}
-
-function manualBlockingReasons(config?: AppConfig | null): Set<string> {
-  const reasons = new Set(SHARED_MANUAL_BLOCKING);
-  if (isFullAutopilotEnabled(config)) {
-    for (const r of FULL_AUTOPILOT_MANUAL_BLOCKING) reasons.add(r);
-  } else {
-    for (const r of LEGACY_MANUAL_BLOCKING) reasons.add(r);
-  }
-  if (!firstTryEnabled(config)) {
-    reasons.add("write_approval");
-    reasons.add("analysis_profile");
-  }
-  return reasons;
-}
-
 export function isPipelineAutopilotEnabled(config?: AppConfig | null): boolean {
   if (config?.journey_ui?.enabled === false) return false;
   return config?.journey_ui?.auto_advance_pipeline !== false;
@@ -73,7 +37,6 @@ export function isPipelineAutopilotEnabled(config?: AppConfig | null): boolean {
 export function canAutoRunStage(stageId: string, run?: RunData, config?: AppConfig | null): boolean {
   if (MANUAL_CHECKPOINT_STAGES.has(stageId)) {
     if (!run || !firstTryEnabled(config, run)) return false;
-    if (stageId === "disfluency_review") return true;
     if (stageId === "transcript_review") {
       return run.journey?.blocking?.reason !== "transcript_review";
     }
@@ -120,28 +83,15 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
   return `${base}/${rel}`;
 }
 
-/** True when autopilot must not start the next stage job (reuse, gates, write approval, etc.). */
+/** True when autopilot must not start the next stage job (reuse, gates, etc.). */
 export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null): boolean {
-  const write = pendingWriteInfo(run);
-  if (write?.stageId && !writeApprovalDeferred(config, run)) return true;
-
-  if (findHandoffStage(run)) return true;
-
+  void config;
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) {
     if (run.job?.needs_stage_reuse) return true;
     if (run.job?.status === "gate" || run.job?.status === "needs_operator") return true;
-    if (!isFullAutopilotEnabled(config) && run.job?.status === "needs_clarification") {
-      return true;
-    }
-    if (isFullAutopilotEnabled(config)) {
-      const pending = Number(run.job?.pending_decision_count ?? 0);
-      if (pending > 0) return true;
-    }
-    if (
-      (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) &&
-      !writeApprovalDeferred(config, run)
-    ) {
+    if (run.job?.status === "needs_clarification") return true;
+    if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {
       return true;
     }
     if (Number(run.job?.sufficiency_blocking ?? 0) > 0) {
@@ -152,7 +102,7 @@ export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null):
 
   const reason = blocking.reason || "";
   if (reason === "handoff_review" || reason === "llm_degraded_review") return false;
-  return manualBlockingReasons(config).has(reason);
+  return MANUAL_BLOCKING.has(reason);
 }
 
 /** @deprecated Use autopilotBlocksAutoRun — kept for existing imports. */
@@ -161,12 +111,6 @@ export function autopilotBlockedByRun(run: RunData): boolean {
 }
 
 function autopilotBlocksNavigationFromStage(run: RunData, completedStageId: string): boolean {
-  const write = pendingWriteInfo(run);
-  if (write?.paths.length && write.stageId === completedStageId) return true;
-
-  const handoff = findHandoffStage(run);
-  if (handoff?.id === completedStageId) return true;
-
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) {
     if (run.job?.status === "awaiting_write_approval" || run.job?.awaiting_write_approval) {

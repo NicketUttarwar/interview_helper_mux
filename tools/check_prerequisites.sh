@@ -6,7 +6,6 @@ cd "$ROOT"
 echo "Checking prerequisites..."
 command -v ffmpeg >/dev/null || { echo "Missing ffmpeg"; exit 1; }
 command -v ffprobe >/dev/null || { echo "Missing ffprobe"; exit 1; }
-command -v aws >/dev/null || { echo "Missing aws CLI"; exit 1; }
 PY="${PYTHON:-/opt/homebrew/bin/python3.12}"
 command -v "$PY" >/dev/null || PY=python3
 "$PY" --version
@@ -19,7 +18,7 @@ if [[ -d .venv ]]; then
     echo "Running ruff F821 (undefined names)..."
     python -m ruff check src tests --select F821
   else
-    echo "WARN: ruff not installed — re-run: ./scripts/install.sh"
+    echo "WARN: ruff not installed — re-run: ./scripts/bootstrap_venv.sh"
     if [[ "${CI:-0}" == "1" ]]; then
       echo "CI requires ruff; install dev extras"
       exit 1
@@ -121,24 +120,13 @@ print("pip-audit: no unaccepted HIGH/CRITICAL findings")
 PY
 fi
 
-if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
-  MLX_PY="$ROOT/ASSETS/local_llm/venv/bin/python"
-  if [[ ! -x "$MLX_PY" ]]; then
-    echo "WARN: MLX venv missing at ASSETS/local_llm/venv — re-run ./scripts/bootstrap_venv.sh"
-  elif ! "$MLX_PY" -c "import mlx_lm" 2>/dev/null; then
-    echo "WARN: local_llm enabled but mlx-lm missing in MLX venv — re-run ./scripts/bootstrap_venv.sh"
-  else
-    if ! command -v llmfit >/dev/null 2>&1; then
-      echo "WARN: llmfit not on PATH — install: brew install AlexsJones/llmfit/llmfit (or see SETUP.md § Local LLM)"
-    fi
-    if [[ ! -d ASSETS/local_llm/models ]] || [[ -z "$(ls -A ASSETS/local_llm/models 2>/dev/null)" ]]; then
-      echo "WARN: local LLM weights not found under ASSETS/local_llm/models — run: python scripts/select_local_llm.py --download"
-    fi
-  fi
-fi
-
 if [[ "${CHECK_LOCAL_RUNTIMES:-0}" == "1" ]]; then
   bash "$ROOT/scripts/verify_local_models.sh"
+elif [[ -d .venv ]]; then
+  MM_PY="$ROOT/ASSETS/local_mmaudio/venv/bin/python"
+  if [[ ! -x "$MM_PY" ]]; then
+    echo "WARN: MMAudio venv missing — run ./scripts/bootstrap_venv.sh before SFX stages"
+  fi
 fi
 
 _STATIC_INDEX="$ROOT/src/interview_mux/web/static/index.html"
@@ -150,18 +138,18 @@ PY
   then
     if [[ "${CHECK_GUI_BUNDLE:-0}" == "1" ]]; then
       echo "ERROR: GUI static bundle missing or incomplete (index.html references assets not on disk)." >&2
-      echo "  Run: ./scripts/build_gui.sh" >&2
-      echo "  See SETUP.md § GUI dependencies" >&2
+      echo "  Run: ./scripts/bootstrap_venv.sh" >&2
+      echo "  Or: MUX_REBUILD_GUI=1 ./scripts/run.sh" >&2
       exit 1
     fi
-    echo "WARN: GUI static bundle missing or incomplete — run ./scripts/build_gui.sh before ./scripts/run.sh"
+    echo "WARN: GUI static bundle missing or incomplete — run ./scripts/bootstrap_venv.sh"
   fi
 elif [[ ! -f "$_STATIC_INDEX" ]]; then
   if [[ "${CHECK_GUI_BUNDLE:-0}" == "1" ]]; then
     echo "ERROR: GUI static bundle not built (no .venv to verify; missing $_STATIC_INDEX)" >&2
     exit 1
   fi
-  echo "WARN: GUI static bundle may be missing — run ./scripts/build_gui.sh after bootstrap"
+  echo "WARN: GUI static bundle may be missing — run ./scripts/bootstrap_venv.sh"
 fi
 
 echo "Prerequisites OK."

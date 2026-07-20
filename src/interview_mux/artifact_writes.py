@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from interview_mux.artifact_repairs import is_manifest_segment_id
 from interview_mux.null_field_policy import omit_nullable_null_leaves_for_disk, stage_key_for_artifact_path
 from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.run_context import RunContext
@@ -80,6 +81,30 @@ def _prepare_segment_artifact(
     return out
 
 
+def _validate_canonical_segment_ids(rel_path: str, out: dict[str, Any]) -> None:
+    from interview_mux.segment_timeline_standard import segmentation_cfg
+
+    if not segmentation_cfg().get("enforce_canonical_segment_id_format", True):
+        return
+    bad: list[str] = []
+    if rel_path == "segments/boundaries.json":
+        for row in out.get("boundaries") or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                sid = str(row["segment_id"])
+                if not is_manifest_segment_id(sid):
+                    bad.append(sid)
+    elif rel_path == "segments/manifest.json":
+        for row in out.get("segments") or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                sid = str(row["segment_id"])
+                if not is_manifest_segment_id(sid):
+                    bad.append(sid)
+    if bad:
+        raise ValueError(
+            f"{rel_path}: non-canonical segment_id format(s): {', '.join(sorted(set(bad))[:4])}"
+        )
+
+
 def write_validated_artifact(
     ctx: RunContext,
     rel_path: str,
@@ -105,6 +130,12 @@ def write_validated_artifact(
         out = merge_artifact(rel_path, existing, data, stage_key=stage_key)
 
     out = _prepare_segment_artifact(ctx, rel_path, out, stage_key=stage_key)
+    _validate_canonical_segment_ids(rel_path, out)
+
+    if rel_path == "segments/boundaries.json":
+        from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
+
+        sync_content_brief_topic_segment_ids(ctx)
 
     if rel_path == "segments/manifest.json":
         pass  # already hydrated in _prepare_segment_artifact

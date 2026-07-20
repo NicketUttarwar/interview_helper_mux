@@ -36,7 +36,7 @@ if missing:
 if not bundle_contract_ok(root):
     print(
         "GUI bundle is missing required checkpoint API markers "
-        "(expected continue-after-checkpoint in primary JS).",
+        "(expected advanceFromCheckpoint in primary JS).",
         file=sys.stderr,
     )
     raise SystemExit(1)

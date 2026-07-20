@@ -12,6 +12,26 @@ from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 
+
+def _read_stage_artifact(
+    ctx: RunContext,
+    stage_key: str,
+    *,
+    staged: bool = True,
+) -> tuple[str | None, dict[str, Any] | None]:
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+    from interview_mux.write_staging import read_pending_json, staged_path
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
+    if not rel:
+        return None, None
+    if staged and staged_path(ctx, rel, stage_id=stage_key).is_file():
+        return rel, read_pending_json(ctx, stage_key, rel)
+    if ctx.artifact_exists(rel):
+        return rel, ctx.read_json(rel)
+    return None, None
+
+
 _cross_validate_overlay_stage: ContextVar[str | None] = ContextVar(
     "cross_validate_overlay_stage",
     default=None,
@@ -84,6 +104,9 @@ HARD_CHECKPOINTS = frozenset(
         "pre_master_finalize",
         "post_ranking",
         "post_edl_audit_fail",
+        "post_coverage_audit",
+        "post_episode_structure",
+        "post_edl",
     }
 )
 
@@ -103,7 +126,9 @@ STAGE_CHECKPOINTS: dict[str, str] = {
     "sound_design_plan": "post_sound_plan",
     "sfx_prompt_craft": "pre_sfx_generation",
     "edl_narrative_audit": "post_edl_audit",
-    "topic_coverage_audit": "post_coherence",
+    "topic_coverage_audit": "post_coverage_audit",
+    "episode_structure_compose": "post_episode_structure",
+    "edl": "post_edl",
     "mmaudio_sfx": "pre_mix",
     "master_finalize": "pre_master_finalize",
 }
@@ -140,8 +165,6 @@ def validate_cross_artifacts_for_stage(
     if not staged:
         return validate_cross_artifacts(ctx, checkpoint)
     if checkpoint == "post_boundary_detection":
-        from interview_mux.artifact_issue_triage import _read_stage_artifact
-
         _rel, doc = _read_stage_artifact(ctx, stage_key, staged=True)
         if not doc:
             return ["no staged boundaries artifact"]
@@ -174,6 +197,12 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         return _validate_post_interview_spine(ctx)
     if checkpoint == "post_coherence":
         return _validate_post_coherence(ctx)
+    if checkpoint == "post_coverage_audit":
+        return _validate_post_coverage_audit(ctx)
+    if checkpoint == "post_episode_structure":
+        return _validate_post_episode_structure(ctx)
+    if checkpoint == "post_edl":
+        return _validate_post_edl(ctx)
     if checkpoint == "post_sound_plan" or checkpoint == "post_sound_plan_flow1":
         from interview_mux.sdp_cross_validate import validate_post_sound_plan
 
@@ -260,37 +289,15 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
             status = artifact_status("segments/manifest.json", ctx)
             if status != "complete":
                 ctx.log(
-                    f"Cross-artifact validation skipped ({checkpoint}): manifest status={status}",
-                    level="info",
+                    f"Cross-artifact validation partial ({checkpoint}): manifest status={status}",
+                    level="warning",
                     stage=stage_key,
-                    action_id="segment.cross_validate.skip",
+                    action_id="segment.cross_validate.partial",
                     detail={"manifest_status": status, "checkpoint": checkpoint},
                 )
-                return
+                hard = False
         if hard:
             from interview_mux.operator_recovery import log_operator_halt
-
-            fh = flow_hardening_cfg()
-            if fh.get("clarification_before_halt", True):
-                from interview_mux.artifact_issue_triage import (
-                    run_triage_pipeline,
-                    triage_enabled,
-                    set_clarification_gate,
-                )
-
-                if triage_enabled():
-                    result = run_triage_pipeline(ctx, stage_key, staged=True)
-                    if result.revalidation_ok and result.open_blocking == 0:
-                        return
-                    set_clarification_gate(
-                        ctx,
-                        stage_key,
-                        message=(
-                            f"Cross-artifact validation failed ({checkpoint}): {summary}. "
-                            "Resolve issues in the clarification panel."
-                        ),
-                    )
-                    return
 
             log_operator_halt(
                 ctx,
@@ -374,8 +381,6 @@ def _validate_post_boundary(ctx: RunContext) -> list[str]:
     return _validate_boundary_document(doc)
 
 def _read_boundaries_for_cross_validate(ctx: RunContext) -> dict[str, Any] | None:
-    from interview_mux.artifact_issue_triage import _read_stage_artifact
-
     _rel, staged = _read_stage_artifact(ctx, "boundary_detection", staged=True)
     if isinstance(staged, dict):
         return staged
@@ -396,14 +401,19 @@ def _validate_post_segmentation(ctx: RunContext) -> list[str]:
         return ["segments/manifest.json has no segment_ids"]
 
     boundaries = _committed_json(ctx, "segments/boundaries.json")
+    boundary_ids: set[str] = set()
     if isinstance(boundaries, dict):
         errors.extend(_validate_boundary_document(boundaries))
         for b in boundaries.get("boundaries") or []:
             if not isinstance(b, dict):
                 continue
             seg_id = str(b.get("segment_id") or "")
+            if seg_id:
+                boundary_ids.add(seg_id)
             if seg_id and seg_id not in manifest_ids:
                 errors.append(f"boundary segment_id {seg_id} not in manifest")
+        for sid in sorted(manifest_ids - boundary_ids):
+            errors.append(f"manifest segment_id {sid} not in boundaries")
 
     from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
 
@@ -427,8 +437,6 @@ def _validate_post_segmentation(ctx: RunContext) -> list[str]:
 
 def _validate_post_segmentation_staged(ctx: RunContext) -> list[str]:
     """post_segmentation cross-check using staged manifest when present."""
-    from interview_mux.artifact_issue_triage import _read_stage_artifact
-
     errors: list[str] = []
     _rel, manifest = _read_stage_artifact(ctx, "segment_classification", staged=True)
     if not manifest:
@@ -441,14 +449,19 @@ def _validate_post_segmentation_staged(ctx: RunContext) -> list[str]:
         return ["segments/manifest.json has no segment_ids"]
 
     boundaries = _read_boundaries_for_cross_validate(ctx)
+    boundary_ids: set[str] = set()
     if boundaries:
         errors.extend(_validate_boundary_document(boundaries))
         for b in boundaries.get("boundaries") or []:
             if not isinstance(b, dict):
                 continue
             seg_id = str(b.get("segment_id") or "")
+            if seg_id:
+                boundary_ids.add(seg_id)
             if seg_id and seg_id not in manifest_ids:
                 errors.append(f"boundary segment_id {seg_id} not in manifest")
+        for sid in sorted(manifest_ids - boundary_ids):
+            errors.append(f"manifest segment_id {sid} not in boundaries")
 
     from interview_mux.segment_timeline import validate_timeline_monotonic, segment_timeline_cfg
 
@@ -474,11 +487,33 @@ def _validate_post_reanchor(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/content_brief.json"):
         return ["understanding/content_brief.json missing"]
     brief = ctx.read_json("understanding/content_brief.json")
+    errors: list[str] = []
     gap_objs = compute_gaps("understanding/content_brief.json", brief)
-    if not gap_objs:
-        return []
-    paths = [g.path if hasattr(g, "path") else str(g) for g in gap_objs]
-    return [f"content_brief reanchor incomplete: {', '.join(paths[:6])}"]
+    if gap_objs:
+        paths = [g.path if hasattr(g, "path") else str(g) for g in gap_objs]
+        errors.append(f"content_brief reanchor incomplete: {', '.join(paths[:6])}")
+    manifest_ids = _manifest_segment_ids(ctx)
+    if manifest_ids:
+        from interview_mux.artifact_repairs import is_manifest_segment_id
+
+        for i, topic in enumerate(brief.get("topics") or []):
+            if not isinstance(topic, dict):
+                continue
+            for seg_id in topic.get("segment_ids") or []:
+                s = str(seg_id)
+                if not is_manifest_segment_id(s):
+                    errors.append(f"content_brief topics[{i}] invalid segment_id format: {s}")
+                elif s not in manifest_ids:
+                    errors.append(f"content_brief topics[{i}] orphan segment_id {s}")
+        for i, claim in enumerate(brief.get("key_claims") or []):
+            if not isinstance(claim, dict):
+                continue
+            for key in ("segment_ids", "evidence_segment_ids"):
+                for seg_id in claim.get(key) or []:
+                    s = str(seg_id)
+                    if manifest_ids and s not in manifest_ids:
+                        errors.append(f"content_brief key_claims[{i}] orphan {key} {s}")
+    return errors
 
 def _validate_post_gaps(ctx: RunContext) -> list[str]:
     manifest_ids = _manifest_segment_ids(ctx)
@@ -554,7 +589,14 @@ def _validate_post_optimal_questions(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return ["understanding/gap_report.json missing"]
     report = ctx.read_json("understanding/gap_report.json")
-    lines = report.get("lines") or report.get("gaps") or [] if isinstance(report, dict) else []
+    lines = (
+        report.get("interviewer_lines")
+        or report.get("lines")
+        or report.get("gaps")
+        or []
+        if isinstance(report, dict)
+        else []
+    )
     eval_ids: set[str] = set()
     if ctx.artifact_exists("understanding/gap_evaluations.json"):
         evals = ctx.read_json("understanding/gap_evaluations.json")
@@ -569,9 +611,9 @@ def _validate_post_optimal_questions(ctx: RunContext) -> list[str]:
     for i, row in enumerate(lines):
         if not isinstance(row, dict):
             continue
-        sid = str(row.get("segment_id") or "")
+        sid = str(row.get("targets_segment_id") or row.get("segment_id") or "")
         if sid and eval_ids and sid not in eval_ids:
-            errors.append(f"gap_report lines[{i}] segment_id {sid} not in gap_evaluations")
+            errors.append(f"gap_report interviewer_lines[{i}] segment_id {sid} not in gap_evaluations")
         script = str(row.get("script") or row.get("suggested_line") or row.get("text") or "")
         words = len(script.split()) if script else 0
         kind = str(row.get("kind") or row.get("role") or "").lower()
@@ -709,6 +751,92 @@ def _validate_post_coherence(ctx: RunContext) -> list[str]:
     if not (report.get("gate") or {}).get("activated"):
         return []
     return validate_coherence_report(report)[:4]
+
+
+def _validate_post_coverage_audit(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    coherence_errors = _validate_post_coherence(ctx)
+    errors.extend(coherence_errors)
+    manifest_ids = _manifest_segment_ids(ctx)
+    if not manifest_ids:
+        return errors or ["segments/manifest.json has no segment_ids"]
+    if not ctx.artifact_exists("master/coverage_audit.json"):
+        return errors or ["master/coverage_audit.json missing"]
+    doc = ctx.read_json("master/coverage_audit.json")
+    if not isinstance(doc, dict):
+        return errors + ["coverage_audit is not an object"]
+    all_mapped: set[str] = set()
+    for i, row in enumerate(doc.get("topic_mappings") or []):
+        if not isinstance(row, dict):
+            continue
+        for sid in row.get("segment_ids") or []:
+            s = str(sid)
+            all_mapped.add(s)
+            if s not in manifest_ids:
+                errors.append(f"coverage_audit topic_mappings[{i}] segment_id {s} not in manifest")
+    for i, row in enumerate(doc.get("claim_mappings") or []):
+        if not isinstance(row, dict):
+            continue
+        for sid in row.get("segment_ids") or []:
+            s = str(sid)
+            all_mapped.add(s)
+            if s not in manifest_ids:
+                errors.append(f"coverage_audit claim_mappings[{i}] segment_id {s} not in manifest")
+    orphan_field = doc.get("orphan_segment_ids")
+    if isinstance(orphan_field, list):
+        for sid in orphan_field:
+            s = str(sid)
+            if s in all_mapped:
+                errors.append(f"coverage_audit orphan_segment_ids lists mapped segment {s}")
+            elif s not in manifest_ids:
+                errors.append(f"coverage_audit orphan_segment_ids {s} not in manifest")
+    computed_orphans = sorted(manifest_ids - all_mapped)
+    if computed_orphans and not orphan_field:
+        ctx.log(
+            f"coverage_audit: {len(computed_orphans)} manifest segment(s) unmapped in topic/claim mappings",
+            level="info",
+            stage="topic_coverage_audit",
+        )
+    return errors
+
+
+def _validate_post_episode_structure(ctx: RunContext) -> list[str]:
+    errors: list[str] = []
+    path = "understanding/episode_structure.json"
+    if not ctx.artifact_exists(path):
+        return ["understanding/episode_structure.json missing"]
+    doc = ctx.read_json(path)
+    if not isinstance(doc, dict):
+        return ["episode_structure is not an object"]
+    manifest_ids = _manifest_segment_ids(ctx)
+    if not manifest_ids:
+        return errors
+    for sid in doc.get("segment_order") or []:
+        s = str(sid)
+        if s not in manifest_ids:
+            errors.append(f"episode_structure segment_order {s} not in manifest")
+    hook = (doc.get("hook_reel") or {}) if isinstance(doc.get("hook_reel"), dict) else {}
+    hook_id = str(hook.get("segment_id") or "").strip()
+    if hook_id and hook_id not in manifest_ids:
+        errors.append(f"episode_structure hook_reel.segment_id {hook_id} not in manifest")
+    for i, slot in enumerate(doc.get("slot_plan") or []):
+        if not isinstance(slot, dict):
+            continue
+        for sid in slot.get("bound_segment_ids") or []:
+            s = str(sid)
+            if s not in manifest_ids:
+                errors.append(f"episode_structure slot_plan[{i}] bound_segment_id {s} not in manifest")
+    return errors
+
+
+def _validate_post_edl(ctx: RunContext) -> list[str]:
+    from interview_mux.edl_qc import validate_flow1_edl
+
+    if not ctx.artifact_exists("master/edl.json"):
+        return ["master/edl.json missing"]
+    edl = ctx.read_json("master/edl.json")
+    return validate_flow1_edl(ctx, edl)
+
 
 def invalidate_stage_summaries(ctx: RunContext, stage_keys: tuple[str, ...]) -> None:
     """Remove stale stage summaries after manifest mutation."""

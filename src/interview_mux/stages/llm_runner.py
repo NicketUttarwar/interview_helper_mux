@@ -290,7 +290,7 @@ def _execute_openai_envelope_call(
     if ctx:
         from interview_mux.operator_trace import log_api_call
 
-        from interview_mux.context_volley import truncation_flags_for_volley
+        from interview_mux.stage_input_helpers import truncation_flags_for_volley
 
         volley_for_flags = messages or []
         log_api_call(
@@ -417,7 +417,7 @@ def _execute_openai_envelope_call(
         "verification": verification_to_record_dict(verification),
     }
     if ctx:
-        from interview_mux.context_volley import truncation_flags_for_volley
+        from interview_mux.stage_input_helpers import truncation_flags_for_volley
         from interview_mux.llm_call_record import llm_call_records_enabled, record_llm_call
 
         if llm_call_records_enabled():

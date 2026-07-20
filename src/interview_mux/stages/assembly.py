@@ -14,9 +14,6 @@ from interview_mux.nle_state import (
 )
 from interview_mux.operator_trace import logged_step
 from interview_mux.prompt_validation import validate_edl
-from interview_mux.disfluency.config import disfluency_restore_enabled, restore_settings
-from interview_mux.disfluency.extract import confirmed_events, load_disfluencies
-from interview_mux.disfluency.restore import build_restore_plan, split_speech_with_disfluencies
 from interview_mux.run_context import RunContext
 
 
@@ -43,14 +40,16 @@ def _wav_duration_ms(path: Path) -> int:
 
 
 def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
-    """Resolve pickup WAV for a gap line (clean/ preferred when present)."""
+    """Resolve pickup WAV for a gap line (matched/synthesized/clean preferred)."""
     pickup = ctx.final_path("vo_pickup")
+    matched = pickup / "matched"
+    synthesized = pickup / "synthesized"
     clean = pickup / "clean"
     normalized = pickup / "normalized"
     lid = line.get("line_id", "")
     seg = line.get("targets_segment_id", "")
     bases: list[Path] = []
-    for candidate in (normalized, clean, pickup):
+    for candidate in (matched, synthesized, normalized, clean, pickup):
         if candidate.is_dir():
             bases.append(candidate)
     if not bases:
@@ -83,7 +82,7 @@ def _gap_lines_for_segment(
             continue
         if line.get("placement", "before") != placement:
             continue
-        if line.get("delivery") != "record":
+        if line.get("delivery") != "record" and line.get("delivery") != "synthesize":
             continue
         out.append(line)
     return out
@@ -112,9 +111,6 @@ def build_flow1_edl(
     resolve_vo_path: Callable[[dict], Path | None] | None = None,
     vo_relpath: Callable[[Path], str] | None = None,
     vo_duration_ms: Callable[[Path], int] | None = None,
-    disfluency_events: list[dict] | None = None,
-    restore_enabled: bool = False,
-    restore_cfg: dict | None = None,
 ) -> dict:
     """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors."""
     ordered = list(selection.get("ordered_segment_ids") or [])
@@ -123,6 +119,7 @@ def build_flow1_edl(
     timeline_ms = 0
     missing_vo: list[str] = []
     missing_targets: list[str] = []
+    missing_segments: list[str] = []
 
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
@@ -133,12 +130,11 @@ def build_flow1_edl(
                 missing_targets.append(target)
 
     duration_fn = vo_duration_ms or _wav_duration_ms
-    disfluency_cfg = restore_cfg or restore_settings()
-    use_restore = bool(restore_enabled and disfluency_events)
 
     for idx, sid in enumerate(ordered):
         seg = segments_by_id.get(sid)
         if not seg:
+            missing_segments.append(sid)
             continue
 
         for line in _gap_lines_for_segment(gap_report, sid, "before"):
@@ -173,28 +169,17 @@ def build_flow1_edl(
             timeline_ms += dur
 
         speech_dur = int(seg["end_ms"]) - int(seg["start_ms"])
-        if use_restore:
-            speech_clips, timeline_ms = split_speech_with_disfluencies(
-                segment_id=sid,
-                seg_start_ms=int(seg["start_ms"]),
-                seg_end_ms=int(seg["end_ms"]),
-                events=disfluency_events or [],
-                timeline_ms=timeline_ms,
-                settings=disfluency_cfg,
-            )
-            clips.extend(speech_clips)
-        else:
-            clips.append(
-                {
-                    "segment_id": sid,
-                    "source_start_ms": seg["start_ms"],
-                    "source_end_ms": seg["end_ms"],
-                    "timeline_start_ms": timeline_ms,
-                    "duration_ms": speech_dur,
-                    "type": "speech",
-                }
-            )
-            timeline_ms += speech_dur
+        clips.append(
+            {
+                "segment_id": sid,
+                "source_start_ms": seg["start_ms"],
+                "source_end_ms": seg["end_ms"],
+                "timeline_start_ms": timeline_ms,
+                "duration_ms": speech_dur,
+                "type": "speech",
+            }
+        )
+        timeline_ms += speech_dur
 
         for line in _gap_lines_for_segment(gap_report, sid, "after"):
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
@@ -243,7 +228,6 @@ def build_flow1_edl(
                     }
                 )
 
-    disfluency_clip_count = sum(1 for c in clips if c.get("type") == "disfluency")
     return {
         "version": 1,
         "ordered_segment_ids": ordered,
@@ -253,11 +237,10 @@ def build_flow1_edl(
         "gap_report_line_count": len((gap_report or {}).get("interviewer_lines") or []),
         "vo_pickup_clip_count": sum(1 for c in clips if c.get("type") == "vo_pickup"),
         "transition_clip_count": sum(1 for c in clips if c.get("type") == "transition"),
-        "disfluency_clip_count": disfluency_clip_count,
-        "disfluency_restore_enabled": use_restore,
         "warnings": {
             "missing_vo_files": sorted(set(missing_vo)),
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
+            "missing_segment_lookups": sorted(set(missing_segments)),
         },
         "mux_scope": "full_mix",
     }
@@ -300,20 +283,6 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("master/transitions.json")
             else None
         )
-        run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        restore_on = disfluency_restore_enabled(run_meta=run_meta)
-        disfluencies = load_disfluencies(ctx) if ctx.artifact_exists("transcript/disfluencies.json") else {}
-        confirmed = confirmed_events(disfluencies) if restore_on else []
-        restore_cfg = restore_settings()
-
-    with logged_step("edl/build_restore_plan", ctx=ctx, stage="edl"):
-        plan = build_restore_plan(
-            ordered_segment_ids=list(selection.get("ordered_segment_ids") or []),
-            segments_by_id=by_id,
-            disfluencies=disfluencies,
-            settings=restore_cfg,
-        )
-        ctx.write_json("master/disfluency_restore_plan.json", plan)
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         edl = build_flow1_edl(
@@ -323,12 +292,14 @@ def run_edl(ctx: RunContext) -> None:
             transitions=transitions,
             resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
             vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
-            disfluency_events=confirmed,
-            restore_enabled=restore_on and bool(confirmed),
-            restore_cfg=restore_cfg,
         )
 
     warnings = edl.get("warnings") or {}
+    if warnings.get("missing_segment_lookups"):
+        missing = sorted(set(warnings["missing_segment_lookups"]))
+        raise RuntimeError(
+            f"edl: ordered_segment_ids missing from manifest/NLE lookup: {missing}"
+        )
     if warnings.get("missing_vo_files"):
         missing = sorted(set(warnings["missing_vo_files"]))
         raise RuntimeError(f"edl: gap VO lines missing WAV: {missing}")
@@ -341,10 +312,9 @@ def run_edl(ctx: RunContext) -> None:
         )
 
     vo_n = edl.get("vo_pickup_clip_count", 0)
-    fill_n = edl.get("disfluency_clip_count", 0)
     ctx.log(
         f"EDL built: {len(edl.get('clips') or [])} events, "
-        f"{vo_n} vo_pickup, {fill_n} disfluency, timeline {edl.get('timeline_duration_ms')} ms "
+        f"{vo_n} vo_pickup, timeline {edl.get('timeline_duration_ms')} ms "
         f"(mix: speech + VO + SDP overlays)",
         level="success",
         stage="edl",
@@ -428,40 +398,7 @@ def run_preview(ctx: RunContext) -> Path:
                 clip_paths.append(out)
                 continue
 
-            if ctype != "vo_pickup" and ctype != "disfluency":
-                continue
-
-            if ctype == "disfluency":
-                src_rel = clip.get("source_path")
-                if not src_rel:
-                    raise RuntimeError(
-                        f"assembly_preview: disfluency clip {clip.get('event_id') or i} missing source_path"
-                    )
-                fill_src = ctx.read_path(str(src_rel))
-                if not fill_src.is_file():
-                    raise FileNotFoundError(
-                        f"assembly_preview: disfluency clip missing WAV: {src_rel}"
-                    )
-                run_command(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        str(fill_src),
-                        "-vn",
-                        "-ac",
-                        "1",
-                        "-ar",
-                        "48000",
-                        "-c:a",
-                        "pcm_s16le",
-                        str(out),
-                    ],
-                    stage="assembly_preview",
-                    label=f"ffmpeg disfluency clip {i}",
-                    capture_output=True,
-                )
-                clip_paths.append(out)
+            if ctype != "vo_pickup":
                 continue
 
             src_rel = clip.get("source_path")

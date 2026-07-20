@@ -10,7 +10,6 @@ import { resolveJobStatusContext } from "./operatorStatus";
 import { parseFileCountFromMessage } from "./pendingAction";
 import { resolvePrecleanOffer } from "./preclean";
 import { isStageHidden } from "./stageVisibility";
-import { isStageGateBlocked } from "./writeApproval";
 export type WorkflowStepStatus = "done" | "active" | "upcoming" | "attention";
 export type WorkflowStepId =
   | "start"
@@ -185,28 +184,6 @@ export function listAttentionItems(
     }
   }
 
-  if (ctx.awaitingWriteApproval && !jobRunning) {
-    const deferred = Boolean(run.journey?.first_try?.write_approval_deferred);
-    if (!deferred) {
-      const sid = job?.pending_write_stage || job?.stage || focusStageId || "";
-      if (sid && !isStageGateBlocked(run, sid)) {
-        push(writeApprovalItem(run, sid, job?.message));
-      }
-    } else if ((run.journey?.pending_write_stages || []).length) {
-      push({
-        kind: "write_approval",
-        priority: 4,
-        stageId: run.journey?.pending_write_stages?.[0] || "",
-        stageTitle: "Batch Save",
-        title: "Save all pending stages",
-        message: `${run.journey.pending_write_stages.length} stage(s) staged — batch Save when ready.`,
-        primaryLabel: "Save all pending",
-        phase: run.journey?.phase ?? "prepare",
-        subTab: "stage",
-      });
-    }
-  }
-
   if (ctx.needsStageReuse && job?.stage) {
     const stage = run.stages.find((s) => s.id === job.stage);
     const firstTrySoft = run.journey?.first_try?.enabled !== false;
@@ -224,15 +201,6 @@ export function listAttentionItems(
       subTab: "stage",
       optional: firstTrySoft,
     });
-  }
-
-  for (const stage of run.stages) {
-    if (stage.status !== "done") continue;
-    if (!handoffBetweenStagesEnabled(run)) continue;
-    const paths = getHandoffPathsLocal(stage, run.log_tail);
-    if (paths.length && !run.handoff_ack?.[stage.id]) {
-      push(handoffItem(run, stage));
-    }
   }
 
   const blocking = run.journey?.blocking ?? run.blocking;
@@ -262,43 +230,9 @@ export function listAttentionItems(
         subTab: "stage",
         optional: firstTrySoft,
       });
-    } else if (reason === "write_approval" && !jobRunning) {
-      push(writeApprovalItem(run, sid, blocking.message));
-    } else if (reason === "operator_decisions") {
-      const count = Number(run.job?.pending_decision_count ?? 1);
-      push({
-        kind: "blocked",
-        priority: 2,
-        stageId: sid,
-        stageTitle: stage?.title || sid,
-        title: stage ? `${stage.title} — your input needed` : "Your input needed",
-        message:
-          blocking.message ||
-          `Autopilot needs ${count} decision${count === 1 ? "" : "s"} before you can review outputs.`,
-        primaryLabel: "Apply choice",
-        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
-        subTab: "stage",
-      });
-    } else if (reason === "artifact_clarification") {
-      push({
-        kind: "artifact_clarification",
-        priority: 2,
-        stageId: sid,
-        stageTitle: stage?.title || sid,
-        title: stage ? `${stage.title} — fix artifact issues` : "Fix artifact issues",
-        message:
-          blocking.message ||
-          "Resolve staged artifact issues with Fix all & continue before saving.",
-        primaryLabel: "Fix all & continue",
-        phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
-        subTab: "stage",
-      });
     } else if (
       reason === "transcript_review" ||
-      reason === "disfluency_review" ||
       reason === "g1_vo_pickup" ||
-      reason === "analysis_profile" ||
-      reason === "handoff_review" ||
       reason === "llm_gate"
     ) {
       if (stage && stage.status === "action_required") {

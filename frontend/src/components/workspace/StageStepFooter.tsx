@@ -1,16 +1,12 @@
 import { useMemo } from "react";
 import type { StageInfo, StageStep } from "../../types";
 import { useApp } from "../../context/AppContext";
-import { useStageDecisions } from "../../hooks/useStageDecisions";
 import { guardBusy, type ShowToastFn } from "../../utils/guardBusy";
 import {
   invokeStepFooterAction,
   invokeStepFooterSecondaryAction,
 } from "../../utils/stageStepActions";
 import { useStageOperatorAction } from "../../hooks/useOperatorAction";
-import { resolvePendingWritePaths } from "../../utils/writeApproval";
-import { writeApprovalPrimaryLabel, writeApprovalSaveInProgressLabel } from "../../utils/writeApprovalLabels";
-import { isWriteApprovalSaveInProgress } from "../../utils/jobStatus";
 
 interface Props {
   step: StageStep;
@@ -19,73 +15,13 @@ interface Props {
 }
 
 function stepPrimaryTestId(step: StageStep): string {
-  if (step.kind === "write_approval") return "write-approval-save-continue";
   if (step.id === "review_transcript" || step.id === "complete_g0")
     return "complete-transcript-review";
-  if (step.id === "complete_g05") return "complete-disfluency-review";
   if (step.id === "prompt_review") return "approve-sfx-prompts";
-  if (step.kind === "handoff") return "handoff-acknowledge";
   return "stage-step-primary";
 }
 
-function operatorDecisionPrimaryLabel(kind: string | undefined): string {
-  if (kind === "acknowledge_warning") return "Continue to review";
-  if (kind === "propagation" || kind === "upstream_rerun") return "Apply choice";
-  return "Apply choice";
-}
-
-function OperatorDecisionStepFooter({
-  step,
-  stage,
-  isActive,
-}: Props) {
-  const { jobRunning, actionBusy, showToast } = useApp();
-  const { busy, current, resolveCurrent } = useStageDecisions(stage.id);
-
-  const primaryLabel = useMemo(() => {
-    if (current) return operatorDecisionPrimaryLabel(current.kind);
-    return step.primary_button || "Apply choice";
-  }, [current, step.primary_button]);
-
-  if (!isActive || !primaryLabel) return null;
-
-  const disabled =
-    !current ||
-    jobRunning ||
-    actionBusy ||
-    busy ||
-    step.status === "done" ||
-    step.status === "waiting" ||
-    step.status === "blocked";
-
-  const onPrimary = () => {
-    if (!current) return;
-    if (guardBusy(jobRunning, actionBusy || busy, showToast as ShowToastFn)) return;
-    const picked = current.options[0]?.value ?? current.recommended ?? "acknowledge";
-    void resolveCurrent(picked);
-  };
-
-  return (
-    <div className="stage-step-footer">
-      <button
-        type="button"
-        className="btn primary stage-step-primary"
-        data-testid="stage-decision-apply"
-        data-action-id="gui.decision.apply"
-        disabled={disabled}
-        onClick={onPrimary}
-      >
-        {primaryLabel}
-      </button>
-    </div>
-  );
-}
-
 export function StageStepFooter({ step, stage, isActive }: Props) {
-  if (step.kind === "operator_decisions" || step.id === "operator_decisions") {
-    return <OperatorDecisionStepFooter step={step} stage={stage} isActive={isActive} />;
-  }
-
   const {
     run,
     selectedStageId,
@@ -100,14 +36,8 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     redoFromStage,
     beginStageExecution,
     selectStage,
-    approveWriteAndContinue,
-    discardPendingWrites,
     completeTranscriptReview,
-    completeDisfluencyReview,
     approveSfxPrompts,
-    acknowledgeHandoff,
-    revalidateArtifactIssues,
-    fixAllAndContinueStage,
   } = useApp();
 
   const stageAction = useStageOperatorAction(run, stage.id, {
@@ -116,29 +46,16 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     apiGrants,
   });
 
-  const primaryLabel = useMemo(() => {
-    if (step.kind === "write_approval") {
-      const paths = resolvePendingWritePaths(run, stage.id);
-      return writeApprovalPrimaryLabel(paths.length);
-    }
-    return step.primary_button;
-  }, [step.kind, step.primary_button, run, stage.id]);
+  const primaryLabel = step.primary_button;
 
   if (!isActive || !primaryLabel) return null;
 
-  const paths =
-    step.kind === "write_approval" ? resolvePendingWritePaths(run, stage.id) : [];
-  const saveInProgress =
-    step.kind === "write_approval" &&
-    isWriteApprovalSaveInProgress(run, { actionBusy, stageId: stage.id });
-  const otherJobRunning = jobRunning && !saveInProgress;
-  const busy = saveInProgress || otherJobRunning || (actionBusy && step.kind !== "write_approval");
+  const busy = jobRunning || actionBusy;
   const isActionableCompleteStep =
     step.kind === "done" && Boolean(step.primary_button);
   const disabled =
-    saveInProgress ||
-    otherJobRunning ||
-    (actionBusy && step.kind !== "write_approval") ||
+    jobRunning ||
+    actionBusy ||
     (step.status === "done" && !isActionableCompleteStep) ||
     step.status === "waiting" ||
     step.status === "blocked" ||
@@ -148,16 +65,9 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     executeJob: (body: Parameters<typeof executeJob>[0]) => executeJob(body),
     runNextStage: () => runNextStage(),
     advanceFromCheckpoint: () => advanceFromCheckpoint(),
-    approveWriteAndContinue: (sid: string) => approveWriteAndContinue(sid),
-    revalidateArtifactIssues: (sid: string) => revalidateArtifactIssues(sid),
-    fixAllAndContinueStage: (sid: string) => fixAllAndContinueStage(sid),
-    discardPendingWrites: (sid: string) => discardPendingWrites(sid),
     completeTranscriptReview: (acceptUnreviewed?: boolean) =>
       completeTranscriptReview(acceptUnreviewed),
-    completeDisfluencyReview: (acceptUnreviewed?: boolean) =>
-      completeDisfluencyReview(acceptUnreviewed),
     approveSfxPrompts: () => approveSfxPrompts(),
-    acknowledgeHandoff: () => acknowledgeHandoff(),
     skipOptional: (sid: string) => skipOptionalStage(sid),
     declineReuseAndRun: (sid: string) =>
       beginStageExecution({ kind: "decline_reuse_and_run", stageId: sid }),
@@ -167,8 +77,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
   };
 
   const onPrimary = () => {
-    if (saveInProgress) return;
-    if (guardBusy(otherJobRunning, actionBusy && step.kind !== "write_approval", showToast as ShowToastFn)) {
+    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn)) {
       return;
     }
     void invokeStepFooterAction(step, stage, actionHandlers);
@@ -176,39 +85,22 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
 
   const onSecondary = () => {
     if (!step.secondary_button) return;
-    if (saveInProgress) return;
-    if (guardBusy(otherJobRunning, actionBusy && step.kind !== "write_approval", showToast as ShowToastFn)) {
+    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn)) {
       return;
     }
     void invokeStepFooterSecondaryAction(step, stage, actionHandlers);
   };
 
-  const primaryActionId =
-    step.kind === "write_approval"
-      ? step.blocking_reason
-        ? "gui.write_approval.discard"
-        : "gui.write_approval.save"
-      : step.kind === "handoff"
-        ? "gui.handoff.acknowledge"
-        : undefined;
-
   return (
     <div className="stage-step-footer">
       <button
         type="button"
-        className={`btn primary stage-step-primary${saveInProgress || (busy && step.kind === "run") ? " running" : ""}`}
+        className={`btn primary stage-step-primary${busy && step.kind === "run" ? " running" : ""}`}
         data-testid={stepPrimaryTestId(step)}
-        data-action-id={primaryActionId}
         disabled={disabled}
-        aria-busy={saveInProgress || undefined}
         onClick={onPrimary}
       >
-        {saveInProgress ? (
-          <>
-            <span className="spinner-inline" aria-hidden />
-            {writeApprovalSaveInProgressLabel(paths.length)}
-          </>
-        ) : busy && step.kind === "run" ? (
+        {busy && step.kind === "run" ? (
           <>
             <span className="spinner-inline" aria-hidden />
             {primaryLabel}
@@ -221,10 +113,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
         <button
           type="button"
           className="btn ghost sm stage-step-secondary"
-          data-action-id={
-            step.kind === "write_approval" ? "gui.write_approval.discard" : undefined
-          }
-          disabled={saveInProgress || otherJobRunning || (actionBusy && step.kind !== "write_approval")}
+          disabled={jobRunning || actionBusy}
           onClick={onSecondary}
         >
           {step.secondary_button}

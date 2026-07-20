@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Local MLX STT CLI — stdout JSON words contract for transcribe_local."""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def _verify() -> int:
+    try:
+        import mlx_audio  # noqa: F401
+    except ImportError as exc:
+        print(json.dumps({"error": f"mlx_audio missing: {exc}"}))
+        return 1
+    print(json.dumps({"ok": True, "stack": "mlx-audio"}))
+    return 0
+
+
+def _segments_to_words(segments: list[Any]) -> list[dict[str, Any]]:
+    words: list[dict[str, Any]] = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        text = str(seg.get("text") or seg.get("Content") or "").strip()
+        if not text:
+            continue
+        start = seg.get("start_time", seg.get("Start", 0))
+        end = seg.get("end_time", seg.get("End", start))
+        try:
+            start_f = float(start)
+            end_f = float(end)
+        except (TypeError, ValueError):
+            start_f, end_f = 0.0, 0.0
+        spk = seg.get("speaker_id", seg.get("Speaker"))
+        if spk is not None:
+            spk = f"spk_{spk}" if str(spk).isdigit() else str(spk)
+        for token in text.split():
+            words.append(
+                {
+                    "text": token,
+                    "start_ms": int(start_f * 1000),
+                    "end_ms": int(end_f * 1000),
+                    "speaker_id": spk,
+                    "confidence": None,
+                }
+            )
+    return words
+
+
+def _transcribe_vibevoice(audio: Path, model_id: str) -> dict[str, Any]:
+    from mlx_audio.stt.utils import load
+
+    model = load(model_id)
+    result = model.generate(audio=str(audio), max_tokens=8192, temperature=0.0)
+    text = str(getattr(result, "text", "") or "").strip()
+    segments = getattr(result, "segments", None) or []
+    if not segments and text.startswith("["):
+        try:
+            segments = json.loads(text)
+            text = " ".join(
+                str(s.get("Content") or s.get("text") or "")
+                for s in segments
+                if isinstance(s, dict)
+            ).strip()
+        except json.JSONDecodeError:
+            segments = []
+    norm_segments: list[dict[str, Any]] = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        norm_segments.append(
+            {
+                "text": str(seg.get("text") or seg.get("Content") or ""),
+                "start_time": seg.get("start_time", seg.get("Start")),
+                "end_time": seg.get("end_time", seg.get("End")),
+                "speaker_id": seg.get("speaker_id", seg.get("Speaker")),
+            }
+        )
+    words = _segments_to_words(norm_segments)
+    return {"text": text, "words": words, "segments": norm_segments}
+
+
+def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
+    from mlx_audio.stt.generate import generate_transcription
+
+    result = generate_transcription(model=model_id, audio=str(audio))
+    text = str(getattr(result, "text", result) or "").strip()
+    words: list[dict[str, Any]] = []
+    for item in getattr(result, "words", None) or []:
+        if isinstance(item, dict):
+            start = float(item.get("start", item.get("start_time", 0)))
+            end = float(item.get("end", item.get("end_time", start)))
+            words.append(
+                {
+                    "text": str(item.get("word") or item.get("text") or ""),
+                    "start_ms": int(start * 1000),
+                    "end_ms": int(end * 1000),
+                    "speaker_id": "spk_0",
+                    "confidence": item.get("confidence"),
+                }
+            )
+    if not words and text:
+        words = [
+            {
+                "text": tok,
+                "start_ms": 0,
+                "end_ms": 0,
+                "speaker_id": "spk_0",
+                "confidence": None,
+            }
+            for tok in text.split()
+        ]
+    return {"text": text, "words": words, "segments": []}
+
+
+def transcribe(audio: Path, model_id: str, *, diarization_mode: str) -> dict[str, Any]:
+    if "VibeVoice" in model_id or "MOSS" in model_id or diarization_mode == "integrated":
+        return _transcribe_vibevoice(audio, model_id)
+    return _transcribe_whisper(audio, model_id)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--audio", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--model", default="mlx-community/whisper-large-v3-turbo-asr-fp16")
+    parser.add_argument("--diarization-mode", default="sortformer")
+    args = parser.parse_args()
+
+    if args.verify:
+        return _verify()
+
+    if not args.audio or not args.audio.is_file():
+        print(json.dumps({"error": "missing --audio"}))
+        return 1
+
+    try:
+        payload = transcribe(args.audio, args.model, diarization_mode=args.diarization_mode)
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)[:500]}))
+        return 1
+
+    out = json.dumps(payload, indent=2)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(out + "\n", encoding="utf-8")
+    else:
+        print(out)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

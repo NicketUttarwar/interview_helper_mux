@@ -12,7 +12,6 @@ from pydub import AudioSegment
 from interview_mux.acoustic_profile import load_profile, mix_contract, placement_hints
 from interview_mux.audio_timeline import append_with_crossfade, snap_cut_to_word_boundary
 from interview_mux.config import merged_config
-from interview_mux.disfluency.config import restore_settings
 from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.mix_completeness import enforce_mix_completeness
 from interview_mux.operator_trace import logged_step
@@ -117,19 +116,16 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             stage="mix",
         )
         crossfade_ms = int(_mix_cfg().get("crossfade_ms_flow1", 100))
-        disfluency_crossfade_ms = int(restore_settings().get("crossfade_ms") or 30)
         speech_join_crossfades = _flow1_speech_join_crossfades(ctx)
         words = _transcript_words(ctx)
         ctx.log("mix: loading EDL and ingest stem", level="info", stage="mix")
         edl = ctx.read_json("master/edl.json")
-        excluded_windows = _disfluency_excluded_windows(edl)
         source = load_audio(ctx.read_path("ingest", "normalized.wav"))
 
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
     segment_timing: dict[str, tuple[int, int]] = {}
     speech_count = 0
     vo_count = 0
-    disfluency_count = 0
     missing_vo: list[str] = []
     prev_speech_seg_id = ""
 
@@ -168,22 +164,6 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     missing_vo.append(line_id or "unknown")
                 vo_count += 1
                 clip_crossfade = crossfade_ms
-            elif ctype == "disfluency":
-                src_rel = clip.get("source_path")
-                if src_rel:
-                    fill_path = ctx.read_path(str(src_rel))
-                    if fill_path.is_file():
-                        audio = load_audio(fill_path)
-                    else:
-                        audio = placeholder_from_clip(clip)
-                else:
-                    audio = placeholder_from_clip(clip)
-                disfluency_count += 1
-                seg_id = str(clip.get("segment_id") or "")
-                if seg_id:
-                    t0 = int(clip.get("timeline_start_ms", len(base)))
-                    _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
-                clip_crossfade = disfluency_crossfade_ms
             else:
                 continue
             if len(base) == 0:
@@ -201,7 +181,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         ctx.log(
             (
                 f"mix: base timeline {len(base)} ms — "
-                f"speech={speech_count}, vo={vo_count}, disfluency={disfluency_count}, "
+                f"speech={speech_count}, vo={vo_count}, "
                 f"segments={len(segment_timing)}, crossfade_ms={crossfade_ms}"
             ),
             level="info",
@@ -214,26 +194,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             segment_timing=segment_timing,
             timeline_ms=len(base),
             contract=contract,
-            excluded_windows=excluded_windows,
         )
         mixed = base
-        skipped_on_disfluency = 0
         for cue in overlays:
             clip_audio = cue["audio"]
             if not isinstance(clip_audio, AudioSegment):
                 continue
             pos = max(0, int(cue.get("position_ms", 0)))
-            if excluded_windows and _overlaps_excluded(pos, len(clip_audio), excluded_windows):
-                skipped_on_disfluency += 1
-                continue
             mixed = mixed.overlay(clip_audio, position=pos)
-
-        if skipped_on_disfluency:
-            ctx.log(
-                f"mix: skipped {skipped_on_disfluency} overlay(s) overlapping disfluency clips",
-                level="info",
-                stage="mix",
-            )
 
         ctx.log(
             (
